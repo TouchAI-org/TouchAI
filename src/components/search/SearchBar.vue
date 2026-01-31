@@ -6,7 +6,7 @@
     <div ref="containerRef" class="relative mx-auto h-[56px] w-full select-none">
         <div
             :class="[
-                'search-bar-container bg-background-primary relative flex h-full items-center gap-3 rounded-lg p-3 backdrop-blur-sm backdrop-blur-xl transition-all duration-250 ease-in-out',
+                'search-bar-container bg-background-primary relative flex h-full items-center gap-3 rounded-lg p-3 backdrop-blur-xl transition-all duration-250 ease-in-out',
                 isLoading ? 'loading' : '',
             ]"
         >
@@ -301,17 +301,7 @@
 
 <style scoped>
     .search-bar-container {
-        border: 1px solid #d1d5db;
-    }
-
-    .search-bar-container.loading {
-        border: 2px solid transparent;
-        background-image:
-            linear-gradient(rgba(251, 251, 246, 0.98), rgba(251, 251, 246, 0.98)),
-            linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #8b5cf6, #3b82f6);
-        background-origin: border-box;
-        background-clip: padding-box, border-box;
-        animation: border-flow 1.5s linear infinite;
+        border: 1.5px solid #d1d5db;
     }
 
     @keyframes border-flow {
