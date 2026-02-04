@@ -21,51 +21,78 @@ export const findDefaultModel = () =>
  * 查找默认模型且服务商已启用（包含服务商信息和元数据）
  */
 export const findDefaultModelWithProvider = () =>
-    db
-        .getKysely()
-        .selectFrom('models')
-        .innerJoin('providers', 'providers.id', 'models.provider_id')
-        .leftJoin(
-            (eb) =>
-                eb
-                    .selectFrom('llm_metadata')
-                    .selectAll()
-                    .select((eb) =>
-                        eb.fn('length', ['llm_metadata.model_id']).as('model_id_length')
-                    )
-                    .as('llm_metadata'),
-            (join) =>
-                join.on((eb) =>
-                    eb(
-                        eb.fn('lower', ['models.model_id']),
-                        'like',
-                        sql`'%' || lower(llm_metadata.model_id) || '%'`
-                    )
-                )
-        )
-        .selectAll('models')
-        .select([
-            'providers.name as provider_name',
-            'providers.type as provider_type',
-            'providers.api_endpoint',
-            'providers.api_key',
-            'providers.enabled as provider_enabled',
-            'providers.logo as provider_logo',
-            'llm_metadata.attachment as metadata_attachment',
-            'llm_metadata.modalities as metadata_modalities',
-            'llm_metadata.open_weights as metadata_open_weights',
-            'llm_metadata.reasoning as metadata_reasoning',
-            'llm_metadata.release_date as metadata_release_date',
-            'llm_metadata.temperature as metadata_temperature',
-            'llm_metadata.tool_call as metadata_tool_call',
-            'llm_metadata.knowledge as metadata_knowledge',
-            'llm_metadata.limit as metadata_limit',
-        ])
-        .where('models.is_default', '=', 1)
-        .where('providers.enabled', '=', 1)
-        .groupBy('models.id')
-        .orderBy('llm_metadata.model_id_length', 'desc')
-        .executeTakeFirst();
+    sql`
+        SELECT
+            models.*,
+            providers.name AS provider_name,
+            providers.type AS provider_type,
+            providers.api_endpoint,
+            providers.api_key,
+            providers.enabled AS provider_enabled,
+            providers.logo AS provider_logo,
+            llm_metadata.attachment AS metadata_attachment,
+            llm_metadata.modalities AS metadata_modalities,
+            llm_metadata.open_weights AS metadata_open_weights,
+            llm_metadata.reasoning AS metadata_reasoning,
+            llm_metadata.release_date AS metadata_release_date,
+            llm_metadata.temperature AS metadata_temperature,
+            llm_metadata.tool_call AS metadata_tool_call,
+            llm_metadata.knowledge AS metadata_knowledge,
+            llm_metadata."limit" AS metadata_limit
+        FROM models
+        INNER JOIN providers ON providers.id = models.provider_id
+        LEFT JOIN llm_metadata
+            ON llm_metadata.id = (
+                SELECT m2.id
+                FROM llm_metadata AS m2
+                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                ORDER BY
+                    (
+                        COALESCE(m2.attachment, 0)
+                        + COALESCE(m2.open_weights, 0)
+                        + COALESCE(m2.reasoning, 0)
+                        + COALESCE(m2.temperature, 0)
+                        + COALESCE(m2.tool_call, 0)
+                        + CASE
+                            WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1
+                            ELSE 0
+                        END
+                    ) DESC,
+                    length(m2.model_id) DESC
+                LIMIT 1
+            )
+        WHERE models.is_default = 1 AND providers.enabled = 1
+        ORDER BY models.id ASC
+        LIMIT 1
+    `
+        .execute(db.getKysely())
+        .then((result) => result.rows[0] ?? null);
+
+export interface ModelWithProviderAndMetadata {
+    id: number;
+    created_at: string;
+    updated_at: string;
+    provider_id: number;
+    model_id: string;
+    name: string;
+    is_default: number;
+    last_used_at: string | null;
+    provider_name: string;
+    provider_type: string;
+    api_endpoint: string;
+    api_key: string | null;
+    provider_enabled: number;
+    provider_logo: string;
+    metadata_attachment: number | null;
+    metadata_modalities: string | null;
+    metadata_open_weights: number | null;
+    metadata_reasoning: number | null;
+    metadata_release_date: string | null;
+    metadata_temperature: number | null;
+    metadata_tool_call: number | null;
+    metadata_knowledge: string | null;
+    metadata_limit: string | null;
+}
 
 /**
  * 查找模型并关联服务商信息和元数据（JOIN 查询）
@@ -73,70 +100,60 @@ export const findDefaultModelWithProvider = () =>
  * 例如：models.model_id = "gpt-4-turbo" 可以匹配 llm_metadata.model_id = "gpt-4"
  * 如果匹配到多个metadata记录，只取第一个（按model_id长度降序，优先匹配更具体的）
  */
-export const findModelsWithProvider = (providerId?: number) => {
-    let query = db
-        .getKysely()
-        .selectFrom('models')
-        .innerJoin('providers', 'providers.id', 'models.provider_id')
-        .leftJoin(
-            (eb) =>
-                eb
-                    .selectFrom('llm_metadata')
-                    .selectAll()
-                    .select((eb) =>
-                        eb.fn('length', ['llm_metadata.model_id']).as('model_id_length')
-                    )
-                    .as('llm_metadata'),
-            (join) =>
-                join.on((eb) =>
-                    eb(
-                        eb.fn('lower', ['models.model_id']),
-                        'like',
-                        sql`'%' || lower(llm_metadata.model_id) || '%'`
-                    )
-                )
-        )
-        .selectAll('models')
-        .select([
-            'providers.name as provider_name',
-            'providers.type as provider_type',
-            'providers.api_endpoint',
-            'providers.api_key',
-            'providers.enabled as provider_enabled',
-            'providers.logo as provider_logo',
-            'llm_metadata.attachment as metadata_attachment',
-            'llm_metadata.modalities as metadata_modalities',
-            'llm_metadata.open_weights as metadata_open_weights',
-            'llm_metadata.reasoning as metadata_reasoning',
-            'llm_metadata.release_date as metadata_release_date',
-            'llm_metadata.temperature as metadata_temperature',
-            'llm_metadata.tool_call as metadata_tool_call',
-            'llm_metadata.knowledge as metadata_knowledge',
-            'llm_metadata.limit as metadata_limit',
-        ])
-        .groupBy('models.id')
-        .groupBy('providers.id')
-        .groupBy('llm_metadata.id')
-        .orderBy('models.is_default', 'desc')
-        .orderBy('models.id', 'asc');
+export const findModelsWithProvider = (
+    providerId?: number
+): Promise<ModelWithProviderAndMetadata[]> => {
+    const whereClause =
+        providerId !== undefined ? sql`WHERE models.provider_id = ${providerId}` : sql``;
 
-    if (providerId !== undefined) {
-        query = query.where('models.provider_id', '=', providerId);
-    }
+    const query = sql<ModelWithProviderAndMetadata>`
+        SELECT
+            models.*,
+            providers.name AS provider_name,
+            providers.type AS provider_type,
+            providers.api_endpoint,
+            providers.api_key,
+            providers.enabled AS provider_enabled,
+            providers.logo AS provider_logo,
+            llm_metadata.attachment AS metadata_attachment,
+            llm_metadata.modalities AS metadata_modalities,
+            llm_metadata.open_weights AS metadata_open_weights,
+            llm_metadata.reasoning AS metadata_reasoning,
+            llm_metadata.release_date AS metadata_release_date,
+            llm_metadata.temperature AS metadata_temperature,
+            llm_metadata.tool_call AS metadata_tool_call,
+            llm_metadata.knowledge AS metadata_knowledge,
+            llm_metadata."limit" AS metadata_limit
+        FROM models
+        INNER JOIN providers ON providers.id = models.provider_id
+        LEFT JOIN llm_metadata
+            ON llm_metadata.id = (
+                SELECT m2.id
+                FROM llm_metadata AS m2
+                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                ORDER BY
+                    (
+                        COALESCE(m2.attachment, 0)
+                        + COALESCE(m2.open_weights, 0)
+                        + COALESCE(m2.reasoning, 0)
+                        + COALESCE(m2.temperature, 0)
+                        + COALESCE(m2.tool_call, 0)
+                        + CASE
+                            WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1
+                            ELSE 0
+                        END
+                    ) DESC,
+                    length(m2.model_id) DESC
+                LIMIT 1
+            )
+        ${whereClause}
+        ORDER BY models.is_default DESC, models.id ASC
+    `;
 
-    return query.execute();
+    return query
+        .execute(db.getKysely())
+        .then((result) => result.rows as ModelWithProviderAndMetadata[]);
 };
-
-/**
- * 根据服务商 ID 查找模型
- */
-export const findModelsByProviderId = (providerId: number) =>
-    db.getKysely().selectFrom('models').selectAll().where('provider_id', '=', providerId).execute();
-
-/**
- * 查找所有模型
- */
-export const findAllModels = () => db.getKysely().selectFrom('models').selectAll().execute();
 
 /**
  * 创建模型
