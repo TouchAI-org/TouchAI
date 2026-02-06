@@ -161,6 +161,9 @@
     async function toggleModelDropdown() {
         if (!logoContainerRef.value) return;
 
+        // 在调用 toggle 之前记录当前状态，用于判断是打开还是关闭操作
+        const wasOpen = isModelDropdownOpen.value;
+
         try {
             // toggle 会自动处理开关逻辑，添加超时保护
             await popupManager.toggle('model-dropdown-popup', logoContainerRef.value, {
@@ -171,8 +174,8 @@
                 searchQuery: dropdownSearchQuery.value,
             });
 
-            // 根据弹窗状态更新本地状态
-            if (isPopupOpen.value) {
+            // 根据之前的状态判断是打开还是关闭操作
+            if (!wasOpen) {
                 // 弹窗打开：保存当前状态，清空输入框
                 savedSearchQuery.value = searchQuery.value;
                 savedCursorPosition.value = searchInput.value?.selectionStart || 0;
