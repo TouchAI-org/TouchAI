@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import ModelCapabilityTags from '@components/common/ModelCapabilityTags.vue';
+    import SvgIcon from '@components/common/SvgIcon.vue';
     import { findModelsWithProvider } from '@database/queries';
     import type { ModelDropdownData } from '@services/popup';
     import { emit as tauriEmit } from '@tauri-apps/api/event';
@@ -216,13 +217,10 @@
     <div
         ref="dropdownRef"
         :class="[
-            'custom-scrollbar-thin max-h-96 w-80 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg select-none',
+            'custom-scrollbar-thin h-full w-80 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg select-none',
             isInPopup ? '' : 'absolute top-full left-0 z-[9999] mt-2',
         ]"
     >
-        <div v-if="!searchQuery" class="border-b border-gray-100 px-4 py-2 text-xs text-gray-400">
-            输入模型名称搜索
-        </div>
         <div
             v-for="(model, index) in filteredModels"
             :key="model.id + index"
@@ -282,8 +280,17 @@
                 </div>
             </div>
         </div>
-        <div v-if="filteredModels.length === 0" class="px-4 py-3 text-sm text-gray-500">
-            {{ searchQuery ? '没有找到匹配的模型' : '请先在设置中心配置模型' }}
+        <div
+            v-if="filteredModels.length === 0"
+            class="flex h-full flex-col items-center justify-center px-4"
+        >
+            <SvgIcon
+                :name="searchQuery ? 'search' : 'database'"
+                class="mb-3 h-12 w-12 text-gray-300"
+            />
+            <p class="text-center text-sm text-gray-400">
+                {{ searchQuery ? '没有找到匹配的模型' : '请先在设置中心配置模型' }}
+            </p>
         </div>
     </div>
 </template>

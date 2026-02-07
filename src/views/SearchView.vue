@@ -442,7 +442,7 @@
     <div
         ref="pageContainer"
         :class="[
-            'search-view-container bg-background-primary flex w-screen flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl',
+            'search-view-container bg-background-primary flex h-full w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl',
             isLoading ? 'loading' : '',
         ]"
         @paste="handlePaste"

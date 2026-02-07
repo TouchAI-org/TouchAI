@@ -25,6 +25,10 @@
 
 /* 全局基础样式 */
 @layer base {
+    #app {
+        height: 100vh;
+    }
+
     * {
         margin: 0;
         padding: 0;
