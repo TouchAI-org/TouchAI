@@ -2,7 +2,7 @@
 
 <script setup lang="ts">
     import type { PopupDataPayload, PopupType } from '@services/popup';
-    import { popupRegistry } from '@services/popup';
+    import { initializeBuiltInPopups, popupRegistry } from '@services/popup';
     import { emit, listen } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
@@ -26,6 +26,9 @@
     }
 
     onMounted(async () => {
+        // 初始化内置弹窗注册表（PopupView 有独立的 JS 上下文）
+        initializeBuiltInPopups();
+
         // 从 URL 获取类型
         const type = new URLSearchParams(window.location.search).get('type') as PopupType;
         popupType.value = type;

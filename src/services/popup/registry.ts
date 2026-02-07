@@ -6,6 +6,7 @@ import ModelDropdownPopup from '@/views/popups/ModelDropdownPopup.vue';
 import type { PopupConfig, PopupType, SerializablePopupConfig } from './types';
 
 const GAP = 5;
+const SHADOW_WIDTH = 7;
 
 /**
  * Popup 注册表类
@@ -76,7 +77,7 @@ export function initializeBuiltInPopups(): void {
             const searchBarHeight = searchBarContainer?.getBoundingClientRect().height || 60;
 
             return {
-                x: mainWindow.position.x,
+                x: mainWindow.position.x - SHADOW_WIDTH,
                 y: mainWindow.position.y + searchBarHeight + GAP,
             };
         },
@@ -93,7 +94,7 @@ export function initializeBuiltInPopups(): void {
             const searchBarHeight = searchBarContainer?.getBoundingClientRect().height || 60;
 
             return {
-                x: mainWindow.position.x + mainWindow.size.width - dimensions.width,
+                x: mainWindow.position.x + mainWindow.size.width - dimensions.width - SHADOW_WIDTH,
                 y: mainWindow.position.y + searchBarHeight + GAP,
             };
         },
