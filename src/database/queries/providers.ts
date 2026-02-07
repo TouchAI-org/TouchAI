@@ -13,9 +13,9 @@ import type { NewProvider, Provider, ProviderUpdate } from '../schema';
  * 3. 其他按 ID 排序
  */
 export const findAllProvidersSorted = async () => {
-    const providers = await db.getKysely().selectFrom('providers').selectAll().execute();
+    const providers = await (await db.getKysely()).selectFrom('providers').selectAll().execute();
 
-    const models = await db.getKysely().selectFrom('models').selectAll().execute();
+    const models = await (await db.getKysely()).selectFrom('models').selectAll().execute();
 
     // 找出有默认模型的服务商 ID
     const defaultModelProviderId = models.find((m) => m.is_default === 1)?.provider_id;
@@ -44,27 +44,34 @@ export const findAllProvidersSorted = async () => {
 /**
  * 根据 ID 查找服务商
  */
-export const findProviderById = (id: number) =>
-    db.getKysely().selectFrom('providers').selectAll().where('id', '=', id).executeTakeFirst();
+export const findProviderById = async (id: number) =>
+    (await db.getKysely())
+        .selectFrom('providers')
+        .selectAll()
+        .where('id', '=', id)
+        .executeTakeFirst();
 
 /**
  * 查找所有启用的服务商
  */
-export const findEnabledProviders = () =>
-    db.getKysely().selectFrom('providers').selectAll().where('enabled', '=', 1).execute();
+export const findEnabledProviders = async () =>
+    (await db.getKysely()).selectFrom('providers').selectAll().where('enabled', '=', 1).execute();
 
 /**
  * 查找所有内置服务商
  */
-export const findBuiltinProviders = () =>
-    db.getKysely().selectFrom('providers').selectAll().where('is_builtin', '=', 1).execute();
+export const findBuiltinProviders = async () =>
+    (await db.getKysely())
+        .selectFrom('providers')
+        .selectAll()
+        .where('is_builtin', '=', 1)
+        .execute();
 
 /**
  * 创建服务商
  */
 export const createProvider = async (data: NewProvider): Promise<Provider> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .insertInto('providers')
         .values(data)
         .returningAll()
@@ -72,8 +79,7 @@ export const createProvider = async (data: NewProvider): Promise<Provider> => {
 
     if (!result) {
         // 如果 returning 不工作，尝试获取最后插入的记录
-        const lastInsert = await db
-            .getKysely()
+        const lastInsert = await (await db.getKysely())
             .selectFrom('providers')
             .selectAll()
             .orderBy('id', 'desc')
@@ -96,8 +102,7 @@ export const createProvider = async (data: NewProvider): Promise<Provider> => {
 export const updateProvider = async (id: number, data: ProviderUpdate): Promise<UpdateResult> => {
     // 如果尝试禁用服务商，检查是否有默认模型
     if (data.enabled === 0) {
-        const defaultModel = await db
-            .getKysely()
+        const defaultModel = await (await db.getKysely())
             .selectFrom('models')
             .selectAll()
             .where('provider_id', '=', id)
@@ -109,8 +114,7 @@ export const updateProvider = async (id: number, data: ProviderUpdate): Promise<
         }
     }
 
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .updateTable('providers')
         .set(data)
         .where('id', '=', id)
@@ -138,8 +142,7 @@ export const deleteProvider = async (id: number): Promise<boolean> => {
     }
 
     // 检查是否有默认模型
-    const defaultModel = await db
-        .getKysely()
+    const defaultModel = await (await db.getKysely())
         .selectFrom('models')
         .selectAll()
         .where('provider_id', '=', id)
@@ -150,8 +153,7 @@ export const deleteProvider = async (id: number): Promise<boolean> => {
         throw new Error('无法删除包含默认模型的服务商，请先设置其他模型为默认');
     }
 
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .deleteFrom('providers')
         .where('id', '=', id)
         .executeTakeFirst();

@@ -8,15 +8,18 @@ import type { Message, MessageRole, MessageUpdate, NewMessage } from '../schema'
 /**
  * 根据 ID 查找消息
  */
-export const findMessageById = (id: number) =>
-    db.getKysely().selectFrom('messages').selectAll().where('id', '=', id).executeTakeFirst();
+export const findMessageById = async (id: number) =>
+    (await db.getKysely())
+        .selectFrom('messages')
+        .selectAll()
+        .where('id', '=', id)
+        .executeTakeFirst();
 
 /**
  * 根据会话 ID 查找所有消息
  */
-export const findMessagesBySessionId = (sessionId: number) =>
-    db
-        .getKysely()
+export const findMessagesBySessionId = async (sessionId: number) =>
+    (await db.getKysely())
         .selectFrom('messages')
         .selectAll()
         .where('session_id', '=', sessionId)
@@ -26,9 +29,8 @@ export const findMessagesBySessionId = (sessionId: number) =>
 /**
  * 根据会话 ID 和角色查找消息
  */
-export const findMessagesBySessionIdAndRole = (sessionId: number, role: MessageRole) =>
-    db
-        .getKysely()
+export const findMessagesBySessionIdAndRole = async (sessionId: number, role: MessageRole) =>
+    (await db.getKysely())
         .selectFrom('messages')
         .selectAll()
         .where('session_id', '=', sessionId)
@@ -39,9 +41,8 @@ export const findMessagesBySessionIdAndRole = (sessionId: number, role: MessageR
 /**
  * 获取会话的最新消息
  */
-export const getLatestMessages = (sessionId: number, limit: number = 10) =>
-    db
-        .getKysely()
+export const getLatestMessages = async (sessionId: number, limit: number = 10) =>
+    (await db.getKysely())
         .selectFrom('messages')
         .selectAll()
         .where('session_id', '=', sessionId)
@@ -52,9 +53,12 @@ export const getLatestMessages = (sessionId: number, limit: number = 10) =>
 /**
  * 搜索消息
  */
-export const searchMessages = (keyword: string, sessionId?: number) => {
+export const searchMessages = async (keyword: string, sessionId?: number) => {
     const pattern = `%${keyword}%`;
-    let query = db.getKysely().selectFrom('messages').selectAll().where('content', 'like', pattern);
+    let query = (await db.getKysely())
+        .selectFrom('messages')
+        .selectAll()
+        .where('content', 'like', pattern);
 
     if (sessionId !== undefined) {
         query = query.where('session_id', '=', sessionId);
@@ -67,11 +71,10 @@ export const searchMessages = (keyword: string, sessionId?: number) => {
  * 创建消息
  */
 export const createMessage = async (data: NewMessage): Promise<Message> => {
-    await db.getKysely().insertInto('messages').values(data).execute();
+    await (await db.getKysely()).insertInto('messages').values(data).execute();
 
     // 获取最后插入的记录
-    const lastInsert = await db
-        .getKysely()
+    const lastInsert = await (await db.getKysely())
         .selectFrom('messages')
         .selectAll()
         .orderBy('id', 'desc')
@@ -88,11 +91,10 @@ export const createMessage = async (data: NewMessage): Promise<Message> => {
  * 批量创建消息
  */
 export const createMessages = async (data: NewMessage[]): Promise<Message[]> => {
-    await db.getKysely().insertInto('messages').values(data).execute();
+    await (await db.getKysely()).insertInto('messages').values(data).execute();
 
     // 获取最后插入的记录
-    const lastInserts = await db
-        .getKysely()
+    const lastInserts = await (await db.getKysely())
         .selectFrom('messages')
         .selectAll()
         .orderBy('id', 'desc')
@@ -106,8 +108,7 @@ export const createMessages = async (data: NewMessage[]): Promise<Message[]> => 
  * 更新消息
  */
 export const updateMessage = async (id: number, data: MessageUpdate): Promise<UpdateResult> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .updateTable('messages')
         .set(data)
         .where('id', '=', id)
@@ -124,8 +125,7 @@ export const updateMessage = async (id: number, data: MessageUpdate): Promise<Up
  * 删除消息
  */
 export const deleteMessage = async (id: number): Promise<boolean> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .deleteFrom('messages')
         .where('id', '=', id)
         .executeTakeFirst();
@@ -137,8 +137,7 @@ export const deleteMessage = async (id: number): Promise<boolean> => {
  * 删除会话的所有消息
  */
 export const deleteMessagesBySessionId = async (sessionId: number): Promise<number> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .deleteFrom('messages')
         .where('session_id', '=', sessionId)
         .executeTakeFirst();
@@ -150,8 +149,9 @@ export const deleteMessagesBySessionId = async (sessionId: number): Promise<numb
  * 统计会话的消息数
  */
 export const countMessagesBySessionId = async (sessionId: number): Promise<number> => {
-    const result = await db
-        .getKysely()
+    const result = await (
+        await db.getKysely()
+    )
         .selectFrom('messages')
         .select((eb) => eb.fn.countAll<number>().as('count'))
         .where('session_id', '=', sessionId)
@@ -164,8 +164,9 @@ export const countMessagesBySessionId = async (sessionId: number): Promise<numbe
  * 统计所有消息数
  */
 export const countMessages = async (): Promise<number> => {
-    const result = await db
-        .getKysely()
+    const result = await (
+        await db.getKysely()
+    )
         .selectFrom('messages')
         .select((eb) => eb.fn.countAll<number>().as('count'))
         .executeTakeFirst();
@@ -177,7 +178,7 @@ export const countMessages = async (): Promise<number> => {
  * 删除所有消息
  */
 export const deleteAllMessages = async (): Promise<number> => {
-    const result = await db.getKysely().deleteFrom('messages').executeTakeFirst();
+    const result = await (await db.getKysely()).deleteFrom('messages').executeTakeFirst();
 
     return Number(result.numDeletedRows);
 };
@@ -185,9 +186,8 @@ export const deleteAllMessages = async (): Promise<number> => {
 /**
  * 获取消息及会话信息（JOIN 查询）
  */
-export const findMessageWithSession = (messageId: number) =>
-    db
-        .getKysely()
+export const findMessageWithSession = async (messageId: number) =>
+    (await db.getKysely())
         .selectFrom('messages')
         .innerJoin('sessions', 'sessions.id', 'messages.session_id')
         .select([

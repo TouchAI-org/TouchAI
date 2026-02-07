@@ -7,7 +7,7 @@ import type { LlmMetadata, LlmMetadataUpdate, NewLlmMetadata } from '../schema';
  * 根据 model_id 查询 LLM 元数据
  */
 export async function findLlmMetadataByModelId(modelId: string): Promise<LlmMetadata | null> {
-    const kysely = db.getKysely();
+    const kysely = await db.getKysely();
     const result = await kysely
         .selectFrom('llm_metadata')
         .selectAll()
@@ -24,7 +24,7 @@ export async function findLlmMetadataByModelId(modelId: string): Promise<LlmMeta
 export async function insertLlmMetadata(metadata: NewLlmMetadata[]): Promise<void> {
     if (metadata.length === 0) return;
 
-    const kysely = db.getKysely();
+    const kysely = await db.getKysely();
 
     // 使用 onConflict 处理重复的 model_id
     await kysely
@@ -38,7 +38,7 @@ export async function insertLlmMetadata(metadata: NewLlmMetadata[]): Promise<voi
  * 更新或创建 LLM 元数据
  */
 export async function upsertLlmMetadata(modelId: string, data: LlmMetadataUpdate): Promise<void> {
-    const kysely = db.getKysely();
+    const kysely = await db.getKysely();
 
     // 检查是否存在
     const existing = await findLlmMetadataByModelId(modelId);
@@ -73,6 +73,6 @@ export async function upsertLlmMetadata(modelId: string, data: LlmMetadataUpdate
  * 清空 LLM 元数据表
  */
 export async function clearLlmMetadata(): Promise<void> {
-    const kysely = db.getKysely();
+    const kysely = await db.getKysely();
     await kysely.deleteFrom('llm_metadata').execute();
 }

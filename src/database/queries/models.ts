@@ -8,19 +8,23 @@ import type { Model, ModelUpdate, NewModel } from '../schema';
 /**
  * 根据 ID 查找模型
  */
-export const findModelById = (id: number) =>
-    db.getKysely().selectFrom('models').selectAll().where('id', '=', id).executeTakeFirst();
+export const findModelById = async (id: number) =>
+    (await db.getKysely()).selectFrom('models').selectAll().where('id', '=', id).executeTakeFirst();
 
 /**
  * 查找全局默认模型
  */
-export const findDefaultModel = () =>
-    db.getKysely().selectFrom('models').selectAll().where('is_default', '=', 1).executeTakeFirst();
+export const findDefaultModel = async () =>
+    (await db.getKysely())
+        .selectFrom('models')
+        .selectAll()
+        .where('is_default', '=', 1)
+        .executeTakeFirst();
 
 /**
  * 查找默认模型且服务商已启用（包含服务商信息和元数据）
  */
-export const findDefaultModelWithProvider = () =>
+export const findDefaultModelWithProvider = async () =>
     sql`
         SELECT
             models.*,
@@ -65,7 +69,7 @@ export const findDefaultModelWithProvider = () =>
         ORDER BY models.id ASC
         LIMIT 1
     `
-        .execute(db.getKysely())
+        .execute(await db.getKysely())
         .then((result) => result.rows[0] ?? null);
 
 export interface ModelWithProviderAndMetadata {
@@ -100,7 +104,7 @@ export interface ModelWithProviderAndMetadata {
  * 例如：models.model_id = "gpt-4-turbo" 可以匹配 llm_metadata.model_id = "gpt-4"
  * 如果匹配到多个metadata记录，只取第一个（按model_id长度降序，优先匹配更具体的）
  */
-export const findModelsWithProvider = (
+export const findModelsWithProvider = async (
     providerId?: number
 ): Promise<ModelWithProviderAndMetadata[]> => {
     const whereClause =
@@ -151,7 +155,7 @@ export const findModelsWithProvider = (
     `;
 
     return query
-        .execute(db.getKysely())
+        .execute(await db.getKysely())
         .then((result) => result.rows as ModelWithProviderAndMetadata[]);
 };
 
@@ -159,8 +163,7 @@ export const findModelsWithProvider = (
  * 创建模型
  */
 export const createModel = async (data: NewModel): Promise<Model> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .insertInto('models')
         .values(data)
         .returningAll()
@@ -168,8 +171,7 @@ export const createModel = async (data: NewModel): Promise<Model> => {
 
     if (!result) {
         // 如果 returning 不工作，尝试获取最后插入的记录
-        const lastInsert = await db
-            .getKysely()
+        const lastInsert = await (await db.getKysely())
             .selectFrom('models')
             .selectAll()
             .orderBy('id', 'desc')
@@ -191,7 +193,7 @@ export const createModel = async (data: NewModel): Promise<Model> => {
 export const createModels = async (data: NewModel[]): Promise<void> => {
     if (data.length === 0) return;
 
-    await db.getKysely().insertInto('models').values(data).execute();
+    await (await db.getKysely()).insertInto('models').values(data).execute();
 
     return;
 };
@@ -200,8 +202,7 @@ export const createModels = async (data: NewModel[]): Promise<void> => {
  * 更新模型
  */
 export const updateModel = async (id: number, data: ModelUpdate): Promise<UpdateResult> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .updateTable('models')
         .set(data)
         .where('id', '=', id)
@@ -216,7 +217,7 @@ export const updateModel = async (id: number, data: ModelUpdate): Promise<Update
 /**
  * 更新模型最后使用时间
  */
-export const updateModelLastUsed = (id: number) =>
+export const updateModelLastUsed = async (id: number) =>
     updateModel(id, { last_used_at: new Date().toISOString() });
 
 /**
@@ -226,8 +227,7 @@ export const updateModelLastUsed = (id: number) =>
  */
 export const setDefaultModel = async (modelId: number): Promise<void> => {
     // 检查模型是否存在以及服务商是否启用
-    const modelWithProvider = await db
-        .getKysely()
+    const modelWithProvider = await (await db.getKysely())
         .selectFrom('models')
         .innerJoin('providers', 'providers.id', 'models.provider_id')
         .select(['models.id', 'providers.enabled', 'providers.name as provider_name'])
@@ -242,28 +242,20 @@ export const setDefaultModel = async (modelId: number): Promise<void> => {
         throw new Error(`无法设置默认模型：服务商 "${modelWithProvider.provider_name}" 未启用`);
     }
 
-    await db
-        .getKysely()
-        .transaction()
-        .execute(async (trx) => {
-            // 取消所有默认设置
-            await trx.updateTable('models').set({ is_default: 0 }).execute();
+    await (await db.getKysely()).transaction().execute(async (trx) => {
+        // 取消所有默认设置
+        await trx.updateTable('models').set({ is_default: 0 }).execute();
 
-            // 设置新的默认模型
-            await trx
-                .updateTable('models')
-                .set({ is_default: 1 })
-                .where('id', '=', modelId)
-                .execute();
-        });
+        // 设置新的默认模型
+        await trx.updateTable('models').set({ is_default: 1 }).where('id', '=', modelId).execute();
+    });
 };
 
 /**
  * 检查服务商是否有默认模型
  */
 export const providerHasDefaultModel = async (providerId: number): Promise<boolean> => {
-    const model = await db
-        .getKysely()
+    const model = await (await db.getKysely())
         .selectFrom('models')
         .select('id')
         .where('provider_id', '=', providerId)
@@ -277,8 +269,7 @@ export const providerHasDefaultModel = async (providerId: number): Promise<boole
  * 删除模型
  */
 export const deleteModel = async (id: number): Promise<boolean> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .deleteFrom('models')
         .where('id', '=', id)
         .executeTakeFirst();
@@ -289,8 +280,9 @@ export const deleteModel = async (id: number): Promise<boolean> => {
  * 统计模型数量
  */
 export const countModels = async (): Promise<number> => {
-    const result = await db
-        .getKysely()
+    const result = await (
+        await db.getKysely()
+    )
         .selectFrom('models')
         .select((eb) => eb.fn.countAll().as('count'))
         .executeTakeFirst();
@@ -300,9 +292,8 @@ export const countModels = async (): Promise<number> => {
 /**
  * 根据 model_id 查找模型（包含服务商信息）
  */
-export const findModelByModelId = (modelId: string) =>
-    db
-        .getKysely()
+export const findModelByModelId = async (modelId: string) =>
+    (await db.getKysely())
         .selectFrom('models')
         .innerJoin('providers', 'providers.id', 'models.provider_id')
         .selectAll('models')
@@ -321,9 +312,8 @@ export const findModelByModelId = (modelId: string) =>
  * 根据 provider_id 和 model_id 查找模型（包含服务商信息）
  * 用于精确定位特定提供商的特定模型
  */
-export const findModelByProviderAndModelId = (providerId: number, modelId: string) =>
-    db
-        .getKysely()
+export const findModelByProviderAndModelId = async (providerId: number, modelId: string) =>
+    (await db.getKysely())
         .selectFrom('models')
         .innerJoin('providers', 'providers.id', 'models.provider_id')
         .selectAll('models')

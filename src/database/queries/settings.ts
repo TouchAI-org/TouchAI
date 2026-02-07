@@ -9,14 +9,22 @@ import { SettingKey } from '../schema';
 /**
  * 根据 ID 查找设置
  */
-export const findSettingById = (id: number) =>
-    db.getKysely().selectFrom('settings').selectAll().where('id', '=', id).executeTakeFirst();
+export const findSettingById = async (id: number) =>
+    (await db.getKysely())
+        .selectFrom('settings')
+        .selectAll()
+        .where('id', '=', id)
+        .executeTakeFirst();
 
 /**
  * 根据 key 查找设置
  */
-export const findSettingByKey = (key: string | SettingKey) =>
-    db.getKysely().selectFrom('settings').selectAll().where('key', '=', key).executeTakeFirst();
+export const findSettingByKey = async (key: string | SettingKey) =>
+    (await db.getKysely())
+        .selectFrom('settings')
+        .selectAll()
+        .where('key', '=', key)
+        .executeTakeFirst();
 
 /**
  * 获取设置值
@@ -29,18 +37,17 @@ export const getSettingValue = async (key: string | SettingKey): Promise<string 
 /**
  * 查找所有设置
  */
-export const findAllSettings = () =>
-    db.getKysely().selectFrom('settings').selectAll().orderBy('key', 'asc').execute();
+export const findAllSettings = async () =>
+    (await db.getKysely()).selectFrom('settings').selectAll().orderBy('key', 'asc').execute();
 
 /**
  * 创建设置
  */
 export const createSetting = async (data: NewSetting): Promise<Setting> => {
-    await db.getKysely().insertInto('settings').values(data).execute();
+    await (await db.getKysely()).insertInto('settings').values(data).execute();
 
     // 获取最后插入的记录
-    const lastInsert = await db
-        .getKysely()
+    const lastInsert = await (await db.getKysely())
         .selectFrom('settings')
         .selectAll()
         .orderBy('id', 'desc')
@@ -57,8 +64,7 @@ export const createSetting = async (data: NewSetting): Promise<Setting> => {
  * 更新设置
  */
 export const updateSetting = async (id: number, data: SettingUpdate): Promise<UpdateResult> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .updateTable('settings')
         .set(data)
         .where('id', '=', id)
@@ -78,8 +84,7 @@ export const updateSettingValue = async (
     key: string | SettingKey,
     value: string
 ): Promise<UpdateResult> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .updateTable('settings')
         .set({ value })
         .where('key', '=', key)
@@ -114,8 +119,7 @@ export const setSetting = async (
  * 删除设置
  */
 export const deleteSetting = async (id: number): Promise<boolean> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .deleteFrom('settings')
         .where('id', '=', id)
         .executeTakeFirst();
@@ -127,8 +131,7 @@ export const deleteSetting = async (id: number): Promise<boolean> => {
  * 根据 key 删除设置
  */
 export const deleteSettingByKey = async (key: string | SettingKey): Promise<boolean> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .deleteFrom('settings')
         .where('key', '=', key)
         .executeTakeFirst();
@@ -142,8 +145,7 @@ export const deleteSettingByKey = async (key: string | SettingKey): Promise<bool
 export const getSettings = async (
     keys: (string | SettingKey)[]
 ): Promise<Record<string, string | null>> => {
-    const settings = await db
-        .getKysely()
+    const settings = await (await db.getKysely())
         .selectFrom('settings')
         .select(['key', 'value'])
         .where('key', 'in', keys)
@@ -165,8 +167,7 @@ export const setSettings = async (values: Record<string, string>): Promise<void>
  * 检查 key 是否存在
  */
 export const settingKeyExists = async (key: string | SettingKey): Promise<boolean> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .selectFrom('settings')
         .select('id')
         .where('key', '=', key)

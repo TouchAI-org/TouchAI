@@ -8,15 +8,18 @@ import type { AiRequest, AiRequestUpdate, NewAiRequest } from '../schema';
 /**
  * 根据 ID 查找 AI 请求
  */
-export const findAiRequestById = (id: number) =>
-    db.getKysely().selectFrom('ai_requests').selectAll().where('id', '=', id).executeTakeFirst();
+export const findAiRequestById = async (id: number) =>
+    (await db.getKysely())
+        .selectFrom('ai_requests')
+        .selectAll()
+        .where('id', '=', id)
+        .executeTakeFirst();
 
 /**
  * 根据会话 ID 查找 AI 请求
  */
-export const findAiRequestsBySessionId = (sessionId: number) =>
-    db
-        .getKysely()
+export const findAiRequestsBySessionId = async (sessionId: number) =>
+    (await db.getKysely())
         .selectFrom('ai_requests')
         .selectAll()
         .where('session_id', '=', sessionId)
@@ -26,9 +29,10 @@ export const findAiRequestsBySessionId = (sessionId: number) =>
 /**
  * 根据状态查找 AI 请求
  */
-export const findAiRequestsByStatus = (status: 'pending' | 'streaming' | 'completed' | 'failed') =>
-    db
-        .getKysely()
+export const findAiRequestsByStatus = async (
+    status: 'pending' | 'streaming' | 'completed' | 'failed'
+) =>
+    (await db.getKysely())
         .selectFrom('ai_requests')
         .selectAll()
         .where('status', '=', status)
@@ -38,8 +42,11 @@ export const findAiRequestsByStatus = (status: 'pending' | 'streaming' | 'comple
 /**
  * 查找所有 AI 请求
  */
-export const findAllAiRequests = (limit?: number) => {
-    let query = db.getKysely().selectFrom('ai_requests').selectAll().orderBy('created_at', 'desc');
+export const findAllAiRequests = async (limit?: number) => {
+    let query = (await db.getKysely())
+        .selectFrom('ai_requests')
+        .selectAll()
+        .orderBy('created_at', 'desc');
 
     if (limit) {
         query = query.limit(limit);
@@ -52,8 +59,7 @@ export const findAllAiRequests = (limit?: number) => {
  * 创建 AI 请求
  */
 export const createAiRequest = async (data: NewAiRequest): Promise<AiRequest> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .insertInto('ai_requests')
         .values(data)
         .returningAll()
@@ -61,8 +67,7 @@ export const createAiRequest = async (data: NewAiRequest): Promise<AiRequest> =>
 
     if (!result) {
         // 如果 returning 不工作，尝试获取最后插入的记录
-        const lastInsert = await db
-            .getKysely()
+        const lastInsert = await (await db.getKysely())
             .selectFrom('ai_requests')
             .selectAll()
             .orderBy('id', 'desc')
@@ -82,8 +87,7 @@ export const createAiRequest = async (data: NewAiRequest): Promise<AiRequest> =>
  * 更新 AI 请求
  */
 export const updateAiRequest = async (id: number, data: AiRequestUpdate): Promise<UpdateResult> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .updateTable('ai_requests')
         .set(data)
         .where('id', '=', id)
@@ -99,8 +103,7 @@ export const updateAiRequest = async (id: number, data: AiRequestUpdate): Promis
  * 删除 AI 请求
  */
 export const deleteAiRequest = async (id: number): Promise<boolean> => {
-    const result = await db
-        .getKysely()
+    const result = await (await db.getKysely())
         .deleteFrom('ai_requests')
         .where('id', '=', id)
         .executeTakeFirst();
@@ -111,8 +114,9 @@ export const deleteAiRequest = async (id: number): Promise<boolean> => {
  * 统计 AI 请求数量
  */
 export const countAiRequests = async (): Promise<number> => {
-    const result = await db
-        .getKysely()
+    const result = await (
+        await db.getKysely()
+    )
         .selectFrom('ai_requests')
         .select((eb) => eb.fn.countAll().as('count'))
         .executeTakeFirst();
@@ -123,7 +127,7 @@ export const countAiRequests = async (): Promise<number> => {
  * 删除所有 AI 请求
  */
 export const deleteAllAiRequests = async (): Promise<number> => {
-    const result = await db.getKysely().deleteFrom('ai_requests').executeTakeFirst();
+    const result = await (await db.getKysely()).deleteFrom('ai_requests').executeTakeFirst();
 
     return Number(result.numDeletedRows);
 };
