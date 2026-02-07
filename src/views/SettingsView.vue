@@ -23,11 +23,7 @@
 </script>
 
 <template>
-    <div
-        class="bg-background-primary flex h-screen w-screen flex-col"
-        style="user-select: none"
-        @contextmenu.prevent
-    >
+    <div class="bg-background-primary flex h-screen w-screen flex-col">
         <TitleBar title="设置" />
 
         <div class="flex flex-1 overflow-hidden">

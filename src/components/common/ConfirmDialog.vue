@@ -61,10 +61,7 @@
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
         @click.self="handleCancel"
     >
-        <div
-            class="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl"
-            style="user-select: none"
-        >
+        <div class="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
             <div class="flex items-start gap-4">
                 <div
                     class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full"

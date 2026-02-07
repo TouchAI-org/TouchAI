@@ -219,7 +219,6 @@
             'custom-scrollbar-thin max-h-96 w-80 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg select-none',
             isInPopup ? '' : 'absolute top-full left-0 z-[9999] mt-2',
         ]"
-        @contextmenu.prevent
     >
         <div v-if="!searchQuery" class="border-b border-gray-100 px-4 py-2 text-xs text-gray-400">
             输入模型名称搜索

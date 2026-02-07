@@ -108,8 +108,4 @@
     </div>
 </template>
 
-<style scoped>
-    .provider-card {
-        user-select: none;
-    }
-</style>
+<style scoped></style>

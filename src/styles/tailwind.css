@@ -37,12 +37,27 @@
         height: 100%;
         overflow: hidden;
         background: transparent;
+        /* 禁止文本选择 */
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
     }
 
     body {
         font-family: var(--font-sans), system-ui;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* 允许输入框和文本区域选择文本 */
+    input,
+    textarea,
+    [contenteditable='true'] {
+        user-select: text;
+        -webkit-user-select: text;
+        -moz-user-select: text;
+        -ms-user-select: text;
     }
 }
 

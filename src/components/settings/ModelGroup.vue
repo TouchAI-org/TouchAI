@@ -108,8 +108,4 @@
     </div>
 </template>
 
-<style scoped>
-    .model-group {
-        user-select: none;
-    }
-</style>
+<style scoped></style>

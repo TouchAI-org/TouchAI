@@ -87,7 +87,6 @@
 <template>
     <div
         class="custom-scrollbar-thin max-h-80 w-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg select-none"
-        @contextmenu.prevent
     >
         <div
             v-for="attachment in attachments"
