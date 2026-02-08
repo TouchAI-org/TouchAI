@@ -20,7 +20,7 @@
                     :alt="selectedModelName || activeModel?.name || 'model'"
                     class="h-8 w-8 rounded-full border-2 border-gray-300 transition-colors hover:border-gray-400"
                 />
-                <img v-else :src="logoWord" alt="search" class="h-5 w-15 select-none" />
+                <img v-else :src="logoWord" alt="search" class="h-8 w-15 select-none" />
             </div>
 
             <div

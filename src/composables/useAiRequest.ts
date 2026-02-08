@@ -62,7 +62,7 @@ export function useAiRequest(options: UseAiRequestOptions = {}) {
 
             if (!model) {
                 console.error('[useAiRequest] No active model found');
-                throw new Error('No active AI model configured. Please enable a model first.');
+                throw new Error('未设置默认模型，请在设置中心中选择一个模型');
             }
 
             currentRequest.value = await createAiRequest({
