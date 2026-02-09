@@ -2,12 +2,11 @@
 
 <script setup lang="ts">
     import ModelCapabilityTags from '@components/common/ModelCapabilityTags.vue';
+    import ModelLogo from '@components/common/ModelLogo.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
     import type { Model } from '@database/schema';
-    import { getModelLogoByModelName } from '@utils/modelLogoMatcher.ts';
-    import { computed } from 'vue';
 
     interface Props {
         model: Model;
@@ -27,19 +26,6 @@
 
     const alert = useAlert();
     const { confirm } = useConfirm();
-
-    // 使用 Vite 的 glob import 预加载所有模型 logo
-    const modelLogos = import.meta.glob<{ default: string }>('../../assets/logos/models/*', {
-        eager: true,
-    });
-
-    const providerLogo = computed(() => {
-        const logoFileName = getModelLogoByModelName(props.model.model_id);
-        if (!logoFileName) return null;
-
-        const path = `../../assets/logos/models/${logoFileName}`;
-        return modelLogos[path]?.default || null;
-    });
 
     const handleDelete = async () => {
         if (props.isDefault) {
@@ -79,25 +65,8 @@
                 />
             </div>
 
-            <div class="relative">
-                <img
-                    v-if="providerLogo"
-                    :src="providerLogo"
-                    :alt="model.name"
-                    :class="[
-                        'h-8 w-8 rounded-full object-cover transition-colors',
-                        isDefault ? 'border-primary-500 border-2' : '',
-                    ]"
-                />
-                <div
-                    v-else
-                    :class="[
-                        'flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500',
-                        isDefault ? 'border-primary-500 border-2' : '',
-                    ]"
-                >
-                    {{ model.name.charAt(0) }}
-                </div>
+            <div :class="['relative', isDefault ? 'border-primary-500 rounded-full border-2' : '']">
+                <ModelLogo :model-id="model.model_id" :name="model.name" />
             </div>
 
             <div class="min-w-0 flex-1">

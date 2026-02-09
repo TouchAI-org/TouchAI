@@ -2,11 +2,11 @@
 
 <script setup lang="ts">
     import ModelCapabilityTags from '@components/common/ModelCapabilityTags.vue';
+    import ModelLogo from '@components/common/ModelLogo.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
     import { findModelsWithProvider } from '@database/queries';
     import type { ModelDropdownData } from '@services/popup';
     import { emit as tauriEmit } from '@tauri-apps/api/event';
-    import { getModelLogoByModelName } from '@utils/modelLogoMatcher';
     import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
     interface ModelOption {
@@ -15,7 +15,6 @@
         name: string;
         providerId: number;
         providerName: string;
-        logo: string | null;
         reasoning?: number | null;
         tool_call?: number | null;
         modalities?: string | null;
@@ -62,7 +61,6 @@
                     name: m.name,
                     providerId: m.provider_id,
                     providerName: m.provider_name,
-                    logo: getModelLogoByModelName(m.model_id),
                     reasoning: m.reasoning,
                     tool_call: m.tool_call,
                     modalities: m.modalities,
@@ -236,18 +234,7 @@
             @click="handleSelect(model.id)"
         >
             <div class="relative">
-                <img
-                    v-if="model.logo"
-                    :src="`/src/assets/logos/models/${model.logo}`"
-                    :alt="model.name"
-                    class="h-6 w-6 rounded"
-                />
-                <div
-                    v-else
-                    class="flex h-6 w-6 items-center justify-center rounded bg-gray-100 text-[10px] font-semibold text-gray-500"
-                >
-                    {{ model.name.charAt(0) }}
-                </div>
+                <ModelLogo :model-id="model.modelId" :name="model.name" size="sm" />
                 <div
                     class="absolute top-full left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 whitespace-nowrap"
                 >

@@ -14,11 +14,11 @@
                 class="logo-container flex cursor-pointer items-center justify-center"
                 @click.stop.prevent="toggleModelDropdown"
             >
-                <img
+                <ModelLogo
                     v-if="selectedModelId || activeModel"
-                    :src="getModelLogoPath(selectedModelId || activeModel?.model_id || '')"
-                    :alt="selectedModelName || activeModel?.name || 'model'"
-                    class="h-8 w-8 rounded-full border-2 border-gray-300 transition-colors hover:border-gray-400"
+                    :model-id="selectedModelId || activeModel?.model_id || ''"
+                    :name="selectedModelName || activeModel?.name || 'model'"
+                    class="border-2 border-gray-300 transition-colors hover:border-gray-400"
                 />
                 <img v-else :src="logoWord" alt="search" class="h-8 w-15 select-none" />
             </div>
@@ -64,6 +64,7 @@
 <script setup lang="ts">
     // Copyright (c) 2025. 千诚. Licensed under GPL v3.
     import logoWord from '@assets/logo_word.svg';
+    import ModelLogo from '@components/common/ModelLogo.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
     import AttachmentList from '@components/search/AttachmentList.vue';
     import { findModelsWithProvider } from '@database/queries';
@@ -73,7 +74,6 @@
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
     import type { Attachment } from '@utils/attachment.ts';
-    import { getModelLogoByModelName } from '@utils/modelLogoMatcher';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     interface ModelCapabilities {
@@ -158,11 +158,6 @@
             cleanupFn();
         }
     });
-
-    function getModelLogoPath(modelId: string): string {
-        const logo = getModelLogoByModelName(modelId);
-        return logo ? `/src/assets/logos/models/${logo}` : logoWord;
-    }
 
     async function toggleModelDropdown() {
         if (!logoContainerRef.value) return;
