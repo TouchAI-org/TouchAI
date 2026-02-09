@@ -4,10 +4,15 @@
     import SvgIcon from '@components/common/SvgIcon.vue';
     import { useConfirm } from '@composables/useConfirm';
     import type { Model } from '@database/schema';
-    import type { ModelGroup } from '@utils/modelGrouping';
     import { ref } from 'vue';
 
     import ModelCard from './ModelCard.vue';
+
+    interface ModelGroup {
+        groupKey: string;
+        groupName: string;
+        models: Model[];
+    }
 
     interface Props {
         group: ModelGroup;

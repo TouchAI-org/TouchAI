@@ -15,18 +15,18 @@
         showBadge: false,
     });
 
-    // 使用 Vite 的 glob import 预加载所有提供商 logo
-    const providerLogos = import.meta.glob<{ default: string }>('../../assets/logos/providers/*', {
+    // 使用 Vite 的 glob import 预加载所有提供商 logo，按文件名索引
+    const rawLogos = import.meta.glob<{ default: string }>('@assets/logos/providers/*', {
         eager: true,
     });
+    const providerLogos: Record<string, string> = {};
+    for (const [path, mod] of Object.entries(rawLogos)) {
+        const fileName = path.split('/').pop();
+        if (fileName && mod.default) providerLogos[fileName] = mod.default;
+    }
 
     const logoPath = computed(() => {
-        try {
-            const path = `../../assets/logos/providers/${props.logo}`;
-            return providerLogos[path]?.default || '';
-        } catch {
-            return '';
-        }
+        return providerLogos[props.logo] || '';
     });
 
     const sizeClasses = computed(() => {

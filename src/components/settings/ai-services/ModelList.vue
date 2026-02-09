@@ -5,7 +5,6 @@
     import SvgIcon from '@components/common/SvgIcon.vue';
     import { useAlert } from '@composables/useAlert';
     import type { Model, NewModel, Provider } from '@database/schema';
-    import { groupModels } from '@utils/modelGrouping';
     import { computed, ref } from 'vue';
 
     import AddModelDialog from './AddModelDialog.vue';
@@ -28,6 +27,119 @@
         (e: 'set-default', id: number): void;
         (e: 'refresh'): void;
         (e: 'refreshing', value: boolean): void;
+    }
+
+    interface ModelGroupData {
+        groupKey: string;
+        groupName: string;
+        models: Model[];
+    }
+
+    function extractGroupKey(modelId: string): string {
+        const beforeSlash = modelId.split('/')[0] || modelId;
+        const withoutVersion = beforeSlash.replace(
+            /[-\s]+(v?\d+[\d.]*|latest|preview|beta|alpha).*$/i,
+            ''
+        );
+
+        if (!withoutVersion) {
+            return beforeSlash;
+        }
+
+        return withoutVersion;
+    }
+
+    function extractBaseGroupKey(groupKey: string): string {
+        const parts = groupKey.split('-');
+        if (parts.length > 1) {
+            return parts[0] || '';
+        }
+        return groupKey;
+    }
+
+    function groupModels(models: Model[], defaultModelId?: number | null): ModelGroupData[] {
+        const groupMap = new Map<string, Model[]>();
+        let defaultModelGroupKey: string | null = null;
+
+        for (const model of models) {
+            const groupKey = extractGroupKey(model.model_id);
+
+            if (!groupMap.has(groupKey)) {
+                groupMap.set(groupKey, []);
+            }
+
+            groupMap.get(groupKey)!.push(model);
+
+            if (defaultModelId && model.id === defaultModelId) {
+                defaultModelGroupKey = groupKey;
+            }
+        }
+
+        const groups: ModelGroupData[] = [];
+
+        for (const [groupKey, groupModels] of groupMap.entries()) {
+            const sortedModels = [...groupModels].sort((a, b) => {
+                if (defaultModelId && a.id === defaultModelId) return -1;
+                if (defaultModelId && b.id === defaultModelId) return 1;
+                return a.model_id.localeCompare(b.model_id);
+            });
+
+            groups.push({
+                groupKey,
+                groupName: groupKey,
+                models: sortedModels,
+            });
+        }
+
+        const mergedGroups: ModelGroupData[] = [];
+        const singleModelGroups = groups.filter((g) => g.models.length === 1);
+        const multiModelGroups = groups.filter((g) => g.models.length > 1);
+
+        const baseGroupMap = new Map<string, ModelGroupData[]>();
+        for (const group of singleModelGroups) {
+            const baseKey = extractBaseGroupKey(group.groupKey);
+            if (!baseGroupMap.has(baseKey)) {
+                baseGroupMap.set(baseKey, []);
+            }
+            baseGroupMap.get(baseKey)!.push(group);
+        }
+
+        for (const [baseKey, groupsWithSameBase] of baseGroupMap.entries()) {
+            if (groupsWithSameBase.length > 1) {
+                const allModels = groupsWithSameBase.flatMap((g) => g.models);
+
+                const sortedModels = allModels.sort((a, b) => {
+                    if (defaultModelId && a.id === defaultModelId) return -1;
+                    if (defaultModelId && b.id === defaultModelId) return 1;
+                    return a.model_id.localeCompare(b.model_id);
+                });
+
+                mergedGroups.push({
+                    groupKey: baseKey,
+                    groupName: baseKey,
+                    models: sortedModels,
+                });
+
+                if (allModels.some((m) => m.id === defaultModelId)) {
+                    defaultModelGroupKey = baseKey;
+                }
+            } else {
+                const singleGroup = groupsWithSameBase[0];
+                if (singleGroup) {
+                    mergedGroups.push(singleGroup);
+                }
+            }
+        }
+
+        const finalGroups = [...multiModelGroups, ...mergedGroups];
+
+        finalGroups.sort((a, b) => {
+            if (a.groupKey === defaultModelGroupKey) return -1;
+            if (b.groupKey === defaultModelGroupKey) return 1;
+            return a.groupName.localeCompare(b.groupName);
+        });
+
+        return finalGroups;
     }
 
     const props = defineProps<Props>();
