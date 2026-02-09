@@ -1,56 +1,52 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Capability for the window",
-  "windows": [
-    "main",
-    "settings",
-    "tray-menu",
-    "preview*",
-    "popup-*"
-  ],
-  "permissions": [
-    "core:default",
-    "opener:default",
-    "core:window:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-hide",
-    "core:window:allow-show",
-    "core:window:allow-set-focus",
-    "core:window:allow-minimize",
-    "core:window:allow-close",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "sql:allow-load",
-    "sql:allow-execute",
-    "sql:allow-select",
-    "sql:allow-close",
-    "notification:default",
-    "notification:allow-is-permission-granted",
-    "notification:allow-request-permission",
-    "notification:allow-notify",
-    "log:default",
-    "process:allow-exit",
-    "clipboard-x:default",
-    "fs-pro:default",
-    {
-      "identifier": "http:default",
-      "allow": [
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "default",
+    "description": "Capability for the window",
+    "windows": ["main", "settings", "tray-menu", "preview*", "popup-*"],
+    "permissions": [
+        "core:default",
+        "opener:default",
+        "core:window:default",
+        "core:window:allow-start-dragging",
+        "core:window:allow-hide",
+        "core:window:allow-show",
+        "core:window:allow-set-focus",
+        "core:window:allow-set-size",
+        "core:window:allow-set-position",
+        "core:window:allow-minimize",
+        "core:window:allow-close",
+        "global-shortcut:allow-register",
+        "global-shortcut:allow-unregister",
+        "sql:allow-load",
+        "sql:allow-execute",
+        "sql:allow-select",
+        "sql:allow-close",
+        "notification:default",
+        "notification:allow-is-permission-granted",
+        "notification:allow-request-permission",
+        "notification:allow-notify",
+        "log:default",
+        "process:allow-exit",
+        "clipboard-x:default",
+        "fs-pro:default",
         {
-          "url": "https://**"
+            "identifier": "http:default",
+            "allow": [
+                {
+                    "url": "https://**"
+                },
+                {
+                    "url": "http://**"
+                }
+            ]
         },
         {
-          "url": "http://**"
+            "identifier": "opener:allow-open-path",
+            "allow": [
+                {
+                    "path": "**/*"
+                }
+            ]
         }
-      ]
-    },
-    {
-      "identifier": "opener:allow-open-path",
-      "allow": [
-        {
-          "path": "**/*"
-        }
-      ]
-    }
-  ]
+    ]
 }
