@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import { computed } from 'vue';
@@ -39,7 +39,7 @@
                     result.push({ label: '多模态', color: 'purple' });
                 }
             } catch {
-                // ignore parse errors
+                // 忽略解析错误
             }
         }
         if (props.model.attachment === 1) {
@@ -47,6 +47,10 @@
         }
         if (props.model.open_weights === 1) {
             result.push({ label: '开源', color: 'indigo' });
+        }
+
+        if (result.length === 0) {
+            result.push({ label: '文本', color: 'gray' });
         }
 
         return result;
@@ -60,7 +64,7 @@
 </script>
 
 <template>
-    <div v-if="tags.length > 0" class="flex flex-wrap items-center gap-1">
+    <div class="flex flex-wrap items-center gap-1">
         <span
             v-for="tag in tags"
             :key="tag.label"
@@ -73,6 +77,7 @@
                     'bg-purple-50 text-purple-600': tag.color === 'purple',
                     'bg-orange-50 text-orange-600': tag.color === 'orange',
                     'bg-indigo-50 text-indigo-600': tag.color === 'indigo',
+                    'bg-gray-100 text-gray-500': tag.color === 'gray',
                 },
             ]"
         >
