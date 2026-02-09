@@ -60,15 +60,11 @@
                     class="reasoning-content custom-scrollbar-thin mt-2 max-h-60 w-full overflow-y-auto border-l-1 border-gray-300 py-1 pr-2 pl-4 text-sm text-gray-500"
                     @scroll="handleReasoningScroll"
                 >
-                    <div class="prose prose-sm max-w-none" v-html="renderedReasoning"></div>
+                    <MarkdownContent :content="reasoning" variant="reasoning" />
                 </div>
             </div>
 
-            <div
-                v-if="content"
-                class="markdown-content prose prose-sm response-text max-w-none select-text"
-                v-html="renderedContent"
-            ></div>
+            <MarkdownContent v-if="content" :content="content" />
 
             <div v-if="error" class="p-4 text-sm text-red-600">
                 <span class="font-semibold">Error:</span>
@@ -98,8 +94,8 @@
 </template>
 
 <script setup lang="ts">
+    import MarkdownContent from '@components/common/MarkdownContent.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
-    import { renderMarkdown } from '@utils/markdown.ts';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     interface Props {
@@ -143,17 +139,6 @@
         focus,
     });
 
-    // 渲染 markdown
-    const renderedContent = computed(() => {
-        if (!props.content) return '';
-        return renderMarkdown(props.content);
-    });
-
-    const renderedReasoning = computed(() => {
-        if (!props.reasoning) return '';
-        return renderMarkdown(props.reasoning);
-    });
-
     function togglePinned() {
         emit('pinChange', !props.isPinned);
     }
@@ -165,33 +150,6 @@
         } catch (error) {
             console.error('[ResponsePanel] Failed to copy markdown:', error);
         }
-    }
-
-    // 处理代码复制按钮点击
-    function handleCopyClick(event: Event) {
-        const target = event.target as HTMLElement;
-        const button = target.closest('.code-copy-btn') as HTMLButtonElement;
-        if (!button) return;
-
-        const code = button.getAttribute('data-code');
-        if (!code) return;
-
-        // 解码 HTML 实体
-        const textarea = document.createElement('textarea');
-        textarea.innerHTML = code;
-        const decodedCode = textarea.value;
-
-        // 复制到剪贴板
-        navigator.clipboard.writeText(decodedCode).then(() => {
-            const copyText = button.querySelector('.copy-text');
-            if (copyText) {
-                const originalText = copyText.textContent;
-                copyText.textContent = '已复制';
-                setTimeout(() => {
-                    copyText.textContent = originalText;
-                }, 2000);
-            }
-        });
     }
 
     // 切换 reasoning 展开/收缩
@@ -343,20 +301,14 @@
                     emit('heightChange', responseContainer.value.offsetHeight);
                 }
             });
-
-            // 添加代码复制按钮点击事件监听
-            responseContainer.value.addEventListener('click', handleCopyClick);
         }
     });
 
-    // 清理 ResizeObserver 和事件监听器
+    // 清理 ResizeObserver
     onBeforeUnmount(() => {
         if (resizeObserver) {
             resizeObserver.disconnect();
             resizeObserver = null;
-        }
-        if (responseContainer.value) {
-            responseContainer.value.removeEventListener('click', handleCopyClick);
         }
     });
 </script>
@@ -365,108 +317,6 @@
     /* 移除焦点时的默认边框 */
     .response-container:focus {
         outline: none;
-    }
-
-    /* Markdown 内容的颜色变量和基础样式 */
-    .response-text {
-        /* 文本颜色 */
-        --color-text-primary: #111827; /* gray-900 */
-        --color-text-secondary: #4b5563; /* gray-600 */
-
-        /* 边框颜色 */
-        --color-border-primary: #e5e7eb; /* gray-200 */
-
-        /* 代码块颜色 */
-        --color-code-bg: #f1ece1;
-        --color-code-text: #691d1d;
-        --color-code-block-bg: #1f2937; /* gray-800 */
-        --color-code-block-text: #f9fafb; /* gray-50 */
-
-        /* 链接颜色 */
-        --color-link: #3b82f6; /* info-500 */
-        --color-link-hover: #2563eb; /* info-600 */
-
-        /* 基础样式 */
-        font-family: 'Source Han Serif SC', 'Noto Serif SC', 'Source Serif Pro', 'Georgia', serif;
-        font-size: 15px;
-        line-height: 1.8;
-        letter-spacing: 0.02em;
-        color: var(--color-text-secondary);
-    }
-
-    .response-text :deep(h1),
-    .response-text :deep(h2),
-    .response-text :deep(h3),
-    .response-text :deep(h4),
-    .response-text :deep(h5),
-    .response-text :deep(h6) {
-        font-family: var(--font-serif);
-        font-weight: 600;
-        margin: 0.75em 0;
-        color: var(--color-text-primary);
-    }
-
-    .response-text :deep(code) {
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-        font-size: 0.9em;
-        background-color: var(--color-code-bg);
-        padding: 0.2em 0.4em;
-        border-radius: 3px;
-        color: var(--color-code-text);
-    }
-
-    .response-text :deep(pre) {
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-        background-color: var(--color-code-block-bg);
-        color: var(--color-code-block-text);
-        border-radius: 6px;
-        overflow-x: auto;
-        line-height: 1.6;
-    }
-
-    .response-text :deep(pre code) {
-        background-color: transparent;
-        color: inherit;
-        padding: 0;
-    }
-
-    .response-text :deep(p) {
-        margin-bottom: 1em;
-    }
-
-    .response-text :deep(strong) {
-        font-weight: 600;
-        color: var(--color-text-primary);
-    }
-
-    .response-text :deep(a) {
-        color: var(--color-link);
-        text-decoration: none;
-        border-bottom: 1px solid #dbeafe; /* primary-100 */
-        transition: all 0.2s;
-    }
-
-    .response-text :deep(a:hover) {
-        color: var(--color-link-hover);
-        border-bottom-color: var(--color-link);
-    }
-
-    .response-text :deep(blockquote) {
-        border-left: 4px solid var(--color-border-primary);
-        padding-left: 1em;
-        margin-left: 0;
-        color: var(--color-text-secondary);
-        font-style: italic;
-    }
-
-    .response-text :deep(ul),
-    .response-text :deep(ol) {
-        padding-left: 1.5em;
-        margin-bottom: 1em;
-    }
-
-    .response-text :deep(li) {
-        margin-bottom: 0.5em;
     }
 
     /* Reasoning 内容样式 */
