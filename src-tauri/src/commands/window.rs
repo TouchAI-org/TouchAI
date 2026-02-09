@@ -6,11 +6,6 @@ use crate::core::window::popup::{self, PopupConfig, PopupRegistry};
 use tauri::{AppHandle, State};
 
 #[tauri::command]
-pub async fn resize_search_window(app: AppHandle, height: u32, center: bool) -> Result<(), String> {
-    crate::core::window::resize_search_window(app, height, center)
-}
-
-#[tauri::command]
 pub fn hide_search_window(app: AppHandle) -> Result<(), String> {
     crate::core::window::hide_search_window(app)
 }

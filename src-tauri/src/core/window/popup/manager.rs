@@ -110,12 +110,10 @@ pub async fn show_popup_window(
             .map_err(|e| e.to_string())?;
 
         let _ = popup.set_focusable(false);
-        popup.show().map_err(|e| e.to_string())?;
     } else {
         let url = format!("/popup?type={}", popup_type);
-        let popup = build_popup_window(&app, &window_label, &popup_type, url, width, height, x, y)?;
-
-        popup.show().map_err(|e| e.to_string())?;
+        let _popup =
+            build_popup_window(&app, &window_label, &popup_type, url, width, height, x, y)?;
     }
 
     Ok(())

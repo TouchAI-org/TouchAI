@@ -11,42 +11,6 @@ use windows::Win32::Graphics::Dwm::{
     DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
 };
 
-pub fn resize_search_window(app: AppHandle, height: u32, center: bool) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or("Failed to get main window")?;
-
-    let new_height = height as f64;
-
-    if center {
-        let scale_factor = window.scale_factor().map_err(|e| e.to_string())?;
-        let current_position = window.outer_position().map_err(|e| e.to_string())?;
-        let current_size = window.inner_size().map_err(|e| e.to_string())?;
-
-        let current_x = current_position.x as f64 / scale_factor;
-        let current_y = current_position.y as f64 / scale_factor;
-        let current_height = current_size.height as f64 / scale_factor;
-
-        let new_y = current_y - (new_height - current_height) / 2.0;
-
-        window
-            .set_position(tauri::Position::Logical(tauri::LogicalPosition {
-                x: current_x,
-                y: new_y,
-            }))
-            .map_err(|e| e.to_string())?;
-    }
-
-    window
-        .set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: 750.0,
-            height: new_height,
-        }))
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
 pub fn hide_search_window(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -88,6 +52,7 @@ pub fn set_search_window_style(window: &tauri::WebviewWindow) -> Result<(), Stri
     };
 
     unsafe {
+        // 圆角
         DwmSetWindowAttribute(
             hwnd,
             DWMWA_WINDOW_CORNER_PREFERENCE,
@@ -96,6 +61,7 @@ pub fn set_search_window_style(window: &tauri::WebviewWindow) -> Result<(), Stri
         )
         .map_err(|e| format!("Failed to set rounded corners: {}", e))?;
 
+        // 边框
         DwmSetWindowAttribute(
             hwnd,
             DWMWA_BORDER_COLOR,

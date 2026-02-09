@@ -1,6 +1,7 @@
-﻿<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import { useWindowResize } from '@composables/useWindowResize';
     import type { PopupDataPayload, PopupType } from '@services/PopupService';
     import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
     import { emit, listen } from '@tauri-apps/api/event';
@@ -10,6 +11,7 @@
     const popupType = ref<PopupType | null>(null);
     const popupData = shallowRef<unknown>(null);
     const componentRef = ref<{ handleKeyDown?: (e: KeyboardEvent) => void } | null>(null);
+    const popupContainer = ref<HTMLElement | null>(null);
     const unlisteners: (() => void)[] = [];
 
     const popupComponent = computed(() =>
@@ -25,22 +27,30 @@
         if (e.key === 'Escape') close();
     }
 
+    // 初始化内置弹窗注册表（PopupView 有独立的 JS 上下文）
+    initializeBuiltInPopups();
+
+    // 从 URL 获取类型，在 setup 阶段同步读取以便 useWindowResize 能拿到配置
+    const type = new URLSearchParams(window.location.search).get('type') as PopupType;
+    popupType.value = type;
+
+    const config = type ? popupRegistry.get(type) : null;
+    const { invalidate } = useWindowResize({
+        target: popupContainer,
+        maxHeight: config?.height,
+        minHeight: config?.minHeight,
+    });
+
     onMounted(async () => {
-        // 初始化内置弹窗注册表（PopupView 有独立的 JS 上下文）
-        initializeBuiltInPopups();
-
-        // 从 URL 获取类型
-        const type = new URLSearchParams(window.location.search).get('type') as PopupType;
-        popupType.value = type;
-
         const currentLabel = getCurrentWindow().label;
 
         // 监听数据更新 - 直接透传，不关心具体结构
         unlisteners.push(
             await listen<PopupDataPayload>('popup-data', (event) => {
-                if (event.payload.windowLabel && event.payload.windowLabel !== currentLabel) return;
+                if (event.payload.windowLabel !== currentLabel) return;
                 popupType.value = event.payload.type;
                 popupData.value = event.payload.data;
+                invalidate();
             })
         );
 
@@ -71,7 +81,7 @@
 </script>
 
 <template>
-    <div class="popup-container h-screen w-screen bg-transparent">
+    <div ref="popupContainer" class="popup-container w-screen bg-transparent">
         <component
             :is="popupComponent"
             v-if="popupComponent"

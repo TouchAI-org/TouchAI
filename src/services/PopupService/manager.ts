@@ -132,6 +132,7 @@ class PopupManager {
             await emit('popup-data', {
                 type: this.currentType,
                 data,
+                windowLabel: `popup-${this.currentType}`,
             } as PopupDataPayload);
         } catch (error) {
             console.error('[PopupManager] Failed to update popup data:', error);
@@ -222,7 +223,7 @@ class PopupManager {
             x: position.x,
             y: position.y,
             width: config.width,
-            height: config.height,
+            height: 0,
         };
     }
 }

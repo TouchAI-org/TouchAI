@@ -21,6 +21,7 @@
     import { computed, nextTick, onMounted, onUnmounted, ref, unref } from 'vue';
 
     const DEFAULT_GLOBAL_SHORTCUT = 'Alt+Space';
+    const WINDOW_MAX_HEIGHT = 700;
 
     const searchQuery = ref('');
     const searchBar = ref<InstanceType<typeof SearchBar>>();
@@ -31,7 +32,6 @@
     const isPinned = ref(false);
     const isDragging = ref(false);
 
-    let resizeObserver: ResizeObserver | null = null;
     let unlistenFocus: (() => void) | null = null;
     let unlistenBlur: (() => void) | null = null;
     let unlistenPopupFocusMain: (() => void) | null = null;
@@ -43,7 +43,7 @@
     const { isLoading, error, response, reasoning, hasResponse, sendRequest, reset, cancel } =
         useAiRequest();
 
-    const { resizeForResponse } = useWindowResize();
+    useWindowResize({ target: pageContainer, maxHeight: WINDOW_MAX_HEIGHT });
 
     // 是否应该在失焦时隐藏窗口（只有置顶且有响应内容时才不隐藏，拖动时也不隐藏）
     const shouldHideOnBlur = computed(() => {
@@ -273,33 +273,6 @@
         }
     }
 
-    function initPageHeightChangeListener() {
-        if (!pageContainer.value) {
-            console.error('[SearchView] pageContainer is null, cannot initialize ResizeObserver');
-            return;
-        }
-
-        resizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.target.clientHeight;
-                resizeForResponse(height, true).catch((error) => {
-                    console.error('[SearchView] Failed to resize window:', error);
-                });
-            }
-        });
-
-        resizeObserver.observe(pageContainer.value);
-
-        // 初始触发一次
-        nextTick(() => {
-            if (pageContainer.value) {
-                resizeForResponse(pageContainer.value.clientHeight, true).catch((error) => {
-                    console.error('[SearchView] Failed to resize window:', error);
-                });
-            }
-        });
-    }
-
     async function initFocusListener() {
         unlistenFocus = await getCurrentWindow().listen('tauri://focus', async () => {
             await nextTick();
@@ -400,9 +373,6 @@
         // 初始化窗口获得焦点监听
         await initFocusListener();
 
-        // 监听整个页面容器的高度变化
-        initPageHeightChangeListener();
-
         // 添加全局键盘事件监听
         window.addEventListener('keydown', handleKeyDown);
 
@@ -428,12 +398,6 @@
         if (unlistenPopupFocusMain) {
             unlistenPopupFocusMain();
             unlistenPopupFocusMain = null;
-        }
-
-        // 清理 ResizeObserver
-        if (resizeObserver) {
-            resizeObserver.disconnect();
-            resizeObserver = null;
         }
     });
 </script>
