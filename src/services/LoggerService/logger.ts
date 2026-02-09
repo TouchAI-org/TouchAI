@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+﻿import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
@@ -96,7 +96,7 @@ const normalizeFilePath = (raw: string): string => {
  * 检查文件路径是否是 logger 本身（避免无限递归）
  */
 const isLoggerFile = (file: string): boolean =>
-    file.replace(/\\/g, '/').endsWith('src/services/logger.ts');
+    file.replace(/\\/g, '/').endsWith('src/services/LoggerService/logger.ts');
 
 /**
  * 解析单行堆栈跟踪以提取调用位置信息

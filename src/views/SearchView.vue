@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
     // Copyright (c) 2025. Qian Cheng. Licensed under GPL v3.
 
     import ResponsePanel from '@components/search/ResponsePanel.vue';
@@ -7,16 +7,16 @@
     import { useAlert } from '@composables/useAlert';
     import { useWindowResize } from '@composables/useWindowResize';
     import { getSettingValue, setSetting } from '@database/queries';
-    import { popupManager } from '@services/popup';
+    import {
+        type AttachmentSupportStatus,
+        createAttachment,
+        type Index,
+        isAttachmentSupported,
+    } from '@services/AiService/attachments';
+    import { popupManager } from '@services/PopupService';
     import { invoke } from '@tauri-apps/api/core';
     import { emit, listen } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
-    import {
-        type Attachment,
-        type AttachmentSupportStatus,
-        createAttachment,
-        isAttachmentSupported,
-    } from '@utils/attachment.ts';
     import { readClipboard, ReadClipboardItem } from 'tauri-plugin-clipboard-x-api';
     import { computed, nextTick, onMounted, onUnmounted, ref, unref } from 'vue';
 
@@ -26,7 +26,7 @@
     const searchBar = ref<InstanceType<typeof SearchBar>>();
     const responseDisplay = ref<InstanceType<typeof ResponsePanel>>();
     const pageContainer = ref<HTMLElement | null>(null);
-    const attachments = ref<Attachment[]>([]);
+    const attachments = ref<Index[]>([]);
     const modelCapabilities = ref({ supportsImages: false, supportsFiles: false });
     const isPinned = ref(false);
     const isDragging = ref(false);
@@ -108,7 +108,7 @@
         }
     }
 
-    function getAttachmentSupportStatus(attachment: Attachment): AttachmentSupportStatus {
+    function getAttachmentSupportStatus(attachment: Index): AttachmentSupportStatus {
         if (attachment.type === 'image' && !modelCapabilities.value.supportsImages) {
             return 'unsupported-image';
         }

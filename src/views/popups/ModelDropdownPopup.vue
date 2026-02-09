@@ -1,11 +1,11 @@
-<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import ModelCapabilityTags from '@components/common/ModelCapabilityTags.vue';
     import ModelLogo from '@components/common/ModelLogo.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
     import { findModelsWithProvider } from '@database/queries';
-    import type { ModelDropdownData } from '@services/popup';
+    import type { ModelDropdownData } from '@services/PopupService';
     import { emit as tauriEmit } from '@tauri-apps/api/event';
     import { computed, nextTick, onMounted, ref, watch } from 'vue';
 

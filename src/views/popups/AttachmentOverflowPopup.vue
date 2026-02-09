@@ -1,11 +1,14 @@
-<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import SvgIcon from '@components/common/SvgIcon.vue';
-    import type { AttachmentOverflowData } from '@services/popup';
+    import type { Index } from '@services/AiService/attachments';
+    import {
+        getAttachmentSupportMessage,
+        isAttachmentSupported,
+    } from '@services/AiService/attachments';
+    import type { AttachmentOverflowData } from '@services/PopupService';
     import { emit as tauriEmit } from '@tauri-apps/api/event';
-    import type { Attachment } from '@utils/attachment.ts';
-    import { getAttachmentSupportMessage, isAttachmentSupported } from '@utils/attachment.ts';
     import { computed, ref } from 'vue';
 
     interface Props {
@@ -22,7 +25,7 @@
     }>();
 
     // 从 data 解构出附件列表，使用本地副本以支持删除操作
-    const localAttachments = ref<Attachment[]>([]);
+    const localAttachments = ref<Index[]>([]);
 
     // 当 data 变化时更新本地副本
     const attachments = computed({
@@ -47,11 +50,11 @@
         { immediate: true }
     );
 
-    function getAttachmentTitle(attachment: Attachment) {
+    function getAttachmentTitle(attachment: Index) {
         return getAttachmentSupportMessage(attachment) || attachment.name;
     }
 
-    function getAttachmentClass(attachment: Attachment) {
+    function getAttachmentClass(attachment: Index) {
         return [
             'group relative flex items-center gap-3 border-b border-gray-100 px-3 py-2 last:border-b-0',
             isAttachmentSupported(attachment)
@@ -60,7 +63,7 @@
         ];
     }
 
-    async function handlePreview(attachment: Attachment) {
+    async function handlePreview(attachment: Index) {
         if (!isAttachmentSupported(attachment)) return;
         await tauriEmit('popup-attachment-action', {
             action: 'preview',
@@ -68,7 +71,7 @@
         });
     }
 
-    async function handleRemove(attachment: Attachment) {
+    async function handleRemove(attachment: Index) {
         await tauriEmit('popup-attachment-action', {
             action: 'remove',
             attachmentId: attachment.id,

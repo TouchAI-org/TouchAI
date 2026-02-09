@@ -1,10 +1,10 @@
-// Copyright (c) 2025. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2025. 千诚. Licensed under GPL v3
 
 import { createAiRequest, updateAiRequest } from '@database/queries';
 import type { AiRequest } from '@database/schema';
-import { aiService } from '@services/ai/manager';
+import type { Index } from '@services/AiService/attachments';
+import { aiService } from '@services/AiService/manager';
 import { sendNotification } from '@tauri-apps/plugin-notification';
-import type { Attachment } from '@utils/attachment';
 import { computed, ref } from 'vue';
 
 export interface UseAiRequestOptions {
@@ -29,7 +29,7 @@ export function useAiRequest(options: UseAiRequestOptions = {}) {
         prompt: string,
         modelIdOverride?: string,
         providerIdOverride?: number,
-        attachments: Attachment[] = []
+        attachments: Index[] = []
     ) {
         if (!prompt.trim()) {
             console.error('[useAiRequest] Empty prompt provided');

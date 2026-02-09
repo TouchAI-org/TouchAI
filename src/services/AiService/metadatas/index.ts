@@ -1,9 +1,9 @@
 /*
- * Copyright (c) 2025. Qian Cheng. Licensed under GPL v3
+ * Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { clearLlmMetadata, insertLlmMetadata } from '@database/queries/llmMetadata';
-import type { NewLlmMetadata } from '@database/schema';
+import { clearLlmMetadata, insertLlmMetadata } from '@database/queries/llmMetadata.ts';
+import type { NewLlmMetadata } from '@database/schema.ts';
 
 /**
  * API 返回的原始数据格式

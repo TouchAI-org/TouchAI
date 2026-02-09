@@ -1,4 +1,4 @@
-// Copyright (c) 2025. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2025. 千诚. Licensed under GPL v3
 
 import {
     findDefaultModelWithProvider,
@@ -10,11 +10,11 @@ import {
 import type { ModelWithProviderAndMetadata } from '@database/queries/models';
 import type { ProviderType } from '@database/schema';
 import {
-    type Attachment,
+    type Index,
     isAttachmentSupported,
     readAttachmentAsBase64,
     readAttachmentAsText,
-} from '@utils/attachment';
+} from '@services/AiService/attachments';
 
 import { AnthropicProvider } from './providers/anthropic';
 import { OpenAiProvider } from './providers/openai';
@@ -36,7 +36,7 @@ interface ProviderAdapter {
 interface BuildMessagesOptions {
     prompt: string;
     history: Array<Pick<AiMessage, 'role'> & { content: string }>;
-    attachments?: Attachment[];
+    attachments?: Index[];
 }
 
 const trimTrailingSlash = (endpoint: string) => endpoint.replace(/\/+$/, '');
@@ -78,7 +78,7 @@ function createProviderFromRegistry(type: ProviderType, config: AiProviderConfig
     return getProviderAdapter(type).create(config);
 }
 
-async function buildAttachmentParts(attachments: Attachment[]): Promise<AiContentPart[]> {
+async function buildAttachmentParts(attachments: Index[]): Promise<AiContentPart[]> {
     const parts: AiContentPart[] = [];
     const usableAttachments = attachments.filter((attachment) => isAttachmentSupported(attachment));
 
@@ -207,7 +207,7 @@ export class AiServiceManager {
         sessionId?: number,
         modelIdOverride?: string,
         providerIdOverride?: number,
-        attachments: Attachment[] = []
+        attachments: Index[] = []
     ): Promise<AiResponse> {
         const model = await this.resolveModel(modelIdOverride, providerIdOverride);
         const provider = this.getProviderForModel(model);
@@ -230,7 +230,7 @@ export class AiServiceManager {
         sessionId?: number,
         modelIdOverride?: string,
         providerIdOverride?: number,
-        attachments: Attachment[] = []
+        attachments: Index[] = []
     ): AsyncGenerator<{ chunk: AiStreamChunk; model: ModelWithProvider }, void, unknown> {
         const model = await this.resolveModel(modelIdOverride, providerIdOverride);
         const provider = this.getProviderForModel(model);
@@ -314,7 +314,7 @@ export class AiServiceManager {
     private async buildRequestMessages(
         prompt: string,
         sessionId?: number,
-        attachments: Attachment[] = []
+        attachments: Index[] = []
     ): Promise<AiMessage[]> {
         const history = sessionId ? await findMessagesBySessionId(sessionId) : [];
         return buildUnifiedMessages({

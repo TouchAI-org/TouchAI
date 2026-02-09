@@ -12,7 +12,7 @@ import {
 
 export type AttachmentSupportStatus = 'supported' | 'unsupported-image' | 'unsupported-file';
 
-export interface Attachment {
+export interface Index {
     id: string;
     type: 'image' | 'file';
     path: string;
@@ -38,16 +38,13 @@ function normalizeExtension(extension: string | null | undefined): string {
     return (extension || '').replace('.', '').trim().toLowerCase();
 }
 
-async function resolveMimeType(
-    type: Attachment['type'],
-    path: string
-): Promise<string | undefined> {
+async function resolveMimeType(type: Index['type'], path: string): Promise<string | undefined> {
     if (type !== 'image') return undefined;
     const extension = normalizeExtension(await getFileExtension(path));
     return imageMimeMap[extension] || 'image/png';
 }
 
-export async function createAttachment(type: 'image' | 'file', path: string): Promise<Attachment> {
+export async function createAttachment(type: 'image' | 'file', path: string): Promise<Index> {
     const id = `${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
     const name = await getFileName(path);
     const mimeType = await resolveMimeType(type, path);
@@ -64,14 +61,14 @@ export async function createAttachment(type: 'image' | 'file', path: string): Pr
     };
 }
 
-export function isAttachmentSupported(attachment: Attachment): boolean {
+export function isAttachmentSupported(attachment: Index): boolean {
     return (
         attachment.supportStatus !== 'unsupported-image' &&
         attachment.supportStatus !== 'unsupported-file'
     );
 }
 
-export function getAttachmentSupportMessage(attachment: Attachment): string | null {
+export function getAttachmentSupportMessage(attachment: Index): string | null {
     if (attachment.supportStatus === 'unsupported-image') {
         return '该模型不支持图片';
     }
@@ -100,7 +97,7 @@ function bufferToBase64(buffer: ArrayBuffer): string {
 }
 
 export async function readAttachmentAsBase64(
-    attachment: Attachment
+    attachment: Index
 ): Promise<{ data: string; mimeType: string }> {
     const buffer = await readAttachmentBuffer(attachment.path);
     return {
@@ -110,7 +107,7 @@ export async function readAttachmentAsBase64(
 }
 
 export async function readAttachmentAsText(
-    attachment: Attachment
+    attachment: Index
 ): Promise<{ content: string; isBinary: boolean }> {
     const buffer = await readAttachmentBuffer(attachment.path);
     const decoder = new TextDecoder('utf-8', { fatal: false });

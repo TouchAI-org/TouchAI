@@ -1,8 +1,8 @@
-<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import type { PopupDataPayload, PopupType } from '@services/popup';
-    import { initializeBuiltInPopups, popupRegistry } from '@services/popup';
+    import type { PopupDataPayload, PopupType } from '@services/PopupService';
+    import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
     import { emit, listen } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';

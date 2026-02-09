@@ -1,7 +1,7 @@
-// Copyright (c) 2025. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2025. 千诚. Licensed under GPL v3
 
 import Anthropic from '@anthropic-ai/sdk';
-import { createTauriFetch } from '@utils/tauri-fetch';
+import { createTauriFetch } from '@services/AiService/providers/shared/tauri-fetch';
 
 import type {
     AiProvider,

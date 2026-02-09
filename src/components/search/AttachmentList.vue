@@ -1,15 +1,18 @@
-<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import { popupManager } from '@services/popup';
-    import type { Attachment } from '@utils/attachment.ts';
-    import { getAttachmentSupportMessage, isAttachmentSupported } from '@utils/attachment.ts';
+    import type { Index } from '@services/AiService/attachments';
+    import {
+        getAttachmentSupportMessage,
+        isAttachmentSupported,
+    } from '@services/AiService/attachments';
+    import { popupManager } from '@services/PopupService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import SvgIcon from '@/components/common/SvgIcon.vue';
 
     interface Props {
-        attachments: Attachment[];
+        attachments: Index[];
         maxVisible?: number;
     }
 
@@ -19,7 +22,7 @@
 
     const emit = defineEmits<{
         remove: [id: string];
-        preview: [attachment: Attachment];
+        preview: [attachment: Index];
         focusSearchBar: [];
     }>();
 
@@ -43,16 +46,16 @@
         emit('remove', id);
     }
 
-    function handlePreview(attachment: Attachment) {
+    function handlePreview(attachment: Index) {
         if (!isAttachmentSupported(attachment)) return;
         emit('preview', attachment);
     }
 
-    function getAttachmentTitle(attachment: Attachment) {
+    function getAttachmentTitle(attachment: Index) {
         return getAttachmentSupportMessage(attachment) || attachment.name;
     }
 
-    function getAttachmentClass(attachment: Attachment) {
+    function getAttachmentClass(attachment: Index) {
         return [
             'bg-background-primary group relative flex flex-shrink-0 items-center gap-1.5 rounded border border-gray-200 px-2 py-1 transition-colors',
             isAttachmentSupported(attachment)
