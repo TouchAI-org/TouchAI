@@ -51,6 +51,10 @@ pub fn run() {
                 warn!("Failed to create tray: {}", err);
             }
 
+            if let Err(err) = core::window::tray::preload_tray_menu(app.handle()) {
+                warn!("Failed to preload tray menu: {}", err);
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!());

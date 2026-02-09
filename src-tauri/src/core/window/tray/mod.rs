@@ -47,8 +47,32 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn close_tray_menu(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("tray-menu") {
-        window.close().map_err(|e| e.to_string())?;
+        window.hide().map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// 预加载托盘菜单窗口（隐藏状态），加速首次右键响应
+pub fn preload_tray_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    if app.get_webview_window("tray-menu").is_some() {
+        return Ok(());
+    }
+
+    let _window = WebviewWindowBuilder::new(
+        app,
+        "tray-menu",
+        WebviewUrl::App("/tray-menu".parse().unwrap()),
+    )
+    .inner_size(140.0, 134.0)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .focused(false)
+    .build()?;
+
     Ok(())
 }
 
@@ -70,39 +94,17 @@ fn show_tray_menu(
     let menu_width = 140.0;
     let menu_height = 134.0;
 
-    if let Some(window) = app.get_webview_window("tray-menu") {
-        let scale_factor = window.scale_factor().unwrap_or(1.0);
-
-        let logical_x = click_position.x / scale_factor;
-        let logical_y = click_position.y / scale_factor;
-
-        let x = (logical_x - menu_width).max(10.0);
-        let y = (logical_y - menu_height).max(10.0);
-
-        window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }))?;
-
-        window.show()?;
-        window.set_focus()?;
-        return Ok(());
-    }
-
-    let window = WebviewWindowBuilder::new(
-        app,
-        "tray-menu",
-        WebviewUrl::App("/tray-menu".parse().unwrap()),
-    )
-    .inner_size(menu_width, menu_height)
-    .resizable(false)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .visible(false)
-    .focused(true)
-    .build()?;
+    // 确保窗口存在（预加载或首次创建）
+    let window = match app.get_webview_window("tray-menu") {
+        Some(w) => w,
+        None => {
+            preload_tray_menu(app)?;
+            app.get_webview_window("tray-menu")
+                .ok_or("Failed to create tray-menu window")?
+        }
+    };
 
     let scale_factor = window.scale_factor().unwrap_or(1.0);
-
     let logical_x = click_position.x / scale_factor;
     let logical_y = click_position.y / scale_factor;
 
@@ -111,24 +113,12 @@ fn show_tray_menu(
         let logical_screen_width = screen_size.width as f64 / scale_factor;
         let logical_screen_height = screen_size.height as f64 / scale_factor;
 
-        let mut x = (logical_x - menu_width).max(10.0);
-        let mut y = (logical_y - menu_height).max(10.0);
-
-        if x < 10.0 {
-            x = 10.0;
-        }
-
-        if y < 10.0 {
-            y = 10.0;
-        }
-
-        if x + menu_width > logical_screen_width - 10.0 {
-            x = logical_screen_width - menu_width - 10.0;
-        }
-
-        if y + menu_height > logical_screen_height - 10.0 {
-            y = logical_screen_height - menu_height - 10.0;
-        }
+        let x = (logical_x - menu_width)
+            .max(10.0)
+            .min(logical_screen_width - menu_width - 10.0);
+        let y = (logical_y - menu_height)
+            .max(10.0)
+            .min(logical_screen_height - menu_height - 10.0);
 
         (x, y)
     } else {
@@ -138,7 +128,6 @@ fn show_tray_menu(
     };
 
     window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }))?;
-
     window.show()?;
     window.set_focus()?;
 
