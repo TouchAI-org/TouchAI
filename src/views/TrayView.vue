@@ -2,7 +2,7 @@
 
 <script setup lang="ts">
     import SvgIcon from '@components/common/SvgIcon.vue';
-    import { invoke } from '@tauri-apps/api/core';
+    import { native } from '@services/NativeService';
     import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
     import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
     import { exit } from '@tauri-apps/plugin-process';
@@ -63,7 +63,7 @@
     async function openSettings() {
         try {
             try {
-                invoke('open_settings_window').then();
+                native.window.openSettingsWindow().then();
             } catch (error) {
                 console.error('Failed to open settings:', error);
             }
@@ -86,7 +86,7 @@
 
     async function closeTrayMenu() {
         try {
-            invoke('close_tray_menu').then();
+            native.window.closeTrayMenu().then();
         } catch (error) {
             console.error('Failed to close tray menu:', error);
         }

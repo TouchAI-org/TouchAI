@@ -13,8 +13,8 @@
         type Index,
         isAttachmentSupported,
     } from '@services/AiService/attachments';
+    import { native } from '@services/NativeService';
     import { popupManager } from '@services/PopupService';
-    import { invoke } from '@tauri-apps/api/core';
     import { emit, listen } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { readClipboard, ReadClipboardItem } from 'tauri-plugin-clipboard-x-api';
@@ -57,7 +57,7 @@
     async function handleWindowBlur() {
         try {
             // 检查应用是否还有焦点
-            const appFocused = await invoke<boolean>('is_app_focused');
+            const appFocused = await native.window.isAppFocused();
 
             // 如果应用完全失去焦点
             if (!appFocused) {
@@ -66,7 +66,7 @@
 
                 // 隐藏主窗口
                 if (shouldHideOnBlur.value) {
-                    await invoke('hide_search_window');
+                    await native.window.hideSearchWindow();
                 }
             }
         } catch (error) {
@@ -159,7 +159,7 @@
 
     function handleSearchWindowClick(event: MouseEvent) {
         if (event?.target == document.body) {
-            invoke('hide_search_window');
+            native.window.hideSearchWindow();
         }
     }
 
@@ -342,7 +342,7 @@
                 await setSetting('global_shortcut', DEFAULT_GLOBAL_SHORTCUT);
             }
 
-            await invoke('register_global_shortcut', { shortcut });
+            await native.shortcut.registerGlobalShortcut(shortcut);
         } catch (error) {
             console.error('[SearchView] Failed to initialize global shortcut:', error);
         }

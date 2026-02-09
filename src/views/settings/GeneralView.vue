@@ -2,7 +2,7 @@
     import AlertMessage from '@components/common/AlertMessage.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
     import { getSettingValue, setSetting } from '@database/queries';
-    import { invoke } from '@tauri-apps/api/core';
+    import { native } from '@services/NativeService';
     import { onMounted, onUnmounted, ref, watch } from 'vue';
 
     interface GeneralSettingsData {
@@ -185,7 +185,7 @@
     // 注册快捷键到 Rust 端
     const registerShortcut = async (shortcut: string): Promise<boolean> => {
         try {
-            await invoke('register_global_shortcut', { shortcut });
+            await native.shortcut.registerGlobalShortcut(shortcut);
             return true;
         } catch (error) {
             console.error('Failed to register shortcut:', error);
@@ -227,9 +227,9 @@
 
             // 同步到系统
             if (settings.value.startOnBoot) {
-                await invoke('enable_autostart');
+                await native.autostart.enableAutostart();
             } else {
-                await invoke('disable_autostart');
+                await native.autostart.disableAutostart();
             }
 
             await setSetting('start_minimized', settings.value.startMinimized.toString());
@@ -249,7 +249,7 @@
 
         // 同步开机自启动状态
         try {
-            const isEnabled = await invoke<boolean>('is_autostart_enabled');
+            const isEnabled = await native.autostart.isAutostartEnabled();
             if (isEnabled !== settings.value.startOnBoot) {
                 settings.value.startOnBoot = isEnabled;
                 await setSetting('start_on_boot', isEnabled.toString());

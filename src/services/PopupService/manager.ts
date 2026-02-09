@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { invoke } from '@tauri-apps/api/core';
+import { native } from '@services/NativeService';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -45,10 +45,10 @@ class PopupManager {
                 throw new Error('No popup configs available');
             }
 
-            await invoke('register_popup_configs', { configs });
+            await native.window.registerPopupConfigs(configs);
 
             // 触发预加载（不等待完成）
-            invoke('preload_popup_windows').catch((error) => {
+            native.window.preloadPopupWindows().catch((error) => {
                 console.error('[PopupManager] Preload failed:', error);
             });
 
@@ -67,7 +67,7 @@ class PopupManager {
         try {
             const position = await this.calculatePosition(type, triggerElement);
 
-            await invoke('show_popup_window', {
+            await native.window.showPopupWindow({
                 x: position.x,
                 y: position.y,
                 width: position.width,
@@ -95,7 +95,7 @@ class PopupManager {
      */
     async hide(): Promise<void> {
         try {
-            await invoke('hide_popup_window');
+            await native.window.hidePopupWindow();
             await emit('popup-closed', {});
 
             this.isOpen = false;

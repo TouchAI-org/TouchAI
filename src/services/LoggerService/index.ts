@@ -1,4 +1,4 @@
-﻿import { invoke } from '@tauri-apps/api/core';
+import { native } from '@services/NativeService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
@@ -179,7 +179,7 @@ const forwardToTauri = (level: LogLevel, args: unknown[], callsite?: Callsite): 
         line: callsite?.line,
     };
 
-    void invoke('plugin:log|log', payload).catch((error: unknown) => {
+    void native.log.log(payload).catch((error: unknown) => {
         NATIVE_CONSOLE.error('[Logger] 转发日志到 Tauri 失败:', error);
     });
 };
