@@ -18,6 +18,9 @@ pnpm install
 # 开发运行
 pnpm tauri dev
 
+# 开发运行（启用 MCP Bridge 自动化测试）
+pnpm run tauri:dev:mcp
+
 # 构建应用
 pnpm tauri build
 ```
