@@ -1,61 +1,19 @@
-// Copyright (c) 2025. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { count, desc, eq } from 'drizzle-orm';
 
 import { db } from '../index';
-import type { AiRequest, AiRequestUpdate, NewAiRequest } from '../schema';
 import { aiRequests } from '../schema';
-
-/**
- * 根据 ID 查找 AI 请求
- */
-export const findAiRequestById = async (id: number) =>
-    (await db.getDb()).select().from(aiRequests).where(eq(aiRequests.id, id)).get();
-
-/**
- * 根据会话 ID 查找 AI 请求
- */
-export const findAiRequestsBySessionId = async (sessionId: number) =>
-    (await db.getDb())
-        .select()
-        .from(aiRequests)
-        .where(eq(aiRequests.session_id, sessionId))
-        .orderBy(desc(aiRequests.created_at))
-        .all();
-
-/**
- * 根据状态查找 AI 请求
- */
-export const findAiRequestsByStatus = async (
-    status: 'pending' | 'streaming' | 'completed' | 'failed'
-) =>
-    (await db.getDb())
-        .select()
-        .from(aiRequests)
-        .where(eq(aiRequests.status, status))
-        .orderBy(desc(aiRequests.created_at))
-        .all();
-
-/**
- * 查找所有 AI 请求
- */
-export const findAllAiRequests = async (limit?: number) => {
-    const drizzle = await db.getDb();
-    let query = drizzle.select().from(aiRequests).orderBy(desc(aiRequests.created_at)).$dynamic();
-
-    if (limit) {
-        query = query.limit(limit);
-    }
-
-    return query.all();
-};
+import type { AiRequestCreateData, AiRequestEntity, AiRequestUpdateData } from '../types';
 
 /**
  * 创建 AI 请求
  */
-export const createAiRequest = async (data: NewAiRequest): Promise<AiRequest> => {
+export const createAiRequest = async (
+    requestDraft: AiRequestCreateData
+): Promise<AiRequestEntity> => {
     const drizzle = await db.getDb();
-    await drizzle.insert(aiRequests).values(data).run();
+    await drizzle.insert(aiRequests).values(requestDraft).run();
 
     const lastInsert = await drizzle
         .select()
@@ -73,16 +31,18 @@ export const createAiRequest = async (data: NewAiRequest): Promise<AiRequest> =>
 /**
  * 更新 AI 请求
  */
-export const updateAiRequest = async (id: number, data: AiRequestUpdate): Promise<void> => {
-    await (await db.getDb()).update(aiRequests).set(data).where(eq(aiRequests.id, id)).run();
-};
-
-/**
- * 删除 AI 请求
- */
-export const deleteAiRequest = async (id: number): Promise<boolean> => {
-    await (await db.getDb()).delete(aiRequests).where(eq(aiRequests.id, id)).run();
-    return true;
+export const updateAiRequest = async ({
+    id,
+    requestPatch,
+}: {
+    id: number;
+    requestPatch: AiRequestUpdateData;
+}): Promise<void> => {
+    await (await db.getDb())
+        .update(aiRequests)
+        .set(requestPatch)
+        .where(eq(aiRequests.id, id))
+        .run();
 };
 
 /**

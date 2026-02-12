@@ -8,7 +8,7 @@ import { MetaKey, touchaiMeta } from '../schema';
 /**
  * 获取元数据值
  */
-export async function getMeta(key: MetaKey): Promise<string | null> {
+export async function getMeta({ key }: { key: MetaKey }): Promise<string | null> {
     const result = await (await db.getDb())
         .select({ value: touchaiMeta.value })
         .from(touchaiMeta)
@@ -21,7 +21,7 @@ export async function getMeta(key: MetaKey): Promise<string | null> {
 /**
  * 设置元数据值
  */
-export async function setMeta(key: MetaKey, value: string): Promise<void> {
+export async function setMeta({ key, value }: { key: MetaKey; value: string }): Promise<void> {
     const drizzle = await db.getDb();
     await drizzle
         .insert(touchaiMeta)
@@ -33,6 +33,6 @@ export async function setMeta(key: MetaKey, value: string): Promise<void> {
 /**
  * 删除元数据
  */
-export async function deleteMeta(key: MetaKey): Promise<void> {
+export async function deleteMeta({ key }: { key: MetaKey }): Promise<void> {
     await (await db.getDb()).delete(touchaiMeta).where(eq(touchaiMeta.key, key)).run();
 }

@@ -3,25 +3,35 @@
 import { eq } from 'drizzle-orm';
 
 import { db } from '../index';
-import type { StatisticKey } from '../schema';
 import { statistics } from '../schema';
+import type { StatisticIdentifier } from '../types';
 
 /**
  * 获取统计值
  */
-export const getStatistic = async (key: string | StatisticKey): Promise<string | null> => {
+export const getStatistic = async ({
+    key,
+}: {
+    key: StatisticIdentifier;
+}): Promise<string | null> => {
     const statistic = await (await db.getDb())
         .select()
         .from(statistics)
         .where(eq(statistics.key, key))
         .get();
-    return statistic?.value || null;
+    return statistic?.value ?? null;
 };
 
 /**
  * 设置统计值（不存在则创建）
  */
-export const setStatistic = async (key: string | StatisticKey, value: string): Promise<boolean> => {
+export const setStatistic = async ({
+    key,
+    value,
+}: {
+    key: StatisticIdentifier;
+    value: string;
+}): Promise<boolean> => {
     const drizzle = await db.getDb();
 
     await drizzle
@@ -33,10 +43,10 @@ export const setStatistic = async (key: string | StatisticKey, value: string): P
         })
         .run();
 
-    const updated = await getStatistic(key);
-    if (!updated) {
+    const updated = await getStatistic({ key });
+    if (updated === null) {
         throw new Error('Failed to set statistic');
     }
 
-    return !!updated;
+    return true;
 };

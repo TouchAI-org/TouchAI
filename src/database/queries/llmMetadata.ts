@@ -1,15 +1,19 @@
-// Copyright (c) 2025. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { count, eq } from 'drizzle-orm';
 
 import { db } from '../index';
-import type { LlmMetadata, LlmMetadataUpdate, NewLlmMetadata } from '../schema';
 import { llmMetadata } from '../schema';
+import type { LlmMetadataCreateData, LlmMetadataEntity } from '../types';
 
 /**
  * 根据 model_id 查询 LLM 元数据
  */
-export async function findLlmMetadataByModelId(modelId: string): Promise<LlmMetadata | null> {
+export async function findLlmMetadataByModelId({
+    modelId,
+}: {
+    modelId: string;
+}): Promise<LlmMetadataEntity | null> {
     const result = await (await db.getDb())
         .select()
         .from(llmMetadata)
@@ -23,46 +27,14 @@ export async function findLlmMetadataByModelId(modelId: string): Promise<LlmMeta
  * 批量插入 LLM 元数据
  * 使用 INSERT OR IGNORE 避免重复插入（基于 model_id 的 UNIQUE 约束）
  */
-export async function insertLlmMetadata(metadata: NewLlmMetadata[]): Promise<void> {
-    if (metadata.length === 0) return;
+export async function insertLlmMetadata(data: LlmMetadataCreateData[]): Promise<void> {
+    if (data.length === 0) return;
 
     await (await db.getDb())
         .insert(llmMetadata)
-        .values(metadata)
+        .values(data)
         .onConflictDoNothing({ target: llmMetadata.model_id })
         .run();
-}
-
-/**
- * 更新或创建 LLM 元数据
- */
-export async function upsertLlmMetadata(modelId: string, data: LlmMetadataUpdate): Promise<void> {
-    const existing = await findLlmMetadataByModelId(modelId);
-
-    if (existing) {
-        await (await db.getDb())
-            .update(llmMetadata)
-            .set(data)
-            .where(eq(llmMetadata.model_id, modelId))
-            .run();
-    } else {
-        await (
-            await db.getDb()
-        )
-            .insert(llmMetadata)
-            .values({
-                model_id: modelId,
-                name: modelId,
-                attachment: 0,
-                modalities: JSON.stringify({ input: [], output: [] }),
-                open_weights: 0,
-                reasoning: 0,
-                temperature: 1,
-                tool_call: 0,
-                ...data,
-            })
-            .run();
-    }
 }
 
 /**
