@@ -1,4 +1,4 @@
-// Copyright (c) 2025. 千诚. Licensed under GPL v3.
+// Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
 import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
 import { MetaKey } from '@database/schema';

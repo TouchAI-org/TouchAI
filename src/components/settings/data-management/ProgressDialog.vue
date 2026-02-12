@@ -7,6 +7,11 @@
         message: string;
         progress?: number; // 0-100
         status?: 'loading' | 'success' | 'warning' | 'error';
+        dismissible?: boolean;
+    }>();
+
+    const emit = defineEmits<{
+        dismiss: [];
     }>();
 
     const iconConfig = computed(() => {
@@ -31,8 +36,17 @@
 
 <template>
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-        <div class="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+        <div
+            class="relative w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl"
+        >
             <div class="flex flex-col items-center justify-center text-center">
+                <button
+                    v-if="props.dismissible"
+                    class="absolute top-3 right-3 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                    @click="emit('dismiss')"
+                >
+                    <SvgIcon name="x" class="h-4 w-4" />
+                </button>
                 <div
                     class="mb-4 flex h-12 w-12 items-center justify-center rounded-full"
                     :class="[iconConfig.bg, iconConfig.text]"

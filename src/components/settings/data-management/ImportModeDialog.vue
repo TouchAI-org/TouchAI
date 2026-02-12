@@ -43,7 +43,7 @@
                         覆盖设置并导入对话
                     </div>
                     <div class="mt-1 font-serif text-xs text-gray-500">
-                        覆盖设置、模型、服务商，差量导入会话和消息
+                        覆盖设置，合并模型、服务商、会话和消息等
                     </div>
                 </button>
             </div>

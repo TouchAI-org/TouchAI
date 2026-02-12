@@ -3,9 +3,10 @@
 import { native } from '@services/NativeService';
 import { dirname, join, tempDir } from '@tauri-apps/api/path';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { copyFile, mkdir } from '@tauri-apps/plugin-fs';
+import { copyFile, mkdir, remove } from '@tauri-apps/plugin-fs';
 import Database from '@tauri-apps/plugin-sql';
 
+import { db } from './index';
 import { migrate } from './migrator';
 
 export type ImportMode = 'chat_only' | 'full';
@@ -65,6 +66,9 @@ class DatabaseBackupService {
 
         if (onProgress) onProgress('正在复制数据库文件...', 50);
 
+        // 刷新 WAL 日志到主数据库文件，确保备份包含所有最新写入
+        await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+
         const currentDbPath = await this.getDatabasePath();
         await copyFile(currentDbPath, exportPath);
 
@@ -116,13 +120,13 @@ class DatabaseBackupService {
         let sourceBackupPath: string | null = null;
         let migratedSource = false;
 
+        let sourceDb: Database | null = null;
         try {
             if (onProgress) onProgress('正在加载导入数据库...', 30);
-            const sourceDb = await Database.load(`sqlite://${sourcePath}`);
+            sourceDb = await Database.load(`sqlite://${sourcePath}`);
             const versionStatus = await this.checkDatabaseVersion(sourceDb);
 
             if (versionStatus === DatabaseVersionStatus.TooNew) {
-                await sourceDb.close();
                 throw new Error(
                     '导入的数据库版本较新，当前应用无法兼容。请升级 TouchAI 到最新版本后重试。'
                 );
@@ -147,9 +151,13 @@ class DatabaseBackupService {
                 await this.mergeDatabase(currentDbPath, sourcePath, mode, onProgress);
             }
 
-            await sourceDb.close();
-
             if (onProgress) onProgress('导入完成', 100);
+
+            // 清理临时备份文件
+            await this.cleanupTempFile(currentBackupPath);
+            if (sourceBackupPath) {
+                await this.cleanupTempFile(sourceBackupPath);
+            }
 
             return {
                 sourcePath,
@@ -162,9 +170,20 @@ class DatabaseBackupService {
             if (onProgress) onProgress('导入失败，正在回滚...', 90);
             await copyFile(currentBackupPath, currentDbPath);
 
+            // 回滚后清理临时备份文件
+            await this.cleanupTempFile(currentBackupPath);
+            if (sourceBackupPath) {
+                await this.cleanupTempFile(sourceBackupPath);
+            }
+
             throw new Error(
                 `导入失败，已恢复当前数据库: ${error instanceof Error ? error.message : String(error)}`
             );
+        } finally {
+            if (sourceDb) {
+                await sourceDb.close();
+                sourceDb = null;
+            }
         }
     }
 
@@ -244,6 +263,11 @@ class DatabaseBackupService {
             'SELECT hash FROM migrations'
         );
         const appliedHashes = new Set(applied.map((r) => r.hash));
+        const knownHashes = new Set(journal.entries.map((e) => e.tag));
+
+        if (applied.some((migration) => !knownHashes.has(migration.hash))) {
+            return DatabaseVersionStatus.TooNew;
+        }
 
         const sourceVersion = Math.max(
             -1,
@@ -273,7 +297,8 @@ class DatabaseBackupService {
         const currentDb = await Database.load(`sqlite://${currentDbPath}`);
 
         try {
-            await currentDb.execute(`ATTACH DATABASE '${sourceDbPath}' AS imported`);
+            const escapedPath = sourceDbPath.replace(/'/g, "''");
+            await currentDb.execute(`ATTACH DATABASE '${escapedPath}' AS imported`);
             await this.ensureRequiredTables(currentDb);
 
             if (mode === 'chat_only') {
@@ -472,26 +497,55 @@ class DatabaseBackupService {
             await currentDb.execute(`
                 DELETE FROM main.settings;
                 DELETE FROM main.statistics;
-                DELETE FROM main.providers;
-                DELETE FROM main.models;
                 DELETE FROM main.llm_metadata;
 
                 INSERT INTO main.providers (id, name, type, api_endpoint, api_key, logo, enabled, is_builtin, created_at, updated_at)
                 SELECT id, name, type, api_endpoint, api_key, logo, enabled, is_builtin, created_at, updated_at
-                FROM imported.providers;
+                FROM imported.providers
+                WHERE true
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    type = excluded.type,
+                    api_endpoint = excluded.api_endpoint,
+                    api_key = excluded.api_key,
+                    logo = excluded.logo,
+                    enabled = excluded.enabled,
+                    is_builtin = excluded.is_builtin,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at;
 
                 INSERT INTO main.models (
                     id, provider_id, name, model_id, is_default, last_used_at,
                     attachment, modalities, open_weights, reasoning, release_date,
                     temperature, tool_call, knowledge, context_limit, output_limit,
-                    created_at, updated_at
+                    is_custom_metadata, created_at, updated_at
                 )
                 SELECT
                     id, provider_id, name, model_id, is_default, last_used_at,
                     attachment, modalities, open_weights, reasoning, release_date,
                     temperature, tool_call, knowledge, context_limit, output_limit,
-                    created_at, updated_at
-                FROM imported.models;
+                    is_custom_metadata, created_at, updated_at
+                FROM imported.models
+                WHERE true
+                ON CONFLICT(id) DO UPDATE SET
+                    provider_id = excluded.provider_id,
+                    name = excluded.name,
+                    model_id = excluded.model_id,
+                    is_default = excluded.is_default,
+                    last_used_at = excluded.last_used_at,
+                    attachment = excluded.attachment,
+                    modalities = excluded.modalities,
+                    open_weights = excluded.open_weights,
+                    reasoning = excluded.reasoning,
+                    release_date = excluded.release_date,
+                    temperature = excluded.temperature,
+                    tool_call = excluded.tool_call,
+                    knowledge = excluded.knowledge,
+                    context_limit = excluded.context_limit,
+                    output_limit = excluded.output_limit,
+                    is_custom_metadata = excluded.is_custom_metadata,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at;
 
                 INSERT INTO main.settings (id, key, value, created_at, updated_at)
                 SELECT id, key, value, created_at, updated_at
@@ -534,6 +588,17 @@ class DatabaseBackupService {
         } catch (error) {
             await currentDb.execute('ROLLBACK');
             throw error;
+        }
+    }
+
+    /**
+     * 清理临时备份文件
+     */
+    private async cleanupTempFile(filePath: string): Promise<void> {
+        try {
+            await remove(filePath);
+        } catch {
+            // 清理失败不影响主流程
         }
     }
 
