@@ -1,4 +1,4 @@
-// Copyright (c) 2025. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type { TauriDatabase } from './schema';
 
@@ -13,10 +13,6 @@ interface Journal {
     version: string;
     dialect: string;
     entries: JournalEntry[];
-}
-
-interface Snapshot {
-    tables: Record<string, { name: string }>;
 }
 
 /**
@@ -150,27 +146,26 @@ async function executeMigration(
 }
 
 async function ensureTriggers(tauriDb: TauriDatabase): Promise<void> {
-    // 从最新 snapshot 中提取表名
-    const snapshots = import.meta.glob<Snapshot>('/drizzle/meta/*_snapshot.json', {
-        eager: true,
-        import: 'default',
-    });
-    const snapshotFiles = Object.keys(snapshots).sort();
-    const latestKey = snapshotFiles[snapshotFiles.length - 1];
-    if (!latestKey) return;
+    const tables = await tauriDb.select<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    );
 
-    const latestSnapshot = snapshots[latestKey];
-    if (!latestSnapshot) return;
+    for (const { name: table } of tables) {
+        const quoted = `"${table.replace(/"/g, '""')}"`;
+        const columns = await tauriDb.select<{ name: string }>(`PRAGMA table_info(${quoted})`);
+        const columnNames = new Set(columns.map((column) => column.name));
 
-    const tables = Object.values(latestSnapshot.tables).map((t: { name: string }) => t.name);
+        if (!columnNames.has('id') || !columnNames.has('updated_at')) {
+            continue;
+        }
 
-    for (const table of tables) {
+        const triggerName = `"trg_${table.replace(/"/g, '""')}_updated_at"`;
         await tauriDb.execute(`
-            CREATE TRIGGER IF NOT EXISTS trg_${table}_updated_at
-            AFTER UPDATE ON ${table}
+            CREATE TRIGGER IF NOT EXISTS ${triggerName}
+            AFTER UPDATE ON ${quoted}
             FOR EACH ROW
             BEGIN
-                UPDATE ${table} SET updated_at = datetime('now') WHERE id = NEW.id;
+                UPDATE ${quoted} SET updated_at = datetime('now') WHERE id = NEW.id;
             END
         `);
     }

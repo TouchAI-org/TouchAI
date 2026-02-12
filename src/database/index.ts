@@ -1,5 +1,6 @@
-// Copyright (c) 2025. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { native } from '@services/NativeService';
 import Database from '@tauri-apps/plugin-sql';
 
 import type { DrizzleDb } from './driver';
@@ -14,10 +15,6 @@ import { seed } from './seed';
 class DatabaseManager {
     private tauriDb: Database | null = null;
     private drizzleDb: DrizzleDb | null = null;
-    private dbPath: string =
-        import.meta.env.MODE === 'production'
-            ? 'sqlite://./data/touchai.db'
-            : 'sqlite://../data/touchai.db';
     private initialized: boolean = false;
     private initPromise: Promise<void> | null = null;
 
@@ -40,9 +37,14 @@ class DatabaseManager {
         // 创建初始化 Promise
         this.initPromise = (async () => {
             try {
-                this.dbPath = options?.path || this.dbPath;
-                this.tauriDb = await Database.load(this.dbPath);
-                console.log(`Database initialized: ${this.dbPath}`);
+                const dbPath =
+                    options?.path || `sqlite://${await native.database.getDatabasePath()}`;
+                this.tauriDb = await Database.load(dbPath);
+                const version: { 'sqlite_version()': string }[] =
+                    await this.tauriDb.select('SELECT sqlite_version()');
+                console.log(
+                    `Database initialized. Sqlite Version: ${version[0]?.['sqlite_version()'] ?? 'Unknown'}, Path: ${dbPath}`
+                );
 
                 // 运行迁移（创建/更新表结构）
                 await migrate(this.tauriDb);
@@ -100,6 +102,17 @@ class DatabaseManager {
     async rawQuery<T>(sql: string, params: SqlValue[] = []): Promise<T[]> {
         await this.ensureInitialized();
         return this.tauriDb!.select<T>(sql, params) as Promise<T[]>;
+    }
+
+    async reset(closeAll = false): Promise<void> {
+        if (this.tauriDb) {
+            await this.tauriDb.close(closeAll ? undefined : this.tauriDb.path);
+        }
+
+        this.tauriDb = null;
+        this.drizzleDb = null;
+        this.initialized = false;
+        this.initPromise = null;
     }
 
     private async ensureInitialized(): Promise<void> {
