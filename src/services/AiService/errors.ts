@@ -118,35 +118,60 @@ export class AiError extends Error {
      * 从普通 Error 转换为 AiError
      */
     static fromError(error: unknown, defaultCode = AiErrorCode.UNKNOWN): AiError {
-        if (error instanceof AiError) {
+        if (error instanceof AiError && error.code !== AiErrorCode.UNKNOWN) {
             return error;
         }
 
-        if (error instanceof Error) {
+        if (error instanceof Error || typeof error == 'string') {
             // 尝试从错误消息推断错误类型
-            const message = error.message.toLowerCase();
+            const message = error instanceof Error ? error.message.toLowerCase() : error;
 
-            if (message.includes('cancel')) {
-                return new AiError(AiErrorCode.REQUEST_CANCELLED, error, error.message);
+            // 检查取消相关的错误（包括 abort、cancel、cancelled）
+            if (
+                message.includes('abort') ||
+                message.includes('cancel') ||
+                (error instanceof Error && error.name === 'AbortError')
+            ) {
+                return new AiError(AiErrorCode.REQUEST_CANCELLED, error);
             }
 
             if (message.includes('network') || message.includes('fetch')) {
-                return new AiError(AiErrorCode.NETWORK_ERROR, error, error.message);
+                return new AiError(
+                    AiErrorCode.NETWORK_ERROR,
+                    error,
+                    error instanceof Error ? error.message : String(error)
+                );
             }
 
             if (message.includes('timeout')) {
-                return new AiError(AiErrorCode.TIMEOUT, error, error.message);
+                return new AiError(
+                    AiErrorCode.TIMEOUT,
+                    error,
+                    error instanceof Error ? error.message : String(error)
+                );
             }
 
             if (message.includes('unauthorized') || message.includes('401')) {
-                return new AiError(AiErrorCode.UNAUTHORIZED, error, error.message);
+                return new AiError(
+                    AiErrorCode.UNAUTHORIZED,
+                    error,
+                    error instanceof Error ? error.message : String(error)
+                );
             }
 
             if (message.includes('api key')) {
-                return new AiError(AiErrorCode.INVALID_API_KEY, error, error.message);
+                return new AiError(
+                    AiErrorCode.INVALID_API_KEY,
+                    error,
+                    error instanceof Error ? error.message : String(error)
+                );
             }
 
-            return new AiError(defaultCode, error, error.message);
+            return new AiError(
+                defaultCode,
+                error,
+                error instanceof Error ? error.message : String(error)
+            );
         }
 
         return new AiError(defaultCode, undefined, String(error));
