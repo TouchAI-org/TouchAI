@@ -164,15 +164,15 @@ export class AiServiceManager {
             console.error('[AiServiceManager] Failed to record request start:', error);
         });
 
-        // 6. 创建流式响应
-        const stream = this.stream(provider, model.model_id, messages, signal);
-
-        // 7. 消费流式响应
-        const startedAt = Date.now();
-        let response = '';
-        let reasoning = '';
-
         try {
+            // 6. 创建流式响应
+            const stream = this.stream(provider, model.model_id, messages, signal);
+
+            // 7. 消费流式响应
+            const startedAt = Date.now();
+            let response = '';
+            let reasoning = '';
+
             for await (const chunk of stream) {
                 if (signal?.aborted) {
                     throw new AiError(AiErrorCode.REQUEST_CANCELLED);
@@ -217,6 +217,8 @@ export class AiServiceManager {
                 request: persister.getRequest(),
             };
         } catch (error) {
+            console.warn('[AiServiceManager] Request failed:', error, typeof error);
+
             const aiError = AiError.fromError(error);
 
             await requestStartRecordPromise;
@@ -261,3 +263,6 @@ export const aiService = new AiServiceManager();
 
 // 导出错误类和错误码
 export { AiError, AiErrorCode } from './errors';
+
+// 导出会话管理函数
+export { createSession, getSessionMessages } from './session';
