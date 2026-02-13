@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
-    import ResponsePanel from '@components/search/ResponsePanel.vue';
+    import ConversationPanel from '@components/search/ConversationPanel.vue';
     import SearchBar from '@components/search/SearchBar.vue';
     import { useAiRequest } from '@composables/useAiRequest';
     import { useAlert } from '@composables/useAlert';
@@ -26,30 +26,77 @@
 
     const searchQuery = ref('');
     const searchBar = ref<InstanceType<typeof SearchBar>>();
-    const responseDisplay = ref<InstanceType<typeof ResponsePanel>>();
+    const conversationPanel = ref<InstanceType<typeof ConversationPanel>>();
     const pageContainer = ref<HTMLElement | null>(null);
     const attachments = ref<Index[]>([]);
     const modelCapabilities = ref({ supportsImages: false, supportsFiles: false });
     const isPinned = ref(false);
     const isDragging = ref(false);
 
+    // 请求队列状态
+    const pendingRequest = ref<{
+        query: string;
+        attachments: Index[];
+        modelId?: string;
+        providerId?: number;
+    } | null>(null);
+    const isWaitingForCompletion = ref(false);
+
+    // 退格键双击检测
+    let lastBackspaceTime = 0;
+    const DOUBLE_BACKSPACE_INTERVAL = 300; // 300ms内连续按两次退格视为双击
+
     let unlistenFocus: (() => void) | null = null;
     let unlistenBlur: (() => void) | null = null;
     let unlistenPopupFocusMain: (() => void) | null = null;
 
-    // 双击退格检测（仅用于取消请求）
-    const lastBackspacePressTime = ref(0);
-    const DOUBLE_PRESS_THRESHOLD = 150; // 150ms 内算双击
+    const { isLoading, error, conversationHistory, sendRequest, cancel, clearConversation } =
+        useAiRequest({
+            onComplete: async () => {
+                // 请求完成后，检查是否有待发送的请求
+                if (pendingRequest.value) {
+                    const {
+                        query,
+                        attachments: pendingAttachments,
+                        modelId,
+                        providerId,
+                    } = pendingRequest.value;
+                    pendingRequest.value = null;
+                    isWaitingForCompletion.value = false;
 
-    const { isLoading, error, response, reasoning, hasResponse, sendRequest, reset, cancel } =
-        useAiRequest();
+                    // 清空搜索框和附件
+                    searchBar.value?.clearInput();
+                    searchQuery.value = '';
+                    attachments.value = [];
+
+                    // 发送待处理的请求
+                    await sendRequest(query, pendingAttachments, modelId, providerId);
+                }
+            },
+        });
 
     useWindowResize({ target: pageContainer, maxHeight: WINDOW_MAX_HEIGHT });
 
-    // 是否应该在失焦时隐藏窗口（只有置顶且有响应内容时才不隐藏，拖动时也不隐藏）
+    // 窗口隐藏超时管理
+    const HIDE_TIMEOUT_MS = 5 * 60 * 1000; // 5分钟
+    let lastHideTime: number | null = null;
+
+    function recordHideTime() {
+        lastHideTime = Date.now();
+    }
+
+    function checkAndClearIfTimeout() {
+        if (lastHideTime === null) return;
+        if (Date.now() - lastHideTime >= HIDE_TIMEOUT_MS) {
+            clearConversation();
+            lastHideTime = null;
+        }
+    }
+
+    // 是否应该在失焦时隐藏窗口（只有置顶且有对话历史时才不隐藏，拖动时也不隐藏）
     const shouldHideOnBlur = computed(() => {
         if (isDragging.value) return false;
-        return !(isPinned.value && hasResponse.value);
+        return !(isPinned.value && conversationHistory.value.length > 0);
     });
 
     /**
@@ -62,6 +109,9 @@
 
             // 如果应用完全失去焦点
             if (!appFocused) {
+                // 记录隐藏时间
+                recordHideTime();
+
                 // 无条件执行弹窗隐藏与状态重置，避免可见性检查导致状态残留
                 await popupManager.hide();
 
@@ -80,13 +130,39 @@
     }
 
     async function handleSubmit(query: string) {
-        reset();
+        // 如果正在加载中，将请求加入队列
+        if (isLoading.value) {
+            // 如果已经有待处理的请求，不重复排队
+            if (pendingRequest.value) {
+                return;
+            }
+
+            const selectedModelId = unref(searchBar.value?.selectedModelId);
+            const selectedProviderId = unref(searchBar.value?.selectedProviderId);
+            const supportedAttachments = attachments.value.filter(isAttachmentSupported);
+
+            pendingRequest.value = {
+                query,
+                attachments: supportedAttachments,
+                modelId: selectedModelId || undefined,
+                providerId: selectedProviderId || undefined,
+            };
+
+            isWaitingForCompletion.value = true;
+            // 保留搜索框内容，文字会通过disabled状态变灰
+            return;
+        }
 
         const selectedModelId = unref(searchBar.value?.selectedModelId);
         const selectedProviderId = unref(searchBar.value?.selectedProviderId);
-
         const supportedAttachments = attachments.value.filter(isAttachmentSupported);
 
+        // 清空搜索框和附件
+        searchBar.value?.clearInput();
+        searchQuery.value = '';
+        attachments.value = [];
+
+        // 发送请求
         await sendRequest(
             query,
             supportedAttachments,
@@ -98,7 +174,7 @@
     // 处理清空事件（点击清除按钮）
     function handleClear() {
         searchQuery.value = '';
-        reset();
+        attachments.value = [];
     }
 
     // 处理移除附件
@@ -132,7 +208,8 @@
 
     function clearAll() {
         searchQuery.value = '';
-        reset();
+        attachments.value = [];
+        clearConversation();
         searchBar.value?.clearInput();
     }
 
@@ -141,6 +218,30 @@
         if (isLoading.value) {
             cancel();
         }
+    }
+
+    // 处理重新生成消息
+    async function handleRegenerateMessage(messageId: string) {
+        // 找到当前 AI 消息
+        const messageIndex = conversationHistory.value.findIndex((m) => m.id === messageId);
+        if (messageIndex === -1) return;
+
+        // 找到对应的用户消息（前一条消息）
+        if (messageIndex === 0) return; // 第一条消息不应该是 AI 消息
+        const userMessage = conversationHistory.value[messageIndex - 1];
+        if (!userMessage || userMessage.role !== 'user') return;
+
+        // 重新发送用户消息
+        const selectedModelId = unref(searchBar.value?.selectedModelId);
+        const selectedProviderId = unref(searchBar.value?.selectedProviderId);
+        const supportedAttachments = (userMessage.attachments || []).filter(isAttachmentSupported);
+
+        await sendRequest(
+            userMessage.content,
+            supportedAttachments,
+            selectedModelId || undefined,
+            selectedProviderId || undefined
+        );
     }
 
     function handleSearchWindowMouseDown(event: MouseEvent) {
@@ -166,12 +267,10 @@
 
     // 键盘事件监听
     async function handleKeyDown(event: KeyboardEvent) {
-        const now = Date.now();
-
         // Tab 键切换焦点到响应模块
-        if (event.key === 'Tab' && hasResponse.value) {
+        if (event.key === 'Tab' && conversationHistory.value.length > 0) {
             event.preventDefault();
-            responseDisplay.value?.focus();
+            conversationPanel.value?.focus();
             return;
         }
 
@@ -199,15 +298,15 @@
                 return;
             }
 
-            // 优先级4: 如果没有输入内容并且也没有结果，即空窗口，那么隐藏窗口
-            if (!searchQuery.value.trim() && !hasResponse.value) {
+            // 优先级4: 如果没有输入内容并且也没有对话历史，即空窗口，那么隐藏窗口
+            if (!searchQuery.value.trim() && conversationHistory.value.length === 0) {
                 await getCurrentWindow().hide();
                 return;
             }
 
-            // 优先级5: 如果有响应，只清除响应但保留搜索文本
-            if (hasResponse.value) {
-                reset();
+            // 优先级5: 如果有对话历史，清空界面（会话保留在数据库）
+            if (conversationHistory.value.length > 0) {
+                clearConversation();
                 return;
             }
 
@@ -235,7 +334,7 @@
 
         if (!searchBar.value?.isModelDropdownOpen) {
             if (['ArrowUp', 'ArrowDown'].includes(event.key)) {
-                responseDisplay.value?.focus();
+                conversationPanel.value?.focus();
                 return;
             }
         }
@@ -247,28 +346,37 @@
                 return;
             }
 
+            // 如果有待处理的请求，检测双击退格
+            if (pendingRequest.value) {
+                const now = Date.now();
+                const timeSinceLastBackspace = now - lastBackspaceTime;
+                lastBackspaceTime = now;
+
+                // 如果是双击退格（300ms内连续按两次）
+                if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL) {
+                    event.preventDefault();
+                    // 取消待处理的请求，但不清空输入框
+                    pendingRequest.value = null;
+                    isWaitingForCompletion.value = false;
+                    // 文字会自动恢复黑色（因为disabled变为false）
+                    lastBackspaceTime = 0; // 重置计时器
+                }
+                return;
+            }
+
             // 如果光标在开头且已选择模型，退格取消模型选择
             if (searchBar.value?.selectedModelId && searchBar.value?.isCursorAtStart?.()) {
                 event.preventDefault();
                 searchBar.value?.clearSelectedModel();
                 return;
             }
-
-            // 双击退格键取消请求
-            if (now - lastBackspacePressTime.value < DOUBLE_PRESS_THRESHOLD) {
-                if (isLoading.value) {
-                    cancelRequest();
-                }
-                lastBackspacePressTime.value = 0;
-            } else {
-                lastBackspacePressTime.value = now;
-            }
         }
 
         // Enter 键提交查询
         if (event.key === 'Enter') {
             event.preventDefault();
-            if (!isLoading.value && searchQuery.value.trim()) {
+            // 允许在加载时提交（会进入队列），但必须有内容
+            if (searchQuery.value.trim()) {
                 await handleSubmit(searchQuery.value);
             }
         }
@@ -276,6 +384,9 @@
 
     async function initFocusListener() {
         unlistenFocus = await getCurrentWindow().listen('tauri://focus', async () => {
+            // 检查是否超时，如果超时则清空界面
+            checkAndClearIfTimeout();
+
             await nextTick();
             searchBar.value?.focus();
             searchBar.value?.loadActiveModel();
@@ -415,9 +526,24 @@
         ]"
         @paste="handlePaste"
     >
+        <div v-if="conversationHistory.length > 0" class="w-full flex-1 overflow-hidden">
+            <ConversationPanel
+                ref="conversationPanel"
+                :messages="conversationHistory"
+                :is-loading="isLoading"
+                :error="error"
+                :is-pinned="isPinned"
+                @pin-change="(value: boolean) => (isPinned = value)"
+                @regenerate-message="handleRegenerateMessage"
+            />
+        </div>
+        <div
+            v-if="conversationHistory.length > 0"
+            class="w-full border-t-[0.5px] border-gray-300/80"
+        ></div>
         <SearchBar
             ref="searchBar"
-            :disabled="isLoading"
+            :disabled="isWaitingForCompletion"
             :attachments="attachments"
             @search="handleSearch"
             @submit="handleSubmit"
@@ -427,30 +553,26 @@
             @drag-start="isDragging = true"
             @drag-end="isDragging = false"
         />
-        <div v-if="hasResponse" class="w-full border-t-[0.5px] border-gray-300/80">
-            <ResponsePanel
-                ref="responseDisplay"
-                :content="response"
-                :reasoning="reasoning"
-                :is-loading="isLoading"
-                :error="error"
-                :is-pinned="isPinned"
-                @pin-change="(value: boolean) => (isPinned = value)"
-            />
-        </div>
     </div>
 </template>
 
 <style scoped>
     .search-view-container {
-        border: 1.5px solid #d1d5db;
+        border: 1.5px solid var(--color-gray-300);
     }
 
     .search-view-container.loading {
         border: 2px solid transparent;
         background-image:
-            linear-gradient(rgba(251, 251, 246, 0.98), rgba(251, 251, 246, 0.98)),
-            linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #8b5cf6, #3b82f6);
+            linear-gradient(var(--color-background-primary), var(--color-background-primary)),
+            linear-gradient(
+                90deg,
+                var(--color-blue-500),
+                var(--color-violet-500),
+                var(--color-pink-500),
+                var(--color-violet-500),
+                var(--color-blue-500)
+            );
         background-origin: border-box;
         background-clip: padding-box, border-box;
         animation: border-flow 1.5s linear infinite;
@@ -459,28 +581,63 @@
     @keyframes border-flow {
         0% {
             background-image:
-                linear-gradient(rgba(251, 251, 246, 0.98), rgba(251, 251, 246, 0.98)),
-                linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #8b5cf6, #3b82f6);
+                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
+                linear-gradient(
+                    90deg,
+                    var(--color-blue-500),
+                    var(--color-violet-500),
+                    var(--color-pink-500),
+                    var(--color-violet-500),
+                    var(--color-blue-500)
+                );
         }
         25% {
             background-image:
-                linear-gradient(rgba(251, 251, 246, 0.98), rgba(251, 251, 246, 0.98)),
-                linear-gradient(90deg, #8b5cf6, #ec4899, #8b5cf6, #3b82f6, #8b5cf6);
+                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
+                linear-gradient(
+                    90deg,
+                    var(--color-violet-500),
+                    var(--color-pink-500),
+                    var(--color-violet-500),
+                    var(--color-blue-500),
+                    var(--color-violet-500)
+                );
         }
         50% {
             background-image:
-                linear-gradient(rgba(251, 251, 246, 0.98), rgba(251, 251, 246, 0.98)),
-                linear-gradient(90deg, #ec4899, #8b5cf6, #3b82f6, #8b5cf6, #ec4899);
+                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
+                linear-gradient(
+                    90deg,
+                    var(--color-pink-500),
+                    var(--color-violet-500),
+                    var(--color-blue-500),
+                    var(--color-violet-500),
+                    var(--color-pink-500)
+                );
         }
         75% {
             background-image:
-                linear-gradient(rgba(251, 251, 246, 0.98), rgba(251, 251, 246, 0.98)),
-                linear-gradient(90deg, #8b5cf6, #3b82f6, #8b5cf6, #ec4899, #8b5cf6);
+                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
+                linear-gradient(
+                    90deg,
+                    var(--color-violet-500),
+                    var(--color-blue-500),
+                    var(--color-violet-500),
+                    var(--color-pink-500),
+                    var(--color-violet-500)
+                );
         }
         100% {
             background-image:
-                linear-gradient(rgba(251, 251, 246, 0.98), rgba(251, 251, 246, 0.98)),
-                linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #8b5cf6, #3b82f6);
+                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
+                linear-gradient(
+                    90deg,
+                    var(--color-blue-500),
+                    var(--color-violet-500),
+                    var(--color-pink-500),
+                    var(--color-violet-500),
+                    var(--color-blue-500)
+                );
         }
     }
 </style>
