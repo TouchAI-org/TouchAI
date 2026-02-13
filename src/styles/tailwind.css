@@ -21,6 +21,17 @@
     --font-sans:
         -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
     --font-serif: 'Source Han Serif SC', 'Noto Serif SC', 'Source Han Serif', serif;
+
+    /* 行内代码配色 */
+    --color-code-inline-bg: #f1ece1;
+    --color-code-inline-text: #691d1d;
+
+    /* 滚动条配色 */
+    --color-scrollbar-thumb: rgba(156, 163, 175, 0.4);
+    --color-scrollbar-thumb-hover: rgba(156, 163, 175, 0.6);
+
+    /* 遮罩渐变 */
+    --color-overlay-fade: rgba(255, 255, 255, 0.95);
 }
 
 /* 全局基础样式 */
@@ -73,13 +84,13 @@
     }
 
     .custom-scrollbar::-webkit-scrollbar-thumb {
-        background: rgba(156, 163, 175, 0.4);
+        background: var(--color-scrollbar-thumb);
         border-radius: 3px;
         transition: background 0.2s;
     }
 
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: rgba(156, 163, 175, 0.6);
+        background: var(--color-scrollbar-thumb-hover);
     }
 
     /* 细滚动条变体（用于小区域） */
@@ -93,12 +104,12 @@
     }
 
     .custom-scrollbar-thin::-webkit-scrollbar-thumb {
-        background: rgba(156, 163, 175, 0.4);
+        background: var(--color-scrollbar-thumb);
         border-radius: 2px;
     }
 
     .custom-scrollbar-thin::-webkit-scrollbar-thumb:hover {
-        background: rgba(156, 163, 175, 0.6);
+        background: var(--color-scrollbar-thumb-hover);
     }
 
     /* 隐藏密码输入框的原生显示/隐藏按钮 */

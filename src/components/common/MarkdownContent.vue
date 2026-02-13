@@ -183,21 +183,21 @@
     /* Markdown 内容的颜色变量和基础样式 */
     .response-text {
         /* 文本颜色 */
-        --color-text-primary: #111827; /* gray-900 */
-        --color-text-secondary: #4b5563; /* gray-600 */
+        --color-text-primary: var(--color-gray-900);
+        --color-text-secondary: var(--color-gray-600);
 
         /* 边框颜色 */
-        --color-border-primary: #e5e7eb; /* gray-200 */
+        --color-border-primary: var(--color-gray-200);
 
         /* 代码块颜色 */
-        --color-code-bg: #f1ece1;
-        --color-code-text: #691d1d;
-        --color-code-block-bg: #1f2937; /* gray-800 */
-        --color-code-block-text: #f9fafb; /* gray-50 */
+        --color-code-bg: var(--color-code-inline-bg);
+        --color-code-text: var(--color-code-inline-text);
+        --color-code-block-bg: var(--color-gray-800);
+        --color-code-block-text: var(--color-gray-50);
 
         /* 链接颜色 */
-        --color-link: #3b82f6; /* info-500 */
-        --color-link-hover: #2563eb; /* info-600 */
+        --color-link: var(--color-blue-500);
+        --color-link-hover: var(--color-blue-600);
 
         /* 基础样式 */
         font-family: 'Source Han Serif SC', 'Noto Serif SC', 'Source Serif Pro', 'Georgia', serif;
@@ -255,7 +255,7 @@
     .response-text :deep(a) {
         color: var(--color-link);
         text-decoration: none;
-        border-bottom: 1px solid #dbeafe; /* primary-100 */
+        border-bottom: 1px solid var(--color-blue-100);
         transition: all 0.2s;
     }
 

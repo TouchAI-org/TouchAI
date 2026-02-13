@@ -140,10 +140,10 @@
     }
 
     .prose :where(code):not(:where([class~='not-prose'] *)) {
-        color: #691d1d;
+        color: var(--color-code-inline-text);
         font-weight: 600;
         font-size: 0.875em;
-        background-color: #f1ece1;
+        background-color: var(--color-code-inline-bg);
         padding: 0.125rem 0.375rem;
         border-radius: 0.25rem;
     }
@@ -273,7 +273,7 @@
         position: relative;
         border-radius: 0.5rem;
         overflow: hidden;
-        background-color: #1f2937;
+        background-color: theme('colors.gray.800');
     }
 
     .markdown-content .code-block-header {
@@ -285,15 +285,15 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.5rem 1rem;
-        background-color: #374151;
-        border-bottom: 1px solid #4b5563;
+        background-color: theme('colors.gray.700');
+        border-bottom: 1px solid theme('colors.gray.600');
         z-index: 10;
     }
 
     .markdown-content .code-block-lang {
         font-size: 0.75rem;
         font-weight: 600;
-        color: #9ca3af;
+        color: theme('colors.gray.400');
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
@@ -305,8 +305,8 @@
         padding: 0.25rem 0.625rem;
         font-size: 0.75rem;
         font-weight: 500;
-        color: #d1d5db;
-        background-color: #4b5563;
+        color: theme('colors.gray.300');
+        background-color: theme('colors.gray.600');
         border: none;
         border-radius: 0.375rem;
         cursor: pointer;
@@ -314,8 +314,8 @@
     }
 
     .markdown-content .code-copy-btn:hover {
-        background-color: #6b7280;
-        color: #ffffff;
+        background-color: theme('colors.gray.500');
+        color: white;
     }
 
     .markdown-content .code-copy-btn:active {
@@ -333,7 +333,7 @@
     .markdown-content .code-block-wrapper pre {
         margin: 0 !important;
         padding: 1rem !important;
-        background-color: #1f2937 !important;
+        background-color: theme('colors.gray.800') !important;
         overflow-x: auto;
     }
 
@@ -342,7 +342,7 @@
         font-size: 0.875rem;
         line-height: 1.7;
         background-color: transparent !important;
-        color: #f9fafb;
+        color: theme('colors.gray.50');
     }
 
     /* 脚注样式 */
@@ -393,7 +393,7 @@
 
     /* 高亮文本 ==marked== */
     .prose :where(mark):not(:where([class~='not-prose'] *)) {
-        background-color: #fef08a;
+        background-color: theme('colors.yellow.200');
         color: theme('colors.gray.900');
         padding: 0.125rem 0.25rem;
         border-radius: 0.125rem;
