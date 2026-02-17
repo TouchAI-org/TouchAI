@@ -44,7 +44,8 @@
     import SvgIcon from '@components/common/SvgIcon.vue';
     import ConversationToolbar from '@components/search/ConversationToolbar.vue';
     import MessageItem from '@components/search/MessageItem.vue';
-    import type { ConversationMessage } from '@composables/useAiRequest';
+    import type { ConversationMessage } from '@composables/useAgent.ts';
+    import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { computed, nextTick, ref, watch } from 'vue';
 
     interface Props {
@@ -66,6 +67,7 @@
     }>();
 
     const conversationContainer = ref<HTMLElement | null>(null);
+    useScrollbarStabilizer(conversationContainer);
     const isPinned = computed(() => props.isPinned);
     const showScrollToBottom = ref(false);
     const isAutoScrollEnabled = ref(true);

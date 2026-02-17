@@ -2,7 +2,7 @@
 
 <template>
     <div class="message-bubble justify-start">
-        <div class="message-content max-w-[90%]">
+        <div class="message-content w-full">
             <div class="ai-message">
                 <!-- 取消消息特殊样式 -->
                 <div v-if="message.isCancelled" class="cancelled-message text-gray-500 italic">
@@ -43,6 +43,12 @@
                             <MarkdownContent :content="message.reasoning" variant="reasoning" />
                         </div>
                     </div>
+
+                    <!-- 工具调用显示（如果存在）-->
+                    <ToolCallSection
+                        :tool-calls="message.toolCalls"
+                        :message-content="message.content"
+                    />
 
                     <!-- 主要内容 -->
                     <MarkdownContent :content="message.content" />
@@ -85,7 +91,8 @@
 <script setup lang="ts">
     import MarkdownContent from '@components/common/MarkdownContent.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
-    import type { ConversationMessage } from '@composables/useAiRequest';
+    import ToolCallSection from '@components/search/ToolCallSection.vue';
+    import type { ConversationMessage } from '@composables/useAgent.ts';
     import { sendNotification } from '@tauri-apps/plugin-notification';
     import { ref, watch } from 'vue';
 

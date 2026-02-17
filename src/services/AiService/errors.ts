@@ -28,6 +28,12 @@ export enum AiErrorCode {
     INVALID_CONFIG = 'INVALID_CONFIG',
     MISSING_ENDPOINT = 'MISSING_ENDPOINT',
 
+    // MCP 相关错误 (6xxx)
+    MCP_CONNECTION_FAILED = 'MCP_CONNECTION_FAILED',
+    MCP_TOOL_EXECUTION_FAILED = 'MCP_TOOL_EXECUTION_FAILED',
+    MCP_TOOL_TIMEOUT = 'MCP_TOOL_TIMEOUT',
+    MCP_MAX_ITERATIONS_REACHED = 'MCP_MAX_ITERATIONS_REACHED',
+
     // 未知错误
     UNKNOWN = 'UNKNOWN',
 }
@@ -60,6 +66,12 @@ const ERROR_MESSAGES: Record<AiErrorCode, string> = {
     [AiErrorCode.INVALID_CONFIG]: '配置无效',
     [AiErrorCode.MISSING_ENDPOINT]: '缺少 API 端点配置',
 
+    // MCP 相关
+    [AiErrorCode.MCP_CONNECTION_FAILED]: 'MCP 服务器连接失败',
+    [AiErrorCode.MCP_TOOL_EXECUTION_FAILED]: 'MCP 工具执行失败',
+    [AiErrorCode.MCP_TOOL_TIMEOUT]: 'MCP 工具执行超时',
+    [AiErrorCode.MCP_MAX_ITERATIONS_REACHED]: '已达到最大迭代次数',
+
     // 未知错误
     [AiErrorCode.UNKNOWN]: '未知错误',
 };
@@ -81,6 +93,13 @@ export class AiError extends Error {
 
         // 保持正确的原型链
         Object.setPrototypeOf(this, AiError.prototype);
+    }
+
+    /**
+     * 获取错误码对应的消息文本
+     */
+    static getMessage(code: AiErrorCode): string {
+        return ERROR_MESSAGES[code];
     }
 
     /**

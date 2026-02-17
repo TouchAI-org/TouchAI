@@ -1,20 +1,25 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import {
+    createMcpToolLog,
     findDefaultModelWithProvider,
     findModelByProviderAndModelId,
+    updateMcpToolLogByCallId,
     updateModelLastUsed,
 } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
+import { getSettingValue } from '@database/queries/settings';
 import type { ProviderType } from '@database/schema';
+import { SettingKey } from '@database/schema';
 import type { AiRequestEntity } from '@database/types';
 import type { Index } from '@services/AiService/attachments';
 
 import { AiError, AiErrorCode } from './errors';
+import { mcpManager } from './mcp';
 import { buildRequestMessages } from './messages';
 import { Persister } from './persister';
 import { createProviderFromRegistry, normalizeProviderEndpoint } from './provider';
-import type { AiMessage, AiProvider, AiStreamChunk } from './types';
+import type { AiMessage, AiProvider, AiStreamChunk, AiToolCall, AiToolDefinition } from './types';
 
 export interface ExecuteRequestOptions {
     prompt: string;
@@ -109,12 +114,19 @@ export class AiServiceManager {
         provider: AiProvider,
         modelId: string,
         messages: AiMessage[],
-        signal?: AbortSignal
+        tools?: AiToolDefinition[],
+        signal?: AbortSignal,
+        maxTokens?: number
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
+        console.debug(
+            `[AIService] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
+        );
         for await (const chunk of provider.stream({
             model: modelId,
             messages,
+            tools,
             signal,
+            maxTokens,
         })) {
             yield chunk;
         }
@@ -122,8 +134,9 @@ export class AiServiceManager {
 
     /**
      * 执行AI请求流程：模型解析、流消费、分阶段持久化。
+     * 支持工具调用的 Agent Loop。
      */
-    async executeRequest(options: ExecuteRequestOptions): Promise<ExecuteRequestResult> {
+    async run(options: ExecuteRequestOptions): Promise<ExecuteRequestResult> {
         const {
             prompt,
             sessionId,
@@ -165,32 +178,233 @@ export class AiServiceManager {
         });
 
         try {
-            // 6. 创建流式响应
-            const stream = this.stream(provider, model.model_id, messages, signal);
+            // 6. 从设置中获取最大迭代次数
+            const maxIterationsStr = await getSettingValue({ key: SettingKey.MCP_MAX_ITERATIONS });
+            const maxIterations = maxIterationsStr ? parseInt(maxIterationsStr, 10) : 10;
 
-            // 7. 消费流式响应
+            // 7. 如果模型支持工具调用，获取工具列表
+            let tools: AiToolDefinition[] | undefined;
+            if (model.tool_call === 1) {
+                tools = await mcpManager.getEnabledToolDefinitions();
+            }
+
+            // 8. Agent 循环
             const startedAt = Date.now();
             let response = '';
             let reasoning = '';
+            let iteration = 0;
 
-            for await (const chunk of stream) {
+            while (iteration < maxIterations) {
                 if (signal?.aborted) {
                     throw new AiError(AiErrorCode.REQUEST_CANCELLED);
                 }
 
-                if (chunk.reasoning) {
-                    reasoning += chunk.reasoning;
+                // 从 provider 获取流式响应
+                const stream = this.stream(
+                    provider,
+                    model.model_id,
+                    messages,
+                    tools,
+                    signal,
+                    model.output_limit ?? undefined
+                );
+                let chunkResponse = '';
+                let finishReason: string | undefined;
+                let toolCalls: AiToolCall[] | undefined;
+
+                for await (const chunk of stream) {
+                    if (signal?.aborted) {
+                        throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+                    }
+
+                    if (chunk.reasoning) {
+                        reasoning += chunk.reasoning;
+                    }
+
+                    if (chunk.content) {
+                        chunkResponse += chunk.content;
+                        response += chunk.content;
+                    }
+
+                    onChunk?.(chunk);
+
+                    if (chunk.done) {
+                        finishReason = chunk.finishReason;
+                        toolCalls = chunk.toolCalls;
+                        break;
+                    }
                 }
 
-                if (chunk.content) {
-                    response += chunk.content;
-                }
+                // 检查是否需要继续循环
+                const isToolRelated = finishReason === 'tool_calls' || finishReason === 'tool_use';
 
-                onChunk?.(chunk);
-
-                if (chunk.done) {
+                if (!isToolRelated || !toolCalls || toolCalls.length === 0) {
+                    // 无工具调用，退出循环
                     break;
                 }
+
+                // 发送迭代开始事件（仅当工具调用将被执行时）
+                onChunk?.({
+                    content: '',
+                    done: false,
+                    toolEvent: { type: 'iteration_start', iteration },
+                });
+
+                // 追加带 tool_calls 的助手消息
+                messages.push({
+                    role: 'assistant',
+                    content: chunkResponse,
+                    tool_calls: toolCalls,
+                });
+
+                // 持久化工具调用消息
+                const toolCallMessageId = await persister.persistToolCallMessage(chunkResponse);
+
+                // 执行每个工具调用
+                for (const toolCall of toolCalls) {
+                    if (signal?.aborted) {
+                        throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+                    }
+
+                    const callStartTime = Date.now();
+                    let toolArgs: Record<string, unknown>;
+
+                    try {
+                        toolArgs = JSON.parse(toolCall.arguments);
+                    } catch {
+                        toolArgs = {};
+                    }
+
+                    // 解析工具映射
+                    const mapping = await mcpManager.resolveToolCall(toolCall.name);
+
+                    if (!mapping) {
+                        console.error(
+                            `[AiServiceManager] Failed to resolve tool: ${toolCall.name}`
+                        );
+                        const errorResult = `Tool not found: ${toolCall.name}`;
+                        const durationMs = Date.now() - callStartTime;
+
+                        // 发送调用结束事件（含错误）
+                        onChunk?.({
+                            content: '',
+                            done: false,
+                            toolEvent: {
+                                type: 'call_end',
+                                callId: toolCall.id,
+                                result: errorResult,
+                                isError: true,
+                                durationMs,
+                            },
+                        });
+
+                        // 追加错误结果消息
+                        messages.push({
+                            role: 'tool',
+                            content: errorResult,
+                            tool_call_id: toolCall.id,
+                            name: toolCall.name,
+                        });
+
+                        await persister.persistToolResultMessage(errorResult, null);
+
+                        continue;
+                    }
+
+                    // 发送调用开始事件
+                    onChunk?.({
+                        content: '',
+                        done: false,
+                        toolEvent: {
+                            type: 'call_start',
+                            callId: toolCall.id,
+                            toolName: mapping.originalName,
+                            namespacedName: toolCall.name,
+                            serverId: mapping.serverId,
+                            arguments: toolArgs,
+                        },
+                    });
+
+                    // 记录工具日志开始（await 确保记录存在后再更新）
+                    let toolLogId: number | null = null;
+                    try {
+                        const toolLog = await createMcpToolLog({
+                            server_id: mapping.serverId,
+                            tool_name: mapping.originalName,
+                            tool_call_id: toolCall.id,
+                            session_id: persister.getSessionId(),
+                            message_id: toolCallMessageId,
+                            iteration,
+                            input: JSON.stringify(toolArgs),
+                            status: 'pending',
+                        });
+                        toolLogId = toolLog.id;
+                    } catch (err) {
+                        console.error('[AiServiceManager] Failed to create tool log:', err);
+                    }
+
+                    // 执行工具
+                    const toolResult = await mcpManager.executeTool(toolCall.name, toolArgs, {
+                        signal,
+                        iteration,
+                        resolved: {
+                            serverId: mapping.serverId,
+                            originalName: mapping.originalName,
+                            toolTimeout: mapping.toolTimeout,
+                        },
+                    });
+
+                    const durationMs = Date.now() - callStartTime;
+
+                    // 发送调用结束事件
+                    onChunk?.({
+                        content: '',
+                        done: false,
+                        toolEvent: {
+                            type: 'call_end',
+                            callId: toolCall.id,
+                            result: toolResult.result,
+                            isError: toolResult.isError,
+                            durationMs,
+                        },
+                    });
+
+                    // 用结果更新工具日志
+                    updateMcpToolLogByCallId(toolCall.id, {
+                        output: toolResult.result,
+                        status: toolResult.isError ? 'error' : 'success',
+                        duration_ms: durationMs,
+                        error_message: toolResult.isError ? toolResult.result : null,
+                    }).catch((err) => {
+                        console.error('[AiServiceManager] Failed to update tool log:', err);
+                    });
+
+                    // 追加工具结果消息
+                    messages.push({
+                        role: 'tool',
+                        content: toolResult.result,
+                        tool_call_id: toolCall.id,
+                        name: toolCall.name,
+                    });
+
+                    // 持久化工具结果消息
+                    await persister.persistToolResultMessage(toolResult.result, toolLogId);
+                }
+
+                // 发送迭代结束事件
+                onChunk?.({
+                    content: '',
+                    done: false,
+                    toolEvent: { type: 'iteration_end', iteration },
+                });
+
+                iteration++;
+            }
+
+            // 检查是否达到最大迭代次数 - 追加警告而非抛出异常
+            if (iteration >= maxIterations) {
+                console.warn('[AiServiceManager] Max iterations reached');
+                response += `\n\n[${AiError.getMessage(AiErrorCode.MCP_MAX_ITERATIONS_REACHED)}]`;
             }
 
             if (signal?.aborted) {
@@ -201,7 +415,7 @@ export class AiServiceManager {
                 throw new AiError(AiErrorCode.EMPTY_RESPONSE);
             }
 
-            // 8. 持久化相关状态
+            // 9. 持久化相关状态
             await requestStartRecordPromise;
             await persister.markCompleted({
                 response,

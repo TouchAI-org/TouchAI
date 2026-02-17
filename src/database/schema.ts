@@ -41,6 +41,7 @@ export enum SettingKey {
     THEME = 'theme',
     LANGUAGE = 'language',
     AUTO_START = 'auto_start',
+    MCP_MAX_ITERATIONS = 'mcp_max_iterations',
 }
 
 /**
@@ -82,8 +83,11 @@ export const messages = sqliteTable('messages', {
     session_id: integer('session_id')
         .notNull()
         .references(() => sessions.id, { onDelete: 'cascade' }),
-    role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
+    role: text('role', {
+        enum: ['user', 'assistant', 'system', 'tool_call', 'tool_result'],
+    }).notNull(),
     content: text('content').notNull(),
+    tool_log_id: integer('tool_log_id'), // 关联 mcp_tool_logs 表 ID（仅 tool_result 消息使用）
     created_at: text('created_at')
         .notNull()
         .default(sql`(datetime('now'))`),
@@ -245,6 +249,77 @@ export const llmMetadata = sqliteTable('llm_metadata', {
         .default(sql`(datetime('now'))`),
 });
 
+/**
+ * MCP 服务器表
+ */
+export const mcpServers = sqliteTable('mcp_servers', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull().unique(),
+    transport_type: text('transport_type', { enum: ['stdio', 'sse', 'http'] }).notNull(),
+    command: text('command'), // Stdio: 命令
+    args: text('args'), // Stdio：参数，JSON数组
+    env: text('env'), // Stdio：JSON格式
+    cwd: text('cwd'), // Stdio：工作目录
+    url: text('url'), // SSE/HTTP: 链接
+    headers: text('headers'), // JSON格式
+    enabled: integer('enabled').notNull().default(1),
+    tool_timeout: integer('tool_timeout').notNull().default(30000), // 毫秒
+    version: text('version'),
+    last_error: text('last_error'),
+    last_connected_at: text('last_connected_at'),
+    created_at: text('created_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+    updated_at: text('updated_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
+/**
+ * MCP 工具表
+ */
+export const mcpTools = sqliteTable('mcp_tools', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    server_id: integer('server_id')
+        .notNull()
+        .references(() => mcpServers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    input_schema: text('input_schema').notNull(), // JSON字符串
+    enabled: integer('enabled').notNull().default(1),
+    created_at: text('created_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+    updated_at: text('updated_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
+/**
+ * MCP 工具调用日志表
+ */
+export const mcpToolLogs = sqliteTable('mcp_tool_logs', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    server_id: integer('server_id')
+        .notNull()
+        .references(() => mcpServers.id, { onDelete: 'cascade' }),
+    tool_name: text('tool_name').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    session_id: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+    message_id: integer('message_id').references(() => messages.id, { onDelete: 'set null' }),
+    iteration: integer('iteration').notNull().default(1),
+    input: text('input').notNull(), // JSON string
+    output: text('output'), // JSON string
+    status: text('status', { enum: ['pending', 'success', 'error', 'timeout'] })
+        .notNull()
+        .default('pending'),
+    duration_ms: integer('duration_ms'),
+    error_message: text('error_message'),
+    created_at: text('created_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
 // ==================== 类型别名 ====================
 
 export type Session = typeof sessions.$inferSelect;
@@ -283,6 +358,20 @@ export type LlmMetadata = typeof llmMetadata.$inferSelect;
 export type NewLlmMetadata = typeof llmMetadata.$inferInsert;
 export type LlmMetadataUpdate = Partial<NewLlmMetadata>;
 
+export type McpServer = typeof mcpServers.$inferSelect;
+export type NewMcpServer = typeof mcpServers.$inferInsert;
+export type McpServerUpdate = Partial<NewMcpServer>;
+
+export type McpTool = typeof mcpTools.$inferSelect;
+export type NewMcpTool = typeof mcpTools.$inferInsert;
+export type McpToolUpdate = Partial<NewMcpTool>;
+
+export type McpToolLog = typeof mcpToolLogs.$inferSelect;
+export type NewMcpToolLog = typeof mcpToolLogs.$inferInsert;
+export type McpToolLogUpdate = Partial<NewMcpToolLog>;
+
 export type MessageRole = Message['role'];
 export type ProviderType = Provider['type'];
 export type RequestStatus = AiRequest['status'];
+export type TransportType = McpServer['transport_type'];
+export type ToolLogStatus = McpToolLog['status'];

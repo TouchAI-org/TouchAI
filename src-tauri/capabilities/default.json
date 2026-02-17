@@ -28,6 +28,45 @@
         "log:default",
         "process:allow-exit",
         "process:allow-restart",
+        "shell:allow-execute",
+        "shell:allow-kill",
+        "shell:allow-stdin-write",
+        "shell:allow-open",
+        {
+            "identifier": "shell:allow-spawn",
+            "allow": [
+                {
+                    "name": "pnpx",
+                    "cmd": "pnpx",
+                    "args": true,
+                    "sidecar": false
+                },
+                {
+                    "name": "npx",
+                    "cmd": "npx",
+                    "args": true,
+                    "sidecar": false
+                },
+                {
+                    "name": "node",
+                    "cmd": "node",
+                    "args": true,
+                    "sidecar": false
+                },
+                {
+                    "name": "cmd",
+                    "cmd": "cmd",
+                    "args": true,
+                    "sidecar": false
+                },
+                {
+                    "name": "powershell",
+                    "cmd": "powershell",
+                    "args": true,
+                    "sidecar": false
+                }
+            ]
+        },
         "clipboard-x:default",
         "fs-pro:default",
         "dialog:default",

@@ -20,5 +20,5 @@ export async function createSession(title: string, model: string): Promise<numbe
  * 获取会话消息历史
  */
 export async function getSessionMessages(sessionId: number): Promise<MessageEntity[]> {
-    return await findMessagesBySessionId({ sessionId });
+    return await findMessagesBySessionId(sessionId);
 }

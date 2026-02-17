@@ -12,7 +12,7 @@
 <script setup lang="ts">
     import AssistantMessage from '@components/search/AssistantMessage.vue';
     import UserMessage from '@components/search/UserMessage.vue';
-    import type { ConversationMessage } from '@composables/useAiRequest';
+    import type { ConversationMessage } from '@composables/useAgent.ts';
 
     interface Props {
         message: ConversationMessage;

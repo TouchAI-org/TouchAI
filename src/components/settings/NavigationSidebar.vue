@@ -1,7 +1,12 @@
 <script setup lang="ts">
     import SvgIcon from '@components/common/SvgIcon.vue';
 
-    export type NavigationSection = 'general' | 'ai-services' | 'data-management' | 'about';
+    export type NavigationSection =
+        | 'general'
+        | 'ai-services'
+        | 'mcp-tools'
+        | 'data-management'
+        | 'about';
 
     interface NavigationItem {
         id: NavigationSection;
@@ -23,6 +28,7 @@
     const navigationItems: NavigationItem[] = [
         { id: 'general', icon: 'settings', label: '常规设置' },
         { id: 'ai-services', icon: 'llm', label: '大模型服务设置' },
+        { id: 'mcp-tools', icon: 'mcp', label: 'MCP 工具' },
         { id: 'data-management', icon: 'database', label: '数据管理' },
         { id: 'about', icon: 'information-circle', label: '关于' },
     ];

@@ -9,6 +9,7 @@ import type {
     AiRequestOptions,
     AiResponse,
     AiStreamChunk,
+    AiToolDefinition,
     ModelInfo,
 } from '../types';
 
@@ -34,17 +35,63 @@ function mapOpenAiContent(
                 image_url: { url: `data:${part.mimeType};base64,${part.data}` },
             };
         }
-        return { type: 'text', text: renderFilePart(part.name, part.content, part.isBinary) };
+        if (part.type === 'file') {
+            return { type: 'text', text: renderFilePart(part.name, part.content, part.isBinary) };
+        }
+        // tool_use 和 tool_result 在 buildOpenAiMessages 中单独处理
+        return { type: 'text', text: '' };
     });
 }
 
 function buildOpenAiMessages(
     messages: AiRequestOptions['messages']
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
-    return messages.map((message) => ({
-        role: message.role,
-        content: mapOpenAiContent(message.content),
-    })) as OpenAI.Chat.ChatCompletionMessageParam[];
+    return messages.map((message) => {
+        if (message.role === 'tool') {
+            return {
+                role: 'tool',
+                tool_call_id: message.tool_call_id!,
+                content: typeof message.content === 'string' ? message.content : '',
+            } as OpenAI.Chat.ChatCompletionToolMessageParam;
+        }
+
+        const baseMessage = {
+            role: message.role,
+            content: mapOpenAiContent(message.content),
+        };
+
+        if (message.tool_calls) {
+            return {
+                role: message.role,
+                content: message.content || null,
+                tool_calls: message.tool_calls.map((tc) => ({
+                    id: tc.id,
+                    type: 'function' as const,
+                    function: {
+                        name: tc.name,
+                        arguments: tc.arguments || '{}',
+                    },
+                })),
+            } as OpenAI.Chat.ChatCompletionAssistantMessageParam;
+        }
+
+        return baseMessage as OpenAI.Chat.ChatCompletionMessageParam;
+    });
+}
+
+function mapToolsToOpenAi(
+    tools?: AiToolDefinition[]
+): OpenAI.Chat.ChatCompletionTool[] | undefined {
+    if (!tools || tools.length === 0) return undefined;
+
+    return tools.map((tool) => ({
+        type: 'function' as const,
+        function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.input_schema,
+        },
+    }));
 }
 
 export class OpenAiProvider implements AiProvider {
@@ -63,9 +110,11 @@ export class OpenAiProvider implements AiProvider {
 
     async request(options: AiRequestOptions): Promise<AiResponse> {
         const messages = buildOpenAiMessages(options.messages);
+        const tools = mapToolsToOpenAi(options.tools);
         const completion = await this.client.chat.completions.create({
             model: options.model,
             messages,
+            tools,
             stream: false,
         });
 
@@ -81,24 +130,59 @@ export class OpenAiProvider implements AiProvider {
 
     async *stream(options: AiRequestOptions): AsyncGenerator<AiStreamChunk, void, unknown> {
         const messages = buildOpenAiMessages(options.messages);
+        const tools = mapToolsToOpenAi(options.tools);
         const stream = await this.client.chat.completions.create(
             {
                 model: options.model,
                 messages,
+                tools,
                 stream: true,
             },
             { signal: options.signal }
         );
 
+        // 累积跨增量的工具调用
+        const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
+
         for await (const chunk of stream) {
             //官方客户端没有提供Reasoning的类型，做适配
             const delta = chunk.choices[0]?.delta as {
                 reasoning_content?: string;
+                tool_calls?: Array<{
+                    index: number;
+                    id?: string;
+                    type?: 'function';
+                    function?: { name?: string; arguments?: string };
+                }>;
             } & OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta;
 
             const content = delta?.content || '';
             const reasoning = delta?.reasoning_content || '';
             const finishReason = chunk.choices[0]?.finish_reason;
+
+            // 累积工具调用增量
+            if (delta?.tool_calls) {
+                for (const toolCallDelta of delta.tool_calls) {
+                    const index = toolCallDelta.index;
+                    const existing = toolCallsMap.get(index) || {
+                        id: '',
+                        name: '',
+                        arguments: '',
+                    };
+
+                    if (toolCallDelta.id) {
+                        existing.id = toolCallDelta.id;
+                    }
+                    if (toolCallDelta.function?.name) {
+                        existing.name += toolCallDelta.function.name;
+                    }
+                    if (toolCallDelta.function?.arguments) {
+                        existing.arguments += toolCallDelta.function.arguments;
+                    }
+
+                    toolCallsMap.set(index, existing);
+                }
+            }
 
             if (reasoning) {
                 yield { content: '', reasoning, done: false };
@@ -109,7 +193,27 @@ export class OpenAiProvider implements AiProvider {
             }
 
             if (finishReason) {
-                yield { content: '', done: true };
+                // OpenAI 有时在存在 tool calls 时也返回 finish_reason 'stop'，
+                // 因此无论 finishReason 值如何都检查 toolCallsMap。
+                // 但只保留 id 和 name 均非空的条目，过滤掉不完整的数据。
+                const validToolCalls = Array.from(toolCallsMap.values()).filter(
+                    (tc) => tc.id && tc.name
+                );
+                const toolCalls =
+                    validToolCalls.length > 0
+                        ? validToolCalls.map((tc) => ({
+                              id: tc.id,
+                              name: tc.name,
+                              arguments: tc.arguments,
+                          }))
+                        : undefined;
+
+                yield {
+                    content: '',
+                    done: true,
+                    finishReason: toolCalls ? 'tool_calls' : finishReason,
+                    toolCalls,
+                };
                 return;
             }
         }

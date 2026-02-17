@@ -2,12 +2,17 @@
 
 import '@styles/tailwind.css';
 
+import { db } from '@database';
+import { mcpManager } from '@services/AiService/mcp';
 import { initializeLogger } from '@services/LoggerService';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 
 import App from './App.vue';
 import router from './router';
+import { useMcpStore } from './stores/mcp';
 
 function isInternalLink(url: string): boolean {
     if (!url || url === '#' || url.startsWith('#')) {
@@ -88,10 +93,25 @@ async function initializeApp() {
     // 3. 禁止右键菜单（全局）
     document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // 4. 创建并挂载 Vue 应用
+    // 6. 初始化数据库（仅主窗口、设置窗口、模型弹窗）
+    const windowLabel = getCurrentWindow().label;
+    if (['main', 'settings', 'popup-model-dropdown-popup'].includes(windowLabel)) {
+        await db.init();
+    }
+
+    // 5. 创建并挂载 Vue 应用
     const app = createApp(App);
+    const pinia = createPinia();
+    app.use(pinia);
     app.use(router);
     app.mount('#app');
+
+    // 6. 仅主窗口和设置窗口初始化 MCP
+    if (['main', 'settings'].includes(windowLabel)) {
+        await mcpManager.autoConnect();
+        const mcpStore = useMcpStore();
+        await mcpStore.initialize();
+    }
 }
 
 // 运行应用初始化

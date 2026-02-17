@@ -50,6 +50,7 @@
         "markdown-it-sup": "^2.0.0",
         "markdown-it-task-lists": "^2.1.1",
         "openai": "^6.16.0",
+        "pinia": "^3.0.4",
         "tailwindcss": "^4.1.18",
         "tauri-plugin-clipboard-x-api": "^2.0.1",
         "tauri-plugin-fs-pro-api": "^2.4.0",

@@ -4,5 +4,6 @@
 //!
 //! 分为窗口域与系统能力域。
 
+pub mod mcp;
 pub mod system;
 pub mod window;

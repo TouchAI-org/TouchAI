@@ -34,11 +34,63 @@ CREATE TABLE `llm_metadata` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `llm_metadata_model_id_unique` ON `llm_metadata` (`model_id`);--> statement-breakpoint
+CREATE TABLE `mcp_servers` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`name` text NOT NULL,
+	`transport_type` text NOT NULL,
+	`command` text,
+	`args` text,
+	`env` text,
+	`cwd` text,
+	`url` text,
+	`headers` text,
+	`enabled` integer DEFAULT 1 NOT NULL,
+	`tool_timeout` integer DEFAULT 30000 NOT NULL,
+	`version` text,
+	`last_error` text,
+	`last_connected_at` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `mcp_servers_name_unique` ON `mcp_servers` (`name`);--> statement-breakpoint
+CREATE TABLE `mcp_tool_logs` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`server_id` integer NOT NULL,
+	`tool_name` text NOT NULL,
+	`tool_call_id` text NOT NULL,
+	`session_id` integer,
+	`message_id` integer,
+	`iteration` integer DEFAULT 1 NOT NULL,
+	`input` text NOT NULL,
+	`output` text,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`duration_ms` integer,
+	`error_message` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`server_id`) REFERENCES `mcp_servers`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE TABLE `mcp_tools` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`server_id` integer NOT NULL,
+	`name` text NOT NULL,
+	`description` text,
+	`input_schema` text NOT NULL,
+	`enabled` integer DEFAULT 1 NOT NULL,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`server_id`) REFERENCES `mcp_servers`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `messages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` integer NOT NULL,
 	`role` text NOT NULL,
 	`content` text NOT NULL,
+	`tool_log_id` integer,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade

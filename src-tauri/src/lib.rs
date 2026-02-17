@@ -3,6 +3,7 @@
 mod commands;
 mod core;
 
+use core::mcp::McpClientManager;
 use core::system::database::ensure_data_directory;
 use core::window::popup::PopupRegistry;
 use log::{error, info, warn};
@@ -20,6 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_x::init())
         .plugin(tauri_plugin_fs_pro::init())
@@ -31,6 +33,7 @@ pub fn run() {
                 .build(),
         )
         .manage(PopupRegistry::new())
+        .manage(McpClientManager::new())
         .invoke_handler(commands::invoke_handler());
 
     #[cfg(all(feature = "mcp-bridge", debug_assertions))]

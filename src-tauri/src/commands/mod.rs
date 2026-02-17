@@ -3,6 +3,7 @@
 //! 命令入口模块。
 pub mod autostart;
 pub mod database;
+pub mod mcp;
 pub mod shortcut;
 pub mod window;
 
@@ -23,5 +24,12 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         autostart::is_autostart_enabled,
         window::close_tray_menu,
         database::get_database_path,
+        mcp::mcp_connect_server,
+        mcp::mcp_disconnect_server,
+        mcp::mcp_list_tools,
+        mcp::mcp_call_tool,
+        mcp::mcp_get_client_status,
+        mcp::mcp_get_all_client_statuses,
+        mcp::mcp_disconnect_all,
     ]
 }

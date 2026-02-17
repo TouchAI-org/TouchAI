@@ -9,12 +9,14 @@
         globalShortcut: string;
         startOnBoot: boolean;
         startMinimized: boolean;
+        mcpMaxIterations: number;
     }
 
     const settings = ref<GeneralSettingsData>({
         globalShortcut: 'Alt+Space',
         startOnBoot: false,
         startMinimized: true,
+        mcpMaxIterations: 10,
     });
 
     const shortcutInput = ref<HTMLInputElement | null>(null);
@@ -176,6 +178,11 @@
             if (startMinimized) {
                 settings.value.startMinimized = startMinimized === 'true';
             }
+
+            const mcpMaxIterations = await getSettingValue({ key: 'mcp_max_iterations' });
+            if (mcpMaxIterations) {
+                settings.value.mcpMaxIterations = parseInt(mcpMaxIterations, 10);
+            }
         } catch (error) {
             console.error('Failed to load settings:', error);
             alertMessage.value?.error('加载设置失败', 3000);
@@ -245,6 +252,26 @@
             });
         } catch (error) {
             console.error('Failed to save start_minimized setting:', error);
+            alertMessage.value?.error('保存设置失败', 3000);
+        }
+    };
+
+    const saveMcpMaxIterations = async () => {
+        try {
+            // 验证范围
+            if (settings.value.mcpMaxIterations < 1) {
+                settings.value.mcpMaxIterations = 1;
+            } else if (settings.value.mcpMaxIterations > 50) {
+                settings.value.mcpMaxIterations = 50;
+            }
+
+            await setSetting({
+                key: 'mcp_max_iterations',
+                value: settings.value.mcpMaxIterations.toString(),
+            });
+            alertMessage.value?.success('保存成功', 2000);
+        } catch (error) {
+            console.error('Failed to save mcp_max_iterations setting:', error);
             alertMessage.value?.error('保存设置失败', 3000);
         }
     };
@@ -394,6 +421,32 @@
                                 ]"
                             />
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
+                <h2 class="font-serif text-lg font-semibold text-gray-900">AI 工具调用</h2>
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex-1">
+                            <div class="font-serif text-sm font-medium text-gray-900">
+                                最大工具调用轮数
+                            </div>
+                            <div class="font-serif text-xs text-gray-500">
+                                AI 可以连续调用工具的最大次数（1-50）
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input
+                                v-model.number="settings.mcpMaxIterations"
+                                type="number"
+                                min="1"
+                                max="50"
+                                class="focus:border-primary-600 focus:ring-primary-500 w-20 rounded-lg border border-gray-200 px-3 py-1 text-center font-mono text-sm focus:ring-2 focus:outline-none"
+                                @blur="saveMcpMaxIterations"
+                            />
+                        </div>
                     </div>
                 </div>
             </div>

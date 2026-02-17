@@ -107,6 +107,31 @@ export class Persister {
         return this.request;
     }
 
+    /**
+     * 获取当前会话 ID（可能为 null）。
+     */
+    getSessionId(): number | null {
+        return this.sessionId;
+    }
+
+    /**
+     * 持久化工具调用消息（role: 'tool_call'）
+     */
+    async persistToolCallMessage(text?: string): Promise<number | null> {
+        return this.persistMessage('tool_call', text || '');
+    }
+
+    /**
+     * 持久化工具结果消息（role: 'tool_result'）
+     * @param toolLogId 对应 mcp_tool_logs 表的 ID
+     */
+    async persistToolResultMessage(
+        result: string,
+        toolLogId: number | null
+    ): Promise<number | null> {
+        return this.persistMessage('tool_result', result, toolLogId);
+    }
+
     private async ensureSessionId(): Promise<number | null> {
         if (this.sessionId) {
             return this.sessionId;
@@ -126,7 +151,11 @@ export class Persister {
         }
     }
 
-    private async persistMessage(role: MessageRole, content: string): Promise<number | null> {
+    private async persistMessage(
+        role: MessageRole,
+        content: string,
+        toolLogId?: number | null
+    ): Promise<number | null> {
         const sessionId = await this.ensureSessionId();
 
         if (!sessionId) {
@@ -137,6 +166,7 @@ export class Persister {
             session_id: sessionId,
             role: role as MessageRole,
             content,
+            tool_log_id: toolLogId ?? null,
         });
 
         return message.id;

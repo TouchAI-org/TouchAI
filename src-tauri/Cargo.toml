@@ -36,8 +36,13 @@ tauri-plugin-fs-pro = "2.4.0"
 tauri-plugin-fs = "2"
 tauri-plugin-process = "2"
 tauri-plugin-http = "2"
+tauri-plugin-shell = "2"
 tauri-plugin-mcp-bridge = { version = "0.8", optional = true }
 raw-window-handle = "0.6"
+tokio = { version = "1", features = ["full"] }
+rmcp = { version = "0.8", features = ["client", "transport-child-process", "transport-sse-client-reqwest", "transport-streamable-http-client-reqwest"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures = "0.3"
 
 [features]
 mcp-bridge = ["dep:tauri-plugin-mcp-bridge"]

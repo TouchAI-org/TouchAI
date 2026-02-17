@@ -44,7 +44,7 @@
 
 <script setup lang="ts">
     import SvgIcon from '@components/common/SvgIcon.vue';
-    import type { ConversationMessage } from '@composables/useAiRequest';
+    import type { ConversationMessage } from '@composables/useAgent.ts';
 
     interface Props {
         message: ConversationMessage;
