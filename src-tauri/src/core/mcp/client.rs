@@ -15,6 +15,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 type McpService = RunningService<rmcp::RoleClient, ()>;
 
 /// 支持多种传输方式的 MCP 客户端封装。
@@ -73,6 +76,10 @@ impl McpClient {
         // 使用 tokio::process::Command 构建命令
         let cmd = tokio::process::Command::new(&actual_command).configure(|c| {
             c.args(&actual_args);
+
+            // 在 Windows 上隐藏子进程的控制台窗口
+            #[cfg(target_os = "windows")]
+            c.creation_flags(CREATE_NO_WINDOW);
 
             // 设置环境变量
             if let Some(env_vars) = &env {
