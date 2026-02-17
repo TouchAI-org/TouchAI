@@ -8,12 +8,28 @@ import { createSession } from '@services/AiService/session';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { computed, ref } from 'vue';
 
+import { useMcpStore } from '@/stores/mcp';
+
+export interface ToolCallInfo {
+    id: string;
+    name: string; // 显示名称（不含命名空间前缀）
+    namespacedName: string; // 完整命名空间名称（如 "mcp__123__tool_name"）
+    serverName: string; // 从命名空间提取的 MCP 服务器名称
+    serverId: number; // MCP 服务器 ID
+    arguments: Record<string, unknown>;
+    result?: string;
+    isError?: boolean;
+    status: 'executing' | 'completed' | 'error';
+    durationMs?: number;
+}
+
 export interface ConversationMessage {
     id: string;
     role: 'user' | 'assistant';
     content: string;
     reasoning?: string;
     attachments?: Index[];
+    toolCalls?: ToolCallInfo[];
     timestamp: number;
     isStreaming?: boolean;
     isCancelled?: boolean; // 标记是否为取消的消息
@@ -33,7 +49,7 @@ export interface UseAiRequestOptions {
  * - 转发 UI 层回调
  * - 管理会话历史和超时清理
  */
-export function useAiRequest(options: UseAiRequestOptions = {}) {
+export function useAgent(options: UseAiRequestOptions = {}) {
     const isLoading = ref(false);
     const error = ref<Error | null>(null);
     const response = ref('');
@@ -41,6 +57,7 @@ export function useAiRequest(options: UseAiRequestOptions = {}) {
     const currentRequest = ref<AiRequest | null>(null);
     const abortController = ref<AbortController | null>(null);
     let requestId = 0;
+    const mcpStore = useMcpStore();
 
     // 会话数据
     const currentSessionId = ref<number | null>(options.sessionId ?? null);
@@ -133,7 +150,7 @@ export function useAiRequest(options: UseAiRequestOptions = {}) {
         }
 
         try {
-            const result = await aiService.executeRequest({
+            const result = await aiService.run({
                 prompt,
                 sessionId: currentSessionId.value ?? undefined,
                 modelId,
@@ -150,6 +167,49 @@ export function useAiRequest(options: UseAiRequestOptions = {}) {
                         response.value += chunk.content;
                         assistantMsg.content = response.value;
                         options.onChunk?.(chunk.content);
+                    }
+
+                    // 处理工具调用事件
+                    if (chunk.toolEvent) {
+                        if (!assistantMsg.toolCalls) {
+                            assistantMsg.toolCalls = [];
+                        }
+
+                        const toolEvent = chunk.toolEvent;
+
+                        if (toolEvent.type === 'call_start') {
+                            // 解析命名空间名称以提取显示名称
+                            // 格式："mcp__123__tool_name" 或 "tool_name"
+                            const { namespacedName, serverId } = toolEvent;
+                            let displayName = namespacedName;
+                            const serverName = mcpStore.serverNameById(serverId);
+
+                            const match = namespacedName.match(/^mcp__\d+__(.+)$/);
+                            if (match) {
+                                displayName = match[1]!;
+                            }
+
+                            assistantMsg.toolCalls.push({
+                                id: toolEvent.callId,
+                                name: displayName,
+                                namespacedName,
+                                serverName,
+                                serverId,
+                                arguments: toolEvent.arguments,
+                                status: 'executing',
+                            });
+                        } else if (toolEvent.type === 'call_end') {
+                            // 查找并更新匹配的工具调用状态
+                            const toolCall = assistantMsg.toolCalls.find(
+                                (tc) => tc.id === toolEvent.callId
+                            );
+                            if (toolCall) {
+                                toolCall.result = toolEvent.result;
+                                toolCall.isError = toolEvent.isError;
+                                toolCall.status = toolEvent.isError ? 'error' : 'completed';
+                                toolCall.durationMs = toolEvent.durationMs;
+                            }
+                        }
                     }
                 },
             });

@@ -3,7 +3,7 @@
 
     import ConversationPanel from '@components/search/ConversationPanel.vue';
     import SearchBar from '@components/search/SearchBar.vue';
-    import { useAiRequest } from '@composables/useAiRequest';
+    import { useAgent } from '@composables/useAgent.ts';
     import { useAlert } from '@composables/useAlert';
     import { useWindowResize } from '@composables/useWindowResize';
     import { getSettingValue, setSetting } from '@database/queries';
@@ -51,7 +51,7 @@
     let unlistenPopupFocusMain: (() => void) | null = null;
 
     const { isLoading, error, conversationHistory, sendRequest, cancel, clearConversation } =
-        useAiRequest({
+        useAgent({
             onComplete: async () => {
                 // 请求完成后，检查是否有待发送的请求
                 if (pendingRequest.value) {
