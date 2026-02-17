@@ -3,6 +3,7 @@
     import SvgIcon from '@components/common/SvgIcon.vue';
     import { getSettingValue, setSetting } from '@database/queries';
     import { native } from '@services/NativeService';
+    import { sendNotification } from '@tauri-apps/plugin-notification';
     import { onMounted, onUnmounted, ref, watch } from 'vue';
 
     interface GeneralSettingsData {
@@ -24,6 +25,9 @@
     const isCapturing = ref(false);
     const displayShortcut = ref('');
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
+    const shortcutRegistrationFailed = ref(false);
+    const pendingShortcut = ref(''); // 内存中的待注册快捷键
+    const isInitialFailure = ref(false); // 是否是初始化时就失败的快捷键
 
     // 键名映射表
     const keyNameMap: Record<string, string> = {
@@ -107,13 +111,22 @@
     // 保存新快捷键的通用函数
     const saveNewShortcut = async (newShortcut: string) => {
         isSaving.value = true;
+        const wasInitialFailure = isInitialFailure.value; // 保存初始失败状态
+        shortcutRegistrationFailed.value = false;
 
         try {
             // 先注册到 Rust 端
             const registered = await registerShortcut(newShortcut);
             if (!registered) {
-                // 注册失败，恢复原值
-                displayShortcut.value = settings.value.globalShortcut;
+                // 注册失败，保存到内存中，不写入数据库
+                shortcutRegistrationFailed.value = true;
+                pendingShortcut.value = newShortcut;
+                displayShortcut.value = newShortcut;
+                // 如果之前是初始失败，重试失败后仍然保持初始失败状态
+                // 只有用户主动更换快捷键（不同于原快捷键）时才清除初始失败状态
+                if (!wasInitialFailure || newShortcut !== settings.value.globalShortcut) {
+                    isInitialFailure.value = false;
+                }
                 return;
             }
 
@@ -123,12 +136,16 @@
             // 更新本地状态
             settings.value.globalShortcut = newShortcut;
             displayShortcut.value = newShortcut;
+            pendingShortcut.value = '';
+            isInitialFailure.value = false;
             alertMessage.value?.success('快捷键保存成功', 3000);
         } catch (error) {
             console.error('Failed to save shortcut:', error);
             alertMessage.value?.error('保存快捷键到数据库失败', 3000);
             // 恢复原值
             displayShortcut.value = settings.value.globalShortcut;
+            shortcutRegistrationFailed.value = false;
+            isInitialFailure.value = false;
         } finally {
             isSaving.value = false;
         }
@@ -149,6 +166,20 @@
         await saveNewShortcut(shortcut);
     };
 
+    // 重试注册快捷键
+    const retryRegistration = async () => {
+        if (!pendingShortcut.value) return;
+        await saveNewShortcut(pendingShortcut.value);
+    };
+
+    // 取消注册，恢复原值
+    const cancelRegistration = () => {
+        shortcutRegistrationFailed.value = false;
+        pendingShortcut.value = '';
+        displayShortcut.value = settings.value.globalShortcut;
+        isInitialFailure.value = false;
+    };
+
     // 监听 isCapturing 状态，添加/移除全局键盘监听
     watch(isCapturing, (newValue) => {
         if (newValue) {
@@ -167,6 +198,15 @@
                 displayShortcut.value = shortcut;
             } else {
                 displayShortcut.value = settings.value.globalShortcut;
+            }
+
+            // 检查快捷键注册状态
+            const [failed, error] = await native.shortcut.getShortcutStatus();
+            if (failed) {
+                shortcutRegistrationFailed.value = true;
+                pendingShortcut.value = settings.value.globalShortcut;
+                isInitialFailure.value = true; // 标记为初始化失败
+                console.warn('[GeneralView] Shortcut registration failed:', error);
             }
 
             const startOnBoot = await getSettingValue({ key: 'start_on_boot' });
@@ -200,16 +240,27 @@
             // 友好的错误提示
             const errorStr = String(error);
             let friendlyMessage = '注册快捷键失败';
+            let notificationBody = '注册快捷键失败';
 
             if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
                 friendlyMessage = `快捷键 ${shortcut} 已被其他应用占用，请尝试其他组合`;
+                notificationBody = `快捷键 ${shortcut} 已被其他应用占用`;
             } else if (errorStr.includes('invalid') || errorStr.includes('无效')) {
                 friendlyMessage = `快捷键 ${shortcut} 格式无效，请重新设置`;
+                notificationBody = `快捷键 ${shortcut} 格式无效`;
             } else if (errorStr.includes('Unknown key')) {
                 friendlyMessage = '不支持的按键，请使用常规按键组合';
+                notificationBody = '不支持的按键';
             } else {
                 friendlyMessage = `注册快捷键失败：${errorStr}`;
+                notificationBody = friendlyMessage;
             }
+
+            // 发送系统通知
+            sendNotification({
+                title: 'TouchAI - 快捷键注册失败',
+                body: notificationBody,
+            });
 
             alertMessage.value?.error(friendlyMessage, 4000);
             return false;
@@ -332,9 +383,11 @@
                         readonly
                         :class="[
                             'w-full rounded-lg border px-4 py-2 font-mono transition-colors focus:ring-2 focus:outline-none',
-                            isCapturing
-                                ? 'border-primary-600 bg-primary-50 text-primary-600 focus:ring-primary-500'
-                                : 'focus:border-primary-600 focus:ring-primary-500 border-gray-200 bg-gray-50 text-gray-900',
+                            shortcutRegistrationFailed
+                                ? 'border-red-500 bg-red-50 text-red-600 focus:ring-red-500'
+                                : isCapturing
+                                  ? 'border-primary-600 bg-primary-50 text-primary-600 focus:ring-primary-500'
+                                  : 'focus:border-primary-600 focus:ring-primary-500 border-gray-200 bg-gray-50 text-gray-900',
                             isSaving ? 'cursor-wait opacity-50' : 'cursor-pointer',
                         ]"
                         :disabled="isSaving"
@@ -342,6 +395,37 @@
                         @focus="startCapture"
                         @blur="stopCaptureAndSave"
                     />
+
+                    <!-- 注册失败提示和操作 -->
+                    <div
+                        v-if="shortcutRegistrationFailed"
+                        class="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3"
+                    >
+                        <div class="flex items-center gap-2">
+                            <SvgIcon name="exclamation-triangle" class="h-4 w-4 text-red-600" />
+                            <span class="font-serif text-sm text-red-600">
+                                快捷键注册失败，可能已被其他应用占用
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button
+                                class="rounded-lg bg-red-600 px-3 py-1 font-serif text-xs text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                :disabled="isSaving"
+                                @click="retryRegistration"
+                            >
+                                重试
+                            </button>
+                            <button
+                                v-if="!isInitialFailure"
+                                class="rounded-lg border border-red-300 bg-white px-3 py-1 font-serif text-xs text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                :disabled="isSaving"
+                                @click="cancelRegistration"
+                            >
+                                取消
+                            </button>
+                        </div>
+                    </div>
+
                     <div class="flex items-center gap-2">
                         <span class="font-serif text-xs text-gray-500">建议：</span>
                         <button
