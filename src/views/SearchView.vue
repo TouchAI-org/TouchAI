@@ -18,6 +18,7 @@
     import { runStartupTasks } from '@services/StartupService';
     import { emit, listen } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
+    import { sendNotification } from '@tauri-apps/plugin-notification';
     import { readClipboard, ReadClipboardItem } from 'tauri-plugin-clipboard-x-api';
     import { computed, nextTick, onMounted, onUnmounted, ref, unref } from 'vue';
 
@@ -457,6 +458,23 @@
             await native.shortcut.registerGlobalShortcut(shortcut);
         } catch (error) {
             console.error('[SearchView] Failed to initialize global shortcut:', error);
+
+            // 发送系统通知
+            const errorStr = String(error);
+            let message = '注册快捷键失败';
+
+            if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
+                message = '快捷键已被其他应用占用，请在设置中更换';
+            } else if (errorStr.includes('invalid') || errorStr.includes('无效')) {
+                message = '快捷键格式无效，请在设置中重新配置';
+            } else if (errorStr.includes('Unknown key')) {
+                message = '不支持的按键，请在设置中更换';
+            }
+
+            sendNotification({
+                title: 'TouchAI - 快捷键注册失败',
+                body: message,
+            });
         }
     }
 
