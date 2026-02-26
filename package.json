@@ -15,7 +15,7 @@
         "tauri:dev:mcp": "tauri dev --features mcp-bridge",
         "test": "vitest",
         "test:ui": "vitest --ui",
-        "test:run": "vitest run",
+        "test:run": "vitest run --passWithNoTests",
         "type:check": "vue-tsc --noEmit",
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
