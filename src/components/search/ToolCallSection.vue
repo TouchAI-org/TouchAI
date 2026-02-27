@@ -1,30 +1,43 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <div v-if="toolCalls && toolCalls.length > 0" class="tool-call-section mb-4 w-full">
-        <button
-            class="flex w-full items-center gap-2 px-1 py-2 text-left text-sm font-normal text-gray-700 transition-colors hover:text-gray-900"
-            @click="toggleSection"
-        >
-            <SvgIcon
-                name="chevron-right"
-                :class="
-                    isExpanded
-                        ? 'h-4 w-4 rotate-90 transition-transform'
-                        : 'h-4 w-4 transition-transform'
-                "
-            />
-            <span>工具调用</span>
-            <span
-                v-if="hasExecutingTools"
-                class="ml-2 flex items-center gap-1 text-xs text-gray-500"
-            >
-                <div class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></div>
-            </span>
+    <div v-if="toolCalls && toolCalls.length > 0" class="tool-call-inline-section w-full">
+        <button type="button" class="tool-call-inline-trigger" @click="toggleSection">
+            <div class="tool-call-inline-main">
+                <span class="tool-call-inline-icon">
+                    <SvgIcon name="tool" class="h-3.5 w-3.5" />
+                </span>
+                <span>{{ summaryText }}</span>
+                <span v-if="latestToolName" class="tool-call-inline-latest">
+                    {{ latestToolName }}
+                </span>
+            </div>
+            <div class="tool-call-inline-meta">
+                <span v-if="hasExecutingTools" class="tool-call-inline-running">
+                    <span class="tool-call-inline-pulse"></span>
+                    运行中
+                </span>
+                <span v-else-if="hasErrorTools" class="tool-call-inline-error">含错误</span>
+                <span v-else>已完成</span>
+                <SvgIcon
+                    name="chevron-right"
+                    :class="
+                        isExpanded
+                            ? 'h-4 w-4 rotate-90 transition-transform'
+                            : 'h-4 w-4 transition-transform'
+                    "
+                />
+            </div>
         </button>
-        <div v-show="isExpanded" class="tool-call-content mt-2 space-y-2">
-            <ToolCallItem v-for="toolCall in toolCalls" :key="toolCall.id" :tool-call="toolCall" />
-        </div>
+        <transition name="tool-call-fade">
+            <div v-show="isExpanded" class="tool-call-inline-panel mt-2 space-y-1.5">
+                <ToolCallItem
+                    v-for="toolCall in toolCalls"
+                    :key="toolCall.id"
+                    :tool-call="toolCall"
+                />
+            </div>
+        </transition>
     </div>
 </template>
 
@@ -41,11 +54,28 @@
 
     const props = defineProps<Props>();
 
-    const isExpanded = ref(true);
+    const isExpanded = ref(false);
     const manualOverride = ref(false);
 
-    const hasExecutingTools = computed(() => {
-        return props.toolCalls?.some((tc) => tc.status === 'executing') ?? false;
+    const totalTools = computed(() => props.toolCalls?.length ?? 0);
+    const completedTools = computed(() => {
+        return props.toolCalls?.filter((tc) => tc.status !== 'executing').length ?? 0;
+    });
+    const latestToolName = computed(() => {
+        return props.toolCalls?.[props.toolCalls.length - 1]?.name;
+    });
+    const hasExecutingTools = computed(
+        () => props.toolCalls?.some((tc) => tc.status === 'executing') ?? false
+    );
+    const hasErrorTools = computed(
+        () => props.toolCalls?.some((tc) => tc.status === 'error') ?? false
+    );
+    const summaryText = computed(() => {
+        if (hasExecutingTools.value) {
+            return `正在调用工具 (${completedTools.value}/${totalTools.value})`;
+        }
+
+        return `工具调用 (${totalTools.value})`;
     });
 
     function toggleSection() {
@@ -76,7 +106,114 @@
 </script>
 
 <style scoped>
-    .tool-call-section {
-        font-size: 14px;
+    .tool-call-inline-section {
+        margin-top: 0.75rem;
+        font-size: 13px;
+    }
+
+    .tool-call-inline-trigger {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.45rem 0.65rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(209, 213, 219, 0.9);
+        background: rgba(249, 250, 251, 0.7);
+        color: rgb(75, 85, 99);
+        transition:
+            border-color 0.2s ease,
+            background-color 0.2s ease,
+            color 0.2s ease;
+    }
+
+    .tool-call-inline-trigger:hover {
+        border-color: rgb(156, 163, 175);
+        background: rgba(243, 244, 246, 0.85);
+        color: rgb(31, 41, 55);
+    }
+
+    .tool-call-inline-main {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 0.45rem;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .tool-call-inline-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: rgb(107, 114, 128);
+    }
+
+    .tool-call-inline-latest {
+        max-width: 14rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: rgb(107, 114, 128);
+        font-size: 12px;
+    }
+
+    .tool-call-inline-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 12px;
+        color: rgb(107, 114, 128);
+        flex-shrink: 0;
+    }
+
+    .tool-call-inline-running {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: rgb(37, 99, 235);
+    }
+
+    .tool-call-inline-pulse {
+        width: 0.4rem;
+        height: 0.4rem;
+        border-radius: 999px;
+        background: rgb(59, 130, 246);
+        animation: pulse 1.3s ease-in-out infinite;
+    }
+
+    .tool-call-inline-error {
+        color: rgb(220, 38, 38);
+    }
+
+    .tool-call-inline-panel {
+        padding: 0.45rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(229, 231, 235, 0.9);
+        background: rgba(249, 250, 251, 0.65);
+    }
+
+    .tool-call-fade-enter-active,
+    .tool-call-fade-leave-active {
+        transition:
+            opacity 0.2s ease,
+            transform 0.2s ease;
+    }
+
+    .tool-call-fade-enter-from,
+    .tool-call-fade-leave-to {
+        opacity: 0;
+        transform: translateY(-3px);
+    }
+
+    @keyframes pulse {
+        0%,
+        100% {
+            opacity: 0.4;
+        }
+        50% {
+            opacity: 1;
+        }
     }
 </style>

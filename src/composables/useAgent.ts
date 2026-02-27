@@ -23,6 +23,20 @@ export interface ToolCallInfo {
     durationMs?: number;
 }
 
+export interface TextMessagePart {
+    id: string;
+    type: 'text';
+    content: string;
+}
+
+export interface ToolCallMessagePart {
+    id: string;
+    type: 'tool_call';
+    callId: string;
+}
+
+export type ConversationPart = TextMessagePart | ToolCallMessagePart;
+
 export interface ConversationMessage {
     id: string;
     role: 'user' | 'assistant';
@@ -30,6 +44,7 @@ export interface ConversationMessage {
     reasoning?: string;
     attachments?: Index[];
     toolCalls?: ToolCallInfo[];
+    parts: ConversationPart[];
     timestamp: number;
     isStreaming?: boolean;
     isCancelled?: boolean; // 标记是否为取消的消息
@@ -119,6 +134,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             role: 'user',
             content: prompt,
             attachments: attachments.length > 0 ? attachments : undefined,
+            parts: [],
             timestamp: Date.now(),
         });
 
@@ -128,6 +144,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             id: assistantMessageId,
             role: 'assistant',
             content: '',
+            parts: [],
             timestamp: Date.now(),
             isStreaming: true,
         });
@@ -166,6 +183,17 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                     if (chunk.content) {
                         response.value += chunk.content;
                         assistantMsg.content = response.value;
+                        const lastPart = assistantMsg.parts[assistantMsg.parts.length - 1];
+                        if (lastPart && lastPart.type === 'text') {
+                            lastPart.content += chunk.content;
+                        } else {
+                            assistantMsg.parts.push({
+                                id: crypto.randomUUID(),
+                                type: 'text',
+                                content: chunk.content,
+                            });
+                        }
+
                         options.onChunk?.(chunk.content);
                     }
 
@@ -198,6 +226,18 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                                 arguments: toolEvent.arguments,
                                 status: 'executing',
                             });
+
+                            const hasPart = assistantMsg.parts.some(
+                                (part) =>
+                                    part.type === 'tool_call' && part.callId === toolEvent.callId
+                            );
+                            if (!hasPart) {
+                                assistantMsg.parts.push({
+                                    id: crypto.randomUUID(),
+                                    type: 'tool_call',
+                                    callId: toolEvent.callId,
+                                });
+                            }
                         } else if (toolEvent.type === 'call_end') {
                             // 查找并更新匹配的工具调用状态
                             const toolCall = assistantMsg.toolCalls.find(
@@ -244,6 +284,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                         id: crypto.randomUUID(),
                         role: 'assistant',
                         content: '请求已取消',
+                        parts: [],
                         timestamp: Date.now(),
                         isStreaming: false,
                         isCancelled: true,
@@ -258,7 +299,15 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             // 标记 AI 消息为失败状态（不是取消的情况）
             if (!assistantMsg.isCancelled) {
                 assistantMsg.isStreaming = false;
-                assistantMsg.content = `请求失败: ${requestError.message}`;
+                const failureText = `请求失败: ${requestError.message}`;
+                assistantMsg.content = failureText;
+                assistantMsg.parts = [
+                    {
+                        id: crypto.randomUUID(),
+                        type: 'text',
+                        content: failureText,
+                    },
+                ];
             }
 
             const isEmptyResponse =

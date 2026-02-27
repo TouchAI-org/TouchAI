@@ -48,20 +48,17 @@
                         </div>
                     </div>
 
-                    <!-- 工具调用显示（如果存在）-->
-                    <ToolCallSection
-                        :tool-calls="message.toolCalls"
-                        :message-content="message.content"
-                    />
-
-                    <!-- 主要内容 -->
-                    <MarkdownContent :content="message.content" :final="!message.isStreaming" />
+                    <template v-for="part in renderedParts" :key="part.id">
+                        <MarkdownContent
+                            v-if="part.type === 'text'"
+                            :content="part.content"
+                            :final="!message.isStreaming"
+                        />
+                        <ToolCallItem v-else :tool-call="part.toolCall" />
+                    </template>
 
                     <!-- 流式响应加载指示器 -->
-                    <div
-                        v-if="message.isStreaming"
-                        class="streaming-indicator mt-2 flex items-center gap-2"
-                    >
+                    <div v-if="message.isStreaming" :class="streamingIndicatorClass">
                         <div class="loading-dots flex gap-1">
                             <span class="dot"></span>
                             <span class="dot"></span>
@@ -95,10 +92,10 @@
 <script setup lang="ts">
     import MarkdownContent from '@components/common/MarkdownContent.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
-    import ToolCallSection from '@components/search/ToolCallSection.vue';
-    import type { ConversationMessage } from '@composables/useAgent.ts';
+    import ToolCallItem from '@components/search/ToolCallItem.vue';
+    import type { ConversationMessage, ToolCallInfo } from '@composables/useAgent.ts';
     import { sendNotification } from '@tauri-apps/plugin-notification';
-    import { ref, watch } from 'vue';
+    import { computed, ref, watch } from 'vue';
 
     interface Props {
         message: ConversationMessage;
@@ -110,7 +107,55 @@
         regenerate: [messageId: string];
     }>();
 
+    type RenderedPart =
+        | {
+              id: string;
+              type: 'text';
+              content: string;
+          }
+        | {
+              id: string;
+              type: 'tool_call';
+              toolCall: ToolCallInfo;
+          };
+
     const isReasoningExpanded = ref(true); // 默认展开
+    const renderedParts = computed<RenderedPart[]>(() => {
+        const toolCallMap = new Map(
+            (props.message.toolCalls ?? []).map((toolCall) => [toolCall.id, toolCall])
+        );
+        const parts: RenderedPart[] = [];
+
+        for (const part of props.message.parts) {
+            if (part.type === 'text') {
+                if (part.content) {
+                    parts.push({
+                        id: part.id,
+                        type: 'text',
+                        content: part.content,
+                    });
+                }
+                continue;
+            }
+
+            const toolCall = toolCallMap.get(part.callId);
+            if (toolCall) {
+                parts.push({
+                    id: part.id,
+                    type: 'tool_call',
+                    toolCall,
+                });
+            }
+        }
+
+        return parts;
+    });
+    const streamingIndicatorClass = computed(() => {
+        const lastPart = renderedParts.value[renderedParts.value.length - 1];
+        const marginTop = lastPart?.type === 'tool_call' ? 'mt-4' : 'mt-2';
+
+        return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop];
+    });
 
     // 切换 reasoning 展开/收缩
     function toggleReasoning() {

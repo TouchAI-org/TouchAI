@@ -10,11 +10,15 @@
             class="conversation-container custom-scrollbar bg-background-primary w-full overflow-y-auto px-10 py-5"
             :style="{ maxHeight: `${maxHeight}px` }"
             @scroll="handleScroll"
+            @wheel.passive="markUserScrollIntent"
+            @pointerdown="markUserScrollIntent"
+            @touchstart.passive="markUserScrollIntent"
+            @keydown="handleScrollIntentByKeyboard"
         >
             <ConversationToolbar :is-pinned="isPinned" @pin-change="togglePinned" />
 
             <!-- 消息列表 -->
-            <div class="message-list">
+            <div ref="messageListRef" class="message-list">
                 <MessageItem
                     v-for="(message, index) in messages"
                     :key="message.id"
@@ -46,7 +50,7 @@
     import MessageItem from '@components/search/MessageItem.vue';
     import type { ConversationMessage } from '@composables/useAgent.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
-    import { computed, nextTick, ref, watch } from 'vue';
+    import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
     interface Props {
         messages: ConversationMessage[];
@@ -67,10 +71,14 @@
     }>();
 
     const conversationContainer = ref<HTMLElement | null>(null);
+    const messageListRef = ref<HTMLElement | null>(null);
     useScrollbarStabilizer(conversationContainer);
     const isPinned = computed(() => props.isPinned);
     const showScrollToBottom = ref(false);
     const isAutoScrollEnabled = ref(true);
+    const lastScrollTop = ref(0);
+    const lastUserScrollIntentAt = ref(0);
+    let messageListObserver: ResizeObserver | null = null;
 
     // 暴露 focus 方法
     function focus() {
@@ -87,6 +95,21 @@
 
     function handleRegenerateMessage(messageId: string) {
         emit('regenerateMessage', messageId);
+    }
+
+    function markUserScrollIntent() {
+        lastUserScrollIntentAt.value = Date.now();
+    }
+
+    function handleScrollIntentByKeyboard(event: KeyboardEvent) {
+        if (
+            ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Space'].includes(
+                event.code
+            ) ||
+            ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
+        ) {
+            markUserScrollIntent();
+        }
     }
 
     // 检查是否滚动到底部
@@ -108,25 +131,40 @@
     function handleScroll() {
         if (!conversationContainer.value) return;
 
-        const atBottom = isScrolledToBottom(conversationContainer.value);
+        const container = conversationContainer.value;
+        const currentScrollTop = container.scrollTop;
+        const atBottom = isScrolledToBottom(container);
 
         // 如果用户滚动到底部，恢复自动滚动并隐藏按钮
         if (atBottom) {
             isAutoScrollEnabled.value = true;
             showScrollToBottom.value = false;
         } else {
-            // 如果用户向上滚动且内容超出容器，禁用自动滚动并显示按钮
+            // 仅在真实“向上滚动”时禁用自动滚动，避免内容高度变化误触发
             if (hasScrollbar()) {
-                isAutoScrollEnabled.value = false;
-                showScrollToBottom.value = true;
+                const userScrolledUp = currentScrollTop < lastScrollTop.value - 1;
+                const hasRecentUserIntent = Date.now() - lastUserScrollIntentAt.value < 280;
+                if (userScrolledUp && hasRecentUserIntent) {
+                    isAutoScrollEnabled.value = false;
+                    showScrollToBottom.value = true;
+                } else if (!isAutoScrollEnabled.value) {
+                    showScrollToBottom.value = true;
+                }
             }
         }
+
+        lastScrollTop.value = currentScrollTop;
+    }
+
+    function syncToBottom() {
+        if (!conversationContainer.value) return;
+        conversationContainer.value.scrollTop = conversationContainer.value.scrollHeight;
+        lastScrollTop.value = conversationContainer.value.scrollTop;
     }
 
     // 滚动到底部
     function scrollToBottom() {
-        if (!conversationContainer.value) return;
-        conversationContainer.value.scrollTop = conversationContainer.value.scrollHeight;
+        syncToBottom();
         isAutoScrollEnabled.value = true;
         showScrollToBottom.value = false;
     }
@@ -138,9 +176,7 @@
             if (!isAutoScrollEnabled.value) return;
 
             await nextTick();
-            if (conversationContainer.value) {
-                conversationContainer.value.scrollTop = conversationContainer.value.scrollHeight;
-            }
+            syncToBottom();
         },
         { deep: true }
     );
@@ -153,6 +189,7 @@
             if (newLength === 0 && oldLength > 0) {
                 isAutoScrollEnabled.value = true;
                 showScrollToBottom.value = false;
+                lastScrollTop.value = 0;
             }
             // 新消息添加（用户提交了新请求）
             if (newLength > oldLength) {
@@ -160,14 +197,33 @@
                 isAutoScrollEnabled.value = true;
                 showScrollToBottom.value = false;
                 nextTick(() => {
-                    if (conversationContainer.value) {
-                        conversationContainer.value.scrollTop =
-                            conversationContainer.value.scrollHeight;
-                    }
+                    syncToBottom();
                 });
             }
         }
     );
+
+    onMounted(() => {
+        if (messageListRef.value) {
+            messageListObserver = new ResizeObserver(() => {
+                if (!isAutoScrollEnabled.value) {
+                    return;
+                }
+
+                nextTick(() => {
+                    syncToBottom();
+                });
+            });
+            messageListObserver.observe(messageListRef.value);
+        }
+    });
+
+    onUnmounted(() => {
+        if (messageListObserver) {
+            messageListObserver.disconnect();
+            messageListObserver = null;
+        }
+    });
 </script>
 
 <style scoped>

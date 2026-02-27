@@ -3,7 +3,7 @@
   -->
 
 <template>
-    <div :class="containerClass">
+    <div ref="markdownContainerRef" :class="containerClass" @click="handleMarkdownClick">
         <MarkdownRender
             :nodes="nodes"
             :final="props.final"
@@ -85,8 +85,10 @@
 </script>
 
 <script setup lang="ts">
+    import { sendNotification } from '@tauri-apps/plugin-notification';
     import MarkdownRender, { type ParsedNode, parseMarkdownToStructure } from 'markstream-vue';
     import { computed } from 'vue';
+    import { ref } from 'vue';
 
     interface Props {
         content: string;
@@ -107,6 +109,7 @@
     });
 
     const parser = getTouchAiMarkdownParser();
+    const markdownContainerRef = ref<HTMLElement | null>(null);
 
     const nodes = computed<ParsedNode[]>(() => {
         if (!props.content) {
@@ -142,4 +145,44 @@
     const codeBlockLightTheme = 'one-light';
     const codeBlockDarkTheme = 'one-dark-pro';
     const codeBlockThemes = [codeBlockLightTheme, codeBlockDarkTheme];
+
+    async function handleMarkdownClick(event: MouseEvent) {
+        const target = event.target as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+
+        const codeElement = target.closest('code');
+        if (!codeElement) {
+            return;
+        }
+
+        const container = markdownContainerRef.value;
+        if (!container || !container.contains(codeElement)) {
+            return;
+        }
+
+        if (codeElement.closest('pre') || codeElement.closest('.code-block-container')) {
+            return;
+        }
+
+        const text = codeElement.textContent?.trim();
+        if (!text) {
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(text);
+            sendNotification({
+                title: 'TouchAI',
+                body: '已复制',
+            });
+        } catch (error) {
+            console.error('[MarkdownContent] Failed to copy inline code:', error);
+            sendNotification({
+                title: 'TouchAI',
+                body: '复制失败',
+            });
+        }
+    }
 </script>
