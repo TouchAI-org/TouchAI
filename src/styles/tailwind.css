@@ -3,7 +3,7 @@
  */
 
 @import 'tailwindcss';
-@import 'highlight.js/styles/github-dark.css';
+@import 'markstream-vue/index.css';
 @import 'katex/dist/katex.min.css';
 @import './markdown.css';
 
@@ -22,6 +22,11 @@
 
     /* 背景色 */
     --color-background-primary: rgba(251, 251, 246, 0.98);
+
+    /* Markdown 面板主题色 */
+    --color-markdown-surface: rgba(253, 251, 253, 0.98);
+    --color-markdown-surface-soft: rgba(251, 249, 245, 0.98);
+    --color-markdown-surface-border: rgba(230, 224, 214, 0.9);
 
     /* 主色调 - 暖棕灰色系 */
     --color-primary-50: #f7f5f3;

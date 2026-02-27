@@ -2,494 +2,230 @@
  * Copyright (c) 2026. 千诚. Licensed under GPL v3.
  */
 
-/* 用于 Markdown 内容渲染 */
 @layer components {
-    .prose {
+    .touchai-markdown {
+        --link-color: theme('colors.blue.500');
+        --blockquote-border-color: theme('colors.gray.200');
+        --hr-border-color: theme('colors.gray.200');
+        --table-border: theme('colors.gray.200');
+        --touchai-markdown-surface: var(--color-markdown-surface);
+        --touchai-markdown-surface-soft: var(--color-markdown-surface-soft);
+        --touchai-markdown-surface-border: var(--color-markdown-surface-border);
+        --touchai-markdown-surface-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+
+        font-family: 'Source Han Serif SC', 'Noto Serif SC', 'Source Serif Pro', 'Georgia', serif;
+        font-size: 15px;
+        line-height: 1.8;
+        letter-spacing: 0.02em;
         color: theme('colors.gray.600');
-        max-width: 65ch;
     }
 
-    .prose :where(p):not(:where([class~='not-prose'] *)) {
-        margin-top: 1.25em;
-        margin-bottom: 1.25em;
+    .touchai-markdown .markstream-vue {
+        background: transparent;
+        color: inherit;
     }
 
-    .prose :where([class~='lead']):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.600');
-        font-size: 1.25em;
-        line-height: 1.6;
-        margin-top: 1.2em;
-        margin-bottom: 1.2em;
+    .touchai-markdown .paragraph-node:first-child {
+        margin-top: 0;
     }
 
-    .prose :where(a):not(:where([class~='not-prose'] *)) {
+    .touchai-markdown .paragraph-node:last-child {
+        margin-bottom: 0;
+    }
+
+    .touchai-markdown .heading-node {
+        font-family: var(--font-serif);
+        color: theme('colors.gray.900');
+    }
+
+    .touchai-markdown .link-node {
         color: theme('colors.blue.500');
-        text-decoration: underline;
-        font-weight: 500;
+        text-underline-offset: 0.2rem;
     }
 
-    .prose :where(a):hover:not(:where([class~='not-prose'] *)) {
+    .touchai-markdown .link-node:hover {
         color: theme('colors.blue.600');
     }
 
-    .prose :where(strong):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.900');
-        font-weight: 600;
-    }
-
-    .prose :where(ol):not(:where([class~='not-prose'] *)) {
-        list-style-type: decimal;
-        margin-top: 1.25em;
-        margin-bottom: 1.25em;
-        padding-left: 1.625em;
-    }
-
-    .prose :where(ul):not(:where([class~='not-prose'] *)) {
-        list-style-type: disc;
-        margin-top: 1.25em;
-        margin-bottom: 1.25em;
-        padding-left: 1.625em;
-    }
-
-    .prose :where(li):not(:where([class~='not-prose'] *)) {
-        margin-top: 0.5em;
-        margin-bottom: 0.5em;
-    }
-
-    .prose :where(ol > li):not(:where([class~='not-prose'] *)) {
-        padding-left: 0.375em;
-    }
-
-    .prose :where(ul > li):not(:where([class~='not-prose'] *)) {
-        padding-left: 0.375em;
-    }
-
-    .prose :where(.prose > ul > li p):not(:where([class~='not-prose'] *)) {
-        margin-top: 0.75em;
-        margin-bottom: 0.75em;
-    }
-
-    .prose :where(.prose > ol > li > *:first-child):not(:where([class~='not-prose'] *)) {
-        margin-top: 1.25em;
-    }
-
-    .prose :where(.prose > ol > li > *:last-child):not(:where([class~='not-prose'] *)) {
-        margin-bottom: 1.25em;
-    }
-
-    .prose :where(.prose > ul > li > *:first-child):not(:where([class~='not-prose'] *)) {
-        margin-top: 1.25em;
-    }
-
-    .prose :where(.prose > ul > li > *:last-child):not(:where([class~='not-prose'] *)) {
-        margin-bottom: 1.25em;
-    }
-
-    .prose :where(hr):not(:where([class~='not-prose'] *)) {
-        border-color: theme('colors.gray.200');
-        border-top-width: 1px;
-        margin-top: 3em;
-        margin-bottom: 3em;
-    }
-
-    .prose :where(blockquote):not(:where([class~='not-prose'] *)) {
-        font-weight: 500;
-        font-style: italic;
-        color: theme('colors.gray.900');
-        border-left-width: 0.25rem;
-        border-left-color: theme('colors.gray.200');
-        quotes: '\201C' '\201D' '\2018' '\2019';
-        margin-top: 1.6em;
-        margin-bottom: 1.6em;
-        padding-left: 1em;
-    }
-
-    .prose :where(h1):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.900');
-        font-weight: 800;
-        font-size: 2.25em;
-        margin-top: 0;
-        margin-bottom: 0.8888889em;
-        line-height: 1.1111111;
-    }
-
-    .prose :where(h2):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.900');
-        font-weight: 700;
-        font-size: 1.5em;
-        margin-top: 2em;
-        margin-bottom: 1em;
-        line-height: 1.3333333;
-    }
-
-    .prose :where(h3):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.900');
-        font-weight: 600;
-        font-size: 1.25em;
-        margin-top: 1.6em;
-        margin-bottom: 0.6em;
-        line-height: 1.6;
-    }
-
-    .prose :where(h4):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.900');
-        font-weight: 600;
-        margin-top: 1.5em;
-        margin-bottom: 0.5em;
-        line-height: 1.5;
-    }
-
-    .prose :where(code):not(:where([class~='not-prose'] *)) {
-        color: var(--color-code-inline-text);
-        font-weight: 600;
-        font-size: 0.875em;
-        background-color: var(--color-code-inline-bg);
-        padding: 0.125rem 0.375rem;
-        border-radius: 0.25rem;
-    }
-
-    .prose :where(code):not(:where([class~='not-prose'] *))::before {
-        content: '';
-    }
-
-    .prose :where(code):not(:where([class~='not-prose'] *))::after {
-        content: '';
-    }
-
-    .prose :where(pre):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.50');
-        background-color: theme('colors.gray.800');
-        overflow-x: auto;
-        font-weight: 400;
-        font-size: 1em;
-        line-height: 1.7142857;
-        margin-bottom: 1.7142857em;
-        border-radius: 0.375rem;
-        padding: 0;
-    }
-
-    .prose :where(pre code):not(:where([class~='not-prose'] *)) {
-        background-color: transparent;
-        border-width: 0;
-        border-radius: 0;
-        padding: 0;
-        font-weight: inherit;
-        color: inherit;
-        font-size: inherit;
-        font-family: inherit;
-        line-height: inherit;
-    }
-
-    .prose :where(pre code):not(:where([class~='not-prose'] *))::before {
-        content: none;
-    }
-
-    .prose :where(pre code):not(:where([class~='not-prose'] *))::after {
-        content: none;
-    }
-
-    .prose :where(table):not(:where([class~='not-prose'] *)) {
-        width: 100%;
-        table-layout: auto;
-        text-align: left;
-        margin-top: 2em;
-        margin-bottom: 2em;
-        font-size: 0.875em;
-        line-height: 1.7142857;
-    }
-
-    .prose :where(thead):not(:where([class~='not-prose'] *)) {
-        border-bottom-width: 1px;
-        border-bottom-color: theme('colors.gray.300');
-    }
-
-    .prose :where(thead th):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.900');
-        font-weight: 600;
-        vertical-align: bottom;
-        padding-right: 0.5714286em;
-        padding-bottom: 0.5714286em;
-        padding-left: 0.5714286em;
-    }
-
-    .prose :where(tbody tr):not(:where([class~='not-prose'] *)) {
-        border-bottom-width: 1px;
-        border-bottom-color: theme('colors.gray.200');
-    }
-
-    .prose :where(tbody tr:last-child):not(:where([class~='not-prose'] *)) {
-        border-bottom-width: 0;
-    }
-
-    .prose :where(tbody td):not(:where([class~='not-prose'] *)) {
-        vertical-align: baseline;
-        padding: 0.5714286em;
-    }
-
-    .prose :where(figure):not(:where([class~='not-prose'] *)) {
-        margin-top: 2em;
-        margin-bottom: 2em;
-    }
-
-    .prose :where(img):not(:where([class~='not-prose'] *)) {
-        margin-top: 2em;
-        margin-bottom: 2em;
-    }
-
-    .prose :where(h2 code):not(:where([class~='not-prose'] *)) {
-        font-size: 0.875em;
-    }
-
-    .prose :where(h3 code):not(:where([class~='not-prose'] *)) {
+    .touchai-markdown .inline-code-node,
+    .touchai-markdown .markstream-vue :not(pre) > code {
+        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
         font-size: 0.9em;
+        color: var(--color-code-inline-text);
+        background-color: var(--color-code-inline-bg);
+        border-radius: 0.25rem;
+        padding: 0.15em 0.35em;
+        border: 1px solid var(--touchai-markdown-surface-border);
     }
 
-    .prose-sm {
-        font-size: 0.875rem;
-        line-height: 1.7142857;
+    .touchai-markdown .code-block-container {
+        @apply overflow-hidden rounded-xl border bg-white shadow-sm transition-colors;
+        border-color: var(--touchai-markdown-surface-border);
+        background-color: var(--touchai-markdown-surface);
+        --markstream-code-fallback-bg: var(--touchai-markdown-surface);
+        --markstream-code-fallback-fg: theme('colors.gray.800');
+        --markstream-code-fallback-selection-bg: theme('colors.gray.100');
+        --vscode-editor-background: var(--touchai-markdown-surface);
+        --vscode-editor-foreground: theme('colors.gray.800');
+        --vscode-editor-selectionBackground: theme('colors.gray.100');
     }
 
-    .prose-sm :where(p):not(:where([class~='not-prose'] *)) {
-        margin-top: 1.1428571em;
-        margin-bottom: 1.1428571em;
+    .touchai-markdown .code-block-header {
+        background-color: var(--touchai-markdown-surface) !important;
+        border-bottom-color: var(--touchai-markdown-surface-border) !important;
+        color: theme('colors.gray.700') !important;
     }
 
-    .prose-sm :where(h2):not(:where([class~='not-prose'] *)) {
-        font-size: 1.2857143em;
-        margin-top: 1.5555556em;
-        margin-bottom: 0.8888889em;
-        line-height: 1.5555556;
+    .touchai-markdown .code-block-content {
+        scrollbar-width: thin;
+        background-color: var(--touchai-markdown-surface);
     }
 
-    .prose-sm :where(h3):not(:where([class~='not-prose'] *)) {
-        font-size: 1.1428571em;
-        margin-top: 1.5em;
-        margin-bottom: 0.5em;
-        line-height: 1.5;
-    }
-
-    /* Markdown 内容的代码块样式 */
-    .markdown-content .code-block-wrapper {
-        position: relative;
-        border-radius: 0.5rem;
-        overflow: hidden;
-        background-color: theme('colors.gray.800');
-    }
-
-    .markdown-content .code-block-header {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0.5rem 1rem;
-        background-color: theme('colors.gray.700');
-        border-bottom: 1px solid theme('colors.gray.600');
-        z-index: 10;
-    }
-
-    .markdown-content .code-block-lang {
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: theme('colors.gray.400');
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    .markdown-content .code-copy-btn {
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-        padding: 0.25rem 0.625rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-        color: theme('colors.gray.300');
-        background-color: theme('colors.gray.600');
-        border: none;
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-
-    .markdown-content .code-copy-btn:hover {
-        background-color: theme('colors.gray.500');
-        color: white;
-    }
-
-    .markdown-content .code-copy-btn:active {
-        transform: scale(0.95);
-    }
-
-    .markdown-content .copy-icon {
-        flex-shrink: 0;
-    }
-
-    .markdown-content .copy-text {
-        white-space: nowrap;
-    }
-
-    .markdown-content .code-block-wrapper pre {
-        margin: 0 !important;
-        padding: 1rem !important;
-        background-color: theme('colors.gray.800') !important;
-        overflow-x: auto;
-    }
-
-    .markdown-content .code-block-wrapper pre code {
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace !important;
+    .touchai-markdown .code-block-content pre,
+    .touchai-markdown .code-pre-fallback {
+        margin: 0;
         font-size: 0.875rem;
         line-height: 1.7;
-        background-color: transparent !important;
-        color: theme('colors.gray.50');
     }
 
-    /* 脚注样式 */
-    .prose :where(.footnotes):not(:where([class~='not-prose'] *)) {
-        margin-top: 2.5em;
-        padding-top: 1em;
-        border-top: 1px solid theme('colors.gray.200');
-        font-size: 0.65em;
+    .touchai-markdown .code-action-btn {
         color: theme('colors.gray.500');
+        border-radius: 0.375rem;
     }
 
-    .prose :where(.footnotes ol):not(:where([class~='not-prose'] *)) {
-        padding-left: 1.25em;
-        margin-top: 0.5em;
+    .touchai-markdown .code-action-btn:hover {
+        color: theme('colors.primary.600');
+        background-color: theme('colors.primary.100');
     }
 
-    .prose :where(.footnotes li):not(:where([class~='not-prose'] *)) {
-        margin-top: 0.25em;
-        margin-bottom: 0.25em;
+    .touchai-markdown .code-block-container .monaco-editor,
+    .touchai-markdown .code-block-container .monaco-editor-background {
+        background-color: var(--touchai-markdown-surface) !important;
     }
 
-    .prose :where(.footnote-ref):not(:where([class~='not-prose'] *)) {
+    .touchai-markdown .code-block-container .monaco-editor .margin,
+    .touchai-markdown .code-block-container .monaco-editor .margin-view-overlays {
+        background-color: var(--touchai-markdown-surface) !important;
+    }
+
+    .touchai-markdown .code-block-container .monaco-editor .line-numbers {
+        color: theme('colors.gray.500') !important;
+    }
+
+    .touchai-markdown .table-node {
+        border-color: theme('colors.gray.200');
+    }
+
+    .touchai-markdown .table-node th {
+        color: theme('colors.gray.900');
+        font-weight: 600;
+    }
+
+    .touchai-markdown .table-node td {
+        color: theme('colors.gray.700');
+    }
+
+    .touchai-markdown .checkbox-input {
+        width: 1.1em;
+        height: 1.1em;
+        margin-right: 0.45em;
+        accent-color: theme('colors.primary.500');
+    }
+
+    .touchai-markdown .footnote-reference {
         color: theme('colors.blue.500');
-        text-decoration: none;
-        font-weight: 500;
-        font-size: 0.65em;
-        vertical-align: super;
-        line-height: 0;
     }
 
-    .prose :where(.footnote-ref):hover:not(:where([class~='not-prose'] *)) {
-        color: theme('colors.blue.600');
-        text-decoration: underline;
-    }
-
-    .prose :where(.footnote-backref):not(:where([class~='not-prose'] *)) {
+    .touchai-markdown .footnote-anchor {
         color: theme('colors.gray.400');
-        text-decoration: none;
-        font-weight: 400;
-        margin-left: 0.25em;
-        font-size: 0.9em;
     }
 
-    .prose :where(.footnote-backref):hover:not(:where([class~='not-prose'] *)) {
-        color: theme('colors.blue.500');
-        text-decoration: underline;
-    }
-
-    /* 高亮文本 ==marked== */
-    .prose :where(mark):not(:where([class~='not-prose'] *)) {
+    .touchai-markdown .highlight-node {
         background-color: theme('colors.yellow.200');
         color: theme('colors.gray.900');
-        padding: 0.125rem 0.25rem;
         border-radius: 0.125rem;
+        padding: 0.125rem 0.25rem;
     }
 
-    /* 下标 H~2~O */
-    .prose :where(sub):not(:where([class~='not-prose'] *)) {
-        font-size: 0.75em;
-        vertical-align: sub;
-        line-height: 0;
-    }
-
-    /* 上标 x^2^ */
-    .prose :where(sup):not(:where([class~='not-prose'] *)) {
-        font-size: 0.75em;
-        vertical-align: super;
-        line-height: 0;
-    }
-
-    /* 插入文本 ++inserted++ */
-    .prose :where(ins):not(:where([class~='not-prose'] *)) {
-        text-decoration: underline;
+    .touchai-markdown .insert-node {
         text-decoration-color: theme('colors.green.500');
         text-decoration-thickness: 2px;
         text-underline-offset: 2px;
-        background-color: theme('colors.green.50');
         color: theme('colors.green.900');
-        padding: 0.125rem 0.25rem;
+        background-color: theme('colors.green.50');
         border-radius: 0.125rem;
+        padding: 0.125rem 0.25rem;
     }
 
-    /* 定义列表 */
-    .prose :where(dl):not(:where([class~='not-prose'] *)) {
-        margin-top: 1.25em;
-        margin-bottom: 1.25em;
+    .touchai-markdown .markstream-vue .mermaid-block-header {
+        background-color: var(--touchai-markdown-surface) !important;
+        border-bottom-color: var(--touchai-markdown-surface-border) !important;
+        color: theme('colors.gray.700') !important;
     }
 
-    .prose :where(dt):not(:where([class~='not-prose'] *)) {
-        color: theme('colors.gray.900');
-        font-weight: 600;
-        margin-top: 1em;
+    .touchai-markdown .markstream-vue .d2-block-header,
+    .touchai-markdown .markstream-vue .infographic-block-header {
+        background-color: var(--touchai-markdown-surface) !important;
+        border-bottom-color: var(--touchai-markdown-surface-border) !important;
+        color: theme('colors.gray.700') !important;
     }
 
-    .prose :where(dd):not(:where([class~='not-prose'] *)) {
-        margin-top: 0.5em;
-        margin-left: 1.625em;
-        padding-left: 0.375em;
+    .touchai-markdown .markstream-vue .mermaid-action-btn,
+    .touchai-markdown .markstream-vue .mermaid-block-header button {
+        color: theme('colors.gray.500') !important;
     }
 
-    /* 任务列表 */
-    .prose :where(.task-list-item):not(:where([class~='not-prose'] *)) {
-        list-style-type: none;
-        padding-left: 0;
-        margin-left: -1.625em;
-        display: flex;
-        align-items: center;
-        gap: 0.5em;
+    .touchai-markdown .markstream-vue .mermaid-block-header button[aria-pressed],
+    .touchai-markdown .markstream-vue .d2-block-header button[aria-pressed],
+    .touchai-markdown .markstream-vue .infographic-block-header button[aria-pressed] {
+        display: none !important;
     }
 
-    .prose :where(.task-list-item input[type='checkbox']):not(:where([class~='not-prose'] *)) {
-        appearance: none;
-        -webkit-appearance: none;
-        margin: 0;
-        cursor: pointer;
-        width: 1.125em;
-        height: 1.125em;
-        flex-shrink: 0;
-        border: 2px solid theme('colors.gray.300');
-        border-radius: 0.25rem;
-        background-color: white;
-        transition: all 0.2s;
-        position: relative;
+    .touchai-markdown .markstream-vue .mermaid-action-btn:hover,
+    .touchai-markdown .markstream-vue .mermaid-block-header button:hover,
+    .touchai-markdown .markstream-vue .d2-block-header button:hover,
+    .touchai-markdown .markstream-vue .infographic-block-header button:hover {
+        color: theme('colors.primary.600') !important;
+        background-color: theme('colors.primary.100') !important;
     }
 
-    .prose:where(.task-list-item input[type='checkbox']:hover):not(:where([class~='not-prose'] *)) {
-        border-color: theme('colors.primary.400');
+    .touchai-markdown .markstream-vue .mermaid-block-header .font-mono {
+        font-size: 0;
     }
 
-    .prose:where(.task-list-item input[type='checkbox']:checked):not(
-            :where([class~='not-prose'] *)
-        ) {
-        background-color: theme('colors.primary.500');
-        border-color: theme('colors.primary.500');
+    .touchai-markdown .markstream-vue .mermaid-block-header .font-mono::after {
+        content: '流程图';
+        font-size: 0.875rem;
+        font-family:
+            'Source Han Sans CN',
+            'Noto Sans SC',
+            -apple-system,
+            BlinkMacSystemFont,
+            'Segoe UI',
+            sans-serif;
     }
 
-    .prose:where(.task-list-item input[type='checkbox']:checked):not(
-            :where([class~='not-prose'] *)
-        )::after {
-        content: '';
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        width: 0.3em;
-        height: 0.6em;
-        border: solid white;
-        border-width: 0 2px 2px 0;
-        transform: translate(-50%, -50%) rotate(45deg);
+    .touchai-markdown .markstream-vue .mermaid-block-header + div,
+    .touchai-markdown .markstream-vue [data-mermaid-wrapper],
+    .touchai-markdown .markstream-vue ._mermaid {
+        background-color: var(--touchai-markdown-surface) !important;
+        box-shadow: var(--touchai-markdown-surface-shadow);
+    }
+
+    .touchai-markdown--reasoning {
+        font-size: 14px;
+        line-height: 1.75;
+        color: theme('colors.gray.500');
+    }
+
+    .touchai-markdown--reasoning .heading-node,
+    .touchai-markdown--reasoning .strong-node {
+        color: theme('colors.gray.500');
+    }
+
+    .touchai-markdown--reasoning .inline-code-node,
+    .touchai-markdown--reasoning .markstream-vue :not(pre) > code {
+        color: theme('colors.gray.500');
+        background-color: theme('colors.gray.100');
     }
 }

@@ -2,12 +2,13 @@ import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import { defineConfig } from 'vite'
+import monacoEditorPlugin from 'vite-plugin-monaco-editor'
 
 const host = process.env.TAURI_DEV_HOST
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [tailwindcss(), vue()],
+  plugins: [monacoEditorPlugin({}), tailwindcss(), vue()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

@@ -40,7 +40,11 @@
                             v-show="isReasoningExpanded"
                             class="reasoning-content custom-scrollbar-thin mt-2 max-h-60 w-full overflow-y-auto border-l-1 border-gray-300 py-1 pr-2 pl-4 text-sm text-gray-500"
                         >
-                            <MarkdownContent :content="message.reasoning" variant="reasoning" />
+                            <MarkdownContent
+                                :content="message.reasoning"
+                                :final="!message.isStreaming"
+                                variant="reasoning"
+                            />
                         </div>
                     </div>
 
@@ -51,7 +55,7 @@
                     />
 
                     <!-- 主要内容 -->
-                    <MarkdownContent :content="message.content" />
+                    <MarkdownContent :content="message.content" :final="!message.isStreaming" />
 
                     <!-- 流式响应加载指示器 -->
                     <div
