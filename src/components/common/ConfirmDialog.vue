@@ -1,6 +1,17 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import {
+        AlertDialog,
+        AlertDialogAction,
+        AlertDialogCancel,
+        AlertDialogContent,
+        AlertDialogDescription,
+        AlertDialogFooter,
+        AlertDialogHeader,
+        AlertDialogTitle,
+    } from '@components/ui/alert-dialog';
+
     import SvgIcon from './SvgIcon.vue';
 
     interface Props {
@@ -57,12 +68,14 @@
 </script>
 
 <template>
-    <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-        @click.self="handleCancel"
-    >
-        <div class="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
-            <div class="flex items-start gap-4">
+    <AlertDialog :open="true">
+        <AlertDialogContent
+            class="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl"
+            @escape-key-down="handleCancel"
+            @pointer-down-outside="handleCancel"
+            @interact-outside="handleCancel"
+        >
+            <AlertDialogHeader class="flex items-start gap-4">
                 <div
                     class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full"
                     :class="{
@@ -75,19 +88,23 @@
                 </div>
 
                 <div class="flex-1">
-                    <h3 class="font-serif text-base font-semibold text-gray-900">{{ title }}</h3>
-                    <p class="mt-2 text-sm text-gray-600">{{ message }}</p>
+                    <AlertDialogTitle class="font-serif text-base font-semibold text-gray-900">
+                        {{ title }}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription class="mt-2 text-sm text-gray-600">
+                        {{ message }}
+                    </AlertDialogDescription>
                 </div>
-            </div>
+            </AlertDialogHeader>
 
-            <div class="mt-6 flex gap-3">
-                <button
+            <AlertDialogFooter class="mt-6 flex gap-3">
+                <AlertDialogCancel
                     class="flex-1 rounded-lg border border-gray-200 px-4 py-2 font-serif text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50"
                     @click="handleCancel"
                 >
                     {{ cancelText }}
-                </button>
-                <button
+                </AlertDialogCancel>
+                <AlertDialogAction
                     class="flex-1 rounded-lg px-4 py-2 font-serif text-sm font-medium text-white transition-colors"
                     :class="{
                         'bg-red-500 hover:bg-red-600': type === 'danger',
@@ -97,8 +114,8 @@
                     @click="handleConfirm"
                 >
                     {{ confirmText }}
-                </button>
-            </div>
-        </div>
-    </div>
+                </AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
 </template>

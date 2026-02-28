@@ -2,7 +2,13 @@
 
 <script setup lang="ts">
     import SvgIcon from '@components/common/SvgIcon.vue';
-    import { computed, onMounted, onUnmounted, ref } from 'vue';
+    import {
+        DropdownMenu,
+        DropdownMenuContent,
+        DropdownMenuItem,
+        DropdownMenuTrigger,
+    } from '@components/ui/dropdown-menu';
+    import { computed, ref } from 'vue';
 
     export interface ContextMenuItem {
         key: string;
@@ -22,26 +28,19 @@
         (e: 'close'): void;
     }>();
 
-    const menuRef = ref<HTMLElement | null>(null);
+    const isOpen = ref(true);
 
     const menuStyle = computed(() => ({
-        left: `${props.x}px`,
-        top: `${props.y}px`,
+        left: `${Math.max(0, props.x)}px`,
+        top: `${Math.max(0, props.y)}px`,
     }));
 
-    const handleClickOutside = (event: MouseEvent) => {
-        if (menuRef.value && !menuRef.value.contains(event.target as Node)) {
+    const handleOpenChange = (open: boolean) => {
+        isOpen.value = open;
+        if (!open) {
             emit('close');
         }
     };
-
-    onMounted(() => {
-        document.addEventListener('click', handleClickOutside);
-    });
-
-    onUnmounted(() => {
-        document.removeEventListener('click', handleClickOutside);
-    });
 
     const handleSelect = (key: string) => {
         emit('select', key);
@@ -50,22 +49,29 @@
 </script>
 
 <template>
-    <div
-        ref="menuRef"
-        class="fixed z-50 min-w-[160px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
-        :style="menuStyle"
-    >
-        <button
-            v-for="item in items"
-            :key="item.key"
-            :class="[
-                'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
-                item.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700 hover:bg-gray-100',
-            ]"
-            @click="handleSelect(item.key)"
+    <DropdownMenu :open="isOpen" modal @update:open="handleOpenChange">
+        <DropdownMenuTrigger as-child>
+            <div class="pointer-events-none fixed h-px w-px opacity-0" :style="menuStyle"></div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+            :side-offset="2"
+            align="start"
+            class="min-w-[160px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
         >
-            <SvgIcon v-if="item.icon" :name="item.icon" class="h-4 w-4" />
-            {{ item.label }}
-        </button>
-    </div>
+            <DropdownMenuItem
+                v-for="item in items"
+                :key="item.key"
+                :class="[
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                    item.danger
+                        ? 'text-red-600 data-[highlighted]:bg-red-50'
+                        : 'text-gray-700 data-[highlighted]:bg-gray-100',
+                ]"
+                @select.prevent="handleSelect(item.key)"
+            >
+                <SvgIcon v-if="item.icon" :name="item.icon" class="h-4 w-4" />
+                {{ item.label }}
+            </DropdownMenuItem>
+        </DropdownMenuContent>
+    </DropdownMenu>
 </template>

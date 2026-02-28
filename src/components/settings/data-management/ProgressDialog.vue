@@ -1,5 +1,7 @@
 <script setup lang="ts">
+    import DialogShell from '@components/common/DialogShell.vue';
     import SvgIcon from '@components/common/SvgIcon.vue';
+    import { Button } from '@components/ui/button';
     import { computed } from 'vue';
 
     const props = defineProps<{
@@ -35,43 +37,41 @@
 </script>
 
 <template>
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-        <div
-            class="relative w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl"
-        >
-            <div class="flex flex-col items-center justify-center text-center">
-                <button
-                    v-if="props.dismissible"
-                    class="absolute top-3 right-3 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                    @click="emit('dismiss')"
-                >
-                    <SvgIcon name="x" class="h-4 w-4" />
-                </button>
-                <div
-                    class="mb-4 flex h-12 w-12 items-center justify-center rounded-full"
-                    :class="[iconConfig.bg, iconConfig.text]"
-                >
-                    <SvgIcon
-                        :name="iconConfig.name"
-                        :class="'h-6 w-6' + (isSpinning ? ' animate-spin' : '')"
-                    />
+    <DialogShell max-width-class="max-w-sm" content-class="relative">
+        <div class="flex flex-col items-center justify-center text-center">
+            <Button
+                v-if="props.dismissible"
+                variant="ghost"
+                size="icon"
+                class="absolute top-3 right-3 h-7 w-7 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                @click="emit('dismiss')"
+            >
+                <SvgIcon name="x" class="h-4 w-4" />
+            </Button>
+            <div
+                class="mb-4 flex h-12 w-12 items-center justify-center rounded-full"
+                :class="[iconConfig.bg, iconConfig.text]"
+            >
+                <SvgIcon
+                    :name="iconConfig.name"
+                    :class="'h-6 w-6' + (isSpinning ? ' animate-spin' : '')"
+                />
+            </div>
+
+            <h3 class="font-serif text-lg font-semibold text-gray-900">{{ title }}</h3>
+            <p class="mt-2 text-sm text-gray-600">{{ message }}</p>
+
+            <div v-if="progress !== undefined" class="mt-6 w-full">
+                <div class="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                    <div
+                        class="bg-primary-600 h-full rounded-full transition-all duration-300 ease-out"
+                        :style="{ width: `${progress}%` }"
+                    ></div>
                 </div>
-
-                <h3 class="font-serif text-lg font-semibold text-gray-900">{{ title }}</h3>
-                <p class="mt-2 text-sm text-gray-600">{{ message }}</p>
-
-                <div v-if="progress !== undefined" class="mt-6 w-full">
-                    <div class="h-2 w-full overflow-hidden rounded-full bg-gray-100">
-                        <div
-                            class="bg-primary-600 h-full rounded-full transition-all duration-300 ease-out"
-                            :style="{ width: `${progress}%` }"
-                        ></div>
-                    </div>
-                    <div class="mt-2 text-right text-xs font-medium text-gray-500">
-                        {{ Math.round(progress) }}%
-                    </div>
+                <div class="mt-2 text-right text-xs font-medium text-gray-500">
+                    {{ Math.round(progress) }}%
                 </div>
             </div>
         </div>
-    </div>
+    </DialogShell>
 </template>
