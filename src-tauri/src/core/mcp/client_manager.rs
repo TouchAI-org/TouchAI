@@ -203,6 +203,11 @@ impl McpClientManager {
         statuses
     }
 
+    /// 批量获取所有服务器状态（兼容 Result 返回）。
+    pub async fn get_all_server_statuses_result(&self) -> Result<Vec<ServerStatusInfo>, String> {
+        Ok(self.get_all_server_statuses().await)
+    }
+
     /// 断开所有服务器连接。
     pub async fn disconnect_all(&self) -> Result<(), String> {
         info!("Disconnecting all MCP servers");

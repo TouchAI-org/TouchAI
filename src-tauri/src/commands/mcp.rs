@@ -53,11 +53,13 @@ pub async fn mcp_get_client_status(
     client_manager.get_server_status(server_id).await
 }
 
+/// 获取全部 MCP 客户端状态。
 #[tauri::command]
 pub async fn mcp_get_all_client_statuses(
     client_manager: State<'_, McpClientManager>,
 ) -> Result<Vec<ServerStatusInfo>, String> {
-    Ok(client_manager.get_all_server_statuses().await)
+    // 统一走 Result 语义，保持命令层错误处理一致。
+    client_manager.get_all_server_statuses_result().await
 }
 
 #[tauri::command]
