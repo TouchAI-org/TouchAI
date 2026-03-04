@@ -8,6 +8,7 @@ export * from './mcpTools';
 export * from './messages';
 export * from './models';
 export * from './providers';
+export * from './quickSearchClicks';
 export * from './sessions';
 export * from './settings';
 export * from './statistics';

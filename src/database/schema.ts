@@ -321,6 +321,22 @@ export const mcpToolLogs = sqliteTable('mcp_tool_logs', {
         .default(sql`(datetime('now'))`),
 });
 
+/**
+ * 快速搜索点击统计表
+ */
+export const quickSearchClickStats = sqliteTable('quick_search_click_stats', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    query_norm: text('query_norm').notNull(),
+    path_norm: text('path_norm').notNull(),
+    click_count: integer('click_count').notNull().default(0),
+    created_at: text('created_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+    updated_at: text('updated_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
 // ==================== 类型别名 ====================
 
 export type Session = typeof sessions.$inferSelect;
@@ -370,6 +386,10 @@ export type McpToolUpdate = Partial<NewMcpTool>;
 export type McpToolLog = typeof mcpToolLogs.$inferSelect;
 export type NewMcpToolLog = typeof mcpToolLogs.$inferInsert;
 export type McpToolLogUpdate = Partial<NewMcpToolLog>;
+
+export type QuickSearchClickStat = typeof quickSearchClickStats.$inferSelect;
+export type NewQuickSearchClickStat = typeof quickSearchClickStats.$inferInsert;
+export type QuickSearchClickStatUpdate = Partial<NewQuickSearchClickStat>;
 
 export type MessageRole = Message['role'];
 export type ProviderType = Provider['type'];
