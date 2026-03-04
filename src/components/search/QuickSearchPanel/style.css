@@ -1,0 +1,77 @@
+@reference "@styles/tailwind.css";
+
+.quick-search-scroll {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    height: var(--quick-selection-max-height, 200px);
+    min-height: var(--quick-selection-max-height, 200px);
+    max-height: var(--quick-selection-max-height, 200px);
+    padding: var(--quick-edge-space, 4px);
+    box-sizing: border-box;
+}
+
+.quick-search-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.quick-search-scrollbar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+}
+
+.quick-search-grid {
+    --quick-item-size: 88px;
+    display: grid;
+    width: max-content;
+    margin: 0 auto;
+    align-content: start;
+}
+
+.quick-search-loading-placeholder {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    height: var(--quick-selection-max-height, 200px);
+    min-height: var(--quick-selection-max-height, 200px);
+    max-height: var(--quick-selection-max-height, 200px);
+}
+
+.quick-search-empty {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    height: var(--quick-selection-max-height, 200px);
+    min-height: var(--quick-selection-max-height, 200px);
+    max-height: var(--quick-selection-max-height, 200px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.quick-search-name {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+}
+
+.quick-search-name-match {
+    @apply text-primary-600 font-semibold;
+}
+
+.quick-search-image-thumbnail {
+    image-rendering: auto;
+}
+
+.quick-search-icon-placeholder {
+    background: linear-gradient(135deg, rgba(243, 244, 246, 0.95), rgba(229, 231, 235, 0.95));
+    border: 1px solid rgba(209, 213, 219, 0.9);
+}

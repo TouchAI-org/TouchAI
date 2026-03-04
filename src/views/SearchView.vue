@@ -2,7 +2,7 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import ConversationPanel from '@components/search/ConversationPanel.vue';
-    import SearchBar from '@components/search/SearchBar.vue';
+    import SearchBar from '@components/search/SearchBar/index.vue';
     import { useAgent } from '@composables/useAgent.ts';
     import { useAlert } from '@composables/useAlert';
     import { useWindowResize } from '@composables/useWindowResize';
@@ -334,9 +334,46 @@
             }
         }
 
-        if (!searchBar.value?.isModelDropdownOpen) {
-            if (['ArrowUp', 'ArrowDown'].includes(event.key)) {
-                conversationPanel.value?.focus();
+        // 如果快速搜索面板打开，方向键和 Enter 键转发到快速搜索面板
+        if (searchBar.value?.isQuickSearchOpen) {
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                searchBar.value?.moveQuickSearchSelection?.('up');
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                searchBar.value?.moveQuickSearchSelection?.('down');
+                return;
+            }
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const shortcut = searchBar.value?.getHighlightedQuickShortcut?.();
+                if (shortcut) {
+                    searchBar.value?.openHighlightedQuickShortcut?.();
+                } else if (searchQuery.value.trim()) {
+                    await handleSubmit(searchQuery.value);
+                }
+                return;
+            }
+        }
+
+        // 如果快速搜索面板未打开且模型下拉框也未打开
+        if (!searchBar.value?.isModelDropdownOpen && !searchBar.value?.isQuickSearchOpen) {
+            // 按下键：仅在有输入内容时打开快速搜索面板
+            if (event.key === 'ArrowDown') {
+                if (searchQuery.value.trim()) {
+                    event.preventDefault();
+                    searchBar.value?.openQuickSearchPanel?.();
+                    return;
+                }
+            }
+            // 按上键：发送会话（相当于 Enter）
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (searchQuery.value.trim()) {
+                    await handleSubmit(searchQuery.value);
+                }
                 return;
             }
         }

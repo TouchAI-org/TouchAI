@@ -1,0 +1,10 @@
+@reference "@styles/tailwind.css";
+
+/* 搜索框文本选择颜色 - 使用主题色系 */
+input::selection {
+    @apply bg-primary-200 text-primary-700;
+}
+
+input::-moz-selection {
+    @apply bg-primary-200 text-primary-700;
+}

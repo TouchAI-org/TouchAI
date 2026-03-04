@@ -76,6 +76,23 @@ export interface ModelDropdownData {
     selectedModelId: string;
     selectedProviderId: number | null;
     searchQuery: string;
+    models?: ModelDropdownPopupItem[];
+}
+
+/**
+ * 模型下拉框弹窗项数据（从父窗口传递）
+ */
+export interface ModelDropdownPopupItem {
+    id: number;
+    modelId: string;
+    name: string;
+    providerId: number;
+    providerName: string;
+    reasoning: number;
+    tool_call: number;
+    modalities: string | null;
+    attachment: number;
+    open_weights: number;
 }
 
 /**

@@ -5,6 +5,7 @@ export { initializeBuiltInPopups, popupRegistry } from './registry';
 export type {
     AttachmentListData,
     ModelDropdownData,
+    ModelDropdownPopupItem,
     PopupConfig,
     PopupData,
     PopupDataFor,
