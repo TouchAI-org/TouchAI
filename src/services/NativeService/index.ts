@@ -2,6 +2,7 @@ import { autostart } from './autostart';
 import { database } from './database';
 import { log } from './log';
 import * as mcp from './mcp';
+import { quickSearch } from './quickSearch';
 import { shortcut } from './shortcut';
 import { window } from './window';
 
@@ -14,9 +15,16 @@ export type {
     McpToolDefinition,
     McpTransportType,
 } from './mcp';
-export type { PopupConfig, ShowPopupWindowParams, TauriLogPayload } from './types';
+export type {
+    PopupConfig,
+    QuickSearchStatus,
+    QuickShortcutItem,
+    ResizeWindowHeightParams,
+    ShowPopupWindowParams,
+    TauriLogPayload,
+} from './types';
 
-export { autostart, database, log, mcp, shortcut, window };
+export { autostart, database, log, mcp, quickSearch, shortcut, window };
 
 export const native = {
     window,
@@ -25,4 +33,5 @@ export const native = {
     log,
     database,
     mcp,
+    quickSearch,
 } as const;

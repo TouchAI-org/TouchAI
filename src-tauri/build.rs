@@ -22,5 +22,13 @@ fn main() {
         let _ = std::fs::remove_file(mcp_cap_path);
     }
 
+    // Compile Everything SDK C source on Windows
+    #[cfg(target_os = "windows")]
+    {
+        cc::Build::new()
+            .file("vendor/everything/Everything.c")
+            .compile("everything");
+    }
+
     tauri_build::build()
 }

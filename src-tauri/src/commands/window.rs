@@ -1,9 +1,19 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3.
-
 //! 窗口命令。
 
 use crate::core::window::popup::{self, PopupConfig, PopupRegistry};
 use tauri::{AppHandle, State};
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResizeWindowHeightParams {
+    pub target_height: f64,
+    pub min_height: Option<f64>,
+    pub max_height: Option<f64>,
+    pub center: Option<bool>,
+    pub animate: Option<bool>,
+    pub duration_ms: Option<u64>,
+    pub window_label: Option<String>,
+}
 
 #[tauri::command]
 pub fn hide_search_window(app: AppHandle) -> Result<(), String> {
@@ -68,4 +78,22 @@ pub fn is_popup_focused(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub fn is_app_focused(app: AppHandle) -> Result<bool, String> {
     popup::is_app_focused(app)
+}
+
+#[tauri::command]
+pub async fn resize_window_height(
+    app: AppHandle,
+    params: ResizeWindowHeightParams,
+) -> Result<(), String> {
+    crate::core::window::resize::resize_window_height(
+        app,
+        params.target_height,
+        params.min_height,
+        params.max_height,
+        params.center,
+        params.animate,
+        params.duration_ms,
+        params.window_label,
+    )
+    .await
 }

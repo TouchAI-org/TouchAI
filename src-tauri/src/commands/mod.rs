@@ -4,6 +4,7 @@
 pub mod autostart;
 pub mod database;
 pub mod mcp;
+pub mod quick_search;
 pub mod shortcut;
 pub mod window;
 
@@ -18,6 +19,7 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         window::register_popup_configs,
         window::preload_popup_windows,
         window::open_settings_window,
+        window::resize_window_height,
         shortcut::register_global_shortcut,
         shortcut::get_shortcut_status,
         autostart::enable_autostart,
@@ -32,5 +34,11 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         mcp::mcp_get_client_status,
         mcp::mcp_get_all_client_statuses,
         mcp::mcp_disconnect_all,
+        quick_search::quick_search_search_shortcuts,
+        quick_search::quick_search_get_shortcut_icon,
+        quick_search::quick_search_get_shortcut_icons,
+        quick_search::quick_search_get_image_thumbnails,
+        quick_search::quick_search_prepare_index,
+        quick_search::quick_search_get_status,
     ]
 }

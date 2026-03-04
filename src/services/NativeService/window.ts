@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { PopupConfig, ShowPopupWindowParams } from './types';
+import type { PopupConfig, ResizeWindowHeightParams, ShowPopupWindowParams } from './types';
 
 export const window = {
     hideSearchWindow(): Promise<void> {
@@ -33,5 +33,9 @@ export const window = {
 
     hidePopupWindow(): Promise<void> {
         return invoke('hide_popup_window');
+    },
+
+    resizeWindowHeight(params: ResizeWindowHeightParams): Promise<void> {
+        return invoke('resize_window_height', { params });
     },
 } as const;

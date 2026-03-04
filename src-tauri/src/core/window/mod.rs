@@ -5,6 +5,7 @@
 //! 包含主窗口、设置窗口的管理逻辑
 
 pub mod popup;
+pub mod resize;
 pub mod search;
 pub mod settings;
 pub mod tray;
