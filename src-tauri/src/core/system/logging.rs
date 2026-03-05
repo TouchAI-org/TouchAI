@@ -6,8 +6,9 @@ use tauri_plugin_log::fern::colors::{Color, ColoredLevelConfig};
 use tauri_plugin_log::{Builder, RotationStrategy, Target, TargetKind, TimezoneStrategy};
 use time::macros::format_description;
 
+use super::paths::{app_directory_path, AppDirectory};
+
 const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::Info;
-const LOG_DIRECTORY_NAME: &str = "logs";
 const LOG_FILE_NAME: &str = "TouchAI";
 const MAX_LOG_FILE_SIZE_BYTES: u128 = 10 * 1024 * 1024; // 10MB
 const MAX_ARCHIVED_FILES: usize = 7;
@@ -117,9 +118,13 @@ fn build_file_target(timezone_strategy: TimezoneStrategy) -> Target {
     let date_format = format_description!("[year]-[month]-[day]");
     let time_format = format_description!("[hour]:[minute]:[second]");
 
-    let logs_path = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(LOG_DIRECTORY_NAME);
+    let logs_path = app_directory_path(AppDirectory::Logs).unwrap_or_else(|error| {
+        eprintln!(
+            "[logging] Failed to resolve logs directory from init module: {}. Falling back to current directory.",
+            error
+        );
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    });
 
     Target::new(TargetKind::Folder {
         path: logs_path,

@@ -4,10 +4,9 @@ mod commands;
 mod core;
 
 use core::mcp::McpClientManager;
-use core::system::database::ensure_data_directory;
+use core::setup;
 use core::window::popup::PopupRegistry;
-use log::{error, info, warn};
-use tauri::Manager;
+use log::error;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -41,30 +40,9 @@ pub fn run() {
 
     let app_result = builder
         .setup(|app| {
-            match ensure_data_directory() {
-                Ok(data_dir) => {
-                    info!("Data directory ready: {}", data_dir.display());
-                }
-                Err(err) => {
-                    error!("Failed to create data directory: {}", err);
-                    return Err(Box::new(std::io::Error::other(err.to_string())));
-                }
+            if let Err(err) = setup::setup_app(app) {
+                return Err(Box::new(std::io::Error::other(err)));
             }
-
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(err) = core::window::search::set_search_window_style(&window) {
-                    warn!("Failed to set rounded corners: {}", err);
-                }
-            }
-
-            if let Err(err) = core::window::tray::create_tray(app.handle()) {
-                warn!("Failed to create tray: {}", err);
-            }
-
-            if let Err(err) = core::window::tray::preload_tray_menu(app.handle()) {
-                warn!("Failed to preload tray menu: {}", err);
-            }
-
             Ok(())
         })
         .run(tauri::generate_context!());

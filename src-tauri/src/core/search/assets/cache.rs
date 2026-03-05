@@ -7,7 +7,7 @@
 //! 1. 内存 LRU（[IconCache]）：容量 [ICON_CACHE_CAPACITY] 条，
 //!    以 cache_key → data_url 形式存储，访问时自动提升到队尾。
 //! 2. 磁盘缓存*：将 Data URL 解码后重新编码为 JPEG（质量 [THUMBNAIL_JPEG_QUALITY]），
-//!    写入 {exe_dir}/cache/icons/{hash}.jpeg，冷启动时可直接读取。
+//!    写入 {app_root}/cache/icons/{hash}.jpeg，冷启动时可直接读取。
 //!
 //! # 缓存键策略
 //!
@@ -17,6 +17,7 @@
 //!   文件内容变化后自动失效。
 
 use super::codec::rgba_to_rgb_over_white;
+use crate::core::system::paths::{app_directory_path, AppDirectory};
 use base64::Engine as _;
 use image::{codecs::jpeg::JpegEncoder, ColorType};
 use log::warn;
@@ -32,8 +33,6 @@ use std::{
 
 /// 内存 LRU 缓存最大条目数。
 const ICON_CACHE_CAPACITY: usize = 512;
-/// 磁盘缓存根目录名。
-const ICON_DISK_CACHE_ROOT_DIR: &str = "cache";
 /// 缓存键二次哈希盐值，用于降低碰撞概率。
 const ICON_CACHE_HASH_SALT: &str = "icon_cache_v1";
 /// 缓存键前缀：快捷方式图标。
@@ -60,8 +59,6 @@ const DISK_CACHE_FILE_EXTENSION: &str = "jpeg";
 const JPEG_QUALITY_MIN: u8 = 20;
 /// JPEG 质量上限。
 const JPEG_QUALITY_MAX: u8 = 95;
-/// 磁盘缓存子目录名，位于 exe 同级（release）或项目根目录（debug）下。
-const ICON_DISK_CACHE_SUBDIR: &str = "icons";
 /// 磁盘缓存 JPEG 编码质量（0–100），偏低以减小体积。
 const THUMBNAIL_JPEG_QUALITY: u8 = 46;
 
@@ -275,69 +272,18 @@ fn hash_icon_cache_key(cache_key: &str) -> String {
     format!("{:016x}{:016x}", first_hash, second_hash)
 }
 
-/// 解析磁盘缓存图标目录路径。
-///
-/// - Debug 模式：{project_root}/{root_dir_name}/icons/
-/// - Release 模式：{exe_dir}/{root_dir_name}/icons/
-fn resolve_icons_directory(root_dir_name: &str) -> Result<PathBuf, String> {
-    let exe_dir = std::env::current_exe()
-        .map_err(|err| format!("Failed to resolve current exe: {}", err))?
-        .parent()
-        .ok_or_else(|| "Failed to get executable directory".to_string())?
-        .to_path_buf();
-
-    let root_dir = if cfg!(debug_assertions) {
-        // Debug: exe 在 target/debug/... 下，回溯三级到项目根目录
-        exe_dir
-            .parent()
-            .and_then(|p| p.parent())
-            .and_then(|p| p.parent())
-            .ok_or_else(|| "Failed to get project root".to_string())?
-            .join(root_dir_name)
-    } else {
-        exe_dir.join(root_dir_name)
-    };
-
-    Ok(root_dir.join(ICON_DISK_CACHE_SUBDIR))
-}
-
-/// 解析默认缓存图标目录：{root}/cache/icons/。
-fn resolve_cache_icons_directory() -> Result<PathBuf, String> {
-    resolve_icons_directory(ICON_DISK_CACHE_ROOT_DIR)
-}
-
-/// 懒初始化磁盘缓存目录，确保目录存在且只创建一次。
-fn ensure_cache_icons_directory() -> Option<PathBuf> {
-    static ICONS_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
-    ICONS_DIR
-        .get_or_init(|| {
-            let path = match resolve_cache_icons_directory() {
-                Ok(path) => path,
-                Err(error) => {
-                    warn!(
-                        "[QuickSearch] Failed to resolve cache icons directory: {}",
-                        error
-                    );
-                    return None;
-                }
-            };
-
-            if let Err(error) = fs::create_dir_all(&path) {
-                warn!(
-                    "[QuickSearch] Failed to create cache icons directory '{}': {}",
-                    path.display(),
-                    error
-                );
-                return None;
-            }
-            Some(path)
-        })
-        .clone()
-}
-
 /// 根据缓存键计算磁盘缓存文件完整路径。
 fn icon_disk_cache_file_path(cache_key: &str) -> Option<PathBuf> {
-    let icon_dir = ensure_cache_icons_directory()?;
+    let icon_dir = match app_directory_path(AppDirectory::CacheIcons) {
+        Ok(path) => path,
+        Err(error) => {
+            warn!(
+                "[QuickSearch] Failed to resolve cache icons directory: {}",
+                error
+            );
+            return None;
+        }
+    };
     let file_name = format!(
         "{}.{}",
         hash_icon_cache_key(cache_key),

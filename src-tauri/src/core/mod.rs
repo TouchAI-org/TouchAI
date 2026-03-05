@@ -6,5 +6,6 @@
 
 pub mod mcp;
 pub mod search;
+pub mod setup;
 pub mod system;
 pub mod window;
