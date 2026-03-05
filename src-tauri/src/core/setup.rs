@@ -48,6 +48,23 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     }
     info!("Application base directories initialized.");
 
+    // 异步初始化字体资源
+    let app_handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = crate::core::system::assets::initialize_font(app_handle.clone()).await {
+            error!("Failed to initialize font: {}", err);
+            // 弹出字体下载失败提示
+            let _ = app_handle
+                .dialog()
+                .message("字体下载失败，部分界面可能显示异常")
+                .title("TouchAI")
+                .kind(MessageDialogKind::Warning)
+                .show(|_| {});
+        } else {
+            info!("Font initialized successfully");
+        }
+    });
+
     if let Some(window) = app.get_webview_window("main") {
         if let Err(err) = crate::core::window::search::set_search_window_style(&window) {
             warn!("Failed to set rounded corners: {}", err);

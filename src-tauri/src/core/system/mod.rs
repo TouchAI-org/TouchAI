@@ -4,6 +4,7 @@
 //!
 //! 包含全局快捷键、自启动等系统集成功能。
 
+pub mod assets;
 pub mod autostart;
 pub mod logging;
 pub mod paths;
