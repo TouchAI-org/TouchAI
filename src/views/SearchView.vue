@@ -418,8 +418,11 @@
 
         // 如果快速搜索面板未打开且模型下拉框也未打开
         if (!searchBar.value?.isModelDropdownOpen && !searchBar.value?.isQuickSearchOpen) {
-            // 按下键：仅在有输入内容时打开快速搜索面板
+            // 按下键：仅在单行且有输入内容时打开快速搜索面板
             if (event.key === 'ArrowDown') {
+                if (searchBar.value?.isMultiLine) {
+                    return;
+                }
                 if (searchQuery.value.trim()) {
                     event.preventDefault();
                     searchBar.value?.openQuickSearchPanel?.();
@@ -428,7 +431,7 @@
             }
             // 按上键：仅单行时发送会话（多行时让 ProseMirror 处理光标移动）
             if (event.key === 'ArrowUp') {
-                if (searchBar.value?.isMultiLine?.()) {
+                if (searchBar.value?.isMultiLine) {
                     return;
                 }
                 event.preventDefault();
