@@ -34,6 +34,7 @@ export type { ModelCapabilities } from './useModelSelection';
 
 interface UseSearchInputOptions {
     quickSearchEnabled: Ref<boolean>;
+    editorHostRef: Ref<HTMLElement | null>;
     emitSearch: (query: string) => void;
     emitModelChange: (capabilities: ModelCapabilities) => void;
     emitRemoveAttachment: (id: string, fromEditor?: boolean) => void;
@@ -69,6 +70,7 @@ export function useSearchInput(
 ) {
     const {
         quickSearchEnabled,
+        editorHostRef,
         emitSearch,
         emitModelChange,
         emitRemoveAttachment,
@@ -80,6 +82,7 @@ export function useSearchInput(
     const searchQuery = ref('');
     const editor = shallowRef<Editor | null>(null);
     const logoContainerRef = ref<HTMLElement | null>(null);
+    const isMultiLineState = ref(false);
     let cachedLineHeight = 0;
 
     // 2. 子能力组合
@@ -98,6 +101,47 @@ export function useSearchInput(
     });
 
     // 3. 编辑器创建
+    /**
+     * 将光标滚动到可见区域。
+     * 当内容超过容器高度时，自动滚动使光标位置可见。
+     */
+    function scrollCursorIntoView() {
+        const ed = editor.value;
+        const host = editorHostRef.value;
+        if (!ed || !host) return;
+
+        requestAnimationFrame(() => {
+            const { view } = ed;
+            const coords = view.coordsAtPos(view.state.selection.$anchor.pos);
+            if (!coords) return;
+
+            const hostRect = host.getBoundingClientRect();
+            const padding = 4;
+
+            const cursorTop = coords.top - hostRect.top;
+            const cursorBottom = coords.bottom - hostRect.top;
+            const visibleTop = padding;
+            const visibleBottom = host.clientHeight - padding;
+
+            // 光标已在可见区域内，无需滚动
+            if (cursorTop >= visibleTop && cursorBottom <= visibleBottom) {
+                return;
+            }
+
+            // 计算需要的滚动调整量
+            let scrollAdjustment = 0;
+            if (cursorTop < visibleTop) {
+                scrollAdjustment = cursorTop - visibleTop;
+            } else if (cursorBottom > visibleBottom) {
+                scrollAdjustment = cursorBottom - visibleBottom;
+            }
+
+            if (scrollAdjustment !== 0) {
+                host.scrollTop = Math.max(0, host.scrollTop + scrollAdjustment);
+            }
+        });
+    }
+
     /**
      * 初始化 Tiptap 编辑器实例。
      * 在组件 onMounted 后调用。EditorContent 组件会自动处理 DOM 挂载。
@@ -125,7 +169,15 @@ export function useSearchInput(
             onUpdate: ({ editor: updatedEditor }) => {
                 const text = getEditorText(updatedEditor);
                 searchQuery.value = text;
+                // 更新多行状态缓存
+                isMultiLineState.value = computeIsMultiLine(updatedEditor as Editor);
                 onInput();
+                // 内容更新后滚动光标到可见区域
+                scrollCursorIntoView();
+            },
+            onSelectionUpdate: () => {
+                // 光标位置变化时滚动到可见区域（例如使用上下键移动光标）
+                scrollCursorIntoView();
             },
         });
 
@@ -285,19 +337,42 @@ export function useSearchInput(
     }
 
     /**
-     * 判断编辑器内容是否超过一行（包括文字换行和 Shift+Enter 换行）。
-     * 通过比较 DOM scrollHeight 与单行高度来判断，
-     * 乘以 1.5 倍作为阈值是因为单行 scrollHeight 恰好等于 lineHeight，
-     * 只有超出时才确认为多行。
+     * 计算编辑器内容是否超过一行。
+     * 通过检查文档中的段落节点数量来判断：
+     * - 多个段落节点（包括空行）= 多行
+     * - 单个段落但内容自动换行 = 多行
      */
-    function isMultiLine(): boolean {
-        const ed = editor.value;
+    function computeIsMultiLine(ed: Editor): boolean {
         if (!ed) return false;
+
+        // 检查文档中是否有多个段落节点（包括空行）
+        const { doc } = ed.state;
+        let paragraphCount = 0;
+        doc.descendants((node) => {
+            if (node.type.name === 'paragraph') {
+                paragraphCount++;
+            }
+            return paragraphCount <= 1; // 找到第二个段落就停止遍历
+        });
+
+        // 如果有多个段落，说明有换行（包括空行）
+        if (paragraphCount > 1) {
+            return true;
+        }
+
+        // 如果只有一个段落，检查是否因为内容过长而自动换行
         if (!cachedLineHeight) {
             cachedLineHeight = parseFloat(getComputedStyle(ed.view.dom).lineHeight) || 0;
         }
         if (!cachedLineHeight) return false;
         return ed.view.dom.scrollHeight > cachedLineHeight * 1.5;
+    }
+
+    /**
+     * 判断编辑器内容是否超过一行（返回缓存的状态）。
+     */
+    function isMultiLine(): boolean {
+        return isMultiLineState.value;
     }
 
     /**
@@ -444,7 +519,7 @@ export function useSearchInput(
         openHighlightedQuickShortcut: quickShortcuts.openHighlightedQuickShortcut,
         clearInput,
         isCursorAtStart,
-        isMultiLine,
+        isMultiLine: isMultiLineState,
         focus,
         loadActiveModel: modelSelection.loadActiveModel,
         handleContainerMouseDown: dragging.handleContainerMouseDown,

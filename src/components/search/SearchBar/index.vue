@@ -25,8 +25,11 @@
 
             <div
                 ref="editorHostRef"
-                class="search-bar-editor-host custom-scrollbar-thin flex min-h-0 flex-1 cursor-default items-center self-stretch overflow-y-auto"
-                :class="[disabled ? 'pointer-events-none opacity-60' : '']"
+                class="search-bar-editor-host custom-scrollbar-thin flex min-h-0 flex-1 cursor-default self-stretch overflow-y-auto"
+                :class="[
+                    disabled ? 'pointer-events-none opacity-60' : '',
+                    isMultiLine ? 'items-start' : 'items-center',
+                ]"
                 :style="{ maxHeight: 'calc(1.5em * 3 + 8px)' }"
                 @click="onEditorClick"
                 @mousedown.capture="handleEditorSelectionMouseDown"
@@ -119,6 +122,7 @@
         removeAttachmentTagById,
     } = useSearchInput({
         quickSearchEnabled: toRef(props, 'quickSearchEnabled'),
+        editorHostRef,
         emitSearch: (query) => emit('search', query),
         emitModelChange: (capabilities) => emit('modelChange', capabilities),
         emitRemoveAttachment: (id, fromEditor) => emit('removeAttachment', id, fromEditor),
