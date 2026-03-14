@@ -61,6 +61,22 @@ export async function createAttachment(type: 'image' | 'file', path: string): Pr
     };
 }
 
+/**
+ * 根据文件类型和模型能力计算附件支持状态。
+ *
+ * @param fileType 附件类型（'image' | 'file'）。
+ * @param capabilities 当前模型的能力标志。
+ * @returns 'supported' | 'unsupported-image' | 'unsupported-file'。
+ */
+export function resolveAttachmentSupportStatus(
+    fileType: 'image' | 'file',
+    capabilities: { supportsImages: boolean; supportsFiles: boolean }
+): AttachmentSupportStatus {
+    if (fileType === 'image' && !capabilities.supportsImages) return 'unsupported-image';
+    if (fileType === 'file' && !capabilities.supportsFiles) return 'unsupported-file';
+    return 'supported';
+}
+
 export function isAttachmentSupported(attachment: Index): boolean {
     return (
         attachment.supportStatus !== 'unsupported-image' &&

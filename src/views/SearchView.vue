@@ -135,6 +135,32 @@
     }
 
     async function handleSubmit(query: string) {
+        // 前置校验：存在不支持的附件时阻止发送，提示用户移除附件或切换模型。
+        // 此检查优先于队列排队和实际发送逻辑，防止用户误发不完整的请求。
+        if (attachments.value.length > 0) {
+            const unsupported = attachments.value.filter((a) => !isAttachmentSupported(a));
+            if (unsupported.length > 0) {
+                // 区分不支持的具体类型（图片/文件/两者），给出精确提示。
+                const hasUnsupportedImage = unsupported.some(
+                    (a) => a.supportStatus === 'unsupported-image'
+                );
+                const hasUnsupportedFile = unsupported.some(
+                    (a) => a.supportStatus === 'unsupported-file'
+                );
+                let msg = '当前模型不支持';
+                if (hasUnsupportedImage && hasUnsupportedFile) {
+                    msg += '图片和文件';
+                } else if (hasUnsupportedImage) {
+                    msg += '图片';
+                } else {
+                    msg += '文件';
+                }
+                msg += '，请移除不支持的附件或切换模型';
+                sendNotification({ title: 'TouchAI', body: msg });
+                return;
+            }
+        }
+
         // 如果正在加载中，将请求加入队列
         if (isLoading.value) {
             // 如果已经有待处理的请求，不重复排队
