@@ -1,7 +1,7 @@
 // 副作用导入：确保所有标签插件在编辑器创建前完成注册
 import './tags';
 
-import type { AttachmentSupportStatus } from '@services/AiService/attachments';
+import { resolveAttachmentSupportStatus } from '@services/AiService/attachments';
 import { popupManager } from '@services/PopupService';
 import { Editor } from '@tiptap/vue-3';
 import { type Ref, ref, shallowRef, watch } from 'vue';
@@ -477,12 +477,7 @@ export function useSearchInput(
         if (!ed) return;
         // 从当前模型能力推断附件支持状态，避免插入后再触发一次额外的批量更新。
         const caps = modelSelection.modelCapabilities.value;
-        let supportStatus: AttachmentSupportStatus = 'supported';
-        if (attrs.fileType === 'image' && !caps.supportsImages) {
-            supportStatus = 'unsupported-image';
-        } else if (attrs.fileType === 'file' && !caps.supportsFiles) {
-            supportStatus = 'unsupported-file';
-        }
+        const supportStatus = resolveAttachmentSupportStatus(attrs.fileType, caps);
         insertAttachmentTag(ed, { ...attrs, supportStatus });
     }
 
@@ -529,5 +524,6 @@ export function useSearchInput(
         onEditorClick,
         addAttachmentTag,
         removeAttachmentTagById,
+        clearDraggingState: dragging.clearEditorSelectionDragState,
     };
 }

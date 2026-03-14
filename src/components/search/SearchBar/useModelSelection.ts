@@ -3,7 +3,7 @@ import type { ModelWithProvider } from '@database/queries/models';
 import { aiService } from '@services/AiService';
 import { type ModelDropdownPopupItem, popupManager } from '@services/PopupService';
 import type { Editor, JSONContent } from '@tiptap/core';
-import { computed, onMounted, onUnmounted, type Ref, ref, type ShallowRef } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, type ShallowRef } from 'vue';
 
 import { insertModelTag, removeModelTag } from './tags/model';
 import { clearEditorSkipSync, DEFAULT_PLACEHOLDER, getEditorJSON, setEditorJSON } from './tiptap';
@@ -232,6 +232,11 @@ export function useModelSelection(
     async function openModelDropdown() {
         if (!logoContainerRef.value) return;
         closeQuickSearchPanel();
+
+        // 等待 Vue DOM 更新和窗口高度调整完成，以获得稳定的位置
+        await nextTick();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
         await loadPopupModels();
 
         enterModelSearchMode();
