@@ -22,6 +22,8 @@ export function useDragging(options: UseDraggingOptions) {
     // 拖拽结束后置 true，使下一次 editor click 事件被吞掉，
     // 避免拖拽松手时触发不期望的光标定位或标签交互。
     let suppressNextEditorClick = false;
+    // 超时句柄，用于在未触发 click 时自动清除抑制标记
+    let suppressClickTimeout: ReturnType<typeof setTimeout> | null = null;
     // 允许在文本可选区域附近多少像素内仍视为"文本选择意图"而非"拖拽意图"。
     const textSelectionSlopPx = 8;
 
@@ -93,6 +95,11 @@ export function useDragging(options: UseDraggingOptions) {
     function consumeEditorClickAfterDrag() {
         const shouldSuppress = suppressNextEditorClick;
         suppressNextEditorClick = false;
+        // 清除超时，因为 click 已触发
+        if (suppressClickTimeout !== null) {
+            clearTimeout(suppressClickTimeout);
+            suppressClickTimeout = null;
+        }
         return shouldSuppress;
     }
 
@@ -188,6 +195,11 @@ export function useDragging(options: UseDraggingOptions) {
 
             dragStarted = true;
             suppressNextEditorClick = true;
+            // 设置超时：如果 500ms 内没有 click 事件，自动清除抑制标记
+            suppressClickTimeout = setTimeout(() => {
+                suppressNextEditorClick = false;
+                suppressClickTimeout = null;
+            }, 500);
             cleanup();
             moveEvent.preventDefault();
             void startDragging();
@@ -201,9 +213,22 @@ export function useDragging(options: UseDraggingOptions) {
         window.addEventListener('mouseup', handleMouseUp, true);
     }
 
+    /**
+     * 清理拖拽状态，包括清除超时句柄。
+     * 在组件卸载时调用，防止内存泄漏。
+     */
+    function clearEditorSelectionDragState() {
+        if (suppressClickTimeout !== null) {
+            clearTimeout(suppressClickTimeout);
+            suppressClickTimeout = null;
+        }
+        suppressNextEditorClick = false;
+    }
+
     return {
         handleContainerMouseDown,
         handleEditorMouseDown,
         consumeEditorClickAfterDrag,
+        clearEditorSelectionDragState,
     };
 }
