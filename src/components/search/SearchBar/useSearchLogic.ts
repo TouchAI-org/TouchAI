@@ -1,20 +1,29 @@
+// 副作用导入：确保所有标签插件在编辑器创建前完成注册
+import './tags';
+
+import type { AttachmentSupportStatus } from '@services/AiService/attachments';
 import { popupManager } from '@services/PopupService';
 import { Editor } from '@tiptap/vue-3';
 import { type Ref, ref, shallowRef, watch } from 'vue';
 
 import {
+    ATTACHMENT_TAG_NODE,
     type AttachmentTagAttrs,
+    insertAttachmentTag,
+    removeAttachmentTag,
+    updateAttachmentTagsSupport,
+} from './tags/attachment';
+import { clearEditorPreservingModelTag, MODEL_TAG_NODE } from './tags/model';
+import {
     clearEditor,
     createSearchEditorExtensions,
     findSearchTagChip,
     getEditorText,
     handleEditorClick,
-    insertAttachmentTag,
     isBlankEditorAreaTarget,
     isCursorAtDocStart,
     isPlainText,
     isSearchTagDomTarget,
-    removeAttachmentTag,
     resolveMouseEventTarget,
 } from './tiptap';
 import { useDragging } from './useDragging';
@@ -96,13 +105,12 @@ export function useSearchInput(
     function initEditor() {
         const extensions = createSearchEditorExtensions({
             placeholder: modelSelection.currentPlaceholder.value,
-            onModelTagRemoved: () => {
-                // 编辑器中 model tag 被删除时，仅同步状态，避免二次写编辑器
-                modelSelection.syncSelectedModelCleared();
-            },
-            onAttachmentTagRemoved: (attachmentId) => {
-                // 编辑器中 attachment tag 被删除时，仅同步外层状态，避免二次删节点
-                emitRemoveAttachment(attachmentId, true);
+            onTagRemoved: (tagName, id) => {
+                if (tagName === MODEL_TAG_NODE) {
+                    modelSelection.syncSelectedModelCleared();
+                } else if (tagName === ATTACHMENT_TAG_NODE) {
+                    emitRemoveAttachment(id, true);
+                }
             },
         });
 
@@ -169,10 +177,16 @@ export function useSearchInput(
         }
     }
     // 5. 状态同步监听
+    // 模型能力变化时需要同时通知外层（emitModelChange）和同步编辑器内附件标签的
+    // 支持状态（置灰/恢复），两者解耦在不同层级但由同一数据源驱动。
     watch(
         modelSelection.modelCapabilities,
         (capabilities) => {
             emitModelChange(capabilities);
+            const ed = editor.value;
+            if (ed) {
+                updateAttachmentTagsSupport(ed, capabilities);
+            }
         },
         { immediate: true }
     );
@@ -247,7 +261,11 @@ export function useSearchInput(
     function clearInput(options?: { preserveModelTag?: boolean }) {
         const ed = editor.value;
         if (ed) {
-            clearEditor(ed, options);
+            if (options?.preserveModelTag) {
+                clearEditorPreservingModelTag(ed);
+            } else {
+                clearEditor(ed);
+            }
         }
         searchQuery.value = '';
         // 清空输入时同步关闭快速搜索面板。
@@ -376,11 +394,21 @@ export function useSearchInput(
 
     /**
      * 向编辑器中插入附件标签。
+     * 根据当前模型能力自动计算 supportStatus，使新插入的标签
+     * 在模型不支持该文件类型时立即呈现置灰状态。
      */
     function addAttachmentTag(attrs: AttachmentTagAttrs) {
         const ed = editor.value;
         if (!ed) return;
-        insertAttachmentTag(ed, attrs);
+        // 从当前模型能力推断附件支持状态，避免插入后再触发一次额外的批量更新。
+        const caps = modelSelection.modelCapabilities.value;
+        let supportStatus: AttachmentSupportStatus = 'supported';
+        if (attrs.fileType === 'image' && !caps.supportsImages) {
+            supportStatus = 'unsupported-image';
+        } else if (attrs.fileType === 'file' && !caps.supportsFiles) {
+            supportStatus = 'unsupported-file';
+        }
+        insertAttachmentTag(ed, { ...attrs, supportStatus });
     }
 
     /**

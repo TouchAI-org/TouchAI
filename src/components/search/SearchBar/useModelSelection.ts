@@ -5,13 +5,8 @@ import { type ModelDropdownPopupItem, popupManager } from '@services/PopupServic
 import type { Editor, JSONContent } from '@tiptap/core';
 import { computed, onMounted, onUnmounted, type Ref, ref, type ShallowRef } from 'vue';
 
-import {
-    DEFAULT_PLACEHOLDER,
-    getEditorJSON,
-    insertModelTag,
-    removeModelTag,
-    setEditorJSON,
-} from './tiptap';
+import { insertModelTag, removeModelTag } from './tags/model';
+import { clearEditorSkipSync, DEFAULT_PLACEHOLDER, getEditorJSON, setEditorJSON } from './tiptap';
 
 export interface ModelCapabilities {
     supportsImages: boolean;
@@ -63,11 +58,11 @@ export function useModelSelection(
     });
 
     // 模型选择状态
-    const selectedModelId = ref<string | null>(null);
-    const selectedModelName = ref<string | null>(null);
-    const selectedProviderId = ref<number | null>(null);
-    const activeModel = ref<ModelWithProvider | null>(null);
     const selectedModel = ref<ModelWithProvider | null>(null);
+    const selectedModelId = computed(() => selectedModel.value?.model_id ?? null);
+    const selectedModelName = computed(() => selectedModel.value?.name ?? null);
+    const selectedProviderId = computed(() => selectedModel.value?.provider_id ?? null);
+    const activeModel = ref<ModelWithProvider | null>(null);
     const popupModels = ref<ModelDropdownPopupItem[]>([]);
     // 缓存原始模型列表，供 handleModelSelect 使用，避免重复查询数据库。
     let cachedRawModels: ModelWithProvider[] = [];
@@ -156,12 +151,14 @@ export function useModelSelection(
 
     /**
      * 进入模型搜索模式：保存编辑器内容、清空输入、切换状态。
+     * 清空编辑器时通过 transaction meta 跳过 NodeSync 回调，
+     * 避免 clearContent 移除 model tag 导致 syncSelectedModelCleared 误清选择状态。
      */
     function enterModelSearchMode() {
         const ed = editor.value;
         if (ed) {
             savedEditorJSON.value = getEditorJSON(ed);
-            ed.commands.clearContent(true);
+            clearEditorSkipSync(ed);
         }
         searchQuery.value = '';
         isSearchingModel.value = true;
@@ -261,67 +258,74 @@ export function useModelSelection(
      * @returns Promise<void>
      */
     async function handleModelSelect(modelDbId: number) {
-        try {
-            const model = cachedRawModels.find((m) => m.id === modelDbId);
-            if (model) {
-                // 再次选择当前默认模型视为"取消覆盖"，恢复跟随全局模型。
-                const isDefaultModel =
-                    model.model_id === activeModel.value?.model_id &&
-                    model.provider_id === activeModel.value?.provider_id;
-                if (isDefaultModel) {
-                    clearSelectedModel();
-                } else {
-                    selectedModel.value = model;
-                    selectedModelId.value = model.model_id;
-                    selectedModelName.value = model.name;
-                    selectedProviderId.value = model.provider_id;
-                }
-            }
-        } catch (error) {
-            console.error('[SearchBar] Failed to select model:', error);
-        }
+        let modelToSelect: ModelWithProvider | null = null;
+        let shouldClearModel = false;
 
-        // 先恢复搜索状态（还原编辑器内容到打开下拉前的快照）
-        if (isSearchingModel.value) {
-            const ed = editor.value;
-            if (ed && savedEditorJSON.value) {
-                setEditorJSON(ed, savedEditorJSON.value);
-                savedEditorJSON.value = null;
+        const model = cachedRawModels.find((m) => m.id === modelDbId);
+        if (model) {
+            // 再次选择当前默认模型视为"取消覆盖"，恢复跟随全局模型。
+            const isDefaultModel =
+                model.model_id === activeModel.value?.model_id &&
+                model.provider_id === activeModel.value?.provider_id;
+            if (isDefaultModel) {
+                shouldClearModel = true;
+            } else {
+                modelToSelect = model;
             }
         }
 
-        // 关闭下拉框
+        // 先关闭下拉状态，再恢复编辑器内容。
+        // 顺序至关重要：setEditorJSON 会同步触发 onUpdate → onInput()，
+        // 若 isModelDropdownOpen 仍为 true，onInput 会调用 updateDropdownSearchQuery
+        // → popup.updateData() → 向弹窗窗口发送 popup-data 事件。
+        // 该事件与随后的 popup-closed 事件跨窗口交付顺序不确定，
+        // 若 popup-data 晚于 popup-closed 到达，会导致已关闭的弹窗被重新显示。
+        const wasSearching = isSearchingModel.value;
+        const savedJSON = savedEditorJSON.value;
         isSearchingModel.value = false;
-        await closeModelDropdown();
+        isModelDropdownOpen.value = false;
+        dropdownSearchQuery.value = '';
+        savedEditorJSON.value = null;
 
-        // 恢复内容后再插入 model tag，确保 tag 不会被 setEditorJSON 覆盖。
+        // 恢复编辑器内容（此时 isModelDropdownOpen=false，onInput 不会向 popup 发送数据更新）
+        if (wasSearching && savedJSON) {
+            const ed = editor.value;
+            if (ed) {
+                setEditorJSON(ed, savedJSON);
+            }
+        }
+
+        try {
+            await deps.popup.hide();
+        } catch {
+            // 弹窗可能已被其他路径关闭，忽略错误。
+        }
+
+        // 编辑器内容已恢复，此时再执行标签操作才能正确找到/修改节点。
+        // clearSelectedModel 必须在 setEditorJSON 之后调用：
+        // enterModelSearchMode 的 clearContent 清空了编辑器，
+        // 若在恢复前调用 removeModelTag，编辑器为空找不到标签，
+        // 恢复后旧快照中的 model tag 又会被原样带回。
         const ed = editor.value;
-        if (ed && selectedModelId.value && selectedModelName.value) {
+        if (ed && modelToSelect) {
             insertModelTag(ed, {
-                modelId: selectedModelId.value,
-                modelName: selectedModelName.value,
-                providerId: selectedProviderId.value,
+                modelId: modelToSelect.model_id,
+                modelName: modelToSelect.name,
+                providerId: modelToSelect.provider_id,
             });
+            selectedModel.value = modelToSelect;
+        } else if (shouldClearModel) {
+            clearSelectedModel();
         }
     }
 
     /**
-     * 清除手动选择模型，恢复跟随当前活动模型。
-     *
-     * @returns void
-     */
-    /**
-     * 仅清除模型选择状态（不操作编辑器节点）。
-     * 由编辑器 NodeSync 回调调用——当用户在编辑器中删除 model tag 时，
-     * 标签已不存在，只需同步组件状态，避免二次写编辑器。
+     * 清除模型选择状态。
      *
      * @returns void
      */
     function syncSelectedModelCleared() {
         selectedModel.value = null;
-        selectedModelId.value = null;
-        selectedModelName.value = null;
-        selectedProviderId.value = null;
     }
 
     /**
@@ -332,7 +336,7 @@ export function useModelSelection(
     function clearSelectedModel() {
         syncSelectedModelCleared();
 
-        // Also remove the model tag chip from editor
+        // 同时移除编辑器中的模型标签
         const ed = editor.value;
         if (ed) {
             removeModelTag(ed);
