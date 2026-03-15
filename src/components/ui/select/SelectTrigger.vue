@@ -1,5 +1,5 @@
-<script setup lang="ts">
-    import SvgIcon from '@components/common/SvgIcon.vue';
+﻿<script setup lang="ts">
+    import SvgIcon from '@components/SvgIcon.vue';
     import { SelectIcon, SelectTrigger, type SelectTriggerProps, useForwardProps } from 'reka-ui';
     import type { HTMLAttributes } from 'vue';
     import { computed } from 'vue';

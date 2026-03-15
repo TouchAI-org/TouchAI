@@ -1,6 +1,6 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import ConfirmDialogVue from '@components/common/ConfirmDialog.vue';
+import ConfirmDialogVue from '@components/ConfirmDialog.vue';
 import { type App, createApp } from 'vue';
 
 export interface ConfirmOptions {

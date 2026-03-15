@@ -1,6 +1,6 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3.
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-import ContextMenuVue from '@components/common/ContextMenu.vue';
+import ContextMenuVue from '@components/ContextMenu.vue';
 import { type App, createApp, ref } from 'vue';
 
 export interface ContextMenuItem {

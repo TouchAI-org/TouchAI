@@ -1,6 +1,6 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import AlertMessage from '@components/common/AlertMessage.vue';
+import AlertMessage from '@components/AlertMessage.vue';
 import type { ComponentPublicInstance } from 'vue';
 import { createApp } from 'vue';
 
