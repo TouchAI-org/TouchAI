@@ -8,7 +8,7 @@
     import { deleteMcpServer, updateMcpServer } from '@database/queries';
     import type { McpServerEntity } from '@database/types';
     import { mcpManager } from '@services/AiService/mcp';
-    import { onUnmounted, ref, watch } from 'vue';
+    import { onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { useMcpStore } from '@/stores/mcp';
 
@@ -40,6 +40,27 @@
 
     const mcpStore = useMcpStore();
     const { getServerStatus } = mcpStore;
+
+    const getErrorMessage = (error: unknown, fallback = '未知错误'): string => {
+        const message = error instanceof Error ? error.message : String(error);
+        return message && message !== '[object Object]' ? message : fallback;
+    };
+
+    /**
+     * MCP store 在设置窗口中按需初始化，避免用户未进入该分区时就执行状态刷新和事件订阅。
+     */
+    const ensureStoreInitialized = async () => {
+        if (mcpStore.initialized) {
+            return;
+        }
+
+        try {
+            await mcpStore.initialize();
+        } catch (error) {
+            console.error('[McpToolsView] Failed to initialize MCP store:', error);
+            alertMessage.value?.error(getErrorMessage(error, '加载 MCP 数据失败'), 6000);
+        }
+    };
 
     const { open: openServerMenu } = useContextMenu<number>(
         [{ key: 'delete', label: '删除', icon: 'trash', danger: true }],
@@ -176,11 +197,6 @@
         }
     };
 
-    const getErrorMessage = (error: unknown, fallback = '未知错误'): string => {
-        const message = error instanceof Error ? error.message : String(error);
-        return message && message !== '[object Object]' ? message : fallback;
-    };
-
     const handleToggleEnabled = async (serverId: number) => {
         // 防止双击触发多个操作
         // togglingServers 集合充当锁，确保每个服务器同时只运行一个连接/断开操作
@@ -310,6 +326,10 @@
     const handleServerContextMenu = (serverId: number, event: MouseEvent) => {
         openServerMenu(event, serverId);
     };
+
+    onMounted(() => {
+        ensureStoreInitialized();
+    });
 </script>
 
 <template>

@@ -28,13 +28,17 @@
     const loading = computed(() => mcpStore.loading);
     const newServer = ref<Partial<McpServerEntity> | null>(null);
 
+    const selectFirstServerIfNeeded = () => {
+        if (servers.value.length > 0 && !props.selectedServer && !newServer.value) {
+            emit('select', servers.value[0]!);
+        }
+    };
+
     const loadServers = async () => {
         await mcpStore.loadServers();
 
         // 如果有服务器且当前没有选中任何服务器，自动选中第一个
-        if (servers.value.length > 0 && !props.selectedServer && !newServer.value) {
-            emit('select', servers.value[0]!);
-        }
+        selectFirstServerIfNeeded();
     };
 
     const handleSelect = (server: McpServerEntity) => {
@@ -100,6 +104,11 @@
     };
 
     onMounted(() => {
+        // 父级分区已经完成 store 初始化时，直接复用内存中的列表，避免刚进入面板就重复查询。
+        if (mcpStore.initialized) {
+            selectFirstServerIfNeeded();
+            return;
+        }
         loadServers();
     });
 
