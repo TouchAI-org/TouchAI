@@ -4,27 +4,13 @@
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import SvgIcon from '@components/SvgIcon.vue';
-    import { findModelsWithProvider } from '@database/queries';
-    import type { ModelDropdownData } from '@services/PopupService';
+    import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
     import { emit as tauriEmit } from '@tauri-apps/api/event';
-    import { computed, nextTick, onMounted, ref, watch } from 'vue';
+    import { computed, nextTick, ref, watch } from 'vue';
 
     defineOptions({
         name: 'PopupModelDropdown',
     });
-
-    interface ModelOption {
-        id: number;
-        modelId: string;
-        name: string;
-        providerId: number;
-        providerName: string;
-        reasoning?: number | null;
-        tool_call?: number | null;
-        modalities?: string | null;
-        attachment?: number | null;
-        open_weights?: number | null;
-    }
 
     interface Props {
         data: ModelDropdownData | null;
@@ -46,39 +32,20 @@
     const selectedProviderId = computed(() => props.data?.selectedProviderId ?? null);
     const searchQuery = computed(() => props.data?.searchQuery ?? '');
 
-    const models = ref<ModelOption[]>([]);
     const highlightedIndex = ref(0);
     const dropdownRef = ref<HTMLElement | null>(null);
     const itemRefs = ref<HTMLElement[]>([]);
     let scrollRafId: number | null = null;
 
-    // 加载启用的模型
-    async function loadModels() {
-        try {
-            const data = await findModelsWithProvider();
-            // 只显示服务商已启用的模型
-            models.value = data
-                .filter((m) => m.provider_enabled === 1)
-                .map((m) => ({
-                    id: m.id,
-                    modelId: m.model_id,
-                    name: m.name,
-                    providerId: m.provider_id,
-                    providerName: m.provider_name,
-                    reasoning: m.reasoning,
-                    tool_call: m.tool_call,
-                    modalities: m.modalities,
-                    attachment: m.attachment,
-                    open_weights: m.open_weights,
-                }));
-        } catch (error) {
-            console.error('[ModelDropdownPopup] Failed to load models:', error);
-        }
-    }
+    // 模型列表完全由主窗口生成并透传，popup 本身不再承担数据获取职责。
+    const models = computed<ModelDropdownPopupItem[]>(() => props.data?.models ?? []);
 
-    // 初始加载
-    onMounted(async () => {
-        await loadModels();
+    const emptyStateIcon = computed(() => {
+        return searchQuery.value ? 'search' : 'database';
+    });
+
+    const emptyStateMessage = computed(() => {
+        return searchQuery.value ? '没有找到匹配的模型' : '请先在设置中心配置模型';
     });
 
     // 根据搜索查询过滤模型
@@ -112,7 +79,7 @@
 
                 return { model, score: totalScore };
             })
-            .filter(Boolean) as Array<{ model: ModelOption; score: number }>;
+            .filter(Boolean) as Array<{ model: ModelDropdownPopupItem; score: number }>;
 
         return scored.sort((a, b) => b.score - a.score).map((item) => item.model);
     });
@@ -166,6 +133,16 @@
 
     // 键盘导航
     function handleKeyDown(event: KeyboardEvent) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            emit('close');
+            return;
+        }
+
+        if (filteredModels.value.length === 0) {
+            return;
+        }
+
         if (event.key === 'ArrowDown') {
             event.preventDefault();
             highlightedIndex.value = Math.min(
@@ -181,9 +158,6 @@
             event.preventDefault();
             const model = filteredModels.value[highlightedIndex.value];
             if (model) handleSelect(model.id);
-        } else if (event.key === 'Escape') {
-            event.preventDefault();
-            emit('close');
         }
     }
 
@@ -200,10 +174,9 @@
     // 重置高亮索引当 data 变化时（相当于打开）
     watch(
         () => props.data,
-        async (newVal) => {
+        (newVal) => {
             if (newVal) {
                 highlightedIndex.value = 0;
-                await loadModels();
             }
         }
     );
@@ -275,12 +248,9 @@
             v-if="filteredModels.length === 0"
             class="flex min-h-[120px] flex-col items-center justify-center px-4"
         >
-            <SvgIcon
-                :name="searchQuery ? 'search' : 'database'"
-                class="mb-3 h-12 w-12 text-gray-300"
-            />
+            <SvgIcon :name="emptyStateIcon" class="mb-3 h-12 w-12 text-gray-300" />
             <p class="text-center text-sm text-gray-400">
-                {{ searchQuery ? '没有找到匹配的模型' : '请先在设置中心配置模型' }}
+                {{ emptyStateMessage }}
             </p>
         </div>
     </div>
