@@ -1,11 +1,11 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
-    import ConversationPanel from '@components/search/ConversationPanel.vue';
-    import QuickSearchPanel from '@components/search/QuickSearchPanel/index.vue';
-    import SearchBar from '@components/search/SearchBar/index.vue';
     import { reactive, ref, toRef } from 'vue';
 
+    import ConversationPanel from './components/ConversationPanel/index.vue';
+    import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
+    import SearchBar from './components/SearchBar/index.vue';
     import {
         useQuickSearchCoordinator,
         useSearchAttachments,

@@ -1,5 +1,5 @@
 // 副作用导入：确保所有标签插件在编辑器创建前完成注册
-import './tags';
+import '../tags';
 
 import type { Index } from '@services/AiService/attachments';
 import { Editor } from '@tiptap/vue-3';
@@ -12,8 +12,9 @@ import {
     insertAttachmentTag,
     removeAttachmentTag,
     updateAttachmentTag,
-} from './tags/attachment';
-import { getModelTag, insertModelTag, MODEL_TAG_NODE, removeModelTag } from './tags/model';
+} from '../tags/attachment';
+import { getModelTag, insertModelTag, MODEL_TAG_NODE, removeModelTag } from '../tags/model';
+import type { SearchModelOverride } from '../types';
 import {
     createSearchEditorExtensions,
     findSearchTagChip,
@@ -24,8 +25,7 @@ import {
     isSearchTagDomTarget,
     resolveMouseEventTarget,
     setEditorText,
-} from './tiptap';
-import type { SearchModelOverride } from './types';
+} from '../utils/tiptap';
 import { useDragging } from './useDragging';
 import { type ModelCapabilities, useModelSelection } from './useModelSelection';
 

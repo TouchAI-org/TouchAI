@@ -72,7 +72,7 @@
 <script setup lang="ts">
     import { toRef } from 'vue';
 
-    import { useQuickSearchLogic } from './useQuickSearchLogic';
+    import { useQuickSearchLogic } from './composables/useQuickSearchLogic';
 
     defineOptions({
         name: 'QuickSearchPanel',

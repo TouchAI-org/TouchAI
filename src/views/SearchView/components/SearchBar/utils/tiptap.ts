@@ -12,7 +12,7 @@ import {
     getSearchTag,
     getSearchTagNodes,
     isRegisteredTagNode,
-} from './tags/registry';
+} from '../tags/registry';
 
 export const SEARCH_TAG_SELECTOR = '[data-search-tag]';
 export const SEARCH_TAG_CLOSE_SELECTOR = '[data-tag-close]';

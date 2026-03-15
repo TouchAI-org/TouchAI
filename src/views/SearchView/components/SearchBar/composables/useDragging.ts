@@ -2,7 +2,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { Editor } from '@tiptap/core';
 import type { ShallowRef } from 'vue';
 
-import { isBlankEditorAreaTarget, isSearchTagDomTarget, resolveMouseEventTarget } from './tiptap';
+import {
+    isBlankEditorAreaTarget,
+    isSearchTagDomTarget,
+    resolveMouseEventTarget,
+} from '../utils/tiptap';
 
 interface UseDraggingOptions {
     editor: ShallowRef<Editor | null>;

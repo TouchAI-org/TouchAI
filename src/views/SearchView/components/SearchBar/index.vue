@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -41,18 +41,18 @@
 
 <script setup lang="ts">
     import logoWord from '@assets/logo-word.svg';
-    import ModelLogo from '@components/common/ModelLogo.vue';
+    import ModelLogo from '@components/ModelLogo.vue';
     import type { Index } from '@services/AiService/attachments';
     import { EditorContent } from '@tiptap/vue-3';
     import { onMounted, onUnmounted, ref, toRefs, watch } from 'vue';
 
-    import { isSearchTagDomTarget, resolveMouseEventTarget } from './tiptap';
+    import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
     import type {
         SearchCursorContext,
         SearchModelDropdownState,
         SearchModelOverride,
     } from './types';
-    import { type ModelCapabilities, useSearchInput } from './useSearchLogic';
+    import { isSearchTagDomTarget, resolveMouseEventTarget } from './utils/tiptap';
 
     defineOptions({
         name: 'SearchBar',

@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -57,9 +57,7 @@
 </template>
 
 <script setup lang="ts">
-    import SvgIcon from '@components/common/SvgIcon.vue';
-    import ConversationToolbar from '@components/search/ConversationToolbar.vue';
-    import MessageItem from '@components/search/MessageItem.vue';
+    import SvgIcon from '@components/SvgIcon.vue';
     import type { ConversationMessage } from '@composables/useAgent.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -67,6 +65,13 @@
     import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { useSettingsStore } from '@/stores/settings';
+
+    import ConversationToolbar from './components/ConversationToolbar.vue';
+    import MessageItem from './components/MessageItem.vue';
+
+    defineOptions({
+        name: 'SearchConversationPanel',
+    });
 
     interface Props {
         messages: ConversationMessage[];

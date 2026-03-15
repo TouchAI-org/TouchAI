@@ -2,7 +2,11 @@ import { native, type QuickShortcutItem } from '@services/NativeService';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
-import { buildMatchTokens, type NameSegment, splitNameByTokens } from './quickSearchHighlight';
+import {
+    buildMatchTokens,
+    type NameSegment,
+    splitNameByTokens,
+} from '../utils/quickSearchHighlight';
 import { useAssetLoader } from './useAssetLoader';
 import { COLLAPSED_VISIBLE_ROWS, useLayout } from './useLayout';
 import { useQuickSearchClickStats } from './useQuickSearchClickStats';

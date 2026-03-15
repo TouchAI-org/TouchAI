@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div class="message-bubble justify-start">
@@ -90,12 +90,13 @@
 </template>
 
 <script setup lang="ts">
-    import MarkdownContent from '@components/common/MarkdownContent.vue';
-    import SvgIcon from '@components/common/SvgIcon.vue';
-    import ToolCallItem from '@components/search/ToolCallItem.vue';
+    import MarkdownContent from '@components/MarkdownContent.vue';
+    import SvgIcon from '@components/SvgIcon.vue';
     import type { ConversationMessage, ToolCallInfo } from '@composables/useAgent.ts';
     import { sendNotification } from '@tauri-apps/plugin-notification';
     import { computed, ref, watch } from 'vue';
+
+    import ToolCallItem from './ToolCallItem.vue';
 
     interface Props {
         message: ConversationMessage;

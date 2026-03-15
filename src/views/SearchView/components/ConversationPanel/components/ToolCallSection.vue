@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div v-if="toolCalls && toolCalls.length > 0" class="tool-call-inline-section w-full">
@@ -42,10 +42,11 @@
 </template>
 
 <script setup lang="ts">
-    import SvgIcon from '@components/common/SvgIcon.vue';
-    import ToolCallItem from '@components/search/ToolCallItem.vue';
+    import SvgIcon from '@components/SvgIcon.vue';
     import type { ToolCallInfo } from '@composables/useAgent.ts';
     import { computed, ref, watch } from 'vue';
+
+    import ToolCallItem from './ToolCallItem.vue';
 
     interface Props {
         toolCalls?: ToolCallInfo[];

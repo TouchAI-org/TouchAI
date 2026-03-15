@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <UserMessage v-if="message.role === 'user'" :message="message" />
@@ -10,9 +10,10 @@
 </template>
 
 <script setup lang="ts">
-    import AssistantMessage from '@components/search/AssistantMessage.vue';
-    import UserMessage from '@components/search/UserMessage.vue';
     import type { ConversationMessage } from '@composables/useAgent.ts';
+
+    import AssistantMessage from './AssistantMessage.vue';
+    import UserMessage from './UserMessage.vue';
 
     interface Props {
         message: ConversationMessage;

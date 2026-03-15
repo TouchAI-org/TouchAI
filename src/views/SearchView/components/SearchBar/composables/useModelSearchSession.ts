@@ -1,7 +1,12 @@
 import type { Editor, JSONContent } from '@tiptap/core';
 import { computed, type Ref, ref, type ShallowRef } from 'vue';
 
-import { clearEditorSkipSync, DEFAULT_PLACEHOLDER, getEditorJSON, setEditorJSON } from './tiptap';
+import {
+    clearEditorSkipSync,
+    DEFAULT_PLACEHOLDER,
+    getEditorJSON,
+    setEditorJSON,
+} from '../utils/tiptap';
 
 interface UseModelSearchSessionOptions {
     searchQuery: Ref<string>;

@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div class="flex items-center justify-end gap-1">
@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-    import SvgIcon from '@components/common/SvgIcon.vue';
+    import SvgIcon from '@components/SvgIcon.vue';
 
     interface Props {
         isPinned: boolean;

@@ -1,4 +1,4 @@
-import type { ConversationMessage } from '@composables/useAgent';
+﻿import type { ConversationMessage } from '@composables/useAgent';
 import type { ModelWithProvider } from '@database/queries/models';
 import type { Index } from '@services/AiService/attachments';
 
@@ -6,13 +6,13 @@ import type {
     SearchCursorContext,
     SearchModelDropdownState,
     SearchModelOverride,
-} from '@/components/search/SearchBar/types';
+} from './components/SearchBar/types';
 
 export type {
     SearchCursorContext,
     SearchModelDropdownState,
     SearchModelOverride,
-} from '@/components/search/SearchBar/types';
+} from './components/SearchBar/types';
 
 export interface SearchBarHandle {
     prepareModelDropdownOpen: () => void | Promise<void>;

@@ -6,7 +6,7 @@ import { computed, onMounted, type Ref, ref, type ShallowRef } from 'vue';
 
 import type { SearchModelDropdownContext } from '@/views/SearchView/types';
 
-import type { SearchModelOverride } from './types';
+import type { SearchModelOverride } from '../types';
 import { useModelSearchSession } from './useModelSearchSession';
 
 export interface ModelCapabilities {

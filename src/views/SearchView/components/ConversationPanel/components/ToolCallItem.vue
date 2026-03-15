@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div class="tool-call-item w-full">
@@ -65,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-    import SvgIcon from '@components/common/SvgIcon.vue';
+    import SvgIcon from '@components/SvgIcon.vue';
     import type { ToolCallInfo } from '@composables/useAgent.ts';
     import { computed, ref } from 'vue';
 
