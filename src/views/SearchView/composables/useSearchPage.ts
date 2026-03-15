@@ -276,6 +276,7 @@ export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOp
 interface UseSearchPageLifecycleOptions {
     pageContainer: Ref<HTMLElement | null>;
     controller: SearchPageController;
+    viewReady: Ref<boolean>;
     isDragging: Ref<boolean>;
     isPinned: Ref<boolean>;
     conversationHistory: Ref<ConversationMessage[]>;
@@ -294,6 +295,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     const {
         pageContainer,
         controller,
+        viewReady,
         isDragging,
         isPinned,
         conversationHistory,
@@ -307,7 +309,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let unlistenFocus: (() => void) | null = null;
     let unlistenBlur: (() => void) | null = null;
     let unlistenPopupFocusMain: (() => void) | null = null;
+    let stopReadyWatch: (() => void) | null = null;
     let lastHideTime: number | null = null;
+    let lifecycleInitialized = false;
 
     useWindowResize({ target: pageContainer, maxHeight: WINDOW_MAX_HEIGHT });
 
@@ -382,6 +386,17 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
     }
 
+    async function startLifecycleOnceReady() {
+        if (lifecycleInitialized || !viewReady.value) {
+            return;
+        }
+
+        lifecycleInitialized = true;
+        await initializeSearchView();
+        await initFocusListener();
+        await runStartupTasks();
+    }
+
     async function initFocusListener() {
         unlistenFocus = await getCurrentWindow().listen('tauri://focus', async () => {
             checkAndClearIfTimeout();
@@ -403,13 +418,30 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         });
     }
 
-    onMounted(async () => {
-        await initializeSearchView();
-        await initFocusListener();
-        await runStartupTasks();
+    onMounted(() => {
+        if (viewReady.value) {
+            void startLifecycleOnceReady();
+            return;
+        }
+
+        stopReadyWatch = watch(
+            viewReady,
+            (ready) => {
+                if (!ready) {
+                    return;
+                }
+
+                stopReadyWatch?.();
+                stopReadyWatch = null;
+                void startLifecycleOnceReady();
+            },
+            { flush: 'post' }
+        );
     });
 
     onUnmounted(() => {
+        stopReadyWatch?.();
+        stopReadyWatch = null;
         unlistenFocus?.();
         unlistenFocus = null;
         unlistenBlur?.();
@@ -514,6 +546,7 @@ export function useSearchOverlayMachine(options: UseSearchOverlayMachineOptions)
 }
 
 interface UseSearchKeyboardOptions {
+    viewReady: Ref<boolean>;
     queryText: Ref<string>;
     cursorContext: Ref<SearchCursorContext>;
     modelOverride: Ref<SearchModelOverride>;
@@ -745,6 +778,7 @@ export function useSearchModelDropdownCoordinator(
  */
 export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
     const {
+        viewReady,
         queryText,
         cursorContext,
         modelOverride,
@@ -770,6 +804,10 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
     let lastBackspaceTime = 0;
 
     function handleSearchWindowMouseDown(event: MouseEvent) {
+        if (!viewReady.value) {
+            return;
+        }
+
         const target = event.target as HTMLElement | null;
         if (target?.closest('.logo-container')) {
             return;
@@ -783,12 +821,20 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
     }
 
     function handleSearchWindowClick(event: MouseEvent) {
+        if (!viewReady.value) {
+            return;
+        }
+
         if (event.target === document.body) {
             void native.window.hideSearchWindow();
         }
     }
 
     async function handleKeyDown(event: KeyboardEvent) {
+        if (!viewReady.value) {
+            return;
+        }
+
         if (isDevMode && event.key === 'Control' && !event.repeat) {
             isDevBlurHideSuspended.value = !isDevBlurHideSuspended.value;
             return;

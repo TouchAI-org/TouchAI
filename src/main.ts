@@ -2,18 +2,13 @@
 
 import '@styles/tailwind.css';
 
-import { db } from '@database';
-import { mcpManager } from '@services/AiService/mcp';
 import { initializeLogger } from '@services/LoggerService';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 
 import App from './App.vue';
 import router from './router';
-import { useMcpStore } from './stores/mcp';
-import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
 
 function isInternalLink(url: string): boolean {
@@ -98,29 +93,12 @@ async function initializeApp() {
     // 4. 初始化字体加载监听器
     initializeFontLoader();
 
-    // 5. 初始化数据库（仅主窗口、设置窗口、模型弹窗）
-    const windowLabel = getCurrentWindow().label;
-    if (['main', 'settings', 'popup-model-dropdown-popup'].includes(windowLabel)) {
-        await db.init();
-    }
-
-    // 6. 创建并挂载 Vue 应用
+    // 5. 创建并挂载 Vue 应用
     const app = createApp(App);
     const pinia = createPinia();
     app.use(pinia);
     app.use(router);
     app.mount('#app');
-
-    // 7. 仅主窗口连接服务器，仅主窗口和设置窗口初始化 MCP
-    if (windowLabel == 'main') {
-        await mcpManager.autoConnect();
-    }
-
-    if (['main', 'settings'].includes(windowLabel)) {
-        const mcpStore = useMcpStore();
-        const settingsStore = useSettingsStore();
-        await Promise.all([mcpStore.initialize(), settingsStore.initialize()]);
-    }
 }
 
 // 运行应用初始化

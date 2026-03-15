@@ -1,7 +1,12 @@
 ﻿<script setup lang="ts">
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
-    import { reactive, ref, toRef } from 'vue';
+    import { db } from '@database';
+    import { mcpManager } from '@services/AiService/mcp';
+    import { onMounted, reactive, ref, toRef } from 'vue';
+
+    import { useMcpStore } from '@/stores/mcp';
+    import { useSettingsStore } from '@/stores/settings';
 
     import ConversationPanel from './components/ConversationPanel/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
@@ -34,6 +39,7 @@
         name: 'SearchViewPage',
     });
 
+    const viewReady = ref(false);
     const searchBar = ref<SearchBarHandle>();
     const draft = reactive<SearchDraftState>({
         queryText: '',
@@ -60,6 +66,8 @@
     const pageContainer = ref<HTMLElement | null>(null);
     const isPinned = ref(false);
     const isDragging = ref(false);
+    const mcpStore = useMcpStore();
+    const settingsStore = useSettingsStore();
 
     const controller = useSearchPageController({
         searchBar,
@@ -133,6 +141,7 @@
     const { isDevMode, isDevBlurHideSuspended } = useSearchPageLifecycle({
         pageContainer,
         controller,
+        viewReady,
         isDragging,
         isPinned,
         conversationHistory,
@@ -158,6 +167,7 @@
     });
 
     useSearchKeyboard({
+        viewReady,
         queryText,
         cursorContext,
         modelOverride,
@@ -203,6 +213,29 @@
     function handleQuickSearchOpenChange(value: boolean) {
         quickSearchOpen.value = value;
     }
+
+    async function initialize() {
+        try {
+            viewReady.value = false;
+
+            await db.init();
+            await Promise.all([mcpStore.initialize(), settingsStore.initialize()]);
+
+            viewReady.value = true;
+
+            // 异步连接
+            mcpManager.autoConnect().catch((error) => {
+                console.error('[SearchView] Failed to auto-connect MCP servers:', error);
+            });
+        } catch (error) {
+            console.error('[SearchView] Failed to initialize dependencies:', error);
+            viewReady.value = false;
+        }
+    }
+
+    onMounted(() => {
+        void initialize();
+    });
 </script>
 
 <template>
@@ -214,7 +247,10 @@
         ]"
         @paste="handlePaste"
     >
-        <div v-if="conversationHistory.length > 0" class="w-full flex-1 overflow-hidden">
+        <div
+            v-if="viewReady && conversationHistory.length > 0"
+            class="w-full flex-1 overflow-hidden"
+        >
             <ConversationPanel
                 ref="conversationPanel"
                 :messages="conversationHistory"
@@ -229,10 +265,10 @@
             />
         </div>
         <div
-            v-if="conversationHistory.length > 0"
+            v-if="viewReady && conversationHistory.length > 0"
             class="w-full border-t-[0.5px] border-gray-300/80"
         ></div>
-        <div class="relative w-full">
+        <div v-if="viewReady" class="relative w-full">
             <SearchBar
                 ref="searchBar"
                 :disabled="isWaitingForCompletion"
