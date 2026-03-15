@@ -6,22 +6,22 @@ const routes = [
     {
         path: '/',
         name: 'Search',
-        component: () => import('@/views/SearchView.vue'),
+        component: () => import('@/views/SearchView/index.vue'),
     },
     {
         path: '/settings',
         name: 'Settings',
-        component: () => import('@/views/SettingsView.vue'),
+        component: () => import('@/views/SettingsView/index.vue'),
     },
     {
         path: '/tray-menu',
         name: 'TrayMenu',
-        component: () => import('@/views/TrayView.vue'),
+        component: () => import('@/views/TrayView/index.vue'),
     },
     {
         path: '/popup',
         name: 'Popup',
-        component: () => import('@/views/PopupView.vue'),
+        component: () => import('@/views/PopupView/index.vue'),
     },
 ];
 

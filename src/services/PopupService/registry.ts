@@ -1,6 +1,6 @@
-// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import ModelDropdownPopup from '@/views/popups/ModelDropdownPopup.vue';
+import ModelDropdownPopup from '@/views/PopupView/components/ModelDropdownPopup/index.vue';
 
 import type { PopupConfig, PopupType, SerializablePopupConfig, WindowInfo } from './types';
 
