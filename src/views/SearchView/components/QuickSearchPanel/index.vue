@@ -5,14 +5,16 @@
 <template>
     <div
         class="quick-search-panel mt-1.5 w-full rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur"
+        @click.self="handleBlankSurfaceClick"
     >
         <div
             ref="scrollRef"
             class="quick-search-scroll quick-search-scrollbar overflow-x-hidden overflow-y-auto"
             :style="scrollStyle"
             @scroll.passive="handleScroll"
+            @click.self="handleBlankSurfaceClick"
         >
-            <div class="quick-search-grid" :style="gridStyle">
+            <div class="quick-search-grid" :style="gridStyle" @click.self="handleBlankSurfaceClick">
                 <button
                     v-for="(item, index) in results"
                     :key="item.path"
@@ -89,6 +91,7 @@
     });
 
     const emit = defineEmits<{
+        blankClick: [];
         'update:open': [value: boolean];
     }>();
 
@@ -121,6 +124,10 @@
         openHighlightedItem,
         triggerSearch,
     } = quickSearchLogic;
+
+    function handleBlankSurfaceClick() {
+        emit('blankClick');
+    }
 
     defineExpose({
         open: openPanel,

@@ -75,7 +75,7 @@
         quickSearchPanel,
         conversationPanel,
     });
-    const { handlePanelSurfaceClick } = useSearchPanelFocusRestore({
+    const { handleQuickSearchBlankClick } = useSearchPanelFocusRestore({
         controller,
     });
 
@@ -257,7 +257,6 @@
                 :is-loading="isLoading"
                 :error="error"
                 :is-pinned="isPinned"
-                @click="handlePanelSurfaceClick"
                 @pin-change="(value: boolean) => (isPinned = value)"
                 @regenerate-message="handleRegenerateMessage"
                 @drag-start="isDragging = true"
@@ -291,7 +290,7 @@
                     :open="quickSearchOpen"
                     :search-query="queryText"
                     :enabled="true"
-                    @click="handlePanelSurfaceClick"
+                    @blank-click="handleQuickSearchBlankClick"
                     @update:open="handleQuickSearchOpenChange"
                 />
             </div>

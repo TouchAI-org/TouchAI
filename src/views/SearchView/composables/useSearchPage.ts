@@ -192,37 +192,15 @@ interface UseSearchPanelFocusRestoreOptions {
 }
 
 /**
- * 搜索页面板点击回焦策略。
- * 负责把“点击会话/QuickSearch 非交互区域后回到搜索框”的规则集中到页面层，
- * 避免模板组件承载浏览器选区时序与交互元素白名单等细节。
+ * 搜索页面板焦点恢复策略。
+ * 负责把 QuickSearch 空白点击回焦集中到页面层，
+ * 避免模板组件承载浏览器选区清理等时序细节。
  *
  * @param options 页面 controller。
- * @returns 面板表面点击处理器。
+ * @returns 面板焦点恢复处理器。
  */
 export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOptions) {
     const { controller } = options;
-
-    function shouldKeepPanelClickFocus(target: HTMLElement | null): boolean {
-        if (!target) {
-            return false;
-        }
-
-        return Boolean(
-            target.closest(
-                [
-                    'a',
-                    'button',
-                    'input',
-                    'textarea',
-                    'select',
-                    'summary',
-                    '[role="button"]',
-                    '[contenteditable="true"]',
-                    '[data-drag-exclude="true"]',
-                ].join(', ')
-            )
-        );
-    }
 
     function hasActiveTextSelection() {
         const selection = window.getSelection();
@@ -247,19 +225,12 @@ export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOp
     }
 
     /**
-     * 点击结果/会话面板的非交互区域后，把输入焦点还给搜索框，
-     * 让用户能继续直接键入，同时不打断按钮点击或文本选区操作。
+     * QuickSearch 仅在结构化空白层上发出 blank-click，
+     * 页面层只负责处理文本选区清理与输入框回焦的时序。
      *
-     * @param event 面板 click 事件。
      * @returns void
      */
-    function handlePanelSurfaceClick(event: MouseEvent) {
-        const target = event.target as HTMLElement | null;
-
-        if (event.defaultPrevented || shouldKeepPanelClickFocus(target)) {
-            return;
-        }
-
+    function handleQuickSearchBlankClick() {
         if (hasActiveTextSelection()) {
             restoreSearchFocusAfterSelectionClears();
             return;
@@ -269,7 +240,7 @@ export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOp
     }
 
     return {
-        handlePanelSurfaceClick,
+        handleQuickSearchBlankClick,
     };
 }
 
