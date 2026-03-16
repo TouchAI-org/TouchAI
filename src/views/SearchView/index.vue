@@ -3,7 +3,7 @@
 
     import { db } from '@database';
     import { mcpManager } from '@services/AiService/mcp';
-    import { onMounted, reactive, ref, toRef } from 'vue';
+    import { onMounted, reactive, ref, toRef, watch } from 'vue';
 
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
@@ -232,6 +232,19 @@
             viewReady.value = false;
         }
     }
+
+    watch(
+        () => conversationHistory.value.length,
+        async (length, previousLength) => {
+            if (!viewReady.value || length > 0 || !previousLength) {
+                return;
+            }
+
+            // 会话面板卸载后主动回焦输入框，避免用户关闭面板后还要额外点击一次才能继续输入。
+            await controller.focusSearchInput();
+        },
+        { flush: 'post' }
+    );
 
     onMounted(() => {
         void initialize();
