@@ -16,7 +16,7 @@
         <div
             ref="conversationContainer"
             tabindex="0"
-            class="conversation-container custom-scrollbar bg-background-primary w-full overflow-y-auto px-10 pt-[4.5rem] pb-5"
+            class="conversation-container bg-background-primary w-full overflow-y-auto px-10 pt-[4.5rem] pb-5"
             :style="{ maxHeight: `${maxHeight}px` }"
             @scroll="handleScroll"
             @wheel.passive="markUserScrollIntent"
@@ -39,6 +39,16 @@
                     />
                 </div>
             </div>
+
+            <!-- 对话时间轴 -->
+            <ConversationTimeline
+                :messages="messages"
+                :container-height="maxHeight"
+                :scroll-top="scrollTop"
+                :scroll-height="scrollHeight"
+                :client-height="clientHeight"
+                @jump-to-message="handleTimelineJump"
+            />
         </div>
 
         <!-- 跳到底部 -->
@@ -66,6 +76,7 @@
 
     import { useSettingsStore } from '@/stores/settings';
 
+    import ConversationTimeline from './components/ConversationTimeline.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
 
@@ -105,7 +116,13 @@
     const lastUserScrollIntentAt = ref(0);
     const lastAutoScrollAt = ref(0);
     const USER_MESSAGE_SCROLL_GAP = 12;
+    const TIMELINE_JUMP_OFFSET = 80;
     let messageListObserver: ResizeObserver | null = null;
+
+    // 时间轴相关状态
+    const scrollTop = ref(0);
+    const scrollHeight = ref(0);
+    const clientHeight = ref(0);
 
     // 暴露 focus 方法
     function focus() {
@@ -187,6 +204,17 @@
         const atBottom = isScrolledToBottom(container);
         const mode = outputScrollBehavior.value;
 
+        // 更新时间轴状态（仅在值变化时更新）
+        if (scrollTop.value !== currentScrollTop) {
+            scrollTop.value = currentScrollTop;
+        }
+        if (scrollHeight.value !== container.scrollHeight) {
+            scrollHeight.value = container.scrollHeight;
+        }
+        if (clientHeight.value !== container.clientHeight) {
+            clientHeight.value = container.clientHeight;
+        }
+
         if (mode === 'follow_output') {
             // 如果用户滚动到底部，恢复自动滚动并隐藏按钮
             if (atBottom) {
@@ -245,6 +273,10 @@
         container.scrollTop = Math.max(0, targetScrollTop);
         lastScrollTop.value = container.scrollTop;
         return true;
+    }
+
+    function handleTimelineJump(messageId: string) {
+        scrollToUserMessageTop(messageId, USER_MESSAGE_SCROLL_GAP + TIMELINE_JUMP_OFFSET);
     }
 
     // 滚动到底部
@@ -327,6 +359,14 @@
 
     onMounted(async () => {
         await settingsStore.initialize();
+
+        // 初始化时间轴滚动状态
+        if (conversationContainer.value) {
+            scrollTop.value = conversationContainer.value.scrollTop;
+            scrollHeight.value = conversationContainer.value.scrollHeight;
+            clientHeight.value = conversationContainer.value.clientHeight;
+        }
+
         if (messageListRef.value) {
             messageListObserver = new ResizeObserver(() => {
                 if (!shouldAutoScrollOnOutput()) {
@@ -350,9 +390,16 @@
 </script>
 
 <style scoped>
-    /* 移除焦点时的默认边框 */
     .conversation-container:focus {
         outline: none;
+    }
+
+    .conversation-container {
+        scrollbar-width: none;
+    }
+
+    .conversation-container::-webkit-scrollbar {
+        display: none;
     }
 
     .message-list {
