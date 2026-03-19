@@ -16,6 +16,17 @@ CREATE TABLE `ai_requests` (
 	FOREIGN KEY (`response_message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
+CREATE TABLE `attachments` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`hash` text NOT NULL,
+	`type` text NOT NULL,
+	`original_name` text NOT NULL,
+	`mime_type` text,
+	`size` integer,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `attachments_hash_unique` ON `attachments` (`hash`);--> statement-breakpoint
 CREATE TABLE `llm_metadata` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`model_id` text NOT NULL,
@@ -85,6 +96,16 @@ CREATE TABLE `mcp_tools` (
 	FOREIGN KEY (`server_id`) REFERENCES `mcp_servers`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE TABLE `message_attachments` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`message_id` integer NOT NULL,
+	`attachment_id` integer NOT NULL,
+	`sort_order` integer DEFAULT 0 NOT NULL,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`attachment_id`) REFERENCES `attachments`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `messages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` integer NOT NULL,
@@ -132,16 +153,36 @@ CREATE TABLE `providers` (
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `quick_search_click_stats` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`query_norm` text NOT NULL,
+	`path_norm` text NOT NULL,
+	`click_count` integer DEFAULT 0 NOT NULL,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `sessions` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` text NOT NULL,
 	`title` text NOT NULL,
 	`model` text NOT NULL,
+	`provider_id` integer,
+	`last_message_preview` text,
+	`last_message_at` text,
+	`message_count` integer DEFAULT 0 NOT NULL,
+	`pinned_at` text,
+	`archived_at` text,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`updated_at` text DEFAULT (datetime('now')) NOT NULL
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`provider_id`) REFERENCES `providers`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `sessions_session_id_unique` ON `sessions` (`session_id`);--> statement-breakpoint
+CREATE INDEX `sessions_provider_id_idx` ON `sessions` (`provider_id`);--> statement-breakpoint
+CREATE INDEX `sessions_archived_at_idx` ON `sessions` (`archived_at`);--> statement-breakpoint
+CREATE INDEX `sessions_pinned_at_idx` ON `sessions` (`pinned_at`);--> statement-breakpoint
+CREATE INDEX `sessions_last_message_at_idx` ON `sessions` (`last_message_at`);--> statement-breakpoint
 CREATE TABLE `settings` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`key` text NOT NULL,

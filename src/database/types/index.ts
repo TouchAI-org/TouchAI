@@ -38,6 +38,12 @@ export interface SessionEntity {
     session_id: string;
     title: string;
     model: string;
+    provider_id: number | null;
+    last_message_preview: string | null;
+    last_message_at: string | null;
+    message_count: number;
+    pinned_at: string | null;
+    archived_at: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -46,9 +52,17 @@ export interface SessionCreateData {
     session_id: string;
     title: string;
     model: string;
+    provider_id?: number | null;
+    last_message_preview?: string | null;
+    last_message_at?: string | null;
+    message_count?: number;
+    pinned_at?: string | null;
+    archived_at?: string | null;
     created_at?: string;
     updated_at?: string;
 }
+
+export type SessionUpdateData = Partial<SessionCreateData>;
 
 // ==================== 消息 ====================
 
@@ -69,6 +83,40 @@ export interface MessageCreateData {
     tool_log_id?: number | null;
     created_at?: string;
     updated_at?: string;
+}
+
+export interface AttachmentEntity {
+    id: number;
+    hash: string;
+    type: 'image' | 'file';
+    original_name: string;
+    mime_type: string | null;
+    size: number | null;
+    created_at: string;
+}
+
+export interface AttachmentCreateData {
+    hash: string;
+    type: 'image' | 'file';
+    original_name: string;
+    mime_type?: string | null;
+    size?: number | null;
+    created_at?: string;
+}
+
+export interface MessageAttachmentEntity {
+    id: number;
+    message_id: number;
+    attachment_id: number;
+    sort_order: number;
+    created_at: string;
+}
+
+export interface MessageAttachmentCreateData {
+    message_id: number;
+    attachment_id: number;
+    sort_order?: number;
+    created_at?: string;
 }
 
 // ==================== 设置 ====================

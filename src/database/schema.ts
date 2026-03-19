@@ -2,7 +2,7 @@
 
 import type { QueryResult } from '@tauri-apps/plugin-sql';
 import { sql } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 // ==================== Tauri 相关类型 ====================
 
@@ -63,18 +63,35 @@ export enum MetaKey {
 /**
  * 会话表
  */
-export const sessions = sqliteTable('sessions', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    session_id: text('session_id').notNull().unique(),
-    title: text('title').notNull(),
-    model: text('model').notNull(),
-    created_at: text('created_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-    updated_at: text('updated_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-});
+export const sessions = sqliteTable(
+    'sessions',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        session_id: text('session_id').notNull().unique(),
+        title: text('title').notNull(),
+        model: text('model').notNull(),
+        provider_id: integer('provider_id').references(() => providers.id, {
+            onDelete: 'set null',
+        }),
+        last_message_preview: text('last_message_preview'),
+        last_message_at: text('last_message_at'),
+        message_count: integer('message_count').notNull().default(0),
+        pinned_at: text('pinned_at'),
+        archived_at: text('archived_at'),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        index('sessions_provider_id_idx').on(table.provider_id),
+        index('sessions_archived_at_idx').on(table.archived_at),
+        index('sessions_pinned_at_idx').on(table.pinned_at),
+        index('sessions_last_message_at_idx').on(table.last_message_at),
+    ]
+);
 
 /**
  * 消息表
@@ -93,6 +110,38 @@ export const messages = sqliteTable('messages', {
         .notNull()
         .default(sql`(datetime('now'))`),
     updated_at: text('updated_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
+/**
+ * 附件缓存表
+ */
+export const attachments = sqliteTable('attachments', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    hash: text('hash').notNull().unique(),
+    type: text('type', { enum: ['image', 'file'] }).notNull(),
+    original_name: text('original_name').notNull(),
+    mime_type: text('mime_type'),
+    size: integer('size'),
+    created_at: text('created_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
+/**
+ * 消息附件关联表
+ */
+export const messageAttachments = sqliteTable('message_attachments', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    message_id: integer('message_id')
+        .notNull()
+        .references(() => messages.id, { onDelete: 'cascade' }),
+    attachment_id: integer('attachment_id')
+        .notNull()
+        .references(() => attachments.id, { onDelete: 'cascade' }),
+    sort_order: integer('sort_order').notNull().default(0),
+    created_at: text('created_at')
         .notNull()
         .default(sql`(datetime('now'))`),
 });
@@ -346,6 +395,14 @@ export type SessionUpdate = Partial<NewSession>;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type MessageUpdate = Partial<NewMessage>;
+
+export type Attachment = typeof attachments.$inferSelect;
+export type NewAttachment = typeof attachments.$inferInsert;
+export type AttachmentUpdate = Partial<NewAttachment>;
+
+export type MessageAttachment = typeof messageAttachments.$inferSelect;
+export type NewMessageAttachment = typeof messageAttachments.$inferInsert;
+export type MessageAttachmentUpdate = Partial<NewMessageAttachment>;
 
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
