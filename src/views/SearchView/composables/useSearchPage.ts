@@ -104,6 +104,10 @@ export function useSearchPageController(options: {
         await searchBar.value?.prepareModelDropdownOpen();
     }
 
+    async function prefetchModelDropdownData() {
+        await searchBar.value?.prefetchModelDropdownData();
+    }
+
     function resetModelDropdownState() {
         searchBar.value?.resetModelDropdownState();
     }
@@ -176,6 +180,7 @@ export function useSearchPageController(options: {
         resetModelDropdownState,
         selectModelFromDropdown,
         getModelDropdownAnchor,
+        prefetchModelDropdownData,
         getModelDropdownContext,
         isQuickSearchOpen,
         isQuickSearchItemHighlighted,

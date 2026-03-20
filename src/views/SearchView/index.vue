@@ -213,6 +213,15 @@
     function handleQuickSearchOpenChange(value: boolean) {
         quickSearchOpen.value = value;
     }
+    function handleModelDropdownPrefetch() {
+        if (modelDropdownState.value.isOpen) {
+            return;
+        }
+
+        void controller.prefetchModelDropdownData().catch((error) => {
+            console.error('[SearchView] Failed to refresh model dropdown data on hover:', error);
+        });
+    }
 
     async function initialize() {
         try {
@@ -293,6 +302,7 @@
                 @cursor-context-change="handleCursorContextChange"
                 @model-override-change="handleModelOverrideChange"
                 @model-dropdown-state-change="handleModelDropdownStateChange"
+                @request-prefetch-model-dropdown="handleModelDropdownPrefetch"
                 @request-toggle-model-dropdown="handleToggleModelDropdownRequest"
                 @drag-start="isDragging = true"
                 @drag-end="isDragging = false"

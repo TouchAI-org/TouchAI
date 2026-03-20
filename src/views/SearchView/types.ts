@@ -15,6 +15,7 @@ export type {
 } from './components/SearchBar/types';
 
 export interface SearchBarHandle {
+    prefetchModelDropdownData: () => void | Promise<void>;
     prepareModelDropdownOpen: () => void | Promise<void>;
     resetModelDropdownState: () => void;
     selectModelFromDropdown: (
@@ -47,6 +48,7 @@ export interface SearchPageController {
     prepareModelDropdownOpen: () => Promise<void>;
     resetModelDropdownState: () => void;
     selectModelFromDropdown: (modelDbId: number) => Promise<SearchModelOverride>;
+    prefetchModelDropdownData: () => Promise<void>;
     getModelDropdownAnchor: () => HTMLElement | null;
     getModelDropdownContext: () => SearchModelDropdownContext;
     isQuickSearchOpen: () => boolean;

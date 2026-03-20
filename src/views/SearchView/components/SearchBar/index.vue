@@ -11,6 +11,7 @@
             ref="logoContainerRef"
             class="logo-container flex shrink-0 cursor-pointer items-center justify-center self-center"
             data-tauri-drag-region="false"
+            @mouseenter="handleModelDropdownPrefetchRequest"
             @mousedown.stop.prevent="handleModelDropdownToggleRequest"
         >
             <ModelLogo
@@ -88,6 +89,7 @@
         cursorContextChange: [context: SearchCursorContext];
         modelOverrideChange: [modelOverride: SearchModelOverride];
         modelDropdownStateChange: [state: SearchModelDropdownState];
+        requestPrefetchModelDropdown: [];
         requestToggleModelDropdown: [];
     }>();
 
@@ -98,6 +100,7 @@
         activeModel,
         isModelDropdownOpen,
         modelDropdownSearchQuery,
+        prefetchModelDropdownData,
         prepareModelDropdownOpen,
         resetModelDropdownState,
         selectModelFromDropdown,
@@ -127,6 +130,10 @@
 
     function handleModelDropdownToggleRequest() {
         emit('requestToggleModelDropdown');
+    }
+
+    function handleModelDropdownPrefetchRequest() {
+        emit('requestPrefetchModelDropdown');
     }
 
     function emitCursorContext() {
@@ -240,6 +247,7 @@
     });
 
     defineExpose({
+        prefetchModelDropdownData,
         prepareModelDropdownOpen,
         resetModelDropdownState,
         selectModelFromDropdown,
