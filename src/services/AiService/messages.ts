@@ -3,6 +3,7 @@
 import { findMessagesBySessionId, type MessageRow } from '@database/queries/messages';
 
 import {
+    hydratePersistedAttachments,
     type Index,
     isAttachmentSupported,
     readAttachmentAsBase64,
@@ -14,6 +15,7 @@ interface BuildRequestMessagesOptions {
     prompt: string;
     sessionId?: number;
     attachments?: Index[];
+    supportsAttachments?: boolean;
 }
 
 async function buildAttachmentParts(attachments: Index[]): Promise<AiContentPart[]> {
@@ -45,8 +47,13 @@ async function buildAttachmentParts(attachments: Index[]): Promise<AiContentPart
 
 /**
  * 将 LEFT JOIN 的扁平行按 message 分组，转换为 AiMessage 数组。
+ *
+ * 用户消息的附件只保存元数据，因此这里需要重新读取文件并还原成 provider 可消费的内容块。
  */
-function convertJoinedRows(rows: MessageRow[]): AiMessage[] {
+async function convertJoinedRows(
+    rows: MessageRow[],
+    supportsAttachments: boolean
+): Promise<AiMessage[]> {
     const messages: AiMessage[] = [];
     let lastMsgId = -1;
     let pendingToolCalls: AiToolCall[] = [];
@@ -100,6 +107,26 @@ function convertJoinedRows(rows: MessageRow[]): AiMessage[] {
             }
         } else {
             lastMsgId = row.id;
+            if (row.role === 'user') {
+                const attachments = supportsAttachments
+                    ? await hydratePersistedAttachments(row.attachments)
+                    : [];
+                const attachmentParts =
+                    attachments.length > 0 ? await buildAttachmentParts(attachments) : [];
+
+                messages.push({
+                    role: 'user',
+                    content:
+                        attachmentParts.length > 0
+                            ? ([
+                                  { type: 'text', text: row.content },
+                                  ...attachmentParts,
+                              ] as AiContentPart[])
+                            : row.content,
+                });
+                continue;
+            }
+
             messages.push({
                 role: row.role as 'user' | 'assistant' | 'system',
                 content: row.content,
@@ -119,11 +146,14 @@ export async function buildRequestMessages(
     options: BuildRequestMessagesOptions
 ): Promise<AiMessage[]> {
     const rows = options.sessionId ? await findMessagesBySessionId(options.sessionId) : [];
+    const supportsAttachments = options.supportsAttachments ?? true;
 
-    const messages = convertJoinedRows(rows);
+    const messages = await convertJoinedRows(rows, supportsAttachments);
 
     // 构建当前用户输入
-    const attachmentParts = await buildAttachmentParts(options.attachments ?? []);
+    const attachmentParts = supportsAttachments
+        ? await buildAttachmentParts(options.attachments ?? [])
+        : [];
     const userContent =
         attachmentParts.length > 0
             ? ([{ type: 'text', text: options.prompt }, ...attachmentParts] as AiContentPart[])

@@ -162,11 +162,13 @@ export class AiServiceManager {
             prompt,
             sessionId,
             attachments,
+            supportsAttachments: model.attachment === 1,
         });
 
         // 4. 初始化持久化管理器
         const persister = new Persister({
             prompt,
+            attachments,
             model,
             sessionId: sessionId ?? null,
             buildSessionTitle,
@@ -504,4 +506,4 @@ export const aiService = new AiServiceManager();
 export { AiError, AiErrorCode } from './errors';
 
 // 导出会话管理函数
-export { createSession, getSessionMessages } from './session';
+export { createSession, getSessionConversation, listSessions } from './session';

@@ -1,16 +1,26 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { createAiRequest, createMessage, createSession, updateAiRequest } from '@database/queries';
+import {
+    createAiRequest,
+    createMessage,
+    createMessageAttachment,
+    createSession,
+    updateAiRequest,
+    updateSession,
+} from '@database/queries';
 import type { MessageRole, RequestStatus } from '@database/schema';
 import type { AiRequestEntity, AiRequestUpdateData } from '@database/types';
+import { ensurePersistedAttachmentIndex, type Index } from '@services/AiService/attachments';
 
 interface PersisterModel {
     id: number;
     model_id: string;
+    provider_id: number;
 }
 
 interface PersisterOptions {
     prompt: string;
+    attachments?: Index[];
     model: PersisterModel;
     sessionId?: number | null;
     buildSessionTitle: (prompt: string) => string;
@@ -32,6 +42,7 @@ interface CompleteRequestOptions {
  */
 export class Persister {
     private readonly prompt: string;
+    private readonly attachments: Index[];
     private readonly model: PersisterModel;
     private readonly buildSessionTitle: (prompt: string) => string;
 
@@ -43,6 +54,7 @@ export class Persister {
 
     constructor(options: PersisterOptions) {
         this.prompt = options.prompt;
+        this.attachments = options.attachments ?? [];
         this.model = options.model;
         this.buildSessionTitle = options.buildSessionTitle;
 
@@ -56,8 +68,15 @@ export class Persister {
      * 记录请求开始阶段：先记录用户消息，再创建 streaming 请求记录。
      */
     async recordRequestStart(): Promise<void> {
+        await this.syncSessionIdentity();
+
         if (!this.userMessageId) {
-            this.userMessageId = await this.persistMessage('user', this.prompt);
+            this.userMessageId = await this.persistMessage(
+                'user',
+                this.prompt,
+                null,
+                this.attachments
+            );
         }
 
         await this.ensureRequestRecord();
@@ -141,6 +160,7 @@ export class Persister {
                 session_id: crypto.randomUUID(),
                 title: this.buildSessionTitle(this.prompt),
                 model: this.model.model_id,
+                provider_id: this.model.provider_id,
             });
 
             this.sessionId = session.id;
@@ -151,10 +171,33 @@ export class Persister {
         }
     }
 
+    /**
+     * useAgent 可能会先按“当前选中的标签”预创建会话，
+     * 等真正解析出默认模型后，再由持久化层把 session 的 model/provider 校准成最终值。
+     */
+    private async syncSessionIdentity(): Promise<void> {
+        if (!this.sessionId) {
+            return;
+        }
+
+        try {
+            await updateSession({
+                id: this.sessionId,
+                sessionPatch: {
+                    model: this.model.model_id,
+                    provider_id: this.model.provider_id,
+                },
+            });
+        } catch (error) {
+            console.error('[Persister] Failed to sync session identity:', error);
+        }
+    }
+
     private async persistMessage(
         role: MessageRole,
         content: string,
-        toolLogId?: number | null
+        toolLogId?: number | null,
+        attachments: Index[] = []
     ): Promise<number | null> {
         const sessionId = await this.ensureSessionId();
 
@@ -168,6 +211,20 @@ export class Persister {
             content,
             tool_log_id: toolLogId ?? null,
         });
+
+        if (role === 'user' && attachments.length > 0) {
+            const persisted = await Promise.all(
+                attachments.map((attachment) => ensurePersistedAttachmentIndex(attachment))
+            );
+
+            for (const [index, entity] of persisted.entries()) {
+                await createMessageAttachment({
+                    message_id: message.id,
+                    attachment_id: entity.id,
+                    sort_order: index,
+                });
+            }
+        }
 
         return message.id;
     }
