@@ -54,6 +54,8 @@ export function useModelSelection(
     const activeModel = ref<ModelWithProvider | null>(null);
     // 缓存原始模型列表，供 handleModelSelect 使用，避免重复查询数据库。
     const availableModels = ref<ModelWithProvider[]>([]);
+    let hasLoadedPopupModels = false;
+    let popupModelsLoadPromise: Promise<ModelWithProvider[]> | null = null;
     const selectedModel = computed(() => {
         const { modelId, providerId } = modelOverride.value;
         if (!modelId) {
@@ -89,18 +91,43 @@ export function useModelSelection(
         }
     }
 
-    async function loadPopupModels() {
-        try {
-            const models = await deps.findModels();
-            availableModels.value = models;
-        } catch (error) {
-            console.error('[SearchBar] Failed to load popup models:', error);
-            availableModels.value = [];
+    /**
+     * 确保弹窗候选模型已就绪。
+     *
+     * hover 预取与 `@` 直接打开都会走这里；一旦已有结果或已有进行中的查询，
+     * 就直接复用，避免两条入口各自打一遍数据库。
+     *
+     * @returns 当前可用的模型列表。
+     */
+    async function loadPopupModels(): Promise<ModelWithProvider[]> {
+        if (hasLoadedPopupModels) {
+            return availableModels.value;
         }
+
+        if (popupModelsLoadPromise) {
+            return popupModelsLoadPromise;
+        }
+
+        popupModelsLoadPromise = (async () => {
+            try {
+                const models = await deps.findModels();
+                availableModels.value = models;
+                hasLoadedPopupModels = true;
+                return models;
+            } catch (error) {
+                console.error('[SearchBar] Failed to load popup models:', error);
+                availableModels.value = [];
+                return [];
+            } finally {
+                popupModelsLoadPromise = null;
+            }
+        })();
+
+        return popupModelsLoadPromise;
     }
 
     /**
-     * 进入模型搜索状态并加载弹窗所需数据。
+     * 进入模型搜索状态，并确保弹窗候选模型可用。
      *
      * @returns Promise<void>
      */
@@ -221,9 +248,9 @@ export function useModelSelection(
         };
     }
 
-    // 7. 生命周期注册
+    // 页面初始化只需要知道当前活动模型，弹窗候选列表改为按需加载。
     onMounted(async () => {
-        await Promise.all([loadActiveModel(), loadPopupModels()]);
+        await loadActiveModel();
     });
 
     return {
@@ -238,6 +265,7 @@ export function useModelSelection(
         modelCapabilities,
         dropdownSearchQuery: searchSession.dropdownSearchQuery,
         loadActiveModel,
+        loadPopupModels,
         prepareModelDropdownOpen,
         updateDropdownSearchQuery,
         resetModelDropdownState: searchSession.resetModelDropdownState,
