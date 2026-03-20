@@ -1,5 +1,9 @@
-import { type ModelDropdownData, popupManager } from '@services/PopupService';
-import { computed, onMounted, onUnmounted } from 'vue';
+import {
+    type ModelDropdownData,
+    type PopupClosedPayload,
+    popupManager,
+} from '@services/PopupService';
+import { onMounted, onUnmounted, ref } from 'vue';
 
 interface UseModelDropdownPopupOptions {
     getAnchorElement: () => HTMLElement | null;
@@ -22,13 +26,9 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
         options;
 
     let cleanupFn: (() => void) | null = null;
+    let activePopupId: string | null = null;
     let hasActivePopupSession = false;
-
-    const isOpen = computed(() => {
-        return (
-            popupManager.state.isOpen && popupManager.state.currentType === 'model-dropdown-popup'
-        );
-    });
+    const isOpen = ref(false);
 
     /**
      * 打开模型下拉弹窗。
@@ -42,8 +42,14 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
             return;
         }
 
-        await popupManager.toggle('model-dropdown-popup', anchorElement, getPopupData());
-        hasActivePopupSession = true;
+        const popupId = await popupManager.toggle(
+            'model-dropdown-popup',
+            anchorElement,
+            getPopupData()
+        );
+        activePopupId = popupId;
+        hasActivePopupSession = Boolean(popupId);
+        isOpen.value = Boolean(popupId);
     }
 
     /**
@@ -57,6 +63,9 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
         }
 
         await popupManager.hide();
+        activePopupId = null;
+        hasActivePopupSession = false;
+        isOpen.value = false;
     }
 
     /**
@@ -79,15 +88,17 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
                     console.error('[SearchView] Failed to handle model dropdown selection:', error);
                 });
             },
-            onClose: () => {
-                if (!hasActivePopupSession) {
+            onClose: (payload: PopupClosedPayload) => {
+                if (!activePopupId || payload.popupId !== activePopupId) {
                     return;
                 }
 
+                activePopupId = null;
                 hasActivePopupSession = false;
+                isOpen.value = false;
 
-                // popup-closed 是全局事件，这里只在模型下拉实际持有会话时
-                // 才回流到领域层，避免其他 popup 关闭时误重置模型搜索状态。
+                // popup-closed 是全局事件，这里只在模型下拉实际持有同一 popupId 时
+                // 才回流到领域层，避免切换其他 popup 时误重置模型搜索状态。
                 if (!isModelDropdownActive()) {
                     return;
                 }
@@ -99,6 +110,9 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
     onUnmounted(() => {
         cleanupFn?.();
         cleanupFn = null;
+        activePopupId = null;
+        hasActivePopupSession = false;
+        isOpen.value = false;
     });
 
     return {

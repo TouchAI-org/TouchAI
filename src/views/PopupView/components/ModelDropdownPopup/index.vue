@@ -4,8 +4,8 @@
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import SvgIcon from '@components/SvgIcon.vue';
+    import { AppEvent, eventService } from '@services/EventService';
     import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
-    import { emit as tauriEmit } from '@tauri-apps/api/event';
     import { computed, nextTick, ref, watch } from 'vue';
 
     defineOptions({
@@ -127,7 +127,7 @@
 
     // 处理模型选择 - 自己 emit 到主窗口
     async function handleSelect(modelDbId: number) {
-        await tauriEmit('popup-model-select', { modelDbId });
+        await eventService.emit(AppEvent.POPUP_MODEL_SELECT, { modelDbId });
         emit('close');
     }
 
@@ -161,11 +161,6 @@
         }
     }
 
-    // 获取焦点
-    function focus() {
-        dropdownRef.value?.focus();
-    }
-
     // 重置高亮索引当搜索改变时
     watch(searchQuery, () => {
         highlightedIndex.value = 0;
@@ -181,10 +176,9 @@
         }
     );
 
-    // 暴露键盘处理函数和焦点函数给父组件
+    // 只暴露键盘处理，模型下拉本身不需要在显示后额外接管焦点。
     defineExpose({
         handleKeyDown,
-        focus,
     });
 </script>
 
