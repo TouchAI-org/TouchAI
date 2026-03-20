@@ -1,5 +1,16 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import type {
+    PopupClosedPayload,
+    PopupDataPayload,
+    PopupFocusMainPayload,
+    PopupKeydownPayload,
+    PopupModelSelectPayload,
+    PopupReadyPayload,
+    PopupSessionOpenPayload,
+    PopupSessionSearchQueryChangePayload,
+} from '@services/PopupService/types';
+
 /**
  * 事件类型定义
  *
@@ -25,6 +36,16 @@ export enum AppEvent {
 
     // 资源事件
     FONT_READY = 'font:ready',
+
+    // Popup 事件
+    POPUP_READY = 'popup-ready',
+    POPUP_DATA = 'popup-data',
+    POPUP_CLOSED = 'popup-closed',
+    POPUP_KEYDOWN = 'popup-keydown',
+    POPUP_MODEL_SELECT = 'popup-model-select',
+    POPUP_SESSION_OPEN = 'popup-session-history-open-session',
+    POPUP_SESSION_SEARCH_QUERY_CHANGE = 'popup-session-history-search-query-change',
+    POPUP_FOCUS_MAIN = 'popup-focus-main',
 }
 
 // ==================== MCP 事件 ====================
@@ -91,6 +112,16 @@ export interface AppEventMap {
 
     // 资源事件
     [AppEvent.FONT_READY]: FontReadyEvent;
+
+    // Popup 事件
+    [AppEvent.POPUP_READY]: PopupReadyPayload;
+    [AppEvent.POPUP_DATA]: PopupDataPayload;
+    [AppEvent.POPUP_CLOSED]: PopupClosedPayload;
+    [AppEvent.POPUP_KEYDOWN]: PopupKeydownPayload;
+    [AppEvent.POPUP_MODEL_SELECT]: PopupModelSelectPayload;
+    [AppEvent.POPUP_SESSION_OPEN]: PopupSessionOpenPayload;
+    [AppEvent.POPUP_SESSION_SEARCH_QUERY_CHANGE]: PopupSessionSearchQueryChangePayload;
+    [AppEvent.POPUP_FOCUS_MAIN]: PopupFocusMainPayload;
 }
 
 export type AppEventName = keyof AppEventMap;

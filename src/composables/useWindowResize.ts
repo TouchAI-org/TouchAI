@@ -27,8 +27,15 @@ export function useWindowResize(options: WindowResizeOptions) {
     const center = options.center ?? isMainWindow;
 
     let resizeObserver: ResizeObserver | null = null;
-    // 弹窗窗口：仅在 invalidate() 触发后的首次 resize 才 show，避免 preload 时就显示
-    let pendingShow = false;
+    // 预加载 popup 时窗口默认保持隐藏；这里只允许在外部显式请求后，于下一次 resize 完成时再显示。
+    let shouldShowWindowAfterResize = false;
+    // PopupView 要等窗口真正显示后，才能把“显示后该做什么”交给具体 popup 组件处理。
+    let notifyWindowShown: (() => void) | null = null;
+
+    function markWindowShown() {
+        notifyWindowShown?.();
+        notifyWindowShown = null;
+    }
 
     async function resize(pageHeight: number) {
         const clamped = Math.max(minHeight, Math.min(pageHeight, maxHeight));
@@ -42,10 +49,11 @@ export function useWindowResize(options: WindowResizeOptions) {
             center,
         });
 
-        // 弹窗窗口在 Rust 侧不主动 show，等 invalidate 触发的 resize 完成后再显示
-        if (!isMainWindow && pendingShow) {
+        // popup 窗口等内容高度稳定后再显示，避免预加载窗口先闪出来。
+        if (!isMainWindow && shouldShowWindowAfterResize) {
             await getCurrentWindow().show();
-            pendingShow = false;
+            shouldShowWindowAfterResize = false;
+            markWindowShown();
         }
 
         currentHeight.value = newHeight;
@@ -93,11 +101,19 @@ export function useWindowResize(options: WindowResizeOptions) {
      */
     function invalidate() {
         currentHeight.value = 0;
-        pendingShow = true;
+        shouldShowWindowAfterResize = true;
+        const windowShownPromise = isMainWindow
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                  notifyWindowShown = resolve;
+              });
         const el = options.target.value;
         if (el) {
             nextTick(() => triggerResize(el)).catch(console.error);
+        } else {
+            markWindowShown();
         }
+        return windowShownPromise;
     }
 
     onUnmounted(cleanup);
@@ -105,6 +121,9 @@ export function useWindowResize(options: WindowResizeOptions) {
     return {
         currentHeight,
         invalidate,
-        cancelPendingShow: () => (pendingShow = false),
+        cancelScheduledWindowShow: () => {
+            shouldShowWindowAfterResize = false;
+            markWindowShown();
+        },
     };
 }

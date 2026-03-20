@@ -1,11 +1,12 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import type { SessionEntity } from '@database/types';
 import type { Component } from 'vue';
 
 /**
  * 弹窗窗口内容类型
  */
-export type PopupType = 'model-dropdown-popup';
+export type PopupType = 'model-dropdown-popup' | 'session-history-popup';
 
 /**
  * 窗口信息，用于位置计算
@@ -46,6 +47,8 @@ export interface PopupConfig<TData = unknown> {
     calculatePosition: PositionCalculator;
     /** 可选的数据验证器 */
     dataValidator?: (data: unknown) => data is TData;
+    /** popup 获取焦点后，是否立即把焦点交还给主窗口 */
+    returnFocusToMainWindowOnFocus?: boolean;
 }
 
 /**
@@ -95,19 +98,45 @@ export interface ModelDropdownPopupItem {
     open_weights: number;
 }
 
-export type PopupData = ModelDropdownData;
+/**
+ * 历史会话弹窗数据
+ */
+export interface SessionHistoryData {
+    sessions: SessionEntity[];
+    activeSessionId: number | null;
+    searchQuery: string;
+    isLoading: boolean;
+}
+
+export type PopupData = ModelDropdownData | SessionHistoryData;
 
 /**
  * 根据 PopupType 获取对应的数据类型
  */
 export type PopupDataFor<T extends PopupType> = T extends 'model-dropdown-popup'
     ? ModelDropdownData
-    : never;
+    : T extends 'session-history-popup'
+      ? SessionHistoryData
+      : never;
+
+export interface PopupClosedPayload {
+    popupId: string;
+    type: PopupType;
+    windowLabel: string;
+}
+
+export interface PopupReadyPayload {
+    windowLabel: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface PopupFocusMainPayload {}
 
 /**
  * 弹窗数据更新事件载荷
  */
 export interface PopupDataPayload {
+    popupId: string;
     type: PopupType;
     data: PopupData;
     windowLabel?: string;
@@ -118,9 +147,31 @@ export interface PopupDataPayload {
 }
 
 /**
+ * 转发给特定 popup 窗口的键盘事件载荷。
+ */
+export interface PopupKeydownPayload {
+    key: string;
+    targetType: PopupType;
+}
+
+export interface PopupModelSelectPayload {
+    modelDbId: number;
+}
+
+export interface PopupSessionOpenPayload {
+    sessionId: number;
+}
+
+export interface PopupSessionSearchQueryChangePayload {
+    query: string;
+}
+
+/**
  * 弹窗事件处理器
  */
 export interface PopupEventHandlers {
     onModelSelect?: (modelDbId: number) => void;
-    onClose?: () => void;
+    onSessionOpen?: (sessionId: number) => void;
+    onSessionSearchQueryChange?: (query: string) => void;
+    onClose?: (payload: PopupClosedPayload) => void;
 }
