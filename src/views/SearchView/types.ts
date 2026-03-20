@@ -39,16 +39,19 @@ export interface QuickSearchHandle {
 
 export interface ConversationPanelHandle {
     focus: () => void;
+    revealLatestContent: () => void;
+    scrollByDelta: (deltaY: number) => void;
+    getHistoryAnchor: () => HTMLElement | null;
 }
 
 export interface SearchPageController {
     focusConversation: () => void;
     focusSearchInput: () => Promise<void>;
     loadActiveModel: () => Promise<void>;
+    prefetchModelDropdownData: () => Promise<void>;
     prepareModelDropdownOpen: () => Promise<void>;
     resetModelDropdownState: () => void;
     selectModelFromDropdown: (modelDbId: number) => Promise<SearchModelOverride>;
-    prefetchModelDropdownData: () => Promise<void>;
     getModelDropdownAnchor: () => HTMLElement | null;
     getModelDropdownContext: () => SearchModelDropdownContext;
     isQuickSearchOpen: () => boolean;

@@ -3,7 +3,9 @@
 
     import { db } from '@database';
     import { mcpManager } from '@services/AiService/mcp';
-    import { onMounted, reactive, ref, toRef, watch } from 'vue';
+    import type { SessionHistoryData } from '@services/PopupService';
+    import { sendNotification } from '@tauri-apps/plugin-notification';
+    import { nextTick, onMounted, reactive, ref, toRef, watch } from 'vue';
 
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
@@ -25,6 +27,7 @@
         useSearchPanelFocusRestore,
     } from './composables/useSearchPage';
     import { useSearchRequestFlow } from './composables/useSearchRequest';
+    import { useSessionHistoryPopup } from './composables/useSessionHistoryPopup';
     import type {
         ConversationPanelHandle,
         QuickSearchHandle,
@@ -63,6 +66,7 @@
     const quickSearchOpen = ref(false);
     const quickSearchPanel = ref<QuickSearchHandle>();
     const conversationPanel = ref<ConversationPanelHandle>();
+    const historyAnchorElement = ref<HTMLElement | null>(null);
     const pageContainer = ref<HTMLElement | null>(null);
     const isPinned = ref(false);
     const isDragging = ref(false);
@@ -102,8 +106,19 @@
         isWaitingForCompletion,
         isLoading,
         error,
+        currentSessionId,
         conversationHistory,
+        sessionHistoryPopupOpen,
+        sessionList,
+        sessionListQuery,
+        isSessionListLoading,
         clearConversation,
+        setSessionHistoryPopupOpen,
+        updateSessionSearchQuery,
+        refreshSessionList,
+        ensureSessionListLoaded,
+        startNewSession,
+        openSession,
         handleSubmit,
         clearAll,
         cancelRequest,
@@ -152,7 +167,7 @@
         openModelDropdownWithLayoutSync,
         closeModelDropdown,
         hideAllDropdowns,
-        handleToggleModelDropdownRequest,
+        handleToggleModelDropdownRequest: handleToggleModelDropdownRequestBase,
     } = useSearchModelDropdownCoordinator({
         pageContainer,
         controller,
@@ -164,6 +179,25 @@
         handleModelDropdownOpened,
         handleModelDropdownClosed,
         syncOverlayState,
+    });
+
+    function getSessionHistoryPopupData(): SessionHistoryData {
+        return {
+            sessions: sessionList.value,
+            activeSessionId: currentSessionId.value,
+            searchQuery: sessionListQuery.value,
+            isLoading: isSessionListLoading.value,
+        };
+    }
+
+    const sessionHistoryPopup = useSessionHistoryPopup({
+        getAnchorElement: () =>
+            historyAnchorElement.value ?? conversationPanel.value?.getHistoryAnchor() ?? null,
+        getPopupData: getSessionHistoryPopupData,
+        isSessionHistoryActive: () => sessionHistoryPopupOpen.value,
+        onSessionOpen: handleOpenSession,
+        onSessionSearchQueryChange: handleSessionSearchQueryChange,
+        onClose: () => setSessionHistoryPopupOpen(false),
     });
 
     useSearchKeyboard({
@@ -181,9 +215,10 @@
         isDevMode,
         isDevBlurHideSuspended,
         shouldTriggerQuickSearch,
-        hideAllDropdowns,
+        sessionHistoryPopupOpen,
+        hideAllPopups,
         closeModelDropdown,
-        openModelDropdown: openModelDropdownWithLayoutSync,
+        openModelDropdown,
         handleSubmit,
         clearAll,
         cancelRequest,
@@ -213,6 +248,75 @@
     function handleQuickSearchOpenChange(value: boolean) {
         quickSearchOpen.value = value;
     }
+
+    function handlePinChange(value: boolean) {
+        isPinned.value = value;
+    }
+
+    async function closeSessionHistoryPopup() {
+        try {
+            await sessionHistoryPopup.close();
+        } finally {
+            await setSessionHistoryPopupOpen(false);
+        }
+    }
+
+    async function hideAllPopups() {
+        await closeSessionHistoryPopup();
+        await hideAllDropdowns();
+    }
+
+    async function openModelDropdown() {
+        await closeSessionHistoryPopup();
+        await openModelDropdownWithLayoutSync();
+    }
+
+    async function handleToggleModelDropdownRequest() {
+        await closeSessionHistoryPopup();
+        await handleToggleModelDropdownRequestBase();
+    }
+
+    async function handleHistoryOpenChange(payload: {
+        open: boolean;
+        anchorElement: HTMLElement | null;
+    }) {
+        historyAnchorElement.value = payload.anchorElement;
+
+        if (!payload.open) {
+            await closeSessionHistoryPopup();
+            return;
+        }
+
+        controller.closeQuickSearch();
+        await hideAllDropdowns();
+        await setSessionHistoryPopupOpen(true);
+        try {
+            await sessionHistoryPopup.open();
+
+            void ensureSessionListLoaded().catch((error) => {
+                console.error(
+                    '[SearchView] Failed to ensure session history before popup interaction:',
+                    error
+                );
+            });
+        } catch (error) {
+            await setSessionHistoryPopupOpen(false);
+            console.error('[SearchView] Failed to open session history popup:', error);
+        }
+    }
+
+    function handleHistoryPrefetch(anchorElement: HTMLElement | null) {
+        historyAnchorElement.value = anchorElement;
+
+        if (sessionHistoryPopupOpen.value) {
+            return;
+        }
+
+        void ensureSessionListLoaded().catch((error) => {
+            console.error('[SearchView] Failed to prefetch session history:', error);
+        });
+    }
+
     function handleModelDropdownPrefetch() {
         if (modelDropdownState.value.isOpen) {
             return;
@@ -221,6 +325,52 @@
         void controller.prefetchModelDropdownData().catch((error) => {
             console.error('[SearchView] Failed to refresh model dropdown data on hover:', error);
         });
+    }
+
+    async function handleSessionSearchQueryChange(value: string) {
+        await updateSessionSearchQuery(value);
+    }
+
+    async function handleStartNewSession() {
+        controller.closeQuickSearch();
+        await hideAllPopups();
+        startNewSession();
+        await controller.focusSearchInput();
+    }
+
+    async function handleOpenSession(sessionId: number) {
+        controller.closeQuickSearch();
+        await hideAllPopups();
+
+        try {
+            await openSession(sessionId);
+            await nextTick();
+            conversationPanel.value?.revealLatestContent();
+        } catch (error) {
+            console.error('[SearchView] Failed to open session:', error);
+
+            const isMissingSession =
+                error instanceof Error && /not found|不存在/i.test(error.message);
+
+            // 会话列表可能比数据库状态稍旧；若目标会话已不存在，先刷新列表再提示用户。
+            if (isMissingSession) {
+                void refreshSessionList().catch((refreshError) => {
+                    console.error(
+                        '[SearchView] Failed to refresh session history after open failure:',
+                        refreshError
+                    );
+                });
+            }
+
+            await sendNotification({
+                title: 'TouchAI - 打开会话失败',
+                body: isMissingSession
+                    ? '该会话不存在，历史列表已刷新'
+                    : '打开会话失败，请稍后重试',
+            });
+
+            await controller.focusSearchInput();
+        }
     }
 
     async function initialize() {
@@ -232,12 +382,11 @@
 
             viewReady.value = true;
 
-            // 异步连接
-            mcpManager.autoConnect().catch((error) => {
-                console.error('[SearchView] Failed to auto-connect MCP servers:', error);
+            mcpManager.autoConnect().catch((initializeError) => {
+                console.error('[SearchView] Failed to auto-connect MCP servers:', initializeError);
             });
-        } catch (error) {
-            console.error('[SearchView] Failed to initialize dependencies:', error);
+        } catch (initializeError) {
+            console.error('[SearchView] Failed to initialize dependencies:', initializeError);
             viewReady.value = false;
         }
     }
@@ -249,8 +398,26 @@
                 return;
             }
 
-            // 会话面板卸载后主动回焦输入框，避免用户关闭面板后还要额外点击一次才能继续输入。
+            await closeSessionHistoryPopup();
             await controller.focusSearchInput();
+        },
+        { flush: 'post' }
+    );
+
+    watch(
+        [
+            sessionHistoryPopupOpen,
+            sessionList,
+            sessionListQuery,
+            isSessionListLoading,
+            currentSessionId,
+        ],
+        ([isOpen]) => {
+            if (!isOpen) {
+                return;
+            }
+
+            void sessionHistoryPopup.updateData();
         },
         { flush: 'post' }
     );
@@ -264,7 +431,7 @@
     <div
         ref="pageContainer"
         :class="[
-            'search-view-container bg-background-primary flex h-full w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl',
+            'search-view-container bg-background-primary relative flex h-full w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl',
             isLoading ? 'loading' : '',
         ]"
         @paste="handlePaste"
@@ -279,10 +446,15 @@
                 :is-loading="isLoading"
                 :error="error"
                 :is-pinned="isPinned"
-                @pin-change="(value: boolean) => (isPinned = value)"
-                @regenerate-message="handleRegenerateMessage"
+                :toolbar-disabled="isLoading || isWaitingForCompletion"
+                :history-open="sessionHistoryPopupOpen"
+                @pin-change="handlePinChange"
+                @new-session="handleStartNewSession"
+                @history-open-change="handleHistoryOpenChange"
+                @history-prefetch="handleHistoryPrefetch"
                 @drag-start="isDragging = true"
                 @drag-end="isDragging = false"
+                @regenerate-message="handleRegenerateMessage"
             />
         </div>
         <div

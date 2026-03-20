@@ -5,11 +5,15 @@
 import type { ConversationMessage } from '@composables/useAgent';
 import { useAlert } from '@composables/useAlert';
 import { useWindowResize } from '@composables/useWindowResize';
+import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
-import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
+import type {
+    ModelDropdownData,
+    ModelDropdownPopupItem,
+    PopupKeydownPayload,
+} from '@services/PopupService';
 import { popupManager } from '@services/PopupService';
 import { runStartupTasks } from '@services/StartupService';
-import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import {
@@ -100,12 +104,12 @@ export function useSearchPageController(options: {
         await searchBar.value?.loadActiveModel();
     }
 
-    async function prepareModelDropdownOpen() {
-        await searchBar.value?.prepareModelDropdownOpen();
-    }
-
     async function prefetchModelDropdownData() {
         await searchBar.value?.prefetchModelDropdownData();
+    }
+
+    async function prepareModelDropdownOpen() {
+        await searchBar.value?.prepareModelDropdownOpen();
     }
 
     function resetModelDropdownState() {
@@ -176,11 +180,11 @@ export function useSearchPageController(options: {
         focusConversation,
         focusSearchInput,
         loadActiveModel,
+        prefetchModelDropdownData,
         prepareModelDropdownOpen,
         resetModelDropdownState,
         selectModelFromDropdown,
         getModelDropdownAnchor,
-        prefetchModelDropdownData,
         getModelDropdownContext,
         isQuickSearchOpen,
         isQuickSearchItemHighlighted,
@@ -386,7 +390,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             await handleWindowBlur();
         });
 
-        unlistenPopupFocusMain = await listen('popup-focus-main', async () => {
+        unlistenPopupFocusMain = await eventService.on(AppEvent.POPUP_FOCUS_MAIN, async () => {
             await getCurrentWindow().setFocus();
             setTimeout(() => {
                 void controller.focusSearchInput();
@@ -536,7 +540,8 @@ interface UseSearchKeyboardOptions {
     isDevMode: boolean;
     isDevBlurHideSuspended: Ref<boolean>;
     shouldTriggerQuickSearch: (query: string) => boolean;
-    hideAllDropdowns: () => Promise<void>;
+    sessionHistoryPopupOpen: Ref<boolean>;
+    hideAllPopups: () => Promise<void>;
     closeModelDropdown: () => Promise<void>;
     openModelDropdown: () => Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
@@ -768,7 +773,8 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         isDevMode,
         isDevBlurHideSuspended,
         shouldTriggerQuickSearch,
-        hideAllDropdowns,
+        sessionHistoryPopupOpen,
+        hideAllPopups,
         closeModelDropdown,
         openModelDropdown,
         handleSubmit,
@@ -785,14 +791,24 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         }
 
         const target = event.target as HTMLElement | null;
-        if (target?.closest('.logo-container')) {
+        // 允许弹窗触发器自己处理“点击开关”；否则 capture 阶段会先把 popup 关掉，
+        // 随后的 click 又按最新状态重新打开，表现为“关掉后立刻又弹出来”。
+        if (
+            target?.closest('.logo-container') ||
+            target?.closest('[data-history-trigger="true"]')
+        ) {
             return;
         }
 
         if (modelDropdownState.value.isOpen) {
-            void hideAllDropdowns();
+            void hideAllPopups();
             event.preventDefault();
             event.stopPropagation();
+            return;
+        }
+
+        if (sessionHistoryPopupOpen.value) {
+            void hideAllPopups();
         }
     }
 
@@ -827,8 +843,8 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
             event.preventDefault();
             event.stopPropagation();
 
-            if (modelDropdownState.value.isOpen) {
-                await closeModelDropdown();
+            if (modelDropdownState.value.isOpen || sessionHistoryPopupOpen.value) {
+                await hideAllPopups();
                 return;
             }
 
@@ -866,7 +882,11 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         if (modelDropdownState.value.isOpen) {
             if (['ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) {
                 event.preventDefault();
-                emit('popup-keydown', { key: event.key });
+                const payload: PopupKeydownPayload = {
+                    key: event.key,
+                    targetType: 'model-dropdown-popup',
+                };
+                void eventService.emit(AppEvent.POPUP_KEYDOWN, payload);
                 return;
             }
         }
