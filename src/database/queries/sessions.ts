@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, asc, count, desc, eq, exists, isNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, exists, or, sql } from 'drizzle-orm';
 import { aliasedTable } from 'drizzle-orm/alias';
 
 import { db } from '../index';
@@ -9,7 +9,6 @@ import type { SessionCreateData, SessionEntity, SessionUpdateData } from '../typ
 
 export interface ListSessionsOptions {
     query?: string;
-    includeArchived?: boolean;
     limit?: number;
 }
 
@@ -56,8 +55,6 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
     const drizzle = db.getDb();
     const searchableMessages = aliasedTable(messages, 'searchable_messages');
 
-    let whereClause = options.includeArchived ? undefined : isNull(sessions.archived_at);
-
     if (query) {
         const pattern = `%${escapeLikePattern(query)}%`;
         const titleMatches = sql`lower(${sessions.title}) LIKE ${pattern} ESCAPE '\\'`;
@@ -80,21 +77,27 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
         );
         const searchWhereClause = or(titleMatches, contentMatches)!;
 
-        whereClause = whereClause ? and(whereClause, searchWhereClause)! : searchWhereClause;
+        return drizzle
+            .select()
+            .from(sessions)
+            .orderBy(
+                desc(sql`coalesce(${sessions.last_message_at}, ${sessions.updated_at})`),
+                desc(sessions.id)
+            )
+            .limit(limit)
+            .where(searchWhereClause)
+            .all();
     }
 
-    const queryBuilder = drizzle
+    return drizzle
         .select()
         .from(sessions)
         .orderBy(
-            asc(sql`${sessions.pinned_at} IS NULL`),
-            desc(sessions.pinned_at),
             desc(sql`coalesce(${sessions.last_message_at}, ${sessions.updated_at})`),
             desc(sessions.id)
         )
-        .limit(limit);
-
-    return whereClause ? queryBuilder.where(whereClause).all() : queryBuilder.all();
+        .limit(limit)
+        .all();
 };
 
 /**
@@ -112,66 +115,6 @@ export const updateSession = async ({
         .update(sessions)
         .set({
             ...sessionPatch,
-            updated_at: sql`datetime('now')`,
-        })
-        .where(eq(sessions.id, id))
-        .run();
-};
-
-/**
- * 更新会话标题。
- */
-export const updateSessionTitle = async ({
-    id,
-    title,
-}: {
-    id: number;
-    title: string;
-}): Promise<void> => {
-    await updateSession({
-        id,
-        sessionPatch: {
-            title,
-        },
-    });
-};
-
-/**
- * 切换会话置顶状态。
- */
-export const pinSession = async ({
-    id,
-    pinned,
-}: {
-    id: number;
-    pinned: boolean;
-}): Promise<void> => {
-    await db
-        .getDb()
-        .update(sessions)
-        .set({
-            pinned_at: pinned ? sql`datetime('now')` : null,
-            updated_at: sql`datetime('now')`,
-        })
-        .where(eq(sessions.id, id))
-        .run();
-};
-
-/**
- * 切换会话归档状态。
- */
-export const archiveSession = async ({
-    id,
-    archived,
-}: {
-    id: number;
-    archived: boolean;
-}): Promise<void> => {
-    await db
-        .getDb()
-        .update(sessions)
-        .set({
-            archived_at: archived ? sql`datetime('now')` : null,
             updated_at: sql`datetime('now')`,
         })
         .where(eq(sessions.id, id))
