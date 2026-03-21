@@ -2,6 +2,8 @@
 
 export * from './aiRequests';
 export * from './attachments';
+export * from './builtInToolLogs';
+export * from './builtInTools';
 export * from './llmMetadata';
 export * from './mcpServers';
 export * from './mcpToolLogs';

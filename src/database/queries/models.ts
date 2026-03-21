@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 
 import { db } from '../index';
 import { models, providers } from '../schema';
@@ -136,7 +136,7 @@ export const updateModelLastUsed = async ({ id }: { id: number }): Promise<void>
 
 /**
  * 设置全局默认模型
- * 使用事务确保只有一个默认模型
+ * 并清除其他模型的默认标记
  * 验证：模型所属的服务商必须已启用
  */
 export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise<void> => {
@@ -162,10 +162,13 @@ export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise
         throw new Error(`无法设置默认模型：服务商 "${modelWithProvider.provider_name}" 未启用`);
     }
 
-    // 原子更新：清除旧默认 + 设置新默认（单条 SQL，无需事务）
-    await drizzle.run(
-        sql`UPDATE models SET is_default = CASE WHEN id = ${modelId} THEN 1 ELSE 0 END WHERE is_default = 1 OR id = ${modelId}`
-    );
+    await drizzle
+        .update(models)
+        .set({
+            is_default: sql<number>`case when ${models.id} = ${modelId} then 1 else 0 end`,
+        })
+        .where(or(eq(models.is_default, 1), eq(models.id, modelId)))
+        .run();
 };
 /**
  * 删除模型

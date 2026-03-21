@@ -14,6 +14,73 @@ const DEFAULT_SETTINGS = [
     { key: SettingKey.OUTPUT_SCROLL_BEHAVIOR, value: 'follow_output' },
 ];
 
+const DEFAULT_BUILT_IN_TOOLS = [
+    {
+        tool_id: 'bash',
+        display_name: 'Bash',
+        description: '执行终端命令',
+        enabled: 1,
+        risk_level: 'high',
+        config_json: JSON.stringify({
+            approvalMode: 'high_risk',
+            defaultWorkingDirectory: 'D:\\Project\\TouchAI',
+            allowedWorkingDirectories: ['D:\\Project\\TouchAI'],
+            timeoutMs: 15000,
+            maxOutputChars: 12000,
+        }),
+    },
+    {
+        tool_id: 'file_search',
+        display_name: 'FileSearch',
+        description: '搜索本机文件',
+        enabled: 1,
+        risk_level: 'low',
+        config_json: null,
+    },
+    {
+        tool_id: 'setting',
+        display_name: 'Setting',
+        description: '读取和修改应用设置',
+        enabled: 1,
+        risk_level: 'medium',
+        config_json: null,
+    },
+    {
+        tool_id: 'web_fetch',
+        display_name: 'WebFetch',
+        description: '抓取网页并提取易读文本',
+        enabled: 1,
+        risk_level: 'low',
+        config_json: null,
+    },
+    {
+        tool_id: 'upgrade_model',
+        display_name: 'UpgradeModel',
+        description: '升级当前请求模型',
+        enabled: 1,
+        risk_level: 'medium',
+        config_json: JSON.stringify({
+            chain: [],
+        }),
+    },
+    {
+        tool_id: 'show_widget',
+        display_name: 'ShowWidget',
+        description: '在聊天中渲染内联可交互自定义可视化',
+        enabled: 1,
+        risk_level: 'low',
+        config_json: null,
+    },
+    {
+        tool_id: 'visualize_read_me',
+        display_name: 'VisualizeReadMe',
+        description: '读取 ShowWidget 生成规范',
+        enabled: 1,
+        risk_level: 'low',
+        config_json: null,
+    },
+];
+
 /**
  * 内置服务商
  */
@@ -111,7 +178,7 @@ const BUILTIN_PROVIDERS = [
 /**
  * 种子数据：插入默认设置和内置服务商
  * 每次启动时运行，按 key/name 逐条检查，仅插入缺失项
- * 后续新增内置数据只需追加到常量数组即可
+ * 内置数据通过常量数组声明，种子逻辑只补齐缺失项
  */
 export async function seed(tauriDb: TauriDatabase): Promise<void> {
     await tauriDb.execute(
@@ -131,7 +198,7 @@ export async function seed(tauriDb: TauriDatabase): Promise<void> {
         }
     }
 
-    // 插入内置服务商（按 name 去重，支持后续新增）
+    // 插入内置服务商（按 name 去重，仅补齐缺失项）
     const existingProviders = await tauriDb.select<{ name: string }>('SELECT name FROM providers');
     const existingNames = new Set(existingProviders.map((p) => p.name));
 
@@ -147,6 +214,28 @@ export async function seed(tauriDb: TauriDatabase): Promise<void> {
                     provider.logo,
                     provider.enabled,
                     provider.is_builtin,
+                ]
+            );
+        }
+    }
+
+    const existingBuiltInTools = await tauriDb.select<{ tool_id: string }>(
+        'SELECT tool_id FROM built_in_tools'
+    );
+    const existingToolIds = new Set(existingBuiltInTools.map((tool) => tool.tool_id));
+
+    for (const tool of DEFAULT_BUILT_IN_TOOLS) {
+        if (!existingToolIds.has(tool.tool_id)) {
+            await tauriDb.execute(
+                `INSERT INTO built_in_tools (tool_id, display_name, description, enabled, risk_level, config_json)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                    tool.tool_id,
+                    tool.display_name,
+                    tool.description,
+                    tool.enabled,
+                    tool.risk_level,
+                    tool.config_json,
                 ]
             );
         }

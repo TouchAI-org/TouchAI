@@ -27,6 +27,39 @@ CREATE TABLE `attachments` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `attachments_hash_unique` ON `attachments` (`hash`);--> statement-breakpoint
+CREATE TABLE `built_in_tool_logs` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`tool_id` text NOT NULL,
+	`tool_call_id` text NOT NULL,
+	`session_id` integer,
+	`message_id` integer,
+	`iteration` integer DEFAULT 1 NOT NULL,
+	`input` text NOT NULL,
+	`output` text,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`approval_state` text DEFAULT 'none' NOT NULL,
+	`approval_summary` text,
+	`duration_ms` integer,
+	`error_message` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE TABLE `built_in_tools` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`tool_id` text NOT NULL,
+	`display_name` text NOT NULL,
+	`description` text,
+	`enabled` integer DEFAULT 1 NOT NULL,
+	`risk_level` text DEFAULT 'medium' NOT NULL,
+	`config_json` text,
+	`last_used_at` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `built_in_tools_tool_id_unique` ON `built_in_tools` (`tool_id`);--> statement-breakpoint
 CREATE TABLE `llm_metadata` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`model_id` text NOT NULL,
@@ -112,6 +145,7 @@ CREATE TABLE `messages` (
 	`role` text NOT NULL,
 	`content` text NOT NULL,
 	`tool_log_id` integer,
+	`tool_log_kind` text,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade

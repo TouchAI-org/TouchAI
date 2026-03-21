@@ -45,6 +45,8 @@ export enum SettingKey {
     OUTPUT_SCROLL_BEHAVIOR = 'output_scroll_behavior',
 }
 
+export type ToolLogKind = 'mcp' | 'builtin';
+
 /**
  * 统计键枚举
  */
@@ -106,6 +108,9 @@ export const messages = sqliteTable('messages', {
     }).notNull(),
     content: text('content').notNull(),
     tool_log_id: integer('tool_log_id'), // 关联 mcp_tool_logs 表 ID（仅 tool_result 消息使用）
+    tool_log_kind: text('tool_log_kind', {
+        enum: ['mcp', 'builtin'],
+    }),
     created_at: text('created_at')
         .notNull()
         .default(sql`(datetime('now'))`),
@@ -224,7 +229,7 @@ export const models = sqliteTable('models', {
     model_id: text('model_id').notNull(),
     is_default: integer('is_default').notNull().default(0),
     last_used_at: text('last_used_at'),
-    // 元数据字段（直接存储，不再 JOIN llm_metadata）
+    // 元数据字段
     attachment: integer('attachment').notNull().default(0),
     modalities: text('modalities'), // JSON string: {input: [], output: []}
     open_weights: integer('open_weights').notNull().default(0),
@@ -371,6 +376,66 @@ export const mcpToolLogs = sqliteTable('mcp_tool_logs', {
 });
 
 /**
+ * 内置工具表
+ */
+export const builtInTools = sqliteTable('built_in_tools', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    tool_id: text('tool_id').notNull().unique(),
+    display_name: text('display_name').notNull(),
+    description: text('description'),
+    enabled: integer('enabled').notNull().default(1),
+    risk_level: text('risk_level', { enum: ['low', 'medium', 'high'] })
+        .notNull()
+        .default('medium'),
+    config_json: text('config_json'),
+    last_used_at: text('last_used_at'),
+    created_at: text('created_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+    updated_at: text('updated_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
+/**
+ * 内置工具调用日志表
+ */
+export const builtInToolLogs = sqliteTable('built_in_tool_logs', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    tool_id: text('tool_id').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    session_id: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+    message_id: integer('message_id').references(() => messages.id, { onDelete: 'set null' }),
+    iteration: integer('iteration').notNull().default(1),
+    input: text('input').notNull(),
+    output: text('output'),
+    status: text('status', {
+        enum: [
+            'pending',
+            'awaiting_approval',
+            'approved',
+            'rejected',
+            'success',
+            'error',
+            'timeout',
+        ],
+    })
+        .notNull()
+        .default('pending'),
+    approval_state: text('approval_state', {
+        enum: ['none', 'pending', 'approved', 'rejected'],
+    })
+        .notNull()
+        .default('none'),
+    approval_summary: text('approval_summary'),
+    duration_ms: integer('duration_ms'),
+    error_message: text('error_message'),
+    created_at: text('created_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
+/**
  * 快速搜索点击统计表
  */
 export const quickSearchClickStats = sqliteTable('quick_search_click_stats', {
@@ -443,6 +508,14 @@ export type McpToolUpdate = Partial<NewMcpTool>;
 export type McpToolLog = typeof mcpToolLogs.$inferSelect;
 export type NewMcpToolLog = typeof mcpToolLogs.$inferInsert;
 export type McpToolLogUpdate = Partial<NewMcpToolLog>;
+
+export type BuiltInTool = typeof builtInTools.$inferSelect;
+export type NewBuiltInTool = typeof builtInTools.$inferInsert;
+export type BuiltInToolUpdate = Partial<NewBuiltInTool>;
+
+export type BuiltInToolLog = typeof builtInToolLogs.$inferSelect;
+export type NewBuiltInToolLog = typeof builtInToolLogs.$inferInsert;
+export type BuiltInToolLogUpdate = Partial<NewBuiltInToolLog>;
 
 export type QuickSearchClickStat = typeof quickSearchClickStats.$inferSelect;
 export type NewQuickSearchClickStat = typeof quickSearchClickStats.$inferInsert;

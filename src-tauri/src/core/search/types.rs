@@ -1,6 +1,6 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-//! Quick Search 对外传输类型定义。
+//! 快速搜索对外传输类型定义。
 
 use serde::Serialize;
 
@@ -11,11 +11,20 @@ pub struct QuickShortcutItem {
     pub name: String,
     /// 文件或快捷方式绝对路径。
     pub path: String,
-    /// 来源分类（如 start_menu_user / desktop_user / file）。
+    /// 来源分类（例如 `start_menu_user`、`desktop_user`、`file`）。
     pub source: String,
 }
 
-/// Quick Search 运行时状态快照。
+/// 内置工具使用的文件搜索结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct QuickSearchFileItem {
+    /// 展示名称。
+    pub name: String,
+    /// 匹配到的绝对路径。
+    pub path: String,
+}
+
+/// 快速搜索运行时状态快照。
 #[derive(Debug, Clone, Serialize)]
 pub struct QuickSearchStatus {
     /// 当前检索提供者标识。

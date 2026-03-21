@@ -1,11 +1,13 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type {
+    BuiltInToolLog,
     MessageRole,
     ProviderType,
     RequestStatus,
     SettingKey,
     StatisticKey,
+    ToolLogKind,
     ToolLogStatus,
     TransportType,
 } from '../schema';
@@ -20,6 +22,7 @@ export type DbProviderType = ProviderType;
 export type DbRequestStatus = RequestStatus;
 export type DbTransportType = TransportType;
 export type DbToolLogStatus = ToolLogStatus;
+export type DbToolLogKind = ToolLogKind;
 
 // ==================== 通用请求对象 ====================
 
@@ -72,6 +75,7 @@ export interface MessageEntity {
     role: DbMessageRole;
     content: string;
     tool_log_id: number | null;
+    tool_log_kind: DbToolLogKind | null;
     created_at: string;
     updated_at: string;
 }
@@ -81,6 +85,7 @@ export interface MessageCreateData {
     role: DbMessageRole;
     content: string;
     tool_log_id?: number | null;
+    tool_log_kind?: DbToolLogKind | null;
     created_at?: string;
     updated_at?: string;
 }
@@ -410,3 +415,71 @@ export interface McpToolLogCreateData {
 }
 
 export type McpToolLogUpdateData = Partial<McpToolLogCreateData>;
+
+// ==================== 内置工具 ====================
+
+export type BuiltInToolRiskLevel = 'low' | 'medium' | 'high';
+export type BuiltInToolLogStatus = BuiltInToolLog['status'];
+export type BuiltInToolApprovalState = BuiltInToolLog['approval_state'];
+
+export interface BuiltInToolEntity {
+    id: number;
+    tool_id: string;
+    display_name: string;
+    description: string | null;
+    enabled: number;
+    risk_level: BuiltInToolRiskLevel;
+    config_json: string | null;
+    last_used_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface BuiltInToolCreateData {
+    tool_id: string;
+    display_name: string;
+    description?: string | null;
+    enabled?: number;
+    risk_level?: BuiltInToolRiskLevel;
+    config_json?: string | null;
+    last_used_at?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export type BuiltInToolUpdateData = Partial<BuiltInToolCreateData>;
+
+export interface BuiltInToolLogEntity {
+    id: number;
+    tool_id: string;
+    tool_call_id: string;
+    session_id: number | null;
+    message_id: number | null;
+    iteration: number;
+    input: string;
+    output: string | null;
+    status: BuiltInToolLogStatus;
+    approval_state: BuiltInToolApprovalState;
+    approval_summary: string | null;
+    duration_ms: number | null;
+    error_message: string | null;
+    created_at: string;
+}
+
+export interface BuiltInToolLogCreateData {
+    tool_id: string;
+    tool_call_id: string;
+    session_id?: number | null;
+    message_id?: number | null;
+    iteration?: number;
+    input: string;
+    output?: string | null;
+    status?: BuiltInToolLogStatus;
+    approval_state?: BuiltInToolApprovalState;
+    approval_summary?: string | null;
+    duration_ms?: number | null;
+    error_message?: string | null;
+    created_at?: string;
+}
+
+export type BuiltInToolLogUpdateData = Partial<BuiltInToolLogCreateData>;

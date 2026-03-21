@@ -4,6 +4,25 @@ export interface PopupConfig {
     height: number;
 }
 
+export interface BuiltInBashExecutionRequest {
+    command: string;
+    workingDirectory?: string | null;
+    timeoutMs?: number | null;
+}
+
+export interface BuiltInBashExecutionResponse {
+    command: string;
+    shell: string;
+    workingDirectory: string | null;
+    exitCode: number | null;
+    success: boolean;
+    timedOut: boolean;
+    durationMs: number;
+    stdout: string;
+    stderr: string;
+    combinedOutput: string;
+}
+
 export interface ShowPopupWindowParams {
     x: number;
     y: number;
@@ -35,6 +54,11 @@ export interface QuickShortcutItem {
         | 'desktop_public'
         | 'shortcut_file'
         | 'file';
+}
+
+export interface QuickSearchFileItem {
+    name: string;
+    path: string;
 }
 
 export interface QuickSearchStatus {

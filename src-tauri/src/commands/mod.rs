@@ -2,12 +2,17 @@
 
 //! 命令入口模块。
 pub mod autostart;
+pub mod built_in_tools;
 pub mod mcp;
 pub mod paths;
 pub mod quick_search;
 pub mod shortcut;
 pub mod window;
 
+/// 构建应用级 Tauri 调用处理器。
+///
+/// 这里按能力域集中注册命令，目的是让前端只有一个稳定的调用入口，
+/// 同时把“窗口控制 / 系统集成 / 搜索 / 工具执行”等能力明确收口在命令层。
 pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         window::hide_search_window,
@@ -27,6 +32,7 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         autostart::is_autostart_enabled,
         window::close_tray_menu,
         paths::get_app_directory_path,
+        built_in_tools::built_in_tools_execute_bash,
         mcp::mcp_connect_server,
         mcp::mcp_disconnect_server,
         mcp::mcp_list_tools,
@@ -35,6 +41,7 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         mcp::mcp_get_all_client_statuses,
         mcp::mcp_disconnect_all,
         quick_search::quick_search_search_shortcuts,
+        quick_search::quick_search_search_files,
         quick_search::quick_search_get_shortcut_icon,
         quick_search::quick_search_get_shortcut_icons,
         quick_search::quick_search_get_image_thumbnails,

@@ -12,6 +12,8 @@ const EVERYTHING_REQUEST_FILE_NAME: u32 = 0x0000_0001;
 const EVERYTHING_REQUEST_PATH: u32 = 0x0000_0002;
 const EVERYTHING_QUERY_ALL_RESULTS: u32 = 0xffff_ffff;
 const EVERYTHING_SHORTCUT_SEARCH_TERM: &str = "ext:lnk";
+const EVERYTHING_FILE_ONLY_FILTER: &str = "file:";
+const EVERYTHING_EXCLUDE_SHORTCUT_FILTER: &str = "!ext:lnk";
 
 /// Everything 查询错误。
 #[derive(Debug)]
@@ -55,6 +57,9 @@ impl EverythingClient {
         }
     }
 
+    /// 前台执行一次 Everything 查询并返回完整路径列表。
+    ///
+    /// 这是底层通用原语；上层可在此基础上叠加快捷方式或普通文件过滤逻辑。
     pub(crate) fn query_paths(
         &mut self,
         search_text: &str,
@@ -114,6 +119,29 @@ impl EverythingClient {
         }
     }
 
+    /// 前台查询普通文件结果。
+    pub(crate) fn query_file_paths(
+        &mut self,
+        search_text: &str,
+        max_results: u32,
+        include_shortcuts: bool,
+    ) -> Result<Vec<String>, EverythingError> {
+        let trimmed_query = search_text.trim();
+        if trimmed_query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut query_parts = vec![EVERYTHING_FILE_ONLY_FILTER.to_string()];
+        if !include_shortcuts {
+            query_parts.push(EVERYTHING_EXCLUDE_SHORTCUT_FILTER.to_string());
+        }
+        // 把过滤器前缀和用户查询拼成一次 Everything 搜索表达式，
+        // 这样“只搜文件 / 是否包含 .lnk”两个约束始终在同一个 IPC 请求里生效。
+        query_parts.push(trimmed_query.to_string());
+
+        self.query_paths(&query_parts.join(" "), max_results)
+    }
+
     /// 查询系统中所有快捷方式路径。
     pub(crate) fn query_lnk_paths(&mut self) -> Result<Vec<String>, EverythingError> {
         self.query_paths(
@@ -144,6 +172,7 @@ unsafe extern "system" {
     fn Everything_IsDBLoaded() -> i32;
 }
 
+/// 把 Rust 字符串转换成 Everything C API 需要的 UTF-16 空终止缓冲区。
 fn to_wide(path: &str) -> Vec<u16> {
     OsStr::new(path)
         .encode_wide()
