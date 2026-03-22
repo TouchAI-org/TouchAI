@@ -1,9 +1,9 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
-    import AppIcon from '@components/AppIcon.vue';
     import SearchableSelect from '@components/SearchableSelect.vue';
     import { findModelsWithProvider } from '@database/queries';
     import type { ModelWithProvider } from '@database/queries/models';
