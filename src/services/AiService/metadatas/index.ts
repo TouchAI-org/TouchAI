@@ -12,6 +12,7 @@ import {
     modelModalitiesSchema,
     parseModelLimit,
     parseModelModalities,
+    serializeModelLimit,
 } from '@/utils/modelSchemas';
 import { z } from '@/utils/zod';
 
@@ -82,7 +83,7 @@ function mergeCapabilities(target: NewLlmMetadata, source: NewLlmMetadata): void
 
     // 合并 limit（取最大值）
     if (!target.limit && source.limit) {
-        target.limit = source.limit;
+        target.limit = serializeModelLimit(parseModelLimit(source.limit));
     } else if (target.limit && source.limit) {
         const targetLimit = parseModelLimit(target.limit);
         const sourceLimit = parseModelLimit(source.limit);
@@ -90,7 +91,7 @@ function mergeCapabilities(target: NewLlmMetadata, source: NewLlmMetadata): void
             context: Math.max(targetLimit.context || 0, sourceLimit.context || 0) || undefined,
             output: Math.max(targetLimit.output || 0, sourceLimit.output || 0) || undefined,
         };
-        target.limit = JSON.stringify(mergedLimit);
+        target.limit = serializeModelLimit(mergedLimit);
     }
 }
 
@@ -109,6 +110,7 @@ function parseRawData(rawData: RawModelData): NewLlmMetadata[] {
             if (!model) continue;
 
             const modalities = model.modalities || { input: ['text'], output: ['text'] };
+            const serializedLimit = serializeModelLimit(model.limit);
 
             const entry: NewLlmMetadata = {
                 model_id: model.id,
@@ -121,7 +123,7 @@ function parseRawData(rawData: RawModelData): NewLlmMetadata[] {
                 temperature: model.temperature ? 1 : 0,
                 tool_call: model.tool_call ? 1 : 0,
                 knowledge: model.knowledge || null,
-                limit: model.limit ? JSON.stringify(model.limit) : null,
+                limit: serializedLimit,
             };
 
             const existing = metadataMap.get(entry.model_id);
