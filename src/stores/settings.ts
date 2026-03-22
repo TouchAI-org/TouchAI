@@ -7,6 +7,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
+import { z } from '@/utils/zod';
+
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
 
 export interface GeneralSettingsData {
@@ -27,6 +29,8 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
 
 type GeneralSettingValue = SettingsGeneralUpdatedEvent['value'];
 
+const outputScrollBehaviorSchema = z.enum(['follow_output', 'stay_position', 'jump_to_top']);
+
 export const useSettingsStore = defineStore('settings', () => {
     const settings = ref<GeneralSettingsData>({ ...DEFAULT_GENERAL_SETTINGS });
     const initialized = ref(false);
@@ -38,8 +42,9 @@ export const useSettingsStore = defineStore('settings', () => {
     let unlistenSettingsUpdated: (() => void) | null = null;
 
     function normalizeOutputScrollBehavior(value: string | null): OutputScrollBehavior {
-        if (value === 'follow_output' || value === 'stay_position' || value === 'jump_to_top') {
-            return value;
+        const result = outputScrollBehaviorSchema.safeParse(value);
+        if (result.success) {
+            return result.data;
         }
         return DEFAULT_GENERAL_SETTINGS.outputScrollBehavior;
     }

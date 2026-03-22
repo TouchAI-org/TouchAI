@@ -94,6 +94,12 @@ function mapToolsToOpenAi(
     }));
 }
 
+/**
+ * OpenAI 协议适配器。
+ *
+ * 负责把内部统一的消息/工具结构映射到 Chat Completions 接口，
+ * 并把流式 delta 再还原回应用自己的增量事件格式。
+ */
 export class OpenAiProvider implements AiProvider {
     name = 'OpenAI';
     type = 'openai' as const;
@@ -141,11 +147,12 @@ export class OpenAiProvider implements AiProvider {
             { signal: options.signal }
         );
 
-        // 累积跨增量的工具调用
+        // OpenAI 可能把同一个 tool call 的 id / name / arguments 拆成多次 delta，
+        // 必须按 index 聚合，前端草稿和最终 tool_call 才能拿到完整参数。
         const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
 
         for await (const chunk of stream) {
-            //官方客户端没有提供Reasoning的类型，做适配
+            // 官方客户端没有给 reasoning_content 补类型，这里在本地做一次窄化适配。
             const delta = chunk.choices[0]?.delta as {
                 reasoning_content?: string;
                 tool_calls?: Array<{
@@ -159,6 +166,7 @@ export class OpenAiProvider implements AiProvider {
             const content = delta?.content || '';
             const reasoning = delta?.reasoning_content || '';
             const finishReason = chunk.choices[0]?.finish_reason;
+            const toolCallDeltas: AiStreamChunk['toolCallDeltas'] = [];
 
             // 累积工具调用增量
             if (delta?.tool_calls) {
@@ -181,6 +189,14 @@ export class OpenAiProvider implements AiProvider {
                     }
 
                     toolCallsMap.set(index, existing);
+                    toolCallDeltas.push({
+                        index,
+                        callId: existing.id || undefined,
+                        name: existing.name || undefined,
+                        argumentsDelta: toolCallDelta.function?.arguments,
+                        argumentsBuffer: existing.arguments,
+                        isComplete: false,
+                    });
                 }
             }
 
@@ -190,6 +206,14 @@ export class OpenAiProvider implements AiProvider {
 
             if (content) {
                 yield { content, done: false };
+            }
+
+            if (toolCallDeltas.length > 0) {
+                yield {
+                    content: '',
+                    done: false,
+                    toolCallDeltas,
+                };
             }
 
             if (finishReason) {

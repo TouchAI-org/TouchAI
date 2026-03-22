@@ -8,18 +8,32 @@ import {
     updateModelLastUsed,
 } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
-import type { ProviderType } from '@database/schema';
+import type { ProviderType, ToolLogKind } from '@database/schema';
 import type { AiRequestEntity } from '@database/types';
 import type { Index } from '@services/AiService/attachments';
 
+import { type BuiltInToolId, builtInToolService } from '@/services/BuiltInToolService';
 import { useSettingsStore } from '@/stores/settings';
+import { safeParseJsonWithSchema, z } from '@/utils/zod';
 
 import { AiError, AiErrorCode } from './errors';
 import { mcpManager } from './mcp';
 import { buildRequestMessages } from './messages';
 import { Persister } from './persister';
 import { createProviderFromRegistry, normalizeProviderEndpoint } from './provider';
-import type { AiMessage, AiProvider, AiStreamChunk, AiToolCall, AiToolDefinition } from './types';
+import type {
+    AiMessage,
+    AiProvider,
+    AiStreamChunk,
+    AiToolCall,
+    AiToolDefinition,
+    ToolApprovalDecisionRequest,
+    ToolEventModelSummary,
+} from './types';
+
+const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
+const MAX_REQUEST_MODEL_SWITCHES = 4;
+const toolArgumentsSchema = z.record(z.string(), z.unknown());
 
 export interface ExecuteRequestOptions {
     prompt: string;
@@ -29,6 +43,7 @@ export interface ExecuteRequestOptions {
     attachments?: Index[];
     signal?: AbortSignal;
     onChunk?: (chunk: AiStreamChunk) => void;
+    requestToolApproval?: (payload: ToolApprovalDecisionRequest) => Promise<boolean>;
 }
 
 export interface ExecuteRequestResult {
@@ -132,6 +147,168 @@ export class AiServiceManager {
         }
     }
 
+    private emitToolEvent(
+        onChunk: ExecuteRequestOptions['onChunk'],
+        toolEvent: AiStreamChunk['toolEvent']
+    ): void {
+        onChunk?.({
+            content: '',
+            done: false,
+            toolEvent,
+        });
+    }
+
+    private buildToolEventModelSummary(model: ModelWithProvider): ToolEventModelSummary {
+        return {
+            providerId: model.provider_id,
+            providerName: model.provider_name,
+            modelId: model.model_id,
+            modelName: model.name,
+        };
+    }
+
+    private async resolveToolDefinitions(
+        model: ModelWithProvider,
+        options: { disableUpgradeModel?: boolean } = {}
+    ): Promise<AiToolDefinition[] | undefined> {
+        if (model.tool_call !== 1) {
+            return undefined;
+        }
+
+        const [mcpTools, builtInTools] = await Promise.all([
+            mcpManager.getEnabledToolDefinitions(),
+            builtInToolService.getEnabledToolDefinitions(),
+        ]);
+        // upgrade_model 可以在一次请求里触发“切模后继续当前上下文”。
+        // 达到切换上限后要从工具列表里移除，避免模型在升级链上自触发循环。
+        const filteredBuiltInTools = options.disableUpgradeModel
+            ? builtInTools.filter((tool) => tool.name !== BUILT_IN_UPGRADE_TOOL_NAME)
+            : builtInTools;
+
+        return [...mcpTools, ...filteredBuiltInTools];
+    }
+
+    private async executeMcpToolCall(options: {
+        toolCall: AiToolCall;
+        toolArgs: Record<string, unknown>;
+        iteration: number;
+        signal?: AbortSignal;
+        toolCallMessageId: number | null;
+        sessionId: number | null;
+        onChunk?: ExecuteRequestOptions['onChunk'];
+    }): Promise<{
+        toolCall: AiToolCall;
+        result: string;
+        isError: boolean;
+        toolLogId: number | null;
+        toolLogKind: ToolLogKind | null;
+        builtInToolId?: undefined;
+        controlSignal?: undefined;
+    }> {
+        const callStartTime = Date.now();
+        const mapping = await mcpManager.resolveToolCall(options.toolCall.name);
+
+        if (!mapping) {
+            const errorResult = `Tool not found: ${options.toolCall.name}`;
+            const durationMs = Date.now() - callStartTime;
+            this.emitToolEvent(options.onChunk, {
+                type: 'call_end',
+                callId: options.toolCall.id,
+                result: errorResult,
+                isError: true,
+                durationMs,
+                finalStatus: 'error',
+            });
+
+            return {
+                toolCall: options.toolCall,
+                result: errorResult,
+                isError: true,
+                toolLogId: null,
+                toolLogKind: null,
+                controlSignal: undefined,
+            };
+        }
+
+        this.emitToolEvent(options.onChunk, {
+            type: 'call_start',
+            callId: options.toolCall.id,
+            toolName: mapping.originalName,
+            namespacedName: options.toolCall.name,
+            source: 'mcp',
+            serverId: mapping.serverId,
+            arguments: options.toolArgs,
+        });
+
+        let toolLogId: number | null = null;
+        try {
+            const toolLog = await createMcpToolLog({
+                server_id: mapping.serverId,
+                tool_name: mapping.originalName,
+                tool_call_id: options.toolCall.id,
+                session_id: options.sessionId,
+                message_id: options.toolCallMessageId,
+                iteration: options.iteration,
+                input: JSON.stringify(options.toolArgs),
+                status: 'pending',
+            });
+            toolLogId = toolLog.id;
+        } catch (error) {
+            console.error('[AiServiceManager] Failed to create MCP tool log:', error);
+        }
+
+        let toolResult: { result: string; isError: boolean };
+        try {
+            toolResult = await mcpManager.executeTool(options.toolCall.name, options.toolArgs, {
+                signal: options.signal,
+                iteration: options.iteration,
+                resolved: {
+                    serverId: mapping.serverId,
+                    originalName: mapping.originalName,
+                    toolTimeout: mapping.toolTimeout,
+                },
+            });
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(
+                `[AiServiceManager] MCP tool execution failed: ${options.toolCall.name}`,
+                error
+            );
+            toolResult = {
+                result: `Tool execution failed: ${errorMessage}`,
+                isError: true,
+            };
+        }
+
+        const durationMs = Date.now() - callStartTime;
+        this.emitToolEvent(options.onChunk, {
+            type: 'call_end',
+            callId: options.toolCall.id,
+            result: toolResult.result,
+            isError: toolResult.isError,
+            durationMs,
+            finalStatus: toolResult.isError ? 'error' : 'completed',
+        });
+
+        await updateMcpToolLogByCallId(options.toolCall.id, {
+            output: toolResult.result,
+            status: toolResult.isError ? 'error' : 'success',
+            duration_ms: durationMs,
+            error_message: toolResult.isError ? toolResult.result : null,
+        }).catch((error) => {
+            console.error('[AiServiceManager] Failed to update MCP tool log:', error);
+        });
+
+        return {
+            toolCall: options.toolCall,
+            result: toolResult.result,
+            isError: toolResult.isError,
+            toolLogId,
+            toolLogKind: 'mcp',
+            controlSignal: undefined,
+        };
+    }
+
     /**
      * 执行AI请求流程：模型解析、流消费、分阶段持久化。
      * 支持工具调用的 Agent Loop。
@@ -145,53 +322,52 @@ export class AiServiceManager {
             attachments = [],
             signal,
             onChunk,
+            requestToolApproval,
         } = options;
 
         // 1. 获得模型配置
-        const model = await this.resolveModel(modelId, providerId);
+        const initialModel = await this.resolveModel(modelId, providerId);
+        let activeModel = initialModel;
 
-        // 2. 创建 Provider 实例
-        const provider = this.createProviderInstance(
-            model.provider_type as ProviderType,
-            model.api_endpoint,
-            model.api_key
-        );
-
-        // 3. 构建请求消息
+        // 2. 构建请求消息
         const messages = await buildRequestMessages({
             prompt,
             sessionId,
             attachments,
-            supportsAttachments: model.attachment === 1,
+            supportsAttachments: initialModel.attachment === 1,
         });
 
-        // 4. 初始化持久化管理器
+        // 3. 初始化持久化管理器
         const persister = new Persister({
             prompt,
             attachments,
-            model,
+            model: initialModel,
             sessionId: sessionId ?? null,
             buildSessionTitle,
         });
 
-        // 5. 异步记录请求开始（不阻塞主流程）
+        // 4. 异步记录请求开始（不阻塞主流程）
         const requestStartRecordPromise = persister.recordRequestStart().catch((error) => {
             console.error('[AiServiceManager] Failed to record request start:', error);
         });
 
         try {
-            // 6. 从设置中获取最大迭代次数
+            // 5. 从设置中获取最大迭代次数
             const settingsStore = useSettingsStore();
             await settingsStore.initialize();
             const maxIterations = settingsStore.mcpMaxIterations;
 
-            // 7. 如果模型支持工具调用，获取工具列表
-            let tools: AiToolDefinition[] | undefined;
-            if (model.tool_call === 1) {
-                tools = await mcpManager.getEnabledToolDefinitions();
-            }
+            // 6. 创建首个 Provider 实例并解析可用工具
+            let provider = this.createProviderInstance(
+                activeModel.provider_type as ProviderType,
+                activeModel.api_endpoint,
+                activeModel.api_key
+            );
+            let modelSwitchCount = 0;
+            let tools = await this.resolveToolDefinitions(activeModel);
+            const executedBuiltInTools = new Set<BuiltInToolId>();
 
-            // 8. Agent 循环
+            // 7. Agent 循环
             const startedAt = Date.now();
             let response = '';
             let reasoning = '';
@@ -205,11 +381,11 @@ export class AiServiceManager {
                 // 从 provider 获取流式响应
                 const stream = this.stream(
                     provider,
-                    model.model_id,
+                    activeModel.model_id,
                     messages,
                     tools,
                     signal,
-                    model.output_limit ?? undefined
+                    activeModel.output_limit ?? undefined
                 );
                 let chunkResponse = '';
                 let finishReason: string | undefined;
@@ -263,149 +439,63 @@ export class AiServiceManager {
                 // 持久化工具调用消息
                 const toolCallMessageId = await persister.persistToolCallMessage(chunkResponse);
 
-                // 并行执行所有工具调用
+                // 工具执行可以并行，但结果写回 messages 时仍会按原始顺序串回，
+                // 这样下一轮 provider 看到的 tool_result 顺序才和 assistant 声明的 tool_calls 一致。
                 const toolExecutionPromises = toolCalls.map(async (toolCall) => {
                     if (signal?.aborted) {
                         throw new AiError(AiErrorCode.REQUEST_CANCELLED);
                     }
 
-                    const callStartTime = Date.now();
-                    let toolArgs: Record<string, unknown>;
+                    const toolArgs = safeParseJsonWithSchema(
+                        toolArgumentsSchema,
+                        toolCall.arguments,
+                        {}
+                    );
 
-                    try {
-                        toolArgs = JSON.parse(toolCall.arguments);
-                    } catch {
-                        toolArgs = {};
-                    }
-
-                    // 解析工具映射
-                    const mapping = await mcpManager.resolveToolCall(toolCall.name);
-
-                    if (!mapping) {
-                        console.error(
-                            `[AiServiceManager] Failed to resolve tool: ${toolCall.name}`
-                        );
-                        const errorResult = `Tool not found: ${toolCall.name}`;
-                        const durationMs = Date.now() - callStartTime;
-
-                        // 发送调用结束事件（含错误）
-                        onChunk?.({
-                            content: '',
-                            done: false,
-                            toolEvent: {
-                                type: 'call_end',
-                                callId: toolCall.id,
-                                result: errorResult,
-                                isError: true,
-                                durationMs,
-                            },
-                        });
-
-                        // 返回错误结果
-                        return {
-                            toolCall,
-                            result: errorResult,
-                            isError: true,
-                            toolLogId: null,
-                        };
-                    }
-
-                    // 发送调用开始事件
-                    onChunk?.({
-                        content: '',
-                        done: false,
-                        toolEvent: {
-                            type: 'call_start',
-                            callId: toolCall.id,
-                            toolName: mapping.originalName,
-                            namespacedName: toolCall.name,
-                            serverId: mapping.serverId,
-                            arguments: toolArgs,
-                        },
-                    });
-
-                    // 记录工具日志开始（await 确保记录存在后再更新）
-                    let toolLogId: number | null = null;
-                    try {
-                        const toolLog = await createMcpToolLog({
-                            server_id: mapping.serverId,
-                            tool_name: mapping.originalName,
-                            tool_call_id: toolCall.id,
-                            session_id: persister.getSessionId(),
-                            message_id: toolCallMessageId,
-                            iteration,
-                            input: JSON.stringify(toolArgs),
-                            status: 'pending',
-                        });
-                        toolLogId = toolLog.id;
-                    } catch (err) {
-                        console.error('[AiServiceManager] Failed to create tool log:', err);
-                    }
-
-                    // 执行工具
-                    let toolResult: { result: string; isError: boolean };
-                    try {
-                        toolResult = await mcpManager.executeTool(toolCall.name, toolArgs, {
-                            signal,
-                            iteration,
-                            resolved: {
-                                serverId: mapping.serverId,
-                                originalName: mapping.originalName,
-                                toolTimeout: mapping.toolTimeout,
-                            },
-                        });
-                    } catch (error) {
-                        // 捕获工具执行错误，转换为错误结果而非失败整个请求
-                        const errorMessage = error instanceof Error ? error.message : String(error);
-                        console.error(
-                            `[AiServiceManager] Tool execution failed: ${toolCall.name}`,
-                            error
-                        );
-                        toolResult = {
-                            result: `Tool execution failed: ${errorMessage}`,
-                            isError: true,
-                        };
-                    }
-
-                    const durationMs = Date.now() - callStartTime;
-
-                    // 发送调用结束事件
-                    onChunk?.({
-                        content: '',
-                        done: false,
-                        toolEvent: {
-                            type: 'call_end',
-                            callId: toolCall.id,
-                            result: toolResult.result,
-                            isError: toolResult.isError,
-                            durationMs,
-                        },
-                    });
-
-                    // 用结果更新工具日志
-                    updateMcpToolLogByCallId(toolCall.id, {
-                        output: toolResult.result,
-                        status: toolResult.isError ? 'error' : 'success',
-                        duration_ms: durationMs,
-                        error_message: toolResult.isError ? toolResult.result : null,
-                    }).catch((err) => {
-                        console.error('[AiServiceManager] Failed to update tool log:', err);
-                    });
-
-                    // 返回结果
-                    return {
+                    const builtInResult = await builtInToolService.executeTool({
                         toolCall,
-                        result: toolResult.result,
-                        isError: toolResult.isError,
-                        toolLogId,
-                    };
+                        toolArgs,
+                        iteration,
+                        currentModel: activeModel,
+                        hasExecutedBuiltInTool: (toolId) => executedBuiltInTools.has(toolId),
+                        signal,
+                        toolCallMessageId,
+                        sessionId: persister.getSessionId(),
+                        requestToolApproval,
+                        emitToolEvent: (toolEvent) => this.emitToolEvent(onChunk, toolEvent),
+                    });
+
+                    if (builtInResult) {
+                        return builtInResult;
+                    }
+
+                    return this.executeMcpToolCall({
+                        toolCall,
+                        toolArgs,
+                        iteration,
+                        signal,
+                        toolCallMessageId,
+                        sessionId: persister.getSessionId(),
+                        onChunk,
+                    });
                 });
 
                 // 等待所有工具执行完成
                 const toolResults = await Promise.all(toolExecutionPromises);
 
                 // 按顺序处理结果（保持消息顺序一致）
-                for (const { toolCall, result, toolLogId } of toolResults) {
+                let requestedModelSwitch: NonNullable<
+                    (typeof toolResults)[number]['controlSignal']
+                > | null = null;
+                for (const {
+                    toolCall,
+                    builtInToolId,
+                    result,
+                    isError,
+                    toolLogId,
+                    toolLogKind,
+                    controlSignal,
+                } of toolResults) {
                     // 追加工具结果消息
                     messages.push({
                         role: 'tool',
@@ -415,7 +505,16 @@ export class AiServiceManager {
                     });
 
                     // 持久化工具结果消息
-                    await persister.persistToolResultMessage(result, toolLogId);
+                    await persister.persistToolResultMessage(result, toolLogId, toolLogKind);
+
+                    if (builtInToolId && !isError) {
+                        executedBuiltInTools.add(builtInToolId);
+                    }
+
+                    // 同一轮只接受第一个切模信号，避免多个工具同时要求切模时把 activeModel 反复覆盖。
+                    if (!requestedModelSwitch && controlSignal?.type === 'upgrade_model') {
+                        requestedModelSwitch = controlSignal;
+                    }
                 }
 
                 // 发送迭代结束事件
@@ -424,6 +523,32 @@ export class AiServiceManager {
                     done: false,
                     toolEvent: { type: 'iteration_end', iteration },
                 });
+
+                if (requestedModelSwitch?.type === 'upgrade_model') {
+                    const previousModel = activeModel;
+                    activeModel = requestedModelSwitch.targetModel;
+                    modelSwitchCount += 1;
+
+                    provider = this.createProviderInstance(
+                        activeModel.provider_type as ProviderType,
+                        activeModel.api_endpoint,
+                        activeModel.api_key
+                    );
+                    tools = await this.resolveToolDefinitions(activeModel, {
+                        disableUpgradeModel: modelSwitchCount >= MAX_REQUEST_MODEL_SWITCHES,
+                    });
+
+                    this.emitToolEvent(onChunk, {
+                        type: 'model_switched',
+                        fromModel: this.buildToolEventModelSummary(previousModel),
+                        toModel: this.buildToolEventModelSummary(activeModel),
+                        restart: requestedModelSwitch.restartCurrentRequest,
+                    });
+
+                    // 模型切换沿用当前上下文继续，但当前工具调用仍计入本轮迭代。
+                    iteration++;
+                    continue;
+                }
 
                 iteration++;
             }
@@ -449,10 +574,10 @@ export class AiServiceManager {
                 durationMs: Date.now() - startedAt,
             });
 
-            await updateModelLastUsed({ id: model.id });
+            await updateModelLastUsed({ id: activeModel.id });
 
             return {
-                model,
+                model: activeModel,
                 response,
                 reasoning,
                 request: persister.getRequest(),

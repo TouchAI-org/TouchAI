@@ -3,6 +3,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createTauriFetch } from '@services/AiService/providers/shared/tauri-fetch';
 
+import { safeParseJsonWithSchema, z } from '@/utils/zod';
+
 import type {
     AiProvider,
     AiProviderConfig,
@@ -21,6 +23,7 @@ const anthropicImageTypes: AnthropicImageMediaType[] = [
     'image/gif',
     'image/webp',
 ];
+const anthropicToolInputSchema = z.record(z.string(), z.unknown());
 
 function normalizeAnthropicMediaType(mimeType: string): AnthropicImageMediaType {
     if (anthropicImageTypes.includes(mimeType as AnthropicImageMediaType)) {
@@ -48,6 +51,29 @@ function serializeToolInput(input: unknown): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+function mergeToolInputChunks(inputFromStart: string | undefined, inputFromDelta: string): string {
+    const normalizedStart = inputFromStart?.trim() || '';
+    if (!inputFromDelta) {
+        return normalizedStart;
+    }
+
+    // Anthropic 常见情况是 start 阶段只给出 `{}`，真正内容都在 delta 里；
+    // 但也要兼容 start 已经带了前缀片段的实现，避免把前缀丢掉。
+    if (!normalizedStart || normalizedStart === '{}' || normalizedStart === '[]') {
+        return inputFromDelta;
+    }
+
+    if (
+        inputFromDelta.startsWith(normalizedStart) ||
+        inputFromDelta.startsWith('{') ||
+        inputFromDelta.startsWith('[')
+    ) {
+        return inputFromDelta;
+    }
+
+    return `${normalizedStart}${inputFromDelta}`;
 }
 
 function mapAnthropicContent(
@@ -112,17 +138,11 @@ function buildAnthropicMessages(messages: AiRequestOptions['messages']): Anthrop
 
             // 添加 tool_use 块
             for (const tc of message.tool_calls) {
-                let input: Record<string, unknown>;
-                try {
-                    input = JSON.parse(tc.arguments);
-                } catch {
-                    input = {};
-                }
                 contentParts.push({
                     type: 'tool_use',
                     id: tc.id,
                     name: tc.name,
-                    input,
+                    input: safeParseJsonWithSchema(anthropicToolInputSchema, tc.arguments, {}),
                 });
             }
 
@@ -164,6 +184,12 @@ function mapToolsToAnthropic(tools?: AiToolDefinition[]): Anthropic.Tool[] | und
     }));
 }
 
+/**
+ * Anthropic 协议适配器。
+ *
+ * 这里额外负责在 Anthropic 的内容块协议与应用内部的 message/tool 结构之间做双向转换，
+ * 尤其是 `tool_use` / `tool_result` 的重建。
+ */
 export class AnthropicProvider implements AiProvider {
     name = 'Anthropic';
     type = 'anthropic' as const;
@@ -222,6 +248,8 @@ export class AnthropicProvider implements AiProvider {
         let stopReason: string | undefined;
 
         for await (const event of stream) {
+            const toolCallDeltas: AiStreamChunk['toolCallDeltas'] = [];
+
             // 跟踪内容块索引
             if (event.type === 'content_block_start') {
                 currentBlockIndex = event.index;
@@ -233,6 +261,20 @@ export class AnthropicProvider implements AiProvider {
                         inputFromStart: serializeToolInput(event.content_block.input),
                         inputFromDelta: '',
                     });
+                    toolCallDeltas.push({
+                        index: currentBlockIndex,
+                        callId: event.content_block.id,
+                        name: event.content_block.name,
+                        argumentsBuffer: serializeToolInput(event.content_block.input) || '',
+                        isComplete: false,
+                    });
+                }
+                if (toolCallDeltas.length > 0) {
+                    yield {
+                        content: '',
+                        done: false,
+                        toolCallDeltas,
+                    };
                 }
                 continue;
             }
@@ -250,6 +292,23 @@ export class AnthropicProvider implements AiProvider {
                     const existing = toolUsesMap.get(currentBlockIndex);
                     if (existing) {
                         existing.inputFromDelta += event.delta.partial_json;
+                        const argumentsBuffer = mergeToolInputChunks(
+                            existing.inputFromStart,
+                            existing.inputFromDelta
+                        );
+                        toolCallDeltas.push({
+                            index: currentBlockIndex,
+                            callId: existing.id,
+                            name: existing.name,
+                            argumentsDelta: event.delta.partial_json,
+                            argumentsBuffer,
+                            isComplete: false,
+                        });
+                        yield {
+                            content: '',
+                            done: false,
+                            toolCallDeltas,
+                        };
                     }
                 }
             } else if (event.type === 'message_delta') {
@@ -266,7 +325,9 @@ export class AnthropicProvider implements AiProvider {
                         ? Array.from(toolUsesMap.values()).map((tu) => ({
                               id: tu.id,
                               name: tu.name,
-                              arguments: tu.inputFromDelta || tu.inputFromStart || '{}',
+                              arguments:
+                                  mergeToolInputChunks(tu.inputFromStart, tu.inputFromDelta) ||
+                                  '{}',
                           }))
                         : undefined;
 

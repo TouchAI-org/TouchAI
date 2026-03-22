@@ -1,6 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { findMessagesBySessionId, type MessageRow } from '@database/queries/messages';
+import {
+    findMessagesBySessionId,
+    findToolLogRowsBySessionId,
+    type ToolLogHistoryRow,
+} from '@database/queries/messages';
 
 import {
     hydratePersistedAttachments,
@@ -20,6 +24,7 @@ interface BuildRequestMessagesOptions {
 
 async function buildAttachmentParts(attachments: Index[]): Promise<AiContentPart[]> {
     const parts: AiContentPart[] = [];
+    // 同一回话的模型可能变化，此处静默跳过当前模型不支持的附件，避免更改模型后整体失败。
     const usableAttachments = attachments.filter((attachment) => isAttachmentSupported(attachment));
 
     for (const attachment of usableAttachments) {
@@ -46,58 +51,66 @@ async function buildAttachmentParts(attachments: Index[]): Promise<AiContentPart
 }
 
 /**
- * 将 LEFT JOIN 的扁平行按 message 分组，转换为 AiMessage 数组。
+ * 将数据库消息与工具日志重组为 AiMessage 数组。
  *
- * 用户消息的附件只保存元数据，因此这里需要重新读取文件并还原成 provider 可消费的内容块。
+ * 用户消息仍然需要把持久化的附件元数据还原成 provider 可消费的内容块；
+ * 工具相关消息则依赖独立的工具日志列表重建 tool_call/tool_result。
  */
-async function convertJoinedRows(
-    rows: MessageRow[],
+async function convertMessageHistory(
+    rows: Awaited<ReturnType<typeof findMessagesBySessionId>>,
+    toolLogs: ToolLogHistoryRow[],
     supportsAttachments: boolean
 ): Promise<AiMessage[]> {
     const messages: AiMessage[] = [];
-    let lastMsgId = -1;
-    let pendingToolCalls: AiToolCall[] = [];
+    const toolLogsByMessageId = new Map<number, ToolLogHistoryRow[]>();
+    const toolLogByIdentity = new Map<string, ToolLogHistoryRow>();
+
+    for (const toolLog of toolLogs) {
+        if (toolLog.message_id !== null) {
+            const messageLogs = toolLogsByMessageId.get(toolLog.message_id) ?? [];
+            messageLogs.push(toolLog);
+            toolLogsByMessageId.set(toolLog.message_id, messageLogs);
+        }
+
+        toolLogByIdentity.set(`${toolLog.source}:${toolLog.log_id}`, toolLog);
+    }
 
     for (const row of rows) {
         if (row.role === 'tool_call') {
-            // 同一条 tool_call 消息可能展开为多行（多个 tool_log）
-            if (row.id !== lastMsgId) {
-                pendingToolCalls = [];
-                lastMsgId = row.id;
+            const pendingToolCalls: AiToolCall[] =
+                toolLogsByMessageId.get(row.id)?.map((toolLog) => ({
+                    id: toolLog.tool_call_id,
+                    name:
+                        toolLog.source === 'builtin'
+                            ? `builtin__${toolLog.tool_name}`
+                            : toolLog.tool_name,
+                    arguments: toolLog.tool_input ?? '{}',
+                })) ?? [];
 
-                // 收集当前行的 tool_log
-                if (row.tool_call_id && row.tool_name) {
-                    pendingToolCalls.push({
-                        id: row.tool_call_id,
-                        name: row.tool_name,
-                        arguments: row.tool_input ?? '{}',
-                    });
-                }
+            messages.push({
+                role: 'assistant',
+                content: row.content,
+                tool_calls: pendingToolCalls,
+            });
+            continue;
+        }
 
-                // 先占位 push，后面同 id 的行会追加到 tool_calls
-                messages.push({
-                    role: 'assistant',
-                    content: row.content,
-                    tool_calls: pendingToolCalls,
-                });
-            } else {
-                // 同一条 tool_call 消息的后续 tool_log 行
-                if (row.tool_call_id && row.tool_name) {
-                    pendingToolCalls.push({
-                        id: row.tool_call_id,
-                        name: row.tool_name,
-                        arguments: row.tool_input ?? '{}',
-                    });
-                }
-            }
-        } else if (row.role === 'tool_result') {
-            lastMsgId = row.id;
-            if (row.tool_call_id && row.tool_name) {
+        if (row.role === 'tool_result') {
+            const toolSource = row.tool_log_kind ?? 'mcp';
+            const toolLog =
+                row.tool_log_id !== null
+                    ? toolLogByIdentity.get(`${toolSource}:${row.tool_log_id}`)
+                    : undefined;
+
+            if (toolLog) {
                 messages.push({
                     role: 'tool',
                     content: row.content,
-                    tool_call_id: row.tool_call_id,
-                    name: row.tool_name,
+                    tool_call_id: toolLog.tool_call_id,
+                    name:
+                        toolLog.source === 'builtin'
+                            ? `builtin__${toolLog.tool_name}`
+                            : toolLog.tool_name,
                 });
             } else {
                 console.warn(
@@ -105,33 +118,33 @@ async function convertJoinedRows(
                     row.id
                 );
             }
-        } else {
-            lastMsgId = row.id;
-            if (row.role === 'user') {
-                const attachments = supportsAttachments
-                    ? await hydratePersistedAttachments(row.attachments)
-                    : [];
-                const attachmentParts =
-                    attachments.length > 0 ? await buildAttachmentParts(attachments) : [];
+            continue;
+        }
 
-                messages.push({
-                    role: 'user',
-                    content:
-                        attachmentParts.length > 0
-                            ? ([
-                                  { type: 'text', text: row.content },
-                                  ...attachmentParts,
-                              ] as AiContentPart[])
-                            : row.content,
-                });
-                continue;
-            }
+        if (row.role === 'user') {
+            const attachments = supportsAttachments
+                ? await hydratePersistedAttachments(row.attachments)
+                : [];
+            const attachmentParts =
+                attachments.length > 0 ? await buildAttachmentParts(attachments) : [];
 
             messages.push({
-                role: row.role as 'user' | 'assistant' | 'system',
-                content: row.content,
+                role: 'user',
+                content:
+                    attachmentParts.length > 0
+                        ? ([
+                              { type: 'text', text: row.content },
+                              ...attachmentParts,
+                          ] as AiContentPart[])
+                        : row.content,
             });
+            continue;
         }
+
+        messages.push({
+            role: row.role as 'user' | 'assistant' | 'system',
+            content: row.content,
+        });
     }
 
     return messages;
@@ -140,15 +153,20 @@ async function convertJoinedRows(
 /**
  * 组装一次模型请求所需消息：会话历史 + 当前用户输入 + 附件。
  *
- * 通过一次 LEFT JOIN 查询获取消息及关联的 tool_log，避免 N+1 查询。
+ * 工具日志独立查询，避免 MCP 与内置工具同时参与历史回放时出现交叉展开。
  */
 export async function buildRequestMessages(
     options: BuildRequestMessagesOptions
 ): Promise<AiMessage[]> {
-    const rows = options.sessionId ? await findMessagesBySessionId(options.sessionId) : [];
+    const [rows, toolLogs] = options.sessionId
+        ? await Promise.all([
+              findMessagesBySessionId(options.sessionId),
+              findToolLogRowsBySessionId(options.sessionId),
+          ])
+        : [[], []];
     const supportsAttachments = options.supportsAttachments ?? true;
 
-    const messages = await convertJoinedRows(rows, supportsAttachments);
+    const messages = await convertMessageHistory(rows, toolLogs, supportsAttachments);
 
     // 构建当前用户输入
     const attachmentParts = supportsAttachments

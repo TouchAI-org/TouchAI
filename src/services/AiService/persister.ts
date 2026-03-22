@@ -5,10 +5,11 @@ import {
     createMessage,
     createMessageAttachment,
     createSession,
+    refreshSessionMetadata,
     updateAiRequest,
     updateSession,
 } from '@database/queries';
-import type { MessageRole, RequestStatus } from '@database/schema';
+import type { MessageRole, RequestStatus, ToolLogKind } from '@database/schema';
 import type { AiRequestEntity, AiRequestUpdateData } from '@database/types';
 import { ensurePersistedAttachmentIndex, type Index } from '@services/AiService/attachments';
 
@@ -74,6 +75,7 @@ export class Persister {
             this.userMessageId = await this.persistMessage(
                 'user',
                 this.prompt,
+                null,
                 null,
                 this.attachments
             );
@@ -146,9 +148,10 @@ export class Persister {
      */
     async persistToolResultMessage(
         result: string,
-        toolLogId: number | null
+        toolLogId: number | null,
+        toolLogKind: ToolLogKind | null
     ): Promise<number | null> {
-        return this.persistMessage('tool_result', result, toolLogId);
+        return this.persistMessage('tool_result', result, toolLogId, toolLogKind);
     }
 
     private async ensureSessionId(): Promise<number | null> {
@@ -197,6 +200,7 @@ export class Persister {
         role: MessageRole,
         content: string,
         toolLogId?: number | null,
+        toolLogKind?: ToolLogKind | null,
         attachments: Index[] = []
     ): Promise<number | null> {
         const sessionId = await this.ensureSessionId();
@@ -210,7 +214,10 @@ export class Persister {
             role: role as MessageRole,
             content,
             tool_log_id: toolLogId ?? null,
+            tool_log_kind: toolLogKind ?? null,
         });
+
+        await refreshSessionMetadata(sessionId);
 
         if (role === 'user' && attachments.length > 0) {
             const persisted = await Promise.all(

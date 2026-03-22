@@ -123,6 +123,7 @@ async function ensureAttachmentRecord(
         getFileSize(path),
     ]);
 
+    // 基于文件哈希去重。
     const existing = await findAttachmentByHash(hash);
     if (existing) {
         return existing;
@@ -130,7 +131,7 @@ async function ensureAttachmentRecord(
 
     const targetPath = await buildAttachmentStoragePath(type, hash);
 
-    // 所有附件在进入会话前都先落入应用缓存目录，后续会话与数据库都只引用这一份副本。
+    // 附件进入会话前统一复制到应用缓存目录，持久化层与会话层都只引用缓存副本。
     await copyFile(path, targetPath);
 
     try {
@@ -308,6 +309,12 @@ function bufferToBase64(buffer: ArrayBuffer): string {
     return btoa(binary);
 }
 
+/**
+ * 将附件内容读取为 Base64。
+ *
+ * @param attachment 前端附件引用。
+ * @returns Base64 数据与 MIME 类型。
+ */
 export async function readAttachmentAsBase64(
     attachment: Index
 ): Promise<{ data: string; mimeType: string }> {
@@ -318,12 +325,20 @@ export async function readAttachmentAsBase64(
     };
 }
 
+/**
+ * 将附件内容读取为文本；若检测到二进制内容则回退为 Base64。
+ *
+ * @param attachment 前端附件引用。
+ * @returns 文本内容，以及是否按二进制处理。
+ */
 export async function readAttachmentAsText(
     attachment: Index
 ): Promise<{ content: string; isBinary: boolean }> {
     const buffer = await readAttachmentBuffer(attachment.path);
     const decoder = new TextDecoder('utf-8', { fatal: false });
     const text = decoder.decode(buffer);
+    // 这里不依赖 MIME 判断文本性，而是用 NUL 和替换字符密度做保守检测，
+    // 避免扩展名错误时把二进制内容直接塞进 prompt。
     const replacementCount = (text.match(/\uFFFD/g) || []).length;
     const isBinary = text.includes('\u0000') || replacementCount > Math.max(text.length * 0.01, 2);
 
