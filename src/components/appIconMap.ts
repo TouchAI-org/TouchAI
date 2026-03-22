@@ -1,67 +1,70 @@
 import type { Component } from 'vue';
 
-import IconAiBrain from '~icons/hugeicons/ai-brain-02';
-import IconWrench from '~icons/hugeicons/wrench-01';
-import IconAddCircle from '~icons/solar/add-circle-linear';
-import IconAltArrowDown from '~icons/solar/alt-arrow-down-linear';
-import IconAltArrowRight from '~icons/solar/alt-arrow-right-linear';
-import IconCaseMinimalistic from '~icons/solar/case-minimalistic-linear';
-import IconCheckCircle from '~icons/solar/check-circle-linear';
-import IconCloseCircle from '~icons/solar/close-circle-linear';
-import IconCloseSquare from '~icons/solar/close-square-linear';
-import IconCopy from '~icons/solar/copy-linear';
-import IconDangerTriangle from '~icons/solar/danger-triangle-linear';
-import IconDatabase from '~icons/solar/database-linear';
-import IconDocumentText from '~icons/solar/document-text-linear';
-import IconEyeClosed from '~icons/solar/eye-closed-linear';
-import IconEye from '~icons/solar/eye-linear';
-import IconFile from '~icons/solar/file-linear';
-import IconHistory from '~icons/solar/history-linear';
-import IconInfoCircle from '~icons/solar/info-circle-linear';
-import IconLinkCircle from '~icons/solar/link-circle-linear';
-import IconMagnifer from '~icons/solar/magnifer-linear';
-import IconMinimizeSquare from '~icons/solar/minimize-square-linear';
-import IconPen2 from '~icons/solar/pen-2-linear';
-import IconPin from '~icons/solar/pin-linear';
-import IconPlay from '~icons/solar/play-linear';
-import IconRefresh from '~icons/solar/refresh-linear';
-import IconSettings from '~icons/solar/settings-linear';
-import IconStop from '~icons/solar/stop-linear';
-import IconTrashBinMinimalistic from '~icons/solar/trash-bin-minimalistic-linear';
-import IconTrashBinTrash from '~icons/solar/trash-bin-trash-linear';
+import IconBrain from '~icons/bx/brain';
+import IconBriefcase from '~icons/bx/briefcase-alt-2';
+import IconCheckCircle from '~icons/bx/check-circle';
+import IconChevronDown from '~icons/bx/chevron-down';
+import IconChevronRight from '~icons/bx/chevron-right';
+import IconChevronUp from '~icons/bx/chevron-up';
+import IconCog from '~icons/bx/cog';
+import IconCopy from '~icons/bx/copy';
+import IconData from '~icons/bx/data';
+import IconArrowDown from '~icons/bx/down-arrow-alt';
+import IconEdit from '~icons/bx/edit-alt';
+import IconError from '~icons/bx/error';
+import IconFile from '~icons/bx/file';
+import IconFileBlank from '~icons/bx/file-blank';
+import IconHide from '~icons/bx/hide';
+import IconHistory from '~icons/bx/history';
+import IconInfoCircle from '~icons/bx/info-circle';
+import IconMinus from '~icons/bx/minus';
+import IconPin from '~icons/bx/pin';
+import IconPlay from '~icons/bx/play';
+import IconPlug from '~icons/bx/plug';
+import IconPlus from '~icons/bx/plus';
+import IconRefresh from '~icons/bx/refresh';
+import IconSearch from '~icons/bx/search';
+import IconShow from '~icons/bx/show';
+import IconStop from '~icons/bx/stop';
+import IconTrash from '~icons/bx/trash';
+import IconTrashAlt from '~icons/bx/trash-alt';
+import IconWrench from '~icons/bx/wrench';
+import IconX from '~icons/bx/x';
+import IconXCircle from '~icons/bx/x-circle';
 
 export const appIconMap = {
-    'arrow-down': IconAltArrowDown,
+    'arrow-down': IconArrowDown,
     'check-circle': IconCheckCircle,
-    'chevron-down': IconAltArrowDown,
-    'chevron-right': IconAltArrowRight,
-    close: IconCloseSquare,
+    'chevron-down': IconChevronDown,
+    'chevron-right': IconChevronRight,
+    'chevron-up': IconChevronUp,
+    close: IconX,
     copy: IconCopy,
-    database: IconDatabase,
-    delete: IconTrashBinTrash,
-    'document-text': IconDocumentText,
-    edit: IconPen2,
-    'exclamation-triangle': IconDangerTriangle,
-    eye: IconEye,
-    'eye-off': IconEyeClosed,
+    database: IconData,
+    delete: IconTrashAlt,
+    'document-text': IconFileBlank,
+    edit: IconEdit,
+    'exclamation-triangle': IconError,
+    eye: IconShow,
+    'eye-off': IconHide,
     file: IconFile,
     history: IconHistory,
     'information-circle': IconInfoCircle,
-    llm: IconAiBrain,
-    mcp: IconLinkCircle,
-    minimize: IconMinimizeSquare,
+    llm: IconBrain,
+    mcp: IconPlug,
+    minimize: IconMinus,
     pin: IconPin,
     play: IconPlay,
-    plus: IconAddCircle,
+    plus: IconPlus,
     refresh: IconRefresh,
-    search: IconMagnifer,
-    settings: IconSettings,
+    search: IconSearch,
+    settings: IconCog,
     stop: IconStop,
-    tool: IconCaseMinimalistic,
-    trash: IconTrashBinMinimalistic,
+    tool: IconBriefcase,
+    trash: IconTrash,
     wrench: IconWrench,
-    x: IconCloseCircle,
-    'x-circle': IconCloseCircle,
+    x: IconX,
+    'x-circle': IconXCircle,
 } satisfies Record<string, Component>;
 
 export const appIconFallback = IconInfoCircle;

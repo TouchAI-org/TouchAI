@@ -135,12 +135,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.1
-      '@iconify-json/hugeicons':
-        specifier: ^1.2.24
-        version: 1.2.24
-      '@iconify-json/solar':
-        specifier: ^1.2.5
-        version: 1.2.5
+      '@iconify-json/bx':
+        specifier: ^1.2.3
+        version: 1.2.3
       '@tauri-apps/cli':
         specifier: ^2
         version: 2.9.6
@@ -776,11 +773,8 @@ packages:
     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
     engines: {node: '>=18.18'}
 
-  '@iconify-json/hugeicons@1.2.24':
-    resolution: {integrity: sha512-GE87tbpE1XfgTHCZcBsQlHAFfOrWjIRzV9TJbyLHO86Svow4lPdGYWByThqUwnYcTNx9xghLBZbKwW9fYkJXZg==}
-
-  '@iconify-json/solar@1.2.5':
-    resolution: {integrity: sha512-WMAiNwchU8zhfrySww6KQBRIBbsQ6SvgIu2yA+CHGyMima/0KQwT5MXogrZPJGoQF+1Ye3Qj6K+1CiyNn3YkoA==}
+  '@iconify-json/bx@1.2.3':
+    resolution: {integrity: sha512-ihvX+2d688otgW7MAvUEdKVln+fZ28BJTlygazKUU/+RCODWT+2KObjAHe8+KPs4VhC8V6Tgoy1qrX0Myn/upA==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -4451,11 +4445,7 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
-  '@iconify-json/hugeicons@1.2.24':
-    dependencies:
-      '@iconify/types': 2.0.0
-
-  '@iconify-json/solar@1.2.5':
+  '@iconify-json/bx@1.2.3':
     dependencies:
       '@iconify/types': 2.0.0
 
