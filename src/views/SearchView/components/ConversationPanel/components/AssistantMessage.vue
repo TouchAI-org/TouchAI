@@ -1,11 +1,11 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <div class="message-bubble justify-start">
-        <div class="message-content w-full">
-            <div class="ai-message">
+    <div class="mb-4 flex justify-start">
+        <div class="w-full break-words">
+            <div class="text-[15px] leading-[1.8]">
                 <!-- 取消消息特殊样式 -->
-                <div v-if="message.isCancelled" class="cancelled-message text-gray-500 italic">
+                <div v-if="message.isCancelled" class="text-sm leading-[1.6] text-gray-500 italic">
                     {{ message.content }}
                 </div>
 
@@ -54,12 +54,25 @@
                             :content="part.content"
                             :final="!message.isStreaming"
                         />
-                        <ToolCallItem v-else :tool-call="part.toolCall" />
+                        <ToolCallItem
+                            v-else-if="part.type === 'tool_call'"
+                            :tool-call="part.toolCall"
+                        />
+                        <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
+                        <ToolApprovalCard
+                            v-else-if="part.type === 'approval'"
+                            :approval="part.approval"
+                            :attention-token="
+                                part.approval.status === 'pending' ? approvalAttentionToken : 0
+                            "
+                            @approve="handleApprove"
+                            @reject="handleReject"
+                        />
                     </template>
 
                     <!-- 流式响应加载指示器 -->
                     <div v-if="message.isStreaming" :class="streamingIndicatorClass">
-                        <div class="loading-dots flex gap-1">
+                        <div class="flex items-center gap-1">
                             <span class="dot"></span>
                             <span class="dot"></span>
                             <span class="dot"></span>
@@ -92,20 +105,34 @@
 <script setup lang="ts">
     import MarkdownContent from '@components/MarkdownContent.vue';
     import SvgIcon from '@components/SvgIcon.vue';
-    import type { ConversationMessage, ToolCallInfo } from '@composables/useAgent.ts';
     import { sendNotification } from '@tauri-apps/plugin-notification';
     import { computed, ref, watch } from 'vue';
 
+    import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
+    import type {
+        ConversationMessage,
+        ToolApprovalInfo,
+        ToolCallInfo,
+        WidgetInfo,
+    } from '@/types/conversation';
+
+    import ToolApprovalCard from './ToolApprovalCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
+    import WidgetFrame from './WidgetFrame.vue';
 
     interface Props {
         message: ConversationMessage;
+        approvalAttentionToken?: number;
     }
 
-    const props = defineProps<Props>();
+    const props = withDefaults(defineProps<Props>(), {
+        approvalAttentionToken: 0,
+    });
 
     const emit = defineEmits<{
         regenerate: [messageId: string];
+        approveToolApproval: [callId: string];
+        rejectToolApproval: [callId: string];
     }>();
 
     type RenderedPart =
@@ -118,6 +145,16 @@
               id: string;
               type: 'tool_call';
               toolCall: ToolCallInfo;
+          }
+        | {
+              id: string;
+              type: 'widget';
+              widget: WidgetInfo;
+          }
+        | {
+              id: string;
+              type: 'approval';
+              approval: ToolApprovalInfo;
           };
 
     const isReasoningExpanded = ref(true); // 默认展开
@@ -125,7 +162,16 @@
         const toolCallMap = new Map(
             (props.message.toolCalls ?? []).map((toolCall) => [toolCall.id, toolCall])
         );
+        const approvalMap = new Map(
+            (props.message.approvals ?? []).map((approval) => [approval.callId, approval])
+        );
+        const widgetMap = new Map(
+            (props.message.widgets ?? []).map((widget) => [widget.widgetId, widget])
+        );
         const parts: RenderedPart[] = [];
+        const widgetBackedToolCallIds = new Set(
+            (props.message.widgets ?? []).map((widget) => widget.callId)
+        );
 
         for (const part of props.message.parts) {
             if (part.type === 'text') {
@@ -139,12 +185,39 @@
                 continue;
             }
 
-            const toolCall = toolCallMap.get(part.callId);
-            if (toolCall) {
+            if (part.type === 'tool_call') {
+                const toolCall = toolCallMap.get(part.callId);
+                const shouldHideToolCall =
+                    toolCall?.namespacedName === SHOW_WIDGET_TOOL_NAME ||
+                    widgetBackedToolCallIds.has(part.callId);
+                if (toolCall && !shouldHideToolCall) {
+                    parts.push({
+                        id: part.id,
+                        type: 'tool_call',
+                        toolCall,
+                    });
+                }
+                continue;
+            }
+
+            if (part.type === 'widget') {
+                const widget = widgetMap.get(part.widgetId);
+                if (widget) {
+                    parts.push({
+                        id: part.id,
+                        type: 'widget',
+                        widget,
+                    });
+                }
+                continue;
+            }
+
+            const approval = approvalMap.get(part.callId);
+            if (approval) {
                 parts.push({
                     id: part.id,
-                    type: 'tool_call',
-                    toolCall,
+                    type: 'approval',
+                    approval,
                 });
             }
         }
@@ -153,7 +226,8 @@
     });
     const streamingIndicatorClass = computed(() => {
         const lastPart = renderedParts.value[renderedParts.value.length - 1];
-        const marginTop = lastPart?.type === 'tool_call' ? 'mt-4' : 'mt-2';
+        const marginTop =
+            lastPart?.type === 'tool_call' || lastPart?.type === 'approval' ? 'mt-4' : 'mt-2';
 
         return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop];
     });
@@ -192,35 +266,20 @@
         }
     }
 
-    // 重新生成响应
     function handleRegenerate() {
         emit('regenerate', props.message.id);
+    }
+
+    function handleApprove(callId: string) {
+        emit('approveToolApproval', callId);
+    }
+
+    function handleReject(callId: string) {
+        emit('rejectToolApproval', callId);
     }
 </script>
 
 <style scoped>
-    .message-bubble {
-        display: flex;
-        margin-bottom: 1rem;
-    }
-
-    .message-content {
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-    }
-
-    .ai-message {
-        font-size: 15px;
-        line-height: 1.8;
-    }
-
-    /* 取消消息样式 */
-    .cancelled-message {
-        font-size: 14px;
-        line-height: 1.6;
-        color: var(--color-gray-400);
-    }
-
     /* reasoning 样式 */
     .reasoning-content {
         font-family:
@@ -271,12 +330,6 @@
     .reasoning-content :deep(h6) {
         color: var(--color-gray-500);
         font-weight: 600;
-    }
-
-    /* 加载点动画 */
-    .loading-dots {
-        display: flex;
-        align-items: center;
     }
 
     .dot {

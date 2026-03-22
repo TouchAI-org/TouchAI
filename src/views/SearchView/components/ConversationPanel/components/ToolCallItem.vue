@@ -1,7 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <div class="tool-call-item w-full">
+    <div class="my-2 w-full">
         <button
             type="button"
             class="tool-call-toggle"
@@ -13,8 +13,8 @@
                 <div class="tool-call-text">
                     <div class="tool-call-title-row">
                         <span class="tool-call-label">{{ toolDisplayName }}</span>
-                        <span v-if="toolCall.serverName" class="tool-call-server">
-                            {{ toolCall.serverName }}
+                        <span v-if="toolBadgeLabel" class="tool-call-server">
+                            {{ toolBadgeLabel }}
                         </span>
                     </div>
                 </div>
@@ -33,7 +33,14 @@
                 >
                     {{ statusText }}
                 </span>
-                <span v-else class="tool-call-status tool-call-status--completed">
+                <span
+                    v-else
+                    :class="
+                        statusType === 'rejected'
+                            ? 'tool-call-status tool-call-status--rejected'
+                            : 'tool-call-status tool-call-status--completed'
+                    "
+                >
                     {{ statusText }}
                 </span>
                 <span v-if="toolCall.durationMs" class="tool-call-duration">
@@ -66,8 +73,9 @@
 
 <script setup lang="ts">
     import SvgIcon from '@components/SvgIcon.vue';
-    import type { ToolCallInfo } from '@composables/useAgent.ts';
     import { computed, ref } from 'vue';
+
+    import type { ToolCallInfo } from '@/types/conversation';
 
     interface Props {
         toolCall: ToolCallInfo;
@@ -89,11 +97,18 @@
 
         return '未命名工具';
     });
+    const toolBadgeLabel = computed(() => {
+        return props.toolCall.serverName || props.toolCall.sourceLabel || null;
+    });
     const argumentsText = computed(() => {
         return formatJson(props.toolCall.arguments ?? {});
     });
-    const statusType = computed<'running' | 'error' | 'completed'>(() => {
+    const statusType = computed<'running' | 'error' | 'completed' | 'rejected'>(() => {
         if (props.toolCall.status === 'executing') {
+            return 'running';
+        }
+
+        if (props.toolCall.status === 'awaiting_approval') {
             return 'running';
         }
 
@@ -101,15 +116,27 @@
             return 'error';
         }
 
+        if (props.toolCall.status === 'rejected') {
+            return 'rejected';
+        }
+
         return 'completed';
     });
     const statusText = computed(() => {
+        if (props.toolCall.status === 'awaiting_approval') {
+            return '等待批准';
+        }
+
         if (statusType.value === 'running') {
             return '运行中';
         }
 
         if (statusType.value === 'error') {
             return '失败';
+        }
+
+        if (statusType.value === 'rejected') {
+            return '已拒绝';
         }
 
         return '完成';
@@ -119,8 +146,24 @@
             return '执行中...';
         }
 
+        if (props.toolCall.status === 'awaiting_approval') {
+            return '等待用户批准后继续执行...';
+        }
+
         const raw = props.toolCall.result?.trim();
-        return raw || (props.toolCall.status === 'error' ? '无错误输出' : '无输出');
+        if (raw) {
+            return raw;
+        }
+
+        if (props.toolCall.status === 'error') {
+            return '无错误输出';
+        }
+
+        if (props.toolCall.status === 'rejected') {
+            return '用户已拒绝此次执行';
+        }
+
+        return '无输出';
     });
 
     function formatJson(value: unknown): string {
@@ -137,10 +180,6 @@
 </script>
 
 <style scoped>
-    .tool-call-item {
-        margin: 0.5rem 0;
-    }
-
     .tool-call-toggle {
         width: 100%;
         display: flex;
@@ -268,6 +307,12 @@
         background: var(--color-primary-50);
         color: var(--color-primary-600);
         border-color: rgba(219, 213, 207, 0.95);
+    }
+
+    .tool-call-status--rejected {
+        background: rgba(255, 247, 237, 0.95);
+        color: rgb(154, 52, 18);
+        border-color: rgba(251, 191, 36, 0.55);
     }
 
     .tool-call-duration {

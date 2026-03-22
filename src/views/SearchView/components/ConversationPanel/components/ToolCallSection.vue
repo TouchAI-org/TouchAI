@@ -43,8 +43,9 @@
 
 <script setup lang="ts">
     import SvgIcon from '@components/SvgIcon.vue';
-    import type { ToolCallInfo } from '@composables/useAgent.ts';
     import { computed, ref, watch } from 'vue';
+
+    import type { ToolCallInfo } from '@/types/conversation';
 
     import ToolCallItem from './ToolCallItem.vue';
 
