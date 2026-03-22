@@ -8,6 +8,11 @@
     import { computed, onMounted, ref } from 'vue';
 
     import { useMcpStore } from '@/stores/mcp';
+    import {
+        type McpToolProperty,
+        type McpToolSchema,
+        parseMcpToolSchemaJson,
+    } from '@/utils/mcpSchemas';
 
     interface Props {
         server: McpServerEntity;
@@ -63,46 +68,24 @@
         }
     };
 
-    interface JsonSchema {
-        properties?: Record<string, JsonSchemaProperty>;
-        required?: string[];
-    }
-
-    interface JsonSchemaProperty {
-        type?: string | string[];
-        enum?: unknown[];
-        description?: string;
-    }
-
-    const parseSchema = (schemaJson: string): JsonSchema | null => {
-        try {
-            return JSON.parse(schemaJson);
-        } catch {
-            return null;
-        }
-    };
-
     // 缓存每个工具的 schema 解析结果，避免模板中重复 JSON.parse
     const parsedSchemas = computed(() => {
-        const map = new Map<number, JsonSchema | null>();
+        const map = new Map<number, McpToolSchema>();
         for (const tool of tools.value) {
-            map.set(tool.id, parseSchema(tool.input_schema));
+            map.set(tool.id, parseMcpToolSchemaJson(tool.input_schema));
         }
         return map;
     });
 
-    const getToolSchema = (toolId: number): JsonSchema | null => {
-        return parsedSchemas.value.get(toolId) ?? null;
+    const getToolSchema = (toolId: number): McpToolSchema => {
+        return parsedSchemas.value.get(toolId) ?? parseMcpToolSchemaJson();
     };
 
-    const getSchemaProperties = (
-        schema: JsonSchema | null
-    ): Record<string, JsonSchemaProperty> | null => {
-        if (!schema || typeof schema !== 'object') return null;
-        return schema.properties || null;
+    const getSchemaProperties = (schema: McpToolSchema): Record<string, McpToolProperty> | null => {
+        return Object.keys(schema.properties).length > 0 ? schema.properties : null;
     };
 
-    const getPropertyType = (prop: JsonSchemaProperty | null): string => {
+    const getPropertyType = (prop: McpToolProperty | null): string => {
         if (!prop) return 'any';
         if (prop.type) {
             if (Array.isArray(prop.type)) {
@@ -114,9 +97,8 @@
         return 'any';
     };
 
-    const isRequired = (schema: JsonSchema | null, propName: string): boolean => {
-        if (!schema || !schema.required) return false;
-        return Array.isArray(schema.required) && schema.required.includes(propName);
+    const isRequired = (schema: McpToolSchema, propName: string): boolean => {
+        return schema.required?.includes(propName) ?? false;
     };
 
     onMounted(() => {

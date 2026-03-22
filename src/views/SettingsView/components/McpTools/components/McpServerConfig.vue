@@ -7,6 +7,11 @@
     import { computed, onUnmounted, ref, watch } from 'vue';
 
     import { useMcpStore } from '@/stores/mcp';
+    import {
+        parseMcpServerArgsJson,
+        parseMcpServerRecordJson,
+        toKeyValueEntries,
+    } from '@/utils/mcpSchemas';
 
     import McpHttpFields from './McpHttpFields.vue';
     import McpServerHeader from './McpServerHeader.vue';
@@ -65,35 +70,16 @@
         { label: 'HTTP', value: 'http' as DbTransportType, description: 'HTTP POST' },
     ];
 
-    // 初始化参数数组
-    try {
-        const parsedArgs = props.server.args ? JSON.parse(props.server.args) : [];
-        editableConfig.value.args = Array.isArray(parsedArgs) ? parsedArgs : [];
-    } catch {
-        editableConfig.value.args = [];
+    /**
+     * 把数据库里的 JSON 配置统一投影到编辑态表单，避免初始化和 props 同步写成两套逻辑。
+     */
+    function applyServerJsonConfig(server: McpServerEntity): void {
+        editableConfig.value.args = parseMcpServerArgsJson(server.args);
+        editableConfig.value.env = toKeyValueEntries(parseMcpServerRecordJson(server.env));
+        editableConfig.value.headers = toKeyValueEntries(parseMcpServerRecordJson(server.headers));
     }
 
-    // 初始化环境变量数组
-    try {
-        const parsedEnv = props.server.env ? JSON.parse(props.server.env) : {};
-        editableConfig.value.env = Object.entries(parsedEnv).map(([key, value]) => ({
-            key,
-            value: String(value),
-        }));
-    } catch {
-        editableConfig.value.env = [];
-    }
-
-    // 初始化请求头数组
-    try {
-        const parsedHeaders = props.server.headers ? JSON.parse(props.server.headers) : {};
-        editableConfig.value.headers = Object.entries(parsedHeaders).map(([key, value]) => ({
-            key,
-            value: String(value),
-        }));
-    } catch {
-        editableConfig.value.headers = [];
-    }
+    applyServerJsonConfig(props.server);
 
     // 监听 props 变化更新编辑数据
     watch(
@@ -105,38 +91,7 @@
             editableConfig.value.cwd = newServer.cwd || '';
             editableConfig.value.url = newServer.url || '';
             editableConfig.value.toolTimeout = newServer.tool_timeout;
-
-            // 解析参数
-            try {
-                const parsedArgs = newServer.args ? JSON.parse(newServer.args) : [];
-                editableConfig.value.args = Array.isArray(parsedArgs) ? parsedArgs : [];
-            } catch {
-                editableConfig.value.args = [];
-            }
-
-            // 解析环境变量
-            try {
-                const parsedEnv = newServer.env ? JSON.parse(newServer.env) : {};
-                editableConfig.value.env = Object.entries(parsedEnv).map(([key, value]) => ({
-                    key,
-                    value: String(value),
-                }));
-            } catch {
-                editableConfig.value.env = [];
-            }
-
-            // 解析请求头
-            try {
-                const parsedHeaders = newServer.headers ? JSON.parse(newServer.headers) : {};
-                editableConfig.value.headers = Object.entries(parsedHeaders).map(
-                    ([key, value]) => ({
-                        key,
-                        value: String(value),
-                    })
-                );
-            } catch {
-                editableConfig.value.headers = [];
-            }
+            applyServerJsonConfig(newServer);
         },
         { deep: true }
     );

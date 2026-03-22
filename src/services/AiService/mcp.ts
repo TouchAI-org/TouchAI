@@ -26,7 +26,23 @@ import {
     type McpTransportType,
 } from '@services/NativeService';
 
+import {
+    parseMcpServerArgsJson,
+    parseMcpServerRecordJson,
+    parseMcpToolSchemaJson,
+} from '@/utils/mcpSchemas';
+
 import type { AiToolDefinition } from './types';
+
+function readOptionalMcpArgs(argsJson?: string | null): string[] | undefined {
+    const args = parseMcpServerArgsJson(argsJson);
+    return args.length > 0 ? args : undefined;
+}
+
+function readOptionalMcpRecord(recordJson?: string | null): Record<string, string> | undefined {
+    const record = parseMcpServerRecordJson(recordJson);
+    return Object.keys(record).length > 0 ? record : undefined;
+}
 
 /**
  * MCP 管理器类
@@ -99,11 +115,11 @@ class McpManager {
                 name: server.name,
                 transport_type: server.transport_type as McpTransportType,
                 command: server.command || undefined,
-                args: server.args ? JSON.parse(server.args) : undefined,
-                env: server.env ? JSON.parse(server.env) : undefined,
+                args: readOptionalMcpArgs(server.args),
+                env: readOptionalMcpRecord(server.env),
                 cwd: server.cwd || undefined,
                 url: server.url || undefined,
-                headers: server.headers ? JSON.parse(server.headers) : undefined,
+                headers: readOptionalMcpRecord(server.headers),
                 enabled: Boolean(server.enabled), // 转换为布尔值
                 tool_timeout: server.tool_timeout,
             });
@@ -317,17 +333,11 @@ class McpManager {
                     const tools = await findEnabledMcpToolsByServerId(server.id);
 
                     const toolsWithNamespace: AiToolDefinition[] = tools.map((tool) => {
-                        const raw = JSON.parse(tool.input_schema || '{}');
-                        // 确保 input_schema 至少包含 type 和 properties
-                        const inputSchema: AiToolDefinition['input_schema'] = {
-                            ...raw,
-                            type: raw.type ?? 'object',
-                            properties: raw.properties ?? {},
-                        };
+                        const inputSchema = parseMcpToolSchemaJson(tool.input_schema);
                         return {
                             name: `mcp__${server.id}__${tool.name}`,
                             description: tool.description || `Tool: ${tool.name}`,
-                            input_schema: inputSchema,
+                            input_schema: inputSchema as AiToolDefinition['input_schema'],
                         };
                     });
                     allTools.push(...toolsWithNamespace);
