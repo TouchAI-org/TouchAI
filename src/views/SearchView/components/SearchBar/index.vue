@@ -162,6 +162,19 @@
         { immediate: true, flush: 'sync' }
     );
 
+    watch(
+        disabled,
+        (isDisabled) => {
+            if (!isDisabled) {
+                return;
+            }
+
+            // 禁用输入时主动移除编辑器焦点，避免失活编辑器继续接收键盘输入。
+            editor.value?.view.dom.blur();
+        },
+        { flush: 'post' }
+    );
+
     /** 清理文本选区拖拽跟踪状态和全局事件监听。 */
     function clearEditorSelectionDragState() {
         selectionDragCleanup?.();
@@ -207,7 +220,7 @@
             window.removeEventListener('mousemove', handleMouseMove, true);
             window.removeEventListener('mouseup', handleMouseUp, true);
             host.classList.remove('search-bar-editor-host--range-selecting');
-            // 仅清除自己创建的引用，防止误清后续新注册的 cleanup
+            // 仅清除当前 cleanup 自己创建的引用，防止误清其他 cleanup。
             if (selectionDragCleanup === cleanup) {
                 selectionDragCleanup = null;
             }
@@ -221,7 +234,7 @@
                 return;
             }
 
-            // 确认进入框选态后立即移除 mousemove，后续移动由浏览器原生选区接管。
+            // 确认进入框选态后立即移除 mousemove，后面的移动由浏览器原生选区接管。
             window.removeEventListener('mousemove', handleMouseMove, true);
             host.classList.add('search-bar-editor-host--range-selecting');
         };
@@ -232,7 +245,7 @@
 
         // 保存 cleanup 引用，供 clearEditorSelectionDragState 和 onUnmounted 调用
         selectionDragCleanup = cleanup;
-        // 使用捕获阶段，确保在 ProseMirror 内部事件处理之前拦截
+        // 使用捕获阶段，确保在 ProseMirror 内部事件处理前拦截。
         window.addEventListener('mousemove', handleMouseMove, true);
         window.addEventListener('mouseup', handleMouseUp, true);
     }

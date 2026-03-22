@@ -2,16 +2,14 @@
  * SearchView 请求层。
  * 收口请求提交、排队与会话续发逻辑，让输入层与页面层保持解耦。
  */
-import {
-    type ConversationMessage,
-    type LoadedConversationSession,
-    useAgent,
-} from '@composables/useAgent';
+import { useAgent } from '@composables/useAgent';
 import type { SessionEntity } from '@database/types';
 import { type Index, isAttachmentSupported } from '@services/AiService/attachments';
 import { listSessions } from '@services/AiService/session';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { type Ref, ref } from 'vue';
+
+import type { ConversationMessage, LoadedConversationSession } from '@/types/conversation';
 
 import type { PendingRequest, SearchModelOverride } from '../types';
 
@@ -97,6 +95,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         cancel,
         clearConversation,
         openSession: openStoredSession,
+        pendingToolApproval,
+        approvePendingToolApproval,
+        rejectPendingToolApproval,
     } = useAgent({
         onComplete: async () => {
             invalidateSessionListCache({
@@ -124,6 +125,20 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 refreshIfOpen: true,
             });
             clearPendingRequestState();
+        },
+        onModelSelected: ({ modelId, providerId }) => {
+            modelOverride.value = {
+                modelId,
+                providerId,
+            };
+
+            if (pendingRequest.value) {
+                pendingRequest.value = {
+                    ...pendingRequest.value,
+                    modelId,
+                    providerId,
+                };
+            }
         },
     });
 
@@ -207,7 +222,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
         const canReuseDefaultList = sessionListResolvedKey === buildDefaultSessionListRequestKey();
 
-        // 关闭弹窗时，旧筛选条件对应的请求即使稍后返回也不能再覆盖默认列表。
+        // 关闭弹窗后要立刻作废当前筛选条件对应的请求，避免迟到响应覆盖默认列表。
         sessionListRequestId += 1;
         sessionListInFlightKey = null;
         sessionListLoadPromise = null;
@@ -342,6 +357,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         ensureSessionListLoaded,
         startNewSession,
         openSession,
+        pendingToolApproval,
+        approvePendingToolApproval,
+        rejectPendingToolApproval,
         handleSubmit,
         clearAll,
         cancelRequest,

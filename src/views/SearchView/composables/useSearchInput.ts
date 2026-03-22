@@ -2,7 +2,6 @@
  * SearchView 输入层。
  * 统一承载草稿、附件与 QuickSearch 的输入侧编排，保持输入业务收敛。
  */
-import type { ConversationMessage } from '@composables/useAgent';
 import {
     type AttachmentSupportStatus,
     createAttachment,
@@ -11,6 +10,8 @@ import {
 } from '@services/AiService/attachments';
 import { readClipboard, type ReadClipboardItem } from 'tauri-plugin-clipboard-x-api';
 import { computed, type Ref, ref, watch } from 'vue';
+
+import type { ConversationMessage } from '@/types/conversation';
 
 import type {
     SearchCursorContext,

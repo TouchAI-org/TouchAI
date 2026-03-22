@@ -16,7 +16,7 @@ interface UseModelDropdownPopupOptions {
 /**
  * 模型下拉弹窗驱动层。
  * 负责封装 popupManager 交互、弹窗数据组装和全局 popup 事件监听，
- * 让模型选择领域逻辑不再直接依赖 popup 基础设施实现细节。
+ * 让模型选择领域逻辑只依赖显式 popup 接口，而不感知底层实现细节。
  *
  * @param options 模型下拉框触发元素、弹窗上下文数据和事件回调。
  * @returns 模型下拉弹窗状态与打开/关闭/更新方法。
@@ -98,7 +98,7 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
                 isOpen.value = false;
 
                 // popup-closed 是全局事件，这里只在模型下拉实际持有同一 popupId 时
-                // 才回流到领域层，避免切换其他 popup 时误重置模型搜索状态。
+                // 才通知领域层关闭，避免切换其他 popup 时误重置模型搜索状态。
                 if (!isModelDropdownActive()) {
                     return;
                 }

@@ -2,7 +2,6 @@
  * SearchView 页面层。
  * 集中管理页面控制器、生命周期编排与键盘输入路由，避免页面逻辑零散分布。
  */
-import type { ConversationMessage } from '@composables/useAgent';
 import { useAlert } from '@composables/useAlert';
 import { useWindowResize } from '@composables/useWindowResize';
 import { AppEvent, eventService } from '@services/EventService';
@@ -28,6 +27,7 @@ import {
 } from 'vue';
 
 import { useSettingsStore } from '@/stores/settings';
+import type { ConversationMessage, PendingToolApproval } from '@/types/conversation';
 
 import type {
     ConversationPanelHandle,
@@ -159,7 +159,7 @@ export function useSearchPageController(options: {
         quickSearchOpen.value = false;
         if (!wasOpen) {
             // 页面可能在“结果尚未返回、面板尚未真正显示”阶段就判定需要关闭；
-            // 这里主动同步关闭态，避免旧异步结果回流后再次把面板打开。
+            // 这里主动同步关闭态，避免迟到的异步结果再次把面板打开。
             quickSearchPanel.value?.syncClosedState();
         }
     }
@@ -446,7 +446,7 @@ interface UseSearchOverlayMachineOptions {
  * 负责QuickSearch 与模型下拉等各类模块状态切换过程。
  *
  * @param options QuickSearch 与模型下拉可见性状态。
- * @returns 当前浮层阶段、状态迁移方法与 machine 生成的副作用命令。
+ * @returns 当前浮层阶段、状态流转方法与 machine 生成的副作用命令。
  */
 export function useSearchOverlayMachine(options: UseSearchOverlayMachineOptions) {
     const { isQuickSearchOpen, modelDropdownState } = options;
@@ -536,6 +536,10 @@ interface UseSearchKeyboardOptions {
     pendingRequest: Ref<PendingRequest | null>;
     isWaitingForCompletion: Ref<boolean>;
     isLoading: Ref<boolean>;
+    pendingToolApproval: Ref<PendingToolApproval | null>;
+    approvePendingToolApproval: (callId?: string) => boolean;
+    rejectPendingToolApproval: (callId?: string) => boolean;
+    promptPendingToolApprovalAttention: () => void;
     isQuickSearchOpen: ComputedRef<boolean>;
     isDevMode: boolean;
     isDevBlurHideSuspended: Ref<boolean>;
@@ -615,7 +619,7 @@ export function useSearchModelDropdownCoordinator(
     });
 
     /**
-     * 关闭 QuickSearch 后等待布局稳定，避免弹窗用旧几何信息定位。
+     * 关闭 QuickSearch 后等待布局稳定，避免弹窗使用过期几何信息定位。
      */
     async function waitForLayoutStable() {
         const el = pageContainer.value;
@@ -647,8 +651,8 @@ export function useSearchModelDropdownCoordinator(
 
     /**
      * 按 overlay machine 给出的命令顺序执行模型下拉打开流程。
-     * 这里故意使用小步 command loop，而不是把所有判断重新写回 coordinator，
-     * 这样“何时关 QuickSearch / 何时等布局 / 何时开 dropdown”的决策仍由 machine 主导。
+     * 这里故意使用小步 command loop，让 coordinator 只负责状态判断，
+     * “何时关 QuickSearch / 何时等布局 / 何时开 dropdown”的决策仍由 machine 主导。
      */
     async function runModelDropdownOpenSequence(initialCommand: SearchOverlayCommand) {
         let command = initialCommand;
@@ -682,7 +686,7 @@ export function useSearchModelDropdownCoordinator(
         }
     }
 
-    // 确保模型下拉在 QuickSearch 收敛与布局稳定之后再打开，避免定位使用旧尺寸。
+    // 确保模型下拉在 QuickSearch 收敛与布局稳定之后再打开，避免定位使用过期尺寸。
     async function openModelDropdownWithLayoutSync() {
         const command = requestModelDropdownOpen();
         if (command === 'noop') {
@@ -769,6 +773,10 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         pendingRequest,
         isWaitingForCompletion,
         isLoading,
+        pendingToolApproval,
+        approvePendingToolApproval,
+        rejectPendingToolApproval,
+        promptPendingToolApprovalAttention,
         isQuickSearchOpen,
         isDevMode,
         isDevBlurHideSuspended,
@@ -785,6 +793,18 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
 
     let lastBackspaceTime = 0;
 
+    /**
+     * 审批期间仍允许 Enter / Esc 作为决策快捷键，其余会改变输入内容的按键
+     * 统一视为“误把编辑框当作可输入状态”，应拦截并把注意力引导回批准按钮。
+     */
+    function isTypingAttemptDuringApproval(event: KeyboardEvent): boolean {
+        if (event.ctrlKey || event.metaKey || event.altKey) {
+            return false;
+        }
+
+        return event.key.length === 1 || event.key === 'Backspace' || event.key === 'Delete';
+    }
+
     function handleSearchWindowMouseDown(event: MouseEvent) {
         if (!viewReady.value) {
             return;
@@ -792,7 +812,7 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
 
         const target = event.target as HTMLElement | null;
         // 允许弹窗触发器自己处理“点击开关”；否则 capture 阶段会先把 popup 关掉，
-        // 随后的 click 又按最新状态重新打开，表现为“关掉后立刻又弹出来”。
+        // 随后的 click 会立即按最新状态再打开一次，表现为“关掉后立刻又弹出来”。
         if (
             target?.closest('.logo-container') ||
             target?.closest('[data-history-trigger="true"]')
@@ -825,6 +845,36 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
     async function handleKeyDown(event: KeyboardEvent) {
         if (!viewReady.value) {
             return;
+        }
+
+        // 工具审批态优先：避免用户误以为 Enter 是发送消息。
+        if (pendingToolApproval.value) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                rejectPendingToolApproval(pendingToolApproval.value.callId);
+                return;
+            }
+
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.stopPropagation();
+
+                // 小延迟用于防止“刚弹出审批卡就误按回车”导致误批准。
+                if (!event.shiftKey && Date.now() >= pendingToolApproval.value.keyboardApproveAt) {
+                    approvePendingToolApproval(pendingToolApproval.value.callId);
+                } else {
+                    promptPendingToolApprovalAttention();
+                }
+                return;
+            }
+
+            if (isTypingAttemptDuringApproval(event)) {
+                event.preventDefault();
+                event.stopPropagation();
+                promptPendingToolApprovalAttention();
+                return;
+            }
         }
 
         if (isDevMode && event.key === 'Control' && !event.repeat) {

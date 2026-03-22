@@ -4,6 +4,7 @@ import { aiService } from '@services/AiService';
 import type { Editor } from '@tiptap/core';
 import { computed, onMounted, type Ref, ref, type ShallowRef } from 'vue';
 
+import { parseModelModalities } from '@/utils/modelSchemas';
 import type { SearchModelDropdownContext } from '@/views/SearchView/types';
 
 import type { SearchModelOverride } from '../types';
@@ -171,11 +172,11 @@ export function useModelSelection(
         // 先关闭模型搜索会话，再恢复编辑器内容。
         // 顺序至关重要：setEditorJSON 会同步触发 onUpdate → onInput()，
         // 若 isModelDropdownOpen 仍为 true，onInput 会继续把文本变化当作
-        // 模型查询回流给页面层 popup driver，导致已关闭/待关闭的 dropdown
+        // 模型查询并向页面层同步 dropdown 数据，导致已关闭/待关闭的 dropdown
         // 继续收到更新。
         const restoreSnapshot = searchSession.captureSelectionRestoreSnapshot();
 
-        // 恢复编辑器内容（此时 isModelDropdownOpen=false，onInput 不会再向页面层
+        // 恢复编辑器内容（此时 isModelDropdownOpen=false，onInput 不会继续向页面层
         // 请求同步 dropdown 数据）。
         searchSession.restoreEditorFromSnapshot(restoreSnapshot);
 
@@ -184,19 +185,13 @@ export function useModelSelection(
 
     // 6. 模型能力计算
     /**
-     * 解析模型模态配置，异常时退化为纯文本输入输出。
+     * 解析模型模态配置，异常时使用纯文本输入输出。
      *
      * @param modalities 模型模态配置 JSON 字符串。
      * @returns 解析后的输入/输出模态集合。
      */
     function parseModalities(modalities?: string | null) {
-        if (!modalities) return { input: ['text'], output: ['text'] };
-        try {
-            return JSON.parse(modalities) as { input?: string[]; output?: string[] };
-        } catch (error) {
-            console.warn('[SearchBar] Failed to parse model modalities:', error);
-            return { input: ['text'], output: ['text'] };
-        }
+        return parseModelModalities(modalities);
     }
 
     const currentModel = computed(() => selectedModel.value || activeModel.value);
@@ -248,7 +243,7 @@ export function useModelSelection(
         };
     }
 
-    // 页面初始化只需要知道当前活动模型，弹窗候选列表改为按需加载。
+    // 页面初始化只加载当前活动模型；弹窗候选列表在需要打开时再查询。
     onMounted(async () => {
         await loadActiveModel();
     });

@@ -1,6 +1,7 @@
-﻿import type { ConversationMessage } from '@composables/useAgent';
 import type { ModelWithProvider } from '@database/queries/models';
 import type { Index } from '@services/AiService/attachments';
+
+import type { ConversationMessage } from '@/types/conversation';
 
 import type {
     SearchCursorContext,

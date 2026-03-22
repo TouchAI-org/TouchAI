@@ -5,7 +5,7 @@
     import { mcpManager } from '@services/AiService/mcp';
     import type { SessionHistoryData } from '@services/PopupService';
     import { sendNotification } from '@tauri-apps/plugin-notification';
-    import { nextTick, onMounted, reactive, ref, toRef, watch } from 'vue';
+    import { nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
@@ -68,10 +68,15 @@
     const conversationPanel = ref<ConversationPanelHandle>();
     const historyAnchorElement = ref<HTMLElement | null>(null);
     const pageContainer = ref<HTMLElement | null>(null);
+    const approvalAttentionToken = ref(0);
     const isPinned = ref(false);
     const isDragging = ref(false);
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
+    const widgetBridgeWindow = window as Window & {
+        sendPrompt?: (text: string) => void;
+        openLink?: (url: string) => void;
+    };
 
     const controller = useSearchPageController({
         searchBar,
@@ -119,6 +124,9 @@
         ensureSessionListLoaded,
         startNewSession,
         openSession,
+        pendingToolApproval,
+        approvePendingToolApproval,
+        rejectPendingToolApproval,
         handleSubmit,
         clearAll,
         cancelRequest,
@@ -211,6 +219,10 @@
         pendingRequest,
         isWaitingForCompletion,
         isLoading,
+        pendingToolApproval,
+        approvePendingToolApproval,
+        rejectPendingToolApproval,
+        promptPendingToolApprovalAttention,
         isQuickSearchOpen,
         isDevMode,
         isDevBlurHideSuspended,
@@ -251,6 +263,20 @@
 
     function handlePinChange(value: boolean) {
         isPinned.value = value;
+    }
+
+    function promptPendingToolApprovalAttention() {
+        approvalAttentionToken.value += 1;
+    }
+
+    function handlePagePaste(event: ClipboardEvent) {
+        if (pendingToolApproval.value) {
+            event.preventDefault();
+            promptPendingToolApprovalAttention();
+            return;
+        }
+
+        void handlePaste();
     }
 
     async function closeSessionHistoryPopup() {
@@ -352,7 +378,7 @@
             const isMissingSession =
                 error instanceof Error && /not found|不存在/i.test(error.message);
 
-            // 会话列表可能比数据库状态稍旧；若目标会话已不存在，先刷新列表再提示用户。
+            // 会话列表和数据库可能短暂不同步；若目标会话已不存在，先刷新列表再提示用户。
             if (isMissingSession) {
                 void refreshSessionList().catch((refreshError) => {
                     console.error(
@@ -371,6 +397,29 @@
 
             await controller.focusSearchInput();
         }
+    }
+
+    function handleWidgetSendPrompt(text: string) {
+        const normalizedText = text.trim();
+        if (!normalizedText) {
+            return;
+        }
+
+        if (pendingToolApproval.value) {
+            promptPendingToolApprovalAttention();
+            return;
+        }
+
+        void handleSubmit(normalizedText);
+    }
+
+    function handleWidgetOpenLink(url: string) {
+        const normalizedUrl = url.trim();
+        if (!normalizedUrl) {
+            return;
+        }
+
+        window.open(normalizedUrl, '_blank');
     }
 
     async function initialize() {
@@ -423,7 +472,19 @@
     );
 
     onMounted(() => {
+        widgetBridgeWindow.sendPrompt = handleWidgetSendPrompt;
+        widgetBridgeWindow.openLink = handleWidgetOpenLink;
         void initialize();
+    });
+
+    onUnmounted(() => {
+        if (widgetBridgeWindow.sendPrompt === handleWidgetSendPrompt) {
+            delete widgetBridgeWindow.sendPrompt;
+        }
+
+        if (widgetBridgeWindow.openLink === handleWidgetOpenLink) {
+            delete widgetBridgeWindow.openLink;
+        }
     });
 </script>
 
@@ -434,11 +495,11 @@
             'search-view-container bg-background-primary relative flex h-full w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl',
             isLoading ? 'loading' : '',
         ]"
-        @paste="handlePaste"
+        @paste="handlePagePaste"
     >
         <div
             v-if="viewReady && conversationHistory.length > 0"
-            class="w-full flex-1 overflow-hidden"
+            class="min-h-0 w-full flex-1 overflow-hidden"
         >
             <ConversationPanel
                 ref="conversationPanel"
@@ -448,10 +509,13 @@
                 :is-pinned="isPinned"
                 :toolbar-disabled="isLoading || isWaitingForCompletion"
                 :history-open="sessionHistoryPopupOpen"
+                :approval-attention-token="approvalAttentionToken"
                 @pin-change="handlePinChange"
                 @new-session="handleStartNewSession"
                 @history-open-change="handleHistoryOpenChange"
                 @history-prefetch="handleHistoryPrefetch"
+                @approve-tool-approval="approvePendingToolApproval"
+                @reject-tool-approval="rejectPendingToolApproval"
                 @drag-start="isDragging = true"
                 @drag-end="isDragging = false"
                 @regenerate-message="handleRegenerateMessage"
@@ -464,7 +528,7 @@
         <div v-if="viewReady" class="relative w-full">
             <SearchBar
                 ref="searchBar"
-                :disabled="isWaitingForCompletion"
+                :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"
                 :query-text="queryText"
                 :attachments="attachments"
                 :model-override="modelOverride"

@@ -97,7 +97,7 @@ export function useWindowResize(options: WindowResizeOptions) {
     );
 
     /**
-     * 重置缓存高度并强制重新测量，用于外部因素改变了窗口大小后重新同步
+     * 重置缓存高度并强制完整测量，用于外部因素改变窗口大小后的同步。
      */
     function invalidate() {
         currentHeight.value = 0;

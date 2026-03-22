@@ -214,8 +214,8 @@ export function useSearchInput(
     }
 
     // 4. 状态同步监听
-    // 模型能力是页面附件域的上游输入，SearchBar 只上报变化，不再直接修改附件标签，
-    // 让附件 supportStatus 真正由页面 draft 决定后再受控回流到编辑器。
+    // 模型能力是页面附件域的上游输入，SearchBar 只上报变化，
+    // 附件 supportStatus 由页面 draft 统一决定，并受控同步到编辑器。
     watch(
         modelSelection.modelCapabilities,
         (capabilities) => {
@@ -249,7 +249,7 @@ export function useSearchInput(
     /**
      * 将受控 query 文本同步到编辑器。
      * 页面层持有普通 query 真相源；SearchBar 只在文本确实不一致时执行富文本同步，
-     * 避免受控更新回流成 onUpdate -> emit -> watch 的循环。
+     * 避免受控同步触发 onUpdate -> emit -> watch 循环。
      *
      * @param nextQuery 页面层期望显示的 query 文本。
      * @returns void
@@ -292,7 +292,7 @@ export function useSearchInput(
 
     /**
      * 受控标签同步包装器。
-     * 页面 draft 回流到编辑器时会触发 NodeSync/onUpdate；这里通过深度计数屏蔽
+     * 页面 draft 同步到编辑器时会触发 NodeSync/onUpdate；这里通过深度计数屏蔽
      * 这类“受控同步”产生的移除事件，避免它们再次被误判成用户手动删除。
      */
     function runControlledTagSync(effect: () => void) {
@@ -450,7 +450,7 @@ export function useSearchInput(
 
     // 5. 输入与附件行为
     /**
-     * 处理输入变更：普通输入回流到页面草稿；模型搜索模式则只刷新 dropdown 查询。
+     * 处理输入变更：普通输入同步到页面草稿；模型搜索模式则只刷新 dropdown 查询。
      *
      * @returns void
      */
