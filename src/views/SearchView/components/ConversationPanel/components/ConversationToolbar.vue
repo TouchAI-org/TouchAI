@@ -140,17 +140,14 @@
                 v-if="canPin"
                 type="button"
                 class="toolbar-button"
-                :class="isPinned ? 'toolbar-button--active' : ''"
+                :class="isPinned ? 'toolbar-button--pinned' : ''"
                 aria-label="固定会话面板"
+                :aria-pressed="isPinned"
                 data-drag-exclude="true"
                 @mousedown.stop
                 @click.stop="togglePinned"
             >
-                <AppIcon
-                    name="pin"
-                    class="h-4 w-4 transition-transform duration-200 ease-in-out"
-                    :class="isPinned ? 'rotate-[-30deg]' : 'rotate-0'"
-                />
+                <AppIcon name="pin" class="h-4 w-4" />
             </button>
         </div>
     </div>
@@ -180,6 +177,19 @@
         background: rgba(255, 255, 255, 0.92);
         color: rgb(82, 82, 91);
         box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+    }
+
+    .toolbar-button--pinned {
+        background: color-mix(in srgb, var(--color-primary-100) 90%, white);
+        color: var(--color-primary-600);
+        box-shadow:
+            inset 0 0 0 1px color-mix(in srgb, var(--color-primary-200) 78%, transparent),
+            0 6px 18px rgba(107, 95, 84, 0.12);
+    }
+
+    .toolbar-button--pinned:hover {
+        background: color-mix(in srgb, var(--color-primary-100) 95%, white);
+        color: var(--color-primary-700);
     }
 
     .toolbar-button--disabled {
