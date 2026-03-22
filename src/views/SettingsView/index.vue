@@ -15,6 +15,9 @@
 
     const GeneralView = defineAsyncComponent(() => import('./components/General/index.vue'));
     const AiServicesView = defineAsyncComponent(() => import('./components/AiServices/index.vue'));
+    const BuiltInToolsView = defineAsyncComponent(
+        () => import('./components/BuiltInTools/index.vue')
+    );
     const McpToolsView = defineAsyncComponent(() => import('./components/McpTools/index.vue'));
     const DataManagementView = defineAsyncComponent(
         () => import('./components/DataManagement/index.vue')
@@ -35,7 +38,7 @@
     };
 
     /**
-     * 设置窗口需要在页面内部准备数据库，这样入口脚本不再按窗口标签承担初始化分流。
+     * 设置窗口在页面内部准备数据库，入口脚本只负责窗口装载。
      */
     async function initialize() {
         try {
@@ -79,6 +82,15 @@
                         <AiServicesView />
                         <template #fallback>
                             <LoadingState message="正在加载大模型服务设置..." />
+                        </template>
+                    </Suspense>
+                </div>
+
+                <div v-else-if="viewReady && activeSection === 'built-in-tools'" class="h-full">
+                    <Suspense>
+                        <BuiltInToolsView />
+                        <template #fallback>
+                            <LoadingState message="正在加载内置工具..." />
                         </template>
                     </Suspense>
                 </div>

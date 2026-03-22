@@ -5,6 +5,7 @@
         | 'general'
         | 'ai-services'
         | 'mcp-tools'
+        | 'built-in-tools'
         | 'data-management'
         | 'about';
 
@@ -28,6 +29,7 @@
     const navigationItems: NavigationItem[] = [
         { id: 'general', icon: 'settings', label: '常规设置' },
         { id: 'ai-services', icon: 'llm', label: '大模型服务设置' },
+        { id: 'built-in-tools', icon: 'tool', label: '内置工具' },
         { id: 'mcp-tools', icon: 'mcp', label: 'MCP 工具' },
         { id: 'data-management', icon: 'database', label: '数据管理' },
         { id: 'about', icon: 'information-circle', label: '关于' },

@@ -1,28 +1,31 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import SvgIcon from '@components/SvgIcon.vue';
     import ToolLogContent from '@components/ToolLogContent.vue';
     import { useListFilter } from '@composables/useListFilter';
-    import { findMcpToolLogsByServerId } from '@database/queries';
-    import type { McpServerEntity, McpToolLogEntity } from '@database/types';
-    import { onMounted, ref } from 'vue';
+    import { onMounted, ref, watch } from 'vue';
 
     import { getToolLogStatusText } from '../../common/toolLogStatus';
     import ToolLogStatusBadge from '../../common/ToolLogStatusBadge.vue';
+    import {
+        type BuiltInToolEntity,
+        type BuiltInToolLogEntity,
+        loadBuiltInToolQueries,
+    } from '../types';
 
     interface Props {
-        server: McpServerEntity;
+        tool: BuiltInToolEntity;
     }
 
     const props = defineProps<Props>();
 
-    const logs = ref<McpToolLogEntity[]>([]);
+    const logs = ref<BuiltInToolLogEntity[]>([]);
     const loading = ref(true);
     const loadingMore = ref(false);
-    const expandedLogs = ref<Set<number>>(new Set());
-    const PAGE_SIZE = 100;
     const hasMore = ref(false);
+    const expandedLogs = ref<Set<number>>(new Set());
+    const PAGE_SIZE = 50;
 
     const {
         filterStatus,
@@ -31,64 +34,88 @@
     } = useListFilter({
         items: logs,
         getStatus: (log) => log.status,
-        getSearchableText: (log) => [log.tool_name, log.input, log.output, log.error_message],
+        getSearchableText: (log) => [log.tool_id, log.input, log.output, log.error_message],
     });
 
-    const loadLogs = async () => {
+    function formatDate(value: string) {
+        return new Date(value).toLocaleString('zh-CN');
+    }
+
+    async function loadLogs() {
+        loading.value = true;
         try {
-            loading.value = true;
-            logs.value = await findMcpToolLogsByServerId(props.server.id, { limit: PAGE_SIZE });
+            const queries = await loadBuiltInToolQueries();
+            logs.value = await queries.findBuiltInToolLogsByToolId(props.tool.tool_id, {
+                limit: PAGE_SIZE,
+            });
             hasMore.value = logs.value.length === PAGE_SIZE;
         } catch (error) {
-            console.error('Failed to load logs:', error);
+            console.error('[BuiltInToolLogViewer] Failed to load logs:', error);
+            logs.value = [];
+            hasMore.value = false;
         } finally {
             loading.value = false;
         }
-    };
+    }
 
-    const loadMore = async () => {
+    async function loadMore() {
+        loadingMore.value = true;
         try {
-            loadingMore.value = true;
-            const moreLogs = await findMcpToolLogsByServerId(props.server.id, {
+            const queries = await loadBuiltInToolQueries();
+            const moreLogs = await queries.findBuiltInToolLogsByToolId(props.tool.tool_id, {
                 limit: PAGE_SIZE,
                 offset: logs.value.length,
             });
             logs.value.push(...moreLogs);
             hasMore.value = moreLogs.length === PAGE_SIZE;
         } catch (error) {
-            console.error('Failed to load more logs:', error);
+            console.error('[BuiltInToolLogViewer] Failed to load more logs:', error);
         } finally {
             loadingMore.value = false;
         }
-    };
+    }
 
-    const toggleExpand = (logId: number) => {
+    function toggleExpand(logId: number) {
         if (expandedLogs.value.has(logId)) {
             expandedLogs.value.delete(logId);
-        } else {
-            expandedLogs.value.add(logId);
+            return;
         }
-    };
 
-    const formatDate = (dateStr: string) => {
-        return new Date(dateStr).toLocaleString('zh-CN');
-    };
+        expandedLogs.value.add(logId);
+    }
 
     onMounted(() => {
-        loadLogs();
+        void loadLogs();
     });
+
+    watch(
+        () => props.tool.tool_id,
+        () => {
+            filterStatus.value = 'all';
+            searchQuery.value = '';
+            expandedLogs.value = new Set();
+            void loadLogs();
+        }
+    );
 </script>
 
 <template>
     <div class="p-6">
         <div class="mx-auto max-w-6xl">
-            <!-- 筛选和搜索栏 -->
-            <div class="mb-4 flex items-center justify-between gap-4">
-                <!-- 筛选标签 -->
-                <div class="flex gap-2">
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex flex-wrap gap-2">
                     <button
-                        v-for="status in ['all', 'success', 'error', 'timeout', 'pending']"
+                        v-for="status in [
+                            'all',
+                            'success',
+                            'error',
+                            'timeout',
+                            'awaiting_approval',
+                            'rejected',
+                            'pending',
+                        ]"
                         :key="status"
+                        type="button"
                         :class="[
                             'rounded-lg px-3 py-1.5 font-serif text-sm transition-colors',
                             filterStatus === status
@@ -101,8 +128,7 @@
                     </button>
                 </div>
 
-                <!-- 搜索框 -->
-                <div class="relative w-64">
+                <div class="relative w-full max-w-xs md:w-64">
                     <input
                         v-model="searchQuery"
                         type="text"
@@ -137,14 +163,15 @@
                     class="rounded-lg border border-gray-200 bg-white"
                 >
                     <button
+                        type="button"
                         class="w-full p-4 text-left transition-colors hover:bg-gray-50"
                         @click="toggleExpand(log.id)"
                     >
                         <div class="flex items-start justify-between">
                             <div class="min-w-0 flex-1">
-                                <div class="flex items-center gap-2">
+                                <div class="flex flex-wrap items-center gap-2">
                                     <span class="font-serif text-base font-medium text-gray-900">
-                                        {{ log.tool_name }}
+                                        {{ props.tool.display_name }}
                                     </span>
                                     <ToolLogStatusBadge :status="log.status" />
                                     <span class="font-serif text-xs text-gray-500">
@@ -152,7 +179,7 @@
                                     </span>
                                 </div>
                                 <div
-                                    class="mt-1 flex items-center gap-4 font-serif text-xs text-gray-500"
+                                    class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 font-serif text-xs text-gray-500"
                                 >
                                     <span>{{ formatDate(log.created_at) }}</span>
                                     <span v-if="log.duration_ms">{{ log.duration_ms }}ms</span>
@@ -182,18 +209,21 @@
                         />
 
                         <div
-                            class="mt-3 flex items-center gap-4 border-t border-gray-200 pt-3 font-mono text-xs text-gray-500"
+                            class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-200 pt-3 font-mono text-xs text-gray-500"
                         >
                             <span>Call ID: {{ log.tool_call_id }}</span>
                             <span v-if="log.session_id">Session: {{ log.session_id }}</span>
                             <span v-if="log.message_id">Message: {{ log.message_id }}</span>
+                            <span v-if="log.approval_state">
+                                Approval: {{ log.approval_state }}
+                            </span>
                         </div>
                     </div>
                 </div>
 
-                <!-- 加载更多 -->
                 <div v-if="hasMore" class="pt-2 text-center">
                     <button
+                        type="button"
                         :disabled="loadingMore"
                         class="rounded-lg bg-gray-100 px-4 py-2 font-serif text-sm text-gray-600 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
                         @click="loadMore"
