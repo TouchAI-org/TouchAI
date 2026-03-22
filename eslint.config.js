@@ -29,7 +29,7 @@ export default defineConfig([
         },
     },
     // 忽略文件
-    globalIgnores(['node_modules', 'dist', 'build', 'src-tauri', '**/*d.ts']),
+    globalIgnores(['node_modules', 'dist', 'build', 'src-tauri', '**/*d.ts','.worktrees']),
     // 推荐配置
     eslint_js.configs.recommended,
     ...eslint_ts.configs.recommended,
