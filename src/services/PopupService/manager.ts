@@ -103,8 +103,7 @@ class PopupManager {
             if (!this.isInitialized) {
                 await this.initialize();
             } else {
-                // 开发期热更新不会重启 Rust 侧状态，这里每次 show 前重新同步配置，
-                // 避免前端新增 popup 类型后原生注册表仍停留在旧版本。
+                // show 前先同步 popup 配置，确保原生注册表与前端声明的 popup 类型保持一致。
                 await this.syncPopupConfigs();
             }
 
@@ -118,7 +117,7 @@ class PopupManager {
 
             // isShow: true 标记此事件为弹窗首次展示，PopupView 仅在此时触发
             // invalidate → pendingShow → resize → show 流程。
-            // 后续 updateData 发送的 popup-data 不带此标记，避免与 popup-closed 竞态。
+            // 常规 updateData 发送的 popup-data 不带此标记，避免与 popup-closed 竞态。
             await this.dispatchPopupData({
                 popupId,
                 type,
@@ -326,8 +325,7 @@ class PopupManager {
                     return false;
                 })) ?? false;
 
-            // 只修复“没有真正显示出来”的旧隐藏窗口。
-            // 若当前 popup 已经可见，说明首屏体验正常，不能再后台关掉重建，否则会闪烁。
+            // 仅在窗口仍处于隐藏状态时执行后台重建；已可见窗口继续复用以避免闪烁。
             if (isVisible) {
                 return;
             }
@@ -365,8 +363,8 @@ class PopupManager {
     }
 
     /**
-     * popup 恢复属于延迟异步任务；窗口在等待期间可能已经被关闭或重新打开。
-     * 这里用按窗口递增的代次号隔离旧任务，避免它拿着旧位置去重建新弹窗。
+     * popup 恢复属于延迟异步任务；窗口在等待期间可能已经切换到新的会话版本。
+     * 这里用按窗口递增的代次号隔离不同会话，避免过期任务拿错误位置重建弹窗。
      */
     private isCurrentPopupSession(windowLabel: string, popupSessionVersion: number): boolean {
         return this.popupSessionVersionByWindow.get(windowLabel) === popupSessionVersion;
@@ -374,7 +372,7 @@ class PopupManager {
 
     /**
      * popup 关闭既可能来自主窗口的 hide，也可能来自 popup 自己触发的 close；
-     * 两条路径都必须统一作废当前代次，才能阻止旧恢复任务在关闭后把窗口重新拉起。
+     * 两条路径都必须统一作废当前代次，避免过期恢复任务在关闭后再次拉起窗口。
      */
     private finalizePopupClosed(payload: PopupClosedPayload): void {
         if (

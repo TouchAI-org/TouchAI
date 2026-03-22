@@ -89,8 +89,7 @@
                 popupData.value = payload.data;
                 // 仅在弹窗首次展示（isShow）时 invalidate，触发 resize → show 流程。
                 // 纯数据更新（如搜索过滤）由 ResizeObserver 自行处理高度变化，
-                // 避免 updateData 的 popup-data 事件与 popup-closed 竞态
-                // 导致已关闭的弹窗又被旧的显示流程拉起来。
+                // 避免 popup-data 与 popup-closed 竞态把已关闭弹窗再次拉起。
                 if (payload.isShow) {
                     await invalidate();
                     if (!shouldReturnFocusToMainWindow) {
@@ -106,7 +105,7 @@
             windowLabel: currentLabel,
         });
 
-        // 监听关闭事件：终止这次“resize 后再显示”的计划，避免关闭后旧流程又把窗口拉起。
+        // 监听关闭事件：终止当前 pendingShow 流程，避免关闭后再次执行 show。
         unlisteners.push(
             await eventService.on(AppEvent.POPUP_CLOSED, (payload: PopupClosedPayload) => {
                 if (payload.windowLabel !== currentLabel) {

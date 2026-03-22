@@ -37,7 +37,7 @@
     const itemRefs = ref<HTMLElement[]>([]);
     let scrollRafId: number | null = null;
 
-    // 模型列表完全由主窗口生成并透传，popup 本身不再承担数据获取职责。
+    // 模型列表由主窗口生成并透传，popup 只负责展示和交互。
     const models = computed<ModelDropdownPopupItem[]>(() => props.data?.models ?? []);
 
     const emptyStateIcon = computed(() => {

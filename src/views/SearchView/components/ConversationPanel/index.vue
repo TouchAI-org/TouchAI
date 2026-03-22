@@ -3,7 +3,7 @@
   -->
 
 <template>
-    <div class="relative w-full">
+    <div class="relative h-full min-h-0 w-full">
         <ConversationToolbar
             ref="conversationToolbar"
             :is-pinned="isPinned"
@@ -21,8 +21,8 @@
         <div
             ref="conversationContainer"
             tabindex="0"
-            class="conversation-container bg-background-primary w-full overflow-y-auto px-10 pt-[4.5rem] pb-5"
-            :style="{ maxHeight: `${maxHeight}px` }"
+            class="conversation-container bg-background-primary h-full min-h-0 w-full overflow-y-auto px-10 pt-[4.5rem] pb-5 focus:outline-none"
+            :style="conversationContainerStyle"
             @scroll="handleScroll"
             @wheel.passive="markUserScrollIntent"
             @pointerdown="markUserScrollIntent"
@@ -30,17 +30,19 @@
             @keydown="handleScrollIntentByKeyboard"
         >
             <!-- 消息列表 -->
-            <div ref="messageListRef" class="message-list">
+            <div ref="messageListRef" class="mt-4">
                 <div
-                    v-for="(message, index) in messages"
+                    v-for="message in messages"
                     :key="message.id"
                     :data-message-id="message.id"
                     :data-message-role="message.role"
                 >
                     <MessageItem
                         :message="message"
-                        :previous-message="index > 0 ? messages[index - 1] : undefined"
+                        :approval-attention-token="approvalAttentionToken"
                         @regenerate="handleRegenerateMessage"
+                        @approve-tool-approval="handleApproveToolApproval"
+                        @reject-tool-approval="handleRejectToolApproval"
                     />
                 </div>
             </div>
@@ -73,12 +75,12 @@
 
 <script setup lang="ts">
     import SvgIcon from '@components/SvgIcon.vue';
-    import type { ConversationMessage } from '@composables/useAgent.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { storeToRefs } from 'pinia';
-    import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { useSettingsStore } from '@/stores/settings';
+    import type { ConversationMessage } from '@/types/conversation';
 
     import ConversationTimeline from './components/ConversationTimeline.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
@@ -96,11 +98,13 @@
         historyOpen: boolean;
         toolbarDisabled?: boolean;
         maxHeight?: number;
+        approvalAttentionToken?: number;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         maxHeight: 600,
         toolbarDisabled: false,
+        approvalAttentionToken: 0,
     });
 
     const emit = defineEmits<{
@@ -109,6 +113,8 @@
         newSession: [];
         historyOpenChange: [payload: { open: boolean; anchorElement: HTMLElement | null }];
         historyPrefetch: [anchorElement: HTMLElement | null];
+        approveToolApproval: [callId: string];
+        rejectToolApproval: [callId: string];
         dragStart: [];
         dragEnd: [];
     }>();
@@ -134,6 +140,10 @@
     const scrollTop = ref(0);
     const scrollHeight = ref(0);
     const clientHeight = ref(0);
+    const conversationContainerStyle = computed(() => ({
+        height: '100%',
+        maxHeight: `${props.maxHeight}px`,
+    }));
 
     // 暴露 focus 方法
     function focus() {
@@ -141,8 +151,8 @@
     }
 
     /**
-     * 切换历史会话时需要丢弃上一会话的滚动状态，
-     * 否则用户在旧会话里手动滚离底部后，新会话会停在顶部，只看到最早的 prompt。
+     * 切换历史会话时需要丢弃当前滚动状态，
+     * 否则用户手动离底后的偏移会被带到新会话，初始视图会停在最早内容附近。
      */
     function revealLatestContent() {
         syncToBottom();
@@ -173,6 +183,14 @@
 
     function handleRegenerateMessage(messageId: string) {
         emit('regenerateMessage', messageId);
+    }
+
+    function handleApproveToolApproval(callId: string) {
+        emit('approveToolApproval', callId);
+    }
+
+    function handleRejectToolApproval(callId: string) {
+        emit('rejectToolApproval', callId);
     }
 
     function shouldAutoScrollOnOutput(): boolean {
@@ -401,20 +419,12 @@
 </script>
 
 <style scoped>
-    .conversation-container:focus {
-        outline: none;
-    }
-
     .conversation-container {
         scrollbar-width: none;
     }
 
     .conversation-container::-webkit-scrollbar {
         display: none;
-    }
-
-    .message-list {
-        margin-top: 1rem;
     }
 
     .scroll-fade-overlay {

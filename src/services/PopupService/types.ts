@@ -142,7 +142,7 @@ export interface PopupDataPayload {
     windowLabel?: string;
     /** true 表示弹窗首次展示（来自 show()），缺省/false 表示纯数据更新（来自 updateData()）。
      *  PopupView 仅在 isShow 时触发 invalidate → pendingShow，
-     *  避免 updateData 的跨窗口事件与 popup-closed 竞态导致已关闭弹窗被重新显示。 */
+     *  避免 updateData 的跨窗口事件与 popup-closed 竞态把已关闭弹窗再次显示。 */
     isShow?: boolean;
 }
 

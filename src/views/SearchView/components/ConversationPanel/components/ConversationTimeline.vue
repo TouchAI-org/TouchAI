@@ -33,9 +33,10 @@
 </template>
 
 <script setup lang="ts">
-    import type { ConversationMessage } from '@composables/useAgent.ts';
     import { truncateText } from '@utils/text';
     import { computed, onUnmounted, ref, watch } from 'vue';
+
+    import type { ConversationMessage } from '@/types/conversation';
 
     const TIMELINE_TOP_OFFSET = 48;
     const TIMELINE_PADDING_TOP = 20;
