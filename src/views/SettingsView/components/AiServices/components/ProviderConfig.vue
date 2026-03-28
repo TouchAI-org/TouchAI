@@ -24,12 +24,13 @@
     });
 
     const driverDefinition = computed(() => getProviderDriverDefinition(props.provider.driver));
+    const trimmedApiEndpoint = computed(() => form.value.api_endpoint.trim());
 
     const apiTargets = computed(() =>
         aiService
             .createProviderInstance(
                 props.provider.driver,
-                form.value.api_endpoint,
+                trimmedApiEndpoint.value,
                 form.value.api_key || undefined,
                 props.provider.config_json
             )
@@ -43,7 +44,7 @@
     const generationApiPreview = computed(() => apiTargets.value.generationTarget);
 
     const shouldShowGenerationApiPreview = computed(
-        () => form.value.api_endpoint.trim().length > 0 && generationApiPreview.value.length > 0
+        () => trimmedApiEndpoint.value.length > 0 && generationApiPreview.value.length > 0
     );
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -70,8 +71,12 @@
         }
 
         debounceTimer = setTimeout(() => {
+            if (!trimmedApiEndpoint.value) {
+                return;
+            }
+
             emit('update', {
-                api_endpoint: form.value.api_endpoint,
+                api_endpoint: trimmedApiEndpoint.value,
                 api_key: form.value.api_key || null,
             });
         }, 800);

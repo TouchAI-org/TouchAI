@@ -50,6 +50,9 @@
         getProviderDriverDefinition((form.value.driver as ProviderDriver) || 'openai')
     );
 
+    const trimmedProviderName = computed(() => form.value.name?.trim() || '');
+    const trimmedApiEndpoint = computed(() => form.value.api_endpoint?.trim() || '');
+
     const driverOptions = providerDriverDefinitions.map((definition) => ({
         label: definition.label,
         value: definition.driver,
@@ -60,7 +63,7 @@
         aiService
             .createProviderInstance(
                 (form.value.driver as ProviderDriver) || 'openai',
-                form.value.api_endpoint || '',
+                trimmedApiEndpoint.value,
                 form.value.api_key || undefined,
                 form.value.config_json || null
             )
@@ -70,9 +73,7 @@
     const generationApiPreview = computed(() => apiTargets.value.generationTarget);
 
     const shouldShowGenerationApiPreview = computed(
-        () =>
-            (form.value.api_endpoint?.trim().length || 0) > 0 &&
-            generationApiPreview.value.length > 0
+        () => trimmedApiEndpoint.value.length > 0 && generationApiPreview.value.length > 0
     );
 
     const handleDriverChange = () => {
@@ -80,15 +81,15 @@
     };
 
     const handleSave = () => {
-        if (!form.value.name || !form.value.api_endpoint) {
+        if (!trimmedProviderName.value || !trimmedApiEndpoint.value) {
             alert.error('请填写服务商名称和 Base URL');
             return;
         }
 
         emit('create', {
-            name: form.value.name,
+            name: trimmedProviderName.value,
             driver: form.value.driver as ProviderDriver,
-            api_endpoint: form.value.api_endpoint,
+            api_endpoint: trimmedApiEndpoint.value,
             api_key: form.value.api_key || null,
             config_json: null,
             logo: form.value.logo!,

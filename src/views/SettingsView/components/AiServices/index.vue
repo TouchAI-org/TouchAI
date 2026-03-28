@@ -171,6 +171,10 @@
             if (!provider) return;
 
             const newEnabled = provider.enabled === 1 ? 0 : 1;
+            if (newEnabled === 0) {
+                assertProviderCanBeDisabled(provider);
+            }
+
             await updateProvider({
                 id: providerId,
                 providerPatch: { enabled: newEnabled },
@@ -193,6 +197,49 @@
         alert.error(message);
     };
 
+    function requireNonEmptyProviderField(value: string, label: string): string {
+        const normalizedValue = value.trim();
+        if (!normalizedValue) {
+            throw new Error(`${label}不能为空`);
+        }
+        return normalizedValue;
+    }
+
+    function normalizeProviderPatch(providerPatch: Partial<Provider>): Partial<Provider> {
+        return {
+            ...providerPatch,
+            ...(providerPatch.name !== undefined
+                ? {
+                      name: requireNonEmptyProviderField(providerPatch.name, '服务商名称'),
+                  }
+                : {}),
+            ...(providerPatch.api_endpoint !== undefined
+                ? {
+                      api_endpoint: requireNonEmptyProviderField(
+                          providerPatch.api_endpoint,
+                          'Base URL'
+                      ),
+                  }
+                : {}),
+        };
+    }
+
+    function assertProviderCanBeDisabled(provider: Provider) {
+        if (defaultModelProviderId.value === provider.id) {
+            throw new Error('无法禁用包含默认模型的服务商，请先设置其他模型为默认');
+        }
+    }
+
+    function assertProviderCanBeDeleted(provider: Provider) {
+        if (provider.is_builtin) {
+            throw new Error('无法删除内置服务商');
+        }
+
+        if (defaultModelProviderId.value === provider.id) {
+            throw new Error('无法删除包含默认模型的服务商，请先设置其他模型为默认');
+        }
+    }
+
     const handleProviderContextMenu = (providerId: number, event: MouseEvent) => {
         openProviderMenu(event, providerId);
     };
@@ -201,9 +248,10 @@
         if (!selectedProviderId.value) return;
 
         try {
+            const normalizedProviderPatch = normalizeProviderPatch(data);
             await updateProvider({
                 id: selectedProviderId.value,
-                providerPatch: data,
+                providerPatch: normalizedProviderPatch,
             });
             await loadProviders();
             alert.success('保存成功');
@@ -222,7 +270,11 @@
 
     const handleCreateProvider = async (data: NewProvider) => {
         try {
-            await createProvider(data);
+            await createProvider({
+                ...data,
+                name: requireNonEmptyProviderField(data.name, '服务商名称'),
+                api_endpoint: requireNonEmptyProviderField(data.api_endpoint, 'Base URL'),
+            });
             await loadProviders();
             showAddDialog.value = false;
             alert.success('创建成功');
@@ -235,9 +287,10 @@
         if (!selectedProviderId.value) return;
 
         try {
+            const normalizedProviderPatch = normalizeProviderPatch(data);
             await updateProvider({
                 id: selectedProviderId.value,
-                providerPatch: data,
+                providerPatch: normalizedProviderPatch,
             });
             await loadProviders();
             showEditDialog.value = false;
@@ -249,6 +302,12 @@
 
     const handleDeleteProvider = async (providerId: number) => {
         try {
+            const provider = providers.value.find((item) => item.id === providerId);
+            if (!provider) {
+                throw new Error('服务商不存在');
+            }
+
+            assertProviderCanBeDeleted(provider);
             await deleteProvider({ id: providerId });
             await loadProviders();
             if (selectedProviderId.value === providerId) {

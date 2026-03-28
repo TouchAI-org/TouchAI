@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { db } from '../index';
 import { models, providers } from '../schema';
@@ -74,7 +74,6 @@ export const createProvider = async (
 
 /**
  * 更新服务商
- * 验证：如果服务商有默认模型，则不能禁用
  */
 export const updateProvider = async ({
     id,
@@ -83,50 +82,13 @@ export const updateProvider = async ({
     id: number;
     providerPatch: ProviderUpdateData;
 }): Promise<void> => {
-    // 如果尝试禁用服务商，检查是否有默认模型
-    if (providerPatch.enabled === 0) {
-        const defaultModel = await db
-            .getDb()
-            .select()
-            .from(models)
-            .where(and(eq(models.provider_id, id), eq(models.is_default, 1)))
-            .get();
-
-        if (defaultModel && defaultModel.id !== undefined) {
-            throw new Error('无法禁用包含默认模型的服务商，请先设置其他模型为默认');
-        }
-    }
-
     await db.getDb().update(providers).set(providerPatch).where(eq(providers.id, id)).run();
 };
 
 /**
  * 删除服务商
- * 验证：不能删除内置服务商或包含默认模型的服务商
  */
 export const deleteProvider = async ({ id }: { id: number }): Promise<boolean> => {
-    const provider = await findProviderById({ id });
-
-    if (!provider) {
-        throw new Error(`Provider with id ${id} not found`);
-    }
-
-    if (provider.is_builtin) {
-        throw new Error('无法删除内置服务商');
-    }
-
-    // 检查是否有默认模型
-    const defaultModel = await db
-        .getDb()
-        .select()
-        .from(models)
-        .where(and(eq(models.provider_id, id), eq(models.is_default, 1)))
-        .get();
-
-    if (defaultModel && defaultModel.id !== undefined) {
-        throw new Error('无法删除包含默认模型的服务商，请先设置其他模型为默认');
-    }
-
     await db.getDb().delete(providers).where(eq(providers.id, id)).run();
     return true;
 };

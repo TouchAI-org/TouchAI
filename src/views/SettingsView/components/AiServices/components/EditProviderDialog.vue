@@ -59,6 +59,7 @@
     const selectedDriverDefinition = computed(() =>
         getProviderDriverDefinition((form.value.driver as ProviderDriver) || 'openai')
     );
+    const trimmedProviderName = computed(() => form.value.name.trim());
 
     const driverOptions = providerDriverDefinitions.map((definition) => ({
         label: definition.label,
@@ -88,13 +89,13 @@
     };
 
     const handleSave = () => {
-        if (!form.value.name) {
+        if (!trimmedProviderName.value) {
             alert.error('请填写服务商名称');
             return;
         }
 
         emit('update', {
-            name: form.value.name,
+            name: trimmedProviderName.value,
             driver: form.value.driver as ProviderDriver,
             logo: form.value.logo,
         });
