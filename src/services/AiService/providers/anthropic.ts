@@ -17,6 +17,21 @@ const anthropicStyleModelsSchema = z.object({
     ),
 });
 
+function resolveAnthropicSdkBaseUrl(normalizedBaseUrl: string): string {
+    if (!normalizedBaseUrl) {
+        return '';
+    }
+
+    try {
+        const { pathname } = new URL(normalizedBaseUrl);
+        // 纯根域名按官方地址补 /v1；
+        // 带路径的地址通常已经是兼容网关给出的精确 baseURL，必须原样使用。
+        return pathname && pathname !== '/' ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
+    } catch {
+        return `${normalizedBaseUrl}/v1`;
+    }
+}
+
 /**
  * Anthropic 官方适配器。
  */
@@ -65,7 +80,7 @@ export class AnthropicProviderAdapter extends AiSdkProviderBase {
             };
         }
 
-        const sdkBaseUrl = `${this.normalizedBaseUrl}/v1`;
+        const sdkBaseUrl = resolveAnthropicSdkBaseUrl(this.normalizedBaseUrl);
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
             sdkBaseUrl,

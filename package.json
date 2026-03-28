@@ -28,10 +28,13 @@
         "db:studio": "drizzle-kit studio"
     },
     "dependencies": {
+        "@ai-sdk/alibaba": "^1.0.13",
         "@ai-sdk/anthropic": "^3.0.63",
+        "@ai-sdk/deepseek": "^2.0.26",
         "@ai-sdk/google": "^3.0.53",
+        "@ai-sdk/moonshotai": "^2.0.12",
         "@ai-sdk/openai": "^3.0.48",
-        "@ai-sdk/openai-compatible": "^2.0.37",
+        "@ai-sdk/xai": "^3.0.74",
         "@mozilla/readability": "^0.6.0",
         "@tailwindcss/vite": "^4.1.18",
         "@tauri-apps/api": "^2.8.0",
@@ -65,10 +68,12 @@
         "tauri-plugin-clipboard-x-api": "^2.0.1",
         "tauri-plugin-fs-pro-api": "^2.4.0",
         "turndown": "^7.2.2",
+        "vercel-minimax-ai-provider": "^0.0.2",
         "vue": "^3.5.13",
         "vue-draggable-plus": "^0.6.1",
         "vue-router": "4",
         "vue-sonner": "^2.0.9",
+        "zhipu-ai-provider": "^0.2.2",
         "zod": "4.3.6"
     },
     "devDependencies": {

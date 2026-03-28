@@ -1,13 +1,13 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { createDeepSeek } from '@ai-sdk/deepseek';
 import type { ProviderApiTargets } from '@services/AiService/types';
 
 import { z } from '@/utils/zod';
 
 import { AiSdkProviderBase } from './shared/ai-sdk-base';
 
-const openAiStyleModelsSchema = z.object({
+const deepseekModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
@@ -16,22 +16,21 @@ const openAiStyleModelsSchema = z.object({
 });
 
 /**
- * DeepSeek 官方适配器，走 OpenAI-compatible 传输。
+ * DeepSeek 适配器。
  */
 export class DeepSeekProviderAdapter extends AiSdkProviderBase {
     readonly name = 'DeepSeek';
     readonly driver = 'deepseek' as const;
 
-    private sdkProvider = createOpenAICompatible({
-        name: 'deepseek',
+    private sdkProvider = createDeepSeek({
         apiKey: this.apiKey,
-        baseURL: this.getApiTargets().sdkBaseUrl,
+        baseURL: this.getApiTargets().sdkBaseUrl || undefined,
         headers: this.getCustomHeaders(),
         fetch: this.fetch,
     });
 
     protected createLanguageModel(modelId: string) {
-        return this.sdkProvider.chatModel(modelId);
+        return this.sdkProvider.chat(modelId);
     }
 
     protected getDiscoveryHeaders(): Record<string, string> {
@@ -46,7 +45,7 @@ export class DeepSeekProviderAdapter extends AiSdkProviderBase {
     }
 
     protected parseModelList(payload: unknown) {
-        const parsed = openAiStyleModelsSchema.parse(payload);
+        const parsed = deepseekModelsSchema.parse(payload);
         return parsed.data.map((model) => ({
             id: model.id,
             name: model.id,
@@ -63,12 +62,11 @@ export class DeepSeekProviderAdapter extends AiSdkProviderBase {
             };
         }
 
-        const sdkBaseUrl = `${this.normalizedBaseUrl}/v1`;
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
-            sdkBaseUrl,
-            generationTarget: `${sdkBaseUrl}/chat/completions`,
-            discoveryTarget: `${sdkBaseUrl}/models`,
+            sdkBaseUrl: this.normalizedBaseUrl,
+            generationTarget: `${this.normalizedBaseUrl}/chat/completions`,
+            discoveryTarget: `${this.normalizedBaseUrl}/models`,
         };
     }
 }

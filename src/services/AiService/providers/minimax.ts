@@ -1,42 +1,45 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { createXai } from '@ai-sdk/xai';
 import type { ProviderApiTargets } from '@services/AiService/types';
+import { createMinimax } from 'vercel-minimax-ai-provider';
 
 import { z } from '@/utils/zod';
 
 import { AiSdkProviderBase } from './shared/ai-sdk-base';
 
-const xaiModelsSchema = z.object({
+const minimaxModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
+            display_name: z.string().optional(),
+            displayName: z.string().optional(),
         })
     ),
 });
 
-function resolveXaiSdkBaseUrl(normalizedBaseUrl: string): string {
+function resolveMiniMaxSdkBaseUrl(normalizedBaseUrl: string): string {
     if (!normalizedBaseUrl) {
         return '';
     }
 
     try {
         const { pathname } = new URL(normalizedBaseUrl);
-        // xAI 官方 SDK 默认基于 /v1；当用户已经输入完整路径时，必须原样使用该网关地址。
-        return pathname && pathname !== '/' ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
+        return pathname && pathname !== '/'
+            ? normalizedBaseUrl
+            : `${normalizedBaseUrl}/anthropic/v1`;
     } catch {
-        return `${normalizedBaseUrl}/v1`;
+        return `${normalizedBaseUrl}/anthropic/v1`;
     }
 }
 
 /**
- * xAI 官方适配器。
+ * MiniMax 适配器。
  */
-export class XaiProviderAdapter extends AiSdkProviderBase {
-    readonly name = 'xAI';
-    readonly driver = 'xai' as const;
+export class MiniMaxProviderAdapter extends AiSdkProviderBase {
+    readonly name = 'MiniMax';
+    readonly driver = 'minimax' as const;
 
-    private sdkProvider = createXai({
+    private sdkProvider = createMinimax({
         apiKey: this.apiKey,
         baseURL: this.getApiTargets().sdkBaseUrl || undefined,
         headers: this.getCustomHeaders(),
@@ -59,10 +62,10 @@ export class XaiProviderAdapter extends AiSdkProviderBase {
     }
 
     protected parseModelList(payload: unknown) {
-        const parsed = xaiModelsSchema.parse(payload);
+        const parsed = minimaxModelsSchema.parse(payload);
         return parsed.data.map((model) => ({
             id: model.id,
-            name: model.id,
+            name: model.display_name || model.displayName || model.id,
         }));
     }
 
@@ -76,11 +79,11 @@ export class XaiProviderAdapter extends AiSdkProviderBase {
             };
         }
 
-        const sdkBaseUrl = resolveXaiSdkBaseUrl(this.normalizedBaseUrl);
+        const sdkBaseUrl = resolveMiniMaxSdkBaseUrl(this.normalizedBaseUrl);
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
             sdkBaseUrl,
-            generationTarget: `${sdkBaseUrl}/chat/completions`,
+            generationTarget: `${sdkBaseUrl}/messages`,
             discoveryTarget: `${sdkBaseUrl}/models`,
         };
     }

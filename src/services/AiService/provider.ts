@@ -3,15 +3,16 @@
 import type { ProviderDriver } from '@database/schema';
 
 import { AnthropicProviderAdapter } from './providers/anthropic';
-import { AnthropicCompatibleProviderAdapter } from './providers/anthropic-compatible';
+import { AlibabaProviderAdapter } from './providers/alibaba';
 import { DeepSeekProviderAdapter } from './providers/deepseek';
 import { GoogleProviderAdapter } from './providers/google';
+import { MiniMaxProviderAdapter } from './providers/minimax';
 import { MoonshotProviderAdapter } from './providers/moonshot';
 import { OpenAIProviderAdapter } from './providers/openai';
-import { OpenAICompatibleProviderAdapter } from './providers/openai-compatible';
 import { normalizeProviderBaseUrl } from './providers/shared/ai-sdk-base';
 import { XaiProviderAdapter } from './providers/xai';
 import type { AiProvider, AiProviderConfig } from './types';
+import { ZhipuProviderAdapter } from './providers/zhipu';
 
 export interface ProviderDriverDefinition {
     driver: ProviderDriver;
@@ -60,19 +61,25 @@ export const providerDriverDefinitions: ProviderDriverDefinition[] = [
         driver: 'moonshot',
         label: 'Moonshot',
         logo: 'moonshot.png',
-        placeholder: 'https://api.moonshot.cn',
+        placeholder: 'https://api.moonshot.ai/v1',
     },
     {
-        driver: 'openai-compatible',
-        label: 'OpenAI 兼容',
-        logo: 'openai.png',
-        placeholder: 'https://your-host/v1',
+        driver: 'alibaba',
+        label: '阿里云百炼',
+        logo: 'bailian.png',
+        placeholder: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     },
     {
-        driver: 'anthropic-compatible',
-        label: 'Anthropic 兼容',
-        logo: 'anthropic.png',
-        placeholder: 'https://your-host/v1',
+        driver: 'minimax',
+        label: 'MiniMax',
+        logo: 'minimax.png',
+        placeholder: 'https://api.minimax.io/anthropic/v1',
+    },
+    {
+        driver: 'zhipu',
+        label: '智谱',
+        logo: 'zhipu.png',
+        placeholder: 'https://open.bigmodel.cn/api/paas/v4',
     },
 ];
 
@@ -113,13 +120,18 @@ registerProvider({
 });
 
 registerProvider({
-    driver: 'openai-compatible',
-    create: (config) => new OpenAICompatibleProviderAdapter(config),
+    driver: 'alibaba',
+    create: (config) => new AlibabaProviderAdapter(config),
 });
 
 registerProvider({
-    driver: 'anthropic-compatible',
-    create: (config) => new AnthropicCompatibleProviderAdapter(config),
+    driver: 'minimax',
+    create: (config) => new MiniMaxProviderAdapter(config),
+});
+
+registerProvider({
+    driver: 'zhipu',
+    create: (config) => new ZhipuProviderAdapter(config),
 });
 
 function getProviderAdapter(driver: ProviderDriver): ProviderAdapter {

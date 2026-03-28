@@ -15,6 +15,21 @@ const openAiStyleModelsSchema = z.object({
     ),
 });
 
+function resolveOpenAiSdkBaseUrl(normalizedBaseUrl: string): string {
+    if (!normalizedBaseUrl) {
+        return '';
+    }
+
+    try {
+        const { pathname } = new URL(normalizedBaseUrl);
+        // 纯根域名按 OpenAI 官方语义自动补 /v1；
+        // 只要用户已经填了路径，就视为精确 compatible baseURL，不能再追加路径。
+        return pathname && pathname !== '/' ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
+    } catch {
+        return `${normalizedBaseUrl}/v1`;
+    }
+}
+
 /**
  * OpenAI 官方适配器。
  */
@@ -62,7 +77,7 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
             };
         }
 
-        const sdkBaseUrl = `${this.normalizedBaseUrl}/v1`;
+        const sdkBaseUrl = resolveOpenAiSdkBaseUrl(this.normalizedBaseUrl);
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
             sdkBaseUrl,

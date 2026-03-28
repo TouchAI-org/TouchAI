@@ -1,13 +1,14 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { ProviderApiTargets } from '@services/AiService/types';
+import { type LanguageModel } from 'ai';
+import { createZhipu } from 'zhipu-ai-provider';
 
 import { z } from '@/utils/zod';
 
 import { AiSdkProviderBase } from './shared/ai-sdk-base';
 
-const openAiStyleModelsSchema = z.object({
+const zhipuModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
@@ -15,23 +16,37 @@ const openAiStyleModelsSchema = z.object({
     ),
 });
 
-/**
- * OpenAI-compatible 适配器。
- */
-export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
-    readonly name = 'OpenAI Compatible';
-    readonly driver = 'openai-compatible' as const;
+function resolveZhipuSdkBaseUrl(normalizedBaseUrl: string): string {
+    if (!normalizedBaseUrl) {
+        return '';
+    }
 
-    private sdkProvider = createOpenAICompatible({
-        name: 'openai-compatible',
+    try {
+        const { pathname } = new URL(normalizedBaseUrl);
+        return pathname && pathname !== '/'
+            ? normalizedBaseUrl
+            : `${normalizedBaseUrl}/api/paas/v4`;
+    } catch {
+        return `${normalizedBaseUrl}/api/paas/v4`;
+    }
+}
+
+/**
+ * 智谱适配器。
+ */
+export class ZhipuProviderAdapter extends AiSdkProviderBase {
+    readonly name = 'Zhipu';
+    readonly driver = 'zhipu' as const;
+
+    private sdkProvider = createZhipu({
         apiKey: this.apiKey,
-        baseURL: this.getApiTargets().sdkBaseUrl,
+        baseURL: this.getApiTargets().sdkBaseUrl || undefined,
         headers: this.getCustomHeaders(),
         fetch: this.fetch,
     });
 
     protected createLanguageModel(modelId: string) {
-        return this.sdkProvider.chatModel(modelId);
+        return this.sdkProvider.chat(modelId) as unknown as LanguageModel;
     }
 
     protected getDiscoveryHeaders(): Record<string, string> {
@@ -46,7 +61,7 @@ export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
     }
 
     protected parseModelList(payload: unknown) {
-        const parsed = openAiStyleModelsSchema.parse(payload);
+        const parsed = zhipuModelsSchema.parse(payload);
         return parsed.data.map((model) => ({
             id: model.id,
             name: model.id,
@@ -63,11 +78,12 @@ export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
             };
         }
 
+        const sdkBaseUrl = resolveZhipuSdkBaseUrl(this.normalizedBaseUrl);
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
-            sdkBaseUrl: this.normalizedBaseUrl,
-            generationTarget: `${this.normalizedBaseUrl}/chat/completions`,
-            discoveryTarget: `${this.normalizedBaseUrl}/models`,
+            sdkBaseUrl,
+            generationTarget: `${sdkBaseUrl}/chat/completions`,
+            discoveryTarget: `${sdkBaseUrl}/models`,
         };
     }
 }

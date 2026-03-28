@@ -1,58 +1,69 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { createAnthropic } from '@ai-sdk/anthropic';
+import { createAlibaba } from '@ai-sdk/alibaba';
 import type { ProviderApiTargets } from '@services/AiService/types';
 
 import { z } from '@/utils/zod';
 
 import { AiSdkProviderBase } from './shared/ai-sdk-base';
 
-const anthropicStyleModelsSchema = z.object({
+const alibabaModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
-            display_name: z.string().optional(),
-            displayName: z.string().optional(),
         })
     ),
 });
 
-/**
- * Anthropic-compatible 适配器。
- */
-export class AnthropicCompatibleProviderAdapter extends AiSdkProviderBase {
-    readonly name = 'Anthropic Compatible';
-    readonly driver = 'anthropic-compatible' as const;
+function resolveAlibabaSdkBaseUrl(normalizedBaseUrl: string): string {
+    if (!normalizedBaseUrl) {
+        return '';
+    }
 
-    private sdkProvider = createAnthropic({
+    try {
+        const { pathname } = new URL(normalizedBaseUrl);
+        return pathname && pathname !== '/'
+            ? normalizedBaseUrl
+            : `${normalizedBaseUrl}/compatible-mode/v1`;
+    } catch {
+        return `${normalizedBaseUrl}/compatible-mode/v1`;
+    }
+}
+
+/**
+ * Alibaba 适配器。
+ */
+export class AlibabaProviderAdapter extends AiSdkProviderBase {
+    readonly name = 'Alibaba';
+    readonly driver = 'alibaba' as const;
+
+    private sdkProvider = createAlibaba({
         apiKey: this.apiKey,
         baseURL: this.getApiTargets().sdkBaseUrl || undefined,
         headers: this.getCustomHeaders(),
         fetch: this.fetch,
-        name: 'anthropic-compatible.messages',
     });
 
     protected createLanguageModel(modelId: string) {
-        return this.sdkProvider.chat(modelId);
+        return this.sdkProvider.chatModel(modelId);
     }
 
     protected getDiscoveryHeaders(): Record<string, string> {
         return {
             ...(this.apiKey
                 ? {
-                      'x-api-key': this.apiKey,
+                      Authorization: `Bearer ${this.apiKey}`,
                   }
                 : {}),
-            'anthropic-version': '2023-06-01',
             ...this.getCustomHeaders(),
         };
     }
 
     protected parseModelList(payload: unknown) {
-        const parsed = anthropicStyleModelsSchema.parse(payload);
+        const parsed = alibabaModelsSchema.parse(payload);
         return parsed.data.map((model) => ({
             id: model.id,
-            name: model.display_name || model.displayName || model.id,
+            name: model.id,
         }));
     }
 
@@ -66,11 +77,12 @@ export class AnthropicCompatibleProviderAdapter extends AiSdkProviderBase {
             };
         }
 
+        const sdkBaseUrl = resolveAlibabaSdkBaseUrl(this.normalizedBaseUrl);
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
-            sdkBaseUrl: this.normalizedBaseUrl,
-            generationTarget: `${this.normalizedBaseUrl}/messages`,
-            discoveryTarget: `${this.normalizedBaseUrl}/models`,
+            sdkBaseUrl,
+            generationTarget: `${sdkBaseUrl}/chat/completions`,
+            discoveryTarget: `${sdkBaseUrl}/models`,
         };
     }
 }

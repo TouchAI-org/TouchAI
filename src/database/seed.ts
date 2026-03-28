@@ -114,7 +114,7 @@ const BUILTIN_PROVIDERS = [
     },
     {
         name: '火山引擎',
-        driver: 'openai-compatible',
+        driver: 'openai',
         api_endpoint: 'https://ark.cn-beijing.volces.com/api/v3',
         config_json: null,
         logo: 'volcengine.png',
@@ -133,7 +133,7 @@ const BUILTIN_PROVIDERS = [
     {
         name: 'Grok',
         driver: 'xai',
-        api_endpoint: 'https://api.x.ai',
+        api_endpoint: 'https://api.x.ai/v1',
         config_json: null,
         logo: 'grok.png',
         enabled: 0,
@@ -142,7 +142,7 @@ const BUILTIN_PROVIDERS = [
     {
         name: '腾讯混元',
         driver: 'openai',
-        api_endpoint: 'https://api.hunyuan.cloud.tencent.com',
+        api_endpoint: 'https://api.hunyuan.cloud.tencent.com/v1',
         config_json: null,
         logo: 'hunyuan.png',
         enabled: 0,
@@ -150,8 +150,8 @@ const BUILTIN_PROVIDERS = [
     },
     {
         name: 'MiniMax',
-        driver: 'anthropic',
-        api_endpoint: 'https://api.minimaxi.com/anthropic',
+        driver: 'minimax',
+        api_endpoint: 'https://api.minimax.io/anthropic/v1',
         config_json: null,
         logo: 'minimax.png',
         enabled: 0,
@@ -160,7 +160,7 @@ const BUILTIN_PROVIDERS = [
     {
         name: '月之暗面',
         driver: 'moonshot',
-        api_endpoint: 'https://api.moonshot.cn',
+        api_endpoint: 'https://api.moonshot.ai/v1',
         config_json: null,
         logo: 'moonshot.png',
         enabled: 0,
@@ -168,8 +168,8 @@ const BUILTIN_PROVIDERS = [
     },
     {
         name: '阿里云百炼',
-        driver: 'openai',
-        api_endpoint: 'https://dashscope.aliyuncs.com/compatible-mode',
+        driver: 'alibaba',
+        api_endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
         config_json: null,
         logo: 'bailian.png',
         enabled: 0,
@@ -177,8 +177,8 @@ const BUILTIN_PROVIDERS = [
     },
     {
         name: '智谱',
-        driver: 'openai',
-        api_endpoint: 'https://open.bigmodel.cn/api/paas',
+        driver: 'zhipu',
+        api_endpoint: 'https://open.bigmodel.cn/api/paas/v4',
         config_json: null,
         logo: 'zhipu.png',
         enabled: 0,

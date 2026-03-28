@@ -1,13 +1,13 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { createMoonshotAI } from '@ai-sdk/moonshotai';
 import type { ProviderApiTargets } from '@services/AiService/types';
 
 import { z } from '@/utils/zod';
 
 import { AiSdkProviderBase } from './shared/ai-sdk-base';
 
-const openAiStyleModelsSchema = z.object({
+const moonshotModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
@@ -15,17 +15,29 @@ const openAiStyleModelsSchema = z.object({
     ),
 });
 
+function resolveMoonshotSdkBaseUrl(normalizedBaseUrl: string): string {
+    if (!normalizedBaseUrl) {
+        return '';
+    }
+
+    try {
+        const { pathname } = new URL(normalizedBaseUrl);
+        return pathname && pathname !== '/' ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
+    } catch {
+        return `${normalizedBaseUrl}/v1`;
+    }
+}
+
 /**
- * Moonshot 官方适配器，走 OpenAI-compatible 传输。
+ * Moonshot 适配器。
  */
 export class MoonshotProviderAdapter extends AiSdkProviderBase {
     readonly name = 'Moonshot';
     readonly driver = 'moonshot' as const;
 
-    private sdkProvider = createOpenAICompatible({
-        name: 'moonshot',
+    private sdkProvider = createMoonshotAI({
         apiKey: this.apiKey,
-        baseURL: this.getApiTargets().sdkBaseUrl,
+        baseURL: this.getApiTargets().sdkBaseUrl || undefined,
         headers: this.getCustomHeaders(),
         fetch: this.fetch,
     });
@@ -46,7 +58,7 @@ export class MoonshotProviderAdapter extends AiSdkProviderBase {
     }
 
     protected parseModelList(payload: unknown) {
-        const parsed = openAiStyleModelsSchema.parse(payload);
+        const parsed = moonshotModelsSchema.parse(payload);
         return parsed.data.map((model) => ({
             id: model.id,
             name: model.id,
@@ -63,7 +75,7 @@ export class MoonshotProviderAdapter extends AiSdkProviderBase {
             };
         }
 
-        const sdkBaseUrl = `${this.normalizedBaseUrl}/v1`;
+        const sdkBaseUrl = resolveMoonshotSdkBaseUrl(this.normalizedBaseUrl);
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
             sdkBaseUrl,
