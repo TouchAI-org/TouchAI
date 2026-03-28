@@ -116,7 +116,13 @@ export const HIGH_RISK_RULES: Array<{ pattern: RegExp; reason: string }> = [
 /**
  * 暴露给模型的 Bash 工具说明。
  */
-export const BASH_TOOL_DESCRIPTION = '执行终端命令';
+export const BASH_TOOL_DESCRIPTION = [
+    'Execute terminal commands in the real local environment.',
+    'Platform: Windows.',
+    'Shell: Windows PowerShell (`powershell.exe` run with `-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command`).',
+    'Use PowerShell syntax, cmdlets, and Windows paths instead of bash/sh syntax.',
+    'For multiline text in PowerShell, prefer here-strings such as `@\'...\'@` or `@"..."@` instead of `\\n` escape sequences.',
+].join(' ');
 
 /**
  * 暴露给模型的 Bash 工具输入 schema。
@@ -126,7 +132,8 @@ export const BASH_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
     properties: {
         command: {
             type: 'string',
-            description: 'The PowerShell command to execute.',
+            description:
+                'The Windows PowerShell command to execute. Use PowerShell syntax. For multiline text, prefer here-strings instead of `\\n` escape sequences.',
         },
         reason: {
             type: 'string',
