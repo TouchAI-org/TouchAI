@@ -12,7 +12,11 @@ import type { ProviderDriver, ToolLogKind } from '@database/schema';
 import type { SessionTurnEntity } from '@database/types';
 import type { Index } from '@services/AiService/attachments';
 
-import { type BuiltInToolId, builtInToolService } from '@/services/BuiltInToolService';
+import {
+    type BuiltInToolControlSignal,
+    type BuiltInToolId,
+    builtInToolService,
+} from '@/services/BuiltInToolService';
 import { useSettingsStore } from '@/stores/settings';
 import { collapseWhitespace, truncateText } from '@/utils/text';
 import { z } from '@/utils/zod';
@@ -23,7 +27,12 @@ import { buildRequestMessages } from './messages';
 import { Persister } from './persister';
 import { createProviderFromRegistry } from './provider';
 import { parseProviderConfigJson } from './providers/shared/ai-sdk-base';
-import { getRetryDelayMs, MAX_REQUEST_RETRIES, shouldRetryRequestFailure } from './retry';
+import {
+    getRetryDelayMs,
+    MAX_REQUEST_RETRIES,
+    shouldRetryRequestFailure,
+    waitForRetryDelay,
+} from './retry';
 import type {
     AiMessage,
     AiProvider,
@@ -90,29 +99,10 @@ function cloneAiMessages(messages: AiMessage[]): AiMessage[] {
     return JSON.parse(JSON.stringify(messages)) as AiMessage[];
 }
 
-async function waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
-    if (delayMs <= 0) {
-        return;
-    }
-
+function throwIfAborted(signal?: AbortSignal): void {
     if (signal?.aborted) {
         throw new AiError(AiErrorCode.REQUEST_CANCELLED);
     }
-
-    await new Promise<void>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-            signal?.removeEventListener('abort', handleAbort);
-            resolve();
-        }, delayMs);
-
-        const handleAbort = () => {
-            clearTimeout(timeoutId);
-            signal?.removeEventListener('abort', handleAbort);
-            reject(new AiError(AiErrorCode.REQUEST_CANCELLED));
-        };
-
-        signal?.addEventListener('abort', handleAbort, { once: true });
-    });
 }
 
 function formatToolArgumentsIssues(error: z.ZodError): string {
@@ -178,6 +168,56 @@ export interface ExecuteRequestResult {
     reasoning: string;
     turn: SessionTurnEntity | null;
 }
+
+interface AttemptRuntime {
+    activeModel: ModelWithProvider;
+    provider: AiProvider;
+    tools?: AiToolDefinition[];
+    messages: AiMessage[];
+    response: string;
+    reasoning: string;
+    iteration: number;
+    modelSwitchCount: number;
+    attemptHasVisibleOutput: boolean;
+    attemptHasToolActivity: boolean;
+    executedBuiltInTools: Set<BuiltInToolId>;
+}
+
+interface ToolExecutionResult {
+    toolCall: AiToolCall;
+    result: string;
+    isError: boolean;
+    toolLogId: number | null;
+    toolLogKind: ToolLogKind | null;
+    builtInToolId?: BuiltInToolId;
+    controlSignal?: BuiltInToolControlSignal;
+}
+
+type AttemptStepResult =
+    | { type: 'done' }
+    | {
+          type: 'tool_calls';
+          chunkResponse: string;
+          toolCalls: AiToolCall[];
+      };
+
+type AttemptExecutionResult =
+    | {
+          type: 'completed';
+          model: ModelWithProvider;
+          response: string;
+          reasoning: string;
+      }
+    | {
+          type: 'failed';
+          error: AiError;
+          response: string;
+          hasVisibleOutput: boolean;
+          hasToolActivity: boolean;
+          providerErrorDetails: ProviderErrorDetails | null;
+      };
+
+type AttemptFailureResult = Extract<AttemptExecutionResult, { type: 'failed' }>;
 
 /**
  * 模型与服务商信息的联合类型
@@ -247,6 +287,15 @@ export class AiServiceManager {
             apiKey: apiKey || undefined,
             config: parseProviderConfigJson(configJson),
         });
+    }
+
+    private createProviderForModel(model: ModelWithProvider): AiProvider {
+        return this.createProviderInstance(
+            model.provider_driver as ProviderDriver,
+            model.api_endpoint,
+            model.api_key,
+            model.provider_config_json
+        );
     }
 
     /**
@@ -436,6 +485,327 @@ export class AiServiceManager {
         };
     }
 
+    private async createAttemptRuntime(options: {
+        initialModel: ModelWithProvider;
+        baseMessages: AiMessage[];
+        retryAttempt: number;
+    }): Promise<AttemptRuntime> {
+        const { initialModel, baseMessages, retryAttempt } = options;
+
+        return {
+            activeModel: initialModel,
+            provider: this.createProviderForModel(initialModel),
+            tools: await this.resolveToolDefinitions(initialModel),
+            messages: retryAttempt === 0 ? baseMessages : cloneAiMessages(baseMessages),
+            response: '',
+            reasoning: '',
+            iteration: 0,
+            modelSwitchCount: 0,
+            attemptHasVisibleOutput: false,
+            attemptHasToolActivity: false,
+            executedBuiltInTools: new Set<BuiltInToolId>(),
+        };
+    }
+
+    private async consumeModelStep(
+        runtime: AttemptRuntime,
+        options: {
+            signal?: AbortSignal;
+            onChunk?: ExecuteRequestOptions['onChunk'];
+        }
+    ): Promise<AttemptStepResult> {
+        const stream = this.stream(
+            runtime.provider,
+            runtime.activeModel.model_id,
+            runtime.messages,
+            runtime.tools,
+            options.signal,
+            runtime.activeModel.output_limit ?? undefined
+        );
+        let chunkResponse = '';
+        let finishReason: string | undefined;
+        let toolCalls: AiToolCall[] | undefined;
+
+        for await (const chunk of stream) {
+            throwIfAborted(options.signal);
+
+            if (chunk.reasoning) {
+                runtime.reasoning += chunk.reasoning;
+                runtime.attemptHasVisibleOutput = true;
+            }
+
+            if (chunk.content) {
+                chunkResponse += chunk.content;
+                runtime.response += chunk.content;
+                runtime.attemptHasVisibleOutput = true;
+            }
+
+            if (
+                chunk.toolEvent ||
+                (chunk.toolCallDeltas && chunk.toolCallDeltas.length > 0) ||
+                (chunk.done && chunk.toolCalls && chunk.toolCalls.length > 0)
+            ) {
+                runtime.attemptHasToolActivity = true;
+            }
+
+            options.onChunk?.(chunk);
+
+            if (chunk.done) {
+                finishReason = chunk.finishReason;
+                toolCalls = chunk.toolCalls;
+                break;
+            }
+        }
+
+        const isToolRelated = finishReason === 'tool_calls' || finishReason === 'tool_use';
+        if (!isToolRelated || !toolCalls || toolCalls.length === 0) {
+            return { type: 'done' };
+        }
+
+        runtime.attemptHasToolActivity = true;
+        return {
+            type: 'tool_calls',
+            chunkResponse,
+            toolCalls,
+        };
+    }
+
+    private async executeToolCall(
+        runtime: AttemptRuntime,
+        options: {
+            toolCall: AiToolCall;
+            toolCallMessageId: number | null;
+            persister: Persister;
+            signal?: AbortSignal;
+            onChunk?: ExecuteRequestOptions['onChunk'];
+            requestToolApproval?: ExecuteRequestOptions['requestToolApproval'];
+        }
+    ): Promise<ToolExecutionResult> {
+        throwIfAborted(options.signal);
+
+        const parsedToolArguments = parseToolCallArguments(options.toolCall);
+        if (!parsedToolArguments.ok) {
+            this.emitToolEvent(options.onChunk, {
+                type: 'call_end',
+                callId: options.toolCall.id,
+                result: parsedToolArguments.errorResult,
+                isError: true,
+                durationMs: 0,
+                finalStatus: 'error',
+            });
+
+            return {
+                toolCall: options.toolCall,
+                result: parsedToolArguments.errorResult,
+                isError: true,
+                toolLogId: null,
+                toolLogKind: null,
+            };
+        }
+
+        const { toolArgs } = parsedToolArguments;
+        const builtInResult = await builtInToolService.executeTool({
+            toolCall: options.toolCall,
+            toolArgs,
+            iteration: runtime.iteration,
+            currentModel: runtime.activeModel,
+            hasExecutedBuiltInTool: (toolId) => runtime.executedBuiltInTools.has(toolId),
+            signal: options.signal,
+            toolCallMessageId: options.toolCallMessageId,
+            sessionId: options.persister.getSessionId(),
+            requestToolApproval: options.requestToolApproval,
+            emitToolEvent: (toolEvent) => this.emitToolEvent(options.onChunk, toolEvent),
+        });
+
+        if (builtInResult) {
+            return builtInResult;
+        }
+
+        return this.executeMcpToolCall({
+            toolCall: options.toolCall,
+            toolArgs,
+            iteration: runtime.iteration,
+            signal: options.signal,
+            toolCallMessageId: options.toolCallMessageId,
+            sessionId: options.persister.getSessionId(),
+            onChunk: options.onChunk,
+        });
+    }
+
+    private async runToolRound(
+        runtime: AttemptRuntime,
+        options: {
+            step: Extract<AttemptStepResult, { type: 'tool_calls' }>;
+            persister: Persister;
+            signal?: AbortSignal;
+            onChunk?: ExecuteRequestOptions['onChunk'];
+            requestToolApproval?: ExecuteRequestOptions['requestToolApproval'];
+        }
+    ): Promise<void> {
+        this.emitToolEvent(options.onChunk, {
+            type: 'iteration_start',
+            iteration: runtime.iteration,
+        });
+
+        runtime.messages.push({
+            role: 'assistant',
+            content: options.step.chunkResponse,
+            tool_calls: options.step.toolCalls,
+        });
+
+        const toolCallMessageId = await options.persister.persistToolCallMessage(
+            options.step.chunkResponse
+        );
+
+        const toolResults = await Promise.all(
+            options.step.toolCalls.map((toolCall) =>
+                this.executeToolCall(runtime, {
+                    toolCall,
+                    toolCallMessageId,
+                    persister: options.persister,
+                    signal: options.signal,
+                    onChunk: options.onChunk,
+                    requestToolApproval: options.requestToolApproval,
+                })
+            )
+        );
+
+        let requestedModelSwitch: BuiltInToolControlSignal | null = null;
+        for (const {
+            toolCall,
+            builtInToolId,
+            result,
+            isError,
+            toolLogId,
+            toolLogKind,
+            controlSignal,
+        } of toolResults) {
+            runtime.messages.push({
+                role: 'tool',
+                content: result,
+                tool_call_id: toolCall.id,
+                name: toolCall.name,
+                isError,
+            });
+
+            await options.persister.persistToolResultMessage(result, toolLogId, toolLogKind);
+
+            if (builtInToolId && !isError) {
+                runtime.executedBuiltInTools.add(builtInToolId);
+            }
+
+            if (!requestedModelSwitch && controlSignal?.type === 'upgrade_model') {
+                requestedModelSwitch = controlSignal;
+            }
+        }
+
+        this.emitToolEvent(options.onChunk, {
+            type: 'iteration_end',
+            iteration: runtime.iteration,
+        });
+
+        if (requestedModelSwitch?.type === 'upgrade_model') {
+            const previousModel = runtime.activeModel;
+            runtime.activeModel = requestedModelSwitch.targetModel;
+            runtime.modelSwitchCount += 1;
+            runtime.provider = this.createProviderForModel(runtime.activeModel);
+            runtime.tools = await this.resolveToolDefinitions(runtime.activeModel, {
+                disableUpgradeModel: runtime.modelSwitchCount >= MAX_REQUEST_MODEL_SWITCHES,
+            });
+
+            this.emitToolEvent(options.onChunk, {
+                type: 'model_switched',
+                fromModel: this.buildToolEventModelSummary(previousModel),
+                toModel: this.buildToolEventModelSummary(runtime.activeModel),
+                restart: requestedModelSwitch.restartCurrentRequest,
+            });
+        }
+    }
+
+    private async runSingleAttempt(options: {
+        initialModel: ModelWithProvider;
+        baseMessages: AiMessage[];
+        retryAttempt: number;
+        maxIterations: number;
+        persister: Persister;
+        signal?: AbortSignal;
+        onChunk?: ExecuteRequestOptions['onChunk'];
+        requestToolApproval?: ExecuteRequestOptions['requestToolApproval'];
+    }): Promise<AttemptExecutionResult> {
+        const runtime = await this.createAttemptRuntime({
+            initialModel: options.initialModel,
+            baseMessages: options.baseMessages,
+            retryAttempt: options.retryAttempt,
+        });
+
+        try {
+            while (runtime.iteration < options.maxIterations) {
+                throwIfAborted(options.signal);
+
+                const step = await this.consumeModelStep(runtime, {
+                    signal: options.signal,
+                    onChunk: options.onChunk,
+                });
+
+                if (step.type === 'done') {
+                    break;
+                }
+
+                await this.runToolRound(runtime, {
+                    step,
+                    persister: options.persister,
+                    signal: options.signal,
+                    onChunk: options.onChunk,
+                    requestToolApproval: options.requestToolApproval,
+                });
+
+                runtime.iteration += 1;
+            }
+
+            if (runtime.iteration >= options.maxIterations) {
+                console.warn('[AiServiceManager] Max iterations reached');
+                runtime.response += `\n\n[${AiError.getMessage(AiErrorCode.MCP_MAX_ITERATIONS_REACHED)}]`;
+            }
+
+            throwIfAborted(options.signal);
+
+            if (!runtime.response.trim() && !runtime.reasoning.trim()) {
+                throw new AiError(AiErrorCode.EMPTY_RESPONSE);
+            }
+
+            return {
+                type: 'completed',
+                model: runtime.activeModel,
+                response: runtime.response,
+                reasoning: runtime.reasoning,
+            };
+        } catch (error) {
+            console.warn('[AiServiceManager] Request failed:', error, typeof error);
+            const providerErrorDetails = extractProviderErrorDetails(error);
+            if (providerErrorDetails) {
+                console.warn('[AiServiceManager] Provider error details:', providerErrorDetails);
+            }
+
+            return {
+                type: 'failed',
+                error: AiError.fromError(error),
+                response: runtime.response,
+                hasVisibleOutput: runtime.attemptHasVisibleOutput,
+                hasToolActivity: runtime.attemptHasToolActivity,
+                providerErrorDetails,
+            };
+        }
+    }
+
+    private shouldRetryAttempt(result: AttemptFailureResult, retryAttempt: number): boolean {
+        return (
+            retryAttempt < MAX_REQUEST_RETRIES &&
+            !result.hasVisibleOutput &&
+            !result.hasToolActivity &&
+            shouldRetryRequestFailure(result.error, result.providerErrorDetails)
+        );
+    }
+
     /**
      * 执行 AI 请求流程：模型解析、流消费、分阶段持久化。
      * 支持工具调用循环。
@@ -491,267 +861,27 @@ export class AiServiceManager {
             const maxIterations = settingsStore.mcpMaxIterations;
 
             for (let retryAttempt = 0; retryAttempt <= MAX_REQUEST_RETRIES; retryAttempt += 1) {
-                let activeModel = initialModel;
-                let provider = this.createProviderInstance(
-                    activeModel.provider_driver as ProviderDriver,
-                    activeModel.api_endpoint,
-                    activeModel.api_key,
-                    activeModel.provider_config_json
-                );
-                let modelSwitchCount = 0;
-                let tools = await this.resolveToolDefinitions(activeModel);
-                const executedBuiltInTools = new Set<BuiltInToolId>();
-                // 仅在重试时克隆消息，首次尝试直接复用基础消息
-                const messages = retryAttempt === 0 ? baseMessages : cloneAiMessages(baseMessages);
-                let response = '';
-                let reasoning = '';
-                let iteration = 0;
-                let attemptHasVisibleOutput = false;
-                let attemptHasToolActivity = false;
+                const attemptResult = await this.runSingleAttempt({
+                    initialModel,
+                    baseMessages,
+                    retryAttempt,
+                    maxIterations,
+                    persister,
+                    signal,
+                    onChunk,
+                    requestToolApproval,
+                });
 
-                try {
-                    while (iteration < maxIterations) {
-                        if (signal?.aborted) {
-                            throw new AiError(AiErrorCode.REQUEST_CANCELLED);
-                        }
+                await requestStartRecordPromise;
 
-                        // 从提供方实例获取流式响应
-                        const stream = this.stream(
-                            provider,
-                            activeModel.model_id,
-                            messages,
-                            tools,
-                            signal,
-                            activeModel.output_limit ?? undefined
-                        );
-                        let chunkResponse = '';
-                        let finishReason: string | undefined;
-                        let toolCalls: AiToolCall[] | undefined;
-
-                        for await (const chunk of stream) {
-                            if (signal?.aborted) {
-                                throw new AiError(AiErrorCode.REQUEST_CANCELLED);
-                            }
-
-                            if (chunk.reasoning) {
-                                reasoning += chunk.reasoning;
-                                attemptHasVisibleOutput = true;
-                            }
-
-                            if (chunk.content) {
-                                chunkResponse += chunk.content;
-                                response += chunk.content;
-                                attemptHasVisibleOutput = true;
-                            }
-
-                            if (
-                                chunk.toolEvent ||
-                                (chunk.toolCallDeltas && chunk.toolCallDeltas.length > 0) ||
-                                (chunk.done && chunk.toolCalls && chunk.toolCalls.length > 0)
-                            ) {
-                                attemptHasToolActivity = true;
-                            }
-
-                            onChunk?.(chunk);
-
-                            if (chunk.done) {
-                                finishReason = chunk.finishReason;
-                                toolCalls = chunk.toolCalls;
-                                break;
-                            }
-                        }
-
-                        // 检查是否需要继续循环
-                        const isToolRelated =
-                            finishReason === 'tool_calls' || finishReason === 'tool_use';
-
-                        if (!isToolRelated || !toolCalls || toolCalls.length === 0) {
-                            // 无工具调用，退出循环
-                            break;
-                        }
-
-                        attemptHasToolActivity = true;
-
-                        // 发送迭代开始事件（仅当工具调用将被执行时）
-                        onChunk?.({
-                            content: '',
-                            done: false,
-                            toolEvent: { type: 'iteration_start', iteration },
-                        });
-
-                        // 追加携带工具调用列表的助手消息
-                        messages.push({
-                            role: 'assistant',
-                            content: chunkResponse,
-                            tool_calls: toolCalls,
-                        });
-
-                        // 持久化工具调用消息
-                        const toolCallMessageId =
-                            await persister.persistToolCallMessage(chunkResponse);
-
-                        // 工具执行可以并行，但把结果写回消息数组时仍按原始顺序串回，
-                        // 这样下一轮请求看到的工具结果顺序才和助手声明的工具调用顺序一致。
-                        const toolExecutionPromises = toolCalls.map(async (toolCall) => {
-                            if (signal?.aborted) {
-                                throw new AiError(AiErrorCode.REQUEST_CANCELLED);
-                            }
-
-                            const parsedToolArguments = parseToolCallArguments(toolCall);
-                            if (!parsedToolArguments.ok) {
-                                this.emitToolEvent(onChunk, {
-                                    type: 'call_end',
-                                    callId: toolCall.id,
-                                    result: parsedToolArguments.errorResult,
-                                    isError: true,
-                                    durationMs: 0,
-                                    finalStatus: 'error',
-                                });
-
-                                return {
-                                    toolCall,
-                                    result: parsedToolArguments.errorResult,
-                                    isError: true,
-                                    toolLogId: null,
-                                    toolLogKind: null,
-                                    controlSignal: undefined,
-                                };
-                            }
-
-                            const { toolArgs } = parsedToolArguments;
-
-                            const builtInResult = await builtInToolService.executeTool({
-                                toolCall,
-                                toolArgs,
-                                iteration,
-                                currentModel: activeModel,
-                                hasExecutedBuiltInTool: (toolId) =>
-                                    executedBuiltInTools.has(toolId),
-                                signal,
-                                toolCallMessageId,
-                                sessionId: persister.getSessionId(),
-                                requestToolApproval,
-                                emitToolEvent: (toolEvent) =>
-                                    this.emitToolEvent(onChunk, toolEvent),
-                            });
-
-                            if (builtInResult) {
-                                return builtInResult;
-                            }
-
-                            return this.executeMcpToolCall({
-                                toolCall,
-                                toolArgs,
-                                iteration,
-                                signal,
-                                toolCallMessageId,
-                                sessionId: persister.getSessionId(),
-                                onChunk,
-                            });
-                        });
-
-                        // 等待所有工具执行完成
-                        const toolResults = await Promise.all(toolExecutionPromises);
-
-                        // 按顺序处理结果（保持消息顺序一致）
-                        let requestedModelSwitch: NonNullable<
-                            (typeof toolResults)[number]['controlSignal']
-                        > | null = null;
-                        for (const {
-                            toolCall,
-                            builtInToolId,
-                            result,
-                            isError,
-                            toolLogId,
-                            toolLogKind,
-                            controlSignal,
-                        } of toolResults) {
-                            // 追加工具结果消息
-                            messages.push({
-                                role: 'tool',
-                                content: result,
-                                tool_call_id: toolCall.id,
-                                name: toolCall.name,
-                                isError,
-                            });
-
-                            // 持久化工具结果消息
-                            await persister.persistToolResultMessage(
-                                result,
-                                toolLogId,
-                                toolLogKind
-                            );
-
-                            if (builtInToolId && !isError) {
-                                executedBuiltInTools.add(builtInToolId);
-                            }
-
-                            // 同一轮只接受第一个切模信号，避免多个工具同时要求切模时反复覆盖当前激活模型。
-                            if (!requestedModelSwitch && controlSignal?.type === 'upgrade_model') {
-                                requestedModelSwitch = controlSignal;
-                            }
-                        }
-
-                        // 发送迭代结束事件
-                        onChunk?.({
-                            content: '',
-                            done: false,
-                            toolEvent: { type: 'iteration_end', iteration },
-                        });
-
-                        if (requestedModelSwitch?.type === 'upgrade_model') {
-                            const previousModel = activeModel;
-                            activeModel = requestedModelSwitch.targetModel;
-                            modelSwitchCount += 1;
-
-                            provider = this.createProviderInstance(
-                                activeModel.provider_driver as ProviderDriver,
-                                activeModel.api_endpoint,
-                                activeModel.api_key,
-                                activeModel.provider_config_json
-                            );
-                            tools = await this.resolveToolDefinitions(activeModel, {
-                                disableUpgradeModel: modelSwitchCount >= MAX_REQUEST_MODEL_SWITCHES,
-                            });
-
-                            this.emitToolEvent(onChunk, {
-                                type: 'model_switched',
-                                fromModel: this.buildToolEventModelSummary(previousModel),
-                                toModel: this.buildToolEventModelSummary(activeModel),
-                                restart: requestedModelSwitch.restartCurrentRequest,
-                            });
-
-                            // 模型切换沿用当前上下文继续，但当前工具调用仍计入本轮迭代。
-                            iteration++;
-                            continue;
-                        }
-
-                        iteration++;
-                    }
-
-                    // 检查是否达到最大迭代次数 - 追加警告而非抛出异常
-                    if (iteration >= maxIterations) {
-                        console.warn('[AiServiceManager] Max iterations reached');
-                        response += `\n\n[${AiError.getMessage(AiErrorCode.MCP_MAX_ITERATIONS_REACHED)}]`;
-                    }
-
-                    if (signal?.aborted) {
-                        throw new AiError(AiErrorCode.REQUEST_CANCELLED);
-                    }
-
-                    if (!response.trim() && !reasoning.trim()) {
-                        throw new AiError(AiErrorCode.EMPTY_RESPONSE);
-                    }
-
-                    // 9. 持久化相关状态
-                    await requestStartRecordPromise;
+                if (attemptResult.type === 'completed') {
                     await persister.markCompleted({
-                        response,
+                        response: attemptResult.response,
                         durationMs: Date.now() - startedAt,
                     });
                     requestFinalized = true;
 
-                    await updateModelLastUsed({ id: activeModel.id }).catch((error) => {
+                    await updateModelLastUsed({ id: attemptResult.model.id }).catch((error) => {
                         console.error(
                             '[AiServiceManager] Failed to update model last used:',
                             error
@@ -759,59 +889,42 @@ export class AiServiceManager {
                     });
 
                     return {
-                        model: activeModel,
-                        response,
-                        reasoning,
+                        model: attemptResult.model,
+                        response: attemptResult.response,
+                        reasoning: attemptResult.reasoning,
                         turn: persister.getTurn(),
                     };
-                } catch (error) {
-                    console.warn('[AiServiceManager] Request failed:', error, typeof error);
-                    const providerErrorDetails = extractProviderErrorDetails(error);
-                    if (providerErrorDetails) {
-                        console.warn(
-                            '[AiServiceManager] Provider error details:',
-                            providerErrorDetails
-                        );
-                    }
-
-                    const aiError = AiError.fromError(error);
-
-                    await requestStartRecordPromise;
-
-                    if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
-                        await persister.markCancelled();
-                        requestFinalized = true;
-                        throw aiError;
-                    }
-
-                    const canRetry =
-                        retryAttempt < MAX_REQUEST_RETRIES &&
-                        !attemptHasVisibleOutput &&
-                        !attemptHasToolActivity &&
-                        shouldRetryRequestFailure(aiError, providerErrorDetails);
-
-                    if (canRetry) {
-                        const nextAttempt = retryAttempt + 1;
-                        await persister.beginNextAttempt(aiError.message);
-                        onChunk?.({
-                            content: '',
-                            done: false,
-                            toolEvent: {
-                                type: 'request_retry',
-                                attempt: nextAttempt,
-                                maxRetries: MAX_REQUEST_RETRIES,
-                                reason: aiError.message,
-                            },
-                        });
-                        await waitForRetryDelay(getRetryDelayMs(nextAttempt), signal);
-                        continue;
-                    }
-
-                    await persister.markFailed(aiError.message, response);
-                    requestFinalized = true;
-                    throw aiError;
                 }
+
+                if (attemptResult.error.is(AiErrorCode.REQUEST_CANCELLED)) {
+                    await persister.markCancelled();
+                    requestFinalized = true;
+                    throw attemptResult.error;
+                }
+
+                if (this.shouldRetryAttempt(attemptResult, retryAttempt)) {
+                    const nextAttempt = retryAttempt + 1;
+                    await persister.beginNextAttempt(attemptResult.error.message);
+                    onChunk?.({
+                        content: '',
+                        done: false,
+                        toolEvent: {
+                            type: 'request_retry',
+                            attempt: nextAttempt,
+                            maxRetries: MAX_REQUEST_RETRIES,
+                            reason: attemptResult.error.message,
+                        },
+                    });
+                    await waitForRetryDelay(getRetryDelayMs(nextAttempt), signal);
+                    continue;
+                }
+
+                await persister.markFailed(attemptResult.error.message, attemptResult.response);
+                requestFinalized = true;
+                throw attemptResult.error;
             }
+
+            throw new AiError(AiErrorCode.UNKNOWN, undefined, '请求重试耗尽后未返回结果');
         } catch (error) {
             const aiError = AiError.fromError(error);
             await requestStartRecordPromise;
@@ -826,8 +939,6 @@ export class AiServiceManager {
 
             throw aiError;
         }
-
-        throw new AiError(AiErrorCode.UNKNOWN, undefined, '请求重试耗尽后未返回结果');
     }
 
     private async resolveModel(modelId?: string, providerId?: number): Promise<ModelWithProvider> {

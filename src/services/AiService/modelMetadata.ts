@@ -42,14 +42,12 @@ type RawModelData = z.infer<typeof rawModelDataSchema>;
  * 合并两个元数据的能力字段
  */
 function mergeCapabilities(target: NewLlmMetadata, source: NewLlmMetadata): void {
-    // 合并布尔能力字段（任一为真则为真）
     target.attachment = target.attachment || source.attachment ? 1 : 0;
     target.open_weights = target.open_weights || source.open_weights ? 1 : 0;
     target.reasoning = target.reasoning || source.reasoning ? 1 : 0;
     target.temperature = target.temperature || source.temperature ? 1 : 0;
     target.tool_call = target.tool_call || source.tool_call ? 1 : 0;
 
-    // 合并 modalities（取并集）
     const targetModalities = target.modalities ? parseModelModalities(target.modalities) : null;
     const sourceModalities = source.modalities ? parseModelModalities(source.modalities) : null;
 
@@ -68,7 +66,6 @@ function mergeCapabilities(target: NewLlmMetadata, source: NewLlmMetadata): void
         });
     }
 
-    // 合并 knowledge（取较长的）
     if (!target.knowledge && source.knowledge) {
         target.knowledge = source.knowledge;
     } else if (target.knowledge && source.knowledge) {
@@ -76,12 +73,10 @@ function mergeCapabilities(target: NewLlmMetadata, source: NewLlmMetadata): void
             source.knowledge.length > target.knowledge.length ? source.knowledge : target.knowledge;
     }
 
-    // 合并 release_date（优先保留已有的）
     if (!target.release_date && source.release_date) {
         target.release_date = source.release_date;
     }
 
-    // 合并 limit（取最大值）
     if (!target.limit && source.limit) {
         target.limit = serializeModelLimit(parseModelLimit(source.limit));
     } else if (target.limit && source.limit) {
@@ -163,24 +158,18 @@ function deduplicateMetadata(metadataList: NewLlmMetadata[]): NewLlmMetadata[] {
  */
 export async function updateModelMetadata(): Promise<void> {
     try {
-        // 1. 获取原始数据
         const response = await fetch('https://llm-metadata.pages.dev/api/all.json');
         if (!response.ok) {
             throw new Error(`Failed to fetch metadata: ${response.statusText}`);
         }
         const rawData = rawModelDataSchema.parse(await response.json());
 
-        // 2. 解析并合并同 model_id 的数据
         const metadataList = parseRawData(rawData);
-
-        // 3. 去重并合并包含关系的元数据
         const filteredList = deduplicateMetadata(metadataList);
 
-        // 4. 更新数据库
         await clearLlmMetadata();
         await insertLlmMetadata(filteredList);
 
-        // 5. 记录更新时间
         await setStatistic({
             key: StatisticKey.MODEL_METADATA_LAST_UPDATED_AT,
             value: new Date().toISOString(),

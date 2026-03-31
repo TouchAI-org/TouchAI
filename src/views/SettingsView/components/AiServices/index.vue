@@ -26,7 +26,7 @@
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
     import { aiService } from '@services/AiService';
-    import { updateModelMetadata } from '@services/AiService/metadatas';
+    import { updateModelMetadata } from '@services/AiService/modelMetadata';
     import { getProviderDriverDefinition } from '@services/AiService/provider';
     import { AppEvent, eventService } from '@services/EventService';
     import { computed, onMounted, ref } from 'vue';

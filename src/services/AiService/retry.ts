@@ -1,4 +1,4 @@
-import { AiError } from './errors';
+import { AiError, AiErrorCode } from './errors';
 
 export interface RetryableRequestErrorInfo {
     statusCode?: number;
@@ -56,4 +56,32 @@ const RETRY_MAX_DELAY_MS = 5000;
  */
 export function getRetryDelayMs(attempt: number): number {
     return Math.min(RETRY_BASE_DELAY_MS * attempt, RETRY_MAX_DELAY_MS);
+}
+
+/**
+ * 等待重试退避时间，并在等待过程中响应取消信号。
+ */
+export async function waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+    if (delayMs <= 0) {
+        return;
+    }
+
+    if (signal?.aborted) {
+        throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            signal?.removeEventListener('abort', handleAbort);
+            resolve();
+        }, delayMs);
+
+        const handleAbort = () => {
+            clearTimeout(timeoutId);
+            signal?.removeEventListener('abort', handleAbort);
+            reject(new AiError(AiErrorCode.REQUEST_CANCELLED));
+        };
+
+        signal?.addEventListener('abort', handleAbort, { once: true });
+    });
 }
