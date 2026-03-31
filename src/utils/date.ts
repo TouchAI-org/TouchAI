@@ -14,3 +14,10 @@ export function parseDbDateTimestamp(value: string): number {
     const timestamp = parseDbDateString(value).getTime();
     return Number.isNaN(timestamp) ? Date.now() : timestamp;
 }
+
+/**
+ * 将 Date 对象转换为数据库格式的时间戳字符串 (YYYY-MM-DD HH:MM:SS)。
+ */
+export function toDbTimestamp(date = new Date()): string {
+    return date.toISOString().slice(0, 19).replace('T', ' ');
+}

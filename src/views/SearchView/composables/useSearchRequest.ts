@@ -23,6 +23,24 @@ interface UseSearchRequestFlowOptions {
 const SESSION_LIST_LIMIT = 40;
 
 /**
+ * regenerate 需要能从“正常回复”或“尾随错误项”回溯到对应用户消息，
+ * 因此不能再假设上一条一定是 user。
+ */
+function findNearestPrecedingUserMessage(
+    history: ConversationMessage[],
+    startIndex: number
+): ConversationMessage | null {
+    for (let index = startIndex - 1; index >= 0; index -= 1) {
+        const message = history[index];
+        if (message?.role === 'user') {
+            return message;
+        }
+    }
+
+    return null;
+}
+
+/**
  * 搜索页请求流。
  * 负责 AI 请求排队、提交校验、历史会话切换和会话目录操作。
  *
@@ -322,8 +340,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             return;
         }
 
-        const userMessage = conversationHistory.value[messageIndex - 1];
-        if (!userMessage || userMessage.role !== 'user') {
+        const userMessage = findNearestPrecedingUserMessage(
+            conversationHistory.value,
+            messageIndex
+        );
+        if (!userMessage) {
             return;
         }
 

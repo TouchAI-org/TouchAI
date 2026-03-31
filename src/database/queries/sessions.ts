@@ -4,7 +4,7 @@ import { and, count, desc, eq, exists, or, sql } from 'drizzle-orm';
 import { aliasedTable } from 'drizzle-orm/alias';
 
 import { db } from '../index';
-import { aiRequests, messages, models, sessions } from '../schema';
+import { messages, models, sessions, sessionTurns } from '../schema';
 import type { SessionCreateData, SessionEntity, SessionUpdateData } from '../types';
 
 export interface ListSessionsOptions {
@@ -136,7 +136,7 @@ export const refreshSessionMetadata = async (sessionId: number): Promise<void> =
     const toolResultMessages = aliasedTable(messages, 'tool_result_messages');
     const userMessages = aliasedTable(messages, 'user_messages');
     const toolCallMessages = aliasedTable(messages, 'tool_call_messages');
-    const latestRequests = aliasedTable(aiRequests, 'latest_requests');
+    const latestTurns = aliasedTable(sessionTurns, 'latest_turns');
     const latestModels = aliasedTable(models, 'latest_models');
 
     const assistantTimestampQuery = drizzle
@@ -273,10 +273,10 @@ export const refreshSessionMetadata = async (sessionId: number): Promise<void> =
 
     const latestProviderIdQuery = drizzle
         .select({ value: latestModels.provider_id })
-        .from(latestRequests)
-        .innerJoin(latestModels, eq(latestModels.id, latestRequests.model_id))
-        .where(eq(latestRequests.session_id, sessionId))
-        .orderBy(desc(latestRequests.created_at), desc(latestRequests.id))
+        .from(latestTurns)
+        .innerJoin(latestModels, eq(latestModels.id, latestTurns.model_id))
+        .where(eq(latestTurns.session_id, sessionId))
+        .orderBy(desc(latestTurns.created_at), desc(latestTurns.id))
         .limit(1);
 
     await drizzle

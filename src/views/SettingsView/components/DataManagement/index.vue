@@ -5,12 +5,12 @@
     import { db } from '@database';
     import { databaseBackup, type ImportMode } from '@database/backup';
     import {
-        countAiRequests,
         countMessages,
         countSessions,
-        deleteAllAiRequests,
+        countSessionTurns,
         deleteAllMessages,
         deleteAllSessions,
+        deleteAllSessionTurns,
         getStatistic,
     } from '@database/queries';
     import { setMeta } from '@database/queries/touchaiMeta';
@@ -29,13 +29,13 @@
     interface DataStats {
         sessions: number;
         messages: number;
-        aiRequests: number;
+        sessionTurns: number;
     }
 
     const stats = ref<DataStats>({
         sessions: 0,
         messages: 0,
-        aiRequests: 0,
+        sessionTurns: 0,
     });
 
     // Dialog states
@@ -80,16 +80,16 @@
 
     const loadStats = async () => {
         try {
-            const [sessionsCount, messagesCount, aiRequestsCount] = await Promise.all([
+            const [sessionsCount, messagesCount, sessionTurnsCount] = await Promise.all([
                 countSessions(),
                 countMessages(),
-                countAiRequests(),
+                countSessionTurns(),
             ]);
 
             stats.value = {
                 sessions: sessionsCount,
                 messages: messagesCount,
-                aiRequests: aiRequestsCount,
+                sessionTurns: sessionTurnsCount,
             };
         } catch (error) {
             console.error('Failed to load stats:', error);
@@ -152,22 +152,22 @@
         }
     };
 
-    const handleClearAiRequests = async () => {
+    const handleClearSessionTurns = async () => {
         const confirmed = await confirm({
-            title: '清除AI请求记录',
-            message: '此操作将删除所有AI请求记录。确定要继续吗？',
+            title: '清除对话记录',
+            message: '此操作将删除所有对话记录。确定要继续吗？',
             type: 'danger',
         });
 
         if (confirmed) {
             try {
                 isLoading.value = true;
-                await deleteAllAiRequests();
-                alert.success('已成功删除所有 AI 请求记录');
+                await deleteAllSessionTurns();
+                alert.success('已成功删除所有对话记录');
                 await loadStats();
             } catch (error) {
-                console.error('Failed to clear AI requests:', error);
-                alert.error('清除AI请求记录失败');
+                console.error('Failed to clear session turns:', error);
+                alert.error('清除对话记录失败');
             } finally {
                 isLoading.value = false;
             }
@@ -333,9 +333,9 @@
                     </div>
                     <div class="rounded-lg bg-gray-50 p-4 text-center">
                         <div class="text-primary-600 font-serif text-3xl font-bold">
-                            {{ stats.aiRequests }}
+                            {{ stats.sessionTurns }}
                         </div>
-                        <div class="mt-1 font-serif text-sm text-gray-600">AI请求次数</div>
+                        <div class="mt-1 font-serif text-sm text-gray-600">对话轮次数</div>
                     </div>
                 </div>
             </div>
@@ -382,16 +382,16 @@
                     <div class="flex items-center justify-between rounded-lg bg-gray-50 p-4">
                         <div>
                             <div class="font-serif text-sm font-medium text-gray-900">
-                                清除AI请求记录
+                                清除对话记录
                             </div>
                             <div class="mt-1 font-serif text-xs text-gray-500">
-                                删除所有AI请求历史记录
+                                删除所有对话历史记录
                             </div>
                         </div>
                         <button
                             class="rounded-lg bg-red-600 px-4 py-2 font-serif text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            :disabled="isLoading || stats.aiRequests === 0"
-                            @click="handleClearAiRequests"
+                            :disabled="isLoading || stats.sessionTurns === 0"
+                            @click="handleClearSessionTurns"
                         >
                             清除
                         </button>

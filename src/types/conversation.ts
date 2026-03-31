@@ -130,6 +130,8 @@ export interface ConversationMessage {
     timestamp: number;
     isStreaming?: boolean;
     isCancelled?: boolean;
+    isError?: boolean;
+    isRetrying?: boolean;
 }
 
 export interface LoadedConversationSession {

@@ -1,17 +1,39 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import {
-    createAiRequest,
     createMessage,
     createMessageAttachment,
     createSession,
+    createSessionTurn,
+    createSessionTurnAttempt,
     refreshSessionMetadata,
-    updateAiRequest,
     updateSession,
+    updateSessionTurn,
+    updateSessionTurnAttempt,
 } from '@database/queries';
-import type { MessageRole, RequestStatus, ToolLogKind } from '@database/schema';
-import type { AiRequestEntity, AiRequestUpdateData } from '@database/types';
+import type { MessageRole, ToolLogKind, TurnStatus } from '@database/schema';
+import type {
+    SessionTurnAttemptEntity,
+    SessionTurnEntity,
+    SessionTurnUpdateData,
+} from '@database/types';
 import { ensurePersistedAttachmentIndex, type Index } from '@services/AiService/attachments';
+
+import { toDbTimestamp } from '@/utils/date';
+
+/**
+ * 封装轮次尝试状态，确保实体对象与开始时间戳保持一致。
+ */
+class AttemptState {
+    constructor(
+        public readonly entity: SessionTurnAttemptEntity,
+        public readonly startedAtMs: number
+    ) {}
+
+    getDurationMs(): number {
+        return Math.max(0, Date.now() - this.startedAtMs);
+    }
+}
 
 interface PersisterModel {
     id: number;
@@ -24,51 +46,59 @@ interface PersisterOptions {
     attachments?: Index[];
     model: PersisterModel;
     sessionId?: number | null;
+    maxRetries: number;
     buildSessionTitle: (prompt: string) => string;
 }
 
-interface CompleteRequestOptions {
+interface CompleteTurnOptions {
     response: string;
     durationMs: number;
     tokensUsed?: number | null;
 }
 
 /**
- * 负责 AI 请求相关记录持久化：session、message、ai_request。
+ * 负责 AI 轮次相关记录持久化：会话、消息、轮次与轮次尝试记录。
  *
  * 采用分阶段记录：
- * - begin: 写入 user message + 创建 streaming 请求记录
- * - completed: 写 assistant message + 更新请求状态
- * - failed/cancelled: 更新请求状态
+ * - 开始：写入用户消息，并创建流式处理中状态的轮次与首个尝试记录
+ * - 完成：写入助手消息，并更新当前尝试与轮次状态
+ * - 失败/取消：更新当前尝试与轮次状态
+ * - 重试：结束当前失败尝试，并创建下一次尝试
  */
 export class Persister {
     private readonly prompt: string;
     private readonly attachments: Index[];
     private readonly model: PersisterModel;
+    private readonly maxRetries: number;
     private readonly buildSessionTitle: (prompt: string) => string;
 
     private sessionId: number | null;
 
     private userMessageId: number | null;
     private assistantMessageId: number | null;
-    private request: AiRequestEntity | null;
+    private turn: SessionTurnEntity | null;
+    private turnStartedAtMs: number | null;
+    private attemptState: AttemptState | null;
 
     constructor(options: PersisterOptions) {
         this.prompt = options.prompt;
         this.attachments = options.attachments ?? [];
         this.model = options.model;
+        this.maxRetries = options.maxRetries;
         this.buildSessionTitle = options.buildSessionTitle;
 
         this.sessionId = options.sessionId ?? null;
         this.userMessageId = null;
         this.assistantMessageId = null;
-        this.request = null;
+        this.turn = null;
+        this.turnStartedAtMs = null;
+        this.attemptState = null;
     }
 
     /**
-     * 记录请求开始阶段：先记录用户消息，再创建 streaming 请求记录。
+     * 记录轮次开始阶段：先记录用户消息，再创建流式处理中状态的轮次与首次尝试记录。
      */
-    async recordRequestStart(): Promise<void> {
+    async recordTurnStart(): Promise<void> {
         await this.syncSessionIdentity();
 
         if (!this.userMessageId) {
@@ -81,18 +111,20 @@ export class Persister {
             );
         }
 
-        await this.ensureRequestRecord();
+        await this.ensureTurnRecord();
+        await this.ensureAttemptRecord(1);
     }
 
     /**
-     * 请求成功阶段：记录 assistant 回复并更新请求状态。
+     * 当前轮次成功阶段：记录助手回复并更新状态。
      */
-    async markCompleted(options: CompleteRequestOptions): Promise<void> {
+    async markCompleted(options: CompleteTurnOptions): Promise<void> {
         if (options.response.trim() && !this.assistantMessageId) {
             this.assistantMessageId = await this.persistMessage('assistant', options.response);
         }
 
-        await this.patchRequest({
+        await this.finishCurrentAttempt('completed');
+        await this.patchTurn({
             status: 'completed',
             error_message: null,
             response_message_id: this.assistantMessageId,
@@ -102,49 +134,87 @@ export class Persister {
     }
 
     /**
-     * 请求失败阶段：更新失败状态和错误信息。
+     * 当前轮次失败阶段：更新最终失败状态和错误信息。
      */
-    async markFailed(errorMessage: string): Promise<void> {
-        await this.patchRequest({
+    async markFailed(errorMessage: string, partialResponse?: string): Promise<void> {
+        if (partialResponse?.trim() && !this.assistantMessageId) {
+            this.assistantMessageId = await this.persistMessage('assistant', partialResponse);
+        }
+
+        await this.finishCurrentAttempt('failed', errorMessage);
+        await this.patchTurn({
             status: 'failed',
             error_message: errorMessage,
+            response_message_id: this.assistantMessageId,
+            duration_ms: this.getTurnDurationMs(),
         });
     }
 
     /**
-     * 请求取消阶段：更新取消状态。
+     * 当前轮次取消阶段：更新取消状态。
      */
     async markCancelled(): Promise<void> {
-        await this.patchRequest({
+        await this.finishCurrentAttempt('cancelled', 'Cancelled by user');
+        await this.patchTurn({
             status: 'cancelled',
             error_message: 'Cancelled by user',
+            duration_ms: this.getTurnDurationMs(),
         });
     }
 
     /**
-     * 获取当前请求记录（可能为 null）。
+     * 当前尝试可重试时，先标记失败，再创建下一次尝试。
      */
-    getRequest(): AiRequestEntity | null {
-        return this.request;
+    async beginNextAttempt(errorMessage: string): Promise<void> {
+        await this.finishCurrentAttempt('failed', errorMessage);
+
+        const nextAttemptIndex = (this.attemptState?.entity.attempt_index ?? 0) + 1;
+        const startedAt = Date.now();
+        const startedAtText = toDbTimestamp(new Date(startedAt));
+        const nextAttempt = await createSessionTurnAttempt({
+            turn_id: this.getTurnId(),
+            attempt_index: nextAttemptIndex,
+            max_retries: this.maxRetries,
+            status: 'streaming',
+            started_at: startedAtText,
+            created_at: startedAtText,
+            updated_at: startedAtText,
+        });
+
+        this.attemptState = new AttemptState(nextAttempt, startedAt);
+        // 仅当状态或错误信息需要变化时才更新轮次
+        if (this.turn?.status !== 'streaming' || this.turn?.error_message !== null) {
+            await this.patchTurn({
+                status: 'streaming',
+                error_message: null,
+            });
+        }
     }
 
     /**
-     * 获取当前会话 ID（可能为 null）。
+     * 获取当前轮次记录（可能为空）。
+     */
+    getTurn(): SessionTurnEntity | null {
+        return this.turn;
+    }
+
+    /**
+     * 获取当前会话 ID（可能为空）。
      */
     getSessionId(): number | null {
         return this.sessionId;
     }
 
     /**
-     * 持久化工具调用消息（role: 'tool_call'）
+     * 持久化工具调用消息。
      */
     async persistToolCallMessage(text?: string): Promise<number | null> {
         return this.persistMessage('tool_call', text || '');
     }
 
     /**
-     * 持久化工具结果消息（role: 'tool_result'）
-     * @param toolLogId 对应 mcp_tool_logs 表的 ID
+     * 持久化工具结果消息。
+     * @param toolLogId 对应工具日志表记录编号
      */
     async persistToolResultMessage(
         result: string,
@@ -175,8 +245,8 @@ export class Persister {
     }
 
     /**
-     * useAgent 可能会先按“当前选中的标签”预创建会话，
-     * 等真正解析出默认模型后，再由持久化层把 session 的 model/provider 校准成最终值。
+     * `useAgent` 可能会先按“当前选中的标签”预创建会话，
+     * 等真正解析出默认模型后，再由持久化层把会话的模型和提供方校准成最终值。
      */
     private async syncSessionIdentity(): Promise<void> {
         if (!this.sessionId) {
@@ -236,42 +306,120 @@ export class Persister {
         return message.id;
     }
 
-    private async ensureRequestRecord(): Promise<void> {
-        if (this.request) {
+    private async ensureTurnRecord(): Promise<void> {
+        if (this.turn) {
             return;
         }
 
         const sessionId = await this.ensureSessionId();
+        const startedAt = Date.now();
 
-        this.request = await createAiRequest({
+        this.turn = await createSessionTurn({
             session_id: sessionId,
             model_id: this.model.id,
             prompt_message_id: this.userMessageId,
             response_message_id: this.assistantMessageId,
-            status: 'streaming' as RequestStatus,
+            status: 'streaming',
         });
+        this.turnStartedAtMs = startedAt;
     }
 
-    private async patchRequest(patch: AiRequestUpdateData): Promise<void> {
-        if (!this.request) {
-            await this.ensureRequestRecord();
+    private async ensureAttemptRecord(attemptIndex: number): Promise<void> {
+        if (this.attemptState) {
+            return;
         }
 
-        if (!this.request) {
+        await this.ensureTurnRecord();
+        const startedAt = Date.now();
+        const startedAtText = toDbTimestamp(new Date(startedAt));
+
+        const attempt = await createSessionTurnAttempt({
+            turn_id: this.getTurnId(),
+            attempt_index: attemptIndex,
+            max_retries: this.maxRetries,
+            status: 'streaming',
+            started_at: startedAtText,
+            created_at: startedAtText,
+            updated_at: startedAtText,
+        });
+        this.attemptState = new AttemptState(attempt, startedAt);
+    }
+
+    private async finishCurrentAttempt(
+        status: TurnStatus,
+        errorMessage: string | null = null
+    ): Promise<void> {
+        if (!this.attemptState) {
+            await this.ensureAttemptRecord(1);
+        }
+
+        if (!this.attemptState) {
+            return;
+        }
+
+        const finishedAt = Date.now();
+        const durationMs = this.attemptState.getDurationMs();
+        const finishedAtText = toDbTimestamp(new Date(finishedAt));
+
+        await updateSessionTurnAttempt({
+            id: this.attemptState.entity.id,
+            attemptPatch: {
+                status,
+                error_message: errorMessage,
+                duration_ms: durationMs,
+                finished_at: finishedAtText,
+                updated_at: finishedAtText,
+            },
+        });
+
+        // 更新本地状态缓存
+        this.attemptState = new AttemptState(
+            {
+                ...this.attemptState.entity,
+                status,
+                error_message: errorMessage,
+                duration_ms: durationMs,
+                finished_at: finishedAtText,
+                updated_at: finishedAtText,
+            },
+            this.attemptState.startedAtMs
+        );
+    }
+
+    private getTurnId(): number {
+        if (!this.turn) {
+            throw new Error('Session turn record not initialized');
+        }
+
+        return this.turn.id;
+    }
+
+    private getTurnDurationMs(): number | null {
+        return this.turnStartedAtMs === null
+            ? null
+            : Math.max(0, Date.now() - this.turnStartedAtMs);
+    }
+
+    private async patchTurn(patch: SessionTurnUpdateData): Promise<void> {
+        if (!this.turn) {
+            await this.ensureTurnRecord();
+        }
+
+        if (!this.turn) {
             return;
         }
 
         try {
-            await updateAiRequest({
-                id: this.request.id,
-                requestPatch: patch,
+            await updateSessionTurn({
+                id: this.turn.id,
+                turnPatch: patch,
             });
-            this.request = {
-                ...this.request,
+            this.turn = {
+                ...this.turn,
                 ...patch,
             };
         } catch (persistError) {
-            console.error('[Persister] Failed to update ai_request record:', persistError);
+            console.error('[Persister] Failed to update session turn record:', persistError);
         }
     }
 }

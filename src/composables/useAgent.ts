@@ -1,10 +1,11 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import type { AiRequest } from '@database/schema';
+import type { SessionTurn } from '@database/schema';
 import { aiService } from '@services/AiService';
 import { type Index } from '@services/AiService/attachments';
 import { AiError, AiErrorCode } from '@services/AiService/errors';
 import { buildConversationHistory } from '@services/AiService/history';
+import { getRetryStatusMessage } from '@services/AiService/retry';
 import {
     createSession,
     getSessionConversation,
@@ -24,10 +25,10 @@ import { useMcpStore } from '@/stores/mcp';
 import type {
     ConversationMessage,
     LoadedConversationSession,
-    TextMessagePart,
     ToolApprovalInfo,
     ToolCallInfo,
 } from '@/types/conversation';
+import { createTextPart } from '@/utils/conversation';
 import { collapseWhitespace, truncateText } from '@/utils/text';
 
 export interface UseAiRequestOptions {
@@ -38,11 +39,17 @@ export interface UseAiRequestOptions {
     onModelSelected?: (target: { modelId: string; providerId: number }) => void;
 }
 
-function createTextPart(content: string): TextMessagePart {
+function createDerivedStatusMessage(
+    content: string,
+    flags: Pick<ConversationMessage, 'isCancelled' | 'isError' | 'isRetrying'> = {}
+): ConversationMessage {
     return {
         id: crypto.randomUUID(),
-        type: 'text',
+        role: 'assistant',
         content,
+        parts: [createTextPart(content)],
+        timestamp: Date.now(),
+        ...flags,
     };
 }
 
@@ -63,7 +70,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     const error = ref<Error | null>(null);
     const response = ref('');
     const reasoning = ref('');
-    const currentRequest = ref<AiRequest | null>(null);
+    const currentTurn = ref<SessionTurn | null>(null);
     const abortController = ref<AbortController | null>(null);
     let requestId = 0;
     const mcpStore = useMcpStore();
@@ -81,6 +88,25 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         );
     };
 
+    const removeConversationMessageById = (messageId: string): void => {
+        conversationHistory.value = conversationHistory.value.filter(
+            (message) => message.id !== messageId
+        );
+    };
+
+    const createStreamingAssistantMessage = (): ConversationMessage => {
+        conversationHistory.value.push({
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: '',
+            parts: [],
+            timestamp: Date.now(),
+            isStreaming: true,
+        });
+
+        return conversationHistory.value[conversationHistory.value.length - 1]!;
+    };
+
     const {
         isHiddenBuiltinToolCall,
         upsertWidget,
@@ -93,6 +119,44 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         conversationHistory,
         getAssistantMessageById,
     });
+
+    const hasVisibleAssistantContent = (message: ConversationMessage): boolean => {
+        if (message.content.trim() || message.reasoning?.trim()) {
+            return true;
+        }
+
+        const toolCallMap = new Map(
+            (message.toolCalls ?? []).map((toolCall) => [toolCall.id, toolCall])
+        );
+        const approvalCallIds = new Set(
+            (message.approvals ?? []).map((approval) => approval.callId)
+        );
+        const widgetIds = new Set((message.widgets ?? []).map((widget) => widget.widgetId));
+        const widgetBackedToolCallIds = new Set(
+            (message.widgets ?? []).map((widget) => widget.callId)
+        );
+
+        return message.parts.some((part) => {
+            if (part.type === 'text') {
+                return !!part.content.trim();
+            }
+
+            if (part.type === 'tool_call') {
+                const toolCall = toolCallMap.get(part.callId);
+                return (
+                    !!toolCall &&
+                    !isHiddenBuiltinToolCall(toolCall.namespacedName) &&
+                    !widgetBackedToolCallIds.has(part.callId)
+                );
+            }
+
+            if (part.type === 'approval') {
+                return approvalCallIds.has(part.callId);
+            }
+
+            return widgetIds.has(part.widgetId);
+        });
+    };
 
     const ensureAssistantToolCalls = (message: ConversationMessage): ToolCallInfo[] => {
         if (!message.toolCalls) {
@@ -279,7 +343,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         response.value = '';
         reasoning.value = '';
         error.value = null;
-        currentRequest.value = null;
+        currentTurn.value = null;
         abortController.value = null;
     }
 
@@ -305,12 +369,16 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             throw new Error('当前请求尚未结束，无法切换会话');
         }
 
-        const { session, messages, model }: SessionConversationData =
+        const { session, messages, turns, attempts, model }: SessionConversationData =
             await getSessionConversation(sessionId);
 
-        conversationHistory.value = await buildConversationHistory(messages, (serverId) =>
-            serverId === null ? '' : mcpStore.serverNameById(serverId)
-        );
+        conversationHistory.value = await buildConversationHistory({
+            messages,
+            turns,
+            attempts,
+            resolveServerName: (serverId) =>
+                serverId === null ? '' : mcpStore.serverNameById(serverId),
+        });
         currentSessionId.value = session.id;
         resetWidgetRuntime();
         resetTransientState();
@@ -358,17 +426,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         });
 
         // 添加 AI 消息占位符，标记为流式传输状态
-        const assistantMessageId = crypto.randomUUID();
-        conversationHistory.value.push({
-            id: assistantMessageId,
-            role: 'assistant',
-            content: '',
-            parts: [],
-            timestamp: Date.now(),
-            isStreaming: true,
-        });
-
-        const assistantMsg = conversationHistory.value[conversationHistory.value.length - 1]!;
+        let assistantMsg = createStreamingAssistantMessage();
 
         // 如果是新会话，预先创建数据库会话
         if (!currentSessionId.value) {
@@ -395,6 +453,32 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 signal: abortController.value.signal,
                 requestToolApproval: (payload) => requestToolApproval(assistantMsg.id, payload),
                 onChunk: (chunk) => {
+                    if (chunk.toolEvent?.type === 'request_retry') {
+                        const shouldKeepAssistantMessage = hasVisibleAssistantContent(assistantMsg);
+
+                        if (shouldKeepAssistantMessage) {
+                            assistantMsg.isStreaming = false;
+                        } else {
+                            removeConversationMessageById(assistantMsg.id);
+                        }
+
+                        response.value = '';
+                        reasoning.value = '';
+                        conversationHistory.value.push(
+                            createDerivedStatusMessage(
+                                getRetryStatusMessage(
+                                    chunk.toolEvent.attempt,
+                                    chunk.toolEvent.maxRetries
+                                ),
+                                {
+                                    isRetrying: true,
+                                }
+                            )
+                        );
+                        assistantMsg = createStreamingAssistantMessage();
+                        return;
+                    }
+
                     if (chunk.reasoning) {
                         reasoning.value += chunk.reasoning;
                         assistantMsg.reasoning = reasoning.value;
@@ -486,38 +570,33 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             // 标记 AI 消息为完成状态
             assistantMsg.isStreaming = false;
 
-            currentRequest.value = result.request;
+            currentTurn.value = result.turn;
             options.onComplete?.(result.response);
         } catch (rawError) {
             const requestError = toError(rawError);
 
             if (isCancelledError(requestError)) {
+                const shouldKeepAssistantMessage = hasVisibleAssistantContent(assistantMsg);
                 // 如果是第一次请求就取消（只有用户消息和一个未完成的 AI 消息）
-                if (conversationHistory.value.length === 2) {
+                if (conversationHistory.value.length === 2 && !shouldKeepAssistantMessage) {
                     // 清空会话历史
                     conversationHistory.value = [];
                     currentSessionId.value = null;
                 } else {
-                    if (!assistantMsg.content.trim()) {
+                    if (!shouldKeepAssistantMessage) {
                         // 如果没有内容，移除未完成的 AI 消息
-                        conversationHistory.value = conversationHistory.value.filter(
-                            (msg) => msg.id !== assistantMessageId
-                        );
+                        removeConversationMessageById(assistantMsg.id);
                     } else {
                         // 保留已有内容，停止流式传输
                         assistantMsg.isStreaming = false;
                     }
 
                     // 追加取消提示
-                    conversationHistory.value.push({
-                        id: crypto.randomUUID(),
-                        role: 'assistant',
-                        content: '请求已取消',
-                        parts: [],
-                        timestamp: Date.now(),
-                        isStreaming: false,
-                        isCancelled: true,
-                    });
+                    conversationHistory.value.push(
+                        createDerivedStatusMessage('请求已取消', {
+                            isCancelled: true,
+                        })
+                    );
                 }
                 // 取消错误不设置 error.value，避免显示错误提示
                 return;
@@ -525,13 +604,18 @@ export function useAgent(options: UseAiRequestOptions = {}) {
 
             error.value = requestError;
 
-            // 标记 AI 消息为失败状态（不是取消的情况）
-            if (!assistantMsg.isCancelled) {
+            const shouldKeepAssistantMessage = hasVisibleAssistantContent(assistantMsg);
+            if (shouldKeepAssistantMessage) {
                 assistantMsg.isStreaming = false;
-                const failureText = `请求失败: ${requestError.message}`;
-                assistantMsg.content = failureText;
-                assistantMsg.parts = [createTextPart(failureText)];
+            } else {
+                removeConversationMessageById(assistantMsg.id);
             }
+
+            conversationHistory.value.push(
+                createDerivedStatusMessage(`请求失败: ${requestError.message}`, {
+                    isError: true,
+                })
+            );
 
             const isEmptyResponse =
                 requestError instanceof AiError && requestError.is(AiErrorCode.EMPTY_RESPONSE);

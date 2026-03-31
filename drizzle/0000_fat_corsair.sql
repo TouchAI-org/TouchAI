@@ -1,21 +1,3 @@
-CREATE TABLE `ai_requests` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`session_id` integer,
-	`model_id` integer NOT NULL,
-	`prompt_message_id` integer,
-	`response_message_id` integer,
-	`status` text DEFAULT 'pending' NOT NULL,
-	`error_message` text,
-	`tokens_used` integer,
-	`duration_ms` integer,
-	`created_at` text DEFAULT (datetime('now')) NOT NULL,
-	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
-	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`model_id`) REFERENCES `models`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`prompt_message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE set null,
-	FOREIGN KEY (`response_message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE set null
-);
---> statement-breakpoint
 CREATE TABLE `attachments` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`hash` text NOT NULL,
@@ -197,6 +179,42 @@ CREATE TABLE `quick_search_click_stats` (
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `session_turn_attempts` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`turn_id` integer NOT NULL,
+	`attempt_index` integer NOT NULL,
+	`max_retries` integer DEFAULT 0 NOT NULL,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`error_message` text,
+	`duration_ms` integer,
+	`started_at` text DEFAULT (datetime('now')) NOT NULL,
+	`finished_at` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`turn_id`) REFERENCES `session_turns`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `session_turn_attempts_turn_id_idx` ON `session_turn_attempts` (`turn_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `session_turn_attempts_turn_attempt_unique` ON `session_turn_attempts` (`turn_id`,`attempt_index`);--> statement-breakpoint
+CREATE TABLE `session_turns` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`session_id` integer,
+	`model_id` integer NOT NULL,
+	`prompt_message_id` integer,
+	`response_message_id` integer,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`error_message` text,
+	`tokens_used` integer,
+	`duration_ms` integer,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`model_id`) REFERENCES `models`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`prompt_message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`response_message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE INDEX `session_turns_session_id_idx` ON `session_turns` (`session_id`);--> statement-breakpoint
 CREATE TABLE `sessions` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`session_id` text NOT NULL,

@@ -1,6 +1,5 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { findLatestModelBySessionId } from '@database/queries/aiRequests';
 import type { MessageRow } from '@database/queries/messages';
 import { findMessagesBySessionId } from '@database/queries/messages';
 import type { ModelWithProvider } from '@database/queries/models';
@@ -10,11 +9,22 @@ import {
     listSessions as dbListSessions,
     type ListSessionsOptions,
 } from '@database/queries/sessions';
+import {
+    findSessionTurnAttemptsBySessionId,
+    type SessionTurnAttemptHistoryRow,
+} from '@database/queries/sessionTurnAttempts';
+import {
+    findLatestModelBySessionId,
+    findSessionTurnsBySessionId,
+    type SessionTurnHistoryRow,
+} from '@database/queries/sessionTurns';
 import type { SessionEntity } from '@database/types';
 
 export interface SessionConversationData {
     session: SessionEntity;
     messages: MessageRow[];
+    turns: SessionTurnHistoryRow[];
+    attempts: SessionTurnAttemptHistoryRow[];
     model: ModelWithProvider | null;
 }
 
@@ -52,14 +62,18 @@ export async function getSessionConversation(sessionId: number): Promise<Session
         throw new Error(`Session ${sessionId} not found`);
     }
 
-    const [messages, model] = await Promise.all([
+    const [messages, turns, attempts, model] = await Promise.all([
         findMessagesBySessionId(sessionId),
+        findSessionTurnsBySessionId(sessionId),
+        findSessionTurnAttemptsBySessionId(sessionId),
         findLatestModelBySessionId({ sessionId }),
     ]);
 
     return {
         session,
         messages,
+        turns,
+        attempts,
         model,
     };
 }

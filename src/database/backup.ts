@@ -34,6 +34,14 @@ interface TouchAiMeta {
     value: string;
 }
 
+interface MappingValidationRow {
+    source_id: number;
+}
+
+interface AmbiguousMappingRow extends MappingValidationRow {
+    match_count: number;
+}
+
 /**
  * 数据库备份服务
  */
@@ -80,7 +88,7 @@ class DatabaseBackupService {
     /**
      * 导入数据库备份
      * @param mode 导入模式
-     * - chat_only: 仅导入对话数据（会话、消息、AI请求记录）
+     * - chat_only: 仅导入对话数据（会话、消息、轮次与尝试记录）
      * - full: 覆盖设置，差量导入对话数据
      * @param onProgress 进度回调
      */
@@ -326,7 +334,8 @@ class DatabaseBackupService {
             'messages',
             'attachments',
             'message_attachments',
-            'ai_requests',
+            'session_turns',
+            'session_turn_attempts',
             'llm_metadata',
             'settings',
             'statistics',
@@ -343,6 +352,394 @@ class DatabaseBackupService {
                 throw new Error(`导入数据库缺少必需数据表: ${table}`);
             }
         }
+    }
+
+    /**
+     * 校验临时映射候选表是否完整且一对一。
+     */
+    private async assertCompleteUniqueMapping(
+        currentDb: Database,
+        options: {
+            sourceTable: string;
+            sourceIdColumn: string;
+            candidateTable: string;
+            candidateSourceColumn: string;
+            entityLabel: string;
+        }
+    ): Promise<void> {
+        const missing = await currentDb.select<Array<MappingValidationRow>>(
+            `
+                SELECT source.${options.sourceIdColumn} AS source_id
+                FROM ${options.sourceTable} AS source
+                LEFT JOIN ${options.candidateTable} AS candidate
+                    ON candidate.${options.candidateSourceColumn} = source.${options.sourceIdColumn}
+                WHERE candidate.${options.candidateSourceColumn} IS NULL
+                LIMIT 1
+            `
+        );
+
+        if (missing.length > 0) {
+            throw new Error(
+                `${options.entityLabel}映射失败，源记录 ${missing[0]!.source_id} 未找到目标记录`
+            );
+        }
+
+        const ambiguous = await currentDb.select<Array<AmbiguousMappingRow>>(
+            `
+                SELECT
+                    candidate.${options.candidateSourceColumn} AS source_id,
+                    COUNT(*) AS match_count
+                FROM ${options.candidateTable} AS candidate
+                GROUP BY candidate.${options.candidateSourceColumn}
+                HAVING COUNT(*) > 1
+                LIMIT 1
+            `
+        );
+
+        if (ambiguous.length > 0) {
+            throw new Error(
+                `${options.entityLabel}映射不唯一，源记录 ${ambiguous[0]!.source_id} 匹配到 ${ambiguous[0]!.match_count} 条目标记录`
+            );
+        }
+    }
+
+    /**
+     * 建立源会话到目标会话的临时映射表。
+     */
+    private async rebuildTempSessionMap(currentDb: Database): Promise<void> {
+        await currentDb.execute(`
+            DROP TABLE IF EXISTS temp_session_map;
+            CREATE TEMP TABLE temp_session_map (
+                source_session_id INTEGER PRIMARY KEY,
+                target_session_id INTEGER NOT NULL
+            );
+
+            INSERT INTO temp_session_map (source_session_id, target_session_id)
+            SELECT
+                source_sessions.id,
+                target_sessions.id
+            FROM imported.sessions AS source_sessions
+            INNER JOIN main.sessions AS target_sessions
+                ON target_sessions.session_id = source_sessions.session_id;
+        `);
+    }
+
+    /**
+     * 建立源消息到目标消息的临时映射表，并校验唯一性。
+     */
+    private async rebuildTempMessageMap(currentDb: Database): Promise<void> {
+        await currentDb.execute(`
+            DROP TABLE IF EXISTS temp_message_candidates;
+            CREATE TEMP TABLE temp_message_candidates (
+                source_message_id INTEGER NOT NULL,
+                target_message_id INTEGER NOT NULL
+            );
+
+            INSERT INTO temp_message_candidates (source_message_id, target_message_id)
+            SELECT
+                source_messages.source_message_id,
+                target_messages.target_message_id
+            FROM temp_ranked_source_messages AS source_messages
+            INNER JOIN temp_ranked_target_messages AS target_messages
+                ON target_messages.target_session_id = source_messages.target_session_id
+               AND target_messages.role = source_messages.role
+               AND target_messages.content = source_messages.content
+               AND target_messages.created_at = source_messages.created_at
+               AND target_messages.occurrence_index = source_messages.occurrence_index;
+        `);
+
+        await this.assertCompleteUniqueMapping(currentDb, {
+            sourceTable: 'temp_ranked_source_messages',
+            sourceIdColumn: 'source_message_id',
+            candidateTable: 'temp_message_candidates',
+            candidateSourceColumn: 'source_message_id',
+            entityLabel: '消息',
+        });
+
+        await currentDb.execute(`
+            DROP TABLE IF EXISTS temp_message_map;
+            CREATE TEMP TABLE temp_message_map (
+                source_message_id INTEGER PRIMARY KEY,
+                target_message_id INTEGER NOT NULL
+            );
+
+            INSERT INTO temp_message_map (source_message_id, target_message_id)
+            SELECT
+                source_message_id,
+                MIN(target_message_id) AS target_message_id
+            FROM temp_message_candidates
+            GROUP BY source_message_id;
+
+            DROP TABLE temp_message_candidates;
+        `);
+    }
+
+    /**
+     * 为导入消息建立稳定的组内顺序，解决重复消息的对齐问题。
+     */
+    private async rebuildTempRankedSourceMessages(currentDb: Database): Promise<void> {
+        await currentDb.execute(`
+            DROP TABLE IF EXISTS temp_ranked_source_messages;
+            CREATE TEMP TABLE temp_ranked_source_messages AS
+            WITH source_messages_with_target_session AS (
+                SELECT
+                    source_messages.id AS source_message_id,
+                    session_map.target_session_id,
+                    source_messages.role,
+                    source_messages.content,
+                    source_messages.created_at,
+                    source_messages.updated_at
+                FROM imported.messages AS source_messages
+                INNER JOIN temp_session_map AS session_map
+                    ON session_map.source_session_id = source_messages.session_id
+            )
+            SELECT
+                source_message_id,
+                target_session_id,
+                role,
+                content,
+                created_at,
+                updated_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY target_session_id, role, content, created_at
+                    ORDER BY source_message_id
+                ) AS occurrence_index
+            FROM source_messages_with_target_session;
+        `);
+    }
+
+    /**
+     * 为目标库中待对齐的消息建立稳定的组内顺序。
+     */
+    private async rebuildTempRankedTargetMessages(currentDb: Database): Promise<void> {
+        await currentDb.execute(`
+            DROP TABLE IF EXISTS temp_ranked_target_messages;
+            CREATE TEMP TABLE temp_ranked_target_messages AS
+            WITH target_messages_in_scope AS (
+                SELECT
+                    target_messages.id AS target_message_id,
+                    target_messages.session_id AS target_session_id,
+                    target_messages.role,
+                    target_messages.content,
+                    target_messages.created_at
+                FROM main.messages AS target_messages
+                WHERE target_messages.session_id IN (
+                    SELECT target_session_id
+                    FROM temp_session_map
+                )
+            )
+            SELECT
+                target_message_id,
+                target_session_id,
+                role,
+                content,
+                created_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY target_session_id, role, content, created_at
+                    ORDER BY target_message_id
+                ) AS occurrence_index
+            FROM target_messages_in_scope;
+        `);
+    }
+
+    /**
+     * 按重复消息的组内序号补齐缺失消息，并建立稳定映射。
+     */
+    private async syncMessages(currentDb: Database): Promise<void> {
+        await this.rebuildTempRankedSourceMessages(currentDb);
+        await this.rebuildTempRankedTargetMessages(currentDb);
+
+        await currentDb.execute(`
+            INSERT INTO main.messages (
+                session_id,
+                role,
+                content,
+                created_at,
+                updated_at
+            )
+            SELECT
+                source_messages.target_session_id,
+                source_messages.role,
+                source_messages.content,
+                source_messages.created_at,
+                source_messages.updated_at
+            FROM temp_ranked_source_messages AS source_messages
+            LEFT JOIN temp_ranked_target_messages AS target_messages
+                ON target_messages.target_session_id = source_messages.target_session_id
+               AND target_messages.role = source_messages.role
+               AND target_messages.content = source_messages.content
+               AND target_messages.created_at = source_messages.created_at
+               AND target_messages.occurrence_index = source_messages.occurrence_index
+            WHERE target_messages.target_message_id IS NULL;
+        `);
+
+        await this.rebuildTempRankedTargetMessages(currentDb);
+        await this.rebuildTempMessageMap(currentDb);
+    }
+
+    /**
+     * 建立已解析轮次的临时数据。
+     */
+    private async rebuildTempResolvedTurns(currentDb: Database): Promise<void> {
+        await currentDb.execute(`
+            DROP TABLE IF EXISTS temp_resolved_turns;
+            CREATE TEMP TABLE temp_resolved_turns (
+                source_turn_id INTEGER PRIMARY KEY,
+                target_session_id INTEGER NOT NULL,
+                target_model_id INTEGER NOT NULL,
+                target_prompt_message_id INTEGER,
+                target_response_message_id INTEGER,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                tokens_used INTEGER,
+                duration_ms INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            INSERT INTO temp_resolved_turns (
+                source_turn_id,
+                target_session_id,
+                target_model_id,
+                target_prompt_message_id,
+                target_response_message_id,
+                status,
+                error_message,
+                tokens_used,
+                duration_ms,
+                created_at,
+                updated_at
+            )
+            SELECT
+                source_turns.id,
+                session_map.target_session_id,
+                target_models.id,
+                prompt_message_map.target_message_id,
+                response_message_map.target_message_id,
+                source_turns.status,
+                source_turns.error_message,
+                source_turns.tokens_used,
+                source_turns.duration_ms,
+                source_turns.created_at,
+                source_turns.updated_at
+            FROM imported.session_turns AS source_turns
+            INNER JOIN temp_session_map AS session_map
+                ON session_map.source_session_id = source_turns.session_id
+            INNER JOIN imported.models AS source_models
+                ON source_models.id = source_turns.model_id
+            INNER JOIN imported.providers AS source_providers
+                ON source_providers.id = source_models.provider_id
+            INNER JOIN main.providers AS target_providers
+                ON target_providers.name = source_providers.name
+               AND target_providers.driver = source_providers.driver
+            INNER JOIN main.models AS target_models
+                ON target_models.provider_id = target_providers.id
+               AND target_models.model_id = source_models.model_id
+            LEFT JOIN temp_message_map AS prompt_message_map
+                ON prompt_message_map.source_message_id = source_turns.prompt_message_id
+            LEFT JOIN temp_message_map AS response_message_map
+                ON response_message_map.source_message_id = source_turns.response_message_id;
+        `);
+    }
+
+    /**
+     * 同步轮次数据，并建立源轮次到目标轮次的临时映射表。
+     */
+    private async syncSessionTurns(currentDb: Database): Promise<void> {
+        await currentDb.execute(`
+            INSERT INTO main.session_turns (
+                session_id,
+                model_id,
+                prompt_message_id,
+                response_message_id,
+                status,
+                error_message,
+                tokens_used,
+                duration_ms,
+                created_at,
+                updated_at
+            )
+            SELECT
+                resolved_turns.target_session_id,
+                resolved_turns.target_model_id,
+                resolved_turns.target_prompt_message_id,
+                resolved_turns.target_response_message_id,
+                resolved_turns.status,
+                resolved_turns.error_message,
+                resolved_turns.tokens_used,
+                resolved_turns.duration_ms,
+                resolved_turns.created_at,
+                resolved_turns.updated_at
+            FROM temp_resolved_turns AS resolved_turns
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM main.session_turns AS existing_turns
+                WHERE existing_turns.session_id = resolved_turns.target_session_id
+                  AND existing_turns.model_id = resolved_turns.target_model_id
+                  AND existing_turns.prompt_message_id IS resolved_turns.target_prompt_message_id
+                  AND existing_turns.created_at = resolved_turns.created_at
+            );
+
+            DROP TABLE IF EXISTS temp_turn_candidates;
+            CREATE TEMP TABLE temp_turn_candidates (
+                source_turn_id INTEGER NOT NULL,
+                target_turn_id INTEGER NOT NULL
+            );
+
+            INSERT INTO temp_turn_candidates (source_turn_id, target_turn_id)
+            SELECT
+                resolved_turns.source_turn_id,
+                target_turns.id
+            FROM temp_resolved_turns AS resolved_turns
+            INNER JOIN main.session_turns AS target_turns
+                ON target_turns.session_id = resolved_turns.target_session_id
+               AND target_turns.model_id = resolved_turns.target_model_id
+               AND target_turns.prompt_message_id IS resolved_turns.target_prompt_message_id
+               AND target_turns.created_at = resolved_turns.created_at;
+        `);
+
+        await this.assertCompleteUniqueMapping(currentDb, {
+            sourceTable: 'temp_resolved_turns',
+            sourceIdColumn: 'source_turn_id',
+            candidateTable: 'temp_turn_candidates',
+            candidateSourceColumn: 'source_turn_id',
+            entityLabel: '会话轮次',
+        });
+
+        await currentDb.execute(`
+            DROP TABLE IF EXISTS temp_turn_map;
+            CREATE TEMP TABLE temp_turn_map (
+                source_turn_id INTEGER PRIMARY KEY,
+                target_turn_id INTEGER NOT NULL
+            );
+
+            INSERT INTO temp_turn_map (source_turn_id, target_turn_id)
+            SELECT
+                source_turn_id,
+                MIN(target_turn_id) AS target_turn_id
+            FROM temp_turn_candidates
+            GROUP BY source_turn_id;
+
+            DROP TABLE temp_turn_candidates;
+
+            -- 优化：使用单次 JOIN，避免多个相关子查询
+            UPDATE main.session_turns
+            SET
+                (response_message_id, status, error_message, tokens_used, duration_ms, updated_at) = (
+                    SELECT
+                        resolved_turns.target_response_message_id,
+                        resolved_turns.status,
+                        resolved_turns.error_message,
+                        resolved_turns.tokens_used,
+                        resolved_turns.duration_ms,
+                        resolved_turns.updated_at
+                    FROM temp_turn_map AS turn_map
+                    INNER JOIN temp_resolved_turns AS resolved_turns
+                        ON resolved_turns.source_turn_id = turn_map.source_turn_id
+                    WHERE turn_map.target_turn_id = main.session_turns.id
+                )
+            WHERE id IN (SELECT target_turn_id FROM temp_turn_map);
+        `);
     }
 
     /**
@@ -373,30 +770,21 @@ class DatabaseBackupService {
                 message_id, attachment_id, sort_order, created_at
             )
             SELECT
-                target_messages.id,
+                message_map.target_message_id,
                 target_attachments.id,
                 source_message_attachments.sort_order,
                 source_message_attachments.created_at
             FROM imported.message_attachments AS source_message_attachments
+            INNER JOIN temp_message_map AS message_map
+                ON message_map.source_message_id = source_message_attachments.message_id
             INNER JOIN imported.attachments AS source_attachments
                 ON source_attachments.id = source_message_attachments.attachment_id
             INNER JOIN main.attachments AS target_attachments
                 ON target_attachments.hash = source_attachments.hash
-            INNER JOIN imported.messages AS source_messages
-                ON source_messages.id = source_message_attachments.message_id
-            INNER JOIN imported.sessions AS source_sessions
-                ON source_sessions.id = source_messages.session_id
-            INNER JOIN main.sessions AS target_sessions
-                ON target_sessions.session_id = source_sessions.session_id
-            INNER JOIN main.messages AS target_messages
-                ON target_messages.session_id = target_sessions.id
-               AND target_messages.role = source_messages.role
-               AND target_messages.content = source_messages.content
-               AND target_messages.created_at = source_messages.created_at
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM main.message_attachments AS existing_message_attachments
-                WHERE existing_message_attachments.message_id = target_messages.id
+                WHERE existing_message_attachments.message_id = message_map.target_message_id
                   AND existing_message_attachments.attachment_id = target_attachments.id
                   AND existing_message_attachments.sort_order = source_message_attachments.sort_order
             )
@@ -404,7 +792,7 @@ class DatabaseBackupService {
     }
 
     /**
-     * 差量导入对话数据（会话、消息、AI请求记录）
+     * 差量导入对话数据（会话、消息、轮次与尝试记录）
      * 这是两种导入模式的公共部分
      */
     private async mergeChatData(currentDb: Database): Promise<void> {
@@ -445,124 +833,44 @@ class DatabaseBackupService {
                 updated_at = excluded.updated_at
         `);
 
-        // 合并消息
-        await currentDb.execute(`
-            INSERT INTO main.messages (
-                session_id,
-                role,
-                content,
-                created_at,
-                updated_at
-            )
-            SELECT target_sessions.id,
-                   source_messages.role,
-                   source_messages.content,
-                   source_messages.created_at,
-                   source_messages.updated_at
-            FROM imported.messages AS source_messages
-            INNER JOIN imported.sessions AS source_sessions
-                ON source_sessions.id = source_messages.session_id
-            INNER JOIN main.sessions AS target_sessions
-                ON target_sessions.session_id = source_sessions.session_id
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM main.messages AS existing_messages
-                WHERE existing_messages.session_id = target_sessions.id
-                  AND existing_messages.role = source_messages.role
-                  AND existing_messages.content = source_messages.content
-                  AND existing_messages.created_at = source_messages.created_at
-            )
-        `);
+        await this.rebuildTempSessionMap(currentDb);
 
+        await this.syncMessages(currentDb);
         await this.mergeAttachmentData(currentDb);
+        await this.rebuildTempResolvedTurns(currentDb);
+        await this.syncSessionTurns(currentDb);
 
-        // 合并 AI 请求记录
+        // 合并会话轮次尝试记录
         await currentDb.execute(`
-            INSERT INTO main.ai_requests (
-                session_id, model_id, prompt_message_id, response_message_id, status, error_message,
-                tokens_used, duration_ms, created_at, updated_at
+            INSERT INTO main.session_turn_attempts (
+                turn_id, attempt_index, max_retries, status, error_message, duration_ms,
+                started_at, finished_at, created_at, updated_at
             )
             SELECT
-                target_sessions.id,
-                target_models.id,
-                (
-                    SELECT target_prompt.id
-                    FROM imported.messages AS source_prompt
-                    INNER JOIN imported.sessions AS source_prompt_session
-                        ON source_prompt_session.id = source_prompt.session_id
-                    INNER JOIN main.sessions AS target_prompt_session
-                        ON target_prompt_session.session_id = source_prompt_session.session_id
-                    INNER JOIN main.messages AS target_prompt
-                        ON target_prompt.session_id = target_prompt_session.id
-                       AND target_prompt.role = source_prompt.role
-                       AND target_prompt.content = source_prompt.content
-                       AND target_prompt.created_at = source_prompt.created_at
-                    WHERE source_prompt.id = source_requests.prompt_message_id
-                    LIMIT 1
-                ) AS prompt_message_id,
-                (
-                    SELECT target_response.id
-                    FROM imported.messages AS source_response
-                    INNER JOIN imported.sessions AS source_response_session
-                        ON source_response_session.id = source_response.session_id
-                    INNER JOIN main.sessions AS target_response_session
-                        ON target_response_session.session_id = source_response_session.session_id
-                    INNER JOIN main.messages AS target_response
-                        ON target_response.session_id = target_response_session.id
-                       AND target_response.role = source_response.role
-                       AND target_response.content = source_response.content
-                       AND target_response.created_at = source_response.created_at
-                    WHERE source_response.id = source_requests.response_message_id
-                    LIMIT 1
-                ) AS response_message_id,
-                source_requests.status,
-                source_requests.error_message,
-                source_requests.tokens_used,
-                source_requests.duration_ms,
-                source_requests.created_at,
-                source_requests.updated_at
-            FROM imported.ai_requests AS source_requests
-            INNER JOIN imported.sessions AS source_sessions
-                ON source_sessions.id = source_requests.session_id
-            INNER JOIN main.sessions AS target_sessions
-                ON target_sessions.session_id = source_sessions.session_id
-            INNER JOIN imported.models AS source_models
-                ON source_models.id = source_requests.model_id
-            INNER JOIN imported.providers AS source_providers
-                ON source_providers.id = source_models.provider_id
-            INNER JOIN main.providers AS target_providers
-                ON target_providers.name = source_providers.name
-               AND target_providers.driver = source_providers.driver
-            INNER JOIN main.models AS target_models
-                ON target_models.provider_id = target_providers.id
-               AND target_models.model_id = source_models.model_id
+                turn_map.target_turn_id,
+                source_attempts.attempt_index,
+                source_attempts.max_retries,
+                source_attempts.status,
+                source_attempts.error_message,
+                source_attempts.duration_ms,
+                source_attempts.started_at,
+                source_attempts.finished_at,
+                source_attempts.created_at,
+                source_attempts.updated_at
+            FROM imported.session_turn_attempts AS source_attempts
+            INNER JOIN temp_turn_map AS turn_map
+                ON turn_map.source_turn_id = source_attempts.turn_id
             WHERE NOT EXISTS (
                 SELECT 1
-                FROM main.ai_requests AS existing_requests
-                WHERE existing_requests.session_id = target_sessions.id
-                  AND existing_requests.model_id = target_models.id
-                  AND existing_requests.prompt_message_id = (
-                      SELECT target_prompt.id
-                      FROM imported.messages AS source_prompt
-                      INNER JOIN imported.sessions AS source_prompt_session
-                          ON source_prompt_session.id = source_prompt.session_id
-                      INNER JOIN main.sessions AS target_prompt_session
-                          ON target_prompt_session.session_id = source_prompt_session.session_id
-                      INNER JOIN main.messages AS target_prompt
-                          ON target_prompt.session_id = target_prompt_session.id
-                         AND target_prompt.role = source_prompt.role
-                         AND target_prompt.content = source_prompt.content
-                         AND target_prompt.created_at = source_prompt.created_at
-                      WHERE source_prompt.id = source_requests.prompt_message_id
-                      LIMIT 1
-                  )
-                  AND existing_requests.created_at = source_requests.created_at
+                FROM main.session_turn_attempts AS existing_attempts
+                WHERE existing_attempts.turn_id = turn_map.target_turn_id
+                  AND existing_attempts.attempt_index = source_attempts.attempt_index
             )
         `);
     }
 
     /**
-     * 仅导入对话数据（会话、消息、AI请求记录）
+     * 仅导入对话数据（会话、消息、轮次与尝试记录）
      */
     private async mergeChatDataOnly(
         currentDb: Database,
@@ -680,7 +988,8 @@ class DatabaseBackupService {
                     'messages',
                     'attachments',
                     'message_attachments',
-                    'ai_requests',
+                    'session_turns',
+                    'session_turn_attempts',
                     'settings',
                     'statistics',
                     'llm_metadata'
@@ -692,7 +1001,8 @@ class DatabaseBackupService {
                 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'messages', COALESCE(MAX(id), 0) FROM main.messages;
                 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'attachments', COALESCE(MAX(id), 0) FROM main.attachments;
                 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'message_attachments', COALESCE(MAX(id), 0) FROM main.message_attachments;
-                INSERT INTO main.sqlite_sequence (name, seq) SELECT 'ai_requests', COALESCE(MAX(id), 0) FROM main.ai_requests;
+                INSERT INTO main.sqlite_sequence (name, seq) SELECT 'session_turns', COALESCE(MAX(id), 0) FROM main.session_turns;
+                INSERT INTO main.sqlite_sequence (name, seq) SELECT 'session_turn_attempts', COALESCE(MAX(id), 0) FROM main.session_turn_attempts;
                 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'settings', COALESCE(MAX(id), 0) FROM main.settings;
                 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'statistics', COALESCE(MAX(id), 0) FROM main.statistics;
                 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'llm_metadata', COALESCE(MAX(id), 0) FROM main.llm_metadata;

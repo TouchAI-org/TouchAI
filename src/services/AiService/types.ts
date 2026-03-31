@@ -273,5 +273,11 @@ export type ToolEvent =
           toModel: ToolEventModelSummary;
           restart: boolean;
       }
+    | {
+          type: 'request_retry';
+          attempt: number;
+          maxRetries: number;
+          reason: string;
+      }
     | { type: 'iteration_start'; iteration: number }
     | { type: 'iteration_end'; iteration: number };

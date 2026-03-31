@@ -4,12 +4,12 @@ import type {
     BuiltInToolLog,
     MessageRole,
     ProviderDriver,
-    RequestStatus,
     SettingKey,
     StatisticKey,
     ToolLogKind,
     ToolLogStatus,
     TransportType,
+    TurnStatus,
 } from '../schema';
 
 // ==================== 基础类型 ====================
@@ -19,7 +19,8 @@ export type StatisticIdentifier = string | StatisticKey;
 
 export type DbMessageRole = MessageRole;
 export type DbProviderDriver = ProviderDriver;
-export type DbRequestStatus = RequestStatus;
+export type DbTurnStatus = TurnStatus;
+export type DbRequestStatus = TurnStatus;
 export type DbTransportType = TransportType;
 export type DbToolLogStatus = ToolLogStatus;
 export type DbToolLogKind = ToolLogKind;
@@ -253,15 +254,15 @@ export interface ModelWithProvider {
     provider_logo: string;
 }
 
-// ==================== AI 请求 ====================
+// ==================== 会话轮次 ====================
 
-export interface AiRequestEntity {
+export interface SessionTurnEntity {
     id: number;
     session_id: number | null;
     model_id: number;
     prompt_message_id: number | null;
     response_message_id: number | null;
-    status: DbRequestStatus;
+    status: DbTurnStatus;
     error_message: string | null;
     tokens_used: number | null;
     duration_ms: number | null;
@@ -269,12 +270,12 @@ export interface AiRequestEntity {
     updated_at: string;
 }
 
-export interface AiRequestCreateData {
+export interface SessionTurnCreateData {
     session_id?: number | null;
     model_id: number;
     prompt_message_id?: number | null;
     response_message_id?: number | null;
-    status?: DbRequestStatus;
+    status?: DbTurnStatus;
     error_message?: string | null;
     tokens_used?: number | null;
     duration_ms?: number | null;
@@ -282,7 +283,36 @@ export interface AiRequestCreateData {
     updated_at?: string;
 }
 
-export type AiRequestUpdateData = Partial<AiRequestCreateData>;
+export type SessionTurnUpdateData = Partial<SessionTurnCreateData>;
+
+export interface SessionTurnAttemptEntity {
+    id: number;
+    turn_id: number;
+    attempt_index: number;
+    max_retries: number;
+    status: DbTurnStatus;
+    error_message: string | null;
+    duration_ms: number | null;
+    started_at: string;
+    finished_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface SessionTurnAttemptCreateData {
+    turn_id: number;
+    attempt_index: number;
+    max_retries?: number;
+    status?: DbTurnStatus;
+    error_message?: string | null;
+    duration_ms?: number | null;
+    started_at?: string;
+    finished_at?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export type SessionTurnAttemptUpdateData = Partial<SessionTurnAttemptCreateData>;
 
 // ==================== LLM 元数据 ====================
 

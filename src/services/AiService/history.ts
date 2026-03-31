@@ -1,7 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type { MessageRow } from '@database/queries/messages';
+import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
+import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import { hydratePersistedAttachments } from '@services/AiService/attachments';
+import { getRetryStatusMessage } from '@services/AiService/retry';
 
 import {
     buildBuiltInToolConversationPresentation,
@@ -11,12 +14,8 @@ import {
     SHOW_WIDGET_TOOL_NAME,
     type ShowWidgetPayload,
 } from '@/services/BuiltInToolService/tools/widgetTool';
-import type {
-    ConversationMessage,
-    TextMessagePart,
-    ToolCallInfo,
-    WidgetInfo,
-} from '@/types/conversation';
+import type { ConversationMessage, ToolCallInfo, WidgetInfo } from '@/types/conversation';
+import { createTextPart } from '@/utils/conversation';
 import { parseDbDateTimestamp } from '@/utils/date';
 import { normalizeString } from '@/utils/text';
 
@@ -36,12 +35,16 @@ interface PersistedHistoryEntry {
     };
 }
 
-function createTextPart(content: string): TextMessagePart {
-    return {
-        id: crypto.randomUUID(),
-        type: 'text',
-        content,
-    };
+interface ConversationHistoryBuildResult {
+    history: ConversationMessage[];
+    historyIndexByPersistedMessageId: Map<number, number>;
+}
+
+export interface BuildConversationHistoryOptions {
+    messages: MessageRow[];
+    turns: SessionTurnHistoryRow[];
+    attempts: SessionTurnAttemptHistoryRow[];
+    resolveServerName: (serverId: number | null) => string;
 }
 
 function normalizeDisplayName(namespacedName: string): string {
@@ -213,9 +216,11 @@ async function buildPersistedEntries(
  */
 function convertEntriesToConversationHistory(
     entries: PersistedHistoryEntry[]
-): ConversationMessage[] {
+): ConversationHistoryBuildResult {
     const history: ConversationMessage[] = [];
+    const historyIndexByPersistedMessageId = new Map<number, number>();
     let activeAssistantMessage: ConversationMessage | null = null;
+    let activeAssistantEntryIds: number[] = [];
     let toolCallMap = new Map<string, ToolCallInfo>();
     let pendingToolResultFallbacks: string[] = [];
 
@@ -233,24 +238,32 @@ function convertEntriesToConversationHistory(
             activeAssistantMessage.parts.push(createTextPart(fallbackText));
         }
 
+        const historyIndex = history.length;
         history.push(activeAssistantMessage);
+        for (const entryId of activeAssistantEntryIds) {
+            historyIndexByPersistedMessageId.set(entryId, historyIndex);
+        }
         activeAssistantMessage = null;
+        activeAssistantEntryIds = [];
         toolCallMap = new Map<string, ToolCallInfo>();
         pendingToolResultFallbacks = [];
     };
 
     const ensureAssistantMessage = (entry: PersistedHistoryEntry): ConversationMessage => {
-        if (activeAssistantMessage) {
-            return activeAssistantMessage;
+        if (!activeAssistantMessage) {
+            activeAssistantMessage = {
+                id: `assistant-${entry.id}`,
+                role: 'assistant',
+                content: '',
+                parts: [],
+                timestamp: parseDbDateTimestamp(entry.created_at),
+            };
         }
 
-        activeAssistantMessage = {
-            id: `assistant-${entry.id}`,
-            role: 'assistant',
-            content: '',
-            parts: [],
-            timestamp: parseDbDateTimestamp(entry.created_at),
-        };
+        if (!activeAssistantEntryIds.includes(entry.id)) {
+            activeAssistantEntryIds.push(entry.id);
+        }
+
         return activeAssistantMessage;
     };
 
@@ -425,6 +438,7 @@ function convertEntriesToConversationHistory(
     for (const entry of entries) {
         if (entry.role === 'user') {
             flushAssistantMessage();
+            const historyIndex = history.length;
             history.push({
                 id: `user-${entry.id}`,
                 role: 'user',
@@ -433,6 +447,7 @@ function convertEntriesToConversationHistory(
                 parts: [],
                 timestamp: parseDbDateTimestamp(entry.created_at),
             });
+            historyIndexByPersistedMessageId.set(entry.id, historyIndex);
             continue;
         }
 
@@ -490,21 +505,237 @@ function convertEntriesToConversationHistory(
     }
 
     flushAssistantMessage();
+    return {
+        history,
+        historyIndexByPersistedMessageId,
+    };
+}
+
+function createDerivedErrorMessage(turn: SessionTurnHistoryRow): ConversationMessage {
+    const content = `请求失败: ${turn.error_message}`;
+
+    return {
+        id: `turn-error-${turn.id}`,
+        role: 'assistant',
+        content,
+        parts: [createTextPart(content)],
+        timestamp: parseDbDateTimestamp(turn.updated_at || turn.created_at),
+        isError: true,
+    };
+}
+
+function createDerivedRetryMessage(
+    turnId: number,
+    attempt: SessionTurnAttemptHistoryRow
+): ConversationMessage {
+    const content = getRetryStatusMessage(attempt.attempt_index, attempt.max_retries);
+
+    return {
+        id: `turn-retry-${turnId}-${attempt.attempt_index}`,
+        role: 'assistant',
+        content,
+        parts: [createTextPart(content)],
+        timestamp: parseDbDateTimestamp(
+            attempt.finished_at || attempt.updated_at || attempt.created_at
+        ),
+        isRetrying: true,
+    };
+}
+
+function resolvePromptAnchorIndex(
+    turn: SessionTurnHistoryRow,
+    historyIndexByPersistedMessageId: Map<number, number>
+): number | null {
+    if (turn.prompt_message_id !== null) {
+        const promptIndex = historyIndexByPersistedMessageId.get(turn.prompt_message_id);
+        if (promptIndex !== undefined) {
+            return promptIndex;
+        }
+    }
+
+    return null;
+}
+
+function resolveFailedRequestAnchorIndex(
+    turn: SessionTurnHistoryRow,
+    history: ConversationMessage[],
+    historyIndexByPersistedMessageId: Map<number, number>
+): number {
+    if (turn.response_message_id !== null) {
+        const responseIndex = historyIndexByPersistedMessageId.get(turn.response_message_id);
+        if (responseIndex !== undefined) {
+            return responseIndex;
+        }
+    }
+
+    const promptIndex = resolvePromptAnchorIndex(turn, historyIndexByPersistedMessageId);
+    if (promptIndex !== null) {
+        const trailingAssistant = history[promptIndex + 1];
+        if (trailingAssistant?.role === 'assistant') {
+            return promptIndex + 1;
+        }
+
+        return promptIndex;
+    }
+
+    return history.length - 1;
+}
+
+function resolveRetryAnchor(
+    turn: SessionTurnHistoryRow,
+    history: ConversationMessage[],
+    historyIndexByPersistedMessageId: Map<number, number>
+): { position: 'before' | 'after'; anchorIndex: number } {
+    if (turn.response_message_id !== null) {
+        const responseIndex = historyIndexByPersistedMessageId.get(turn.response_message_id);
+        if (responseIndex !== undefined) {
+            return {
+                position: 'before',
+                anchorIndex: responseIndex,
+            };
+        }
+    }
+
+    const promptIndex = resolvePromptAnchorIndex(turn, historyIndexByPersistedMessageId);
+    if (promptIndex !== null) {
+        const trailingAssistant = history[promptIndex + 1];
+        if (trailingAssistant?.role === 'assistant') {
+            return {
+                position: 'before',
+                anchorIndex: promptIndex + 1,
+            };
+        }
+
+        return {
+            position: 'after',
+            anchorIndex: promptIndex,
+        };
+    }
+
+    return {
+        position: 'after',
+        anchorIndex: history.length - 1,
+    };
+}
+
+function pushAnchoredMessage(
+    collections: {
+        leading: ConversationMessage[];
+        beforeByIndex: Map<number, ConversationMessage[]>;
+        afterByIndex: Map<number, ConversationMessage[]>;
+    },
+    message: ConversationMessage,
+    position: 'before' | 'after',
+    anchorIndex: number
+): void {
+    if (anchorIndex < 0) {
+        collections.leading.push(message);
+        return;
+    }
+
+    const targetCollection =
+        position === 'before' ? collections.beforeByIndex : collections.afterByIndex;
+    const anchoredMessages = targetCollection.get(anchorIndex) ?? [];
+    anchoredMessages.push(message);
+    targetCollection.set(anchorIndex, anchoredMessages);
+}
+
+function injectDerivedRequestStatuses(
+    buildResult: ConversationHistoryBuildResult,
+    turns: SessionTurnHistoryRow[],
+    attempts: SessionTurnAttemptHistoryRow[]
+): ConversationMessage[] {
+    const attemptsByTurnId = new Map<number, SessionTurnAttemptHistoryRow[]>();
+    for (const attempt of attempts) {
+        const currentAttempts = attemptsByTurnId.get(attempt.turn_id) ?? [];
+        currentAttempts.push(attempt);
+        attemptsByTurnId.set(attempt.turn_id, currentAttempts);
+    }
+
+    const turnsWithDerivedStatuses = turns.filter((turn) => {
+        const turnAttempts = attemptsByTurnId.get(turn.id) ?? [];
+        return (
+            turnAttempts.length > 1 || (turn.status === 'failed' && !!turn.error_message?.trim())
+        );
+    });
+
+    if (turnsWithDerivedStatuses.length === 0) {
+        return buildResult.history;
+    }
+
+    const collections = {
+        leading: [] as ConversationMessage[],
+        beforeByIndex: new Map<number, ConversationMessage[]>(),
+        afterByIndex: new Map<number, ConversationMessage[]>(),
+    };
+
+    for (const turn of turnsWithDerivedStatuses) {
+        const turnAttempts = attemptsByTurnId.get(turn.id) ?? [];
+        const retryAnchor = resolveRetryAnchor(
+            turn,
+            buildResult.history,
+            buildResult.historyIndexByPersistedMessageId
+        );
+        turnAttempts.slice(0, -1).forEach((attempt) => {
+            pushAnchoredMessage(
+                collections,
+                createDerivedRetryMessage(turn.id, attempt),
+                retryAnchor.position,
+                retryAnchor.anchorIndex
+            );
+        });
+
+        if (turn.status === 'failed' && turn.error_message?.trim()) {
+            pushAnchoredMessage(
+                collections,
+                createDerivedErrorMessage(turn),
+                'after',
+                resolveFailedRequestAnchorIndex(
+                    turn,
+                    buildResult.history,
+                    buildResult.historyIndexByPersistedMessageId
+                )
+            );
+        }
+    }
+
+    const history: ConversationMessage[] = [...collections.leading];
+    buildResult.history.forEach((message, index) => {
+        const beforeMessages = collections.beforeByIndex.get(index);
+        if (beforeMessages?.length) {
+            history.push(...beforeMessages);
+        }
+
+        history.push(message);
+
+        const afterMessages = collections.afterByIndex.get(index);
+        if (afterMessages?.length) {
+            history.push(...afterMessages);
+        }
+    });
+
     return history;
 }
 
 /**
  * 将持久化消息行恢复成 SearchView 可直接消费的对话历史。
  *
- * @param rows 已排序的数据库消息行。
- * @param resolveServerName 通过 serverId 解析 MCP 服务器名称。
- * @returns 重建后的对话历史。
+ * @param options 构建选项
+ * @param options.messages 已排序的数据库消息行
+ * @param options.turns 会话轮次历史
+ * @param options.attempts 会话轮次尝试历史
+ * @param options.resolveServerName 通过 serverId 解析 MCP 服务器名称
+ * @returns 重建后的对话历史
  */
 export async function buildConversationHistory(
-    rows: MessageRow[],
-    resolveServerName: (serverId: number | null) => string
+    options: BuildConversationHistoryOptions
 ): Promise<ConversationMessage[]> {
-    return convertEntriesToConversationHistory(
-        await buildPersistedEntries(rows, resolveServerName)
+    const { messages, turns, attempts, resolveServerName } = options;
+    return injectDerivedRequestStatuses(
+        convertEntriesToConversationHistory(
+            await buildPersistedEntries(messages, resolveServerName)
+        ),
+        turns,
+        attempts
     );
 }

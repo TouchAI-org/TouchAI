@@ -15,10 +15,14 @@ export enum AiErrorCode {
     EMPTY_RESPONSE = 'EMPTY_RESPONSE',
     STREAM_ERROR = 'STREAM_ERROR',
 
-    // 网络相关错误 (3xxx)
+    // 网络相关错误 (3xxx) - 可重试
     NETWORK_ERROR = 'NETWORK_ERROR',
     API_ERROR = 'API_ERROR',
     TIMEOUT = 'TIMEOUT',
+    RATE_LIMIT = 'RATE_LIMIT',
+    SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
+    BAD_GATEWAY = 'BAD_GATEWAY',
+    GATEWAY_TIMEOUT = 'GATEWAY_TIMEOUT',
 
     // 认证相关错误 (4xxx)
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -57,6 +61,10 @@ const ERROR_MESSAGES: Record<AiErrorCode, string> = {
     [AiErrorCode.NETWORK_ERROR]: '网络连接失败，请检查网络设置',
     [AiErrorCode.API_ERROR]: 'API 请求失败',
     [AiErrorCode.TIMEOUT]: '请求超时，请稍后重试',
+    [AiErrorCode.RATE_LIMIT]: '请求频率过高，请稍后重试',
+    [AiErrorCode.SERVICE_UNAVAILABLE]: '服务暂时不可用，请稍后重试',
+    [AiErrorCode.BAD_GATEWAY]: '网关错误，请稍后重试',
+    [AiErrorCode.GATEWAY_TIMEOUT]: '网关超时，请稍后重试',
 
     // 认证相关
     [AiErrorCode.INVALID_API_KEY]: 'API Key 无效或已过期',
@@ -113,9 +121,17 @@ export class AiError extends Error {
      * 判断是否为可重试的错误
      */
     isRetryable(): boolean {
-        return [AiErrorCode.NETWORK_ERROR, AiErrorCode.TIMEOUT, AiErrorCode.STREAM_ERROR].includes(
-            this.code
-        );
+        // 网络相关的临时性错误都可以重试
+        return [
+            AiErrorCode.NETWORK_ERROR,
+            AiErrorCode.TIMEOUT,
+            AiErrorCode.STREAM_ERROR,
+            AiErrorCode.RATE_LIMIT,
+            AiErrorCode.SERVICE_UNAVAILABLE,
+            AiErrorCode.BAD_GATEWAY,
+            AiErrorCode.GATEWAY_TIMEOUT,
+            AiErrorCode.API_ERROR,
+        ].includes(this.code);
     }
 
     /**
@@ -154,6 +170,52 @@ export class AiError extends Error {
                 return new AiError(AiErrorCode.REQUEST_CANCELLED, error);
             }
 
+            // 速率限制
+            if (
+                message.includes('rate limit') ||
+                message.includes('rate-limited') ||
+                message.includes('too many requests') ||
+                message.includes('429')
+            ) {
+                return new AiError(
+                    AiErrorCode.RATE_LIMIT,
+                    error,
+                    error instanceof Error ? error.message : String(error)
+                );
+            }
+
+            // 服务不可用
+            if (
+                message.includes('service unavailable') ||
+                message.includes('temporarily unavailable') ||
+                message.includes('503')
+            ) {
+                return new AiError(
+                    AiErrorCode.SERVICE_UNAVAILABLE,
+                    error,
+                    error instanceof Error ? error.message : String(error)
+                );
+            }
+
+            // 网关错误
+            if (message.includes('bad gateway') || message.includes('502')) {
+                return new AiError(
+                    AiErrorCode.BAD_GATEWAY,
+                    error,
+                    error instanceof Error ? error.message : String(error)
+                );
+            }
+
+            // 网关超时
+            if (message.includes('gateway timeout') || message.includes('504')) {
+                return new AiError(
+                    AiErrorCode.GATEWAY_TIMEOUT,
+                    error,
+                    error instanceof Error ? error.message : String(error)
+                );
+            }
+
+            // 网络错误
             if (message.includes('network') || message.includes('fetch')) {
                 return new AiError(
                     AiErrorCode.NETWORK_ERROR,
@@ -162,6 +224,7 @@ export class AiError extends Error {
                 );
             }
 
+            // 超时
             if (message.includes('timeout')) {
                 return new AiError(
                     AiErrorCode.TIMEOUT,
@@ -170,6 +233,7 @@ export class AiError extends Error {
                 );
             }
 
+            // 认证错误
             if (message.includes('unauthorized') || message.includes('401')) {
                 return new AiError(
                     AiErrorCode.UNAUTHORIZED,

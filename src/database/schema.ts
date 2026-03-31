@@ -2,7 +2,7 @@
 
 import type { QueryResult } from '@tauri-apps/plugin-sql';
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // ==================== Tauri 相关类型 ====================
 
@@ -263,35 +263,78 @@ export const models = sqliteTable('models', {
 });
 
 /**
- * AI 请求表
+ * 会话轮次表
  */
-export const aiRequests = sqliteTable('ai_requests', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    session_id: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
-    model_id: integer('model_id')
-        .notNull()
-        .references(() => models.id, { onDelete: 'cascade' }),
-    prompt_message_id: integer('prompt_message_id').references(() => messages.id, {
-        onDelete: 'set null',
-    }),
-    response_message_id: integer('response_message_id').references(() => messages.id, {
-        onDelete: 'set null',
-    }),
-    status: text('status', {
-        enum: ['pending', 'streaming', 'completed', 'failed', 'cancelled'],
-    })
-        .notNull()
-        .default('pending'),
-    error_message: text('error_message'),
-    tokens_used: integer('tokens_used'),
-    duration_ms: integer('duration_ms'),
-    created_at: text('created_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-    updated_at: text('updated_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-});
+export const sessionTurns = sqliteTable(
+    'session_turns',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        session_id: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+        model_id: integer('model_id')
+            .notNull()
+            .references(() => models.id, { onDelete: 'cascade' }),
+        prompt_message_id: integer('prompt_message_id').references(() => messages.id, {
+            onDelete: 'set null',
+        }),
+        response_message_id: integer('response_message_id').references(() => messages.id, {
+            onDelete: 'set null',
+        }),
+        status: text('status', {
+            enum: ['pending', 'streaming', 'completed', 'failed', 'cancelled'],
+        })
+            .notNull()
+            .default('pending'),
+        error_message: text('error_message'),
+        tokens_used: integer('tokens_used'),
+        duration_ms: integer('duration_ms'),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [index('session_turns_session_id_idx').on(table.session_id)]
+);
+
+/**
+ * 会话轮次尝试表
+ */
+export const sessionTurnAttempts = sqliteTable(
+    'session_turn_attempts',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        turn_id: integer('turn_id')
+            .notNull()
+            .references(() => sessionTurns.id, { onDelete: 'cascade' }),
+        attempt_index: integer('attempt_index').notNull(),
+        max_retries: integer('max_retries').notNull().default(0),
+        status: text('status', {
+            enum: ['pending', 'streaming', 'completed', 'failed', 'cancelled'],
+        })
+            .notNull()
+            .default('pending'),
+        error_message: text('error_message'),
+        duration_ms: integer('duration_ms'),
+        started_at: text('started_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        finished_at: text('finished_at'),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        index('session_turn_attempts_turn_id_idx').on(table.turn_id),
+        uniqueIndex('session_turn_attempts_turn_attempt_unique').on(
+            table.turn_id,
+            table.attempt_index
+        ),
+    ]
+);
 
 /**
  * LLM 元数据表
@@ -502,9 +545,13 @@ export type Model = typeof models.$inferSelect;
 export type NewModel = typeof models.$inferInsert;
 export type ModelUpdate = Partial<NewModel>;
 
-export type AiRequest = typeof aiRequests.$inferSelect;
-export type NewAiRequest = typeof aiRequests.$inferInsert;
-export type AiRequestUpdate = Partial<NewAiRequest>;
+export type SessionTurn = typeof sessionTurns.$inferSelect;
+export type NewSessionTurn = typeof sessionTurns.$inferInsert;
+export type SessionTurnUpdate = Partial<NewSessionTurn>;
+
+export type SessionTurnAttempt = typeof sessionTurnAttempts.$inferSelect;
+export type NewSessionTurnAttempt = typeof sessionTurnAttempts.$inferInsert;
+export type SessionTurnAttemptUpdate = Partial<NewSessionTurnAttempt>;
 
 export type LlmMetadata = typeof llmMetadata.$inferSelect;
 export type NewLlmMetadata = typeof llmMetadata.$inferInsert;
@@ -536,6 +583,7 @@ export type QuickSearchClickStatUpdate = Partial<NewQuickSearchClickStat>;
 
 export type MessageRole = Message['role'];
 export type ProviderDriver = Provider['driver'];
-export type RequestStatus = AiRequest['status'];
+export type TurnStatus = SessionTurn['status'];
+export type RequestStatus = TurnStatus;
 export type TransportType = McpServer['transport_type'];
 export type ToolLogStatus = McpToolLog['status'];

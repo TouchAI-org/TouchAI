@@ -9,6 +9,14 @@
                     {{ message.content }}
                 </div>
 
+                <div v-else-if="message.isRetrying" class="text-sm leading-[1.6] text-gray-500">
+                    {{ message.content }}
+                </div>
+
+                <div v-else-if="message.isError" class="text-sm leading-[1.6] text-red-600">
+                    {{ message.content }}
+                </div>
+
                 <!-- 正常 AI 消息 -->
                 <template v-else>
                     <!-- 推理过程显示（如果存在）-->
@@ -78,25 +86,24 @@
                             <span class="dot"></span>
                         </div>
                     </div>
-
-                    <!-- AI 消息底部操作按钮 -->
-                    <div v-if="!message.isStreaming" class="mt-3 flex items-center gap-1">
-                        <button
-                            class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                            aria-label="Copy message"
-                            @click.stop="handleCopy"
-                        >
-                            <AppIcon name="copy" class="h-4 w-4" />
-                        </button>
-                        <button
-                            class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                            aria-label="Regenerate response"
-                            @click.stop="handleRegenerate"
-                        >
-                            <AppIcon name="refresh" class="h-4 w-4" />
-                        </button>
-                    </div>
                 </template>
+
+                <div v-if="showMessageActions" class="mt-3 flex items-center gap-1">
+                    <button
+                        class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                        aria-label="Copy message"
+                        @click.stop="handleCopy"
+                    >
+                        <AppIcon name="copy" class="h-4 w-4" />
+                    </button>
+                    <button
+                        class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                        aria-label="Regenerate response"
+                        @click.stop="handleRegenerate"
+                    >
+                        <AppIcon name="refresh" class="h-4 w-4" />
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -230,6 +237,11 @@
             lastPart?.type === 'tool_call' || lastPart?.type === 'approval' ? 'mt-4' : 'mt-2';
 
         return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop];
+    });
+    const showMessageActions = computed(() => {
+        return (
+            !props.message.isStreaming && !props.message.isCancelled && !props.message.isRetrying
+        );
     });
 
     // 切换 reasoning 展开/收缩
