@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div :class="ROOT_CLASS">
@@ -86,7 +86,7 @@
     import { computed, ref } from 'vue';
 
     import { parseBashToolResult } from '@/services/BuiltInToolService/tools/bash/helper';
-    import type { ToolCallInfo } from '@/types/conversation';
+    import type { ToolCallInfo } from '@/types/session';
 
     const ROOT_CLASS =
         'tool-call-bash-wrapper tool-call-log-wrapper paragraph-node touchai-markdown touchai-markdown--default';
@@ -118,24 +118,30 @@
 
     const isExpanded = ref(false);
     const isCommandExpanded = ref(false);
-    const statusType = computed<'running' | 'error' | 'completed' | 'rejected'>(() => {
-        if (
-            props.toolCall.status === 'executing' ||
-            props.toolCall.status === 'awaiting_approval'
-        ) {
-            return 'running';
-        }
+    const statusType = computed<'running' | 'error' | 'completed' | 'rejected' | 'cancelled'>(
+        () => {
+            if (
+                props.toolCall.status === 'executing' ||
+                props.toolCall.status === 'awaiting_approval'
+            ) {
+                return 'running';
+            }
 
-        if (props.toolCall.status === 'error') {
-            return 'error';
-        }
+            if (props.toolCall.status === 'error') {
+                return 'error';
+            }
 
-        if (props.toolCall.status === 'rejected') {
-            return 'rejected';
-        }
+            if (props.toolCall.status === 'rejected') {
+                return 'rejected';
+            }
 
-        return 'completed';
-    });
+            if (props.toolCall.status === 'cancelled') {
+                return 'cancelled';
+            }
+
+            return 'completed';
+        }
+    );
     const bashResultMeta = computed(() => parseBashToolResult(props.toolCall.result));
     const bashCommandText = computed(() => {
         return (
@@ -157,6 +163,10 @@
 
         if (props.toolCall.status === 'rejected') {
             return '用户已拒绝此次执行';
+        }
+
+        if (props.toolCall.status === 'cancelled') {
+            return '命令已取消';
         }
 
         const output = bashResultMeta.value.output?.trim();
@@ -195,7 +205,7 @@
 
     function getToolStatusText(
         status: ToolCallInfo['status'],
-        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected',
+        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled',
         options?: {
             completedText?: string;
         }
@@ -216,12 +226,16 @@
             return '已拒绝';
         }
 
+        if (statusTypeValue === 'cancelled') {
+            return '已取消';
+        }
+
         return options?.completedText || '完成';
     }
 
     function getStatusClassName(
         prefix: string,
-        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected'
+        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled'
     ): string {
         if (statusTypeValue === 'running') {
             return `${prefix}running`;
@@ -233,6 +247,10 @@
 
         if (statusTypeValue === 'rejected') {
             return `${prefix}rejected`;
+        }
+
+        if (statusTypeValue === 'cancelled') {
+            return `${prefix}cancelled`;
         }
 
         return `${prefix}completed`;
@@ -587,6 +605,10 @@
 
     .tool-call-bash-status--completed {
         color: rgb(102, 96, 89);
+    }
+
+    .tool-call-bash-status--cancelled {
+        color: rgb(128, 122, 115);
     }
 
     .tool-call-bash-status--error,

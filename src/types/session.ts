@@ -1,8 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import type { Index } from '@services/AiService/attachments';
-import type { ToolExecutionSource as AiToolExecutionSource } from '@services/AiService/types';
-
+import type { ToolExecutionSource as AiToolExecutionSource } from '@/services/AgentService/contracts/tooling';
+import type { Index } from '@/services/AgentService/infrastructure/attachments';
 import type {
     BuiltInToolConversationPresentation,
     BuiltInToolConversationSemantic,
@@ -13,6 +12,20 @@ import type { ShowWidgetPayload } from '@/services/BuiltInToolService/tools/widg
  * SearchView 与 agent 运行时共享的会话展示模型。
  */
 export type ToolExecutionSource = AiToolExecutionSource;
+
+/**
+ * 工具调用状态常量。
+ */
+export const ToolCallStatus = {
+    EXECUTING: 'executing',
+    AWAITING_APPROVAL: 'awaiting_approval',
+    COMPLETED: 'completed',
+    ERROR: 'error',
+    REJECTED: 'rejected',
+    CANCELLED: 'cancelled',
+} as const;
+
+export type ToolCallStatus = (typeof ToolCallStatus)[keyof typeof ToolCallStatus];
 
 /**
  * 单次工具调用在会话区的展示模型。
@@ -32,7 +45,7 @@ export interface ToolCallInfo {
     builtinPresentation?: BuiltInToolConversationPresentation;
     result?: string;
     isError?: boolean;
-    status: 'executing' | 'awaiting_approval' | 'completed' | 'error' | 'rejected';
+    status: ToolCallStatus;
     durationMs?: number;
 }
 
@@ -60,7 +73,7 @@ export interface WidgetMessagePart {
     widgetId: string;
 }
 
-export type ConversationPart =
+export type SessionPart =
     | TextMessagePart
     | ToolCallMessagePart
     | ApprovalMessagePart
@@ -82,7 +95,7 @@ export interface WidgetInfo extends ShowWidgetPayload {
 export interface ToolApprovalInfo {
     id: string;
     callId: string;
-    status: 'pending' | 'rejected';
+    status: 'pending' | 'rejected' | 'cancelled';
     title: string;
     description: string;
     command: string;
@@ -117,16 +130,21 @@ export interface PendingToolApproval {
     keyboardApproveAt: number;
 }
 
-export interface ConversationMessage {
+export interface SessionMessage {
     id: string;
     role: 'user' | 'assistant';
     content: string;
     reasoning?: string;
+    /**
+     * 当同一轮已经有可见回复时，取消/失败等收尾状态应挂在当前 assistant 消息上，
+     * 而不是额外拆成一条新的 assistant turn。
+     */
+    statusText?: string;
     attachments?: Index[];
     toolCalls?: ToolCallInfo[];
     approvals?: ToolApprovalInfo[];
     widgets?: WidgetInfo[];
-    parts: ConversationPart[];
+    parts: SessionPart[];
     timestamp: number;
     isStreaming?: boolean;
     isCancelled?: boolean;
@@ -134,7 +152,7 @@ export interface ConversationMessage {
     isRetrying?: boolean;
 }
 
-export interface LoadedConversationSession {
+export interface LoadedSessionInfo {
     sessionId: number;
     title: string;
     modelId: string | null;

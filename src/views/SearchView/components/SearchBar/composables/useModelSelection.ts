@@ -1,9 +1,9 @@
 import { findModelsWithProvider } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
-import { aiService } from '@services/AiService';
 import type { Editor } from '@tiptap/core';
 import { computed, onMounted, type Ref, ref, type ShallowRef } from 'vue';
 
+import { aiService } from '@/services/AgentService';
 import { parseModelModalities } from '@/utils/modelSchemas';
 import type { SearchModelDropdownContext } from '@/views/SearchView/types';
 

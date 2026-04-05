@@ -2,11 +2,11 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { db } from '@database';
-    import { mcpManager } from '@services/AiService/mcp';
     import type { SessionHistoryData } from '@services/PopupService';
     import { sendNotification } from '@tauri-apps/plugin-notification';
     import { nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
+    import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
 
@@ -112,12 +112,12 @@
         isLoading,
         error,
         currentSessionId,
-        conversationHistory,
+        sessionHistory,
         sessionHistoryPopupOpen,
         sessionList,
         sessionListQuery,
         isSessionListLoading,
-        clearConversation,
+        clearSession,
         setSessionHistoryPopupOpen,
         updateSessionSearchQuery,
         refreshSessionList,
@@ -141,7 +141,7 @@
     const { isQuickSearchOpen, shouldTriggerQuickSearch } = useQuickSearchCoordinator({
         queryText,
         attachments,
-        conversationHistory,
+        sessionHistory,
         cursorContext,
         modelOverride,
         modelDropdownState,
@@ -167,8 +167,8 @@
         viewReady,
         isDragging,
         isPinned,
-        conversationHistory,
-        clearConversation,
+        sessionHistory,
+        clearSession,
     });
 
     const {
@@ -215,7 +215,7 @@
         modelOverride,
         modelDropdownState,
         controller,
-        conversationHistory,
+        sessionHistory,
         pendingRequest,
         isWaitingForCompletion,
         isLoading,
@@ -234,7 +234,7 @@
         handleSubmit,
         clearAll,
         cancelRequest,
-        clearConversation,
+        clearSession,
     });
 
     function handleQueryTextChange(value: string) {
@@ -422,6 +422,21 @@
         window.open(normalizedUrl, '_blank');
     }
 
+    /**
+     * 请求运行或等待审批时，搜索框会被禁用并主动 blur。
+     * 这里把焦点接力给 SearchView 内部宿主，避免 Esc 落到浏览器默认行为上。
+     */
+    async function focusSearchKeyboardHost() {
+        await nextTick();
+
+        if (sessionHistory.value.length > 0) {
+            conversationPanel.value?.focus();
+            return;
+        }
+
+        pageContainer.value?.focus({ preventScroll: true });
+    }
+
     async function initialize() {
         try {
             viewReady.value = false;
@@ -441,7 +456,7 @@
     }
 
     watch(
-        () => conversationHistory.value.length,
+        () => sessionHistory.value.length,
         async (length, previousLength) => {
             if (!viewReady.value || length > 0 || !previousLength) {
                 return;
@@ -449,6 +464,18 @@
 
             await closeSessionHistoryPopup();
             await controller.focusSearchInput();
+        },
+        { flush: 'post' }
+    );
+
+    watch(
+        [isLoading, pendingToolApproval],
+        ([loading, approval]) => {
+            if (!viewReady.value || (!loading && !approval)) {
+                return;
+            }
+
+            void focusSearchKeyboardHost();
         },
         { flush: 'post' }
     );
@@ -491,19 +518,20 @@
 <template>
     <div
         ref="pageContainer"
+        tabindex="-1"
         :class="[
-            'search-view-container bg-background-primary relative flex h-full w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl',
+            'search-view-container bg-background-primary relative flex h-full w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl focus:outline-none',
             isLoading ? 'loading' : '',
         ]"
         @paste="handlePagePaste"
     >
         <div
-            v-if="viewReady && conversationHistory.length > 0"
+            v-if="viewReady && sessionHistory.length > 0"
             class="min-h-0 w-full flex-1 overflow-hidden"
         >
             <ConversationPanel
                 ref="conversationPanel"
-                :messages="conversationHistory"
+                :messages="sessionHistory"
                 :is-loading="isLoading"
                 :error="error"
                 :is-pinned="isPinned"
@@ -522,7 +550,7 @@
             />
         </div>
         <div
-            v-if="viewReady && conversationHistory.length > 0"
+            v-if="viewReady && sessionHistory.length > 0"
             class="w-full border-t-[0.5px] border-gray-300/80"
         ></div>
         <div v-if="viewReady" class="relative w-full">
@@ -543,7 +571,7 @@
                 @drag-start="isDragging = true"
                 @drag-end="isDragging = false"
             />
-            <div v-if="conversationHistory.length === 0" v-show="quickSearchOpen">
+            <div v-if="sessionHistory.length === 0" v-show="quickSearchOpen">
                 <QuickSearchPanel
                     ref="quickSearchPanel"
                     :open="quickSearchOpen"

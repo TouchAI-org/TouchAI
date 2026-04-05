@@ -1,7 +1,7 @@
-import type { ModelWithProvider } from '@database/queries/models';
-import type { Index } from '@services/AiService/attachments';
+﻿import type { ModelWithProvider } from '@database/queries/models';
 
-import type { ConversationMessage } from '@/types/conversation';
+import type { Index } from '@/services/AgentService/infrastructure/attachments';
+import type { SessionMessage } from '@/types/session';
 
 import type {
     SearchCursorContext,
@@ -106,5 +106,5 @@ export interface SearchViewContext {
     cursor: SearchCursorContext;
     modelDropdown: SearchModelDropdownState;
     overlay: SearchOverlayState;
-    conversationHistory: ConversationMessage[];
+    sessionHistory: SessionMessage[];
 }

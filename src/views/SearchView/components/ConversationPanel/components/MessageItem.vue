@@ -13,13 +13,13 @@
 </template>
 
 <script setup lang="ts">
-    import type { ConversationMessage } from '@/types/conversation';
+    import type { SessionMessage } from '@/types/session';
 
     import AssistantMessage from './AssistantMessage.vue';
     import UserMessage from './UserMessage.vue';
 
     interface Props {
-        message: ConversationMessage;
+        message: SessionMessage;
         approvalAttentionToken?: number;
     }
 

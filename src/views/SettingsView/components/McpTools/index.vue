@@ -7,9 +7,9 @@
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { deleteMcpServer, updateMcpServer } from '@database/queries';
     import type { McpServerEntity } from '@database/types';
-    import { mcpManager } from '@services/AiService/mcp';
     import { onMounted, onUnmounted, ref, watch } from 'vue';
 
+    import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import { useMcpStore } from '@/stores/mcp';
 
     import SectionTabs, { type SectionTabItem } from '../SectionTabs.vue';

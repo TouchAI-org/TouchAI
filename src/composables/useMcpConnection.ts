@@ -1,9 +1,9 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { mcpManager } from '@services/AiService/mcp';
 import type { Ref } from 'vue';
 import { computed, ref, watch } from 'vue';
 
+import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
 import { useMcpStore } from '@/stores/mcp';
 
 /**

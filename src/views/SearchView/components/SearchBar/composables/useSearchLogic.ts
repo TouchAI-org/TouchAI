@@ -1,9 +1,10 @@
 // 副作用导入：确保所有标签插件在编辑器创建前完成注册
 import '../tags';
 
-import type { Index } from '@services/AiService/attachments';
 import { Editor } from '@tiptap/vue-3';
 import { type Ref, ref, shallowRef, watch } from 'vue';
+
+import type { Index } from '@/services/AgentService/infrastructure/attachments';
 
 import {
     ATTACHMENT_TAG_NODE,

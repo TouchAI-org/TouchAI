@@ -152,6 +152,8 @@ export type ToolEvent =
           reason: string;
           retryScope: 'restart' | 'checkpoint';
           resumeFromIteration: number;
+          discardVisibleOutputSinceCheckpoint: boolean;
+          discardToolActivitySinceCheckpoint: boolean;
       }
     | { type: 'iteration_start'; iteration: number }
     | { type: 'iteration_end'; iteration: number };

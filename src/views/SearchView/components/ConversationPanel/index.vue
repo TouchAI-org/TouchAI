@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -80,7 +80,7 @@
     import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { useSettingsStore } from '@/stores/settings';
-    import type { ConversationMessage } from '@/types/conversation';
+    import type { SessionMessage } from '@/types/session';
 
     import ConversationTimeline from './components/ConversationTimeline.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
@@ -91,7 +91,7 @@
     });
 
     interface Props {
-        messages: ConversationMessage[];
+        messages: SessionMessage[];
         isLoading: boolean;
         error: Error | null;
         isPinned: boolean;

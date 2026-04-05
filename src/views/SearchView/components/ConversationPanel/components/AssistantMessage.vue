@@ -4,16 +4,11 @@
     <div class="mb-4 flex justify-start">
         <div class="w-full break-words">
             <div class="text-[15px] leading-[1.8]">
-                <!-- 取消消息特殊样式 -->
-                <div v-if="message.isCancelled" class="text-sm leading-[1.6] text-gray-500 italic">
-                    {{ message.content }}
-                </div>
-
-                <div v-else-if="message.isRetrying" class="text-sm leading-[1.6] text-gray-500">
-                    {{ message.content }}
-                </div>
-
-                <div v-else-if="message.isError" class="text-sm leading-[1.6] text-red-600">
+                <!-- 请求状态消息 -->
+                <div
+                    v-if="isRequestStateMessage"
+                    class="font-serif text-[13px] leading-[1.6] text-gray-500"
+                >
                     {{ message.content }}
                 </div>
 
@@ -78,6 +73,13 @@
                         />
                     </template>
 
+                    <div
+                        v-if="message.statusText"
+                        class="mt-3 font-serif text-sm leading-[1.6] text-gray-500"
+                    >
+                        {{ message.statusText }}
+                    </div>
+
                     <!-- 流式响应加载指示器 -->
                     <div v-if="message.isStreaming" :class="streamingIndicatorClass">
                         <div class="flex items-center gap-1">
@@ -117,18 +119,18 @@
 
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import type {
-        ConversationMessage,
+        SessionMessage,
         ToolApprovalInfo,
         ToolCallInfo,
         WidgetInfo,
-    } from '@/types/conversation';
+    } from '@/types/session';
 
     import ToolApprovalCard from './ToolApprovalCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
     import WidgetFrame from './WidgetFrame.vue';
 
     interface Props {
-        message: ConversationMessage;
+        message: SessionMessage;
         approvalAttentionToken?: number;
     }
 
@@ -165,6 +167,9 @@
           };
 
     const isReasoningExpanded = ref(true); // 默认展开
+    const isRequestStateMessage = computed(() => {
+        return !!(props.message.isCancelled || props.message.isRetrying || props.message.isError);
+    });
     const renderedParts = computed<RenderedPart[]>(() => {
         const toolCallMap = new Map(
             (props.message.toolCalls ?? []).map((toolCall) => [toolCall.id, toolCall])
@@ -239,9 +244,7 @@
         return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop];
     });
     const showMessageActions = computed(() => {
-        return (
-            !props.message.isStreaming && !props.message.isCancelled && !props.message.isRetrying
-        );
+        return !props.message.isStreaming && !isRequestStateMessage.value;
     });
 
     // 切换 reasoning 展开/收缩

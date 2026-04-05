@@ -3,9 +3,10 @@
 <script setup lang="ts">
     import PasswordInput from '@components/PasswordInput.vue';
     import type { Provider } from '@database/schema';
-    import { aiService } from '@services/AiService';
-    import { getProviderDriverDefinition } from '@services/AiService/provider';
     import { computed, ref, watch } from 'vue';
+
+    import { aiService } from '@/services/AgentService';
+    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     interface Props {
         provider: Provider;

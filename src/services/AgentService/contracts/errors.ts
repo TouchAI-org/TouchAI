@@ -94,14 +94,21 @@ const ERROR_MESSAGES: Record<AiErrorCode, string> = {
 export class AiError extends Error {
     public readonly code: AiErrorCode;
     public readonly details?: unknown;
+    public readonly cause?: unknown;
 
-    constructor(code: AiErrorCode, details?: unknown, message?: string) {
+    constructor(
+        code: AiErrorCode,
+        details?: unknown,
+        message?: string,
+        options: { cause?: unknown } = {}
+    ) {
         const finalMessage = message || ERROR_MESSAGES[code];
         super(finalMessage);
 
         this.name = 'AiError';
         this.code = code;
         this.details = details;
+        this.cause = options.cause;
 
         // 保持正确的原型链
         Object.setPrototypeOf(this, AiError.prototype);
@@ -162,6 +169,8 @@ export class AiError extends Error {
             return error;
         }
 
+        const cause = error === undefined ? undefined : error;
+
         if (error instanceof Error || typeof error == 'string') {
             const message = error instanceof Error ? error.message.toLowerCase() : error;
             const originalMessage = error instanceof Error ? error.message : String(error);
@@ -172,23 +181,29 @@ export class AiError extends Error {
                 message.includes('cancel') ||
                 (error instanceof Error && error.name === 'AbortError')
             ) {
-                return new AiError(AiErrorCode.REQUEST_CANCELLED, error);
+                return new AiError(AiErrorCode.REQUEST_CANCELLED, error, undefined, {
+                    cause,
+                });
             }
 
             // 网络错误
             if (message.includes('network') || message.includes('fetch')) {
-                return new AiError(AiErrorCode.NETWORK_ERROR, error, originalMessage);
+                return new AiError(AiErrorCode.NETWORK_ERROR, error, originalMessage, {
+                    cause,
+                });
             }
 
             // 超时
             if (message.includes('timeout')) {
-                return new AiError(AiErrorCode.TIMEOUT, error, originalMessage);
+                return new AiError(AiErrorCode.TIMEOUT, error, originalMessage, {
+                    cause,
+                });
             }
 
-            return new AiError(defaultCode, error, originalMessage);
+            return new AiError(defaultCode, error, originalMessage, { cause });
         }
 
-        return new AiError(defaultCode, undefined, String(error));
+        return new AiError(defaultCode, undefined, String(error), { cause });
     }
 
     /**

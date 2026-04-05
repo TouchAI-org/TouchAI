@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div
@@ -16,7 +16,7 @@
         createWidgetRenderer,
         type WidgetRenderer,
     } from '@/services/BuiltInToolService/tools/widgetTool';
-    import type { WidgetInfo } from '@/types/conversation';
+    import type { WidgetInfo } from '@/types/session';
 
     interface Props {
         widget: WidgetInfo;

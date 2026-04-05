@@ -43,10 +43,10 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
 
-    import type { ConversationMessage } from '@/types/conversation';
+    import type { SessionMessage } from '@/types/session';
 
     interface Props {
-        message: ConversationMessage;
+        message: SessionMessage;
     }
 
     defineProps<Props>();

@@ -15,9 +15,10 @@
     } from '@database/queries';
     import { setMeta } from '@database/queries/touchaiMeta';
     import { MetaKey, StatisticKey } from '@database/schema';
-    import { updateModelMetadata } from '@services/AiService/modelMetadata';
     import { relaunch } from '@tauri-apps/plugin-process';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
+
+    import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
 
     defineOptions({
         name: 'SettingsDataManagementSection',

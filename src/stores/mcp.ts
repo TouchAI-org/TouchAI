@@ -2,10 +2,11 @@
 
 import { findAllMcpServers, findMcpToolsByServerId } from '@database/queries';
 import type { McpServerEntity, McpToolEntity } from '@database/types';
-import { mcpManager } from '@services/AiService/mcp';
 import { AppEvent, eventService, type McpServerStatus } from '@services/EventService';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+
+import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
 
 export const useMcpStore = defineStore('mcp', () => {
     // 状态

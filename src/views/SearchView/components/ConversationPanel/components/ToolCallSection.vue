@@ -18,6 +18,7 @@
                     运行中
                 </span>
                 <span v-else-if="hasErrorTools" class="tool-call-inline-error">含错误</span>
+                <span v-else-if="hasCancelledTools" class="tool-call-inline-cancelled">已取消</span>
                 <span v-else>已完成</span>
                 <AppIcon
                     name="chevron-right"
@@ -45,7 +46,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed, ref, watch } from 'vue';
 
-    import type { ToolCallInfo } from '@/types/conversation';
+    import type { ToolCallInfo } from '@/types/session';
 
     import ToolCallItem from './ToolCallItem.vue';
 
@@ -61,16 +62,26 @@
 
     const totalTools = computed(() => props.toolCalls?.length ?? 0);
     const completedTools = computed(() => {
-        return props.toolCalls?.filter((tc) => tc.status !== 'executing').length ?? 0;
+        return (
+            props.toolCalls?.filter(
+                (tc) => tc.status !== 'executing' && tc.status !== 'awaiting_approval'
+            ).length ?? 0
+        );
     });
     const latestToolName = computed(() => {
         return props.toolCalls?.[props.toolCalls.length - 1]?.name;
     });
     const hasExecutingTools = computed(
-        () => props.toolCalls?.some((tc) => tc.status === 'executing') ?? false
+        () =>
+            props.toolCalls?.some(
+                (tc) => tc.status === 'executing' || tc.status === 'awaiting_approval'
+            ) ?? false
     );
     const hasErrorTools = computed(
         () => props.toolCalls?.some((tc) => tc.status === 'error') ?? false
+    );
+    const hasCancelledTools = computed(
+        () => props.toolCalls?.some((tc) => tc.status === 'cancelled') ?? false
     );
     const summaryText = computed(() => {
         if (hasExecutingTools.value) {
@@ -187,6 +198,10 @@
 
     .tool-call-inline-error {
         color: rgb(220, 38, 38);
+    }
+
+    .tool-call-inline-cancelled {
+        color: rgb(107, 114, 128);
     }
 
     .tool-call-inline-panel {

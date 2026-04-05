@@ -1,17 +1,17 @@
-/**
+﻿/**
  * SearchView 输入层。
  * 统一承载草稿、附件与 QuickSearch 的输入侧编排，保持输入业务收敛。
  */
+import { readClipboard, type ReadClipboardItem } from 'tauri-plugin-clipboard-x-api';
+import { computed, type Ref, ref, watch } from 'vue';
+
 import {
     type AttachmentSupportStatus,
     createAttachment,
     type Index,
     isAttachmentSupported,
-} from '@services/AiService/attachments';
-import { readClipboard, type ReadClipboardItem } from 'tauri-plugin-clipboard-x-api';
-import { computed, type Ref, ref, watch } from 'vue';
-
-import type { ConversationMessage } from '@/types/conversation';
+} from '@/services/AgentService/infrastructure/attachments';
+import type { SessionMessage } from '@/types/session';
 
 import type {
     SearchCursorContext,
@@ -35,7 +35,7 @@ interface UseSearchDraftControllerOptions {
 interface UseQuickSearchCoordinatorOptions {
     queryText: Ref<string>;
     attachments: Ref<Index[]>;
-    conversationHistory: Ref<ConversationMessage[]>;
+    sessionHistory: Ref<SessionMessage[]>;
     cursorContext: Ref<SearchCursorContext>;
     modelOverride: Ref<SearchModelOverride>;
     modelDropdownState: Ref<SearchModelDropdownState>;
@@ -265,7 +265,7 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
     const {
         queryText,
         attachments,
-        conversationHistory,
+        sessionHistory,
         cursorContext,
         modelOverride,
         modelDropdownState,
@@ -286,7 +286,7 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
      */
     function shouldTriggerQuickSearch(query: string) {
         return (
-            conversationHistory.value.length === 0 &&
+            sessionHistory.value.length === 0 &&
             !modelDropdownState.value.isOpen &&
             !!query.trim() &&
             !cursorContext.value.isMultiLine &&
@@ -315,7 +315,7 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         () => ({
             query: queryText.value,
             attachmentCount: attachments.value.length,
-            conversationCount: conversationHistory.value.length,
+            sessionCount: sessionHistory.value.length,
             isMultiLine: cursorContext.value.isMultiLine,
             selectedModelId: modelOverride.value.modelId,
             isModelDropdownOpen: modelDropdownState.value.isOpen,

@@ -7,12 +7,13 @@
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
     import type { Provider, ProviderDriver } from '@database/schema';
-    import { aiService } from '@services/AiService';
+    import { computed, ref, watch } from 'vue';
+
+    import { aiService } from '@/services/AgentService';
     import {
         getProviderDriverDefinition,
         providerDriverDefinitions,
-    } from '@services/AiService/provider';
-    import { computed, ref, watch } from 'vue';
+    } from '@/services/AgentService/infrastructure/providers';
 
     interface Props {
         provider: Provider;

@@ -4,7 +4,6 @@
  * 支持多个附件标签并排显示。标签可根据当前模型能力动态置灰。
  */
 
-import { type AttachmentSupportStatus } from '@services/AiService/attachments';
 import type { Editor } from '@tiptap/core';
 import type { DOMOutputSpec } from '@tiptap/pm/model';
 import type { Node as PmNode } from '@tiptap/pm/model';
@@ -12,6 +11,8 @@ import type { EditorState, Transaction } from '@tiptap/pm/state';
 import { TextSelection } from '@tiptap/pm/state';
 import { VueNodeViewRenderer } from '@tiptap/vue-3';
 import type { Component } from 'vue';
+
+import { type AttachmentSupportStatus } from '@/services/AgentService/infrastructure/attachments';
 
 import { createSearchTagNode, createTagCloseButton } from '../factory';
 import { registerSearchTag } from '../registry';

@@ -1,4 +1,4 @@
-import type { TextMessagePart } from '@/types/conversation';
+import type { TextMessagePart } from '@/types/session';
 
 /**
  * 创建带唯一 ID 的文本消息片段。

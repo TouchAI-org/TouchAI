@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SearchView 页面层。
  * 集中管理页面控制器、生命周期编排与键盘输入路由，避免页面逻辑零散分布。
  */
@@ -27,7 +27,7 @@ import {
 } from 'vue';
 
 import { useSettingsStore } from '@/stores/settings';
-import type { ConversationMessage, PendingToolApproval } from '@/types/conversation';
+import type { PendingToolApproval, SessionMessage } from '@/types/session';
 
 import type {
     ConversationPanelHandle,
@@ -264,8 +264,8 @@ interface UseSearchPageLifecycleOptions {
     viewReady: Ref<boolean>;
     isDragging: Ref<boolean>;
     isPinned: Ref<boolean>;
-    conversationHistory: Ref<ConversationMessage[]>;
-    clearConversation: () => void;
+    sessionHistory: Ref<SessionMessage[]>;
+    clearSession: () => void;
 }
 
 /**
@@ -283,8 +283,8 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         viewReady,
         isDragging,
         isPinned,
-        conversationHistory,
-        clearConversation,
+        sessionHistory,
+        clearSession,
     } = options;
 
     const isDevBlurHideSuspended = ref(false);
@@ -304,7 +304,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     const shouldHideOnBlur = computed(() => {
         if (isDragging.value) return false;
         if (isDevMode && isDevBlurHideSuspended.value) return false;
-        return !(isPinned.value && conversationHistory.value.length > 0);
+        return !(isPinned.value && sessionHistory.value.length > 0);
     });
 
     function recordHideTime() {
@@ -314,7 +314,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     function checkAndClearIfTimeout() {
         if (lastHideTime === null) return;
         if (Date.now() - lastHideTime >= HIDE_TIMEOUT_MS) {
-            clearConversation();
+            clearSession();
             lastHideTime = null;
         }
     }
@@ -544,7 +544,7 @@ interface UseSearchKeyboardOptions {
     modelOverride: Ref<SearchModelOverride>;
     modelDropdownState: Ref<SearchModelDropdownState>;
     controller: SearchPageController;
-    conversationHistory: Ref<ConversationMessage[]>;
+    sessionHistory: Ref<SessionMessage[]>;
     pendingRequest: Ref<PendingRequest | null>;
     isWaitingForCompletion: Ref<boolean>;
     isLoading: Ref<boolean>;
@@ -563,7 +563,7 @@ interface UseSearchKeyboardOptions {
     handleSubmit: (query: string) => Promise<void>;
     clearAll: () => void;
     cancelRequest: () => void;
-    clearConversation: () => void;
+    clearSession: () => void;
 }
 
 interface UseSearchModelDropdownCoordinatorOptions {
@@ -781,7 +781,7 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         modelOverride,
         modelDropdownState,
         controller,
-        conversationHistory,
+        sessionHistory,
         pendingRequest,
         isWaitingForCompletion,
         isLoading,
@@ -800,10 +800,14 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         handleSubmit,
         clearAll,
         cancelRequest,
-        clearConversation,
+        clearSession,
     } = options;
 
     let lastBackspaceTime = 0;
+
+    function isEscapeKey(event: KeyboardEvent): boolean {
+        return event.key === 'Escape' || event.key === 'Esc' || event.code === 'Escape';
+    }
 
     /**
      * 审批期间仍允许 Enter / Esc 作为决策快捷键，其余会改变输入内容的按键
@@ -859,9 +863,15 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
             return;
         }
 
+        // 通过 window capture 层监听按键，确保在所有子组件之前拦截。
+        // 一旦某次事件已被处理（如 Escape 关闭弹窗），就不再让后续逻辑重复执行。
+        if (event.defaultPrevented) {
+            return;
+        }
+
         // 工具审批态优先：避免用户误以为 Enter 是发送消息。
         if (pendingToolApproval.value) {
-            if (event.key === 'Escape') {
+            if (isEscapeKey(event)) {
                 event.preventDefault();
                 event.stopPropagation();
                 rejectPendingToolApproval(pendingToolApproval.value.callId);
@@ -894,14 +904,14 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
             return;
         }
 
-        if (event.key === 'Tab' && conversationHistory.value.length > 0) {
+        if (event.key === 'Tab' && sessionHistory.value.length > 0) {
             event.preventDefault();
             controller.focusConversation();
             return;
         }
 
         // Escape 作为 UI 状态回退键，优先收敛弹窗/请求，再处理输入清理。
-        if (event.key === 'Escape') {
+        if (isEscapeKey(event)) {
             event.preventDefault();
             event.stopPropagation();
 
@@ -921,13 +931,13 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
                 return;
             }
 
-            if (!queryText.value.trim() && conversationHistory.value.length === 0) {
+            if (!queryText.value.trim() && sessionHistory.value.length === 0) {
                 await getCurrentWindow().hide();
                 return;
             }
 
-            if (conversationHistory.value.length > 0) {
-                clearConversation();
+            if (sessionHistory.value.length > 0) {
+                clearSession();
                 return;
             }
 

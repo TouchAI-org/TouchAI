@@ -86,7 +86,7 @@
     import type { Component } from 'vue';
     import { computed, ref } from 'vue';
 
-    import type { ToolCallInfo } from '@/types/conversation';
+    import type { ToolCallInfo } from '@/types/session';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
 
@@ -147,24 +147,30 @@
     const argumentsText = computed(() => {
         return formatJson(props.toolCall.arguments ?? {});
     });
-    const statusType = computed<'running' | 'error' | 'completed' | 'rejected'>(() => {
-        if (
-            props.toolCall.status === 'executing' ||
-            props.toolCall.status === 'awaiting_approval'
-        ) {
-            return 'running';
-        }
+    const statusType = computed<'running' | 'error' | 'completed' | 'rejected' | 'cancelled'>(
+        () => {
+            if (
+                props.toolCall.status === 'executing' ||
+                props.toolCall.status === 'awaiting_approval'
+            ) {
+                return 'running';
+            }
 
-        if (props.toolCall.status === 'error') {
-            return 'error';
-        }
+            if (props.toolCall.status === 'error') {
+                return 'error';
+            }
 
-        if (props.toolCall.status === 'rejected') {
-            return 'rejected';
-        }
+            if (props.toolCall.status === 'rejected') {
+                return 'rejected';
+            }
 
-        return 'completed';
-    });
+            if (props.toolCall.status === 'cancelled') {
+                return 'cancelled';
+            }
+
+            return 'completed';
+        }
+    );
     const statusText = computed(() => {
         return getToolStatusText(props.toolCall.status, statusType.value);
     });
@@ -186,6 +192,10 @@
 
         if (props.toolCall.status === 'rejected') {
             return '已拒绝';
+        }
+
+        if (props.toolCall.status === 'cancelled') {
+            return '已取消';
         }
 
         return '已处理';
@@ -219,6 +229,10 @@
             return '用户已拒绝此次执行';
         }
 
+        if (props.toolCall.status === 'cancelled') {
+            return '请求已取消';
+        }
+
         return '无输出';
     });
 
@@ -242,7 +256,7 @@
 
     function getToolStatusText(
         status: ToolCallInfo['status'],
-        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected',
+        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled',
         options?: {
             completedText?: string;
         }
@@ -263,12 +277,16 @@
             return '已拒绝';
         }
 
+        if (statusTypeValue === 'cancelled') {
+            return '已取消';
+        }
+
         return options?.completedText || '完成';
     }
 
     function getStatusClassName(
         prefix: string,
-        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected'
+        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled'
     ): string {
         if (statusTypeValue === 'running') {
             return `${prefix}running`;
@@ -280,6 +298,10 @@
 
         if (statusTypeValue === 'rejected') {
             return `${prefix}rejected`;
+        }
+
+        if (statusTypeValue === 'cancelled') {
+            return `${prefix}cancelled`;
         }
 
         return `${prefix}completed`;
@@ -513,6 +535,12 @@
         background: rgba(255, 247, 237, 0.95);
         color: rgb(154, 52, 18);
         border-color: rgba(251, 191, 36, 0.55);
+    }
+
+    .tool-call-status--cancelled {
+        background: rgba(243, 244, 246, 0.95);
+        color: rgb(107, 114, 128);
+        border-color: rgba(209, 213, 219, 0.85);
     }
 
     .tool-call-duration {

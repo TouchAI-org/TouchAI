@@ -25,11 +25,12 @@
     import { isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
-    import { aiService } from '@services/AiService';
-    import { updateModelMetadata } from '@services/AiService/modelMetadata';
-    import { getProviderDriverDefinition } from '@services/AiService/provider';
     import { AppEvent, eventService } from '@services/EventService';
     import { computed, onMounted, ref } from 'vue';
+
+    import { aiService } from '@/services/AgentService';
+    import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
+    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     defineOptions({
         name: 'SettingsAiServicesSection',

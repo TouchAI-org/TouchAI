@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -36,7 +36,7 @@
     import { truncateText } from '@utils/text';
     import { computed, onUnmounted, ref, watch } from 'vue';
 
-    import type { ConversationMessage } from '@/types/conversation';
+    import type { SessionMessage } from '@/types/session';
 
     const TIMELINE_TOP_OFFSET = 48;
     const TIMELINE_PADDING_TOP = 20;
@@ -48,7 +48,7 @@
     });
 
     interface Props {
-        messages: ConversationMessage[];
+        messages: SessionMessage[];
         containerHeight: number;
         scrollTop: number;
         scrollHeight: number;
@@ -113,7 +113,7 @@
 
         const viewportCenter = props.scrollTop + props.clientHeight / 2;
 
-        let closestMessage: ConversationMessage | null = null;
+        let closestMessage: SessionMessage | null = null;
         let minDistance = Infinity;
 
         for (const message of userMessages.value) {

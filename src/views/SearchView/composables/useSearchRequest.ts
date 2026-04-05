@@ -1,15 +1,18 @@
-/**
+﻿/**
  * SearchView 请求层。
  * 收口请求提交、排队与会话续发逻辑，让输入层与页面层保持解耦。
  */
-import { useAgent } from '@composables/useAgent';
+import { useAgent } from '@composables/agent';
 import type { SessionEntity } from '@database/types';
-import { type Index, isAttachmentSupported } from '@services/AiService/attachments';
-import { listSessions } from '@services/AiService/session';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { type Ref, ref } from 'vue';
 
-import type { ConversationMessage, LoadedConversationSession } from '@/types/conversation';
+import {
+    type Index,
+    isAttachmentSupported,
+} from '@/services/AgentService/infrastructure/attachments';
+import { listSessions } from '@/services/AgentService/session';
+import type { LoadedSessionInfo, SessionMessage } from '@/types/session';
 
 import type { PendingRequest, SearchModelOverride } from '../types';
 
@@ -27,9 +30,9 @@ const SESSION_LIST_LIMIT = 40;
  * 因此不能再假设上一条一定是 user。
  */
 function findNearestPrecedingUserMessage(
-    history: ConversationMessage[],
+    history: SessionMessage[],
     startIndex: number
-): ConversationMessage | null {
+): SessionMessage | null {
     for (let index = startIndex - 1; index >= 0; index -= 1) {
         const message = history[index];
         if (message?.role === 'user') {
@@ -108,10 +111,10 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         isLoading,
         error,
         currentSessionId,
-        conversationHistory,
+        sessionHistory,
         sendRequest,
         cancel,
-        clearConversation,
+        clearSession,
         openSession: openStoredSession,
         pendingToolApproval,
         approvePendingToolApproval,
@@ -160,9 +163,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         },
     });
 
-    function clearConversationState() {
+    function clearSessionState() {
         clearPendingRequestState();
-        clearConversation();
+        clearSession();
     }
 
     /**
@@ -301,7 +304,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     function clearAll() {
-        clearConversationState();
+        clearSessionState();
         clearDraft();
     }
 
@@ -316,11 +319,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     function startNewSession() {
-        clearConversationState();
+        clearSessionState();
         clearDraft({ preserveModelTag: true });
     }
 
-    async function openSession(sessionId: number): Promise<LoadedConversationSession> {
+    async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
         clearDraft({ preserveModelTag: true });
 
         const loadedSession = await openStoredSession(sessionId);
@@ -333,17 +336,12 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     async function handleRegenerateMessage(messageId: string) {
-        const messageIndex = conversationHistory.value.findIndex(
-            (message) => message.id === messageId
-        );
+        const messageIndex = sessionHistory.value.findIndex((message) => message.id === messageId);
         if (messageIndex <= 0) {
             return;
         }
 
-        const userMessage = findNearestPrecedingUserMessage(
-            conversationHistory.value,
-            messageIndex
-        );
+        const userMessage = findNearestPrecedingUserMessage(sessionHistory.value, messageIndex);
         if (!userMessage) {
             return;
         }
@@ -366,12 +364,12 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         isLoading,
         error,
         currentSessionId,
-        conversationHistory: conversationHistory as Ref<ConversationMessage[]>,
+        sessionHistory: sessionHistory as Ref<SessionMessage[]>,
         sessionHistoryPopupOpen,
         sessionList,
         sessionListQuery,
         isSessionListLoading,
-        clearConversation: clearConversationState,
+        clearSession: clearSessionState,
         setSessionHistoryPopupOpen,
         updateSessionSearchQuery,
         refreshSessionList,

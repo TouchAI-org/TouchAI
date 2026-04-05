@@ -43,9 +43,10 @@
 <script setup lang="ts">
     import logoWord from '@assets/logo-word.svg';
     import ModelLogo from '@components/ModelLogo.vue';
-    import type { Index } from '@services/AiService/attachments';
     import { EditorContent } from '@tiptap/vue-3';
     import { onMounted, onUnmounted, ref, toRefs, watch } from 'vue';
+
+    import type { Index } from '@/services/AgentService/infrastructure/attachments';
 
     import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
     import type {

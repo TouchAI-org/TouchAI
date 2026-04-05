@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div class="tool-approval-card mt-[0.9rem]" :data-approval-status="approval.status">
@@ -47,9 +47,14 @@
 
             <div v-else class="tool-approval-card__resolution">
                 <span
-                    class="tool-approval-card__resolution-badge tool-approval-card__resolution-badge--rejected"
+                    :class="[
+                        'tool-approval-card__resolution-badge',
+                        approval.status === 'cancelled'
+                            ? 'tool-approval-card__resolution-badge--cancelled'
+                            : 'tool-approval-card__resolution-badge--rejected',
+                    ]"
                 >
-                    已拒绝
+                    {{ approval.status === 'cancelled' ? '已取消' : '已拒绝' }}
                 </span>
                 <span class="tool-approval-card__resolution-text">
                     {{ approval.resolutionText || defaultResolutionText }}
@@ -68,7 +73,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
-    import type { ToolApprovalInfo } from '@/types/conversation';
+    import type { ToolApprovalInfo } from '@/types/session';
 
     interface Props {
         approval: ToolApprovalInfo;
@@ -90,7 +95,7 @@
     let attentionTimer: ReturnType<typeof setTimeout> | null = null;
     let attentionFrame: number | null = null;
     const defaultResolutionText = computed(() => {
-        return '本次命令未被执行';
+        return props.approval.status === 'cancelled' ? '本次命令已取消' : '本次命令未被执行';
     });
     const approvalReasonText = computed(() => {
         return props.approval.description?.trim() || props.approval.reason?.trim() || '';
@@ -338,6 +343,11 @@
     .tool-approval-card__resolution-badge--rejected {
         background: rgba(254, 226, 226, 0.9);
         color: rgb(185, 28, 28);
+    }
+
+    .tool-approval-card__resolution-badge--cancelled {
+        background: rgba(229, 231, 235, 0.9);
+        color: rgb(75, 85, 99);
     }
 
     .tool-approval-card__resolution-text {

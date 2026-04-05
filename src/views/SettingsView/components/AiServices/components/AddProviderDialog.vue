@@ -8,12 +8,13 @@
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
     import type { NewProvider, ProviderDriver } from '@database/schema';
-    import { aiService } from '@services/AiService';
+    import { computed, ref } from 'vue';
+
+    import { aiService } from '@/services/AgentService';
     import {
         getProviderDriverDefinition,
         providerDriverDefinitions,
-    } from '@services/AiService/provider';
-    import { computed, ref } from 'vue';
+    } from '@/services/AgentService/infrastructure/providers';
 
     interface Emits {
         (e: 'create', data: NewProvider): void;
