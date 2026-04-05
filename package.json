@@ -53,6 +53,7 @@
         "ai": "^6.0.136",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "croner": "^10.0.1",
         "drizzle-orm": "^0.45.1",
         "katex": "^0.16.28",
         "markdown-it-emoji": "^3.0.0",
