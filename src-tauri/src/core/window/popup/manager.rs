@@ -53,35 +53,33 @@ pub async fn preload_popup_windows(app: AppHandle, registry: &PopupRegistry) -> 
         return Ok(());
     }
 
-    tauri::async_runtime::spawn(async move {
-        for config in configs {
-            let window_label = format!("popup-{}", config.id);
+    for config in configs {
+        let window_label = format!("popup-{}", config.id);
 
-            if app.get_webview_window(&window_label).is_some() {
-                continue;
-            }
+        if app.get_webview_window(&window_label).is_some() {
+            continue;
+        }
 
-            let url = format!("/popup?type={}", config.id);
-            match build_popup_window(
-                &app,
-                &window_label,
-                &config.id,
-                url,
-                config.width,
-                config.height,
-                0.0,
-                0.0,
-            ) {
-                Ok(_) => {}
-                Err(e) => {
-                    warn!(
-                        "[PopupRegistry] Failed to create {} popup: {}",
-                        config.id, e
-                    );
-                }
+        let url = format!("/popup?type={}", config.id);
+        match build_popup_window(
+            &app,
+            &window_label,
+            &config.id,
+            url,
+            config.width,
+            config.height,
+            0.0,
+            0.0,
+        ) {
+            Ok(_) => {}
+            Err(e) => {
+                warn!(
+                    "[PopupRegistry] Failed to create {} popup: {}",
+                    config.id, e
+                );
             }
         }
-    });
+    }
 
     Ok(())
 }
