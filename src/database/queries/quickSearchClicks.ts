@@ -22,7 +22,6 @@ export async function findQuickSearchClicksByQuery({
     limit: number;
 }): Promise<QuickSearchClickStatRow[]> {
     return db
-        .getDb()
         .select({
             path_norm: quickSearchClickStats.path_norm,
             click_count: quickSearchClickStats.click_count,
@@ -49,7 +48,6 @@ export async function upsertQuickSearchClick({
 }): Promise<void> {
     if (!queryNorm || !pathNorm) return;
     await db
-        .getDb()
         .insert(quickSearchClickStats)
         .values({
             query_norm: queryNorm,

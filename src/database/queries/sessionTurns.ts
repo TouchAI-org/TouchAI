@@ -1,8 +1,8 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { asc, count, desc, eq } from 'drizzle-orm';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import { models, providers, sessionTurns } from '../schema';
 import type { SessionTurnCreateData, SessionTurnEntity, SessionTurnUpdateData } from '../types';
 import { type ModelWithProvider, modelWithProviderSelection } from './models';
@@ -25,9 +25,10 @@ export interface SessionTurnHistoryRow {
  * 创建会话轮次。
  */
 export const createSessionTurn = async (
-    turnDraft: SessionTurnCreateData
+    turnDraft: SessionTurnCreateData,
+    database: DatabaseExecutor = db
 ): Promise<SessionTurnEntity> => {
-    const createdTurn = await db.getDb().insert(sessionTurns).values(turnDraft).returning().get();
+    const createdTurn = await database.insert(sessionTurns).values(turnDraft).returning().get();
 
     if (!createdTurn || createdTurn.id === undefined) {
         throw new Error('Failed to create session turn');
@@ -42,11 +43,13 @@ export const createSessionTurn = async (
 export const updateSessionTurn = async ({
     id,
     turnPatch,
+    database = db,
 }: {
     id: number;
     turnPatch: SessionTurnUpdateData;
+    database?: DatabaseExecutor;
 }): Promise<void> => {
-    await db.getDb().update(sessionTurns).set(turnPatch).where(eq(sessionTurns.id, id)).run();
+    await database.update(sessionTurns).set(turnPatch).where(eq(sessionTurns.id, id)).run();
 };
 
 /**
@@ -58,7 +61,6 @@ export const findLatestModelBySessionId = async ({
     sessionId: number;
 }): Promise<ModelWithProvider | null> => {
     const result = await db
-        .getDb()
         .select(modelWithProviderSelection)
         .from(sessionTurns)
         .innerJoin(models, eq(models.id, sessionTurns.model_id))
@@ -82,7 +84,6 @@ export const findSessionTurnsBySessionId = async (
     sessionId: number
 ): Promise<SessionTurnHistoryRow[]> => {
     return db
-        .getDb()
         .select({
             id: sessionTurns.id,
             session_id: sessionTurns.session_id,
@@ -106,7 +107,7 @@ export const findSessionTurnsBySessionId = async (
  * 统计会话轮次数量。
  */
 export const countSessionTurns = async (): Promise<number> => {
-    const result = await db.getDb().select({ count: count() }).from(sessionTurns).get();
+    const result = await db.select({ count: count() }).from(sessionTurns).get();
     return result?.count || 0;
 };
 
@@ -114,5 +115,5 @@ export const countSessionTurns = async (): Promise<number> => {
  * 删除所有会话轮次。
  */
 export const deleteAllSessionTurns = async (): Promise<void> => {
-    await db.getDb().delete(sessionTurns).run();
+    await db.delete(sessionTurns).run();
 };

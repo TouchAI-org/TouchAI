@@ -1,9 +1,9 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { and, count, desc, eq, exists, or, sql } from 'drizzle-orm';
 import { aliasedTable } from 'drizzle-orm/alias';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import { messages, models, sessions, sessionTurns } from '../schema';
 import type { SessionCreateData, SessionEntity, SessionUpdateData } from '../types';
 
@@ -30,8 +30,11 @@ function escapeLikePattern(value: string): string {
 /**
  * 创建会话。
  */
-export const createSession = async (data: SessionCreateData): Promise<SessionEntity> => {
-    const createdSession = await db.getDb().insert(sessions).values(data).returning().get();
+export const createSession = async (
+    data: SessionCreateData,
+    database: DatabaseExecutor = db
+): Promise<SessionEntity> => {
+    const createdSession = await database.insert(sessions).values(data).returning().get();
 
     if (!createdSession || createdSession.id === undefined) {
         throw new Error('Failed to create session');
@@ -44,7 +47,7 @@ export const createSession = async (data: SessionCreateData): Promise<SessionEnt
  * 根据主键查找会话。
  */
 export const findSessionById = async (sessionId: number): Promise<SessionEntity | undefined> =>
-    db.getDb().select().from(sessions).where(eq(sessions.id, sessionId)).get();
+    await db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
 
 /**
  * 列出会话。
@@ -52,7 +55,7 @@ export const findSessionById = async (sessionId: number): Promise<SessionEntity 
 export const listSessions = async (options: ListSessionsOptions = {}): Promise<SessionEntity[]> => {
     const query = options.query?.trim().toLocaleLowerCase() ?? '';
     const limit = normalizeSessionLimit(options.limit);
-    const drizzle = db.getDb();
+    const drizzle = db;
     const searchableMessages = aliasedTable(messages, 'searchable_messages');
 
     if (query) {
@@ -106,12 +109,13 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
 export const updateSession = async ({
     id,
     sessionPatch,
+    database = db,
 }: {
     id: number;
     sessionPatch: SessionUpdateData;
+    database?: DatabaseExecutor;
 }): Promise<void> => {
-    await db
-        .getDb()
+    await database
         .update(sessions)
         .set({
             ...sessionPatch,
@@ -130,8 +134,11 @@ export const updateSession = async ({
  * - 只有异常链路完全没有可读消息时，才回退到非空 `tool_call`，尽量保证列表可见；
  * - 读路径只读 sessions 表，避免列表查询为每条会话重复扫描 messages。
  */
-export const refreshSessionMetadata = async (sessionId: number): Promise<void> => {
-    const drizzle = db.getDb();
+export const refreshSessionMetadata = async (
+    sessionId: number,
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    const drizzle = database;
     const assistantMessages = aliasedTable(messages, 'assistant_messages');
     const toolResultMessages = aliasedTable(messages, 'tool_result_messages');
     const userMessages = aliasedTable(messages, 'user_messages');
@@ -310,7 +317,7 @@ export const refreshSessionMetadata = async (sessionId: number): Promise<void> =
  * 统计会话数量。
  */
 export const countSessions = async (): Promise<number> => {
-    const result = await db.getDb().select({ count: count() }).from(sessions).get();
+    const result = await db.select({ count: count() }).from(sessions).get();
     return result?.count || 0;
 };
 
@@ -318,5 +325,5 @@ export const countSessions = async (): Promise<number> => {
  * 删除所有会话。
  */
 export const deleteAllSessions = async (): Promise<void> => {
-    await db.getDb().delete(sessions).run();
+    await db.delete(sessions).run();
 };

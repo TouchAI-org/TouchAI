@@ -1,11 +1,31 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { drizzle } from 'drizzle-orm/sqlite-proxy';
+import { native } from '@services/NativeService';
+import type { DatabaseQueryMethod } from '@services/NativeService/database';
+import { DefaultLogger } from 'drizzle-orm/logger';
+import { createTableRelationsHelpers, extractTablesRelationalConfig } from 'drizzle-orm/relations';
+import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core/dialect';
+import { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy/driver';
+import { SQLiteProxyTransaction, SQLiteRemoteSession } from 'drizzle-orm/sqlite-proxy/session';
 
-import type { SqlValue, TauriDatabase } from './schema';
+import type { SqlValue } from './schema';
 import * as schema from './schema';
 
-export type DrizzleDb = ReturnType<typeof createDrizzleDb>;
+type ProxyQueryResult = { rows: unknown[] };
+type ProxyQueryCallback = (
+    sql: string,
+    params: SqlValue[],
+    method: DatabaseQueryMethod
+) => Promise<ProxyQueryResult>;
+type ProxyBatchCallback = (
+    queries: Array<{ sql: string; params: SqlValue[]; method: DatabaseQueryMethod }>
+) => Promise<ProxyQueryResult[]>;
+
+export type DrizzleDb = SqliteRemoteDatabase<typeof schema>;
+export type DatabaseExecutor = Pick<
+    DrizzleDb,
+    'select' | 'selectDistinct' | 'insert' | 'update' | 'delete' | 'run' | 'all' | 'get' | 'values'
+>;
 
 /**
  * 缓存 SQL 的投影列名，避免重复解析。
@@ -40,7 +60,6 @@ function splitTopLevelSqlExpressions(segment: string): string[] {
         if (char === "'" && !inDoubleQuote) {
             if (inSingleQuote) {
                 if (isEscapedQuote(segment, index, "'")) {
-                    // 双写单引号转义 '' — 跳过两个字符
                     current += "''";
                     index += 1;
                     continue;
@@ -56,7 +75,6 @@ function splitTopLevelSqlExpressions(segment: string): string[] {
         if (char === '"' && !inSingleQuote) {
             if (inDoubleQuote) {
                 if (isEscapedQuote(segment, index, '"')) {
-                    // 双写双引号转义 "" — 跳过两个字符
                     current += '""';
                     index += 1;
                     continue;
@@ -237,48 +255,134 @@ function resolveProjectionKeys(sql: string, fallbackRow: Record<string, unknown>
  * 按列顺序把对象行转成数组，并为 LEFT JOIN 缺失列补 null。
  */
 function mapObjectRowToArray(row: Record<string, unknown>, keys: string[]): unknown[] {
-    // LEFT JOIN 的空列在 Tauri 返回值里有时会直接缺键；这里显式补 null，避免列位移污染主键/角色字段。
     return keys.map((key) => (Object.prototype.hasOwnProperty.call(row, key) ? row[key] : null));
 }
 
+function mapQueryResponse(
+    sql: string,
+    method: DatabaseQueryMethod,
+    rows: Array<Record<string, unknown>>
+): ProxyQueryResult {
+    if (rows.length === 0) {
+        return { rows: [] };
+    }
+
+    const keys = resolveProjectionKeys(sql, rows[0]!);
+
+    if (method === 'get') {
+        return { rows: mapObjectRowToArray(rows[0]!, keys) };
+    }
+
+    return {
+        rows: rows.map((row) => mapObjectRowToArray(row, keys)),
+    };
+}
+
+function createRuntimeQueryCallback(options?: { txId?: string }): ProxyQueryCallback {
+    return async (sql, params, method) => {
+        const response = options?.txId
+            ? await native.database.txQuery(options.txId, {
+                  sql,
+                  params,
+                  method,
+              })
+            : await native.database.query({
+                  sql,
+                  params,
+                  method,
+              });
+
+        return mapQueryResponse(sql, method, response.rows);
+    };
+}
+
+function createRuntimeBatchCallback(options?: { txId?: string }): ProxyBatchCallback {
+    return async (queries) => {
+        const responses = options?.txId
+            ? await native.database.txBatch(options.txId, queries)
+            : await native.database.batch(queries);
+
+        return responses.map((response, index) => {
+            const query = queries[index]!;
+            return mapQueryResponse(query.sql, query.method, response.rows);
+        });
+    };
+}
+
+function createSchemaConfig() {
+    const tablesConfig = extractTablesRelationalConfig(schema, createTableRelationsHelpers);
+    return {
+        fullSchema: schema,
+        schema: tablesConfig.tables,
+        tableNamesMap: tablesConfig.tableNamesMap,
+    };
+}
+
 /**
- * 创建 Drizzle 适配层，把 Tauri 的对象结果转换成 sqlite-proxy 需要的数组结果。
+ * 创建支持原生事务句柄的 Drizzle 数据库实例。
  */
-export function createDrizzleDb(tauriDb: TauriDatabase) {
-    return drizzle<typeof schema>(
-        async (sql, params, method) => {
-            const bindValues = params as SqlValue[];
-
-            try {
-                if (method === 'run') {
-                    await tauriDb.execute(sql, bindValues);
-                    return { rows: [] };
-                }
-
-                const rows = await tauriDb.select<Record<string, unknown>>(sql, bindValues);
-
-                if (rows.length === 0) {
-                    if (method === 'get') {
-                        return { rows: undefined as unknown as unknown[] };
-                    }
-
-                    return { rows: [] };
-                }
-
-                // 历史恢复依赖多表 JOIN 的稳定列位序。不能再信任运行时对象键顺序，否则会把后续消息映射到错误列。
-                const keys = resolveProjectionKeys(sql, rows[0]!);
-
-                if (method === 'get') {
-                    return { rows: mapObjectRowToArray(rows[0]!, keys) };
-                }
-
-                const values = rows.map((row) => mapObjectRowToArray(row, keys));
-                return { rows: values };
-            } catch (error) {
-                console.error('Drizzle query error:', error);
-                throw error;
-            }
-        },
-        { schema, logger: import.meta.env.DEV }
+export function createDrizzleDb(): DrizzleDb {
+    const dialect = new SQLiteAsyncDialect();
+    const logger = import.meta.env.DEV ? new DefaultLogger() : undefined;
+    const relationalSchema = createSchemaConfig();
+    const session = new SQLiteRemoteSession(
+        createRuntimeQueryCallback(),
+        dialect,
+        relationalSchema,
+        createRuntimeBatchCallback(),
+        { logger }
     );
+    const db = new SqliteRemoteDatabase('async', dialect, session, relationalSchema) as DrizzleDb;
+
+    db.transaction = (async (transaction, config) => {
+        const txId = await native.database.txBegin(config?.behavior);
+        const txSession = new SQLiteRemoteSession(
+            createRuntimeQueryCallback({
+                txId,
+            }),
+            dialect,
+            relationalSchema,
+            createRuntimeBatchCallback({
+                txId,
+            }),
+            { logger }
+        );
+        const tx = new SQLiteProxyTransaction(
+            'async',
+            dialect,
+            txSession,
+            relationalSchema
+        ) as Parameters<Parameters<DrizzleDb['transaction']>[0]>[0];
+
+        try {
+            const result = await transaction(tx);
+            await native.database.txCommit(txId);
+            return result;
+        } catch (error) {
+            try {
+                await native.database.txRollback(txId);
+            } catch (rollbackError) {
+                console.error('[Database] Failed to rollback transaction:', rollbackError);
+            }
+            throw error;
+        }
+    }) as DrizzleDb['transaction'];
+
+    return db;
+}
+
+/**
+ * 原始 SQL 查询，仅用于调试或少量特殊读写。
+ */
+export async function rawQuery<T = Record<string, unknown>>(
+    sql: string,
+    params: SqlValue[] = []
+): Promise<T[]> {
+    const response = await native.database.query({
+        sql,
+        params,
+        method: 'all',
+    });
+
+    return response.rows as T[];
 }

@@ -2,7 +2,7 @@
 
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import { models, providers } from '../schema';
 import type {
     FindModelsWithProviderPayload,
@@ -47,17 +47,16 @@ export const modelWithProviderSelection = {
 };
 
 /**
- * 查找全局默认模型
+ * 查找全局默认模型。
  */
 export const findDefaultModel = async (): Promise<ModelEntity | undefined> =>
-    db.getDb().select().from(models).where(eq(models.is_default, 1)).get();
+    await db.select().from(models).where(eq(models.is_default, 1)).get();
 
 /**
- * 查找默认模型且服务商已启用（包含服务商信息）
+ * 查找默认模型且服务商已启用（包含服务商信息）。
  */
 export const findDefaultModelWithProvider = async (): Promise<ModelWithProvider | null> => {
     const result = await db
-        .getDb()
         .select(modelWithProviderSelection)
         .from(models)
         .innerJoin(providers, eq(providers.id, models.provider_id))
@@ -66,7 +65,6 @@ export const findDefaultModelWithProvider = async (): Promise<ModelWithProvider 
         .limit(1)
         .get();
 
-    // Drizzle sqlite-proxy 在无结果时返回所有字段为 undefined 的对象，需要检查 id
     if (!result || result.id === undefined) {
         return null;
     }
@@ -75,14 +73,13 @@ export const findDefaultModelWithProvider = async (): Promise<ModelWithProvider 
 };
 
 /**
- * 查找模型并关联服务商信息
+ * 查找模型并关联服务商信息。
  */
 export const findModelsWithProvider = async (
     payload: FindModelsWithProviderPayload = {}
 ): Promise<ModelWithProvider[]> => {
     const { providerId } = payload;
-    const drizzle = db.getDb();
-    const query = drizzle
+    const query = db
         .select(modelWithProviderSelection)
         .from(models)
         .innerJoin(providers, eq(providers.id, models.provider_id));
@@ -98,10 +95,13 @@ export const findModelsWithProvider = async (
 };
 
 /**
- * 创建模型
+ * 创建模型。
  */
-export const createModel = async (modelDraft: ModelCreateData): Promise<ModelEntity> => {
-    const createdModel = await db.getDb().insert(models).values(modelDraft).returning().get();
+export const createModel = async (
+    modelDraft: ModelCreateData,
+    database: DatabaseExecutor = db
+): Promise<ModelEntity> => {
+    const createdModel = await database.insert(models).values(modelDraft).returning().get();
 
     if (!createdModel || createdModel.id === undefined) {
         throw new Error('Failed to create model');
@@ -111,15 +111,21 @@ export const createModel = async (modelDraft: ModelCreateData): Promise<ModelEnt
 };
 
 /**
- * 批量创建模型
+ * 批量创建模型。
  */
-export const createModels = async (modelList: ModelCreateData[]): Promise<void> => {
-    if (modelList.length === 0) return;
-    await db.getDb().insert(models).values(modelList).run();
+export const createModels = async (
+    modelList: ModelCreateData[],
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    if (modelList.length === 0) {
+        return;
+    }
+
+    await database.insert(models).values(modelList).run();
 };
 
 /**
- * 更新模型
+ * 更新模型。
  */
 export const updateModel = async ({
     id,
@@ -128,83 +134,76 @@ export const updateModel = async ({
     id: number;
     modelPatch: ModelUpdateData;
 }): Promise<void> => {
-    await db.getDb().update(models).set(modelPatch).where(eq(models.id, id)).run();
+    await db.update(models).set(modelPatch).where(eq(models.id, id)).run();
 };
 
 /**
- * 更新模型最后使用时间
+ * 更新模型最后使用时间。
  */
 export const updateModelLastUsed = async ({ id }: { id: number }): Promise<void> =>
     updateModel({ id, modelPatch: { last_used_at: new Date().toISOString() } });
 
 /**
- * 设置全局默认模型
- * 并清除其他模型的默认标记
- * 验证：模型所属的服务商必须已启用
+ * 设置全局默认模型，并清除其他模型的默认标记。
  */
 export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise<void> => {
-    const drizzle = await db.getDb();
+    await db.transaction(async (tx) => {
+        const modelWithProvider = await tx
+            .select({
+                id: models.id,
+                enabled: providers.enabled,
+                provider_name: providers.name,
+            })
+            .from(models)
+            .innerJoin(providers, eq(providers.id, models.provider_id))
+            .where(eq(models.id, modelId))
+            .get();
 
-    // 检查模型是否存在以及服务商是否启用
-    const modelWithProvider = await drizzle
-        .select({
-            id: models.id,
-            enabled: providers.enabled,
-            provider_name: providers.name,
-        })
-        .from(models)
-        .innerJoin(providers, eq(providers.id, models.provider_id))
-        .where(eq(models.id, modelId))
-        .get();
+        if (!modelWithProvider) {
+            throw new Error('模型不存在');
+        }
 
-    if (!modelWithProvider) {
-        throw new Error('模型不存在');
-    }
+        if (modelWithProvider.enabled === 0) {
+            throw new Error(`无法设置默认模型：服务商 "${modelWithProvider.provider_name}" 未启用`);
+        }
 
-    if (modelWithProvider.enabled === 0) {
-        throw new Error(`无法设置默认模型：服务商 "${modelWithProvider.provider_name}" 未启用`);
-    }
-
-    await drizzle
-        .update(models)
-        .set({
-            is_default: sql<number>`case when ${models.id} = ${modelId} then 1 else 0 end`,
-        })
-        .where(or(eq(models.is_default, 1), eq(models.id, modelId)))
-        .run();
+        await tx
+            .update(models)
+            .set({
+                is_default: sql<number>`case when ${models.id} = ${modelId} then 1 else 0 end`,
+            })
+            .where(or(eq(models.is_default, 1), eq(models.id, modelId)))
+            .run();
+    });
 };
+
 /**
- * 删除模型
+ * 删除模型。
  */
 export const deleteModel = async ({ id }: { id: number }): Promise<boolean> => {
-    await db.getDb().delete(models).where(eq(models.id, id)).run();
+    await db.delete(models).where(eq(models.id, id)).run();
     return true;
 };
+
 /**
- * 根据 provider_id 和 model_id 查找模型（包含服务商信息）
- * 用于精确定位特定提供商的特定模型
+ * 根据 provider_id 和 model_id 查找模型（包含服务商信息）。
  */
 export const findModelByProviderAndModelId = async ({
     providerId,
     modelId,
 }: ProviderModelLookupPayload): Promise<ModelWithProvider | undefined> =>
-    (await db.getDb())
+    (await db
         .select(modelWithProviderSelection)
         .from(models)
         .innerJoin(providers, eq(providers.id, models.provider_id))
         .where(and(eq(models.provider_id, providerId), eq(models.model_id, modelId)))
-        .get() as Promise<ModelWithProvider | undefined>;
+        .get()) as ModelWithProvider | undefined;
 
 /**
- * 批量同步所有模型的元数据
- * 从 llm_metadata 表匹配并更新到 models 表
- * 跳过用户自定义元数据的模型（is_custom_metadata = 1）
+ * 批量同步所有模型的元数据。
  */
-export const syncAllModelsMetadata = async (): Promise<number> => {
-    // 使用单条 SQL 批量更新所有 models 的元数据
-    // 匹配逻辑：llm_metadata.model_id 包含 models.model_id（模糊匹配）
-    // 优先选择能力字段最多的记录
-    const sql = `
+export const syncAllModelsMetadata = async (database: DatabaseExecutor = db): Promise<void> => {
+    const updateSql = sql.raw(`
         UPDATE models
         SET
             attachment = COALESCE((
@@ -320,11 +319,11 @@ export const syncAllModelsMetadata = async (): Promise<number> => {
             updated_at = datetime('now')
         WHERE is_custom_metadata = 0
           AND EXISTS (
-            SELECT 1 FROM llm_metadata AS m2
+            SELECT 1
+            FROM llm_metadata AS m2
             WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
         )
-    `;
+    `);
 
-    const result = await db.rawQuery<{ changes: number }>(`${sql}; SELECT changes() as changes;`);
-    return result[0]?.changes ?? 0;
+    await database.run(updateSql);
 };

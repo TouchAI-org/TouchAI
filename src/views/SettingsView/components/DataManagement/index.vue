@@ -2,7 +2,6 @@
     import AppIcon from '@components/AppIcon.vue';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
-    import { db } from '@database';
     import { databaseBackup, type ImportMode } from '@database/backup';
     import {
         countMessages,
@@ -242,7 +241,6 @@
             progressStatus.value = 'loading';
             restartCountdown.value = null;
 
-            await db.reset(true);
             const result = await databaseBackup.importDatabase(mode, (msg, prog) => {
                 if (!showProgressDialog.value) {
                     showProgressDialog.value = true;
@@ -251,7 +249,6 @@
             });
 
             if (!result.sourcePath) {
-                await db.init();
                 showProgressDialog.value = false;
                 return;
             }
@@ -268,9 +265,6 @@
             await startRestartCountdown();
         } catch (error) {
             console.error('Failed to import settings:', error);
-
-            // 导入失败后重新连接数据库（已通过备份恢复了数据库文件）
-            await db.init();
 
             showProgressDialog.value = false;
 

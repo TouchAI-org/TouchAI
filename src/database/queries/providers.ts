@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { eq } from 'drizzle-orm';
 
@@ -14,7 +14,7 @@ import type { ProviderCreateData, ProviderEntity, ProviderUpdateData } from '../
  * 3. 其他按 ID 排序
  */
 export const findAllProvidersSorted = async (): Promise<ProviderEntity[]> => {
-    const drizzle = db.getDb();
+    const drizzle = db;
     const allProviders = await drizzle.select().from(providers).all();
     const allModels = await drizzle.select().from(models).all();
 
@@ -50,7 +50,7 @@ export const findProviderById = async ({
 }: {
     id: number;
 }): Promise<ProviderEntity | undefined> =>
-    db.getDb().select().from(providers).where(eq(providers.id, id)).get();
+    await db.select().from(providers).where(eq(providers.id, id)).get();
 
 /**
  * 创建服务商
@@ -58,12 +58,7 @@ export const findProviderById = async ({
 export const createProvider = async (
     providerDraft: ProviderCreateData
 ): Promise<ProviderEntity> => {
-    const createdProvider = await db
-        .getDb()
-        .insert(providers)
-        .values(providerDraft)
-        .returning()
-        .get();
+    const createdProvider = await db.insert(providers).values(providerDraft).returning().get();
 
     if (!createdProvider || createdProvider.id === undefined) {
         throw new Error('Failed to create provider');
@@ -82,13 +77,13 @@ export const updateProvider = async ({
     id: number;
     providerPatch: ProviderUpdateData;
 }): Promise<void> => {
-    await db.getDb().update(providers).set(providerPatch).where(eq(providers.id, id)).run();
+    await db.update(providers).set(providerPatch).where(eq(providers.id, id)).run();
 };
 
 /**
  * 删除服务商
  */
 export const deleteProvider = async ({ id }: { id: number }): Promise<boolean> => {
-    await db.getDb().delete(providers).where(eq(providers.id, id)).run();
+    await db.delete(providers).where(eq(providers.id, id)).run();
     return true;
 };

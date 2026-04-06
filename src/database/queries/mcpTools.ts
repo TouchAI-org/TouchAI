@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { and, asc, count, eq } from 'drizzle-orm';
 
@@ -10,14 +10,13 @@ import type { McpToolCreateData, McpToolEntity, McpToolUpdateData } from '../typ
  * 查找所有 MCP 工具
  */
 export const findAllMcpTools = async (): Promise<McpToolEntity[]> =>
-    db.getDb().select().from(mcpTools).orderBy(asc(mcpTools.name)).all();
+    await db.select().from(mcpTools).orderBy(asc(mcpTools.name)).all();
 
 /**
  * 根据服务器 ID 查找所有工具
  */
 export const findMcpToolsByServerId = async (serverId: number): Promise<McpToolEntity[]> =>
     db
-        .getDb()
         .select()
         .from(mcpTools)
         .where(eq(mcpTools.server_id, serverId))
@@ -29,7 +28,6 @@ export const findMcpToolsByServerId = async (serverId: number): Promise<McpToolE
  */
 export const findEnabledMcpToolsByServerId = async (serverId: number): Promise<McpToolEntity[]> =>
     db
-        .getDb()
         .select()
         .from(mcpTools)
         .where(and(eq(mcpTools.server_id, serverId), eq(mcpTools.enabled, 1)))
@@ -40,7 +38,7 @@ export const findEnabledMcpToolsByServerId = async (serverId: number): Promise<M
  * 根据 ID 查找 MCP 工具
  */
 export const findMcpToolById = async (id: number): Promise<McpToolEntity | undefined> =>
-    db.getDb().select().from(mcpTools).where(eq(mcpTools.id, id)).get();
+    await db.select().from(mcpTools).where(eq(mcpTools.id, id)).get();
 
 /**
  * 根据服务器 ID 和工具名称查找工具
@@ -50,7 +48,6 @@ export const findMcpToolByServerIdAndName = async (
     name: string
 ): Promise<McpToolEntity | undefined> =>
     db
-        .getDb()
         .select()
         .from(mcpTools)
         .where(and(eq(mcpTools.server_id, serverId), eq(mcpTools.name, name)))
@@ -60,7 +57,7 @@ export const findMcpToolByServerIdAndName = async (
  * 创建 MCP 工具
  */
 export const createMcpTool = async (data: McpToolCreateData): Promise<McpToolEntity> => {
-    const createdTool = await db.getDb().insert(mcpTools).values(data).returning().get();
+    const createdTool = await db.insert(mcpTools).values(data).returning().get();
 
     if (!createdTool || createdTool.id === undefined) {
         throw new Error('Failed to create MCP tool');
@@ -77,7 +74,6 @@ export const updateMcpTool = async (
     data: McpToolUpdateData
 ): Promise<McpToolEntity | undefined> => {
     const updatedTool = await db
-        .getDb()
         .update(mcpTools)
         .set(data)
         .where(eq(mcpTools.id, id))
@@ -91,21 +87,21 @@ export const updateMcpTool = async (
  * 删除 MCP 工具
  */
 export const deleteMcpTool = async (id: number): Promise<void> => {
-    await db.getDb().delete(mcpTools).where(eq(mcpTools.id, id)).run();
+    await db.delete(mcpTools).where(eq(mcpTools.id, id)).run();
 };
 
 /**
  * 删除服务器的所有工具
  */
 export const deleteMcpToolsByServerId = async (serverId: number): Promise<void> => {
-    await db.getDb().delete(mcpTools).where(eq(mcpTools.server_id, serverId)).run();
+    await db.delete(mcpTools).where(eq(mcpTools.server_id, serverId)).run();
 };
 
 /**
  * 统计 MCP 工具数量
  */
 export const countMcpTools = async (): Promise<number> => {
-    const result = await db.getDb().select({ count: count() }).from(mcpTools).get();
+    const result = await db.select({ count: count() }).from(mcpTools).get();
 
     return result?.count || 0;
 };
@@ -115,7 +111,6 @@ export const countMcpTools = async (): Promise<number> => {
  */
 export const countMcpToolsByServerId = async (serverId: number): Promise<number> => {
     const result = await db
-        .getDb()
         .select({ count: count() })
         .from(mcpTools)
         .where(eq(mcpTools.server_id, serverId))

@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { count, desc, eq } from 'drizzle-orm';
 
@@ -21,7 +21,6 @@ export const findBuiltInToolLogsByToolId = async (
     const offset = options?.offset ?? 0;
 
     return db
-        .getDb()
         .select()
         .from(builtInToolLogs)
         .where(eq(builtInToolLogs.tool_id, toolId))
@@ -38,7 +37,6 @@ export const findBuiltInToolLogsBySessionId = async (
     sessionId: number
 ): Promise<BuiltInToolLogEntity[]> =>
     db
-        .getDb()
         .select()
         .from(builtInToolLogs)
         .where(eq(builtInToolLogs.session_id, sessionId))
@@ -51,12 +49,7 @@ export const findBuiltInToolLogsBySessionId = async (
 export const findBuiltInToolLogByCallId = async (
     toolCallId: string
 ): Promise<BuiltInToolLogEntity | undefined> =>
-    db
-        .getDb()
-        .select()
-        .from(builtInToolLogs)
-        .where(eq(builtInToolLogs.tool_call_id, toolCallId))
-        .get();
+    db.select().from(builtInToolLogs).where(eq(builtInToolLogs.tool_call_id, toolCallId)).get();
 
 /**
  * 创建日志。
@@ -64,7 +57,7 @@ export const findBuiltInToolLogByCallId = async (
 export const createBuiltInToolLog = async (
     data: BuiltInToolLogCreateData
 ): Promise<BuiltInToolLogEntity> => {
-    const createdToolLog = await db.getDb().insert(builtInToolLogs).values(data).returning().get();
+    const createdToolLog = await db.insert(builtInToolLogs).values(data).returning().get();
 
     if (!createdToolLog || createdToolLog.id === undefined) {
         throw new Error('Failed to create built-in tool log');
@@ -81,7 +74,6 @@ export const updateBuiltInToolLogByCallId = async (
     data: BuiltInToolLogUpdateData
 ): Promise<BuiltInToolLogEntity | undefined> => {
     const updatedToolLog = await db
-        .getDb()
         .update(builtInToolLogs)
         .set(data)
         .where(eq(builtInToolLogs.tool_call_id, toolCallId))
@@ -95,6 +87,6 @@ export const updateBuiltInToolLogByCallId = async (
  * 统计工具日志数量。
  */
 export const countBuiltInToolLogs = async (): Promise<number> => {
-    const result = await db.getDb().select({ count: count() }).from(builtInToolLogs).get();
+    const result = await db.select({ count: count() }).from(builtInToolLogs).get();
     return result?.count || 0;
 };

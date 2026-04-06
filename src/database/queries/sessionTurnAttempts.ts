@@ -1,8 +1,8 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { asc, count, eq, inArray } from 'drizzle-orm';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import { sessionTurnAttempts, sessionTurns } from '../schema';
 import type {
     SessionTurnAttemptCreateData,
@@ -42,10 +42,10 @@ const SESSION_TURN_ATTEMPT_HISTORY_SELECTION = {
  * 创建会话轮次尝试。
  */
 export const createSessionTurnAttempt = async (
-    attemptDraft: SessionTurnAttemptCreateData
+    attemptDraft: SessionTurnAttemptCreateData,
+    database: DatabaseExecutor = db
 ): Promise<SessionTurnAttemptEntity> => {
-    const createdAttempt = await db
-        .getDb()
+    const createdAttempt = await database
         .insert(sessionTurnAttempts)
         .values(attemptDraft)
         .returning()
@@ -64,12 +64,13 @@ export const createSessionTurnAttempt = async (
 export const updateSessionTurnAttempt = async ({
     id,
     attemptPatch,
+    database = db,
 }: {
     id: number;
     attemptPatch: SessionTurnAttemptUpdateData;
+    database?: DatabaseExecutor;
 }): Promise<void> => {
-    await db
-        .getDb()
+    await database
         .update(sessionTurnAttempts)
         .set(attemptPatch)
         .where(eq(sessionTurnAttempts.id, id))
@@ -83,7 +84,6 @@ export const findSessionTurnAttemptsBySessionId = async (
     sessionId: number
 ): Promise<SessionTurnAttemptHistoryRow[]> => {
     return db
-        .getDb()
         .select(SESSION_TURN_ATTEMPT_HISTORY_SELECTION)
         .from(sessionTurnAttempts)
         .innerJoin(sessionTurns, eq(sessionTurns.id, sessionTurnAttempts.turn_id))
@@ -107,7 +107,6 @@ export const findSessionTurnAttemptsByTurnIds = async (
     }
 
     return db
-        .getDb()
         .select(SESSION_TURN_ATTEMPT_HISTORY_SELECTION)
         .from(sessionTurnAttempts)
         .where(inArray(sessionTurnAttempts.turn_id, turnIds))
@@ -123,7 +122,7 @@ export const findSessionTurnAttemptsByTurnIds = async (
  * 统计会话轮次尝试数量。
  */
 export const countSessionTurnAttempts = async (): Promise<number> => {
-    const result = await db.getDb().select({ count: count() }).from(sessionTurnAttempts).get();
+    const result = await db.select({ count: count() }).from(sessionTurnAttempts).get();
     return result?.count || 0;
 };
 
@@ -131,5 +130,5 @@ export const countSessionTurnAttempts = async (): Promise<number> => {
  * 删除所有会话轮次尝试。
  */
 export const deleteAllSessionTurnAttempts = async (): Promise<void> => {
-    await db.getDb().delete(sessionTurnAttempts).run();
+    await db.delete(sessionTurnAttempts).run();
 };

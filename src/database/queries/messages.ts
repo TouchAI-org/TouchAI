@@ -1,8 +1,8 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { asc, count, eq } from 'drizzle-orm';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import type { PersistedToolLogStatus } from '../schema';
 import { builtInToolLogs, mcpToolLogs, messages } from '../schema';
 import type { MessageCreateData, MessageEntity } from '../types';
@@ -75,7 +75,6 @@ function buildMessageRow(
  */
 export const findMessagesBySessionId = async (sessionId: number): Promise<MessageRow[]> => {
     const baseRows = await db
-        .getDb()
         .select()
         .from(messages)
         .where(eq(messages.session_id, sessionId))
@@ -204,7 +203,6 @@ export const findToolLogRowsBySessionId = async (
 ): Promise<ToolLogHistoryRow[]> => {
     const [mcpRows, builtInRows] = await Promise.all([
         db
-            .getDb()
             .select({
                 log_id: mcpToolLogs.id,
                 tool_call_id: mcpToolLogs.tool_call_id,
@@ -220,7 +218,6 @@ export const findToolLogRowsBySessionId = async (
             .where(eq(mcpToolLogs.session_id, sessionId))
             .all(),
         db
-            .getDb()
             .select({
                 log_id: builtInToolLogs.id,
                 tool_call_id: builtInToolLogs.tool_call_id,
@@ -254,8 +251,11 @@ export const findToolLogRowsBySessionId = async (
  * @param data 消息初始数据。
  * @returns 新创建的消息记录。
  */
-export const createMessage = async (data: MessageCreateData): Promise<MessageEntity> => {
-    const createdMessage = await db.getDb().insert(messages).values(data).returning().get();
+export const createMessage = async (
+    data: MessageCreateData,
+    database: DatabaseExecutor = db
+): Promise<MessageEntity> => {
+    const createdMessage = await database.insert(messages).values(data).returning().get();
 
     if (!createdMessage || createdMessage.id === undefined) {
         throw new Error('Failed to create message');
@@ -270,7 +270,7 @@ export const createMessage = async (data: MessageCreateData): Promise<MessageEnt
  * @returns 当前数据库中的消息总数。
  */
 export const countMessages = async (): Promise<number> => {
-    const result = await db.getDb().select({ count: count() }).from(messages).get();
+    const result = await db.select({ count: count() }).from(messages).get();
 
     return result?.count || 0;
 };
@@ -281,5 +281,5 @@ export const countMessages = async (): Promise<number> => {
  * @returns 无。
  */
 export const deleteAllMessages = async (): Promise<void> => {
-    await db.getDb().delete(messages).run();
+    await db.delete(messages).run();
 };

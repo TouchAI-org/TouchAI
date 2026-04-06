@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { asc, count, desc, eq } from 'drizzle-orm';
 
@@ -11,7 +11,6 @@ import type { BuiltInToolCreateData, BuiltInToolEntity, BuiltInToolUpdateData } 
  */
 export const findAllBuiltInTools = async (): Promise<BuiltInToolEntity[]> =>
     db
-        .getDb()
         .select()
         .from(builtInTools)
         .orderBy(desc(builtInTools.enabled), asc(builtInTools.display_name))
@@ -22,7 +21,6 @@ export const findAllBuiltInTools = async (): Promise<BuiltInToolEntity[]> =>
  */
 export const findEnabledBuiltInTools = async (): Promise<BuiltInToolEntity[]> =>
     db
-        .getDb()
         .select()
         .from(builtInTools)
         .where(eq(builtInTools.enabled, 1))
@@ -33,7 +31,7 @@ export const findEnabledBuiltInTools = async (): Promise<BuiltInToolEntity[]> =>
  * 根据数据库 ID 查询内置工具。
  */
 export const findBuiltInToolById = async (id: number): Promise<BuiltInToolEntity | undefined> =>
-    db.getDb().select().from(builtInTools).where(eq(builtInTools.id, id)).get();
+    await db.select().from(builtInTools).where(eq(builtInTools.id, id)).get();
 
 /**
  * 根据 tool_id 查询内置工具。
@@ -41,7 +39,7 @@ export const findBuiltInToolById = async (id: number): Promise<BuiltInToolEntity
 export const findBuiltInToolByToolId = async (
     toolId: string
 ): Promise<BuiltInToolEntity | undefined> =>
-    db.getDb().select().from(builtInTools).where(eq(builtInTools.tool_id, toolId)).get();
+    await db.select().from(builtInTools).where(eq(builtInTools.tool_id, toolId)).get();
 
 /**
  * 创建内置工具记录。
@@ -49,7 +47,7 @@ export const findBuiltInToolByToolId = async (
 export const createBuiltInTool = async (
     data: BuiltInToolCreateData
 ): Promise<BuiltInToolEntity> => {
-    const createdTool = await db.getDb().insert(builtInTools).values(data).returning().get();
+    const createdTool = await db.insert(builtInTools).values(data).returning().get();
 
     if (!createdTool || createdTool.id === undefined) {
         throw new Error('Failed to create built-in tool');
@@ -66,7 +64,6 @@ export const updateBuiltInTool = async (
     data: BuiltInToolUpdateData
 ): Promise<BuiltInToolEntity | undefined> => {
     const updatedTool = await db
-        .getDb()
         .update(builtInTools)
         .set(data)
         .where(eq(builtInTools.id, id))
@@ -84,7 +81,6 @@ export const touchBuiltInToolLastUsed = async (
     lastUsedAt = new Date().toISOString()
 ): Promise<void> => {
     await db
-        .getDb()
         .update(builtInTools)
         .set({ last_used_at: lastUsedAt })
         .where(eq(builtInTools.tool_id, toolId))
@@ -96,7 +92,6 @@ export const touchBuiltInToolLastUsed = async (
  */
 export const countEnabledBuiltInTools = async (): Promise<number> => {
     const result = await db
-        .getDb()
         .select({ count: count() })
         .from(builtInTools)
         .where(eq(builtInTools.enabled, 1))

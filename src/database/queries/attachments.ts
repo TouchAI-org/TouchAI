@@ -1,8 +1,8 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { asc, eq, inArray } from 'drizzle-orm';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import { attachments, messageAttachments } from '../schema';
 import type { AttachmentCreateData, AttachmentEntity, MessageAttachmentCreateData } from '../types';
 
@@ -17,10 +17,12 @@ export interface MessageAttachmentRow extends AttachmentEntity {
  * @param hash 附件内容的 SHA-256 哈希。
  * @returns 已存在的缓存记录；不存在时返回 null。
  */
-export async function findAttachmentByHash(hash: string): Promise<AttachmentEntity | null> {
+export async function findAttachmentByHash(
+    hash: string,
+    database: DatabaseExecutor = db
+): Promise<AttachmentEntity | null> {
     return (
-        (await db.getDb().select().from(attachments).where(eq(attachments.hash, hash)).get()) ??
-        null
+        (await database.select().from(attachments).where(eq(attachments.hash, hash)).get()) ?? null
     );
 }
 
@@ -31,9 +33,10 @@ export async function findAttachmentByHash(hash: string): Promise<AttachmentEnti
  * @returns 新创建的附件记录。
  */
 export async function createAttachmentRecord(
-    data: AttachmentCreateData
+    data: AttachmentCreateData,
+    database: DatabaseExecutor = db
 ): Promise<AttachmentEntity> {
-    const createdAttachment = await db.getDb().insert(attachments).values(data).returning().get();
+    const createdAttachment = await database.insert(attachments).values(data).returning().get();
 
     if (!createdAttachment || createdAttachment.id === undefined) {
         throw new Error('Failed to load created attachment record');
@@ -48,8 +51,11 @@ export async function createAttachmentRecord(
  * @param data 消息附件关联数据。
  * @returns void
  */
-export async function createMessageAttachment(data: MessageAttachmentCreateData): Promise<void> {
-    await db.getDb().insert(messageAttachments).values(data).run();
+export async function createMessageAttachment(
+    data: MessageAttachmentCreateData,
+    database: DatabaseExecutor = db
+): Promise<void> {
+    await database.insert(messageAttachments).values(data).run();
 }
 
 /**
@@ -66,7 +72,6 @@ export async function findAttachmentsByMessageIds(
     }
 
     return db
-        .getDb()
         .select({
             message_id: messageAttachments.message_id,
             sort_order: messageAttachments.sort_order,

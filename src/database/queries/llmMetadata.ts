@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { count, eq } from 'drizzle-orm';
 
@@ -15,7 +15,6 @@ export async function findLlmMetadataByModelId({
     modelId: string;
 }): Promise<LlmMetadataEntity | null> {
     const result = await db
-        .getDb()
         .select()
         .from(llmMetadata)
         .where(eq(llmMetadata.model_id, modelId))
@@ -32,7 +31,6 @@ export async function insertLlmMetadata(data: LlmMetadataCreateData[]): Promise<
     if (data.length === 0) return;
 
     await db
-        .getDb()
         .insert(llmMetadata)
         .values(data)
         .onConflictDoNothing({ target: llmMetadata.model_id })
@@ -43,14 +41,14 @@ export async function insertLlmMetadata(data: LlmMetadataCreateData[]): Promise<
  * 清空 LLM 元数据表
  */
 export async function clearLlmMetadata(): Promise<void> {
-    await db.getDb().delete(llmMetadata).run();
+    await db.delete(llmMetadata).run();
 }
 
 /**
  * 检查 LLM 元数据表是否为空
  */
 export async function isLlmMetadataEmpty(): Promise<boolean> {
-    const result = await db.getDb().select({ count: count() }).from(llmMetadata).get();
+    const result = await db.select({ count: count() }).from(llmMetadata).get();
 
     return (result?.count ?? 0) === 0;
 }

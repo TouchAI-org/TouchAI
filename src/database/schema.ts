@@ -1,6 +1,5 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import type { QueryResult } from '@tauri-apps/plugin-sql';
 import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
@@ -12,25 +11,9 @@ import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqli
 export type SqlValue = string | number | boolean | null | Uint8Array;
 
 /**
- * 数据库配置选项
+ * SQL 参数类型
  */
-export interface DatabaseOptions {
-    /**
-     * 数据库路径，支持以下格式：
-     * - sqlite:database.db (相对于 APPDATA 目录)
-     * - sqlite://path/to/database.db (绝对路径)
-     */
-    path: string;
-}
-
-/**
- * Tauri SQL 数据库接口
- */
-export interface TauriDatabase {
-    execute(sql: string, bindValues?: SqlValue[]): Promise<QueryResult>;
-    select<T = unknown>(sql: string, bindValues?: SqlValue[]): Promise<T[]>;
-    close(): Promise<boolean>;
-}
+export type SqlParams = SqlValue[];
 
 // ==================== 表定义（Drizzle） ====================
 

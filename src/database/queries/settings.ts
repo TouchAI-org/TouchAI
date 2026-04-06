@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { eq } from 'drizzle-orm';
 
@@ -14,7 +14,7 @@ export const findSettingByKey = async ({
 }: {
     key: SettingIdentifier;
 }): Promise<SettingEntity | undefined> =>
-    db.getDb().select().from(settings).where(eq(settings.key, key)).get();
+    await db.select().from(settings).where(eq(settings.key, key)).get();
 
 /**
  * 获取设置值
@@ -39,7 +39,6 @@ export const setSetting = async ({
     value: string;
 }): Promise<SettingEntity> => {
     const result = await db
-        .getDb()
         .insert(settings)
         .values({ key, value })
         .onConflictDoUpdate({ target: settings.key, set: { value } })

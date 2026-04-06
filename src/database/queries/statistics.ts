@@ -2,7 +2,7 @@
 
 import { eq } from 'drizzle-orm';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import { statistics } from '../schema';
 import type { StatisticIdentifier } from '../types';
 
@@ -14,12 +14,7 @@ export const getStatistic = async ({
 }: {
     key: StatisticIdentifier;
 }): Promise<string | null> => {
-    const statistic = await db
-        .getDb()
-        .select()
-        .from(statistics)
-        .where(eq(statistics.key, key))
-        .get();
+    const statistic = await db.select().from(statistics).where(eq(statistics.key, key)).get();
     return statistic?.value ?? null;
 };
 
@@ -29,12 +24,13 @@ export const getStatistic = async ({
 export const setStatistic = async ({
     key,
     value,
+    database = db,
 }: {
     key: StatisticIdentifier;
     value: string;
+    database?: DatabaseExecutor;
 }): Promise<boolean> => {
-    const updatedStatistic = await db
-        .getDb()
+    const updatedStatistic = await database
         .insert(statistics)
         .values({ key, value })
         .onConflictDoUpdate({

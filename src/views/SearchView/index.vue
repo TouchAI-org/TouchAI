@@ -1,7 +1,6 @@
 ﻿<script setup lang="ts">
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
-    import { db } from '@database';
     import { popupManager as popupService, type SessionHistoryData } from '@services/PopupService';
     import { sendNotification } from '@tauri-apps/plugin-notification';
     import { nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
@@ -480,8 +479,11 @@
         try {
             viewReady.value = false;
 
-            await db.init();
-            await Promise.all([mcpStore.initialize(), settingsStore.initialize()]);
+            await Promise.all([
+                mcpStore.initialize(),
+                settingsStore.initialize(),
+                popupService.initialize(),
+            ]);
 
             viewReady.value = true;
 

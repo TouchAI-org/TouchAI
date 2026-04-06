@@ -4,7 +4,6 @@
     import LoadingState from '@components/LoadingState.vue';
     import TitleBar from '@components/TitleBar.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
-    import { db } from '@database';
     import { defineAsyncComponent, onMounted, ref } from 'vue';
 
     import NavigationSidebar, { type NavigationSection } from './components/NavigationSidebar.vue';
@@ -43,7 +42,6 @@
     async function initialize() {
         try {
             viewReady.value = false;
-            await db.init();
             viewReady.value = true;
         } catch (error) {
             console.error('[SettingsView] Failed to initialize dependencies:', error);
