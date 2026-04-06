@@ -98,7 +98,7 @@
                                     </p>
                                     <div
                                         v-if="getSessionStatus(session.id) === 'running'"
-                                        class="h-3 w-3 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
+                                        class="border-primary-500 h-3 w-3 animate-spin rounded-full border-2 border-t-transparent"
                                     ></div>
                                     <div
                                         v-else-if="
@@ -147,13 +147,14 @@
 </template>
 
 <script setup lang="ts">
-    import { useSessionStatus } from '@/composables/useSessionStatus';
     import AppIcon from '@components/AppIcon.vue';
     import type { SessionEntity } from '@database/types';
     import { AppEvent, eventService } from '@services/EventService';
     import type { SessionHistoryData } from '@services/PopupService';
     import type { ComponentPublicInstance } from 'vue';
     import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+
+    import { useSessionStatus } from '@/composables/useSessionStatus';
 
     defineOptions({
         name: 'SessionHistoryPopover',
@@ -529,6 +530,13 @@
     }
 
     function handleKeyDown(event: KeyboardEvent) {
+        // Ctrl+H 关闭弹窗
+        if (event.ctrlKey && event.key === 'h') {
+            event.preventDefault();
+            emit('close');
+            return;
+        }
+
         if (event.key === 'ArrowDown') {
             event.preventDefault();
             moveHighlight(1);

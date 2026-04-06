@@ -2,7 +2,7 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { db } from '@database';
-    import type { SessionHistoryData } from '@services/PopupService';
+    import { popupManager as popupService, type SessionHistoryData } from '@services/PopupService';
     import { sendNotification } from '@tauri-apps/plugin-notification';
     import { nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
@@ -302,6 +302,45 @@
         await handleToggleModelDropdownRequestBase();
     }
 
+    async function openHistoryDialog() {
+        // 如果历史弹窗已经打开，则关闭它
+        if (
+            sessionHistoryPopupOpen.value ||
+            (popupService.state.isOpen &&
+                popupService.state.currentType === 'session-history-popup')
+        ) {
+            await closeSessionHistoryPopup();
+            return;
+        }
+
+        // 根据是否有会话面板，选择不同的 anchor 元素
+        let anchorElement: HTMLElement | null = null;
+
+        if (sessionHistory.value.length > 0) {
+            // 有会话面板：使用历史按钮作为 anchor
+            anchorElement = conversationPanel.value?.getHistoryAnchor() ?? null;
+        } else {
+            // 搜索框状态：使用 pageContainer 作为 anchor
+            anchorElement = pageContainer.value;
+        }
+
+        if (!anchorElement) {
+            return;
+        }
+
+        await handleHistoryOpenChange({
+            open: true,
+            anchorElement,
+        });
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+        if (event.ctrlKey && event.key === 'h') {
+            event.preventDefault();
+            void openHistoryDialog();
+        }
+    }
+
     async function handleHistoryOpenChange(payload: {
         open: boolean;
         anchorElement: HTMLElement | null;
@@ -501,6 +540,7 @@
     onMounted(() => {
         widgetBridgeWindow.sendPrompt = handleWidgetSendPrompt;
         widgetBridgeWindow.openLink = handleWidgetOpenLink;
+        window.addEventListener('keydown', handleKeyDown);
         void initialize();
     });
 
@@ -512,6 +552,8 @@
         if (widgetBridgeWindow.openLink === handleWidgetOpenLink) {
             delete widgetBridgeWindow.openLink;
         }
+
+        window.removeEventListener('keydown', handleKeyDown);
     });
 </script>
 
