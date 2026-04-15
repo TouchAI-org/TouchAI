@@ -132,6 +132,33 @@ export interface MessageAttachmentCreateData {
     created_at?: string;
 }
 
+export interface AttachmentRemoteRefEntity {
+    id: number;
+    attachment_id: number;
+    provider_id: number;
+    transport_kind: string;
+    remote_ref: string;
+    mime_type: string | null;
+    expires_at: string | null;
+    last_used_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AttachmentRemoteRefCreateData {
+    attachment_id: number;
+    provider_id: number;
+    transport_kind: string;
+    remote_ref: string;
+    mime_type?: string | null;
+    expires_at?: string | null;
+    last_used_at?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export type AttachmentRemoteRefUpdateData = Partial<AttachmentRemoteRefCreateData>;
+
 // ==================== 设置 ====================
 
 export interface SettingEntity {
@@ -305,6 +332,7 @@ export interface SessionTurnAttemptEntity {
     max_retries: number;
     status: DbTurnStatus;
     checkpoint_json: string;
+    delivery_manifest_json: string;
     error_message: string | null;
     duration_ms: number | null;
     started_at: string;
@@ -319,6 +347,7 @@ export interface SessionTurnAttemptCreateData {
     max_retries?: number;
     status?: DbTurnStatus;
     checkpoint_json: string;
+    delivery_manifest_json: string;
     error_message?: string | null;
     duration_ms?: number | null;
     started_at?: string;

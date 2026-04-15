@@ -14,6 +14,7 @@ import type {
     ProviderApiTargets,
     ProviderConfigJson,
 } from '../types';
+import type { ProviderAttachmentRequestContext } from './attachments';
 import { buildModelMessages, buildToolSet } from './messages';
 import { createAiSdkStreamProcessor } from './stream';
 import { createTauriFetch } from './tauriFetch';
@@ -234,9 +235,27 @@ export abstract class AiSdkProviderBase implements AiProvider {
 
     async *stream(options: AiRequestOptions) {
         const processor = createAiSdkStreamProcessor();
+        const attachmentContext: ProviderAttachmentRequestContext = {
+            driver: this.driver,
+            providerId: options.providerId,
+            modelId: options.model,
+            apiTargets: this.getApiTargets(),
+            apiKey: this.apiKey,
+            customHeaders: this.getCustomHeaders(),
+            fetch: this.fetch,
+        };
+        const { messages, manifestRequest } = await buildModelMessages({
+            messages: options.messages,
+            providerDriver: this.driver,
+            providerId: options.providerId,
+            modelId: options.model,
+            attachmentContext,
+            attachmentRequestIndex: options.attachmentRequestIndex,
+        });
+        await options.onAttachmentManifestResolved?.(manifestRequest);
         const result = streamText({
             model: this.createLanguageModel(options.model),
-            messages: buildModelMessages(options.messages),
+            messages,
             tools: buildToolSet(options.tools),
             abortSignal: options.signal,
             maxOutputTokens: options.maxTokens,

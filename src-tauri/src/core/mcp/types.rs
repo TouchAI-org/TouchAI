@@ -58,6 +58,8 @@ pub enum ToolContent {
     Resource {
         uri: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         text: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         blob: Option<String>,

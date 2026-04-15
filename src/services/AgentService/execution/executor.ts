@@ -20,6 +20,7 @@ import type {
     ToolApprovalDecisionRequest,
     ToolEventModelSummary,
 } from '../contracts/tooling';
+import { type AttachmentIndex, buildAttachmentParts } from '../infrastructure/attachments';
 import { mcpManager } from '../infrastructure/mcp';
 import {
     type AiProvider,
@@ -58,6 +59,9 @@ export interface RequestExecutionCallbacks {
     signal?: AbortSignal;
     onChunk?: (chunk: AiStreamChunk) => void;
     onTurnEvent?: (event: TurnEvent) => void;
+    onAttachmentManifestResolved?: (
+        request: import('../contracts/protocol').AttachmentDeliveryManifestRequest
+    ) => Promise<void> | void;
     requestToolApproval?: (payload: ToolApprovalDecisionRequest) => Promise<boolean>;
 }
 
@@ -91,6 +95,7 @@ interface ToolExecutionResult {
     isError: boolean;
     toolLogId: number | null;
     toolLogKind: ToolLogKind | null;
+    attachments?: AttachmentIndex[];
     builtInToolId?: BuiltInToolId;
     controlSignal?: BuiltInToolControlSignal;
 }
@@ -193,6 +198,26 @@ function extractProviderErrorDetails(error: unknown): ProviderErrorDetails | nul
 
 function cloneAiMessages(messages: AiMessage[]): AiMessage[] {
     return JSON.parse(JSON.stringify(messages)) as AiMessage[];
+}
+
+async function buildToolResultMessageContent(
+    result: string,
+    attachments?: AttachmentIndex[]
+): Promise<AiMessage['content']> {
+    if (!attachments || attachments.length === 0) {
+        return result;
+    }
+
+    const attachmentParts = await buildAttachmentParts(attachments, {
+        includeAnchorText: false,
+    });
+    if (attachmentParts.length === 0) {
+        return result;
+    }
+
+    return result
+        ? ([{ type: 'text', text: result }, ...attachmentParts] as AiMessage['content'])
+        : attachmentParts;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -301,21 +326,27 @@ export class AiRequestExecutor {
      */
     private async *stream(
         provider: AiProvider,
+        providerId: number,
         modelId: string,
         messages: AiMessage[],
         tools?: AiToolDefinition[],
         signal?: AbortSignal,
-        maxTokens?: number
+        maxTokens?: number,
+        attachmentRequestIndex?: number,
+        onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved']
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
         console.debug(
             `[AiRequestExecutor] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
         );
         for await (const chunk of provider.stream({
             model: modelId,
+            providerId,
             messages,
             tools,
             signal,
             maxTokens,
+            attachmentRequestIndex,
+            onAttachmentManifestResolved,
         })) {
             yield chunk;
         }
@@ -355,6 +386,7 @@ export class AiRequestExecutor {
         isError: boolean;
         toolLogId: number | null;
         toolLogKind: ToolLogKind | null;
+        attachments?: AttachmentIndex[];
         builtInToolId?: undefined;
         controlSignal?: undefined;
     }> {
@@ -410,11 +442,12 @@ export class AiRequestExecutor {
             console.error('[AiRequestExecutor] Failed to create MCP tool log:', error);
         }
 
-        let toolResult: { result: string; isError: boolean };
+        let toolResult: { result: string; isError: boolean; attachments?: AttachmentIndex[] };
         try {
             toolResult = await mcpManager.executeTool(options.toolCall.name, options.toolArgs, {
                 signal: options.signal,
                 iteration: options.iteration,
+                toolCallId: options.toolCall.id,
                 resolved: {
                     serverId: mapping.serverId,
                     originalName: mapping.originalName,
@@ -458,6 +491,7 @@ export class AiRequestExecutor {
             isError: toolResult.isError,
             toolLogId,
             toolLogKind: 'mcp',
+            attachments: toolResult.attachments,
             controlSignal: undefined,
         };
     }
@@ -523,15 +557,21 @@ export class AiRequestExecutor {
 
     private async consumeModelStep(
         runtime: AttemptRuntime,
-        options: Pick<RequestExecutionCallbacks, 'signal' | 'onChunk'>
+        options: Pick<
+            RequestExecutionCallbacks,
+            'signal' | 'onChunk' | 'onAttachmentManifestResolved'
+        >
     ): Promise<AttemptStepResult> {
         const stream = this.stream(
             runtime.provider,
+            runtime.activeModel.provider_id,
             runtime.activeModel.model_id,
             runtime.messages,
             runtime.tools,
             options.signal,
-            runtime.activeModel.output_limit ?? undefined
+            runtime.activeModel.output_limit ?? undefined,
+            runtime.iteration,
+            options.onAttachmentManifestResolved
         );
         let chunkResponse = '';
         let finishReason: string | undefined;
@@ -683,17 +723,23 @@ export class AiRequestExecutor {
             isError,
             toolLogId,
             toolLogKind,
+            attachments,
             controlSignal,
         } of toolResults) {
             runtime.messages.push({
                 role: 'tool',
-                content: result,
+                content: await buildToolResultMessageContent(result, attachments),
                 tool_call_id: toolCall.id,
                 name: toolCall.name,
                 isError,
             });
 
-            await options.persister.persistToolResultMessage(result, toolLogId, toolLogKind);
+            await options.persister.persistToolResultMessage(
+                result,
+                toolLogId,
+                toolLogKind,
+                attachments
+            );
 
             if (builtInToolId && !isError) {
                 runtime.executedBuiltInTools.add(builtInToolId);
@@ -753,6 +799,16 @@ export class AiRequestExecutor {
                 const step = await this.consumeModelStep(runtime, {
                     signal: options.signal,
                     onChunk: options.onChunk,
+                    onAttachmentManifestResolved: async (request) => {
+                        try {
+                            await options.persister.syncDeliveryManifestRequest(request);
+                        } catch (error) {
+                            console.error(
+                                '[AiRequestExecutor] Failed to persist attachment delivery manifest request:',
+                                error
+                            );
+                        }
+                    },
                 });
 
                 if (step.type === 'done') {

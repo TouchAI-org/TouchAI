@@ -30,6 +30,7 @@ import { parseMcpToolSchemaJson } from '@/utils/mcpSchemas';
 
 import type { AiToolDefinition } from '../../contracts/tooling';
 import {
+    extractMcpToolAttachments,
     formatMcpToolResponse,
     normalizeErrorMessage,
     raceWithTimeoutAndSignal,
@@ -432,9 +433,14 @@ export class McpManager {
         options?: {
             signal?: AbortSignal;
             iteration?: number;
+            toolCallId?: string;
             resolved?: { serverId: number; originalName: string; toolTimeout: number };
         }
-    ): Promise<{ result: string; isError: boolean }> {
+    ): Promise<{
+        result: string;
+        isError: boolean;
+        attachments?: Awaited<ReturnType<typeof extractMcpToolAttachments>>;
+    }> {
         // 如果请求已被取消，立即返回，避免消耗
         if (options?.signal?.aborted) {
             return { result: 'Request cancelled', isError: true };
@@ -455,10 +461,20 @@ export class McpManager {
         );
 
         const result = formatMcpToolResponse(response);
+        let attachments: Awaited<ReturnType<typeof extractMcpToolAttachments>> | undefined;
+        try {
+            attachments = await extractMcpToolAttachments(response, {
+                toolCallId: options?.toolCallId ?? resolved.originalName,
+                toolName: resolved.originalName,
+            });
+        } catch (error) {
+            console.error('[McpManager] Failed to persist MCP tool attachments:', error);
+        }
 
         return {
             result,
             isError: response.is_error,
+            attachments,
         };
     }
 

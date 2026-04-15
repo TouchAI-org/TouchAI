@@ -2,6 +2,11 @@
 
 import type { McpToolCallResponse } from '@services/NativeService';
 
+import {
+    type AttachmentIndex,
+    base64ToUint8Array,
+    createPersistedAttachmentFromData,
+} from '@/services/AgentService/infrastructure/attachments';
 import { parseMcpServerArgsJson, parseMcpServerRecordJson } from '@/utils/mcpSchemas';
 
 export function readOptionalMcpArgs(argsJson?: string | null): string[] | undefined {
@@ -40,6 +45,164 @@ export function formatMcpToolResponse(response: McpToolCallResponse): string {
             return '';
         })
         .join('\n');
+}
+
+const mimeTypeExtensionMap: Record<string, string> = {
+    'application/pdf': 'pdf',
+    'image/avif': 'avif',
+    'image/bmp': 'bmp',
+    'image/gif': 'gif',
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/svg+xml': 'svg',
+    'image/webp': 'webp',
+};
+
+const extensionMimeTypeMap: Record<string, string> = Object.fromEntries(
+    Object.entries(mimeTypeExtensionMap).map(([mimeType, extension]) => [extension, mimeType])
+);
+
+function inferMimeTypeFromUri(uri?: string): string | undefined {
+    if (!uri) {
+        return undefined;
+    }
+
+    try {
+        const parsed = new URL(uri);
+        const filename = parsed.pathname.split('/').pop() ?? '';
+        const extension = filename.split('.').pop()?.trim().toLowerCase();
+        return extension ? extensionMimeTypeMap[extension] : undefined;
+    } catch {
+        const filename = uri.split('/').pop() ?? '';
+        const extension = filename.split('.').pop()?.trim().toLowerCase();
+        return extension ? extensionMimeTypeMap[extension] : undefined;
+    }
+}
+
+function resolveAttachmentName(options: {
+    uri?: string;
+    mimeType?: string;
+    fallbackBaseName: string;
+}): string {
+    if (options.uri) {
+        try {
+            const parsed = new URL(options.uri);
+            const filename = parsed.pathname.split('/').pop();
+            if (filename) {
+                return filename;
+            }
+        } catch {
+            const filename = options.uri.split('/').pop();
+            if (filename) {
+                return filename;
+            }
+        }
+    }
+
+    const extension = options.mimeType ? mimeTypeExtensionMap[options.mimeType] : undefined;
+    return extension ? `${options.fallbackBaseName}.${extension}` : options.fallbackBaseName;
+}
+
+function resolveSyntheticOriginPath(options: {
+    toolCallId: string;
+    toolName: string;
+    index: number;
+    type: 'image' | 'file';
+}): string {
+    return `mcp://tool-result/${options.toolName}/${options.toolCallId}/${options.type}-${options.index + 1}`;
+}
+
+function resolveAttachmentDescriptor(
+    response: McpToolCallResponse,
+    context: {
+        toolCallId: string;
+        toolName: string;
+    }
+): Array<{
+    type: 'image' | 'file';
+    name: string;
+    originPath: string;
+    mimeType?: string;
+    data: Uint8Array;
+}> {
+    const attachments: Array<{
+        type: 'image' | 'file';
+        name: string;
+        originPath: string;
+        mimeType?: string;
+        data: Uint8Array;
+    }> = [];
+
+    response.content.forEach((item, index) => {
+        if (item.type === 'image' && item.data) {
+            attachments.push({
+                type: 'image',
+                name: resolveAttachmentName({
+                    mimeType: item.mime_type,
+                    fallbackBaseName: `tool-image-${index + 1}`,
+                }),
+                originPath: resolveSyntheticOriginPath({
+                    toolCallId: context.toolCallId,
+                    toolName: context.toolName,
+                    index,
+                    type: 'image',
+                }),
+                mimeType: item.mime_type,
+                data: base64ToUint8Array(item.data),
+            });
+            return;
+        }
+
+        if (item.type !== 'resource' || !item.blob) {
+            return;
+        }
+
+        const mimeType = item.mime_type ?? inferMimeTypeFromUri(item.uri);
+        const name = resolveAttachmentName({
+            uri: item.uri,
+            mimeType,
+            fallbackBaseName: `tool-file-${index + 1}`,
+        });
+        const type = mimeType?.startsWith('image/') ? 'image' : 'file';
+        attachments.push({
+            type,
+            name,
+            originPath:
+                item.uri ||
+                resolveSyntheticOriginPath({
+                    toolCallId: context.toolCallId,
+                    toolName: context.toolName,
+                    index,
+                    type,
+                }),
+            mimeType,
+            data: base64ToUint8Array(item.blob),
+        });
+    });
+
+    return attachments;
+}
+
+export async function extractMcpToolAttachments(
+    response: McpToolCallResponse,
+    context: {
+        toolCallId: string;
+        toolName: string;
+    }
+): Promise<AttachmentIndex[]> {
+    const descriptors = resolveAttachmentDescriptor(response, context);
+    return Promise.all(
+        descriptors.map((descriptor) =>
+            createPersistedAttachmentFromData({
+                type: descriptor.type,
+                name: descriptor.name,
+                originPath: descriptor.originPath,
+                mimeType: descriptor.mimeType,
+                size: descriptor.data.byteLength,
+                data: descriptor.data,
+            })
+        )
+    );
 }
 
 /**

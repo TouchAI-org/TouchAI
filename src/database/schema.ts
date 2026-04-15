@@ -138,6 +138,41 @@ export const messageAttachments = sqliteTable('message_attachments', {
 });
 
 /**
+ * provider 侧附件远端引用缓存表。
+ */
+export const attachmentRemoteRefs = sqliteTable(
+    'attachment_remote_refs',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        attachment_id: integer('attachment_id')
+            .notNull()
+            .references(() => attachments.id, { onDelete: 'cascade' }),
+        provider_id: integer('provider_id')
+            .notNull()
+            .references(() => providers.id, { onDelete: 'cascade' }),
+        transport_kind: text('transport_kind').notNull(),
+        remote_ref: text('remote_ref').notNull(),
+        mime_type: text('mime_type'),
+        expires_at: text('expires_at'),
+        last_used_at: text('last_used_at'),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        uniqueIndex('attachment_remote_refs_attachment_provider_transport_unique').on(
+            table.attachment_id,
+            table.provider_id,
+            table.transport_kind
+        ),
+        index('attachment_remote_refs_provider_id_idx').on(table.provider_id),
+    ]
+);
+
+/**
  * 设置表
  */
 export const settings = sqliteTable('settings', {
@@ -308,6 +343,7 @@ export const sessionTurnAttempts = sqliteTable(
             .notNull()
             .default('pending'),
         checkpoint_json: text('checkpoint_json').notNull(),
+        delivery_manifest_json: text('delivery_manifest_json').notNull(),
         error_message: text('error_message'),
         duration_ms: integer('duration_ms'),
         started_at: text('started_at')
@@ -519,6 +555,10 @@ export type AttachmentUpdate = Partial<NewAttachment>;
 export type MessageAttachment = typeof messageAttachments.$inferSelect;
 export type NewMessageAttachment = typeof messageAttachments.$inferInsert;
 export type MessageAttachmentUpdate = Partial<NewMessageAttachment>;
+
+export type AttachmentRemoteRef = typeof attachmentRemoteRefs.$inferSelect;
+export type NewAttachmentRemoteRef = typeof attachmentRemoteRefs.$inferInsert;
+export type AttachmentRemoteRefUpdate = Partial<NewAttachmentRemoteRef>;
 
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;

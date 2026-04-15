@@ -22,11 +22,19 @@ import type {
 
 import {
     type AttachmentIndex,
+    createEmptyAttachmentDeliveryManifest,
     ensurePersistedAttachmentIndex,
+    serializeAttachmentDeliveryManifest,
+    upsertAttachmentDeliveryManifestRequest,
 } from '@/services/AgentService/infrastructure/attachments';
 import { toDbTimestamp } from '@/utils/date';
 
-import type { AiContentPart, AiMessage } from '../contracts/protocol';
+import type {
+    AiContentPart,
+    AiMessage,
+    AttachmentDeliveryManifest,
+    AttachmentDeliveryManifestRequest,
+} from '../contracts/protocol';
 import type { AttemptCheckpoint } from '../execution/executor';
 import type { PromptSnapshot } from '../prompt/types';
 import type { TaskExecutionMode } from '../task/types';
@@ -59,6 +67,7 @@ interface PersistenceProjectorOptions {
     taskId: string;
     executionMode: TaskExecutionMode;
     promptSnapshot: PromptSnapshot;
+    deliveryManifest?: AttachmentDeliveryManifest;
     maxRetries: number;
     buildSessionTitle: (prompt: string) => string;
 }
@@ -95,8 +104,27 @@ type PersistedCheckpointModel = Pick<
 
 type PersistedAiContentPart =
     | Extract<AiContentPart, { type: 'text' }>
-    | { type: 'image'; mimeType: string; redacted: true }
-    | { type: 'file'; name: string; isBinary: boolean; redacted: true }
+    | {
+          type: 'image';
+          alias: string;
+          name: string;
+          size: number | null;
+          mimeType: string;
+          kind: 'image';
+          semanticIntent: Extract<AiContentPart, { type: 'image' }>['semanticIntent'];
+          redacted: true;
+      }
+    | {
+          type: 'file';
+          alias: string;
+          name: string;
+          size: number | null;
+          mimeType: string;
+          kind: Extract<AiContentPart, { type: 'file' }>['kind'];
+          semanticIntent: Extract<AiContentPart, { type: 'file' }>['semanticIntent'];
+          transportMode: 'inline-text' | 'inline-base64';
+          redacted: true;
+      }
     | Extract<AiContentPart, { type: 'tool_use' }>
     | Extract<AiContentPart, { type: 'tool_result' }>;
 
@@ -137,14 +165,24 @@ function sanitizeContentPart(part: AiContentPart): PersistedAiContentPart {
         case 'image':
             return {
                 type: 'image',
+                alias: part.meta.alias,
+                name: part.name,
+                size: part.size,
                 mimeType: part.mimeType,
+                kind: 'image',
+                semanticIntent: part.semanticIntent,
                 redacted: true,
             };
         case 'file':
             return {
                 type: 'file',
+                alias: part.meta.alias,
                 name: part.name,
-                isBinary: part.isBinary,
+                size: part.size,
+                mimeType: part.mimeType,
+                kind: part.kind,
+                semanticIntent: part.semanticIntent,
+                transportMode: part.textContent !== undefined ? 'inline-text' : 'inline-base64',
                 redacted: true,
             };
         default:
@@ -176,6 +214,10 @@ function serializeCheckpoint(checkpoint: AttemptCheckpoint): string {
     return JSON.stringify(persisted);
 }
 
+function serializeCurrentDeliveryManifest(manifest: AttachmentDeliveryManifest): string {
+    return serializeAttachmentDeliveryManifest(manifest);
+}
+
 export class PersistenceProjector {
     private readonly prompt: string;
     private readonly attachments: AttachmentIndex[];
@@ -183,6 +225,7 @@ export class PersistenceProjector {
     private readonly taskId: string;
     private readonly executionMode: TaskExecutionMode;
     private readonly promptSnapshot: PromptSnapshot;
+    private deliveryManifest: AttachmentDeliveryManifest;
     private readonly maxRetries: number;
     private readonly buildSessionTitle: (prompt: string) => string;
 
@@ -202,6 +245,7 @@ export class PersistenceProjector {
         this.taskId = options.taskId;
         this.executionMode = options.executionMode;
         this.promptSnapshot = options.promptSnapshot;
+        this.deliveryManifest = options.deliveryManifest ?? createEmptyAttachmentDeliveryManifest();
         this.maxRetries = options.maxRetries;
         this.buildSessionTitle = options.buildSessionTitle;
 
@@ -387,6 +431,7 @@ export class PersistenceProjector {
      */
     async beginNextAttempt(errorMessage: string, checkpoint: AttemptCheckpoint): Promise<void> {
         try {
+            const emptyDeliveryManifest = createEmptyAttachmentDeliveryManifest();
             const result = await db.transaction(async (tx) => {
                 await this.finishCurrentAttempt('failed', errorMessage, tx);
 
@@ -400,6 +445,8 @@ export class PersistenceProjector {
                         max_retries: this.maxRetries,
                         status: 'streaming',
                         checkpoint_json: serializeCheckpoint(checkpoint),
+                        delivery_manifest_json:
+                            serializeCurrentDeliveryManifest(emptyDeliveryManifest),
                         started_at: startedAtText,
                         created_at: startedAtText,
                         updated_at: startedAtText,
@@ -422,6 +469,7 @@ export class PersistenceProjector {
                 return { attemptState, turn };
             });
 
+            this.deliveryManifest = emptyDeliveryManifest;
             this.attemptState = result.attemptState;
             this.turn = result.turn;
         } catch (error) {
@@ -444,6 +492,36 @@ export class PersistenceProjector {
         return this.sessionId;
     }
 
+    async syncDeliveryManifestRequest(request: AttachmentDeliveryManifestRequest): Promise<void> {
+        this.deliveryManifest = upsertAttachmentDeliveryManifestRequest(
+            this.deliveryManifest,
+            request
+        );
+
+        if (!this.attemptState) {
+            return;
+        }
+
+        const deliveryManifestJson = serializeCurrentDeliveryManifest(this.deliveryManifest);
+        await db.transaction(async (tx) => {
+            await updateSessionTurnAttempt({
+                id: this.attemptState!.entity.id,
+                attemptPatch: {
+                    delivery_manifest_json: deliveryManifestJson,
+                },
+                database: tx,
+            });
+        });
+
+        this.attemptState = new AttemptState(
+            {
+                ...this.attemptState.entity,
+                delivery_manifest_json: deliveryManifestJson,
+            },
+            this.attemptState.startedAtMs
+        );
+    }
+
     /**
      * 持久化工具调用消息。
      */
@@ -458,9 +536,10 @@ export class PersistenceProjector {
     async persistToolResultMessage(
         result: string,
         toolLogId: number | null,
-        toolLogKind: ToolLogKind | null
+        toolLogKind: ToolLogKind | null,
+        attachments: AttachmentIndex[] = []
     ): Promise<number> {
-        return this.persistMessage('tool_result', result, toolLogId, toolLogKind);
+        return this.persistMessage('tool_result', result, toolLogId, toolLogKind, attachments);
     }
 
     async persistCheckpoint(checkpoint: AttemptCheckpoint): Promise<void> {
@@ -483,6 +562,7 @@ export class PersistenceProjector {
             {
                 ...this.attemptState.entity,
                 checkpoint_json: checkpointJson,
+                delivery_manifest_json: this.attemptState.entity.delivery_manifest_json,
             },
             this.attemptState.startedAtMs
         );
@@ -569,7 +649,7 @@ export class PersistenceProjector {
 
         await refreshSessionMetadata(resolvedSessionId, database);
 
-        if (role === 'user' && attachments.length > 0) {
+        if ((role === 'user' || role === 'tool_result') && attachments.length > 0) {
             const persisted = await Promise.all(
                 attachments.map((attachment) =>
                     'attachmentId' in attachment || !('original_name' in attachment)
@@ -647,6 +727,7 @@ export class PersistenceProjector {
                 max_retries: this.maxRetries,
                 status: 'streaming',
                 checkpoint_json: serializeCheckpoint(checkpoint),
+                delivery_manifest_json: serializeCurrentDeliveryManifest(this.deliveryManifest),
                 started_at: startedAtText,
                 created_at: startedAtText,
                 updated_at: startedAtText,

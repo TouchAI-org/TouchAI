@@ -4,6 +4,7 @@ import type { ProviderDriver } from '@database/schema';
 
 import type { AiError } from '../../contracts/errors';
 import type { AiRequestOptions, AiResponse, AiStreamChunk } from '../../contracts/protocol';
+import type { AttachmentTransportMode } from '../../contracts/protocol';
 
 export interface ModelInfo {
     id: string;
@@ -20,6 +21,20 @@ export interface ProviderApiTargets {
     sdkBaseUrl: string;
     generationTarget: string;
     discoveryTarget: string;
+}
+
+export type ProviderAttachmentFileRefStrategy = 'none' | 'openai-file-id' | 'url';
+
+export interface ProviderAttachmentCapabilities {
+    supportsImageInput: boolean;
+    supportsDocumentInput: boolean;
+    supportsExternalUrl: boolean;
+    supportsProviderFileRef: boolean;
+    supportsMediaInToolResults: boolean;
+    prefersFileRefForPdf: boolean;
+    maxInlineRequestBytes: number;
+    fileRefStrategy: ProviderAttachmentFileRefStrategy;
+    remoteRefTransportMode: Extract<AttachmentTransportMode, 'provider-file-ref'>;
 }
 
 /**

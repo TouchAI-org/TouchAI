@@ -2,6 +2,7 @@
 
 export { normalizeProviderBaseUrl, parseProviderConfigJson } from './ai-sdk/base';
 export { createTauriFetch } from './ai-sdk/tauriFetch';
+export { getProviderAttachmentCapabilities } from './capabilities';
 export {
     createProviderFromRegistry,
     getProviderDriverDefinition,
@@ -15,5 +16,7 @@ export type {
     AiProviderConfig,
     ModelInfo,
     ProviderApiTargets,
+    ProviderAttachmentCapabilities,
+    ProviderAttachmentFileRefStrategy,
     ProviderConfigJson,
 } from './types';

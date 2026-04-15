@@ -1,9 +1,135 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "00b925c3-9e9f-454c-ace7-362154d918ad",
+  "id": "4249a1ff-27fa-4b85-a8e5-beb3ce8d3a45",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
+    "attachment_remote_refs": {
+      "name": "attachment_remote_refs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "attachment_id": {
+          "name": "attachment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "transport_kind": {
+          "name": "transport_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "remote_ref": {
+          "name": "remote_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mime_type": {
+          "name": "mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        }
+      },
+      "indexes": {
+        "attachment_remote_refs_attachment_provider_transport_unique": {
+          "name": "attachment_remote_refs_attachment_provider_transport_unique",
+          "columns": [
+            "attachment_id",
+            "provider_id",
+            "transport_kind"
+          ],
+          "isUnique": true
+        },
+        "attachment_remote_refs_provider_id_idx": {
+          "name": "attachment_remote_refs_provider_id_idx",
+          "columns": [
+            "provider_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "attachment_remote_refs_attachment_id_attachments_id_fk": {
+          "name": "attachment_remote_refs_attachment_id_attachments_id_fk",
+          "tableFrom": "attachment_remote_refs",
+          "tableTo": "attachments",
+          "columnsFrom": [
+            "attachment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "attachment_remote_refs_provider_id_providers_id_fk": {
+          "name": "attachment_remote_refs_provider_id_providers_id_fk",
+          "tableFrom": "attachment_remote_refs",
+          "tableTo": "providers",
+          "columnsFrom": [
+            "provider_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "attachments": {
       "name": "attachments",
       "columns": {
@@ -1311,6 +1437,13 @@
         },
         "checkpoint_json": {
           "name": "checkpoint_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "delivery_manifest_json": {
+          "name": "delivery_manifest_json",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

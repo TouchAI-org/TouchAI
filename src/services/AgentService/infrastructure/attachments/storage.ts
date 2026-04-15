@@ -12,7 +12,7 @@ import type { AttachmentEntity } from '@database/types';
 import { native } from '@services/NativeService';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
-import { copyFile, mkdir } from '@tauri-apps/plugin-fs';
+import { copyFile, exists, mkdir, writeFile } from '@tauri-apps/plugin-fs';
 import {
     fullName as getFileName,
     icon as getFileIcon,
@@ -65,6 +65,13 @@ async function computeAttachmentHash(path: string): Promise<string> {
 
     const buffer = await response.arrayBuffer();
     const digest = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
+        ''
+    );
+}
+
+async function computeAttachmentHashFromBytes(bytes: Uint8Array): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
     return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
         ''
     );
@@ -153,7 +160,60 @@ async function ensureAttachmentRecord(
     }
 }
 
-async function toAttachmentIndex(attachment: AttachmentEntity): Promise<AttachmentIndex> {
+async function ensureAttachmentRecordFromBytes(
+    options: {
+        type: AttachmentIndex['type'];
+        name: string;
+        originPath: string;
+        mimeType?: string;
+        size?: number;
+        data: Uint8Array;
+    },
+    database: DatabaseExecutor = db
+): Promise<AttachmentEntity> {
+    const hash = await computeAttachmentHashFromBytes(options.data);
+    const targetPath = await buildAttachmentStoragePath(options.type, hash);
+
+    if (!(await exists(targetPath))) {
+        await writeFile(targetPath, options.data);
+    }
+
+    const existing = await findAttachmentByHash(hash, database);
+    if (existing) {
+        return existing;
+    }
+
+    try {
+        return await createAttachmentRecord(
+            {
+                hash,
+                type: options.type,
+                original_name: options.name,
+                origin_path: options.originPath,
+                mime_type: options.mimeType ?? null,
+                size: options.size ?? options.data.byteLength,
+            },
+            database
+        );
+    } catch (error) {
+        const duplicated = await findAttachmentByHash(hash, database);
+        if (duplicated) {
+            return duplicated;
+        }
+
+        throw error;
+    }
+}
+
+async function toAttachmentIndex(
+    attachment: AttachmentEntity,
+    overrides: {
+        originPath?: string;
+        name?: string;
+        size?: number;
+        mimeType?: string;
+    } = {}
+): Promise<AttachmentIndex> {
     const storagePath = await buildAttachmentStoragePath(attachment.type, attachment.hash);
     return {
         id: crypto.randomUUID(),
@@ -161,11 +221,11 @@ async function toAttachmentIndex(attachment: AttachmentEntity): Promise<Attachme
         hash: attachment.hash,
         type: attachment.type,
         path: storagePath,
-        originPath: attachment.origin_path,
-        name: attachment.original_name,
-        size: attachment.size ?? undefined,
+        originPath: overrides.originPath ?? attachment.origin_path,
+        name: overrides.name ?? attachment.original_name,
+        size: overrides.size ?? attachment.size ?? undefined,
         preview: await buildPreview(attachment.type, storagePath),
-        mimeType: attachment.mime_type ?? undefined,
+        mimeType: overrides.mimeType ?? attachment.mime_type ?? undefined,
         supportStatus: 'supported',
     };
 }
@@ -202,6 +262,34 @@ export async function createAttachment(
         mimeType,
         supportStatus: 'supported',
     };
+}
+
+/**
+ * 基于已有字节内容直接创建并持久化附件。
+ *
+ * 主要用于工具结果里的媒体内容：它们没有“原始本地文件”，
+ * 但仍应复用统一附件缓存、去重和后续 transport 逻辑。
+ */
+export async function createPersistedAttachmentFromData(
+    options: {
+        type: 'image' | 'file';
+        name: string;
+        originPath: string;
+        mimeType?: string;
+        size?: number;
+        data: Uint8Array;
+    },
+    database: DatabaseExecutor = db
+): Promise<AttachmentIndex> {
+    const persisted = await ensureAttachmentRecordFromBytes(options, database);
+    return toAttachmentIndex(persisted, {
+        // 字节型附件可能命中去重记录，但当前调用方的来源路径/名称
+        // 仍然属于这一次消息语义，不能被旧记录回灌覆盖。
+        originPath: options.originPath,
+        name: options.name,
+        size: options.size ?? options.data.byteLength,
+        mimeType: options.mimeType ?? persisted.mime_type ?? undefined,
+    });
 }
 
 /**

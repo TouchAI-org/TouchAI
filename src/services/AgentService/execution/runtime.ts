@@ -4,6 +4,7 @@ import { updateModelLastUsed } from '@database/queries';
 import type { SessionTurnEntity } from '@database/types';
 
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import { PersistenceProjector } from '../outputs/persistence';
@@ -43,7 +44,13 @@ export interface ConversationRuntimeEnvironment {
  * 由外层决定是否通知用户、写日志或静默忽略。
  */
 export interface RuntimePersistenceIssue {
-    phase: 'turn_start' | 'turn_completed' | 'turn_cancelled' | 'turn_failed' | 'retry_started';
+    phase:
+        | 'attachment_prepare'
+        | 'turn_start'
+        | 'turn_completed'
+        | 'turn_cancelled'
+        | 'turn_failed'
+        | 'retry_started';
     title: string;
     body: string;
     error: unknown;
@@ -180,24 +187,55 @@ export class AiConversationRuntime {
         }
     }
 
+    /**
+     * 预持久化附件只用于解锁 hash / attachmentId / provider remote ref 复用等增强能力。
+     * 如果这里失败，不应阻断本轮请求；后续仍可直接使用原始文件做 inline 发送。
+     */
+    private async prepareAttachmentsForTransport(attachments: AttachmentIndex[]): Promise<void> {
+        const results = await Promise.allSettled(
+            attachments.map((attachment) => ensurePersistedAttachmentIndex(attachment))
+        );
+
+        for (const result of results) {
+            if (result.status === 'fulfilled') {
+                continue;
+            }
+
+            console.error(
+                '[AiConversationRuntime] Failed to pre-persist attachment before request:',
+                result.reason
+            );
+            await this.reportPersistenceIssue({
+                phase: 'attachment_prepare',
+                title: PERSISTENCE_ISSUE_TITLE,
+                body: '保存附件缓存失败，本轮仍会继续发送，但附件可能无法持久化或复用远端引用。',
+                error: result.reason,
+            });
+        }
+    }
+
     private async createRuntimeContext(): Promise<RuntimeContext> {
         const initialModel = await this.executor.getModel({
             modelId: this.options.modelId,
             providerId: this.options.providerId,
         });
+        const attachments = this.options.attachments ?? [];
+        if (attachments.length > 0) {
+            await this.prepareAttachmentsForTransport(attachments);
+        }
         // prompt 快照在整个 turn 生命周期内只生成一次。
         // 后续 retry、tool iteration、checkpoint resume 都必须复用它。
         const promptSnapshot =
             this.options.promptSnapshot ??
             (await composePromptSnapshot({
                 prompt: this.options.prompt,
-                attachments: this.options.attachments,
+                attachments,
                 executionMode: this.options.executionMode ?? 'foreground',
             }));
         const baseMessages = await buildPromptTransportMessages({
             sessionId: this.options.sessionId,
             snapshot: promptSnapshot,
-            attachments: this.options.attachments ?? [],
+            attachments,
             supportsAttachments: initialModel.attachment === 1,
         });
         const initialCheckpoint = this.executor.createInitialCheckpoint({
@@ -215,7 +253,7 @@ export class AiConversationRuntime {
 
         const persister = new PersistenceProjector({
             prompt: this.options.prompt,
-            attachments: this.options.attachments ?? [],
+            attachments,
             model: initialModel,
             sessionId: this.options.sessionId ?? null,
             taskId: this.options.taskId ?? crypto.randomUUID(),
@@ -346,6 +384,8 @@ export class AiConversationRuntime {
         let resumeCheckpoint = context.initialCheckpoint;
 
         try {
+            await context.requestStartRecordPromise;
+
             for (let retryAttempt = 0; retryAttempt <= MAX_REQUEST_RETRIES; retryAttempt += 1) {
                 const attemptResult = await this.executor.runAttempt({
                     startCheckpoint: resumeCheckpoint,

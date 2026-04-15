@@ -468,19 +468,23 @@ impl McpClient {
                             match &embedded_resource.resource {
                                 rmcp::model::ResourceContents::TextResourceContents {
                                     uri,
+                                    mime_type,
                                     text,
                                     ..
                                 } => Some(ToolContent::Resource {
                                     uri: uri.clone(),
+                                    mime_type: mime_type.clone(),
                                     text: Some(text.clone()),
                                     blob: None,
                                 }),
                                 rmcp::model::ResourceContents::BlobResourceContents {
                                     uri,
+                                    mime_type,
                                     blob,
                                     ..
                                 } => Some(ToolContent::Resource {
                                     uri: uri.clone(),
+                                    mime_type: mime_type.clone(),
                                     text: None,
                                     blob: Some(blob.clone()),
                                 }),

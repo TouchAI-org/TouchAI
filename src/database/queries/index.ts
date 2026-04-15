@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+export * from './attachmentRemoteRefs';
 export * from './attachments';
 export * from './builtInToolLogs';
 export * from './builtInTools';

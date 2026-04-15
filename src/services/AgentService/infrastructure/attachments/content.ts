@@ -4,18 +4,13 @@
 
 import { convertFileSrc } from '@tauri-apps/api/core';
 
-import type {
-    AiContentPart,
-    AttachmentPromptMeta,
-    AttachmentTransportMode,
-} from '../../contracts/protocol';
-import { isAttachmentSupported } from './support';
+import type { AttachmentPromptMeta } from '../../contracts/protocol';
 import type { AttachmentIndex } from './types';
 
 const BASE64_CHUNK_SIZE = 0x8000;
 const BINARY_REPLACEMENT_RATIO_THRESHOLD = 0.01;
 
-async function readAttachmentBuffer(path: string): Promise<ArrayBuffer> {
+export async function readAttachmentBuffer(path: string): Promise<ArrayBuffer> {
     const response = await fetch(convertFileSrc(path));
     if (!response.ok) {
         throw new Error(`Failed to read attachment: ${response.statusText}`);
@@ -23,7 +18,7 @@ async function readAttachmentBuffer(path: string): Promise<ArrayBuffer> {
     return response.arrayBuffer();
 }
 
-function bufferToBase64(buffer: ArrayBuffer): string {
+export function bufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
     let binary = '';
     for (let index = 0; index < bytes.length; index += BASE64_CHUNK_SIZE) {
@@ -32,12 +27,15 @@ function bufferToBase64(buffer: ArrayBuffer): string {
     return btoa(binary);
 }
 
-/**
- * 将附件内容读取为 Base64。
- *
- * @param attachment 前端附件引用。
- * @returns Base64 数据与 MIME 类型。
- */
+export function base64ToUint8Array(base64: string): Uint8Array {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+}
+
 export async function readAttachmentAsBase64(
     attachment: AttachmentIndex
 ): Promise<{ data: string; mimeType: string }> {
@@ -48,12 +46,6 @@ export async function readAttachmentAsBase64(
     };
 }
 
-/**
- * 将附件内容读取为文本；若检测到二进制内容则回退为 Base64。
- *
- * @param attachment 前端附件引用。
- * @returns 文本内容，以及是否按二进制处理。
- */
 export async function readAttachmentAsText(
     attachment: AttachmentIndex
 ): Promise<{ content: string; isBinary: boolean }> {
@@ -97,57 +89,4 @@ export function formatAttachmentAnchorText(meta: AttachmentPromptMeta): string {
         `origin_path: ${meta.originPath}`,
         `mime_type: ${meta.mimeType ?? 'unknown'}`,
     ].join('\n');
-}
-
-export async function resolveAttachmentTransportMode(
-    attachment: AttachmentIndex
-): Promise<AttachmentTransportMode> {
-    if (attachment.type === 'image') {
-        return 'inline-image';
-    }
-
-    const { isBinary } = await readAttachmentAsText(attachment);
-    return isBinary ? 'inline-base64' : 'inline-text';
-}
-
-/**
- * 将附件转换为可送入模型的统一内容片段。
- */
-export async function buildAttachmentParts(
-    attachments: AttachmentIndex[]
-): Promise<AiContentPart[]> {
-    const parts: AiContentPart[] = [];
-    // 同一会话内模型可能切换，这里静默跳过当前模型不支持的附件，避免整轮失败。
-    const usableAttachments = attachments.filter((attachment) => isAttachmentSupported(attachment));
-    const metas = buildAttachmentPromptMetas(usableAttachments);
-
-    for (const [index, attachment] of usableAttachments.entries()) {
-        const meta = metas[index]!;
-        try {
-            if (attachment.type === 'image') {
-                const { data, mimeType } = await readAttachmentAsBase64(attachment);
-                parts.push(
-                    { type: 'text', text: formatAttachmentAnchorText(meta) },
-                    { type: 'image', mimeType, data, meta }
-                );
-                continue;
-            }
-
-            const { content, isBinary } = await readAttachmentAsText(attachment);
-            parts.push(
-                { type: 'text', text: formatAttachmentAnchorText(meta) },
-                {
-                    type: 'file',
-                    name: attachment.name,
-                    content,
-                    isBinary,
-                    meta,
-                }
-            );
-        } catch (error) {
-            console.error('[AttachmentContent] Failed to read attachment:', error);
-        }
-    }
-
-    return parts;
 }

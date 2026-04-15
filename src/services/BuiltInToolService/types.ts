@@ -10,6 +10,7 @@ import type {
     ToolEventBuiltInConversationSemantic,
     ToolEventBuiltInConversationSemanticAction,
 } from '@/services/AgentService/contracts/tooling';
+import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 
 /**
  * 当前内置工具体系允许暴露给模型的稳定工具标识。
@@ -17,6 +18,7 @@ import type {
 export type BuiltInToolId =
     | 'bash'
     | 'file_search'
+    | 'read'
     | 'setting'
     | 'web_fetch'
     | 'upgrade_model'
@@ -60,6 +62,7 @@ export interface BuiltInToolExecutionResult {
     status: 'success' | 'error' | 'timeout';
     errorMessage?: string | null;
     approvalSummary?: string | null;
+    attachments?: AttachmentIndex[];
     controlSignal?: BuiltInToolControlSignal;
 }
 

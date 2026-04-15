@@ -107,9 +107,24 @@ export async function loadSessionTransportMessages(options: {
                     : undefined;
 
             if (toolLog) {
+                const attachments = supportsAttachments
+                    ? await hydratePersistedAttachments(row.attachments)
+                    : [];
+                const attachmentParts =
+                    attachments.length > 0
+                        ? await buildAttachmentParts(attachments, {
+                              includeAnchorText: false,
+                          })
+                        : [];
                 messages.push({
                     role: 'tool',
-                    content: row.content,
+                    content:
+                        attachmentParts.length > 0
+                            ? ([
+                                  ...(row.content ? [{ type: 'text', text: row.content }] : []),
+                                  ...attachmentParts,
+                              ] as AiContentPart[])
+                            : row.content,
                     tool_call_id: row.tool_call_id ?? toolLog.tool_call_id,
                     name: row.tool_name ?? toTransportToolName(toolLog),
                 });

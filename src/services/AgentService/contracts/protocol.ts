@@ -1,8 +1,42 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import type { ProviderDriver } from '@database/schema';
+
 import type { AiToolCall, AiToolCallDelta, AiToolDefinition, ToolEvent } from './tooling';
 
-export type AttachmentTransportMode = 'inline-image' | 'inline-text' | 'inline-base64';
+export type AttachmentTransportMode =
+    | 'inline-image'
+    | 'inline-text'
+    | 'inline-base64'
+    | 'provider-file-ref'
+    | 'external-url';
+
+export type AttachmentDerivedKind =
+    | 'image'
+    | 'pdf'
+    | 'text'
+    | 'code'
+    | 'structured-text'
+    | 'binary'
+    | 'directory';
+
+export type AttachmentSemanticIntent =
+    | 'visual-reference'
+    | 'document-content'
+    | 'textual-content'
+    | 'binary-content'
+    | 'directory-reference';
+
+export type AttachmentMessagePositionMode = 'inline' | 'synthetic-user-hoist';
+
+export interface AttachmentTransportDecision {
+    kind: AttachmentDerivedKind;
+    transportMode: AttachmentTransportMode;
+    reason: string;
+    shouldUpload: boolean;
+    canReuseRemoteRef: boolean;
+    messagePositionMode: AttachmentMessagePositionMode;
+}
 
 export interface AttachmentPromptMeta {
     alias: string;
@@ -15,13 +49,74 @@ export interface AttachmentPromptMeta {
     hash: string | null;
 }
 
+export interface AttachmentDeliveryManifestEntry {
+    messageIndex: number;
+    partIndex: number;
+    sourceRole: 'user' | 'tool';
+    resolvedRole: 'user' | 'tool';
+    messageContext: 'user' | 'tool-result';
+    toolCallId?: string;
+    toolName?: string;
+    alias: string;
+    order: number;
+    type: 'image' | 'file';
+    name: string;
+    size: number | null;
+    mimeType: string;
+    originPath: string;
+    sourcePath: string;
+    attachmentId: number | null;
+    hash: string | null;
+    derivedKind: AttachmentDerivedKind;
+    semanticIntent: AttachmentSemanticIntent;
+    transportMode: AttachmentTransportMode;
+    messagePositionMode: AttachmentMessagePositionMode;
+    transportReason: string;
+    remoteRefStrategy?: string | null;
+}
+
+export interface AttachmentDeliveryManifestRequest {
+    requestIndex: number;
+    providerDriver: ProviderDriver;
+    providerId: number | null;
+    modelId: string;
+    createdAt: string;
+    entries: AttachmentDeliveryManifestEntry[];
+}
+
+export interface AttachmentDeliveryManifest {
+    version: 1;
+    requests: AttachmentDeliveryManifestRequest[];
+}
+
 /**
  * 单条消息内容在应用内部的统一片段表示。
  */
 export type AiContentPart =
     | { type: 'text'; text: string }
-    | { type: 'image'; mimeType: string; data: string; meta: AttachmentPromptMeta }
-    | { type: 'file'; name: string; content: string; isBinary: boolean; meta: AttachmentPromptMeta }
+    | {
+          type: 'image';
+          name: string;
+          sourcePath: string;
+          size: number | null;
+          mimeType: string;
+          data: string;
+          kind: 'image';
+          semanticIntent: AttachmentSemanticIntent;
+          meta: AttachmentPromptMeta;
+      }
+    | {
+          type: 'file';
+          name: string;
+          sourcePath: string;
+          size: number | null;
+          mimeType: string;
+          kind: Exclude<AttachmentDerivedKind, 'image'>;
+          semanticIntent: AttachmentSemanticIntent;
+          textContent?: string;
+          base64Data?: string;
+          meta: AttachmentPromptMeta;
+      }
     | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
     | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 
@@ -44,11 +139,16 @@ export interface AiMessage {
  */
 export interface AiRequestOptions {
     model: string;
+    providerId?: number;
     messages: AiMessage[];
     stream?: boolean;
     signal?: AbortSignal;
     tools?: AiToolDefinition[];
     maxTokens?: number;
+    attachmentRequestIndex?: number;
+    onAttachmentManifestResolved?: (
+        request: AttachmentDeliveryManifestRequest
+    ) => Promise<void> | void;
 }
 
 /**

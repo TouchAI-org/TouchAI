@@ -2,7 +2,7 @@
 
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 
-import type { AttachmentTransportMode } from '../contracts/protocol';
+import type { AttachmentDerivedKind, AttachmentSemanticIntent } from '../contracts/protocol';
 import type { TaskExecutionMode } from '../task/types';
 
 /**
@@ -41,7 +41,10 @@ export interface PromptSnapshotAttachmentSummary {
     size: number | null;
     mimeType: string | null;
     originPath: string;
-    transportMode: AttachmentTransportMode;
+    attachmentId: number | null;
+    hash: string | null;
+    derivedKind: AttachmentDerivedKind;
+    semanticIntent: AttachmentSemanticIntent;
     supportStatus: AttachmentIndex['supportStatus'] | null;
 }
 

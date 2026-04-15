@@ -2,8 +2,7 @@
 
 import {
     type AttachmentIndex,
-    buildAttachmentPromptMetas,
-    resolveAttachmentTransportMode,
+    inspectAttachments,
 } from '@/services/AgentService/infrastructure/attachments';
 
 import type { TaskExecutionMode } from '../task/types';
@@ -60,32 +59,22 @@ function buildFragments(source: PromptFragmentSource, contents: string[]): Promp
 async function summarizeAttachments(
     attachments: AttachmentIndex[]
 ): Promise<PromptAssembly['attachments']> {
-    const metas = buildAttachmentPromptMetas(attachments);
+    const inspections = await inspectAttachments(attachments);
 
-    return Promise.all(
-        attachments.map(async (attachment, index) => {
-            let transportMode: PromptAssembly['attachments'][number]['transportMode'] =
-                attachment.type === 'image' ? 'inline-image' : 'inline-text';
-
-            try {
-                transportMode = await resolveAttachmentTransportMode(attachment);
-            } catch (error) {
-                console.error('[PromptComposer] Failed to inspect attachment transport:', error);
-            }
-
-            return {
-                id: attachment.id,
-                alias: metas[index]!.alias,
-                name: attachment.name,
-                type: attachment.type,
-                size: attachment.size ?? null,
-                mimeType: attachment.mimeType ?? null,
-                originPath: attachment.originPath,
-                transportMode,
-                supportStatus: attachment.supportStatus ?? null,
-            };
-        })
-    );
+    return inspections.map((inspection) => ({
+        id: inspection.attachment.id,
+        alias: inspection.meta.alias,
+        name: inspection.attachment.name,
+        type: inspection.attachment.type,
+        size: inspection.size,
+        mimeType: inspection.mimeType,
+        originPath: inspection.attachment.originPath,
+        attachmentId: inspection.meta.attachmentId,
+        hash: inspection.meta.hash,
+        derivedKind: inspection.kind,
+        semanticIntent: inspection.semanticIntent,
+        supportStatus: inspection.supportStatus,
+    }));
 }
 
 async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promise<PromptAssembly> {

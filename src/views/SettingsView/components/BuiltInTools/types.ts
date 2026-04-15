@@ -73,6 +73,7 @@ export interface BuiltInToolQueries {
 
 const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'file_search',
+    'read',
     'setting',
     'web_fetch',
     'show_widget',
@@ -88,6 +89,10 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
 
     if (toolId === 'file_search') {
         return '搜索本机文件';
+    }
+
+    if (toolId === 'read') {
+        return '读取本地文件或目录，支持图片与 PDF';
     }
 
     if (toolId === 'setting') {

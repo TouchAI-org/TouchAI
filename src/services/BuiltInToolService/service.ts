@@ -51,6 +51,7 @@ interface BuiltInToolExecutionResponse {
     isError: boolean;
     toolLogId: number | null;
     toolLogKind: ToolLogKind;
+    attachments?: BuiltInToolExecutionResult['attachments'];
     controlSignal?: BuiltInToolControlSignal;
 }
 
@@ -461,6 +462,7 @@ class BuiltInToolService {
             isError: toolResult.isError,
             toolLogId,
             toolLogKind: 'builtin',
+            attachments: toolResult.attachments,
             controlSignal: toolResult.controlSignal,
         };
     }

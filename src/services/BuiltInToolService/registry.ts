@@ -2,6 +2,7 @@
 
 import { builtInTools as bashTools } from './tools/bash';
 import { builtInTools as fileSearchTools } from './tools/fileSearch';
+import { builtInTools as readTools } from './tools/read';
 import { builtInTools as settingTools } from './tools/setting';
 import { builtInTools as upgradeModelTools } from './tools/upgradeModel';
 import { builtInTools as webFetchTools } from './tools/webFetch';
@@ -53,6 +54,7 @@ export const builtInToolRegistry = new BuiltInToolRegistry();
 
 builtInToolRegistry.register(bashTools);
 builtInToolRegistry.register(fileSearchTools);
+builtInToolRegistry.register(readTools);
 builtInToolRegistry.register(settingTools);
 builtInToolRegistry.register(webFetchTools);
 builtInToolRegistry.register(upgradeModelTools);

@@ -3,16 +3,34 @@
  */
 
 export {
+    base64ToUint8Array,
+    bufferToBase64,
     buildAttachmentAlias,
-    buildAttachmentParts,
     buildAttachmentPromptMetas,
     formatAttachmentAnchorText,
     readAttachmentAsBase64,
     readAttachmentAsText,
-    resolveAttachmentTransportMode,
+    readAttachmentBuffer,
 } from './content';
+export { type AttachmentInspection, inspectAttachment, inspectAttachments } from './inspect';
+export {
+    createAttachmentDeliveryManifestRequest,
+    createEmptyAttachmentDeliveryManifest,
+    serializeAttachmentDeliveryManifest,
+    upsertAttachmentDeliveryManifestRequest,
+} from './manifest';
+export { buildAttachmentParts, materializeAttachmentParts } from './materialize';
+export {
+    type AttachmentDeliveryPlan,
+    type AttachmentDeliveryPlanEntry,
+    buildAttachmentTransportDecision,
+    getAttachmentDeliveryPlanEntry,
+    planAttachmentDeliveryForMessages,
+    resolveDeliveredInlineTransportMode,
+} from './planner';
 export {
     createAttachment,
+    createPersistedAttachmentFromData,
     ensurePersistedAttachmentIndex,
     hydratePersistedAttachments,
 } from './storage';

@@ -17,6 +17,7 @@ export interface SessionTurnAttemptHistoryRow {
     max_retries: number;
     status: SessionTurnAttemptEntity['status'];
     checkpoint_json: string;
+    delivery_manifest_json: string;
     error_message: string | null;
     started_at: string;
     finished_at: string | null;
@@ -31,6 +32,7 @@ const SESSION_TURN_ATTEMPT_HISTORY_SELECTION = {
     max_retries: sessionTurnAttempts.max_retries,
     status: sessionTurnAttempts.status,
     checkpoint_json: sessionTurnAttempts.checkpoint_json,
+    delivery_manifest_json: sessionTurnAttempts.delivery_manifest_json,
     error_message: sessionTurnAttempts.error_message,
     started_at: sessionTurnAttempts.started_at,
     finished_at: sessionTurnAttempts.finished_at,

@@ -172,6 +172,23 @@ CREATE TABLE `providers` (
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `attachment_remote_refs` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`attachment_id` integer NOT NULL,
+	`provider_id` integer NOT NULL,
+	`transport_kind` text NOT NULL,
+	`remote_ref` text NOT NULL,
+	`mime_type` text,
+	`expires_at` text,
+	`last_used_at` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`attachment_id`) REFERENCES `attachments`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`provider_id`) REFERENCES `providers`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `attachment_remote_refs_attachment_provider_transport_unique` ON `attachment_remote_refs` (`attachment_id`,`provider_id`,`transport_kind`);--> statement-breakpoint
+CREATE INDEX `attachment_remote_refs_provider_id_idx` ON `attachment_remote_refs` (`provider_id`);--> statement-breakpoint
 CREATE TABLE `quick_search_click_stats` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`query_norm` text NOT NULL,
@@ -188,6 +205,7 @@ CREATE TABLE `session_turn_attempts` (
 	`max_retries` integer DEFAULT 0 NOT NULL,
 	`status` text DEFAULT 'pending' NOT NULL,
 	`checkpoint_json` text NOT NULL,
+	`delivery_manifest_json` text NOT NULL,
 	`error_message` text,
 	`duration_ms` integer,
 	`started_at` text DEFAULT (datetime('now')) NOT NULL,
