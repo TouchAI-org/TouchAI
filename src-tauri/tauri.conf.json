@@ -53,7 +53,7 @@
     "bundle": {
         "active": true,
         "targets": "all",
-        "resources": ["../src/database/drizzle", "../src/database/artifacts"],
+        "resources": ["../src/database"],
         "icon": [
             "icons/32x32.png",
             "icons/128x128.png",
