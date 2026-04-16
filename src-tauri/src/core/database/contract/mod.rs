@@ -165,24 +165,34 @@ fn select_database_contract_directory(
     project_root: Option<&Path>,
     allow_project_fallback: bool,
 ) -> Result<PathBuf, String> {
-    let resource_dir = resource_root.map(|path| path.join("src").join("database"));
-    if let Some(path) = resource_dir.as_ref().filter(|path| path.exists()) {
-        return Ok(path.clone());
+    let mut checked_paths = Vec::new();
+
+    if let Some(root) = resource_root {
+        let resource_candidates = [
+            root.join("_up_").join("src").join("database"),
+            root.join("src").join("database"),
+            root.to_path_buf(),
+        ];
+        for path in resource_candidates {
+            if is_database_contract_directory(&path) {
+                return Ok(path);
+            }
+            checked_paths.push(("resource", path));
+        }
     }
 
-    let project_dir = project_root.map(|path| path.join("src").join("database"));
     if allow_project_fallback {
-        if let Some(path) = project_dir.as_ref().filter(|path| path.exists()) {
-            return Ok(path.clone());
+        if let Some(path) = project_root.map(|path| path.join("src").join("database")) {
+            if is_database_contract_directory(&path) {
+                return Ok(path);
+            }
+            checked_paths.push(("project", path));
         }
     }
 
     let mut attempts = Vec::new();
-    if let Some(path) = resource_dir {
-        attempts.push(format!("resource '{}'", path.display()));
-    }
-    if let Some(path) = project_dir {
-        attempts.push(format!("project '{}'", path.display()));
+    for (kind, path) in checked_paths {
+        attempts.push(format!("{kind} '{}'", path.display()));
     }
     if attempts.is_empty() {
         attempts.push("no candidate directories".to_string());
@@ -192,6 +202,10 @@ fn select_database_contract_directory(
         "Failed to resolve database contract directory. Checked {}.",
         attempts.join(" and ")
     ))
+}
+
+fn is_database_contract_directory(path: &Path) -> bool {
+    path.join("drizzle").is_dir() && path.join("artifacts").is_dir()
 }
 
 fn resolve_project_root_from_exe() -> Result<PathBuf, String> {
@@ -351,12 +365,40 @@ mod tests {
         let _ = fs::remove_dir_all(workspace);
     }
 
+    #[test]
+    fn release_build_accepts_tauri_parent_relative_resource_layout() {
+        let workspace = create_temp_workspace("resource-up");
+        let resource_root = workspace.join("resource");
+
+        create_database_contract_at(&resource_root.join("_up_"));
+
+        let resolved =
+            select_database_contract_directory(Some(resource_root.as_path()), None, false).unwrap();
+
+        assert_eq!(
+            resolved,
+            resource_root.join("_up_").join("src").join("database")
+        );
+        let _ = fs::remove_dir_all(workspace);
+    }
+
     fn create_database_contract(root: &Path) {
+        create_database_contract_at(root);
+    }
+
+    fn create_database_contract_at(root: &Path) {
         fs::create_dir_all(
             root.join("src")
                 .join("database")
                 .join("drizzle")
                 .join("meta"),
+        )
+        .unwrap();
+        fs::create_dir_all(
+            root.join("src")
+                .join("database")
+                .join("artifacts")
+                .join("runtime"),
         )
         .unwrap();
     }
