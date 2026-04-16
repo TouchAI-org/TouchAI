@@ -142,27 +142,71 @@ pub(crate) async fn ensure_runtime_guards(
 
 /// 解析数据库目录。
 pub(crate) fn resolve_database_contract_directory(app: &tauri::App) -> Result<PathBuf, String> {
-    if cfg!(debug_assertions) {
-        let exe_dir = std::env::current_exe()
-            .map_err(|error| format!("Failed to resolve current exe: {error}"))?
-            .parent()
-            .ok_or_else(|| "Failed to resolve executable directory".to_string())?
-            .to_path_buf();
+    let resource_root = match app.path().resource_dir() {
+        Ok(path) => Some(path),
+        Err(error) if cfg!(debug_assertions) => None,
+        Err(error) => return Err(format!("Failed to resolve resource dir: {error}")),
+    };
+    let project_root = if cfg!(debug_assertions) {
+        Some(resolve_project_root_from_exe()?)
+    } else {
+        None
+    };
 
-        return exe_dir
-            .parent()
-            .and_then(|path| path.parent())
-            .and_then(|path| path.parent())
-            .map(|path| path.join("src").join("database"))
-            .ok_or_else(|| "Failed to resolve project database contract directory".to_string());
+    select_database_contract_directory(
+        resource_root.as_deref(),
+        project_root.as_deref(),
+        cfg!(debug_assertions),
+    )
+}
+
+fn select_database_contract_directory(
+    resource_root: Option<&Path>,
+    project_root: Option<&Path>,
+    allow_project_fallback: bool,
+) -> Result<PathBuf, String> {
+    let resource_dir = resource_root.map(|path| path.join("src").join("database"));
+    if let Some(path) = resource_dir.as_ref().filter(|path| path.exists()) {
+        return Ok(path.clone());
     }
 
-    Ok(app
-        .path()
-        .resource_dir()
-        .map_err(|error| format!("Failed to resolve resource dir: {error}"))?
-        .join("src")
-        .join("database"))
+    let project_dir = project_root.map(|path| path.join("src").join("database"));
+    if allow_project_fallback {
+        if let Some(path) = project_dir.as_ref().filter(|path| path.exists()) {
+            return Ok(path.clone());
+        }
+    }
+
+    let mut attempts = Vec::new();
+    if let Some(path) = resource_dir {
+        attempts.push(format!("resource '{}'", path.display()));
+    }
+    if let Some(path) = project_dir {
+        attempts.push(format!("project '{}'", path.display()));
+    }
+    if attempts.is_empty() {
+        attempts.push("no candidate directories".to_string());
+    }
+
+    Err(format!(
+        "Failed to resolve database contract directory. Checked {}.",
+        attempts.join(" and ")
+    ))
+}
+
+fn resolve_project_root_from_exe() -> Result<PathBuf, String> {
+    let exe_dir = std::env::current_exe()
+        .map_err(|error| format!("Failed to resolve current exe: {error}"))?
+        .parent()
+        .ok_or_else(|| "Failed to resolve executable directory".to_string())?
+        .to_path_buf();
+
+    exe_dir
+        .parent()
+        .and_then(|path| path.parent())
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "Failed to resolve project database contract directory".to_string())
 }
 
 /// 从统一数据库目录读取 SQL 工件。
@@ -238,4 +282,92 @@ async fn ensure_migrations_table(pool: &Pool<Sqlite>) -> Result<(), String> {
     .await
     .map_err(|error| format!("Failed to ensure migrations table: {error}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn prefers_packaged_resource_directory_in_debug_builds() {
+        let workspace = create_temp_workspace("resource-first");
+        let resource_root = workspace.join("resource");
+        let project_root = workspace.join("project");
+
+        create_database_contract(&resource_root);
+        create_database_contract(&project_root);
+
+        let resolved = select_database_contract_directory(
+            Some(resource_root.as_path()),
+            Some(project_root.as_path()),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(resolved, resource_root.join("src").join("database"));
+        let _ = fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn falls_back_to_project_directory_when_debug_resource_is_missing() {
+        let workspace = create_temp_workspace("project-fallback");
+        let resource_root = workspace.join("resource");
+        let project_root = workspace.join("project");
+
+        create_database_contract(&project_root);
+
+        let resolved = select_database_contract_directory(
+            Some(resource_root.as_path()),
+            Some(project_root.as_path()),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(resolved, project_root.join("src").join("database"));
+        let _ = fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn release_build_requires_packaged_resource_directory() {
+        let workspace = create_temp_workspace("resource-required");
+        let resource_root = workspace.join("resource");
+        let project_root = workspace.join("project");
+
+        create_database_contract(&project_root);
+
+        let error = select_database_contract_directory(
+            Some(resource_root.as_path()),
+            Some(project_root.as_path()),
+            false,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("resource"));
+        let _ = fs::remove_dir_all(workspace);
+    }
+
+    fn create_database_contract(root: &Path) {
+        fs::create_dir_all(
+            root.join("src")
+                .join("database")
+                .join("drizzle")
+                .join("meta"),
+        )
+        .unwrap();
+    }
+
+    fn create_temp_workspace(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("touchai-db-contract-{label}-{unique}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
 }
