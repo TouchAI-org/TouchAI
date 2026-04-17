@@ -2,15 +2,12 @@
 
 //! 备份导入执行流程。
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::PathBuf};
 
 use sqlx::{Sqlite, SqlitePool};
 
 use super::super::{
-    contract::execute_sql_artifact_on_connection,
+    contract::{execute_sql_artifact_on_connection, DatabaseContractSource},
     protocol::types::{DatabaseImportMode, DatabaseImportRequest},
 };
 
@@ -18,7 +15,7 @@ use super::super::{
 pub(crate) async fn run_import_backup(
     pool: SqlitePool,
     database_path: PathBuf,
-    database_contract_dir: PathBuf,
+    database_contract: DatabaseContractSource,
     request: DatabaseImportRequest,
 ) -> Result<(), String> {
     let source_path = PathBuf::from(&request.source_path);
@@ -60,11 +57,9 @@ pub(crate) async fn run_import_backup(
 
         let merge_result = match request.mode {
             DatabaseImportMode::ChatOnly => {
-                merge_chat_data(&mut connection, database_contract_dir.as_path()).await
+                merge_chat_data(&mut connection, &database_contract).await
             }
-            DatabaseImportMode::Full => {
-                merge_full_data(&mut connection, database_contract_dir.as_path()).await
-            }
+            DatabaseImportMode::Full => merge_full_data(&mut connection, &database_contract).await,
         };
 
         if let Err(error) = merge_result {
@@ -178,11 +173,11 @@ async fn ensure_import_required_tables(
 
 async fn merge_chat_data(
     connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-    database_contract_dir: &Path,
+    database_contract: &DatabaseContractSource,
 ) -> Result<(), String> {
     execute_sql_artifact_on_connection(
         connection,
-        database_contract_dir,
+        database_contract,
         &["artifacts", "import", "chat_merge.sql"],
     )
     .await
@@ -190,18 +185,18 @@ async fn merge_chat_data(
 
 async fn merge_full_data(
     connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-    database_contract_dir: &Path,
+    database_contract: &DatabaseContractSource,
 ) -> Result<(), String> {
     execute_sql_artifact_on_connection(
         connection,
-        database_contract_dir,
+        database_contract,
         &["artifacts", "import", "full_prelude.sql"],
     )
     .await?;
-    merge_chat_data(connection, database_contract_dir).await?;
+    merge_chat_data(connection, database_contract).await?;
     execute_sql_artifact_on_connection(
         connection,
-        database_contract_dir,
+        database_contract,
         &["artifacts", "import", "full_postlude.sql"],
     )
     .await?;

@@ -2,9 +2,11 @@
 
 //! 数据库契约与 SQL 工件执行。
 
+mod embedded;
 mod seed;
 
 use std::{
+    borrow::Cow,
     collections::HashSet,
     fs,
     path::{Path, PathBuf},
@@ -16,9 +18,87 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
     Pool, Row, Sqlite, SqlitePool,
 };
-use tauri::Manager;
 
 pub(crate) use seed::apply_seed;
+
+#[derive(Clone, Debug)]
+pub(crate) enum DatabaseContractSource {
+    Embedded,
+    Filesystem { root: PathBuf },
+}
+
+impl DatabaseContractSource {
+    pub(crate) fn embedded() -> Self {
+        Self::Embedded
+    }
+
+    pub(crate) fn resolve(_app: &tauri::App) -> Result<Self, String> {
+        if cfg!(debug_assertions) {
+            let project_root = resolve_project_root_from_exe()?;
+            return select_database_contract_source(Some(project_root.as_path()), true);
+        }
+
+        Ok(Self::embedded())
+    }
+
+    pub(crate) fn read_text(&self, segments: &[&str]) -> Result<Cow<'static, str>, String> {
+        match self {
+            Self::Embedded => embedded::read_text(segments)
+                .map(Cow::Borrowed)
+                .ok_or_else(|| {
+                    format!(
+                        "Embedded database asset '{}' is missing",
+                        logical_database_asset_path(segments)
+                    )
+                }),
+            Self::Filesystem { root } => {
+                let path = segments
+                    .iter()
+                    .fold(root.clone(), |path, segment| path.join(segment));
+                let contents = fs::read_to_string(&path).map_err(|error| {
+                    format!(
+                        "Failed to read database asset '{}': {error}",
+                        path.display()
+                    )
+                })?;
+                Ok(Cow::Owned(contents))
+            }
+        }
+    }
+}
+
+/// 解析当前构建应使用的数据库契约来源。
+pub(crate) fn resolve_database_contract(
+    app: &tauri::App,
+) -> Result<DatabaseContractSource, String> {
+    DatabaseContractSource::resolve(app)
+}
+
+fn select_database_contract_source(
+    project_root: Option<&Path>,
+    use_project_contract: bool,
+) -> Result<DatabaseContractSource, String> {
+    if !use_project_contract {
+        return Ok(DatabaseContractSource::embedded());
+    }
+
+    let path = project_root
+        .map(|path| path.join("src").join("database"))
+        .ok_or_else(|| "Failed to resolve project database contract directory.".to_string())?;
+
+    if is_database_contract_directory(&path) {
+        return Ok(DatabaseContractSource::Filesystem { root: path });
+    }
+
+    Err(format!(
+        "Failed to resolve project database contract directory. Checked project '{}'.",
+        path.display()
+    ))
+}
+
+fn logical_database_asset_path(segments: &[&str]) -> String {
+    segments.join("/")
+}
 
 /// 创建应用共享的 SQLite 连接池。
 pub(crate) async fn create_sqlite_pool(path: &Path) -> Result<SqlitePool, String> {
@@ -45,17 +125,11 @@ pub(crate) async fn create_sqlite_pool(path: &Path) -> Result<SqlitePool, String
 /// 执行 Drizzle 迁移工件。
 pub(crate) async fn migrate_database(
     pool: &Pool<Sqlite>,
-    migration_dir: &Path,
+    database_contract: &DatabaseContractSource,
 ) -> Result<(), String> {
     ensure_migrations_table(pool).await?;
 
-    let journal_path = migration_dir.join("meta").join("_journal.json");
-    let journal = fs::read_to_string(&journal_path).map_err(|error| {
-        format!(
-            "Failed to read migration journal '{}': {error}",
-            journal_path.display()
-        )
-    })?;
+    let journal = database_contract.read_text(&["drizzle", "meta", "_journal.json"])?;
     let journal_json: serde_json::Value = serde_json::from_str(&journal)
         .map_err(|error| format!("Invalid migration journal: {error}"))?;
     let entries = journal_json
@@ -80,13 +154,8 @@ pub(crate) async fn migrate_database(
             continue;
         }
 
-        let migration_path = migration_dir.join(format!("{tag}.sql"));
-        let migration_sql = fs::read_to_string(&migration_path).map_err(|error| {
-            format!(
-                "Failed to read migration file '{}': {error}",
-                migration_path.display()
-            )
-        })?;
+        let migration_file = format!("{tag}.sql");
+        let migration_sql = database_contract.read_text(&["drizzle", migration_file.as_str()])?;
         let statements = migration_sql
             .split("--> statement-breakpoint")
             .map(str::trim)
@@ -135,73 +204,14 @@ pub(crate) async fn migrate_database(
 /// 运行时保护规则来自数据库工件，而不是 Rust 内嵌业务 SQL。
 pub(crate) async fn ensure_runtime_guards(
     pool: &Pool<Sqlite>,
-    artifacts_dir: &Path,
+    database_contract: &DatabaseContractSource,
 ) -> Result<(), String> {
-    execute_sql_artifact_on_pool(pool, artifacts_dir, &["runtime", "guards.sql"]).await
-}
-
-/// 解析数据库目录。
-pub(crate) fn resolve_database_contract_directory(app: &tauri::App) -> Result<PathBuf, String> {
-    let resource_root = match app.path().resource_dir() {
-        Ok(path) => Some(path),
-        Err(error) if cfg!(debug_assertions) => None,
-        Err(error) => return Err(format!("Failed to resolve resource dir: {error}")),
-    };
-    let project_root = if cfg!(debug_assertions) {
-        Some(resolve_project_root_from_exe()?)
-    } else {
-        None
-    };
-
-    select_database_contract_directory(
-        resource_root.as_deref(),
-        project_root.as_deref(),
-        cfg!(debug_assertions),
+    execute_sql_artifact_on_pool(
+        pool,
+        database_contract,
+        &["artifacts", "runtime", "guards.sql"],
     )
-}
-
-fn select_database_contract_directory(
-    resource_root: Option<&Path>,
-    project_root: Option<&Path>,
-    allow_project_fallback: bool,
-) -> Result<PathBuf, String> {
-    let mut checked_paths = Vec::new();
-
-    if let Some(root) = resource_root {
-        let resource_candidates = [
-            root.join("_up_").join("src").join("database"),
-            root.join("src").join("database"),
-            root.to_path_buf(),
-        ];
-        for path in resource_candidates {
-            if is_database_contract_directory(&path) {
-                return Ok(path);
-            }
-            checked_paths.push(("resource", path));
-        }
-    }
-
-    if allow_project_fallback {
-        if let Some(path) = project_root.map(|path| path.join("src").join("database")) {
-            if is_database_contract_directory(&path) {
-                return Ok(path);
-            }
-            checked_paths.push(("project", path));
-        }
-    }
-
-    let mut attempts = Vec::new();
-    for (kind, path) in checked_paths {
-        attempts.push(format!("{kind} '{}'", path.display()));
-    }
-    if attempts.is_empty() {
-        attempts.push("no candidate directories".to_string());
-    }
-
-    Err(format!(
-        "Failed to resolve database contract directory. Checked {}.",
-        attempts.join(" and ")
-    ))
+    .await
 }
 
 fn is_database_contract_directory(path: &Path) -> bool {
@@ -223,32 +233,21 @@ fn resolve_project_root_from_exe() -> Result<PathBuf, String> {
         .ok_or_else(|| "Failed to resolve project database contract directory".to_string())
 }
 
-/// 从统一数据库目录读取 SQL 工件。
+/// 从统一数据库契约来源读取 SQL 工件。
 pub(crate) fn read_sql_artifact(
-    database_contract_dir: &Path,
+    database_contract: &DatabaseContractSource,
     segments: &[&str],
 ) -> Result<String, String> {
-    let path = segments
-        .iter()
-        .fold(database_contract_dir.to_path_buf(), |path, segment| {
-            path.join(segment)
-        });
-
-    fs::read_to_string(&path).map_err(|error| {
-        format!(
-            "Failed to read database artifact '{}': {error}",
-            path.display()
-        )
-    })
+    database_contract.read_text(segments).map(Cow::into_owned)
 }
 
 /// 在连接池上执行一个完整 SQL 工件，适合初始化场景。
 pub(crate) async fn execute_sql_artifact_on_pool(
     pool: &Pool<Sqlite>,
-    database_contract_dir: &Path,
+    database_contract: &DatabaseContractSource,
     segments: &[&str],
 ) -> Result<(), String> {
-    let sql = read_sql_artifact(database_contract_dir, segments)?;
+    let sql = read_sql_artifact(database_contract, segments)?;
     sqlx::raw_sql(&sql).execute(pool).await.map_err(|error| {
         format!(
             "Failed to execute database artifact '{:?}': {error}",
@@ -261,10 +260,10 @@ pub(crate) async fn execute_sql_artifact_on_pool(
 /// 在已有连接上执行 SQL 工件，适合导入等需要共享事务上下文的流程。
 pub(crate) async fn execute_sql_artifact_on_connection(
     connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-    database_contract_dir: &Path,
+    database_contract: &DatabaseContractSource,
     segments: &[&str],
 ) -> Result<(), String> {
-    let sql = read_sql_artifact(database_contract_dir, segments)?;
+    let sql = read_sql_artifact(database_contract, segments)?;
     sqlx::raw_sql(&sql)
         .execute(&mut **connection)
         .await
@@ -308,85 +307,65 @@ mod tests {
     };
 
     #[test]
-    fn prefers_packaged_resource_directory_in_debug_builds() {
-        let workspace = create_temp_workspace("resource-first");
-        let resource_root = workspace.join("resource");
+    fn debug_build_uses_project_database_contract_directory() {
+        let workspace = create_temp_workspace("project-contract");
         let project_root = workspace.join("project");
 
-        create_database_contract(&resource_root);
-        create_database_contract(&project_root);
+        create_database_contract(&project_root, "-- debug seed");
 
-        let resolved = select_database_contract_directory(
-            Some(resource_root.as_path()),
-            Some(project_root.as_path()),
-            true,
-        )
-        .unwrap();
+        let contract = select_database_contract_source(Some(project_root.as_path()), true).unwrap();
+        let seed_sql = contract
+            .read_text(&["artifacts", "runtime", "seed.sql"])
+            .unwrap();
 
-        assert_eq!(resolved, resource_root.join("src").join("database"));
+        assert_eq!(seed_sql, "-- debug seed");
         let _ = fs::remove_dir_all(workspace);
     }
 
     #[test]
-    fn falls_back_to_project_directory_when_debug_resource_is_missing() {
-        let workspace = create_temp_workspace("project-fallback");
-        let resource_root = workspace.join("resource");
-        let project_root = workspace.join("project");
+    fn release_build_embeds_every_runtime_database_asset() {
+        let contract = DatabaseContractSource::embedded();
 
-        create_database_contract(&project_root);
+        let journal = contract
+            .read_text(&["drizzle", "meta", "_journal.json"])
+            .unwrap();
+        let journal_json: serde_json::Value = serde_json::from_str(&journal).unwrap();
+        let entries = journal_json["entries"].as_array().unwrap();
+        assert!(!entries.is_empty());
 
-        let resolved = select_database_contract_directory(
-            Some(resource_root.as_path()),
-            Some(project_root.as_path()),
-            true,
-        )
-        .unwrap();
+        for entry in entries {
+            let tag = entry["tag"].as_str().unwrap();
+            let migration_file = format!("{tag}.sql");
+            let migration_sql = contract
+                .read_text(&["drizzle", migration_file.as_str()])
+                .unwrap();
+            assert!(
+                !migration_sql.trim().is_empty(),
+                "missing migration for {tag}"
+            );
+        }
 
-        assert_eq!(resolved, project_root.join("src").join("database"));
-        let _ = fs::remove_dir_all(workspace);
+        for segments in [
+            ["artifacts", "runtime", "guards.sql"],
+            ["artifacts", "runtime", "seed.sql"],
+            ["artifacts", "import", "chat_merge.sql"],
+            ["artifacts", "import", "full_prelude.sql"],
+            ["artifacts", "import", "full_postlude.sql"],
+        ] {
+            let sql = contract.read_text(&segments).unwrap();
+            assert!(
+                !sql.trim().is_empty(),
+                "embedded asset should not be empty: {:?}",
+                segments
+            );
+        }
     }
 
-    #[test]
-    fn release_build_requires_packaged_resource_directory() {
-        let workspace = create_temp_workspace("resource-required");
-        let resource_root = workspace.join("resource");
-        let project_root = workspace.join("project");
-
-        create_database_contract(&project_root);
-
-        let error = select_database_contract_directory(
-            Some(resource_root.as_path()),
-            Some(project_root.as_path()),
-            false,
-        )
-        .unwrap_err();
-
-        assert!(error.contains("resource"));
-        let _ = fs::remove_dir_all(workspace);
+    fn create_database_contract(root: &Path, seed_sql: &str) {
+        create_database_contract_at(root, seed_sql);
     }
 
-    #[test]
-    fn release_build_accepts_tauri_parent_relative_resource_layout() {
-        let workspace = create_temp_workspace("resource-up");
-        let resource_root = workspace.join("resource");
-
-        create_database_contract_at(&resource_root.join("_up_"));
-
-        let resolved =
-            select_database_contract_directory(Some(resource_root.as_path()), None, false).unwrap();
-
-        assert_eq!(
-            resolved,
-            resource_root.join("_up_").join("src").join("database")
-        );
-        let _ = fs::remove_dir_all(workspace);
-    }
-
-    fn create_database_contract(root: &Path) {
-        create_database_contract_at(root);
-    }
-
-    fn create_database_contract_at(root: &Path) {
+    fn create_database_contract_at(root: &Path, seed_sql: &str) {
         fs::create_dir_all(
             root.join("src")
                 .join("database")
@@ -399,6 +378,39 @@ mod tests {
                 .join("database")
                 .join("artifacts")
                 .join("runtime"),
+        )
+        .unwrap();
+        fs::create_dir_all(
+            root.join("src")
+                .join("database")
+                .join("artifacts")
+                .join("import"),
+        )
+        .unwrap();
+        fs::write(
+            root.join("src")
+                .join("database")
+                .join("drizzle")
+                .join("meta")
+                .join("_journal.json"),
+            r#"{"entries":[{"tag":"0000_debug"}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src")
+                .join("database")
+                .join("drizzle")
+                .join("0000_debug.sql"),
+            "-- debug migration",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src")
+                .join("database")
+                .join("artifacts")
+                .join("runtime")
+                .join("seed.sql"),
+            seed_sql,
         )
         .unwrap();
     }

@@ -25,7 +25,7 @@ use self::{
 use super::{
     contract::{
         apply_seed, create_sqlite_pool, ensure_runtime_guards, migrate_database, now_millis,
-        resolve_database_contract_directory,
+        resolve_database_contract, DatabaseContractSource,
     },
     protocol::types::{
         DatabaseImportRequest, DatabaseQueryRequest, DatabaseQueryResponse,
@@ -62,7 +62,7 @@ pub struct DatabaseRuntime {
 struct DatabaseRuntimeInner {
     pool: SqlitePool,
     database_path: PathBuf,
-    database_contract_dir: PathBuf,
+    database_contract: DatabaseContractSource,
     tx_registry: Mutex<HashMap<String, SharedTxEntry>>,
 }
 
@@ -73,21 +73,19 @@ impl DatabaseRuntime {
     /// 下的迁移与 SQL 工件，确保前端启动前数据库已经可用。
     pub async fn initialize(app: &tauri::App) -> Result<Self, String> {
         let database_path = app_directory_path(AppDirectory::Data)?.join(DATABASE_FILE_NAME);
-        let database_contract_dir = resolve_database_contract_directory(app)?;
-        let migrations_dir = database_contract_dir.join("drizzle");
-        let artifacts_dir = database_contract_dir.join("artifacts");
+        let database_contract = resolve_database_contract(app)?;
         let pool = create_sqlite_pool(&database_path).await?;
 
-        // 数据库契约统一收敛在前端目录，Rust 只负责执行这些工件。
-        migrate_database(&pool, &migrations_dir).await?;
-        ensure_runtime_guards(&pool, &artifacts_dir).await?;
-        apply_seed(&pool, &artifacts_dir).await?;
+        // 数据库契约统一收敛在前端目录，release 直接读取 exe 内嵌资源。
+        migrate_database(&pool, &database_contract).await?;
+        ensure_runtime_guards(&pool, &database_contract).await?;
+        apply_seed(&pool, &database_contract).await?;
 
         let runtime = Self {
             inner: Arc::new(DatabaseRuntimeInner {
                 pool,
                 database_path,
-                database_contract_dir,
+                database_contract,
                 tx_registry: Mutex::new(HashMap::new()),
             }),
         };
@@ -244,7 +242,7 @@ impl DatabaseRuntime {
         run_import_backup(
             self.inner.pool.clone(),
             self.inner.database_path.clone(),
-            self.inner.database_contract_dir.clone(),
+            self.inner.database_contract.clone(),
             request,
         )
         .await

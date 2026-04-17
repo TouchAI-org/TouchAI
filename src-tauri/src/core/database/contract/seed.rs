@@ -2,22 +2,19 @@
 
 //! 数据库初始种子执行器。
 
-use std::{fs, path::Path};
-
 use sqlx::{Pool, Sqlite};
+
+use super::DatabaseContractSource;
 
 /// 执行数据库种子工件。
 ///
 /// 种子内容统一维护在 `src/database/artifacts/runtime/seed.sql`，
 /// Rust 只负责读取并执行，避免再维护一份内嵌初始化 SQL。
-pub async fn apply_seed(pool: &Pool<Sqlite>, artifacts_dir: &Path) -> Result<(), String> {
-    let seed_path = artifacts_dir.join("runtime").join("seed.sql");
-    let seed_sql = fs::read_to_string(&seed_path).map_err(|error| {
-        format!(
-            "Failed to read database seed artifact '{}': {error}",
-            seed_path.display()
-        )
-    })?;
+pub async fn apply_seed(
+    pool: &Pool<Sqlite>,
+    database_contract: &DatabaseContractSource,
+) -> Result<(), String> {
+    let seed_sql = database_contract.read_text(&["artifacts", "runtime", "seed.sql"])?;
 
     sqlx::raw_sql(&seed_sql)
         .execute(pool)
