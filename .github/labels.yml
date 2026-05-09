@@ -1,54 +1,54 @@
 - name: 'kind:bug'
-  color: d73a4a
+  color: 'd73a4a'
   description: Reproducible bug report
 - name: 'kind:feature'
-  color: a2eeef
+  color: 'a2eeef'
   description: Product or workflow improvement
 - name: 'kind:docs'
-  color: 0e8a16
+  color: '0e8a16'
   description: Documentation-related work
 - name: 'kind:rfc'
-  color: 5319e7
+  color: '5319e7'
   description: Architecture or cross-cutting design discussion
 - name: 'kind:refactor'
-  color: cfd3d7
+  color: 'cfd3d7'
   description: Internal cleanup without direct feature scope
 - name: 'area:frontend'
-  color: 1d76db
+  color: '1d76db'
   description: Frontend UI or view-layer changes
 - name: 'area:tauri'
-  color: 0052cc
+  color: '0052cc'
   description: Tauri shell or desktop runtime changes
 - name: 'area:agent-service'
-  color: 0366d6
+  color: '0366d6'
   description: AgentService and conversation runtime changes
 - name: 'area:database'
-  color: fbca04
+  color: 'fbca04'
   description: Schema, persistence, or migration changes
 - name: 'area:mcp'
-  color: bfdadc
+  color: 'bfdadc'
   description: MCP integration changes
 - name: 'area:ci'
-  color: 5319e7
+  color: '5319e7'
   description: CI, automation, or repository workflow changes
 - name: 'status:triage'
-  color: f9d0c4
+  color: 'f9d0c4'
   description: Needs maintainer triage
 - name: 'status:accepted'
-  color: 0e8a16
+  color: '0e8a16'
   description: Confirmed and ready for contribution
 - name: 'status:needs-info'
-  color: d876e3
+  color: 'd876e3'
   description: Waiting for more information
 - name: 'status:blocked'
-  color: b60205
+  color: 'b60205'
   description: Blocked by another decision or dependency
 - name: 'good first issue'
-  color: 7057ff
+  color: '7057ff'
   description: Suitable for first-time contributors
 - name: 'help wanted'
-  color: 008672
+  color: '008672'
   description: Looking for external contribution
 - name: 'claimed'
-  color: c2e0c6
+  color: 'c2e0c6'
   description: Currently claimed by a contributor
