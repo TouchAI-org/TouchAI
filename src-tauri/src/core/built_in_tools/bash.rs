@@ -2,11 +2,15 @@
 
 //! Windows PowerShell 执行器。
 
+#[cfg(target_os = "windows")]
 use std::process::{ExitStatus, Stdio};
+#[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 
 use tokio::io::AsyncReadExt;
+#[cfg(target_os = "windows")]
 use tokio::process::{Child, Command};
+#[cfg(target_os = "windows")]
 use tokio::time;
 
 use super::registry::BashExecutionRegistry;
@@ -175,12 +179,14 @@ async fn execute_bash_windows(
     })
 }
 
+#[cfg(target_os = "windows")]
 enum BashExecutionCompletion {
     Completed(ExitStatus),
     TimedOut(ExitStatus),
     Cancelled(ExitStatus),
 }
 
+#[cfg(target_os = "windows")]
 async fn terminate_child(child: &mut Child, reason: &str) -> Result<ExitStatus, String> {
     if let Some(status) = child
         .try_wait()
@@ -246,6 +252,7 @@ async fn terminate_child(child: &mut Child, reason: &str) -> Result<ExitStatus, 
         .map_err(|error| format!("Failed to reap {reason} PowerShell process: {error}"))
 }
 
+#[cfg(target_os = "windows")]
 fn build_powershell_command_script(command: &str) -> String {
     // 保持用户命令从新行开始，避免破坏 here-string 等必须行首起始的语法。
     format!("{}\n{}", UTF8_POWERSHELL_PRELUDE, command)

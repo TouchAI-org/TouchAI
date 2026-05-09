@@ -2,15 +2,61 @@ name: CI
 
 on:
     push:
+        branches:
+            - main
     pull_request:
 
+permissions:
+    contents: read
+    pull-requests: read
+
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
     cancel-in-progress: true
 
 jobs:
-    check:
-        name: Check
+    conventional-commits:
+        name: Conventional Commits
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Validate pull request title
+              env:
+                  PR_TITLE: ${{ github.event.pull_request.title }}
+              run: |
+                  printf '%s\n' "$PR_TITLE" | pnpm exec commitlint --verbose
+
+            - name: Validate commit messages
+              run: |
+                  pnpm exec commitlint \
+                    --from "${{ github.event.pull_request.base.sha }}" \
+                    --to "${{ github.event.pull_request.head.sha }}" \
+                    --verbose
+
+    dependency-review:
+        name: Dependency Review
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Dependency review
+              uses: actions/dependency-review-action@v4
+
+    checks:
+        name: Checks
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -21,6 +67,30 @@ jobs:
               with:
                   node-version: 22
                   cache: pnpm
+
+            - name: Install Linux system dependencies
+              run: |
+                  sudo apt update
+                  sudo apt install -y \
+                    build-essential \
+                    curl \
+                    file \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
+                    pkg-config \
+                    wget
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri -> target
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
@@ -37,10 +107,16 @@ jobs:
             - name: Run tests
               run: pnpm test:run
 
-    build:
+            - name: Check Rust formatting
+              run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+            - name: Check Rust targets
+              run: pnpm check:rust
+
+    build-windows:
         name: Build (Windows)
-        if: github.ref == 'refs/heads/main'
-        needs: check
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        needs: checks
         runs-on: windows-latest
         steps:
             - uses: actions/checkout@v4
@@ -63,11 +139,8 @@ jobs:
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Check Rust formatting
-              run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-
             - name: Build Tauri app
-              uses: tauri-apps/tauri-action@v0
+              uses: tauri-apps/tauri-action@v1
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

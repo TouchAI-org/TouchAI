@@ -118,9 +118,9 @@
     };
 
     const links = {
-        github: 'https://github.com/xlgzsgf/touchai',
-        docs: 'https://github.com/xlgzsgf/touchai/wiki',
-        issues: 'https://github.com/xlgzsgf/touchai/issues',
+        github: 'https://github.com/TouchAI-org/TouchAI',
+        docs: 'https://github.com/TouchAI-org/TouchAI/tree/main/docs',
+        issues: 'https://github.com/TouchAI-org/TouchAI/issues',
     };
 </script>
 

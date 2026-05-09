@@ -42,6 +42,11 @@ Thumbs.db
 # 临时文件
 tmp/
 temp/
+.tmp/
+
+# Agent / tool working directories
+.codex/
+.worktrees/
 
 src-tauri/target/**/*
 src-tauri/gen/**/*

@@ -1,0 +1,24 @@
+name: Documentation improvement
+description: Report unclear, missing, or outdated documentation
+title: '[Docs]: '
+labels:
+    - kind:docs
+    - status:triage
+body:
+    - type: textarea
+      id: gap
+      attributes:
+          label: Documentation gap
+          description: What is missing, unclear, or outdated?
+      validations:
+          required: true
+    - type: input
+      id: location
+      attributes:
+          label: Existing document or page
+          placeholder: README.md, CONTRIBUTING.md, Settings page, etc.
+    - type: textarea
+      id: suggestion
+      attributes:
+          label: Suggested improvement
+          description: What should the docs say instead?

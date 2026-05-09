@@ -130,10 +130,10 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/xlgszgf/touchai.git"
+        "url": "https://github.com/TouchAI-org/TouchAI.git"
     },
     "bugs": {
-        "url": "https://github.com/xlgszgf/touchai/issues"
+        "url": "https://github.com/TouchAI-org/TouchAI/issues"
     },
-    "homepage": "https://github.com/xlgszgf/touchai#readme"
+    "homepage": "https://github.com/TouchAI-org/TouchAI#readme"
 }

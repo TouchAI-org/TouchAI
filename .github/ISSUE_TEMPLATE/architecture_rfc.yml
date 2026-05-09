@@ -1,0 +1,67 @@
+name: Architecture RFC
+description: Propose a high-risk or cross-cutting technical change before implementation
+title: '[RFC]: '
+labels:
+    - kind:rfc
+    - status:triage
+body:
+    - type: markdown
+      attributes:
+          value: |
+              Use this form for high-risk changes. Implementation PRs should link back to an accepted RFC.
+    - type: textarea
+      id: summary
+      attributes:
+          label: Summary
+          description: What change are you proposing?
+      validations:
+          required: true
+    - type: textarea
+      id: motivation
+      attributes:
+          label: Motivation
+          description: What problem does this solve, and why now?
+      validations:
+          required: true
+    - type: checkboxes
+      id: affected
+      attributes:
+          label: Affected boundaries
+          options:
+              - label: AgentService
+              - label: conversation runtime
+              - label: tool execution
+              - label: session persistence
+              - label: context construction
+              - label: instruction loading
+              - label: agent orchestration
+              - label: MCP integration
+              - label: database schema or migrations
+      validations:
+          required: true
+    - type: textarea
+      id: design
+      attributes:
+          label: Proposed design
+          description: Describe the architecture, boundaries, and data flow.
+      validations:
+          required: true
+    - type: textarea
+      id: alternatives
+      attributes:
+          label: Alternatives and trade-offs
+          description: What did you reject, and why?
+      validations:
+          required: true
+    - type: textarea
+      id: references
+      attributes:
+          label: Upstream references
+          description: Link any reference projects, docs, or prior issues that informed the design.
+    - type: textarea
+      id: testing
+      attributes:
+          label: Testing and rollout
+          description: How should this be verified, and what risks remain?
+      validations:
+          required: true

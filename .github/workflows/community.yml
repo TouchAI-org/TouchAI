@@ -1,0 +1,335 @@
+name: Community
+
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - main
+        paths:
+            - '.github/labels.yml'
+            - '.github/labeler.yml'
+            - '.github/workflows/community.yml'
+    issues:
+        types:
+            - opened
+            - reopened
+    issue_comment:
+        types:
+            - created
+    pull_request_target:
+        types:
+            - opened
+            - synchronize
+            - reopened
+            - ready_for_review
+    schedule:
+        - cron: '0 3 * * *'
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.ref || 'scheduled' }}
+    cancel-in-progress: false
+
+jobs:
+    sync-labels:
+        name: Sync labels
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+        steps:
+            - uses: actions/checkout@v4
+            - uses: EndBug/label-sync@v2
+              with:
+                  config-file: .github/labels.yml
+                  delete-other-labels: false
+
+    triage-issue:
+        name: Triage new issue
+        if: github.event_name == 'issues'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+        steps:
+            - name: Add triage label
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const issue_number = context.payload.issue.number;
+                      const labels = context.payload.issue.labels.map((label) => label.name);
+                      if (!labels.includes('status:triage')) {
+                        await github.rest.issues.addLabels({
+                          ...context.repo,
+                          issue_number,
+                          labels: ['status:triage'],
+                        });
+                      }
+
+    labeler:
+        name: Label pull request
+        if: github.event_name == 'pull_request_target'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/labeler@v6
+              with:
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+                  configuration-path: .github/labeler.yml
+
+    issue-assignment:
+        name: Handle issue assignment commands
+        if: github.event_name == 'issue_comment' && !github.event.issue.pull_request
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+        steps:
+            - name: Process /assign and /unassign
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const body = context.payload.comment.body.trim();
+                      const issue_number = context.payload.issue.number;
+                      const commenter = context.payload.comment.user.login;
+                      const allowedCommands = ['/assign', '/unassign'];
+
+                      if (!allowedCommands.includes(body)) {
+                        core.info('No assignment command found.');
+                        return;
+                      }
+
+                      const { data: issue } = await github.rest.issues.get({
+                        ...context.repo,
+                        issue_number,
+                      });
+
+                      const labels = issue.labels.map((label) => typeof label === 'string' ? label : label.name);
+                      const assignees = issue.assignees.map((assignee) => assignee.login);
+                      const hasAllowedLabel =
+                        labels.includes('good first issue') ||
+                        labels.includes('help wanted') ||
+                        labels.includes('status:accepted');
+
+                      if (body === '/assign') {
+                        if (labels.includes('kind:rfc')) {
+                          await github.rest.issues.createComment({
+                            ...context.repo,
+                            issue_number,
+                            body: 'This RFC issue is discussion-only and cannot be claimed.',
+                          });
+                          return;
+                        }
+
+                        if (!hasAllowedLabel) {
+                          await github.rest.issues.createComment({
+                            ...context.repo,
+                            issue_number,
+                            body: 'This issue is not currently open for self-assignment. Look for `good first issue`, `help wanted`, or `status:accepted`.',
+                          });
+                          return;
+                        }
+
+                        if (assignees.length > 0 && !assignees.includes(commenter)) {
+                          await github.rest.issues.createComment({
+                            ...context.repo,
+                            issue_number,
+                            body: `This issue is already claimed by @${assignees[0]}.`,
+                          });
+                          return;
+                        }
+
+                        if (!assignees.includes(commenter)) {
+                          await github.rest.issues.addAssignees({
+                            ...context.repo,
+                            issue_number,
+                            assignees: [commenter],
+                          });
+                        }
+
+                        if (!labels.includes('claimed')) {
+                          await github.rest.issues.addLabels({
+                            ...context.repo,
+                            issue_number,
+                            labels: ['claimed'],
+                          });
+                        }
+
+                        const assignedAt = new Date().toISOString();
+                        await github.rest.issues.createComment({
+                          ...context.repo,
+                          issue_number,
+                          body: `<!-- touchai-claim assigned_at=${assignedAt} login=${commenter} -->\nAssigned to @${commenter}. Please leave a visible progress update in this issue within 7 days to keep the claim active.`,
+                        });
+                        return;
+                      }
+
+                      if (!assignees.includes(commenter)) {
+                        await github.rest.issues.createComment({
+                          ...context.repo,
+                          issue_number,
+                          body: 'Only the current assignee can release this claim with `/unassign`.',
+                        });
+                        return;
+                      }
+
+                      await github.rest.issues.removeAssignees({
+                        ...context.repo,
+                        issue_number,
+                        assignees: [commenter],
+                      });
+
+                      const remainingAssignees = assignees.filter((login) => login !== commenter);
+                      if (remainingAssignees.length === 0 && labels.includes('claimed')) {
+                        await github.rest.issues.removeLabel({
+                          ...context.repo,
+                          issue_number,
+                          name: 'claimed',
+                        }).catch(() => {});
+                      }
+
+                      await github.rest.issues.createComment({
+                        ...context.repo,
+                        issue_number,
+                        body: `Claim released by @${commenter}.`,
+                      });
+
+    claim-maintenance:
+        name: Maintain claimed issues
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+        steps:
+            - name: Remind or release stale claims
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const owner = context.repo.owner;
+                      const repo = context.repo.repo;
+                      const now = new Date();
+                      const reminderMarker = '<!-- touchai-claim-reminder -->';
+                      const releaseMarker = '<!-- touchai-claim-release -->';
+                      const claimPattern = /<!-- touchai-claim assigned_at=([^\s]+) login=([^\s]+) -->/;
+
+                      const issues = await github.paginate(github.rest.issues.listForRepo, {
+                        owner,
+                        repo,
+                        state: 'open',
+                        labels: 'claimed',
+                        per_page: 100,
+                      });
+
+                      for (const issue of issues) {
+                        if (issue.pull_request || issue.assignees.length === 0) {
+                          continue;
+                        }
+
+                        const comments = await github.paginate(github.rest.issues.listComments, {
+                          owner,
+                          repo,
+                          issue_number: issue.number,
+                          per_page: 100,
+                        });
+
+                        const assignee = issue.assignees[0].login;
+                        let assignedAt = new Date(issue.created_at);
+                        for (const comment of comments) {
+                          const match = comment.body.match(claimPattern);
+                          if (match && match[2] === assignee) {
+                            assignedAt = new Date(match[1]);
+                          }
+                        }
+
+                        let lastVisibleProgress = assignedAt;
+                        for (const comment of comments) {
+                          const createdAt = new Date(comment.created_at);
+                          if (
+                            comment.user.login === assignee &&
+                            createdAt > lastVisibleProgress &&
+                            !comment.body.includes('touchai-claim')
+                          ) {
+                            lastVisibleProgress = createdAt;
+                          }
+                        }
+
+                        const inactivityDays =
+                          (now.getTime() - lastVisibleProgress.getTime()) / (1000 * 60 * 60 * 24);
+
+                        const hasReminder = comments.some(
+                          (comment) =>
+                            comment.body.includes(reminderMarker) &&
+                            new Date(comment.created_at) > lastVisibleProgress
+                        );
+
+                        if (inactivityDays >= 14) {
+                          await github.rest.issues.removeAssignees({
+                            owner,
+                            repo,
+                            issue_number: issue.number,
+                            assignees: [assignee],
+                          }).catch(() => {});
+
+                          await github.rest.issues.removeLabel({
+                            owner,
+                            repo,
+                            issue_number: issue.number,
+                            name: 'claimed',
+                          }).catch(() => {});
+
+                          await github.rest.issues.createComment({
+                            owner,
+                            repo,
+                            issue_number: issue.number,
+                            body: `${releaseMarker}\nClaim released after 14 days without a visible progress update from @${assignee}. Someone else can pick this up now.`,
+                          });
+                          continue;
+                        }
+
+                        if (inactivityDays >= 7 && !hasReminder) {
+                          await github.rest.issues.createComment({
+                            owner,
+                            repo,
+                            issue_number: issue.number,
+                            body: `${reminderMarker}\n@${assignee}, this claim has been inactive for 7 days. Please leave a visible progress update in this issue to keep the claim active.`,
+                          });
+                        }
+                      }
+
+    stale-needs-info:
+        name: Stale needs-info issues
+        if: github.event_name == 'schedule'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+            pull-requests: write
+        steps:
+            - uses: actions/stale@v9
+              with:
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+                  days-before-stale: 14
+                  days-before-close: 7
+                  only-labels: 'status:needs-info'
+                  stale-issue-message: 'This issue is waiting for more information and has been inactive for 14 days. It will be closed in 7 days if no update is provided.'
+                  close-issue-message: 'Closing this issue because the requested information was not provided.'
+                  days-before-pr-stale: -1
+
+    stale-pull-requests:
+        name: Stale pull requests
+        if: github.event_name == 'schedule'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+            pull-requests: write
+        steps:
+            - uses: actions/stale@v9
+              with:
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+                  days-before-pr-stale: 21
+                  days-before-pr-close: 14
+                  stale-pr-message: 'This pull request has been inactive for 21 days. Please update it or leave a note if it is still in progress.'
+                  close-pr-message: 'Closing this pull request after prolonged inactivity. Reopen it when the work is ready to continue.'
+                  days-before-issue-stale: -1
+                  exempt-draft-pr: true

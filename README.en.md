@@ -15,21 +15,23 @@
 </p>
 
 <p align="center">
-  One shortcut · Desktop context · MCP · BYOK
+  On demand · Desktop context · MCP · BYOK
 </p>
 
 <p align="center">
-  <img src="docs/images/search-window.png" alt="TouchAI search window" style="max-width: 650px;width:100%" />
+  <img src="docs/images/search-window.png" alt="TouchAI search window" style="max-width: 500px;width:100%" />
 </p>
 
 ---
 
 ### Features
 
-- **One shortcut away** - `Alt+Space` opens fast and gets out of your way
+- **One shortcut away** - `Alt+Space` appears and disappears without interrupting your workflow
+- **Full keyboard operation** - operate entirely without a mouse for much higher efficiency
 - **Desktop context** - aware of files, screen, and clipboard
-- **MCP support** - extend capabilities with MCP tools
+- **Tool support** - includes 7 built-in tools and supports MCP tool extensions
 - **BYOK** - bring your own provider and model
+- **Featured capabilities** - file search, visual interactive UI, and model auto-upgrades
 
 ### Download
 
@@ -37,22 +39,7 @@ Download the latest installer from [Releases](https://github.com/TouchAI-org/Tou
 
 ### Development & Contributing
 
-Make sure `Rust`, `Node.js`, and `pnpm` are installed before development.
-
-#### Development
-
-```bash
-pnpm install
-pnpm tauri dev
-```
-
-#### Build
-
-```bash
-pnpm tauri build
-```
-
-Read the [contributing docs](./CONTRIBUTING.md) before opening a pull request.
+If you want to contribute to TouchAI, read the [contributing docs](./CONTRIBUTING.md).
 
 ### Docs
 

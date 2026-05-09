@@ -1,0 +1,60 @@
+name: Feature request
+description: Propose a product or workflow improvement
+title: '[Feature]: '
+labels:
+    - kind:feature
+    - status:triage
+body:
+    - type: markdown
+      attributes:
+          value: |
+              Start with the user problem. If the change touches high-risk runtime or schema areas, open an RFC instead.
+    - type: textarea
+      id: problem
+      attributes:
+          label: Problem statement
+          description: What user problem or workflow gap does this solve?
+      validations:
+          required: true
+    - type: textarea
+      id: proposal
+      attributes:
+          label: Proposed solution
+          description: Describe the behavior you want.
+      validations:
+          required: true
+    - type: textarea
+      id: alternatives
+      attributes:
+          label: Alternatives considered
+          description: What other approaches did you consider?
+    - type: dropdown
+      id: area
+      attributes:
+          label: Main area
+          options:
+              - frontend
+              - tauri
+              - AgentService
+              - database
+              - MCP
+              - CI or tooling
+              - docs
+      validations:
+          required: true
+    - type: checkboxes
+      id: boundaries
+      attributes:
+          label: Risk boundaries
+          description: Select any area this request may touch.
+          options:
+              - label: AgentService or conversation runtime
+              - label: tool execution or instruction loading
+              - label: session persistence or context construction
+              - label: MCP integration
+              - label: database schema or migrations
+    - type: textarea
+      id: examples
+      attributes:
+          label: Mockups, screenshots, or examples
+          description: Link similar behavior or attach references if you have them.
