@@ -306,7 +306,7 @@ jobs:
             issues: write
             pull-requests: write
         steps:
-            - uses: actions/stale@v9
+            - uses: actions/stale@v10
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   days-before-stale: 14
@@ -324,7 +324,7 @@ jobs:
             issues: write
             pull-requests: write
         steps:
-            - uses: actions/stale@v9
+            - uses: actions/stale@v10
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   days-before-pr-stale: 21
