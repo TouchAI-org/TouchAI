@@ -68,6 +68,22 @@ jobs:
                   node-version: 22
                   cache: pnpm
 
+            - name: Install Linux system dependencies
+              run: |
+                  sudo apt update
+                  sudo apt install -y \
+                    build-essential \
+                    curl \
+                    file \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
+                    pkg-config \
+                    wget
+
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@stable
 
