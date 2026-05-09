@@ -54,7 +54,7 @@ jobs:
             issues: write
         steps:
             - name: Add triage label
-              uses: actions/github-script@v7
+              uses: actions/github-script@v9
               with:
                   script: |
                       const issue_number = context.payload.issue.number;
@@ -88,7 +88,7 @@ jobs:
             issues: write
         steps:
             - name: Process /assign and /unassign
-              uses: actions/github-script@v7
+              uses: actions/github-script@v9
               with:
                   script: |
                       const body = context.payload.comment.body.trim();
@@ -204,7 +204,7 @@ jobs:
             issues: write
         steps:
             - name: Remind or release stale claims
-              uses: actions/github-script@v7
+              uses: actions/github-script@v9
               with:
                   script: |
                       const owner = context.repo.owner;
