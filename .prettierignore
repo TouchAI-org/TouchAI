@@ -44,5 +44,9 @@ tmp/
 temp/
 .tmp/
 
+# Agent / tool working directories
+.codex/
+.worktrees/
+
 src-tauri/target/**/*
 src-tauri/gen/**/*
