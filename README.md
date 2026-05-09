@@ -15,42 +15,30 @@
 </p>
 
 <p align="center">
-  一触即达 · 桌面上下文 · MCP · BYOK
+  随叫随到 · 桌面上下文 · MCP · BYOK
 </p>
 
 <p align="center">
-  <img src="docs/images/search-window.png" alt="TouchAI search window" style="max-width: 650px;width:100%" />
+  <img src="docs/images/search-window.png" alt="TouchAI search window" style="max-width: 500px;width:100%" />
 </p>
 
 ---
 
 ### 功能特性
 
-- **一触即达** - `Alt+Space` 召之即来挥之即去，不打破工作流
+- **一触即达** - `Alt+Space` 召之即来挥之即去，不打断工作流
+- **全键盘操作** - 支持无鼠标全键盘操作，极大提升效率
 - **桌面上下文** - 文件、屏幕、剪贴板智能感知
-- **MCP支持** - 支持MCP工具拓展
+- **工具支持** - 内置7大工具，支持MCP工具拓展
 - **BYOK** - 无厂商锁定，自由切换提供商和模型
+- **特色功能** - 文件搜索、可视化交互UI、模型自升级
 
 ### 下载使用
 在 [Releases](https://github.com/TouchAI-org/TouchAI/releases) 下载最新安装包。
 
 ### 开发贡献
 
-在进行开发前请确保已安装`Rust`、`Node.js`环境，并安装`pnpm`。
-
-#### 开发
-
-```bash
-pnpm install
-pnpm tauri dev
-```
-
-#### 打包
-```bash
-pnpm tauri build
-```
-
-如果你想参与 TouchAI 的开发，请先阅读 [contributing docs](./CONTRIBUTING.md)。
+如果你想参与 TouchAI 的开发，请阅读 [contributing docs](./CONTRIBUTING.md)。
 
 ### 文档
 
