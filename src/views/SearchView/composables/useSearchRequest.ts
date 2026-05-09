@@ -180,6 +180,15 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 return;
             }
 
+            if (event.sessionId === currentSessionId.value) {
+                void dismissSessionTerminalStatus(event.sessionId).catch((error) => {
+                    console.error(
+                        '[SearchView] Failed to dismiss active session terminal status:',
+                        error
+                    );
+                });
+            }
+
             // 会话运行允许脱离当前页面继续进行；
             // 旧会话进入终态时，当前页不一定还能收到 useAgent 的 onComplete/onError。
             // 这里统一按全局状态事件作废历史列表缓存，保证 popup 能看到最新终态圆点。

@@ -202,6 +202,10 @@
             return runtimeStatus;
         }
 
+        if (sessionId === currentSessionId.value) {
+            return null;
+        }
+
         return pendingTerminalStatus ?? null;
     }
 
