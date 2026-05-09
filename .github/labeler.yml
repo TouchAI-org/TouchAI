@@ -1,0 +1,38 @@
+'area:frontend':
+    - changed-files:
+          - any-glob-to-any-file:
+                - 'src/views/**'
+                - 'src/components/**'
+                - 'src/composables/**'
+                - 'public/**'
+                - 'index.html'
+
+'area:tauri':
+    - changed-files:
+          - any-glob-to-any-file:
+                - 'src-tauri/**'
+
+'area:agent-service':
+    - changed-files:
+          - any-glob-to-any-file:
+                - 'src/services/AgentService/**'
+                - 'src/composables/agent/**'
+                - 'src/types/session.ts'
+
+'area:database':
+    - changed-files:
+          - any-glob-to-any-file:
+                - 'src/database/**'
+                - 'drizzle.config.ts'
+
+'area:mcp':
+    - changed-files:
+          - any-glob-to-any-file:
+                - 'src/services/AgentService/infrastructure/mcp/**'
+                - 'src/views/SettingsView/components/McpTools/**'
+                - 'src/stores/mcp.ts'
+
+'area:ci':
+    - changed-files:
+          - any-glob-to-any-file:
+                - '.github/**'

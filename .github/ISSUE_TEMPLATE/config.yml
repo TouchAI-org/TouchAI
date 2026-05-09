@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+    - name: Support and troubleshooting
+      url: https://github.com/TouchAI-org/TouchAI/blob/main/SUPPORT.md
+      about: Use support guidance before opening a bug report for usage questions.
+    - name: Discussions
+      url: https://github.com/TouchAI-org/TouchAI/discussions
+      about: Use Discussions for questions, troubleshooting, and broader product ideas.
