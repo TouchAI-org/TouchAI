@@ -29,7 +29,7 @@
 
     const delegatedProps = computed(() => {
         const delegated = { ...props };
-        delete delegated.class;
+        Reflect.deleteProperty(delegated, 'class');
         return delegated;
     });
 

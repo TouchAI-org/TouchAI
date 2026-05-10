@@ -19,6 +19,7 @@ import {
     size as getFileSize,
 } from 'tauri-plugin-fs-pro-api';
 
+import { bytesToArrayBuffer } from './content';
 import type { AttachmentIndex } from './types';
 
 const imageMimeMap: Record<string, string> = {
@@ -71,7 +72,7 @@ async function computeAttachmentHash(path: string): Promise<string> {
 }
 
 async function computeAttachmentHashFromBytes(bytes: Uint8Array): Promise<string> {
-    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    const digest = await crypto.subtle.digest('SHA-256', bytesToArrayBuffer(bytes));
     return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
         ''
     );

@@ -11,7 +11,10 @@ import type {
     AiContentPart,
     AttachmentTransportDecision,
 } from '@/services/AgentService/contracts/protocol';
-import { base64ToUint8Array } from '@/services/AgentService/infrastructure/attachments';
+import {
+    base64ToUint8Array,
+    bytesToArrayBuffer,
+} from '@/services/AgentService/infrastructure/attachments';
 
 import { getProviderAttachmentCapabilities } from '../capabilities';
 import type { ProviderApiTargets, ProviderAttachmentFileRefStrategy } from '../types';
@@ -147,11 +150,15 @@ function logProviderFileRefFallback(
 
 function buildAttachmentBlob(part: AttachmentCarrierPart): Blob {
     if (part.type === 'image') {
-        return new Blob([base64ToUint8Array(part.data)], { type: part.mimeType });
+        return new Blob([bytesToArrayBuffer(base64ToUint8Array(part.data))], {
+            type: part.mimeType,
+        });
     }
 
     if (part.base64Data) {
-        return new Blob([base64ToUint8Array(part.base64Data)], { type: part.mimeType });
+        return new Blob([bytesToArrayBuffer(base64ToUint8Array(part.base64Data))], {
+            type: part.mimeType,
+        });
     }
 
     if (part.textContent !== undefined) {

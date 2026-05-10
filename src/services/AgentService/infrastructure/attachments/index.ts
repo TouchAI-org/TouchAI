@@ -7,6 +7,7 @@ export {
     bufferToBase64,
     buildAttachmentAlias,
     buildAttachmentPromptMetas,
+    bytesToArrayBuffer,
     formatAttachmentAnchorText,
     readAttachmentAsBase64,
     readAttachmentAsText,

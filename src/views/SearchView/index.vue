@@ -399,15 +399,10 @@
         }
 
         // 根据是否有会话面板，选择不同的 anchor 元素
-        let anchorElement: HTMLElement | null = null;
-
-        if (sessionHistory.value.length > 0) {
-            // 有会话面板：使用历史按钮作为 anchor
-            anchorElement = conversationPanel.value?.getHistoryAnchor() ?? null;
-        } else {
-            // 搜索框状态：使用 pageContainer 作为 anchor
-            anchorElement = pageContainer.value;
-        }
+        const anchorElement =
+            sessionHistory.value.length > 0
+                ? (conversationPanel.value?.getHistoryAnchor() ?? null)
+                : pageContainer.value;
 
         if (!anchorElement) {
             return;

@@ -77,12 +77,14 @@ async function applySettingSideEffect(
                 value as GeneralSettingsData['globalShortcut']
             );
         } catch (error) {
-            throw new Error(
+            const registrationError = new Error(
                 formatShortcutRegistrationError(
                     value as GeneralSettingsData['globalShortcut'],
                     error
                 )
             );
+            (registrationError as Error & { cause?: unknown }).cause = error;
+            throw registrationError;
         }
         return;
     }
@@ -215,7 +217,7 @@ export async function executeSettingTool(
         await applySettingUpdate(settingsStore, request.key, request.value);
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        let rollbackSummary = '';
+        let rollbackSummary: string;
         try {
             // 设置更新可能在抛错前已经触发部分副作用，
             // 因此失败后仍按执行前快照做一次 best-effort 回滚。

@@ -332,7 +332,9 @@ export async function executeReadFile(
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         if (errorMessage.toLowerCase().includes('not found')) {
-            throw new Error(await createMissingPathMessage(path));
+            const missingPathError = new Error(await createMissingPathMessage(path));
+            (missingPathError as Error & { cause?: unknown }).cause = error;
+            throw missingPathError;
         }
 
         throw error;
