@@ -14,6 +14,7 @@ use rmcp::{
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
+use tauri_plugin_http::reqwest as mcp_reqwest;
 use tokio::{
     io::AsyncReadExt,
     process::ChildStderr,
@@ -301,18 +302,18 @@ impl McpClient {
         }
     }
 
-    /// 构建带可选自定义请求头的 reqwest HTTP 客户端。
+    /// 构建带可选请求头且与 rmcp transport 兼容的 HTTP 客户端。
     fn build_http_client(
         headers: Option<HashMap<String, String>>,
-    ) -> Result<reqwest::Client, String> {
-        let mut client_builder = reqwest::Client::builder();
+    ) -> Result<mcp_reqwest::Client, String> {
+        let mut client_builder = mcp_reqwest::Client::builder();
 
         if let Some(header_map) = headers {
-            let mut header_values = reqwest::header::HeaderMap::new();
+            let mut header_values = mcp_reqwest::header::HeaderMap::new();
             for (key, value) in header_map {
                 if let (Ok(name), Ok(val)) = (
-                    reqwest::header::HeaderName::from_bytes(key.as_bytes()),
-                    reqwest::header::HeaderValue::from_str(&value),
+                    mcp_reqwest::header::HeaderName::from_bytes(key.as_bytes()),
+                    mcp_reqwest::header::HeaderValue::from_str(&value),
                 ) {
                     header_values.insert(name, val);
                 } else {
