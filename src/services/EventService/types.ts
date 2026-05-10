@@ -66,7 +66,6 @@ export type GeneralSettingKey =
     | 'global_shortcut'
     | 'start_on_boot'
     | 'start_minimized'
-    | 'mcp_max_iterations'
     | 'output_scroll_behavior';
 
 export interface SettingsGeneralUpdatedEvent {

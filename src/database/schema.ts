@@ -24,7 +24,6 @@ export enum SettingKey {
     THEME = 'theme',
     LANGUAGE = 'language',
     AUTO_START = 'auto_start',
-    MCP_MAX_ITERATIONS = 'mcp_max_iterations',
     OUTPUT_SCROLL_BEHAVIOR = 'output_scroll_behavior',
 }
 

@@ -128,7 +128,6 @@ describe('AiRequestExecutor', () => {
 
         const result = await executor.runAttempt({
             startCheckpoint: checkpoint,
-            maxIterations: 1,
             persister: createNoopPersister() as never,
         });
 

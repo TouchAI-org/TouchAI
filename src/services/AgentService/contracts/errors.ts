@@ -38,8 +38,6 @@ export enum AiErrorCode {
     MCP_CONNECTION_FAILED = 'MCP_CONNECTION_FAILED',
     MCP_TOOL_EXECUTION_FAILED = 'MCP_TOOL_EXECUTION_FAILED',
     MCP_TOOL_TIMEOUT = 'MCP_TOOL_TIMEOUT',
-    MCP_MAX_ITERATIONS_REACHED = 'MCP_MAX_ITERATIONS_REACHED',
-
     // 未知错误
     UNKNOWN = 'UNKNOWN',
 }
@@ -82,7 +80,6 @@ const ERROR_MESSAGES: Record<AiErrorCode, string> = {
     [AiErrorCode.MCP_CONNECTION_FAILED]: 'MCP 服务器连接失败',
     [AiErrorCode.MCP_TOOL_EXECUTION_FAILED]: 'MCP 工具执行失败',
     [AiErrorCode.MCP_TOOL_TIMEOUT]: 'MCP 工具执行超时',
-    [AiErrorCode.MCP_MAX_ITERATIONS_REACHED]: '已达到最大迭代次数',
 
     // 未知错误
     [AiErrorCode.UNKNOWN]: '未知错误',

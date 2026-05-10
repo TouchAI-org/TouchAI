@@ -35,7 +35,6 @@ import {
  * 桌面通知或其他宿主实现。
  */
 export interface ConversationRuntimeEnvironment {
-    maxIterations: number;
     reportPersistenceIssue?: (issue: RuntimePersistenceIssue) => Promise<void> | void;
 }
 
@@ -171,13 +170,6 @@ export class AiConversationRuntime {
         private readonly executor: AiRequestExecutor,
         private readonly options: ExecuteRequestOptions
     ) {}
-
-    private getRuntimeEnvironment(): ConversationRuntimeEnvironment {
-        return {
-            maxIterations: this.options.environment?.maxIterations ?? 10,
-            reportPersistenceIssue: this.options.environment?.reportPersistenceIssue,
-        };
-    }
 
     private async reportPersistenceIssue(issue: RuntimePersistenceIssue): Promise<void> {
         try {
@@ -380,7 +372,6 @@ export class AiConversationRuntime {
      */
     async run(): Promise<ExecuteRequestResult> {
         const context = await this.createRuntimeContext();
-        const runtimeEnvironment = this.getRuntimeEnvironment();
         let resumeCheckpoint = context.initialCheckpoint;
 
         try {
@@ -389,7 +380,6 @@ export class AiConversationRuntime {
             for (let retryAttempt = 0; retryAttempt <= MAX_REQUEST_RETRIES; retryAttempt += 1) {
                 const attemptResult = await this.executor.runAttempt({
                     startCheckpoint: resumeCheckpoint,
-                    maxIterations: runtimeEnvironment.maxIterations,
                     persister: context.persister,
                     taskId: this.options.taskId,
                     signal: this.options.signal,

@@ -2,19 +2,13 @@
 
 import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 
-import {
-    arrayFromScalarSchema,
-    integerInRangeSchema,
-    nonEmptyTrimmedStringSchema,
-    z,
-} from '../../utils/toolSchema';
+import { arrayFromScalarSchema, nonEmptyTrimmedStringSchema, z } from '../../utils/toolSchema';
 
 export const SETTING_TOOL_ACTIONS = ['list', 'get', 'set'] as const;
 export const SUPPORTED_SETTING_KEYS = [
     'global_shortcut',
     'start_on_boot',
     'start_minimized',
-    'mcp_max_iterations',
     'output_scroll_behavior',
 ] as const;
 export const OUTPUT_SCROLL_BEHAVIORS = ['follow_output', 'stay_position', 'jump_to_top'] as const;
@@ -22,7 +16,6 @@ export const TOOL_KEY_TO_STORE_KEY = {
     global_shortcut: 'globalShortcut',
     start_on_boot: 'startOnBoot',
     start_minimized: 'startMinimized',
-    mcp_max_iterations: 'mcpMaxIterations',
     output_scroll_behavior: 'outputScrollBehavior',
 } as const;
 
@@ -81,15 +74,6 @@ export const SETTING_DEFINITIONS: Record<SupportedSettingKey, SettingDefinition>
         type: 'boolean',
         examples: ['true', 'false'],
     },
-    mcp_max_iterations: {
-        key: 'mcp_max_iterations',
-        label: '最大工具调用轮数',
-        description: '控制一次请求里允许的最大 MCP / 内置工具连续调用轮数。',
-        type: 'number',
-        examples: ['8', '12'],
-        minimum: 1,
-        maximum: 50,
-    },
     output_scroll_behavior: {
         key: 'output_scroll_behavior',
         label: '输出滚动策略',
@@ -123,7 +107,6 @@ export const settingValueSchemaByKey = {
     global_shortcut: nonEmptyTrimmedStringSchema,
     start_on_boot: z.boolean(),
     start_minimized: z.boolean(),
-    mcp_max_iterations: integerInRangeSchema(1, 50),
     output_scroll_behavior: outputScrollBehaviorSchema,
 };
 
@@ -156,7 +139,7 @@ export const SETTING_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
             items: { type: 'string', enum: [...SUPPORTED_SETTING_KEYS] },
             description: withExamples(
                 'Optional keys for get action. Omit to read all supported settings.',
-                '["mcp_max_iterations","output_scroll_behavior"]',
+                '["output_scroll_behavior","global_shortcut"]',
                 '["global_shortcut"]'
             ),
         },

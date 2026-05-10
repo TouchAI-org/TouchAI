@@ -129,7 +129,6 @@ export type AttemptFailureResult = Extract<AttemptExecutionResult, { type: 'fail
 
 export interface RunAttemptOptions extends RequestExecutionCallbacks {
     startCheckpoint: AttemptCheckpoint;
-    maxIterations: number;
     persister: PersistenceProjector;
 }
 
@@ -790,7 +789,7 @@ export class AiRequestExecutor {
         let resumeCheckpoint = options.startCheckpoint;
 
         try {
-            while (runtime.iteration < options.maxIterations) {
+            while (true) {
                 throwIfAborted(options.signal);
 
                 const step = await this.consumeModelStep(runtime, {
@@ -833,13 +832,6 @@ export class AiRequestExecutor {
                     });
                 }
             }
-
-            if (runtime.iteration >= options.maxIterations) {
-                console.warn('[AiRequestExecutor] Max iterations reached');
-                runtime.response += `\n\n[${AiError.getMessage(AiErrorCode.MCP_MAX_ITERATIONS_REACHED)}]`;
-            }
-
-            throwIfAborted(options.signal);
 
             if (!runtime.response.trim() && !runtime.reasoning.trim()) {
                 throw new AiError(AiErrorCode.EMPTY_RESPONSE);

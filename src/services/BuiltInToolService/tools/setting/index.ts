@@ -117,11 +117,6 @@ async function persistSettingValue(
                 value as GeneralSettingsData['startMinimized']
             );
             return;
-        case 'mcp_max_iterations':
-            await settingsStore.updateMcpMaxIterations(
-                value as GeneralSettingsData['mcpMaxIterations']
-            );
-            return;
         case 'output_scroll_behavior':
             await settingsStore.updateOutputScrollBehavior(
                 value as GeneralSettingsData['outputScrollBehavior']
