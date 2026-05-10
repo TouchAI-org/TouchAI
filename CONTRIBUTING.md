@@ -35,6 +35,20 @@ The following areas are always `RFC-first`:
 
 If the work touches one of these areas without prior discussion, expect the pull request to be redirected back to an RFC.
 
+## AI-assisted contributions
+
+TouchAI allows AI-assisted contributions, but the responsibility stays with the human submitter.
+
+- Review every AI-assisted change yourself before asking for review.
+- Keep changes small, focused, and inside the existing architecture unless there is a clear reason not to.
+- New architecture, cross-boundary abstractions, and existing `RFC-first` areas are still `RFC-first` even if AI helped draft the idea or code.
+- Material AI assistance must be disclosed in the pull request description and/or commit metadata so the contribution can be audited.
+- Do not use AI to mass-submit low-quality pull requests, issue spam, or unreviewed review replies.
+
+Maintainers may close low-quality AI-assisted contributions without detailed review. Repeated low-quality AI submissions may lead to a permanent ban from the project spaces.
+
+See [AI-assisted contributions](docs/ai-assisted-contributions.md) for the full policy.
+
 ## Branches, draft PRs, and review
 
 TouchAI uses GitHub `Draft PR` as the only supported work-in-progress flow.
@@ -101,6 +115,7 @@ A good pull request should:
 - include tests or explain why tests are not appropriate
 - explain database schema impact, baseline resets, or migration rewrites when relevant
 - update docs when behavior changes
+- disclose material AI assistance when AI tools materially shaped the submitted content
 
 ## Reporting bugs, asking for help, and security
 
