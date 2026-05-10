@@ -68,7 +68,13 @@ const chunkGroups = [
 export default defineConfig({
   plugins: [
     monacoEditorEsmPlugin({
-      languageWorkers: ['editorWorkerService'],
+      languageWorkers: [],
+      customWorkers: [
+        {
+          label: 'editorWorkerService',
+          entry: 'monaco-editor/esm/vs/editor/editor.worker.js',
+        },
+      ],
     }),
     Icons({
       compiler: 'vue3',
