@@ -232,32 +232,42 @@
         } catch (error) {
             console.error('Failed to register shortcut:', error);
 
-            // 友好的错误提示
             const errorStr = String(error);
-            let friendlyMessage = '注册快捷键失败';
-            let notificationBody = '注册快捷键失败';
+            const shortcutErrorMessage = (() => {
+                if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
+                    return {
+                        friendlyMessage: `快捷键 ${shortcut} 已被其他应用占用，请尝试其他组合`,
+                        notificationBody: `快捷键 ${shortcut} 已被其他应用占用`,
+                    };
+                }
 
-            if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
-                friendlyMessage = `快捷键 ${shortcut} 已被其他应用占用，请尝试其他组合`;
-                notificationBody = `快捷键 ${shortcut} 已被其他应用占用`;
-            } else if (errorStr.includes('invalid') || errorStr.includes('无效')) {
-                friendlyMessage = `快捷键 ${shortcut} 格式无效，请重新设置`;
-                notificationBody = `快捷键 ${shortcut} 格式无效`;
-            } else if (errorStr.includes('Unknown key')) {
-                friendlyMessage = '不支持的按键，请使用常规按键组合';
-                notificationBody = '不支持的按键';
-            } else {
-                friendlyMessage = `注册快捷键失败：${errorStr}`;
-                notificationBody = friendlyMessage;
-            }
+                if (errorStr.includes('invalid') || errorStr.includes('无效')) {
+                    return {
+                        friendlyMessage: `快捷键 ${shortcut} 格式无效，请重新设置`,
+                        notificationBody: `快捷键 ${shortcut} 格式无效`,
+                    };
+                }
+
+                if (errorStr.includes('Unknown key')) {
+                    return {
+                        friendlyMessage: '不支持的按键，请使用常规按键组合',
+                        notificationBody: '不支持的按键',
+                    };
+                }
+
+                return {
+                    friendlyMessage: `注册快捷键失败：${errorStr}`,
+                    notificationBody: `注册快捷键失败：${errorStr}`,
+                };
+            })();
 
             // 发送系统通知
             sendNotification({
                 title: 'TouchAI - 快捷键注册失败',
-                body: notificationBody,
+                body: shortcutErrorMessage.notificationBody,
             });
 
-            alertMessage.value?.error(friendlyMessage, 4000);
+            alertMessage.value?.error(shortcutErrorMessage.friendlyMessage, 4000);
             return false;
         }
     };

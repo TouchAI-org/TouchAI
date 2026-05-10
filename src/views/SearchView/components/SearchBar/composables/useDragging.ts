@@ -60,15 +60,11 @@ export function useDragging(options: UseDraggingOptions) {
             right: number;
             top: number;
             bottom: number;
-        } | null = null;
+        };
 
         try {
             coords = ed.view.coordsAtPos(position.pos);
         } catch {
-            return false;
-        }
-
-        if (!coords) {
             return false;
         }
 

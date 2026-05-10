@@ -109,6 +109,11 @@
         "vue-eslint-parser": "^10.4.0",
         "vue-tsc": "^3.2.8"
     },
+    "pnpm": {
+        "overrides": {
+            "dompurify": "3.4.2"
+        }
+    },
     "lint-staged": {
         "*.{js,ts,vue}": [
             "eslint --fix",

@@ -211,7 +211,7 @@ export class ProjectionWidgets {
 
         this.ensureShowWidgetDraftShell(history, messageId, toolCall.id);
 
-        let argumentsObject: Record<string, unknown> = {};
+        let argumentsObject: Record<string, unknown>;
         try {
             argumentsObject = JSON.parse(toolCall.arguments) as Record<string, unknown>;
         } catch {

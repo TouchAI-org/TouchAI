@@ -8,7 +8,7 @@
         @click.self="handleBlankSurfaceClick"
     >
         <div
-            ref="scrollRef"
+            :ref="assignScrollRef"
             class="quick-search-scroll quick-search-scrollbar overflow-x-hidden overflow-y-auto"
             :style="scrollStyle"
             @scroll.passive="handleScroll"
@@ -20,7 +20,7 @@
                     :key="item.path"
                     :ref="
                         (el) => {
-                            if (el) itemRefs[index] = el as HTMLElement;
+                            if (el) itemRefs[index] = el as HTMLButtonElement;
                         }
                     "
                     type="button"
@@ -72,6 +72,7 @@
 </template>
 
 <script setup lang="ts">
+    import type { ComponentPublicInstance } from 'vue';
     import { toRef } from 'vue';
 
     import { useQuickSearchLogic } from './composables/useQuickSearchLogic';
@@ -106,7 +107,6 @@
         results,
         highlightedIndex,
         itemRefs,
-        scrollRef,
         scrollStyle,
         gridStyle,
         moveSelection,
@@ -124,6 +124,12 @@
         openHighlightedItem,
         triggerSearch,
     } = quickSearchLogic;
+
+    const scrollRef = quickSearchLogic.scrollRef;
+
+    function assignScrollRef(el: Element | ComponentPublicInstance | null) {
+        scrollRef.value = el as HTMLElement | null;
+    }
 
     function handleBlankSurfaceClick() {
         emit('blankClick');

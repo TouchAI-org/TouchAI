@@ -36,6 +36,13 @@ export function base64ToUint8Array(base64: string): Uint8Array {
     return bytes;
 }
 
+/**
+ * 将字节视图复制成 Web API 可安全接收的 ArrayBuffer。
+ */
+export function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    return bytes.slice().buffer;
+}
+
 export async function readAttachmentAsBase64(
     attachment: AttachmentIndex
 ): Promise<{ data: string; mimeType: string }> {

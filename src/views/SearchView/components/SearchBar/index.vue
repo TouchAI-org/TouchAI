@@ -8,7 +8,7 @@
         @mousedown="handleContainerMouseDown"
     >
         <div
-            ref="logoContainerRef"
+            :ref="assignLogoContainerRef"
             class="logo-container flex shrink-0 cursor-pointer items-center justify-center self-center"
             data-tauri-drag-region="false"
             @mouseenter="handleModelDropdownPrefetchRequest"
@@ -44,6 +44,7 @@
     import logo from '@assets/logo.svg';
     import ModelLogo from '@components/ModelLogo.vue';
     import { EditorContent } from '@tiptap/vue-3';
+    import type { ComponentPublicInstance } from 'vue';
     import { onMounted, onUnmounted, ref, toRefs, watch } from 'vue';
 
     import type { Index } from '@/services/AgentService/infrastructure/attachments';
@@ -94,8 +95,20 @@
         requestToggleModelDropdown: [];
     }>();
 
+    const searchInput = useSearchInput({
+        editorHostRef,
+        queryText,
+        attachments,
+        modelOverride,
+        emitQueryText: (value) => emit('update:queryText', value),
+        emitModelChange: (capabilities) => emit('modelChange', capabilities),
+        emitModelOverrideChange: (value) => emit('modelOverrideChange', value),
+        emitRemoveAttachmentRequest: (id) => emit('attachmentRemoveRequest', id),
+        emitDragStart: () => emit('dragStart'),
+        emitDragEnd: () => emit('dragEnd'),
+    });
+
     const {
-        logoContainerRef,
         editor,
         selectedModel,
         activeModel,
@@ -117,18 +130,12 @@
         initEditor,
         destroyEditor,
         onEditorClick,
-    } = useSearchInput({
-        editorHostRef,
-        queryText,
-        attachments,
-        modelOverride,
-        emitQueryText: (value) => emit('update:queryText', value),
-        emitModelChange: (capabilities) => emit('modelChange', capabilities),
-        emitModelOverrideChange: (value) => emit('modelOverrideChange', value),
-        emitRemoveAttachmentRequest: (id) => emit('attachmentRemoveRequest', id),
-        emitDragStart: () => emit('dragStart'),
-        emitDragEnd: () => emit('dragEnd'),
-    });
+    } = searchInput;
+    const logoContainerRef = searchInput.logoContainerRef;
+
+    function assignLogoContainerRef(el: Element | ComponentPublicInstance | null) {
+        logoContainerRef.value = el as HTMLElement | null;
+    }
 
     function handleModelDropdownToggleRequest() {
         emit('requestToggleModelDropdown');
