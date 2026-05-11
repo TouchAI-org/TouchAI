@@ -173,7 +173,6 @@ export function initializeBuiltInPopups(): void {
         width: 320,
         height: 384,
         component: ModelDropdownPopup,
-        returnFocusToMainWindowOnFocus: true,
         calculatePosition: (triggerElement, mainWindow, dimensions) => {
             const x = mainWindow.position.x - SHADOW_WIDTH;
             const y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
@@ -186,7 +185,6 @@ export function initializeBuiltInPopups(): void {
         width: 320,
         height: 384,
         component: SessionHistoryPopover,
-        returnFocusToMainWindowOnFocus: false,
         calculatePosition: (triggerElement, mainWindow, dimensions) => {
             // 判断是否是搜索框状态
             const isSearchViewContainer =

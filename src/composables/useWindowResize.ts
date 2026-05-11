@@ -2,7 +2,7 @@
 
 import { native } from '@services/NativeService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { nextTick, onUnmounted, type Ref, ref, watch } from 'vue';
+import { onUnmounted, type Ref, ref, watch } from 'vue';
 
 interface WindowResizeOptions {
     /** 要观察高度变化的元素 */
@@ -27,46 +27,46 @@ export function useWindowResize(options: WindowResizeOptions) {
     const center = options.center ?? isMainWindow;
 
     let resizeObserver: ResizeObserver | null = null;
-    // 预加载 popup 时窗口默认保持隐藏；这里只允许在外部显式请求后，于下一次 resize 完成时再显示。
-    let shouldShowWindowAfterResize = false;
-    // PopupView 要等窗口真正显示后，才能把“显示后该做什么”交给具体 popup 组件处理。
-    let notifyWindowShown: (() => void) | null = null;
-
-    function markWindowShown() {
-        notifyWindowShown?.();
-        notifyWindowShown = null;
-    }
 
     async function resize(pageHeight: number) {
         const clamped = Math.max(minHeight, Math.min(pageHeight, maxHeight));
         const newHeight = Math.ceil(clamped);
 
-        if (newHeight === currentHeight.value) return;
-
-        // 目标高度与居中策略都交由 Rust 侧执行，确保不同入口行为一致。
-        await native.window.resizeWindowHeight({
-            targetHeight: newHeight,
-            center,
-        });
-
-        // popup 窗口等内容高度稳定后再显示，避免预加载窗口先闪出来。
-        if (!isMainWindow && shouldShowWindowAfterResize) {
-            await getCurrentWindow().show();
-            shouldShowWindowAfterResize = false;
-            markWindowShown();
+        if (!isMainWindow) {
+            const isVisible = await getCurrentWindow().isVisible().catch(() => true);
+            if (!isVisible) {
+                return;
+            }
         }
 
-        currentHeight.value = newHeight;
+        const heightChanged = newHeight !== currentHeight.value;
+
+        if (heightChanged) {
+            // 目标高度与居中策略都交由 Rust 侧执行，确保不同入口行为一致。
+            await native.window.resizeWindowHeight({
+                targetHeight: newHeight,
+                center,
+            });
+            currentHeight.value = newHeight;
+        }
+    }
+
+    function measureElementHeight(el: HTMLElement) {
+        return Math.max(el.clientHeight, el.scrollHeight);
     }
 
     function triggerResize(el: HTMLElement) {
-        resize(el.clientHeight).catch(console.error);
+        resize(measureElementHeight(el)).catch(console.error);
     }
 
     function observeTarget(el: HTMLElement) {
         resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
-                const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.target.clientHeight;
+                const target = entry.target as HTMLElement;
+                const height = Math.max(
+                    entry.borderBoxSize?.[0]?.blockSize ?? target.clientHeight,
+                    target.scrollHeight
+                );
                 resize(height).catch(console.error);
             }
         });
@@ -96,34 +96,14 @@ export function useWindowResize(options: WindowResizeOptions) {
         { immediate: true }
     );
 
-    /**
-     * 重置缓存高度并强制完整测量，用于外部因素改变窗口大小后的同步。
-     */
-    function invalidate() {
-        currentHeight.value = 0;
-        shouldShowWindowAfterResize = true;
-        const windowShownPromise = isMainWindow
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => {
-                  notifyWindowShown = resolve;
-              });
-        const el = options.target.value;
-        if (el) {
-            nextTick(() => triggerResize(el)).catch(console.error);
-        } else {
-            markWindowShown();
-        }
-        return windowShownPromise;
-    }
-
     onUnmounted(cleanup);
 
     return {
         currentHeight,
-        invalidate,
-        cancelScheduledWindowShow: () => {
-            shouldShowWindowAfterResize = false;
-            markWindowShown();
+        resetMeasuredHeight: () => {
+            // popup 已进入关闭链路时，后续隐藏态的 DOM 收缩不应再回写原生窗口；
+            // 同时清空缓存高度，确保下次 reopen 即使内容高度相同也会重新校正窗口尺寸。
+            currentHeight.value = 0;
         },
     };
 }

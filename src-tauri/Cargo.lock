@@ -6668,7 +6668,9 @@ dependencies = [
  "tauri-plugin-single-instance",
  "time",
  "tokio",
+ "webview2-com",
  "windows 0.58.0",
+ "windows-core 0.61.2",
 ]
 
 [[package]]

@@ -44,13 +44,23 @@ pub fn run() {
                 .build(),
         )
         .manage(PopupRegistry::new())
+        .manage(core::window::search::surface::SearchSurfaceRuntime::new())
         .manage(BashExecutionRegistry::new())
         .manage(McpClientManager::new())
         .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::Focused(false)) {
+                let app_handle = window.app_handle().clone();
+                let window_label = window.label().to_string();
+                core::window::search::surface::handle_window_blur(&app_handle, &window_label);
+            }
+
             if matches!(event, WindowEvent::Destroyed) {
+                let app_handle = window.app_handle().clone();
+                let window_label = window.label().to_string();
+                core::window::search::surface::handle_window_destroyed(&app_handle, &window_label);
+
                 if let Some(runtime) = window.app_handle().try_state::<DatabaseRuntime>() {
                     let runtime = runtime.inner().clone();
-                    let window_label = window.label().to_string();
                     tauri::async_runtime::spawn(async move {
                         runtime.abort_transactions_for_window(&window_label).await;
                     });

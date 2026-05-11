@@ -18,11 +18,9 @@ pub mod window;
 pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         window::hide_search_window,
+        window::set_search_surface_hide_on_app_blur,
         window::show_popup_window,
         window::hide_popup_window,
-        window::is_popup_visible,
-        window::is_popup_focused,
-        window::is_app_focused,
         window::register_popup_configs,
         window::preload_popup_windows,
         window::open_settings_window,

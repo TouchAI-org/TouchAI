@@ -12,7 +12,7 @@ pub async fn build_settings_window(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         app,
         "settings",
         WebviewUrl::App("/settings".parse().unwrap()),
@@ -25,6 +25,8 @@ pub async fn build_settings_window(app: &AppHandle) -> Result<(), String> {
     .center()
     .build()
     .map_err(|e| e.to_string())?;
+
+    crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)?;
 
     Ok(())
 }

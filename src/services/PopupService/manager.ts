@@ -2,7 +2,7 @@
 
 import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
-import { getCurrentWindow, Window as TauriWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { initializeBuiltInPopups, popupRegistry } from './registry';
 import type {
@@ -10,6 +10,7 @@ import type {
     PopupData,
     PopupDataPayload,
     PopupEventHandlers,
+    PopupSessionIdentity,
     PopupPosition,
     PopupType,
     WindowInfo,
@@ -26,10 +27,10 @@ class PopupManager {
     private currentType: PopupType | null = null;
     private currentPopupId: string | null = null;
     private currentWindowLabel: string | null = null;
+    private currentPopupSessionVersion: number | null = null;
     private readyListenerInitialized = false;
     private readyPopupWindows = new Set<string>();
     private pendingPopupDataByWindow = new Map<string, PopupDataPayload>();
-    private recoveringPopupWindows = new Map<string, number>();
     private popupSessionVersionByWindow = new Map<string, number>();
 
     private async ensureReadyListener(): Promise<void> {
@@ -110,20 +111,24 @@ class PopupManager {
             this.currentType = type;
             this.currentPopupId = popupId;
             this.currentWindowLabel = windowLabel;
+            this.currentPopupSessionVersion = popupSessionVersion;
             this.isOpen = true;
-            await this.showPopupWindow(type, position);
+            await this.showPopupWindow(type, position, {
+                popupId,
+                popupSessionVersion,
+                windowLabel,
+            });
 
-            // isShow: true 标记此事件为弹窗首次展示，PopupView 仅在此时触发
-            // invalidate → pendingShow → resize → show 流程。
-            // 常规 updateData 发送的 popup-data 不带此标记，避免与 popup-closed 竞态。
+            // isShow: true 标记此事件为弹窗首次展示。
+            // 原生窗口显示由 PopupManager.show() 单点负责，避免跨窗口 resize/show 竞态。
             await this.dispatchPopupData({
                 popupId,
+                popupSessionVersion,
                 type,
                 data,
                 windowLabel,
                 isShow: true,
             });
-            void this.recoverPopupWindowIfNeeded(windowLabel, type, position, popupSessionVersion);
             return popupId;
         } catch (error) {
             this.resetCurrentPopupState(popupId);
@@ -135,53 +140,42 @@ class PopupManager {
     /**
      * 隐藏弹窗
      */
-    async hide(): Promise<void> {
+    async hide(identity?: PopupSessionIdentity): Promise<void> {
         try {
-            const closePayload = this.getCurrentPopupClosedPayload();
-            await native.window.hidePopupWindow();
+            const closePayload = identity
+                ? this.getPopupClosedPayloadForIdentity(identity)
+                : this.getCurrentPopupClosedPayload();
             if (!closePayload) {
                 return;
             }
-
-            await eventService.emit(AppEvent.POPUP_CLOSED, closePayload);
-            this.finalizePopupClosed(closePayload);
+            await native.window.hidePopupWindow({
+                popupId: closePayload.popupId,
+                windowLabel: closePayload.windowLabel,
+                popupSessionVersion: closePayload.popupSessionVersion,
+            });
         } catch (error) {
             console.error('[PopupManager] Failed to hide popup:', error);
         }
     }
 
     /**
-     * 切换弹窗（打开/关闭）
-     */
-    async toggle(
-        type: PopupType,
-        triggerElement: HTMLElement,
-        data: PopupData
-    ): Promise<string | null> {
-        if (this.isOpen && this.currentType === type) {
-            await this.hide();
-            return null;
-        }
-
-        if (this.isOpen) {
-            await this.hide();
-            await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-
-        return this.show(type, triggerElement, data);
-    }
-
-    /**
      * 更新弹窗数据
      */
     async updateData(data: PopupData): Promise<void> {
-        if (!this.isOpen || !this.currentType || !this.currentPopupId || !this.currentWindowLabel) {
+        if (
+            !this.isOpen ||
+            !this.currentType ||
+            !this.currentPopupId ||
+            !this.currentWindowLabel ||
+            this.currentPopupSessionVersion === null
+        ) {
             return;
         }
 
         try {
             await this.dispatchPopupData({
                 popupId: this.currentPopupId,
+                popupSessionVersion: this.currentPopupSessionVersion,
                 type: this.currentType,
                 data,
                 windowLabel: this.currentWindowLabel,
@@ -198,15 +192,37 @@ class PopupManager {
         const unlisteners: Array<() => void> = [];
 
         if (handlers.onModelSelect) {
-            const unlisten = await eventService.on(AppEvent.POPUP_MODEL_SELECT, ({ modelDbId }) => {
-                handlers.onModelSelect?.(modelDbId);
+            const unlisten = await eventService.on(AppEvent.POPUP_MODEL_SELECT, (payload) => {
+                if (!this.isCurrentPopupEvent(payload)) {
+                    return;
+                }
+
+                handlers.onModelSelect?.(payload.modelDbId);
             });
             unlisteners.push(unlisten);
         }
 
+        if (handlers.onModelSearchQueryChange) {
+            const unlisten = await eventService.on(
+                AppEvent.POPUP_MODEL_SEARCH_QUERY_CHANGE,
+                (payload) => {
+                    if (!this.isCurrentPopupEvent(payload)) {
+                        return;
+                    }
+
+                    handlers.onModelSearchQueryChange?.(payload.query);
+                }
+            );
+            unlisteners.push(unlisten);
+        }
+
         if (handlers.onSessionOpen) {
-            const unlisten = await eventService.on(AppEvent.POPUP_SESSION_OPEN, ({ sessionId }) => {
-                handlers.onSessionOpen?.(sessionId);
+            const unlisten = await eventService.on(AppEvent.POPUP_SESSION_OPEN, (payload) => {
+                if (!this.isCurrentPopupEvent(payload)) {
+                    return;
+                }
+
+                handlers.onSessionOpen?.(payload.sessionId);
             });
             unlisteners.push(unlisten);
         }
@@ -214,8 +230,12 @@ class PopupManager {
         if (handlers.onSessionSearchQueryChange) {
             const unlisten = await eventService.on(
                 AppEvent.POPUP_SESSION_SEARCH_QUERY_CHANGE,
-                ({ query }) => {
-                    handlers.onSessionSearchQueryChange?.(query);
+                (payload) => {
+                    if (!this.isCurrentPopupEvent(payload)) {
+                        return;
+                    }
+
+                    handlers.onSessionSearchQueryChange?.(payload.query);
                 }
             );
             unlisteners.push(unlisten);
@@ -240,17 +260,29 @@ class PopupManager {
         return {
             isOpen: this.isOpen,
             currentType: this.currentType,
+            currentPopupId: this.currentPopupId,
+            currentWindowLabel: this.currentWindowLabel,
+            currentPopupSessionVersion: this.currentPopupSessionVersion,
             isInitialized: this.isInitialized,
         };
     }
 
-    private async showPopupWindow(type: PopupType, position: PopupPosition): Promise<void> {
+    private async showPopupWindow(
+        type: PopupType,
+        position: PopupPosition,
+        identity: {
+            popupId: string;
+            popupSessionVersion: number;
+            windowLabel: string;
+        }
+    ): Promise<void> {
         await native.window.showPopupWindow({
             x: position.x,
             y: position.y,
             width: position.width,
             height: position.height,
             popupType: type,
+            ...identity,
         });
     }
 
@@ -283,90 +315,6 @@ class PopupManager {
         await eventService.emit(AppEvent.POPUP_DATA, nextPayload);
     }
 
-    private async recoverPopupWindowIfNeeded(
-        windowLabel: string,
-        type: PopupType,
-        position: PopupPosition,
-        popupSessionVersion: number
-    ): Promise<void> {
-        if (this.readyPopupWindows.has(windowLabel)) {
-            return;
-        }
-
-        if (this.recoveringPopupWindows.get(windowLabel) === popupSessionVersion) {
-            return;
-        }
-
-        this.recoveringPopupWindows.set(windowLabel, popupSessionVersion);
-
-        try {
-            if (!this.isCurrentPopupSession(windowLabel, popupSessionVersion)) {
-                return;
-            }
-
-            const isReady = await this.waitForPopupWindowReady(windowLabel, 450);
-            if (!this.isCurrentPopupSession(windowLabel, popupSessionVersion)) {
-                return;
-            }
-
-            if (isReady) {
-                return;
-            }
-
-            const popupWindow = await TauriWindow.getByLabel(windowLabel);
-            const isVisible =
-                (await popupWindow?.isVisible().catch((visibilityError) => {
-                    console.error(
-                        `[PopupManager] Failed to inspect popup window '${windowLabel}' visibility:`,
-                        visibilityError
-                    );
-                    return false;
-                })) ?? false;
-
-            // 仅在窗口仍处于隐藏状态时执行后台重建；已可见窗口继续复用以避免闪烁。
-            if (isVisible) {
-                return;
-            }
-
-            console.warn(
-                `[PopupManager] Popup window '${windowLabel}' was not ready in time and is still hidden, recreating in background`
-            );
-
-            if (!this.isCurrentPopupSession(windowLabel, popupSessionVersion)) {
-                return;
-            }
-
-            await popupWindow?.close().catch((closeError) => {
-                console.error(
-                    `[PopupManager] Failed to close stale popup window '${windowLabel}':`,
-                    closeError
-                );
-            });
-
-            if (!this.isCurrentPopupSession(windowLabel, popupSessionVersion)) {
-                return;
-            }
-
-            this.readyPopupWindows.delete(windowLabel);
-            await new Promise((resolve) => setTimeout(resolve, 120));
-            if (!this.isCurrentPopupSession(windowLabel, popupSessionVersion)) {
-                return;
-            }
-            await this.showPopupWindow(type, position);
-        } finally {
-            if (this.recoveringPopupWindows.get(windowLabel) === popupSessionVersion) {
-                this.recoveringPopupWindows.delete(windowLabel);
-            }
-        }
-    }
-
-    /**
-     * popup 恢复属于延迟异步任务；窗口在等待期间可能已经切换到新的会话版本。
-     * 这里用按窗口递增的代次号隔离不同会话，避免过期任务拿错误位置重建弹窗。
-     */
-    private isCurrentPopupSession(windowLabel: string, popupSessionVersion: number): boolean {
-        return this.popupSessionVersionByWindow.get(windowLabel) === popupSessionVersion;
-    }
 
     /**
      * popup 关闭既可能来自主窗口的 hide，也可能来自 popup 自己触发的 close；
@@ -376,7 +324,8 @@ class PopupManager {
         if (
             this.currentType !== payload.type ||
             this.currentPopupId !== payload.popupId ||
-            this.currentWindowLabel !== payload.windowLabel
+            this.currentWindowLabel !== payload.windowLabel ||
+            this.currentPopupSessionVersion !== payload.popupSessionVersion
         ) {
             return;
         }
@@ -388,19 +337,46 @@ class PopupManager {
         );
         this.currentPopupId = null;
         this.currentWindowLabel = null;
+        this.currentPopupSessionVersion = null;
         this.isOpen = false;
         this.currentType = null;
     }
 
     private getCurrentPopupClosedPayload(): PopupClosedPayload | null {
-        if (!this.currentType || !this.currentPopupId || !this.currentWindowLabel) {
+        if (
+            !this.currentType ||
+            !this.currentPopupId ||
+            !this.currentWindowLabel ||
+            this.currentPopupSessionVersion === null
+        ) {
             return null;
         }
 
         return {
             popupId: this.currentPopupId,
+            popupSessionVersion: this.currentPopupSessionVersion,
             type: this.currentType,
             windowLabel: this.currentWindowLabel,
+        };
+    }
+
+    private getPopupClosedPayloadForIdentity(
+        identity: PopupSessionIdentity
+    ): PopupClosedPayload | null {
+        if (
+            this.currentPopupId !== identity.popupId ||
+            this.currentWindowLabel !== identity.windowLabel ||
+            this.currentPopupSessionVersion !== identity.popupSessionVersion ||
+            !this.currentType
+        ) {
+            return null;
+        }
+
+        return {
+            popupId: identity.popupId,
+            popupSessionVersion: identity.popupSessionVersion,
+            type: this.currentType,
+            windowLabel: identity.windowLabel,
         };
     }
 
@@ -411,6 +387,7 @@ class PopupManager {
 
         this.currentPopupId = null;
         this.currentWindowLabel = null;
+        this.currentPopupSessionVersion = null;
         this.currentType = null;
         this.isOpen = false;
     }
@@ -423,20 +400,19 @@ class PopupManager {
         return `${windowLabel}:${popupSessionVersion}`;
     }
 
-    private async waitForPopupWindowReady(
-        windowLabel: string,
-        timeoutMs: number
-    ): Promise<boolean> {
-        if (this.readyPopupWindows.has(windowLabel)) {
-            return true;
-        }
-
-        const startedAt = Date.now();
-        while (!this.readyPopupWindows.has(windowLabel) && Date.now() - startedAt < timeoutMs) {
-            await new Promise((resolve) => setTimeout(resolve, 20));
-        }
-
-        return this.readyPopupWindows.has(windowLabel);
+    /**
+     * 只接受命中当前 popup 会话的跨窗口事件，避免迟到事件污染新会话。
+     */
+    private isCurrentPopupEvent(payload: {
+        popupId: string;
+        windowLabel: string;
+        popupSessionVersion: number;
+    }): boolean {
+        return (
+            this.currentPopupId === payload.popupId &&
+            this.currentWindowLabel === payload.windowLabel &&
+            this.currentPopupSessionVersion === payload.popupSessionVersion
+        );
     }
 
     private async syncPopupConfigs(): Promise<void> {
@@ -504,7 +480,7 @@ class PopupManager {
             x: position.x,
             y: position.y,
             width: config.width,
-            height: 0,
+            height: config.height,
         };
     }
 }

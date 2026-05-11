@@ -10,6 +10,27 @@ pub struct ResizeWindowHeightParams {
     pub center: Option<bool>,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowPopupWindowParams {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub popup_type: String,
+    pub popup_id: String,
+    pub window_label: String,
+    pub popup_session_version: u64,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HidePopupWindowParams {
+    pub popup_id: String,
+    pub window_label: String,
+    pub popup_session_version: u64,
+}
+
 #[tauri::command]
 pub fn hide_search_window(app: AppHandle) -> Result<(), String> {
     crate::core::window::hide_search_window(app)
@@ -46,33 +67,31 @@ pub async fn preload_popup_windows(
 pub async fn show_popup_window(
     app: AppHandle,
     registry: State<'_, PopupRegistry>,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    popup_type: String,
+    params: ShowPopupWindowParams,
 ) -> Result<(), String> {
-    popup::show_popup_window(app, registry.inner(), x, y, width, height, popup_type).await
+    popup::show_popup_window(
+        app,
+        registry.inner(),
+        params.x,
+        params.y,
+        params.width,
+        params.height,
+        params.popup_type,
+        params.popup_id,
+        params.window_label,
+        params.popup_session_version,
+    )
+    .await
 }
 
 #[tauri::command]
-pub fn hide_popup_window(app: AppHandle) -> Result<(), String> {
-    popup::hide_popup_window(app)
-}
-
-#[tauri::command]
-pub fn is_popup_visible(app: AppHandle) -> Result<bool, String> {
-    popup::is_popup_visible(app)
-}
-
-#[tauri::command]
-pub fn is_popup_focused(app: AppHandle) -> Result<bool, String> {
-    popup::is_popup_focused(app)
-}
-
-#[tauri::command]
-pub fn is_app_focused(app: AppHandle) -> Result<bool, String> {
-    popup::is_app_focused(app)
+pub fn hide_popup_window(app: AppHandle, params: HidePopupWindowParams) -> Result<(), String> {
+    popup::hide_popup_window(
+        app,
+        params.popup_id,
+        params.window_label,
+        params.popup_session_version,
+    )
 }
 
 #[tauri::command]
@@ -82,4 +101,12 @@ pub async fn resize_window_height(
 ) -> Result<(), String> {
     crate::core::window::resize::resize_window_height(window, params.target_height, params.center)
         .await
+}
+
+#[tauri::command]
+pub fn set_search_surface_hide_on_app_blur(
+    app: AppHandle,
+    should_hide: bool,
+) -> Result<(), String> {
+    crate::core::window::search::set_search_surface_hide_on_app_blur(app, should_hide)
 }
