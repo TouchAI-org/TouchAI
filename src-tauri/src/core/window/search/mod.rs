@@ -14,7 +14,10 @@ use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_MOVE_FOCUS_REASO
 use windows::Win32::{
     Foundation::HWND,
     Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE},
-    UI::{Input::KeyboardAndMouse::SetFocus, WindowsAndMessaging::{GetWindow, GW_CHILD}},
+    UI::{
+        Input::KeyboardAndMouse::SetFocus,
+        WindowsAndMessaging::{GetWindow, GW_CHILD},
+    },
 };
 
 /// 隐藏主搜索窗口。
@@ -175,7 +178,9 @@ pub(super) fn focus_search_webview_content(window: &tauri::WebviewWindow) -> Res
                 webview
                     .controller()
                     .MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)
-                    .map_err(|error| format!("Failed to focus search WebView2 content: {}", error))?;
+                    .map_err(|error| {
+                        format!("Failed to focus search WebView2 content: {}", error)
+                    })?;
                 Ok(())
             })();
             let _ = tx.send(result);

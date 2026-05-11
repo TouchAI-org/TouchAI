@@ -4,11 +4,7 @@
     import { useWindowResize } from '@composables/useWindowResize';
     import { AppEvent, eventService } from '@services/EventService';
     import { native } from '@services/NativeService';
-    import type {
-        PopupDataPayload,
-        PopupKeydownPayload,
-        PopupType,
-    } from '@services/PopupService';
+    import type { PopupDataPayload, PopupKeydownPayload, PopupType } from '@services/PopupService';
     import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
@@ -68,7 +64,10 @@
                     popupSessionVersion: currentPopupSessionVersion,
                 })
                 .catch((error: unknown) => {
-                    console.error('[PopupView] Failed to hide popup window via native manager:', error);
+                    console.error(
+                        '[PopupView] Failed to hide popup window via native manager:',
+                        error
+                    );
                 });
         }
     }

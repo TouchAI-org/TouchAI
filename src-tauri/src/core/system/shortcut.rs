@@ -19,14 +19,18 @@ fn schedule_search_window_toggle(app_handle: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let task_handle = app_handle.clone();
         if let Err(error) = app_handle.run_on_main_thread(move || {
-            if let Err(error) = crate::core::window::show_search_window_from_shortcut(&task_handle) {
+            if let Err(error) = crate::core::window::show_search_window_from_shortcut(&task_handle)
+            {
                 warn!(
                     "Failed to toggle search window from global shortcut: {}",
                     error
                 );
             }
         }) {
-            warn!("Failed to queue global shortcut task on main thread: {}", error);
+            warn!(
+                "Failed to queue global shortcut task on main thread: {}",
+                error
+            );
         }
     });
 }

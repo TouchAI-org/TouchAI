@@ -33,7 +33,9 @@ export function useWindowResize(options: WindowResizeOptions) {
         const newHeight = Math.ceil(clamped);
 
         if (!isMainWindow) {
-            const isVisible = await getCurrentWindow().isVisible().catch(() => true);
+            const isVisible = await getCurrentWindow()
+                .isVisible()
+                .catch(() => true);
             if (!isVisible) {
                 return;
             }

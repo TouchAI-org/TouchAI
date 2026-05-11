@@ -10,8 +10,8 @@ import type {
     PopupData,
     PopupDataPayload,
     PopupEventHandlers,
-    PopupSessionIdentity,
     PopupPosition,
+    PopupSessionIdentity,
     PopupType,
     WindowInfo,
 } from './types';
@@ -314,7 +314,6 @@ class PopupManager {
 
         await eventService.emit(AppEvent.POPUP_DATA, nextPayload);
     }
-
 
     /**
      * popup 关闭既可能来自主窗口的 hide，也可能来自 popup 自己触发的 close；
