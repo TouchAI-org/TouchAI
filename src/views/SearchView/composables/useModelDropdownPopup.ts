@@ -5,12 +5,39 @@ import {
 } from '@services/PopupService';
 import { onMounted, onUnmounted, ref } from 'vue';
 
+import type { SearchPopupSessionIdentity } from './searchInteraction';
+
 interface UseModelDropdownPopupOptions {
     getAnchorElement: () => HTMLElement | null;
     getPopupData: () => ModelDropdownData;
     isModelDropdownActive: () => boolean;
     onModelSelect: (modelDbId: number) => Promise<void> | void;
+    onModelSearchQueryChange: (query: string) => Promise<void> | void;
     onClose: () => void;
+    onPopupSessionStart?: (identity: SearchPopupSessionIdentity) => void;
+    onPopupSessionEnd?: () => void;
+}
+
+/**
+ * 从 popupId 中解析 popup session version。
+ */
+function parsePopupSessionVersion(popupId: string) {
+    const segments = popupId.split(':');
+    const value = Number(segments[segments.length - 1] ?? '');
+    return Number.isFinite(value) ? value : 0;
+}
+/**
+ * 判断指定模型下拉 popup 会话是否仍然是 popupManager 当前会话。
+ */
+function isLiveModelDropdownPopupSession(identity: SearchPopupSessionIdentity) {
+    const state = popupManager.state;
+    return (
+        state.isOpen === true &&
+        state.currentType === 'model-dropdown-popup' &&
+        state.currentPopupId === identity.popupId &&
+        state.currentWindowLabel === identity.windowLabel &&
+        state.currentPopupSessionVersion === identity.popupSessionVersion
+    );
 }
 
 /**
@@ -22,8 +49,16 @@ interface UseModelDropdownPopupOptions {
  * @returns 模型下拉弹窗状态与打开/关闭/更新方法。
  */
 export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
-    const { getAnchorElement, getPopupData, isModelDropdownActive, onModelSelect, onClose } =
-        options;
+    const {
+        getAnchorElement,
+        getPopupData,
+        isModelDropdownActive,
+        onModelSelect,
+        onModelSearchQueryChange,
+        onClose,
+        onPopupSessionStart,
+        onPopupSessionEnd,
+    } = options;
 
     let cleanupFn: (() => void) | null = null;
     let activePopupId: string | null = null;
@@ -42,14 +77,32 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
             return;
         }
 
-        const popupId = await popupManager.toggle(
+        const popupId = await popupManager.show(
             'model-dropdown-popup',
             anchorElement,
             getPopupData()
         );
-        activePopupId = popupId;
-        hasActivePopupSession = Boolean(popupId);
-        isOpen.value = Boolean(popupId);
+        const identity = popupId
+            ? {
+                  popupId,
+                  windowLabel: 'popup-model-dropdown-popup',
+                  popupSessionVersion: parsePopupSessionVersion(popupId),
+              }
+            : null;
+        const isLivePopupSession = identity ? isLiveModelDropdownPopupSession(identity) : false;
+
+        if (!identity || !isLivePopupSession) {
+            activePopupId = null;
+            hasActivePopupSession = false;
+            isOpen.value = false;
+            onPopupSessionEnd?.();
+            return;
+        }
+
+        activePopupId = identity.popupId;
+        hasActivePopupSession = true;
+        isOpen.value = true;
+        onPopupSessionStart?.(identity);
     }
 
     /**
@@ -62,10 +115,22 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
             return;
         }
 
-        await popupManager.hide();
+        const closingIdentity =
+            activePopupId !== null
+                ? {
+                      popupId: activePopupId,
+                      windowLabel: 'popup-model-dropdown-popup',
+                      popupSessionVersion: parsePopupSessionVersion(activePopupId),
+                  }
+                : null;
         activePopupId = null;
         hasActivePopupSession = false;
         isOpen.value = false;
+        onPopupSessionEnd?.();
+
+        if (closingIdentity) {
+            await popupManager.hide(closingIdentity);
+        }
     }
 
     /**
@@ -88,6 +153,14 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
                     console.error('[SearchView] Failed to handle model dropdown selection:', error);
                 });
             },
+            onModelSearchQueryChange: (query) => {
+                void Promise.resolve(onModelSearchQueryChange(query)).catch((error) => {
+                    console.error(
+                        '[SearchView] Failed to update model dropdown search query from popup:',
+                        error
+                    );
+                });
+            },
             onClose: (payload: PopupClosedPayload) => {
                 if (!activePopupId || payload.popupId !== activePopupId) {
                     return;
@@ -96,6 +169,7 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
                 activePopupId = null;
                 hasActivePopupSession = false;
                 isOpen.value = false;
+                onPopupSessionEnd?.();
 
                 // popup-closed 是全局事件，这里只在模型下拉实际持有同一 popupId 时
                 // 才通知领域层关闭，避免切换其他 popup 时误重置模型搜索状态。
@@ -113,12 +187,29 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
         activePopupId = null;
         hasActivePopupSession = false;
         isOpen.value = false;
+        onPopupSessionEnd?.();
     });
+
+    /**
+     * 判断当前 driver 持有的 popup 会话是否仍然存活。
+     */
+    function isLiveSession() {
+        if (!activePopupId) {
+            return false;
+        }
+
+        return isLiveModelDropdownPopupSession({
+            popupId: activePopupId,
+            windowLabel: 'popup-model-dropdown-popup',
+            popupSessionVersion: parsePopupSessionVersion(activePopupId),
+        });
+    }
 
     return {
         isOpen,
         open,
         close,
         updateData,
+        isLiveSession,
     };
 }

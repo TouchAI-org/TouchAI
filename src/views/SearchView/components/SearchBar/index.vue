@@ -4,6 +4,7 @@
 
 <template>
     <div
+        ref="searchBarContainerRef"
         class="search-bar-container relative flex h-full min-h-14 w-full items-center gap-2 p-3 transition-all duration-250 ease-in-out"
         @mousedown="handleContainerMouseDown"
     >
@@ -50,11 +51,7 @@
     import type { Index } from '@/services/AgentService/infrastructure/attachments';
 
     import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
-    import type {
-        SearchCursorContext,
-        SearchModelDropdownState,
-        SearchModelOverride,
-    } from './types';
+    import type { SearchCursorContext, SearchModelOverride } from './types';
     import { isSearchTagDomTarget, resolveMouseEventTarget } from './utils/tiptap';
 
     defineOptions({
@@ -79,6 +76,7 @@
     });
 
     const { disabled, queryText, attachments, modelOverride } = toRefs(props);
+    const searchBarContainerRef = ref<HTMLElement | null>(null);
     const editorHostRef = ref<HTMLElement | null>(null);
     let selectionDragCleanup: (() => void) | null = null;
 
@@ -90,12 +88,12 @@
         dragEnd: [];
         cursorContextChange: [context: SearchCursorContext];
         modelOverrideChange: [modelOverride: SearchModelOverride];
-        modelDropdownStateChange: [state: SearchModelDropdownState];
         requestPrefetchModelDropdown: [];
         requestToggleModelDropdown: [];
     }>();
 
     const searchInput = useSearchInput({
+        searchBarContainerRef,
         editorHostRef,
         queryText,
         attachments,
@@ -112,12 +110,9 @@
         editor,
         selectedModel,
         activeModel,
-        isModelDropdownOpen,
-        modelDropdownSearchQuery,
         prefetchModelDropdownData,
         invalidateModelDropdownData,
         prepareModelDropdownOpen,
-        resetModelDropdownState,
         selectModelFromDropdown,
         getModelDropdownAnchor,
         getModelDropdownContext,
@@ -152,22 +147,9 @@
         });
     }
 
-    function emitModelDropdownState() {
-        emit('modelDropdownStateChange', {
-            isOpen: isModelDropdownOpen.value,
-            query: modelDropdownSearchQuery.value,
-        });
-    }
-
     watch(
         () => [isMultiLine.value, cursorAtStart.value],
         () => emitCursorContext(),
-        { immediate: true, flush: 'sync' }
-    );
-
-    watch(
-        () => [isModelDropdownOpen.value, modelDropdownSearchQuery.value],
-        () => emitModelDropdownState(),
         { immediate: true, flush: 'sync' }
     );
 
@@ -272,7 +254,6 @@
         prefetchModelDropdownData,
         invalidateModelDropdownData,
         prepareModelDropdownOpen,
-        resetModelDropdownState,
         selectModelFromDropdown,
         getModelDropdownAnchor,
         getModelDropdownContext,

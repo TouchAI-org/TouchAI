@@ -19,7 +19,6 @@ export interface SearchBarHandle {
     prefetchModelDropdownData: () => void | Promise<void>;
     invalidateModelDropdownData: () => void;
     prepareModelDropdownOpen: () => void | Promise<void>;
-    resetModelDropdownState: () => void;
     selectModelFromDropdown: (
         modelDbId: number
     ) => SearchModelOverride | Promise<SearchModelOverride>;
@@ -53,7 +52,6 @@ export interface SearchPageController {
     prefetchModelDropdownData: () => Promise<void>;
     invalidateModelDropdownData: () => void;
     prepareModelDropdownOpen: () => Promise<void>;
-    resetModelDropdownState: () => void;
     selectModelFromDropdown: (modelDbId: number) => Promise<SearchModelOverride>;
     getModelDropdownAnchor: () => HTMLElement | null;
     getModelDropdownContext: () => SearchModelDropdownContext;
@@ -83,7 +81,6 @@ export interface SearchModelDropdownContext {
     activeProviderId: number | null;
     selectedModelId: string | null;
     selectedProviderId: number | null;
-    searchQuery: string;
     models: ModelWithProvider[];
 }
 
