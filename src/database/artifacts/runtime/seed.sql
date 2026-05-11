@@ -14,10 +14,6 @@ SELECT 'auto_start', 'false'
 WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'auto_start');
 
 INSERT INTO settings (key, value)
-SELECT 'mcp_max_iterations', '10'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'mcp_max_iterations');
-
-INSERT INTO settings (key, value)
 SELECT 'output_scroll_behavior', 'follow_output'
 WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'output_scroll_behavior');
 
