@@ -7,7 +7,6 @@ import { AiError, AiErrorCode } from '../contracts/errors';
 import type { ConversationRuntimeEnvironment, TurnEvent } from '../execution';
 import { AiRequestExecutor } from '../execution/executor';
 import { AiConversationRuntime, type ExecuteRequestResult } from '../execution/runtime';
-import { resolveMcpMaxIterations } from '../infrastructure/settings';
 import { reportRuntimePersistenceIssue } from '../outputs';
 import { loadSessionHistory } from '../session/history';
 import { SessionTaskProjection } from './projection';
@@ -70,7 +69,6 @@ function relayAbortSignal(source: AbortSignal | undefined, target: AbortControll
  */
 async function createConversationRuntimeEnvironment(): Promise<ConversationRuntimeEnvironment> {
     return {
-        maxIterations: await resolveMcpMaxIterations(),
         reportPersistenceIssue: reportRuntimePersistenceIssue,
     };
 }

@@ -15,7 +15,6 @@ export interface GeneralSettingsData {
     globalShortcut: string;
     startOnBoot: boolean;
     startMinimized: boolean;
-    mcpMaxIterations: number;
     outputScrollBehavior: OutputScrollBehavior;
 }
 
@@ -23,7 +22,6 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     globalShortcut: 'Alt+Space',
     startOnBoot: false,
     startMinimized: true,
-    mcpMaxIterations: 10,
     outputScrollBehavior: 'follow_output',
 };
 
@@ -49,13 +47,6 @@ export const useSettingsStore = defineStore('settings', () => {
         return DEFAULT_GENERAL_SETTINGS.outputScrollBehavior;
     }
 
-    function normalizeMcpMaxIterations(value: number): number {
-        if (Number.isNaN(value)) {
-            return DEFAULT_GENERAL_SETTINGS.mcpMaxIterations;
-        }
-        return Math.max(1, Math.min(50, value));
-    }
-
     function applySetting(key: GeneralSettingKey, value: GeneralSettingValue): void {
         switch (key) {
             case 'global_shortcut':
@@ -71,11 +62,6 @@ export const useSettingsStore = defineStore('settings', () => {
                 settings.value.startMinimized =
                     typeof value === 'boolean' ? value : String(value) === 'true';
                 break;
-            case 'mcp_max_iterations': {
-                const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
-                settings.value.mcpMaxIterations = normalizeMcpMaxIterations(parsed);
-                break;
-            }
             case 'output_scroll_behavior':
                 settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(String(value));
                 break;
@@ -92,8 +78,6 @@ export const useSettingsStore = defineStore('settings', () => {
                 return String(settings.value.startOnBoot);
             case 'start_minimized':
                 return String(settings.value.startMinimized);
-            case 'mcp_max_iterations':
-                return String(settings.value.mcpMaxIterations);
             case 'output_scroll_behavior':
                 return settings.value.outputScrollBehavior;
             default:
@@ -109,8 +93,6 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.startOnBoot;
             case 'start_minimized':
                 return settings.value.startMinimized;
-            case 'mcp_max_iterations':
-                return settings.value.mcpMaxIterations;
             case 'output_scroll_behavior':
                 return settings.value.outputScrollBehavior;
             default:
@@ -128,14 +110,12 @@ export const useSettingsStore = defineStore('settings', () => {
     async function loadFromDatabase() {
         loading.value = true;
         try {
-            const [globalShortcut, startOnBoot, startMinimized, mcpMaxIterations, outputScroll] =
-                await Promise.all([
-                    getSettingValue({ key: 'global_shortcut' }),
-                    getSettingValue({ key: 'start_on_boot' }),
-                    getSettingValue({ key: 'start_minimized' }),
-                    getSettingValue({ key: 'mcp_max_iterations' }),
-                    getSettingValue({ key: 'output_scroll_behavior' }),
-                ]);
+            const [globalShortcut, startOnBoot, startMinimized, outputScroll] = await Promise.all([
+                getSettingValue({ key: 'global_shortcut' }),
+                getSettingValue({ key: 'start_on_boot' }),
+                getSettingValue({ key: 'start_minimized' }),
+                getSettingValue({ key: 'output_scroll_behavior' }),
+            ]);
 
             settings.value.globalShortcut =
                 globalShortcut || DEFAULT_GENERAL_SETTINGS.globalShortcut;
@@ -147,18 +127,12 @@ export const useSettingsStore = defineStore('settings', () => {
                 startMinimized === null
                     ? DEFAULT_GENERAL_SETTINGS.startMinimized
                     : startMinimized === 'true';
-            settings.value.mcpMaxIterations = normalizeMcpMaxIterations(
-                mcpMaxIterations
-                    ? parseInt(mcpMaxIterations, 10)
-                    : DEFAULT_GENERAL_SETTINGS.mcpMaxIterations
-            );
             settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(outputScroll);
 
             await Promise.allSettled([
                 persistDefaultIfMissing('global_shortcut', globalShortcut),
                 persistDefaultIfMissing('start_on_boot', startOnBoot),
                 persistDefaultIfMissing('start_minimized', startMinimized),
-                persistDefaultIfMissing('mcp_max_iterations', mcpMaxIterations),
                 persistDefaultIfMissing('output_scroll_behavior', outputScroll),
             ]);
         } finally {
@@ -253,16 +227,11 @@ export const useSettingsStore = defineStore('settings', () => {
         await updateSetting('start_minimized', enabled);
     }
 
-    async function updateMcpMaxIterations(iterations: number) {
-        await updateSetting('mcp_max_iterations', normalizeMcpMaxIterations(iterations));
-    }
-
     async function updateOutputScrollBehavior(mode: OutputScrollBehavior) {
         await updateSetting('output_scroll_behavior', mode);
     }
 
     const outputScrollBehavior = computed(() => settings.value.outputScrollBehavior);
-    const mcpMaxIterations = computed(() => settings.value.mcpMaxIterations);
     const globalShortcut = computed(() => settings.value.globalShortcut);
 
     return {
@@ -270,7 +239,6 @@ export const useSettingsStore = defineStore('settings', () => {
         initialized,
         loading,
         outputScrollBehavior,
-        mcpMaxIterations,
         globalShortcut,
         initialize,
         dispose,
@@ -278,7 +246,6 @@ export const useSettingsStore = defineStore('settings', () => {
         updateGlobalShortcut,
         updateStartOnBoot,
         updateStartMinimized,
-        updateMcpMaxIterations,
         updateOutputScrollBehavior,
     };
 });

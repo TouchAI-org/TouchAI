@@ -10,4 +10,3 @@ export * from './attachments';
 export * from './mcp';
 export * from './modelMetadata';
 export * from './providers';
-export * from './settings';
