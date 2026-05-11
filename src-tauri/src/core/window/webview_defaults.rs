@@ -32,12 +32,14 @@ trait BrowserAcceleratorKeySettings {
 /**
  * 统一关闭 browser accelerator keys。
  */
+#[cfg(target_os = "windows")]
 fn disable_browser_accelerator_keys_with_settings<T: BrowserAcceleratorKeySettings>(
     settings: &T,
 ) -> Result<(), String> {
     settings.set_are_browser_accelerator_keys_enabled(false)
 }
 
+#[cfg(target_os = "windows")]
 impl BrowserAcceleratorKeySettings for ICoreWebView2Settings3 {
     /**
      * 调用 WebView2 设置关闭浏览器默认快捷键。
@@ -58,6 +60,7 @@ impl BrowserAcceleratorKeySettings for ICoreWebView2Settings3 {
 /**
  * 从 controller 向下拿到 settings3，并关闭 browser accelerator keys。
  */
+#[cfg(target_os = "windows")]
 fn disable_browser_accelerator_keys_with_controller(
     controller: &ICoreWebView2Controller,
 ) -> Result<(), String> {
@@ -158,6 +161,12 @@ fn register_search_surface_accelerator_bridge(
  * 为桌面窗口应用统一的 webview 运行时默认配置。
  */
 pub(crate) fn apply_webview_runtime_defaults(window: &tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        return Ok(());
+    }
+
     let (tx, rx) = std::sync::mpsc::channel();
     let window_clone = window.clone();
     window
