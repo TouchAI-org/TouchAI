@@ -19,6 +19,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL};
 #[cfg(target_os = "windows")]
 use windows_core::Interface;
 
+#[cfg(target_os = "windows")]
 /**
  * 浏览器默认快捷键配置能力。
  */
@@ -157,16 +158,11 @@ fn register_search_surface_accelerator_bridge(
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 /**
  * 为桌面窗口应用统一的 webview 运行时默认配置。
  */
 pub(crate) fn apply_webview_runtime_defaults(window: &tauri::WebviewWindow) -> Result<(), String> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = window;
-        return Ok(());
-    }
-
     let (tx, rx) = std::sync::mpsc::channel();
     let window_clone = window.clone();
     window
@@ -186,4 +182,12 @@ pub(crate) fn apply_webview_runtime_defaults(window: &tauri::WebviewWindow) -> R
             error
         )
     })?
+}
+
+#[cfg(not(target_os = "windows"))]
+/**
+ * 非 Windows 平台无需额外的 WebView2 默认配置。
+ */
+pub(crate) fn apply_webview_runtime_defaults(_window: &tauri::WebviewWindow) -> Result<(), String> {
+    Ok(())
 }

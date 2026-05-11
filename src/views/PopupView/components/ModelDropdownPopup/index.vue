@@ -125,6 +125,7 @@
 
     const props = withDefaults(defineProps<Props>(), {
         isInPopup: false,
+        popupIdentity: null,
     });
 
     const emit = defineEmits<{

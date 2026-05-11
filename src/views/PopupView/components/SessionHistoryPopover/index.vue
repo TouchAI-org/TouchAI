@@ -172,6 +172,11 @@
         popupIdentity?: PopupSessionIdentity | null;
     }
 
+    const props = withDefaults(defineProps<Props>(), {
+        isInPopup: false,
+        popupIdentity: null,
+    });
+
     interface SessionGroup {
         label: string;
         sessions: SessionHistorySessionItem[];
@@ -192,10 +197,6 @@
         sessionId: number;
         offset: number;
     }
-
-    const props = withDefaults(defineProps<Props>(), {
-        isInPopup: false,
-    });
 
     const emit = defineEmits<{
         close: [];
