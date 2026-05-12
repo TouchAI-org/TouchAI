@@ -10,10 +10,10 @@
         --table-border: theme('colors.gray.200');
         --touchai-markdown-body-size: 15px;
         --touchai-markdown-body-leading: 2.05;
-        --touchai-flow-paragraph-y: 0.9rem;
-        --touchai-flow-blockquote-y: 1.05rem;
-        --touchai-flow-list-y: 0.92rem;
-        --touchai-flow-list-item-y: 0.32rem;
+        --touchai-flow-paragraph-y: 1.08rem;
+        --touchai-flow-blockquote-y: 1.12rem;
+        --touchai-flow-list-y: 1.02rem;
+        --touchai-flow-list-item-y: 0.38rem;
         --touchai-flow-codeblock-y: 1.04rem;
         --touchai-flow-table-y: 1.04rem;
         --touchai-flow-diagram-y: 1.04rem;
@@ -25,18 +25,18 @@
         --touchai-heading-2-size: 1.38em;
         --touchai-heading-3-size: 1.16em;
         --touchai-heading-4-size: 1.04em;
-        --touchai-flow-heading-1-mt: 0;
-        --touchai-flow-heading-1-mb: 0.82rem;
-        --touchai-flow-heading-2-mt: 1.48rem;
-        --touchai-flow-heading-2-mb: 0.76rem;
-        --touchai-flow-heading-3-mt: 1.24rem;
-        --touchai-flow-heading-3-mb: 0.58rem;
-        --touchai-flow-heading-4-mt: 1.06rem;
-        --touchai-flow-heading-4-mb: 0.44rem;
-        --touchai-flow-heading-5-mt: 0.92rem;
-        --touchai-flow-heading-5-mb: 0.32rem;
-        --touchai-flow-heading-6-mt: 0.92rem;
-        --touchai-flow-heading-6-mb: 0.32rem;
+        --touchai-flow-heading-1-mt: 1.72rem;
+        --touchai-flow-heading-1-mb: 1rem;
+        --touchai-flow-heading-2-mt: 1.56rem;
+        --touchai-flow-heading-2-mb: 0.86rem;
+        --touchai-flow-heading-3-mt: 1.3rem;
+        --touchai-flow-heading-3-mb: 0.68rem;
+        --touchai-flow-heading-4-mt: 1.12rem;
+        --touchai-flow-heading-4-mb: 0.52rem;
+        --touchai-flow-heading-5-mt: 0.98rem;
+        --touchai-flow-heading-5-mb: 0.38rem;
+        --touchai-flow-heading-6-mt: 0.98rem;
+        --touchai-flow-heading-6-mb: 0.38rem;
         --touchai-unified-border: rgba(219, 213, 207, 0.95);
         --touchai-code-body-bg: rgba(252, 251, 249, 0.94);
         --touchai-markdown-surface: var(--color-markdown-surface);
@@ -501,6 +501,10 @@
 }
 
 .touchai-markdown .markstream-vue .hr-node + .heading-node {
+    margin-top: 0 !important;
+}
+
+.touchai-markdown .markstream-vue > .heading-node:first-child {
     margin-top: 0 !important;
 }
 
