@@ -1,7 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <div class="tool-approval-card mt-[0.9rem]" :data-approval-status="approval.status">
+    <div class="tool-approval-card" :data-approval-status="approval.status">
         <div class="tool-approval-card__header">
             <div class="tool-approval-card__title-group">
                 <span class="tool-approval-card__icon">

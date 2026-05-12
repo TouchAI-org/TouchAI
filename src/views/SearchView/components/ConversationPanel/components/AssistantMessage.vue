@@ -51,27 +51,33 @@
                         </div>
                     </div>
 
-                    <template v-for="part in renderedParts" :key="part.id">
-                        <MarkdownContent
-                            v-if="part.type === 'text'"
-                            :content="part.content"
-                            :final="!message.isStreaming"
-                        />
-                        <ToolCallItem
-                            v-else-if="part.type === 'tool_call'"
-                            :tool-call="part.toolCall"
-                        />
-                        <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
-                        <ToolApprovalCard
-                            v-else-if="part.type === 'approval'"
-                            :approval="part.approval"
-                            :attention-token="
-                                part.approval.status === 'pending' ? approvalAttentionToken : 0
-                            "
-                            @approve="handleApprove"
-                            @reject="handleReject"
-                        />
-                    </template>
+                    <div v-if="renderedParts.length > 0" class="assistant-message-parts">
+                        <div
+                            v-for="part in renderedParts"
+                            :key="part.id"
+                            class="assistant-message-part"
+                        >
+                            <MarkdownContent
+                                v-if="part.type === 'text'"
+                                :content="part.content"
+                                :final="!message.isStreaming"
+                            />
+                            <ToolCallItem
+                                v-else-if="part.type === 'tool_call'"
+                                :tool-call="part.toolCall"
+                            />
+                            <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
+                            <ToolApprovalCard
+                                v-else-if="part.type === 'approval'"
+                                :approval="part.approval"
+                                :attention-token="
+                                    part.approval.status === 'pending' ? approvalAttentionToken : 0
+                                "
+                                @approve="handleApprove"
+                                @reject="handleReject"
+                            />
+                        </div>
+                    </div>
 
                     <div
                         v-if="message.statusText"
@@ -296,6 +302,15 @@
 </script>
 
 <style scoped>
+    .assistant-message-parts {
+        display: grid;
+        gap: 0.72rem;
+    }
+
+    .assistant-message-part {
+        min-width: 0;
+    }
+
     /* reasoning 样式 */
     .reasoning-content {
         font-family:

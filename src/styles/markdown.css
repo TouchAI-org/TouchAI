@@ -8,10 +8,35 @@
         --blockquote-border-color: theme('colors.gray.200');
         --hr-border-color: theme('colors.gray.200');
         --table-border: theme('colors.gray.200');
+        --touchai-markdown-body-size: 15px;
+        --touchai-markdown-body-leading: 2.05;
+        --touchai-flow-paragraph-y: 0.9rem;
+        --touchai-flow-blockquote-y: 1.05rem;
+        --touchai-flow-list-y: 0.92rem;
+        --touchai-flow-list-item-y: 0.32rem;
+        --touchai-flow-codeblock-y: 1.04rem;
+        --touchai-flow-table-y: 1.04rem;
+        --touchai-flow-diagram-y: 1.04rem;
+        --touchai-flow-footnote-y: 1.05rem;
+        --touchai-flow-hr-y: 1.18rem;
+        --touchai-flow-admonition-y: 1.05rem;
+        --touchai-flow-table-cell: 0.58rem 0.72rem;
         --touchai-heading-1-size: 1.72em;
         --touchai-heading-2-size: 1.38em;
         --touchai-heading-3-size: 1.16em;
         --touchai-heading-4-size: 1.04em;
+        --touchai-flow-heading-1-mt: 0;
+        --touchai-flow-heading-1-mb: 0.82rem;
+        --touchai-flow-heading-2-mt: 1.48rem;
+        --touchai-flow-heading-2-mb: 0.76rem;
+        --touchai-flow-heading-3-mt: 1.24rem;
+        --touchai-flow-heading-3-mb: 0.58rem;
+        --touchai-flow-heading-4-mt: 1.06rem;
+        --touchai-flow-heading-4-mb: 0.44rem;
+        --touchai-flow-heading-5-mt: 0.92rem;
+        --touchai-flow-heading-5-mb: 0.32rem;
+        --touchai-flow-heading-6-mt: 0.92rem;
+        --touchai-flow-heading-6-mb: 0.32rem;
         --touchai-unified-border: rgba(219, 213, 207, 0.95);
         --touchai-code-body-bg: rgba(252, 251, 249, 0.94);
         --touchai-markdown-surface: var(--color-markdown-surface);
@@ -21,18 +46,13 @@
 
         font-family: 'Source Han Serif SC', 'Noto Serif SC', 'Source Serif Pro', 'Georgia', serif;
         font-size: 15px;
-        line-height: 1.8;
+        line-height: 2.05;
         letter-spacing: 0.02em;
         color: theme('colors.gray.600');
     }
 
-    .touchai-markdown .markstream-vue {
-        background: transparent;
-        color: inherit;
-    }
-
     .touchai-markdown .paragraph-node {
-        margin: 0.7em 0;
+        margin: var(--touchai-flow-paragraph-y) 0;
     }
 
     .touchai-markdown .paragraph-node:first-child {
@@ -176,19 +196,6 @@
         color: var(--color-primary-400) !important;
     }
 
-    .touchai-markdown .table-node {
-        border-color: theme('colors.gray.200');
-    }
-
-    .touchai-markdown .table-node th {
-        color: theme('colors.gray.900');
-        font-weight: 600;
-    }
-
-    .touchai-markdown .table-node td {
-        color: theme('colors.gray.700');
-    }
-
     .touchai-markdown .table-node th :where(figure, picture, .placeholder-layer),
     .touchai-markdown .table-node td :where(figure, picture, .placeholder-layer) {
         width: 100%;
@@ -300,8 +307,10 @@
     }
 
     .touchai-markdown--reasoning {
+        --touchai-markdown-body-size: 14px;
+        --touchai-markdown-body-leading: 1.92;
         font-size: 14px;
-        line-height: 1.75;
+        line-height: 1.92;
         color: theme('colors.gray.500');
     }
 
@@ -317,40 +326,224 @@
     }
 }
 
-/* markstream-vue headings are unlayered, so conflicting typography overrides must stay unlayered too. */
-.touchai-markdown .heading-node.heading-1 {
+/* markstream-vue ships unlayered styles, so typography and spacing overrides must stay unlayered too. */
+.touchai-markdown .markstream-vue {
+    --link-color: theme('colors.blue.500');
+    --blockquote-border: theme('colors.gray.200');
+    --hr-border: theme('colors.gray.200');
+    --table-border: theme('colors.gray.200');
+    --table-header-bg: transparent;
+    --ms-text-body: var(--touchai-markdown-body-size);
+    --ms-leading-body: var(--touchai-markdown-body-leading);
+    --ms-flow-paragraph-y: var(--touchai-flow-paragraph-y);
+    --ms-flow-blockquote-y: var(--touchai-flow-blockquote-y);
+    --ms-flow-list-y: var(--touchai-flow-list-y);
+    --ms-flow-list-item-y: var(--touchai-flow-list-item-y);
+    --ms-flow-codeblock-y: var(--touchai-flow-codeblock-y);
+    --ms-flow-table-y: var(--touchai-flow-table-y);
+    --ms-flow-diagram-y: var(--touchai-flow-diagram-y);
+    --ms-flow-footnote-y: var(--touchai-flow-footnote-y);
+    --ms-flow-hr-y: var(--touchai-flow-hr-y);
+    --ms-flow-admonition-y: var(--touchai-flow-admonition-y);
+    --ms-flow-table-cell: var(--touchai-flow-table-cell);
+    --ms-flow-heading-1-mt: var(--touchai-flow-heading-1-mt);
+    --ms-flow-heading-1-mb: var(--touchai-flow-heading-1-mb);
+    --ms-flow-heading-2-mt: var(--touchai-flow-heading-2-mt);
+    --ms-flow-heading-2-mb: var(--touchai-flow-heading-2-mb);
+    --ms-flow-heading-3-mt: var(--touchai-flow-heading-3-mt);
+    --ms-flow-heading-3-mb: var(--touchai-flow-heading-3-mb);
+    --ms-flow-heading-4-mt: var(--touchai-flow-heading-4-mt);
+    --ms-flow-heading-4-mb: var(--touchai-flow-heading-4-mb);
+    --ms-flow-heading-5-mt: var(--touchai-flow-heading-5-mt);
+    --ms-flow-heading-5-mb: var(--touchai-flow-heading-5-mb);
+    --ms-flow-heading-6-mt: var(--touchai-flow-heading-6-mt);
+    --ms-flow-heading-6-mb: var(--touchai-flow-heading-6-mb);
+    --ms-text-h1: calc(var(--touchai-markdown-body-size) * 1.72);
+    --ms-text-h2: calc(var(--touchai-markdown-body-size) * 1.38);
+    --ms-text-h3: calc(var(--touchai-markdown-body-size) * 1.16);
+    --ms-text-h4: calc(var(--touchai-markdown-body-size) * 1.04);
+    --ms-text-h5: var(--touchai-markdown-body-size);
+    --ms-text-h6: var(--touchai-markdown-body-size);
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+}
+
+.touchai-markdown .markstream-vue .paragraph-node {
+    margin: var(--touchai-flow-paragraph-y) 0;
+}
+
+.touchai-markdown .markstream-vue li .paragraph-node {
+    margin: 0;
+}
+
+.touchai-markdown .markstream-vue .paragraph-node:first-child {
+    margin-top: 0;
+}
+
+.touchai-markdown .markstream-vue .paragraph-node:last-child {
+    margin-bottom: 0;
+}
+
+.touchai-markdown .markstream-vue .blockquote {
+    margin-top: var(--touchai-flow-blockquote-y);
+    margin-bottom: var(--touchai-flow-blockquote-y);
+}
+
+.touchai-markdown .markstream-vue .list-node {
+    margin-top: var(--touchai-flow-list-y);
+    margin-bottom: var(--touchai-flow-list-y);
+}
+
+.touchai-markdown .markstream-vue .list-item {
+    margin: var(--touchai-flow-list-item-y) 0;
+}
+
+.touchai-markdown .markstream-vue .footnote-node {
+    margin-top: var(--touchai-flow-footnote-y);
+    margin-bottom: var(--touchai-flow-footnote-y);
+}
+
+.touchai-markdown .markstream-vue .hr-node {
+    margin: var(--touchai-flow-hr-y) 0;
+}
+
+.touchai-markdown .markstream-vue .vmr-container {
+    margin-top: var(--touchai-flow-admonition-y);
+    margin-bottom: var(--touchai-flow-admonition-y);
+}
+
+.touchai-markdown .footnote-anchor {
+    color: theme('colors.gray.400');
+}
+
+.touchai-markdown .highlight-node {
+    background-color: theme('colors.yellow.200');
+    color: theme('colors.gray.900');
+    border-radius: 0.125rem;
+    padding: 0.125rem 0.25rem;
+}
+
+.touchai-markdown .markstream-vue .table-node {
+    margin: var(--touchai-flow-table-y) 0;
+    border-collapse: separate;
+    border-color: theme('colors.gray.200');
+    border-spacing: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.touchai-markdown .markstream-vue .table-node thead th {
+    background-color: transparent;
+    border-bottom-width: 1px;
+}
+
+.touchai-markdown .markstream-vue .table-node th {
+    color: theme('colors.gray.900');
+    font-weight: 600;
+}
+
+.touchai-markdown .markstream-vue .table-node td {
+    color: theme('colors.gray.700');
+}
+
+.touchai-markdown .markstream-vue .table-node tbody tr:nth-child(2n) {
+    background-color: transparent;
+}
+
+.touchai-markdown .markstream-vue .table-node tbody tr:hover {
+    background-color: transparent;
+}
+
+.touchai-markdown .markstream-vue .code-block-container {
+    margin: var(--touchai-flow-codeblock-y) 0;
+    border-color: var(--touchai-unified-border);
+    background-color: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 3px 10px rgba(107, 95, 84, 0.1);
+}
+
+.touchai-markdown
+    .markstream-vue
+    :is(.mermaid-block-container, .infographic-block-container, .d2-block-container) {
+    margin: var(--touchai-flow-diagram-y) 0;
+}
+
+.touchai-markdown .markstream-vue .code-block-header {
+    background-color: rgba(255, 255, 255, 0.96) !important;
+    border-bottom-color: var(--touchai-unified-border) !important;
+    color: var(--color-primary-700) !important;
+}
+
+.touchai-markdown .markstream-vue :not(pre) > code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 0.875em;
+    font-weight: 600;
+    color: #691d1d !important;
+    background-color: #f1ece1 !important;
+    border-radius: 0.25rem;
+    padding: 0.125rem 0.375rem;
+    border: 0;
+}
+
+.touchai-markdown .markstream-vue .mermaid-block-header {
+    background-color: var(--touchai-markdown-surface) !important;
+    border-bottom-color: var(--touchai-markdown-surface-border) !important;
+    color: theme('colors.gray.700') !important;
+}
+
+.touchai-markdown .markstream-vue .d2-block-header,
+.touchai-markdown .markstream-vue .infographic-block-header {
+    background-color: var(--touchai-markdown-surface) !important;
+    border-bottom-color: var(--touchai-markdown-surface-border) !important;
+    color: theme('colors.gray.700') !important;
+}
+
+.touchai-markdown .markstream-vue .hr-node + .heading-node {
     margin-top: 0 !important;
-    margin-bottom: 0.7em !important;
+}
+
+.touchai-markdown .heading-node.heading-1 {
+    margin-top: var(--touchai-flow-heading-1-mt) !important;
+    margin-bottom: var(--touchai-flow-heading-1-mb) !important;
     font-size: var(--touchai-heading-1-size) !important;
     line-height: 1.3 !important;
     font-weight: 700 !important;
 }
 
 .touchai-markdown .heading-node.heading-2 {
-    margin-top: 1.75rem !important;
-    margin-bottom: 0.85rem !important;
+    margin-top: var(--touchai-flow-heading-2-mt) !important;
+    margin-bottom: var(--touchai-flow-heading-2-mb) !important;
     font-size: var(--touchai-heading-2-size) !important;
     line-height: 1.35 !important;
     font-weight: 700 !important;
 }
 
 .touchai-markdown .heading-node.heading-3 {
-    margin-top: 1.4rem !important;
-    margin-bottom: 0.65rem !important;
+    margin-top: var(--touchai-flow-heading-3-mt) !important;
+    margin-bottom: var(--touchai-flow-heading-3-mb) !important;
     font-size: var(--touchai-heading-3-size) !important;
     line-height: 1.4 !important;
     font-weight: 600 !important;
 }
 
 .touchai-markdown .heading-node.heading-4 {
-    margin-top: 1.15rem !important;
-    margin-bottom: 0.45rem !important;
+    margin-top: var(--touchai-flow-heading-4-mt) !important;
+    margin-bottom: var(--touchai-flow-heading-4-mb) !important;
     font-size: var(--touchai-heading-4-size) !important;
     line-height: 1.45 !important;
     font-weight: 600 !important;
 }
 
-.touchai-markdown .heading-node.heading-5,
+.touchai-markdown .heading-node.heading-5 {
+    margin-top: var(--touchai-flow-heading-5-mt) !important;
+    margin-bottom: var(--touchai-flow-heading-5-mb) !important;
+    line-height: 1.45 !important;
+}
+
 .touchai-markdown .heading-node.heading-6 {
+    margin-top: var(--touchai-flow-heading-6-mt) !important;
+    margin-bottom: var(--touchai-flow-heading-6-mb) !important;
     line-height: 1.45 !important;
 }

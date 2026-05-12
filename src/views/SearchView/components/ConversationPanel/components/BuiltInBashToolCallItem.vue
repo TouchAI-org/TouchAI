@@ -342,7 +342,7 @@
 <style scoped>
     .tool-call-bash-wrapper {
         width: 100%;
-        margin: 0.3em 0;
+        margin: 0;
         cursor: default;
         user-select: none;
         -webkit-user-select: none;
