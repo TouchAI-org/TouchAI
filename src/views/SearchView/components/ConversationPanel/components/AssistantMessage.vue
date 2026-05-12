@@ -98,7 +98,11 @@
 
                 <div v-if="showMessageActions" class="mt-3 flex items-center gap-1">
                     <ActionButton icon="copy" :handler="handleCopy" aria-label="Copy message" />
-                    <ActionButton icon="refresh" :handler="handleRegenerate" aria-label="Regenerate response" />
+                    <ActionButton
+                        icon="refresh"
+                        :handler="handleRegenerate"
+                        aria-label="Regenerate response"
+                    />
                 </div>
             </div>
         </div>
@@ -109,11 +113,11 @@
     import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
+    import { notify } from '@services/NotificationService';
     import { computed, ref, watch } from 'vue';
 
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
-    import { notify } from '@services/NotificationService';
     import type {
         SessionMessage,
         ToolApprovalInfo,

@@ -1,6 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import {
+    isPermissionGranted,
+    requestPermission,
+    sendNotification,
+} from '@tauri-apps/plugin-notification';
 
 let permissionGranted = false;
 
@@ -18,7 +22,9 @@ export async function initNotificationPermission(): Promise<void> {
 
 export function notify(options: { title: string; body: string }): void {
     if (!permissionGranted) {
-        console.warn('[NotificationService] Notification permission not granted, attempting anyway');
+        console.warn(
+            '[NotificationService] Notification permission not granted, attempting anyway'
+        );
     }
     try {
         sendNotification(options);

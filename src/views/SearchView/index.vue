@@ -2,12 +2,12 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { useSessionStatus } from '@composables/useSessionStatus';
+    import { notify } from '@services/NotificationService';
     import {
         popupManager as popupService,
         type SessionHistoryData,
         type SessionHistorySessionItem,
     } from '@services/PopupService';
-    import { notify } from '@services/NotificationService';
     import { nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
