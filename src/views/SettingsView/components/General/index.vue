@@ -3,7 +3,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
     import { native } from '@services/NativeService';
-    import { sendNotification } from '@tauri-apps/plugin-notification';
+    import { notify } from '@services/NotificationService';
     import { storeToRefs } from 'pinia';
     import { onMounted, onUnmounted, ref, watch } from 'vue';
 
@@ -262,7 +262,7 @@
             })();
 
             // 发送系统通知
-            sendNotification({
+            notify({
                 title: 'TouchAI - 快捷键注册失败',
                 body: shortcutErrorMessage.notificationBody,
             });

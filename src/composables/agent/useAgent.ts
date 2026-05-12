@@ -2,7 +2,7 @@
 
 import { findSessionById } from '@database/queries/sessions';
 import type { SessionTurn } from '@database/schema';
-import { sendNotification } from '@tauri-apps/plugin-notification';
+import { notify } from '@services/NotificationService';
 import { computed, onUnmounted, ref } from 'vue';
 
 import { sessionTaskCenter } from '@/services/AgentService';
@@ -249,7 +249,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 requestError instanceof AiError && requestError.is(AiErrorCode.EMPTY_RESPONSE);
 
             try {
-                sendNotification({
+                notify({
                     title: isEmptyResponse ? 'TouchAI - 空回复' : 'TouchAI - 请求失败',
                     body: requestError.message || '未知错误',
                 });

@@ -85,7 +85,7 @@
 </script>
 
 <script setup lang="ts">
-    import { sendNotification } from '@tauri-apps/plugin-notification';
+    import { notify } from '@services/NotificationService';
     import MarkdownRender, { type ParsedNode, parseMarkdownToStructure } from 'markstream-vue';
     import { computed } from 'vue';
     import { ref } from 'vue';
@@ -175,13 +175,13 @@
 
         try {
             await clipboardService.writeText(text);
-            sendNotification({
+            notify({
                 title: 'TouchAI',
                 body: '已复制',
             });
         } catch (error) {
             console.error('[MarkdownContent] Failed to copy inline code:', error);
-            sendNotification({
+            notify({
                 title: 'TouchAI',
                 body: '复制失败',
             });

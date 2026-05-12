@@ -97,20 +97,8 @@
                 </template>
 
                 <div v-if="showMessageActions" class="mt-3 flex items-center gap-1">
-                    <button
-                        class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                        aria-label="Copy message"
-                        @click.stop="handleCopy"
-                    >
-                        <AppIcon name="copy" class="h-4 w-4" />
-                    </button>
-                    <button
-                        class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                        aria-label="Regenerate response"
-                        @click.stop="handleRegenerate"
-                    >
-                        <AppIcon name="refresh" class="h-4 w-4" />
-                    </button>
+                    <ActionButton icon="copy" :handler="handleCopy" aria-label="Copy message" />
+                    <ActionButton icon="refresh" :handler="handleRegenerate" aria-label="Regenerate response" />
                 </div>
             </div>
         </div>
@@ -118,13 +106,14 @@
 </template>
 
 <script setup lang="ts">
+    import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
-    import { sendNotification } from '@tauri-apps/plugin-notification';
     import { computed, ref, watch } from 'vue';
 
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
+    import { notify } from '@services/NotificationService';
     import type {
         SessionMessage,
         ToolApprovalInfo,
@@ -269,22 +258,13 @@
         }
     );
 
-    // 复制消息内容
     async function handleCopy() {
         try {
             await clipboardService.writeText(props.message.content);
-            // 显示复制成功提示
-            sendNotification({
-                title: 'TouchAI',
-                body: '已复制到剪贴板',
-            });
+            notify({ title: 'TouchAI', body: '已复制到剪贴板' });
         } catch (error) {
-            console.error('[AssistantMessage] Failed to copy message:', error);
-            // 显示复制失败提示
-            sendNotification({
-                title: 'TouchAI',
-                body: '复制失败',
-            });
+            console.error('[AssistantMessage] Failed to copy:', error);
+            notify({ title: 'TouchAI', body: '复制失败' });
         }
     }
 

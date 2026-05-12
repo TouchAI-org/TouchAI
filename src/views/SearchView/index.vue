@@ -7,7 +7,7 @@
         type SessionHistoryData,
         type SessionHistorySessionItem,
     } from '@services/PopupService';
-    import { sendNotification } from '@tauri-apps/plugin-notification';
+    import { notify } from '@services/NotificationService';
     import { nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
@@ -370,7 +370,7 @@
             await setWindowPinned(value);
         } catch (error) {
             console.error('[SearchView] Failed to update window pin state:', error);
-            await sendNotification({
+            await notify({
                 title: 'TouchAI - 置顶切换失败',
                 body: '窗口置顶状态更新失败，请稍后重试',
             });
@@ -569,7 +569,7 @@
             await toggleWindowPin();
         } catch (error) {
             console.error('[SearchView] Failed to toggle window pin state:', error);
-            await sendNotification({
+            await notify({
                 title: 'TouchAI - 置顶切换失败',
                 body: '窗口置顶状态更新失败，请稍后重试',
             });
@@ -599,7 +599,7 @@
                 });
             }
 
-            await sendNotification({
+            await notify({
                 title: 'TouchAI - 打开会话失败',
                 body: isMissingSession
                     ? '该会话不存在，历史列表已刷新'
