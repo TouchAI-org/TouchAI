@@ -134,6 +134,7 @@ interface CreateSearchKeyboardRouterOptions {
     onClearModelOverride: () => void;
     onHideWindow: () => void | Promise<void>;
     onClearSession: () => void;
+    onClearDraft: () => void;
     onClearAll: () => void;
     onPrimaryShortcut: (key: SearchPrimaryShortcutKey) => void | Promise<void>;
 }
@@ -606,6 +607,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onClearModelOverride,
         onHideWindow,
         onClearSession,
+        onClearDraft,
         onClearAll,
         onPrimaryShortcut,
     } = options;
@@ -655,22 +657,26 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                 return true;
             }
 
-            if (!queryText.trim() && hasModelOverride()) {
+            // Step 1: Clear input text first without exiting the current conversation
+            if (queryText.trim()) {
+                onClearDraft();
+                return true;
+            }
+
+            // Step 2: Clear model selection
+            if (hasModelOverride()) {
                 onClearModelOverride();
                 return true;
             }
 
-            if (!queryText.trim() && getSessionHistoryCount() === 0) {
-                runKeyboardEffect(onHideWindow);
-                return true;
-            }
-
+            // Step 3: Exit conversation if session exists
             if (getSessionHistoryCount() > 0) {
                 onClearSession();
                 return true;
             }
 
-            onClearAll();
+            // Step 4: Hide window if no session
+            runKeyboardEffect(onHideWindow);
             return true;
         }
 
@@ -861,6 +867,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         },
         onClearSession: () => {
             clearSession();
+        },
+        onClearDraft: () => {
+            queryText.value = '';
         },
         onClearAll: () => {
             clearAll();
