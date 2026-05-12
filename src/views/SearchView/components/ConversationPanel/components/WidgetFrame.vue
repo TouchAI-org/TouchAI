@@ -3,7 +3,7 @@
 <template>
     <div
         ref="hostRef"
-        class="relative isolate mt-[0.1rem] mb-[0.3rem] block w-full max-w-full min-w-0 overflow-hidden bg-transparent [contain:layout_paint_style]"
+        class="relative isolate block w-full max-w-full min-w-0 overflow-hidden bg-transparent [contain:layout_paint_style]"
         :data-widget-phase="widget.phase"
         :title="widget.title"
     ></div>
