@@ -464,7 +464,9 @@
     box-shadow: 0 3px 10px rgba(107, 95, 84, 0.1);
 }
 
-.touchai-markdown .markstream-vue :is(.mermaid-block-container, .infographic-block-container, .d2-block-container) {
+.touchai-markdown
+    .markstream-vue
+    :is(.mermaid-block-container, .infographic-block-container, .d2-block-container) {
     margin: var(--touchai-flow-diagram-y) 0;
 }
 
