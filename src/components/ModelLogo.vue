@@ -42,11 +42,13 @@
         modelId: string;
         name?: string;
         size?: 'sm' | 'md' | 'lg';
+        isLoading?: boolean;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         name: '',
         size: 'md',
+        isLoading: false,
     });
 
     const sizeClass = computed(() => {
@@ -98,20 +100,60 @@
 </script>
 
 <template>
-    <img
-        v-if="logoSrc"
-        :src="logoSrc"
-        :alt="name || modelId"
-        :class="[sizeClass, 'rounded-full object-cover']"
-    />
-    <div
-        v-else
+    <span
         :class="[
             sizeClass,
-            fallbackTextClass,
-            'flex items-center justify-center rounded-full bg-gray-100 font-semibold text-gray-500',
+            'model-logo relative inline-flex items-center justify-center rounded-full',
+            isLoading ? 'model-logo--loading' : '',
         ]"
     >
-        {{ fallbackChar }}
-    </div>
+        <img
+            v-if="logoSrc"
+            :src="logoSrc"
+            :alt="name || modelId"
+            class="h-full w-full rounded-full object-cover"
+        />
+        <span
+            v-else
+            :class="[
+                fallbackTextClass,
+                'flex h-full w-full items-center justify-center rounded-full bg-gray-100 font-semibold text-gray-500',
+            ]"
+        >
+            {{ fallbackChar }}
+        </span>
+    </span>
 </template>
+
+<style scoped>
+    .model-logo--loading::before {
+        position: absolute;
+        inset: 0;
+        padding: 2px;
+        content: '';
+        pointer-events: none;
+        background: conic-gradient(
+            from 0deg,
+            var(--color-blue-500),
+            var(--color-violet-500),
+            var(--color-pink-500),
+            transparent 78%
+        );
+        border-radius: inherit;
+        animation: logo-spin 1s linear infinite;
+        -webkit-mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+        mask-composite: exclude;
+    }
+
+    @keyframes logo-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+</style>
