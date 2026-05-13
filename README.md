@@ -38,7 +38,7 @@
 
 ### 开发贡献
 
-如果你想参与 TouchAI 的开发，请阅读 [contributing docs](./CONTRIBUTING.md)。
+如果你想参与 TouchAI 的开发，请阅读 [contributing docs](./CONTRIBUTING.md)。外部代码贡献需要完成 CLA 签署。
 
 ### 文档
 
