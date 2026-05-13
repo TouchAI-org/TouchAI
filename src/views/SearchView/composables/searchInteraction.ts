@@ -112,6 +112,7 @@ interface CreateSearchKeyboardRouterOptions {
     getActiveSurface: () => SearchKeyboardSurface;
     hasActivePopupWindowFocus: () => boolean;
     getQueryText: () => string;
+    hasDraftContent: () => boolean;
     isQuickSearchOpen: () => boolean;
     hasQuickSearchHighlight: () => boolean;
     shouldTriggerQuickSearch: (query: string) => boolean;
@@ -130,10 +131,10 @@ interface CreateSearchKeyboardRouterOptions {
     onCloseQuickSearch: () => void;
     onHideAllPopups: () => void | Promise<void>;
     onCancelRequest: () => void;
+    onClearDraft: () => void;
     onClearModelOverride: () => void;
     onHideWindow: () => void | Promise<void>;
     onClearSession: () => void;
-    onClearAll: () => void;
     onPrimaryShortcut: (key: SearchPrimaryShortcutKey) => void | Promise<void>;
 }
 
@@ -152,6 +153,7 @@ export interface UseSearchKeyboardOptions {
     approvePendingToolApproval: (callId?: string) => boolean;
     rejectPendingToolApproval: (callId?: string) => boolean;
     promptPendingToolApprovalAttention: () => void;
+    hasDraftContent: () => boolean;
     getActivePopupType: () => SearchPopupSurfaceType | null;
     hasActivePopupWindowFocus: () => boolean;
     isQuickSearchOpen: ComputedRef<boolean>;
@@ -165,6 +167,7 @@ export interface UseSearchKeyboardOptions {
     startNewSession: () => Promise<void>;
     toggleWindowPin: () => Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
+    clearDraft: (options?: { preserveModelTag?: boolean }) => void;
     clearAll: () => void;
     cancelRequest: () => void;
     clearSession: () => void;
@@ -576,6 +579,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         getActiveSurface,
         hasActivePopupWindowFocus,
         getQueryText,
+        hasDraftContent,
         isQuickSearchOpen,
         hasQuickSearchHighlight,
         shouldTriggerQuickSearch,
@@ -594,10 +598,10 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onCloseQuickSearch,
         onHideAllPopups,
         onCancelRequest,
+        onClearDraft,
         onClearModelOverride,
         onHideWindow,
         onClearSession,
-        onClearAll,
         onPrimaryShortcut,
     } = options;
 
@@ -646,13 +650,13 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                 return true;
             }
 
-            if (!queryText.trim() && hasModelOverride()) {
-                onClearModelOverride();
+            if (hasDraftContent()) {
+                onClearDraft();
                 return true;
             }
 
-            if (!queryText.trim() && getSessionHistoryCount() === 0) {
-                runKeyboardEffect(onHideWindow);
+            if (hasModelOverride()) {
+                onClearModelOverride();
                 return true;
             }
 
@@ -661,7 +665,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                 return true;
             }
 
-            onClearAll();
+            runKeyboardEffect(onHideWindow);
             return true;
         }
 
@@ -763,6 +767,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         approvePendingToolApproval,
         rejectPendingToolApproval,
         promptPendingToolApprovalAttention,
+        hasDraftContent,
         getActivePopupType,
         hasActivePopupWindowFocus,
         isQuickSearchOpen,
@@ -776,6 +781,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         startNewSession,
         toggleWindowPin,
         handleSubmit,
+        clearDraft,
         clearAll,
         cancelRequest,
         clearSession,
@@ -805,6 +811,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         },
         hasActivePopupWindowFocus,
         getQueryText: () => queryText.value,
+        hasDraftContent,
         isQuickSearchOpen: () => isQuickSearchOpen.value,
         hasQuickSearchHighlight: () => controller.isQuickSearchItemHighlighted(),
         shouldTriggerQuickSearch,
@@ -843,6 +850,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         onCancelRequest: () => {
             cancelRequest();
         },
+        onClearDraft: () => {
+            clearDraft({ preserveModelTag: true });
+        },
         onClearModelOverride: () => {
             modelOverride.value = createEmptyModelOverride();
         },
@@ -851,9 +861,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         },
         onClearSession: () => {
             clearSession();
-        },
-        onClearAll: () => {
-            clearAll();
         },
         onPrimaryShortcut: async (key) => {
             if (key === 'h') {

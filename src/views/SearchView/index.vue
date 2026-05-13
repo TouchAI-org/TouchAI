@@ -326,6 +326,7 @@
         approvePendingToolApproval,
         rejectPendingToolApproval,
         promptPendingToolApprovalAttention,
+        hasDraftContent: () => Boolean(queryText.value.trim()) || attachments.value.length > 0,
         getActivePopupType: () =>
             isLiveActivePopupSession() ? searchInteractionContext.state.activePopupType : null,
         hasActivePopupWindowFocus: () => isLiveActivePopupSession(),
@@ -340,6 +341,7 @@
         startNewSession: handleStartNewSession,
         toggleWindowPin: handleToggleWindowPin,
         handleSubmit,
+        clearDraft,
         clearAll,
         cancelRequest,
         clearSession,
