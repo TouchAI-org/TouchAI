@@ -213,8 +213,12 @@ export function raceWithTimeoutAndSignal<T>(
     timeoutMs: number,
     signal?: AbortSignal
 ): Promise<T> {
+    if (signal?.aborted) {
+        return Promise.reject(new Error('Request cancelled'));
+    }
+
     // 快速路径：没有超时且没有有效信号，直接返回原始 promise
-    if (timeoutMs <= 0 && (!signal || signal.aborted)) {
+    if (timeoutMs <= 0 && !signal) {
         return promise;
     }
 
