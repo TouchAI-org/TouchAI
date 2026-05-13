@@ -114,8 +114,8 @@
     import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
-    import { computed, onUnmounted, ref, watch } from 'vue';
     import { notify } from '@services/NotificationService';
+    import { computed, onUnmounted, ref, watch } from 'vue';
 
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
