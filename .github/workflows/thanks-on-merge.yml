@@ -1,0 +1,77 @@
+name: Thanks on Merge
+
+on:
+    pull_request_target:
+        types:
+            - closed
+
+permissions:
+    contents: read
+    issues: write
+
+jobs:
+    thanks-on-merge:
+        name: Thank merged contributor
+        if: github.event.pull_request.merged == true
+        runs-on: ubuntu-latest
+        steps:
+            - name: Post merge thank-you comment
+              uses: actions/github-script@v9
+              with:
+                  script: |
+                      const association = context.payload.pull_request.author_association;
+                      const login = context.payload.pull_request.user.login;
+
+                      if (context.payload.pull_request.user.type === 'Bot') {
+                        core.info('Skipping bot PR author.');
+                        return;
+                      }
+
+                      if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
+                        core.info(`Skipping maintainer PR author: ${association}`);
+                        return;
+                      }
+
+                      const search = await github.rest.search.issuesAndPullRequests({
+                        q: `repo:${context.repo.owner}/${context.repo.repo} is:pr is:merged author:${login}`,
+                        per_page: 2,
+                      });
+
+                      const firstMerge = search.data.total_count === 1;
+
+                      const body = firstMerge
+                        ? [
+                            'Your pull request has been merged. Thank you for contributing to TouchAI.',
+                            '',
+                            '你的 Pull Request 已合并。感谢你为 TouchAI 做出贡献。',
+                            '',
+                            "You are now part of the project's contributor history.",
+                            '你已经成为项目贡献者记录的一部分。',
+                            '',
+                            'If you want to keep contributing, a good next place to look is:',
+                            '如果你希望继续参与，下一步可以关注：',
+                            '',
+                            '- [good first issue](https://github.com/TouchAI-org/TouchAI/labels/good%20first%20issue)',
+                            '  [good first issue](https://github.com/TouchAI-org/TouchAI/labels/good%20first%20issue)',
+                            '- [help wanted](https://github.com/TouchAI-org/TouchAI/labels/help%20wanted)',
+                            '  [help wanted](https://github.com/TouchAI-org/TouchAI/labels/help%20wanted)',
+                            '- [status:accepted](https://github.com/TouchAI-org/TouchAI/labels/status%3Aaccepted) issues you can claim with `/assign`',
+                            '  带有 [status:accepted](https://github.com/TouchAI-org/TouchAI/labels/status%3Aaccepted) 标签、可通过 `/assign` 认领的 issue',
+                            '',
+                            'Thanks again for the thoughtful work.',
+                            '再次感谢你认真完成这次贡献。',
+                          ].join('\n')
+                        : [
+                            'Merged. Thank you for contributing to TouchAI again.',
+                            '',
+                            '已合并。感谢你再次为 TouchAI 做出贡献。',
+                            '',
+                            'We appreciate the continued help.',
+                            '感谢你持续参与项目建设。',
+                          ].join('\n');
+
+                      await github.rest.issues.createComment({
+                        ...context.repo,
+                        issue_number: context.payload.pull_request.number,
+                        body,
+                      });
