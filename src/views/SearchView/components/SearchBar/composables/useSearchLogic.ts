@@ -25,6 +25,7 @@ import {
     getEditorText,
     handleEditorClick,
     isBlankEditorAreaTarget,
+    isCursorAtDocEnd,
     isCursorAtDocStart,
     isSearchTagDomTarget,
     resolveMouseEventTarget,
@@ -98,6 +99,7 @@ export function useSearchInput(
     const logoContainerRef = ref<HTMLElement | null>(null);
     const isMultiLineState = ref(false);
     const cursorAtStart = ref(false);
+    const cursorAtEnd = ref(false);
     let cachedLineHeight = 0;
     let isApplyingControlledQuery = false;
     let controlledTagSyncDepth = 0;
@@ -197,6 +199,7 @@ export function useSearchInput(
             onSelectionUpdate: () => {
                 // 光标位置变化时滚动到可见区域（例如使用上下键移动光标）
                 cursorAtStart.value = isCursorAtStart();
+                cursorAtEnd.value = isCursorAtEnd();
                 scrollCursorIntoView();
             },
         });
@@ -237,6 +240,7 @@ export function useSearchInput(
     function syncEditorDerivedState(ed: Editor) {
         isMultiLineState.value = computeIsMultiLine(ed);
         cursorAtStart.value = isCursorAtStart();
+        cursorAtEnd.value = isCursorAtEnd();
     }
 
     /**
@@ -481,6 +485,17 @@ export function useSearchInput(
     }
 
     /**
+     * 判断光标是否位于编辑器结束位置。
+     *
+     * @returns 光标位于结束位置时为 true。
+     */
+    function isCursorAtEnd(): boolean {
+        const ed = editor.value;
+        if (!ed) return false;
+        return isCursorAtDocEnd(ed);
+    }
+
+    /**
      * 计算编辑器内容是否超过一行。
      * 通过检查文档中的段落节点数量来判断：
      * - 多个段落节点（包括空行）= 多行
@@ -622,6 +637,7 @@ export function useSearchInput(
         isCursorAtStart,
         isMultiLine: isMultiLineState,
         cursorAtStart,
+        cursorAtEnd,
         focus,
         loadActiveModel: modelSelection.loadActiveModel,
         handleContainerMouseDown: dragging.handleContainerMouseDown,

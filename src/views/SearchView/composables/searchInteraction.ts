@@ -94,6 +94,7 @@ interface SyncOverlayStateOptions {
 type SearchKeyboardSurface = 'search-surface' | SearchPopupSurfaceType;
 type SearchQuickSearchDirection = 'up' | 'down' | 'left' | 'right';
 type SearchPrimaryShortcutKey = 'h' | 'l' | 'n' | 'm' | 'p' | '.' | 'backspace';
+export type SessionInputHistoryDirection = 'older' | 'newer';
 
 interface PendingApprovalState {
     callId?: string;
@@ -117,6 +118,8 @@ interface CreateSearchKeyboardRouterOptions {
     hasQuickSearchHighlight: () => boolean;
     shouldTriggerQuickSearch: (query: string) => boolean;
     isMultiLineCursor: () => boolean;
+    isCursorAtStart: () => boolean;
+    isCursorAtEnd: () => boolean;
     hasModelOverride: () => boolean;
     getSessionHistoryCount: () => number;
     isLoading: () => boolean;
@@ -129,6 +132,7 @@ interface CreateSearchKeyboardRouterOptions {
     onMoveQuickSearchSelection: (direction: SearchQuickSearchDirection) => void;
     onOpenHighlightedQuickSearchItem: () => void | Promise<void>;
     onCloseQuickSearch: () => void;
+    onNavigateInputHistory: (direction: SessionInputHistoryDirection) => boolean;
     onHideAllPopups: () => void | Promise<void>;
     onCancelRequest: () => void;
     onClearModelOverride: () => void;
@@ -161,6 +165,7 @@ export interface UseSearchKeyboardOptions {
     sessionHistoryPopupOpen: Ref<boolean>;
     hideAllPopups: () => Promise<void>;
     hideSearchWindow: () => Promise<void>;
+    navigateInputHistory: (direction: SessionInputHistoryDirection) => boolean;
     closeModelDropdown: () => Promise<void>;
     toggleModelDropdown: () => Promise<void>;
     openHistoryDialog: () => Promise<void>;
@@ -179,6 +184,130 @@ function createEmptyModelOverride(): SearchModelOverride {
     return {
         modelId: null,
         providerId: null,
+    };
+}
+
+export interface SessionInputHistoryBrowseState {
+    pointer: number;
+    draftBeforeBrowse: string | null;
+}
+
+export interface NavigateSessionInputHistoryOptions {
+    entries: string[];
+    currentQuery: string;
+    direction: SessionInputHistoryDirection;
+    state: SessionInputHistoryBrowseState;
+}
+
+export interface NavigateSessionInputHistoryResult {
+    changed: boolean;
+    nextQuery: string;
+    state: SessionInputHistoryBrowseState;
+}
+
+/**
+ * 从当前会话消息中提取可用于输入历史导航的 user prompt 列表。
+ *
+ * 该列表保持原始发送顺序，允许重复内容；
+ * `excludedMessageIds` 用于剔除本轮前端明确标记为“非手动输入”的 user message
+ * （例如 regenerate 触发的新 user turn）。
+ */
+export function extractSessionInputHistoryEntries(
+    messages: SessionMessage[],
+    options: { excludedMessageIds?: ReadonlySet<string> } = {}
+): string[] {
+    const excludedMessageIds = options.excludedMessageIds ?? new Set<string>();
+
+    return messages
+        .filter((message) => {
+            return (
+                message.role === 'user' &&
+                !excludedMessageIds.has(message.id) &&
+                message.content.length > 0
+            );
+        })
+        .map((message) => message.content);
+}
+
+export function createSessionInputHistoryBrowseState(
+    entryCount = 0
+): SessionInputHistoryBrowseState {
+    return {
+        pointer: entryCount,
+        draftBeforeBrowse: null,
+    };
+}
+
+/**
+ * 在输入历史中前后导航。
+ *
+ * `pointer === entries.length` 表示“最新位置”，也就是未浏览历史时的尾位置；
+ * 进入历史浏览的第一步会先缓存当前草稿，向下浏览回到尾位置时再恢复该草稿。
+ */
+export function navigateSessionInputHistory(
+    options: NavigateSessionInputHistoryOptions
+): NavigateSessionInputHistoryResult {
+    const { entries, currentQuery, direction } = options;
+    const latestPointer = entries.length;
+    const currentPointer = Math.min(Math.max(options.state.pointer, 0), latestPointer);
+
+    if (entries.length === 0) {
+        return {
+            changed: false,
+            nextQuery: currentQuery,
+            state: createSessionInputHistoryBrowseState(latestPointer),
+        };
+    }
+
+    if (direction === 'older') {
+        if (currentPointer === 0) {
+            return {
+                changed: false,
+                nextQuery: entries[0] ?? currentQuery,
+                state: {
+                    pointer: 0,
+                    draftBeforeBrowse: options.state.draftBeforeBrowse,
+                },
+            };
+        }
+
+        const nextPointer =
+            currentPointer === latestPointer ? latestPointer - 1 : currentPointer - 1;
+        return {
+            changed: true,
+            nextQuery: entries[nextPointer] ?? currentQuery,
+            state: {
+                pointer: nextPointer,
+                draftBeforeBrowse:
+                    currentPointer === latestPointer
+                        ? currentQuery
+                        : options.state.draftBeforeBrowse,
+            },
+        };
+    }
+
+    if (currentPointer === latestPointer) {
+        return {
+            changed: false,
+            nextQuery: currentQuery,
+            state: {
+                pointer: latestPointer,
+                draftBeforeBrowse: options.state.draftBeforeBrowse,
+            },
+        };
+    }
+
+    const nextPointer = Math.min(latestPointer, currentPointer + 1);
+    return {
+        changed: true,
+        nextQuery:
+            nextPointer === latestPointer
+                ? (options.state.draftBeforeBrowse ?? '')
+                : (entries[nextPointer] ?? currentQuery),
+        state: {
+            pointer: nextPointer,
+            draftBeforeBrowse: options.state.draftBeforeBrowse,
+        },
     };
 }
 
@@ -590,6 +719,8 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         hasQuickSearchHighlight,
         shouldTriggerQuickSearch,
         isMultiLineCursor,
+        isCursorAtStart,
+        isCursorAtEnd,
         hasModelOverride,
         getSessionHistoryCount,
         isLoading,
@@ -602,6 +733,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onMoveQuickSearchSelection,
         onOpenHighlightedQuickSearchItem,
         onCloseQuickSearch,
+        onNavigateInputHistory,
         onHideAllPopups,
         onCancelRequest,
         onClearModelOverride,
@@ -722,23 +854,28 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         }
 
         if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
+            if (input.key === 'ArrowUp') {
+                if (isMultiLineCursor() && !isCursorAtStart()) {
+                    return false;
+                }
+
+                return onNavigateInputHistory('older');
+            }
+
             if (input.key === 'ArrowDown') {
+                if (isMultiLineCursor() && !isCursorAtEnd()) {
+                    return false;
+                }
+
+                if (onNavigateInputHistory('newer')) {
+                    return true;
+                }
+
                 if (!shouldTriggerQuickSearch(queryText)) {
                     return false;
                 }
 
                 onOpenQuickSearch();
-                return true;
-            }
-
-            if (input.key === 'ArrowUp') {
-                if (isMultiLineCursor()) {
-                    return false;
-                }
-
-                if (queryText.trim()) {
-                    runKeyboardEffect(onSubmit);
-                }
                 return true;
             }
         }
@@ -784,6 +921,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
+        navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown,
         openHistoryDialog,
@@ -824,6 +962,8 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         hasQuickSearchHighlight: () => controller.isQuickSearchItemHighlighted(),
         shouldTriggerQuickSearch,
         isMultiLineCursor: () => cursorContext.value.isMultiLine,
+        isCursorAtStart: () => cursorContext.value.cursorAtStart,
+        isCursorAtEnd: () => cursorContext.value.cursorAtEnd,
         hasModelOverride: () => Boolean(modelOverride.value.modelId),
         getSessionHistoryCount: () => sessionHistory.value.length,
         isLoading: () => isLoading.value,
@@ -851,6 +991,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         },
         onCloseQuickSearch: () => {
             controller.closeQuickSearch();
+        },
+        onNavigateInputHistory: (direction) => {
+            return navigateInputHistory(direction);
         },
         onHideAllPopups: async () => {
             await hideAllPopups();

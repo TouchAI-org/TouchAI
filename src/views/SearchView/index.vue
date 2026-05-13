@@ -24,6 +24,11 @@
         createPopupSurfaceCoordinator,
         createSearchEntryPolicy,
         createSearchInteractionContext,
+        createSessionInputHistoryBrowseState,
+        extractSessionInputHistoryEntries,
+        navigateSessionInputHistory,
+        type SessionInputHistoryBrowseState,
+        type SessionInputHistoryDirection,
         useQuickSearchCoordinator,
         useSearchOverlayMachine,
     } from './composables/searchInteraction';
@@ -69,6 +74,7 @@
     const cursorContext = ref<SearchCursorContext>({
         isMultiLine: false,
         cursorAtStart: true,
+        cursorAtEnd: true,
     });
     const modelDropdownState = ref<SearchModelDropdownState>({
         isOpen: false,
@@ -81,6 +87,13 @@
     const pageContainer = ref<HTMLElement | null>(null);
     const approvalAttentionToken = ref(0);
     const isDragging = ref(false);
+    const inputHistoryBrowseState = ref<SessionInputHistoryBrowseState>(
+        createSessionInputHistoryBrowseState()
+    );
+    const suppressInputHistoryBrowseReset = ref(false);
+    const excludedInputHistoryMessageIds = ref<Set<string>>(new Set());
+    const pendingExcludedInputHistoryContents = ref<string[]>([]);
+    const observedUserMessageIds = ref<Set<string>>(new Set());
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
     const { searchWindowDefaultSize } = storeToRefs(settingsStore);
@@ -162,7 +175,7 @@
         handleSubmit,
         clearAll,
         cancelRequest,
-        handleRegenerateMessage,
+        handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
         modelOverride,
         clearDraft,
@@ -331,6 +344,48 @@
         },
     });
 
+    const sessionInputHistoryEntries = computed(() =>
+        extractSessionInputHistoryEntries(sessionHistory.value, {
+            excludedMessageIds: excludedInputHistoryMessageIds.value,
+        })
+    );
+
+    function resetInputHistoryBrowseState(entryCount = sessionInputHistoryEntries.value.length) {
+        inputHistoryBrowseState.value = createSessionInputHistoryBrowseState(entryCount);
+    }
+
+    function resetSessionInputHistoryTracking() {
+        excludedInputHistoryMessageIds.value = new Set();
+        pendingExcludedInputHistoryContents.value = [];
+        observedUserMessageIds.value = new Set();
+        resetInputHistoryBrowseState();
+    }
+
+    function queueExcludedInputHistoryContent(content: string) {
+        pendingExcludedInputHistoryContents.value = [
+            ...pendingExcludedInputHistoryContents.value,
+            content,
+        ];
+    }
+
+    function navigateInputHistory(direction: SessionInputHistoryDirection): boolean {
+        const result = navigateSessionInputHistory({
+            entries: sessionInputHistoryEntries.value,
+            currentQuery: queryText.value,
+            direction,
+            state: inputHistoryBrowseState.value,
+        });
+
+        if (!result.changed) {
+            return false;
+        }
+
+        suppressInputHistoryBrowseReset.value = true;
+        inputHistoryBrowseState.value = result.state;
+        queryText.value = result.nextQuery;
+        return true;
+    }
+
     useSearchKeyboard({
         viewReady,
         queryText,
@@ -354,6 +409,7 @@
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
+        navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown: handleToggleModelDropdownRequest,
         openHistoryDialog,
@@ -589,6 +645,7 @@
         controller.closeQuickSearch();
         await hideAllPopups();
         startNewSession();
+        resetSessionInputHistoryTracking();
         await controller.focusSearchInput();
     }
 
@@ -616,6 +673,7 @@
     async function handleOpenSession(sessionId: number) {
         controller.closeQuickSearch();
         await hideAllPopups();
+        resetSessionInputHistoryTracking();
 
         try {
             await openSession(sessionId);
@@ -658,6 +716,25 @@
         }
     }
 
+    async function handleRegenerateMessage(messageId: string) {
+        const messageIndex = sessionHistory.value.findIndex((message) => message.id === messageId);
+        if (messageIndex <= 0) {
+            return;
+        }
+
+        for (let index = messageIndex - 1; index >= 0; index -= 1) {
+            const message = sessionHistory.value[index];
+            if (message?.role !== 'user') {
+                continue;
+            }
+
+            queueExcludedInputHistoryContent(message.content);
+            break;
+        }
+
+        await handleRegenerateMessageRequest(messageId);
+    }
+
     function handleWidgetSendPrompt(text: string) {
         const normalizedText = text.trim();
         if (!normalizedText) {
@@ -669,6 +746,7 @@
             return;
         }
 
+        queueExcludedInputHistoryContent(normalizedText);
         void handleSubmit(normalizedText);
     }
 
@@ -723,12 +801,88 @@
     }
 
     watch(
+        sessionInputHistoryEntries,
+        (entries, previousEntries) => {
+            const previousLength = previousEntries?.length ?? 0;
+            const nextLength = entries.length;
+            const currentPointer = inputHistoryBrowseState.value.pointer;
+
+            if (currentPointer === previousLength) {
+                inputHistoryBrowseState.value = {
+                    ...inputHistoryBrowseState.value,
+                    pointer: nextLength,
+                };
+                return;
+            }
+
+            if (currentPointer > nextLength) {
+                resetInputHistoryBrowseState(nextLength);
+            }
+        },
+        { flush: 'sync' }
+    );
+
+    watch(
+        queryText,
+        (value, previousValue) => {
+            if (value === previousValue) {
+                return;
+            }
+
+            if (suppressInputHistoryBrowseReset.value) {
+                suppressInputHistoryBrowseReset.value = false;
+                return;
+            }
+
+            if (inputHistoryBrowseState.value.pointer === sessionInputHistoryEntries.value.length) {
+                return;
+            }
+
+            resetInputHistoryBrowseState(sessionInputHistoryEntries.value.length);
+        },
+        { flush: 'sync' }
+    );
+
+    watch(
+        sessionHistory,
+        (messages) => {
+            const observedIds = new Set(observedUserMessageIds.value);
+            const excludedIds = new Set(excludedInputHistoryMessageIds.value);
+            const pendingContents = [...pendingExcludedInputHistoryContents.value];
+            let didMutate = false;
+
+            for (const message of messages) {
+                if (message.role !== 'user' || observedIds.has(message.id)) {
+                    continue;
+                }
+
+                observedIds.add(message.id);
+
+                if (pendingContents.length > 0 && pendingContents[0] === message.content) {
+                    excludedIds.add(message.id);
+                    pendingContents.shift();
+                    didMutate = true;
+                }
+            }
+
+            observedUserMessageIds.value = observedIds;
+
+            if (didMutate) {
+                excludedInputHistoryMessageIds.value = excludedIds;
+                pendingExcludedInputHistoryContents.value = pendingContents;
+            }
+        },
+        { deep: true, flush: 'post' }
+    );
+
+    watch(
         () => sessionHistory.value.length,
         async (length, previousLength) => {
             if (!viewReady.value || length > 0 || !previousLength) {
                 return;
             }
 
+            resetSessionInputHistoryTracking();
             await closeSessionHistoryPopup();
             await controller.focusSearchInput();
         },

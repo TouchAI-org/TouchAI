@@ -118,6 +118,7 @@
         getModelDropdownContext,
         isMultiLine,
         cursorAtStart,
+        cursorAtEnd,
         focus,
         loadActiveModel,
         handleContainerMouseDown,
@@ -144,11 +145,12 @@
         emit('cursorContextChange', {
             isMultiLine: isMultiLine.value,
             cursorAtStart: cursorAtStart.value,
+            cursorAtEnd: cursorAtEnd.value,
         });
     }
 
     watch(
-        () => [isMultiLine.value, cursorAtStart.value],
+        () => [isMultiLine.value, cursorAtStart.value, cursorAtEnd.value],
         () => emitCursorContext(),
         { immediate: true, flush: 'sync' }
     );

@@ -3,7 +3,7 @@ import { Extension } from '@tiptap/core';
 import Placeholder from '@tiptap/extension-placeholder';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
-import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
 
@@ -400,6 +400,13 @@ export function isPlainText(editor: Editor): boolean {
 export function isCursorAtDocStart(editor: Editor): boolean {
     const { from, to } = editor.state.selection;
     return from <= 1 && to <= 1;
+}
+
+/** 判断光标是否在文档末尾。 */
+export function isCursorAtDocEnd(editor: Editor): boolean {
+    const { from, to } = editor.state.selection;
+    const end = Selection.atEnd(editor.state.doc).to;
+    return from >= end && to >= end;
 }
 
 export function getEditorJSON(editor: Editor): JSONContent {
