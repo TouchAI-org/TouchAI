@@ -85,6 +85,11 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     });
 
     if let Some(window) = app.get_webview_window("main") {
+        if let Err(err) =
+            crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)
+        {
+            warn!("Failed to apply webview runtime defaults: {}", err);
+        }
         if let Err(err) = crate::core::window::search::set_search_window_style(&window) {
             warn!("Failed to set rounded corners: {}", err);
         }

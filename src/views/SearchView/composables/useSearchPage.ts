@@ -1,61 +1,82 @@
-﻿/**
+/**
  * SearchView 页面层。
- * 集中管理页面控制器、生命周期编排与键盘输入路由，避免页面逻辑零散分布。
+ * 集中管理页面 controller、生命周期编排、popup 打开时序与 DOM 事件挂载。
  */
 import { useAlert } from '@composables/useAlert';
 import { useWindowResize } from '@composables/useWindowResize';
 import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
-import type {
-    ModelDropdownData,
-    ModelDropdownPopupItem,
-    PopupKeydownPayload,
-} from '@services/PopupService';
+import { initNotificationPermission, notify } from '@services/NotificationService';
+import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
 import { popupManager } from '@services/PopupService';
 import { runStartupTasks } from '@services/StartupService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { sendNotification } from '@tauri-apps/plugin-notification';
-import {
-    computed,
-    type ComputedRef,
-    nextTick,
-    onMounted,
-    onUnmounted,
-    type Ref,
-    ref,
-    watch,
-} from 'vue';
+import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import { useSettingsStore } from '@/stores/settings';
-import type { PendingToolApproval, SessionMessage } from '@/types/session';
 
 import type {
     ConversationPanelHandle,
-    PendingRequest,
-    QuickSearchHandle,
     SearchBarHandle,
-    SearchCursorContext,
     SearchModelDropdownContext,
     SearchModelDropdownState,
     SearchModelOverride,
-    SearchOverlayState,
     SearchPageController,
 } from '../types';
+import type { SearchOverlayCommand, SearchPopupSessionIdentity } from './searchInteraction';
+import type { createSearchInteractionContext, UseSearchKeyboardOptions } from './searchInteraction';
+import { createSearchKeydownHandler } from './searchInteraction';
 import { useModelDropdownPopup } from './useModelDropdownPopup';
 
-const DOUBLE_BACKSPACE_INTERVAL = 300;
 const WINDOW_MAX_HEIGHT = 700;
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
-type SearchOverlayCommand =
-    | 'noop'
-    | 'close-quick-search'
-    | 'wait-layout-stable'
-    | 'open-model-dropdown';
 
-function createEmptyModelOverride(): SearchModelOverride {
+export function useSearchWindowPin() {
+    const currentWindow = getCurrentWindow();
+    const isPinned = ref(false);
+    let lastOperation: Promise<void> = Promise.resolve();
+
+    function queuePinOperation<T>(operation: () => Promise<T>): Promise<T> {
+        const run = lastOperation.catch(() => undefined).then(operation);
+        lastOperation = run.then(
+            () => undefined,
+            () => undefined
+        );
+        return run;
+    }
+
+    function syncWindowPinState(): Promise<boolean> {
+        return queuePinOperation(async () => {
+            const nextState = await currentWindow.isAlwaysOnTop();
+            isPinned.value = nextState;
+            return nextState;
+        });
+    }
+
+    function setWindowPinned(value: boolean): Promise<boolean> {
+        return queuePinOperation(async () => {
+            await currentWindow.setAlwaysOnTop(value);
+            const nextState = await currentWindow.isAlwaysOnTop();
+            isPinned.value = nextState;
+            return nextState;
+        });
+    }
+
+    function toggleWindowPin(): Promise<boolean> {
+        return queuePinOperation(async () => {
+            const currentState = await currentWindow.isAlwaysOnTop();
+            await currentWindow.setAlwaysOnTop(!currentState);
+            const nextState = await currentWindow.isAlwaysOnTop();
+            isPinned.value = nextState;
+            return nextState;
+        });
+    }
+
     return {
-        modelId: null,
-        providerId: null,
+        isPinned,
+        syncWindowPinState,
+        setWindowPinned,
+        toggleWindowPin,
     };
 }
 
@@ -76,18 +97,97 @@ function mapPopupModel(
     };
 }
 
+function filterModelDropdownItems(models: ModelDropdownPopupItem[], searchQuery: string) {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) {
+        return models;
+    }
+
+    const tokens = query.split(/\s+/).filter(Boolean);
+    const scored = models
+        .map((model) => {
+            const fields = [
+                model.name.toLowerCase(),
+                model.modelId.toLowerCase(),
+                model.providerName.toLowerCase(),
+                `${model.providerName} ${model.modelId}`.toLowerCase(),
+            ];
+
+            let totalScore = 0;
+            for (const token of tokens) {
+                let bestScore = -1;
+                for (const field of fields) {
+                    const score = scoreModelDropdownMatch(token, field);
+                    if (score > bestScore) {
+                        bestScore = score;
+                    }
+                }
+
+                if (bestScore < 0) {
+                    return null;
+                }
+
+                totalScore += bestScore;
+            }
+
+            return {
+                model,
+                score: totalScore,
+            };
+        })
+        .filter(Boolean) as Array<{ model: ModelDropdownPopupItem; score: number }>;
+
+    return scored.sort((left, right) => right.score - left.score).map((item) => item.model);
+}
+
+function scoreModelDropdownMatch(token: string, text: string) {
+    if (!token) {
+        return -1;
+    }
+
+    const index = text.indexOf(token);
+    if (index !== -1) {
+        return 200 - index;
+    }
+
+    if (isModelDropdownSubsequence(token, text)) {
+        return 100;
+    }
+
+    return -1;
+}
+
+function isModelDropdownSubsequence(needle: string, haystack: string) {
+    let currentIndex = 0;
+    for (const char of haystack) {
+        if (char === needle[currentIndex]) {
+            currentIndex += 1;
+            if (currentIndex >= needle.length) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 /**
  * 搜索页子组件命令适配层。
- * 负责把 SearchBar / QuickSearchPanel / ConversationPanel 的 exposed API
- * 收口成页面动作接口，避免页面级 composable 直接依赖子组件命令细节。
- *
- * @param options 搜索页子组件句柄。
- * @returns 页面动作 controller。
  */
 export function useSearchPageController(options: {
     searchBar: Ref<SearchBarHandle | undefined>;
     quickSearchOpen: Ref<boolean>;
-    quickSearchPanel: Ref<QuickSearchHandle | undefined>;
+    quickSearchPanel: Ref<
+        | {
+              open: () => void;
+              syncClosedState: () => void;
+              moveSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
+              getHighlightedItem: () => unknown | null;
+              openHighlightedItem: () => Promise<void>;
+              triggerSearch: (query: string) => void;
+          }
+        | undefined
+    >;
     conversationPanel: Ref<ConversationPanelHandle | undefined>;
 }): SearchPageController {
     const { searchBar, quickSearchOpen, quickSearchPanel, conversationPanel } = options;
@@ -113,11 +213,11 @@ export function useSearchPageController(options: {
     }
 
     async function prepareModelDropdownOpen() {
-        await searchBar.value?.prepareModelDropdownOpen();
-    }
+        if (!searchBar.value) {
+            await nextTick();
+        }
 
-    function resetModelDropdownState() {
-        searchBar.value?.resetModelDropdownState();
+        await searchBar.value?.prepareModelDropdownOpen();
     }
 
     async function selectModelFromDropdown(modelDbId: number) {
@@ -140,7 +240,6 @@ export function useSearchPageController(options: {
                 activeProviderId: null,
                 selectedModelId: null,
                 selectedProviderId: null,
-                searchQuery: '',
                 models: [],
             }
         );
@@ -162,8 +261,6 @@ export function useSearchPageController(options: {
         const wasOpen = quickSearchOpen.value;
         quickSearchOpen.value = false;
         if (!wasOpen) {
-            // 页面可能在“结果尚未返回、面板尚未真正显示”阶段就判定需要关闭；
-            // 这里主动同步关闭态，避免迟到的异步结果再次把面板打开。
             quickSearchPanel.value?.syncClosedState();
         }
     }
@@ -187,7 +284,6 @@ export function useSearchPageController(options: {
         prefetchModelDropdownData,
         invalidateModelDropdownData,
         prepareModelDropdownOpen,
-        resetModelDropdownState,
         selectModelFromDropdown,
         getModelDropdownAnchor,
         getModelDropdownContext,
@@ -205,14 +301,6 @@ interface UseSearchPanelFocusRestoreOptions {
     controller: SearchPageController;
 }
 
-/**
- * 搜索页面板焦点恢复策略。
- * 负责把 QuickSearch 空白点击回焦集中到页面层，
- * 避免模板组件承载浏览器选区清理等时序细节。
- *
- * @param options 页面 controller。
- * @returns 面板焦点恢复处理器。
- */
 export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOptions) {
     const { controller } = options;
 
@@ -223,11 +311,6 @@ export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOp
         );
     }
 
-    /**
-     * 选中文本后首次点击空白区域时，浏览器会先清理原有选区，
-     * 因此需要延后一帧再判断，才能把“清选区”和“回焦输入框”
-     * 合并到同一次点击里，而不是要求用户点击两次。
-     */
     function restoreSearchFocusAfterSelectionClears() {
         requestAnimationFrame(() => {
             if (hasActiveTextSelection()) {
@@ -238,12 +321,6 @@ export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOp
         });
     }
 
-    /**
-     * QuickSearch 仅在结构化空白层上发出 blank-click，
-     * 页面层只负责处理文本选区清理与输入框回焦的时序。
-     *
-     * @returns void
-     */
     function handleQuickSearchBlankClick() {
         if (hasActiveTextSelection()) {
             restoreSearchFocusAfterSelectionClears();
@@ -264,19 +341,19 @@ interface UseSearchPageLifecycleOptions {
     viewReady: Ref<boolean>;
     isDragging: Ref<boolean>;
     isPinned: Ref<boolean>;
+    interactionContext: ReturnType<typeof createSearchInteractionContext>;
     syncWindowPinState: () => Promise<boolean>;
     clearSession: () => void;
+    reconcilePopupSurfaces?: () => Promise<void>;
+    onSurfaceHidden?: () => void | Promise<void>;
+    handleSearchSurfaceCommand?: (payload: {
+        command: 'toggle-model-dropdown';
+        source: 'webview2-accelerator';
+    }) => void | Promise<void>;
+    handleAiModelsUpdated?: () => void | Promise<void>;
     handleShortcutAutoPaste?: () => void | Promise<void>;
 }
 
-/**
- * 搜索页生命周期编排。
- * 负责窗口聚焦/失焦、超时清理、全局快捷键和页面级初始化逻辑，
- * 将这些系统副作用从 SearchView 模板组件中拆离。
- *
- * @param options 页面状态与系统级回调/页面动作接口。
- * @returns 生命周期相关状态。
- */
 export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     const {
         pageContainer,
@@ -284,67 +361,119 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         viewReady,
         isDragging,
         isPinned,
+        interactionContext,
         syncWindowPinState,
         clearSession,
+        reconcilePopupSurfaces,
+        onSurfaceHidden,
+        handleSearchSurfaceCommand,
+        handleAiModelsUpdated,
         handleShortcutAutoPaste,
     } = options;
 
     const settingsStore = useSettingsStore();
 
-    let unlistenFocus: (() => void) | null = null;
-    let unlistenBlur: (() => void) | null = null;
-    let unlistenPopupFocusMain: (() => void) | null = null;
     let unlistenAiModelsUpdated: (() => void) | null = null;
+    let unlistenSearchSurfaceShown: (() => void) | null = null;
+    let unlistenSearchSurfaceHidden: (() => void) | null = null;
+    let unlistenSearchSurfaceCommand: (() => void) | null = null;
     let stopReadyWatch: (() => void) | null = null;
-    let lastHideTime: number | null = null;
+    let stopPinnedWatch: (() => void) | null = null;
     let lifecycleInitialized = false;
-    let shouldCheckShortcutAutoPaste = true;
+    let restoredShortcutActivationEpoch: number | null = null;
+    let latestSurfaceSequence = 0;
 
     useWindowResize({ target: pageContainer, maxHeight: WINDOW_MAX_HEIGHT });
 
-    const shouldHideOnBlur = computed(() => {
-        if (isDragging.value) return false;
-        return !isPinned.value;
-    });
-
-    function recordHideTime() {
-        lastHideTime = Date.now();
+    async function hideSearchWindow() {
+        await native.window.hideSearchWindow();
     }
 
-    function checkAndClearIfTimeout() {
-        if (lastHideTime === null) return;
-        if (Date.now() - lastHideTime >= HIDE_TIMEOUT_MS) {
-            clearSession();
-            lastHideTime = null;
+    function syncFocusStateOnFocus() {
+        interactionContext.clearActivePopupSession();
+
+        if (!interactionContext.state.windowVisible) {
+            if (interactionContext.state.activationSource === 'unknown') {
+                interactionContext.recordActivation('manual');
+            } else {
+                interactionContext.markWindowVisible();
+            }
+        } else {
+            interactionContext.markWindowVisible();
         }
+
+        interactionContext.setWindowFocused(true);
+        interactionContext.setAppFocused(true);
     }
 
-    /**
-     * 处理搜索窗口失焦后的隐藏、弹窗收敛和快捷键 auto-paste 检查标记。
-     */
-    async function handleWindowBlur() {
+    function hasActivePopupWindowFocus() {
+        const popupManagerState = popupManager.state ?? {
+            isOpen: false,
+            currentType: null,
+            currentPopupId: null,
+            currentWindowLabel: null,
+            currentPopupSessionVersion: null,
+        };
+        const activePopupIdentity = interactionContext.state.activePopupIdentity;
+
+        return (
+            popupManagerState.isOpen === true &&
+            activePopupIdentity !== null &&
+            popupManagerState.currentPopupId === activePopupIdentity.popupId &&
+            popupManagerState.currentWindowLabel === activePopupIdentity.windowLabel &&
+            popupManagerState.currentPopupSessionVersion === activePopupIdentity.popupSessionVersion
+        );
+    }
+
+    async function reconcilePopupSurfacesAfterActivation() {
+        if (hasActivePopupWindowFocus()) {
+            return;
+        }
+
+        await reconcilePopupSurfaces?.();
+    }
+
+    async function restoreSearchWindowAfterActivation() {
+        await nextTick();
+        await reconcilePopupSurfacesAfterActivation();
+        await controller.focusSearchInput();
+        await controller.loadActiveModel();
+        await syncWindowPinStateSafely('focus');
+
         try {
-            const appFocused = await native.window.isAppFocused();
-            if (!appFocused) {
-                // App 失焦时总是关闭所有弹窗，避免遗留浮层。
-                await popupManager.hide();
-
-                if (shouldHideOnBlur.value) {
-                    recordHideTime();
-                    await native.window.hideSearchWindow();
-                }
-            }
-
-            const isVisible = await getCurrentWindow()
-                .isVisible()
-                .catch(() => true);
-            if (!isVisible) {
-                // 窗口真正隐藏后，下一次 focus 才检查快捷键 auto-paste 授权。
-                shouldCheckShortcutAutoPaste = true;
-            }
+            await handleShortcutAutoPaste?.();
         } catch (error) {
-            console.error('[SearchView] Failed to handle window blur:', error);
+            console.error('[SearchView] Failed to handle shortcut auto-paste:', error);
         }
+    }
+
+    async function handleSearchWindowActivated() {
+        interactionContext.recordActivation('shortcut');
+        if (hasActivePopupWindowFocus()) {
+            restoredShortcutActivationEpoch = interactionContext.state.activationEpoch;
+            return;
+        }
+
+        syncFocusStateOnFocus();
+
+        if (
+            interactionContext.shouldRunTimeoutClearOnFocus(
+                interactionContext.state.visibilityEpoch,
+                Date.now(),
+                HIDE_TIMEOUT_MS
+            )
+        ) {
+            clearSession();
+        }
+
+        const activationEpoch = interactionContext.state.activationEpoch;
+        if (restoredShortcutActivationEpoch === activationEpoch) {
+            await reconcilePopupSurfacesAfterActivation();
+            return;
+        }
+        restoredShortcutActivationEpoch = activationEpoch;
+
+        await restoreSearchWindowAfterActivation();
     }
 
     async function initializeGlobalShortcut() {
@@ -354,7 +483,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         } catch (error) {
             console.error('[SearchView] Failed to initialize global shortcut:', error);
 
-            // 把平台错误文本映射为面向用户的提示，避免暴露内部细节。
             const errorStr = String(error);
             let message = '注册快捷键失败';
 
@@ -366,7 +494,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 message = '不支持的按键，请在设置中更换';
             }
 
-            sendNotification({
+            notify({
                 title: 'TouchAI - 快捷键注册失败',
                 body: message,
             });
@@ -398,53 +526,84 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
         lifecycleInitialized = true;
         await initializeSearchView();
+        interactionContext.state.windowVisible = await getCurrentWindow()
+            .isVisible()
+            .catch(() => true);
         await syncWindowPinStateSafely('initialize');
         await initFocusListener();
+        await initNotificationPermission();
         await runStartupTasks();
     }
 
-    /**
-     * 初始化窗口 focus/blur 与页面级事件监听。
-     */
     async function initFocusListener() {
-        unlistenFocus = await getCurrentWindow().listen('tauri://focus', async () => {
-            checkAndClearIfTimeout();
-
-            await nextTick();
-            await controller.focusSearchInput();
-            await controller.loadActiveModel();
-            await syncWindowPinStateSafely('focus');
-
-            if (!shouldCheckShortcutAutoPaste) {
+        unlistenAiModelsUpdated = await eventService.on(AppEvent.AI_MODELS_UPDATED, () => {
+            if (!handleAiModelsUpdated) {
+                controller.invalidateModelDropdownData();
                 return;
             }
 
-            // 同一次窗口显示周期只检查一次，避免 focus 抖动重复消费授权。
-            shouldCheckShortcutAutoPaste = false;
-            try {
-                await handleShortcutAutoPaste?.();
-            } catch (error) {
-                console.error('[SearchView] Failed to handle shortcut auto-paste:', error);
+            void Promise.resolve(handleAiModelsUpdated()).catch((error) => {
+                console.error(
+                    '[SearchView] Failed to sync model dropdown after models update:',
+                    error
+                );
+            });
+        });
+
+        unlistenSearchSurfaceShown = await eventService.on(
+            AppEvent.SEARCH_SURFACE_SHOWN,
+            async (payload) => {
+                latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
+                await handleSearchWindowActivated();
             }
-        });
+        );
 
-        unlistenBlur = await getCurrentWindow().listen('tauri://blur', async () => {
-            await handleWindowBlur();
-        });
+        unlistenSearchSurfaceHidden = await eventService.on(
+            AppEvent.SEARCH_SURFACE_HIDDEN,
+            async (payload) => {
+                const sequence = payload.sequence ?? 0;
+                if (sequence > 0 && sequence < latestSurfaceSequence) {
+                    return;
+                }
+                latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
+                interactionContext.clearActivePopupSession();
+                interactionContext.markWindowHidden({
+                    hideReason: payload.reason,
+                    hiddenAt: Date.now(),
+                });
+                await Promise.resolve(onSurfaceHidden?.()).catch((error) => {
+                    console.error('[SearchView] Failed to clear UI after surface hidden:', error);
+                });
+            }
+        );
 
-        unlistenPopupFocusMain = await eventService.on(AppEvent.POPUP_FOCUS_MAIN, async () => {
-            await getCurrentWindow().setFocus();
-            setTimeout(() => {
-                void controller.focusSearchInput();
-            }, 50);
-        });
-
-        unlistenAiModelsUpdated = await eventService.on(AppEvent.AI_MODELS_UPDATED, () => {
-            controller.invalidateModelDropdownData();
-        });
+        unlistenSearchSurfaceCommand = await eventService.on(
+            AppEvent.SEARCH_SURFACE_COMMAND,
+            async (payload) => {
+                await Promise.resolve(handleSearchSurfaceCommand?.(payload)).catch((error) => {
+                    console.error('[SearchView] Failed to handle search surface command:', error);
+                });
+            }
+        );
     }
 
     onMounted(() => {
+        stopPinnedWatch = watch(
+            isPinned,
+            (nextPinned) => {
+                interactionContext.state.isPinned = nextPinned;
+                void native.window
+                    .setSearchSurfaceHideOnAppBlur(!nextPinned && !isDragging.value)
+                    .catch((error) => {
+                        console.error(
+                            '[SearchView] Failed to sync search surface app-blur policy:',
+                            error
+                        );
+                    });
+            },
+            { immediate: true, flush: 'sync' }
+        );
+
         if (viewReady.value) {
             void startLifecycleOnceReady();
             return;
@@ -468,459 +627,20 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     onUnmounted(() => {
         stopReadyWatch?.();
         stopReadyWatch = null;
-        unlistenFocus?.();
-        unlistenFocus = null;
-        unlistenBlur?.();
-        unlistenBlur = null;
-        unlistenPopupFocusMain?.();
-        unlistenPopupFocusMain = null;
+        stopPinnedWatch?.();
+        stopPinnedWatch = null;
         unlistenAiModelsUpdated?.();
         unlistenAiModelsUpdated = null;
+        unlistenSearchSurfaceShown?.();
+        unlistenSearchSurfaceShown = null;
+        unlistenSearchSurfaceHidden?.();
+        unlistenSearchSurfaceHidden = null;
+        unlistenSearchSurfaceCommand?.();
+        unlistenSearchSurfaceCommand = null;
     });
-}
-
-interface UseSearchOverlayMachineOptions {
-    isQuickSearchOpen: ComputedRef<boolean>;
-    modelDropdownState: Ref<SearchModelDropdownState>;
-}
-
-/**
- * 搜索页浮层状态机。
- * 负责QuickSearch 与模型下拉等各类模块状态切换过程。
- *
- * @param options QuickSearch 与模型下拉可见性状态。
- * @returns 当前浮层阶段、状态流转方法与 machine 生成的副作用命令。
- */
-export function useSearchOverlayMachine(options: UseSearchOverlayMachineOptions) {
-    const { isQuickSearchOpen, modelDropdownState } = options;
-    const overlayState = ref<SearchOverlayState>('idle');
-
-    function syncOverlayState() {
-        if (
-            overlayState.value === 'model-dropdown-preparing' ||
-            overlayState.value === 'waiting-layout-stable'
-        ) {
-            return;
-        }
-
-        if (modelDropdownState.value.isOpen) {
-            overlayState.value = 'model-dropdown-open';
-            return;
-        }
-
-        overlayState.value = isQuickSearchOpen.value ? 'quick-search-open' : 'idle';
-    }
-
-    function requestModelDropdownOpen(): SearchOverlayCommand {
-        if (
-            modelDropdownState.value.isOpen ||
-            overlayState.value === 'model-dropdown-preparing' ||
-            overlayState.value === 'waiting-layout-stable'
-        ) {
-            return 'noop';
-        }
-
-        overlayState.value = 'model-dropdown-preparing';
-        return isQuickSearchOpen.value ? 'close-quick-search' : 'open-model-dropdown';
-    }
-
-    function handleQuickSearchClosedForModelDropdown(): SearchOverlayCommand {
-        if (overlayState.value !== 'model-dropdown-preparing') {
-            return 'noop';
-        }
-
-        overlayState.value = 'waiting-layout-stable';
-        return 'wait-layout-stable';
-    }
-
-    function handleLayoutStableForModelDropdown(): SearchOverlayCommand {
-        if (overlayState.value !== 'waiting-layout-stable') {
-            return 'noop';
-        }
-
-        return 'open-model-dropdown';
-    }
-
-    function handleModelDropdownOpened() {
-        overlayState.value = 'model-dropdown-open';
-    }
-
-    function handleModelDropdownClosed() {
-        syncOverlayState();
-    }
-
-    watch(
-        () => [isQuickSearchOpen.value, modelDropdownState.value.isOpen],
-        () => {
-            syncOverlayState();
-        },
-        { immediate: true, flush: 'sync' }
-    );
 
     return {
-        overlayState,
-        requestModelDropdownOpen,
-        handleQuickSearchClosedForModelDropdown,
-        handleLayoutStableForModelDropdown,
-        handleModelDropdownOpened,
-        handleModelDropdownClosed,
-        syncOverlayState,
-    };
-}
-
-export interface UseSearchKeyboardOptions {
-    viewReady: Ref<boolean>;
-    queryText: Ref<string>;
-    cursorContext: Ref<SearchCursorContext>;
-    modelOverride: Ref<SearchModelOverride>;
-    modelDropdownState: Ref<SearchModelDropdownState>;
-    controller: SearchPageController;
-    sessionHistory: Ref<SessionMessage[]>;
-    pendingRequest: Ref<PendingRequest | null>;
-    isWaitingForCompletion: Ref<boolean>;
-    isLoading: Ref<boolean>;
-    pendingToolApproval: Ref<PendingToolApproval | null>;
-    approvePendingToolApproval: (callId?: string) => boolean;
-    rejectPendingToolApproval: (callId?: string) => boolean;
-    promptPendingToolApprovalAttention: () => void;
-    isQuickSearchOpen: ComputedRef<boolean>;
-    shouldTriggerQuickSearch: (query: string) => boolean;
-    sessionHistoryPopupOpen: Ref<boolean>;
-    hideAllPopups: () => Promise<void>;
-    closeModelDropdown: () => Promise<void>;
-    openModelDropdown: () => Promise<void>;
-    openHistoryDialog: () => Promise<void>;
-    startNewSession: () => Promise<void>;
-    toggleWindowPin: () => Promise<void>;
-    handleSubmit: (query: string) => Promise<void>;
-    clearAll: () => void;
-    cancelRequest: () => void;
-    clearSession: () => void;
-}
-
-function isEscapeKey(event: KeyboardEvent): boolean {
-    return event.key === 'Escape' || event.key === 'Esc' || event.code === 'Escape';
-}
-
-/**
- * 审批期间仍允许 Enter / Esc 作为决策快捷键，其余会改变输入内容的按键
- * 统一视为“误把编辑框当作可输入状态”，应拦截并把注意力引导回批准按钮。
- */
-function isTypingAttemptDuringApproval(event: KeyboardEvent): boolean {
-    if (event.ctrlKey || event.metaKey || event.altKey) {
-        return false;
-    }
-
-    return event.key.length === 1 || event.key === 'Backspace' || event.key === 'Delete';
-}
-
-/**
- * 判断是否命中 Ctrl/Cmd 主修饰键快捷键。
- */
-function isPrimaryModifierShortcut(
-    event: KeyboardEvent,
-    key: string,
-    options?: { shift?: boolean }
-): boolean {
-    const shift = options?.shift ?? false;
-    const hasPrimaryModifier = event.ctrlKey || event.metaKey;
-
-    return (
-        hasPrimaryModifier &&
-        !event.altKey &&
-        event.shiftKey === shift &&
-        event.key.toLowerCase() === key
-    );
-}
-
-/**
- * 创建 SearchView 页面级键盘处理器。
- */
-export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
-    const {
-        viewReady,
-        queryText,
-        cursorContext,
-        modelOverride,
-        modelDropdownState,
-        controller,
-        sessionHistory,
-        pendingRequest,
-        isWaitingForCompletion,
-        isLoading,
-        pendingToolApproval,
-        approvePendingToolApproval,
-        rejectPendingToolApproval,
-        promptPendingToolApprovalAttention,
-        isQuickSearchOpen,
-        shouldTriggerQuickSearch,
-        sessionHistoryPopupOpen,
-        hideAllPopups,
-        closeModelDropdown,
-        openModelDropdown,
-        openHistoryDialog,
-        startNewSession,
-        toggleWindowPin,
-        handleSubmit,
-        clearAll,
-        cancelRequest,
-        clearSession,
-    } = options;
-
-    let lastBackspaceTime = 0;
-
-    return async function handleKeyDown(event: KeyboardEvent) {
-        if (!viewReady.value) {
-            return;
-        }
-
-        // 通过 window capture 层监听按键，确保在所有子组件之前拦截。
-        // 一旦某次事件已被处理（如 Escape 关闭弹窗），就不再让后续逻辑重复执行。
-        if (event.defaultPrevented) {
-            return;
-        }
-
-        // 工具审批态优先：避免用户误以为 Enter 是发送消息。
-        if (pendingToolApproval.value) {
-            if (isEscapeKey(event)) {
-                event.preventDefault();
-                event.stopPropagation();
-                rejectPendingToolApproval(pendingToolApproval.value.callId);
-                return;
-            }
-
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                event.stopPropagation();
-
-                // 小延迟用于防止“刚弹出审批卡就误按回车”导致误批准。
-                if (!event.shiftKey && Date.now() >= pendingToolApproval.value.keyboardApproveAt) {
-                    approvePendingToolApproval(pendingToolApproval.value.callId);
-                } else {
-                    promptPendingToolApprovalAttention();
-                }
-                return;
-            }
-
-            if (isTypingAttemptDuringApproval(event)) {
-                event.preventDefault();
-                event.stopPropagation();
-                promptPendingToolApprovalAttention();
-                return;
-            }
-        }
-
-        if (isPrimaryModifierShortcut(event, 'h')) {
-            event.preventDefault();
-            event.stopPropagation();
-            await openHistoryDialog();
-            return;
-        }
-
-        if (isPrimaryModifierShortcut(event, 'l')) {
-            event.preventDefault();
-            event.stopPropagation();
-            await hideAllPopups();
-            await controller.focusSearchInput();
-            return;
-        }
-
-        if (isPrimaryModifierShortcut(event, 'n')) {
-            event.preventDefault();
-            event.stopPropagation();
-
-            if (sessionHistory.value.length > 0) {
-                await startNewSession();
-            }
-            return;
-        }
-
-        if (isPrimaryModifierShortcut(event, 'm')) {
-            event.preventDefault();
-            event.stopPropagation();
-            await openModelDropdown();
-            return;
-        }
-
-        if (isPrimaryModifierShortcut(event, 'p')) {
-            event.preventDefault();
-            event.stopPropagation();
-            await toggleWindowPin();
-            return;
-        }
-
-        if (isPrimaryModifierShortcut(event, '.')) {
-            if (!isLoading.value) {
-                return;
-            }
-
-            event.preventDefault();
-            event.stopPropagation();
-            cancelRequest();
-            return;
-        }
-
-        if (isPrimaryModifierShortcut(event, 'backspace') && queryText.value.trim()) {
-            event.preventDefault();
-            event.stopPropagation();
-            clearAll();
-            return;
-        }
-
-        if (event.key === 'Tab' && sessionHistory.value.length > 0) {
-            event.preventDefault();
-            controller.focusConversation();
-            return;
-        }
-
-        // Escape 作为 UI 状态回退键，优先收敛弹窗/请求，再处理输入清理。
-        if (isEscapeKey(event)) {
-            event.preventDefault();
-            event.stopPropagation();
-
-            if (modelDropdownState.value.isOpen || sessionHistoryPopupOpen.value) {
-                await hideAllPopups();
-                return;
-            }
-
-            if (isLoading.value) {
-                cancelRequest();
-                return;
-            }
-
-            const hasSelectedModel = modelOverride.value.modelId;
-            if (!queryText.value.trim() && hasSelectedModel) {
-                modelOverride.value = createEmptyModelOverride();
-                return;
-            }
-
-            if (!queryText.value.trim() && sessionHistory.value.length === 0) {
-                await getCurrentWindow().hide();
-                return;
-            }
-
-            if (sessionHistory.value.length > 0) {
-                clearSession();
-                return;
-            }
-
-            clearAll();
-            return;
-        }
-
-        if (event.key === '@' && !modelDropdownState.value.isOpen) {
-            event.preventDefault();
-            await openModelDropdown();
-            return;
-        }
-
-        if (modelDropdownState.value.isOpen) {
-            if (['ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) {
-                event.preventDefault();
-                const payload: PopupKeydownPayload = {
-                    key: event.key,
-                    targetType: 'model-dropdown-popup',
-                };
-                void eventService.emit(AppEvent.POPUP_KEYDOWN, payload);
-                return;
-            }
-        }
-
-        if (isQuickSearchOpen.value) {
-            const hasHighlight = controller.isQuickSearchItemHighlighted();
-
-            if (hasHighlight) {
-                const directionMap = {
-                    ArrowUp: 'up',
-                    ArrowDown: 'down',
-                    ArrowLeft: 'left',
-                    ArrowRight: 'right',
-                } as const;
-                const direction = directionMap[event.key as keyof typeof directionMap];
-                if (direction) {
-                    event.preventDefault();
-                    controller.moveQuickSearchSelection(direction);
-                    return;
-                }
-                if (event.key === 'Enter') {
-                    event.preventDefault();
-                    await controller.openHighlightedQuickSearchItem();
-                    return;
-                }
-            } else {
-                if (event.key === 'ArrowDown') {
-                    event.preventDefault();
-                    controller.moveQuickSearchSelection('down');
-                    return;
-                }
-                if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    controller.closeQuickSearch();
-                    if (queryText.value.trim()) {
-                        await handleSubmit(queryText.value);
-                    }
-                    return;
-                }
-            }
-        }
-
-        if (!modelDropdownState.value.isOpen && !isQuickSearchOpen.value) {
-            if (event.key === 'ArrowDown') {
-                if (!shouldTriggerQuickSearch(queryText.value)) {
-                    return;
-                }
-
-                event.preventDefault();
-                controller.openQuickSearch();
-                return;
-            }
-
-            if (event.key === 'ArrowUp') {
-                if (cursorContext.value.isMultiLine) {
-                    return;
-                }
-                event.preventDefault();
-                if (queryText.value.trim()) {
-                    await handleSubmit(queryText.value);
-                }
-                return;
-            }
-        }
-
-        if (event.key === 'Backspace') {
-            if (modelDropdownState.value.isOpen) {
-                await closeModelDropdown();
-                return;
-            }
-
-            if (pendingRequest.value) {
-                const now = Date.now();
-                const timeSinceLastBackspace = now - lastBackspaceTime;
-                lastBackspaceTime = now;
-
-                // 双击退格清空待发送请求，避免额外的确认弹窗阻塞输入流。
-                if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL) {
-                    event.preventDefault();
-                    pendingRequest.value = null;
-                    isWaitingForCompletion.value = false;
-                    lastBackspaceTime = 0;
-                }
-                return;
-            }
-
-            if (modelOverride.value.modelId && cursorContext.value.cursorAtStart) {
-                event.preventDefault();
-                modelOverride.value = createEmptyModelOverride();
-                return;
-            }
-        }
-
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            if (queryText.value.trim()) {
-                await handleSubmit(queryText.value);
-            }
-        }
+        hideSearchWindow,
     };
 }
 
@@ -929,21 +649,17 @@ interface UseSearchModelDropdownCoordinatorOptions {
     controller: SearchPageController;
     modelOverride: Ref<SearchModelOverride>;
     modelDropdownState: Ref<SearchModelDropdownState>;
+    modelDropdownQuery: Ref<string>;
     requestModelDropdownOpen: () => SearchOverlayCommand;
     handleQuickSearchClosedForModelDropdown: () => SearchOverlayCommand;
     handleLayoutStableForModelDropdown: () => SearchOverlayCommand;
     handleModelDropdownOpened: () => void;
     handleModelDropdownClosed: () => void;
     syncOverlayState: () => void;
+    onPopupSessionStart?: (identity: SearchPopupSessionIdentity) => void;
+    onPopupSessionEnd?: () => void;
 }
 
-/**
- * 搜索页模型下拉编排层。
- * 负责协调 QuickSearch 收敛、布局稳定与模型下拉打开时序。
- *
- * @param options 页面容器、controller 与 SearchBar 状态。
- * @returns 模型下拉打开/切换的编排方法。
- */
 export function useSearchModelDropdownCoordinator(
     options: UseSearchModelDropdownCoordinatorOptions
 ) {
@@ -952,12 +668,15 @@ export function useSearchModelDropdownCoordinator(
         controller,
         modelOverride,
         modelDropdownState,
+        modelDropdownQuery,
         requestModelDropdownOpen,
         handleQuickSearchClosedForModelDropdown,
         handleLayoutStableForModelDropdown,
         handleModelDropdownOpened,
         handleModelDropdownClosed,
         syncOverlayState,
+        onPopupSessionStart,
+        onPopupSessionEnd,
     } = options;
 
     function getPopupData(): ModelDropdownData {
@@ -967,10 +686,11 @@ export function useSearchModelDropdownCoordinator(
             activeProviderId: context.activeProviderId,
             selectedModelId: context.selectedModelId ?? '',
             selectedProviderId: context.selectedProviderId,
-            searchQuery: context.searchQuery,
-            models: context.models
-                .filter((model) => model.provider_enabled === 1)
-                .map(mapPopupModel),
+            searchQuery: modelDropdownQuery.value,
+            models: filterModelDropdownItems(
+                context.models.filter((model) => model.provider_enabled === 1).map(mapPopupModel),
+                modelDropdownQuery.value
+            ),
         };
     }
 
@@ -980,17 +700,22 @@ export function useSearchModelDropdownCoordinator(
         isModelDropdownActive: () => modelDropdownState.value.isOpen,
         onModelSelect: async (modelDbId) => {
             modelOverride.value = await controller.selectModelFromDropdown(modelDbId);
-            await dropdownPopup.close();
+            await closeModelDropdown();
+        },
+        onModelSearchQueryChange: (query) => {
+            modelDropdownQuery.value = query;
         },
         onClose: () => {
-            controller.resetModelDropdownState();
+            modelDropdownState.value = {
+                isOpen: false,
+            };
+            modelDropdownQuery.value = '';
             handleModelDropdownClosed();
         },
+        onPopupSessionStart,
+        onPopupSessionEnd,
     });
 
-    /**
-     * 关闭 QuickSearch 后等待布局稳定，避免弹窗使用过期几何信息定位。
-     */
     async function waitForLayoutStable() {
         const el = pageContainer.value;
         if (!el) {
@@ -1019,11 +744,6 @@ export function useSearchModelDropdownCoordinator(
         }
     }
 
-    /**
-     * 按 overlay machine 给出的命令顺序执行模型下拉打开流程。
-     * 这里故意使用小步 command loop，让 coordinator 只负责状态判断，
-     * “何时关 QuickSearch / 何时等布局 / 何时开 dropdown”的决策仍由 machine 主导。
-     */
     async function runModelDropdownOpenSequence(initialCommand: SearchOverlayCommand) {
         let command = initialCommand;
 
@@ -1044,10 +764,21 @@ export function useSearchModelDropdownCoordinator(
             if (command === 'open-model-dropdown') {
                 try {
                     await controller.prepareModelDropdownOpen();
+                    modelDropdownQuery.value = '';
                     await dropdownPopup.open();
-                    handleModelDropdownOpened();
+                    modelDropdownState.value = {
+                        isOpen: dropdownPopup.isOpen.value,
+                    };
+                    if (dropdownPopup.isOpen.value) {
+                        handleModelDropdownOpened();
+                    } else {
+                        handleModelDropdownClosed();
+                    }
                 } catch (error) {
-                    controller.resetModelDropdownState();
+                    modelDropdownState.value = {
+                        isOpen: false,
+                    };
+                    modelDropdownQuery.value = '';
                     syncOverlayState();
                     console.error('[SearchView] Failed to open model dropdown popup:', error);
                 }
@@ -1056,7 +787,6 @@ export function useSearchModelDropdownCoordinator(
         }
     }
 
-    // 确保模型下拉在 QuickSearch 收敛与布局稳定之后再打开，避免定位使用过期尺寸。
     async function openModelDropdownWithLayoutSync() {
         const command = requestModelDropdownOpen();
         if (command === 'noop') {
@@ -1066,46 +796,61 @@ export function useSearchModelDropdownCoordinator(
         await runModelDropdownOpenSequence(command);
     }
 
-    /**
-     * 关闭模型下拉的页面级策略。
-     * 先关闭 popup，再回收模型搜索会话，避免领域状态与浮层可见性错位。
-     *
-     * @returns Promise<void>
-     */
     async function closeModelDropdown() {
         try {
             await dropdownPopup.close();
         } finally {
-            controller.resetModelDropdownState();
+            modelDropdownState.value = {
+                isOpen: false,
+            };
+            modelDropdownQuery.value = '';
             handleModelDropdownClosed();
         }
     }
 
-    /**
-     * 统一收敛页面中的 dropdown 状态。
-     *
-     * @returns Promise<void>
-     */
     async function hideAllDropdowns() {
         if (!modelDropdownState.value.isOpen) {
+            handleModelDropdownClosed();
             return;
         }
 
         await closeModelDropdown();
     }
 
-    // 将模型下拉开关集中到页面层，避免 SearchBar 与 QuickSearch 互相控制。
-    async function handleToggleModelDropdownRequest() {
-        if (modelDropdownState.value.isOpen) {
-            await closeModelDropdown();
+    async function refreshModelDropdownData() {
+        if (!modelDropdownState.value.isOpen) {
             return;
+        }
+
+        await dropdownPopup.updateData();
+    }
+
+    async function handleToggleModelDropdownRequest() {
+        if (modelDropdownState.value.isOpen && dropdownPopup.isOpen.value) {
+            if (dropdownPopup.isLiveSession()) {
+                await closeModelDropdown();
+                return;
+            }
+
+            modelDropdownState.value = {
+                isOpen: false,
+            };
+            modelDropdownQuery.value = '';
+            handleModelDropdownClosed();
+        }
+
+        if (modelDropdownState.value.isOpen && !dropdownPopup.isOpen.value) {
+            modelDropdownState.value = {
+                isOpen: false,
+            };
+            handleModelDropdownClosed();
         }
 
         await openModelDropdownWithLayoutSync();
     }
 
     watch(
-        () => [modelDropdownState.value.isOpen, modelDropdownState.value.query],
+        () => [modelDropdownState.value.isOpen, modelDropdownQuery.value],
         ([isOpen]) => {
             if (!isOpen) {
                 return;
@@ -1120,19 +865,23 @@ export function useSearchModelDropdownCoordinator(
         openModelDropdownWithLayoutSync,
         closeModelDropdown,
         hideAllDropdowns,
+        refreshModelDropdownData,
         handleToggleModelDropdownRequest,
     };
 }
 
 /**
- * 搜索页键盘与全局输入链路。
- * 负责页面级按键路由、主窗口空白点击收敛和 dropdown/QuickSearch 的键盘协调。
- *
- * @param options 页面状态与交互回调。
- * @returns void
+ * 搜索页全局 DOM 输入链路。
+ * 这里只做监听挂载和点击收敛，键盘语义解释由交互层提供。
  */
 export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
-    const { viewReady, modelDropdownState, sessionHistoryPopupOpen, hideAllPopups } = options;
+    const {
+        viewReady,
+        modelDropdownState,
+        sessionHistoryPopupOpen,
+        hideAllPopups,
+        hideSearchWindow,
+    } = options;
 
     const handleKeyDown = createSearchKeydownHandler(options);
 
@@ -1142,8 +891,6 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         }
 
         const target = event.target as HTMLElement | null;
-        // 允许弹窗触发器自己处理“点击开关”；否则 capture 阶段会先把 popup 关掉，
-        // 随后的 click 会立即按最新状态再打开一次，表现为“关掉后立刻又弹出来”。
         if (
             target?.closest('.logo-container') ||
             target?.closest('[data-history-trigger="true"]')
@@ -1169,7 +916,7 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         }
 
         if (event.target === document.body) {
-            void native.window.hideSearchWindow();
+            void hideSearchWindow();
         }
     }
 

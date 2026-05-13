@@ -120,7 +120,7 @@
 
 <style scoped>
     .tool-call-inline-section {
-        margin-top: 0.75rem;
+        margin-top: 0;
         font-size: 13px;
     }
 

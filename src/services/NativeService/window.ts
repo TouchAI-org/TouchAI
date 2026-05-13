@@ -1,6 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { PopupConfig, ResizeWindowHeightParams, ShowPopupWindowParams } from './types';
+import type {
+    HidePopupWindowParams,
+    PopupConfig,
+    ResizeWindowHeightParams,
+    ShowPopupWindowParams,
+} from './types';
 
 export const window = {
     hideSearchWindow(): Promise<void> {
@@ -15,10 +20,6 @@ export const window = {
         return invoke('close_tray_menu');
     },
 
-    isAppFocused(): Promise<boolean> {
-        return invoke<boolean>('is_app_focused');
-    },
-
     registerPopupConfigs(configs: PopupConfig[]): Promise<void> {
         return invoke('register_popup_configs', { configs });
     },
@@ -28,11 +29,15 @@ export const window = {
     },
 
     showPopupWindow(params: ShowPopupWindowParams): Promise<void> {
-        return invoke('show_popup_window', { ...params });
+        return invoke('show_popup_window', { params });
     },
 
-    hidePopupWindow(): Promise<void> {
-        return invoke('hide_popup_window');
+    hidePopupWindow(params: HidePopupWindowParams): Promise<void> {
+        return invoke('hide_popup_window', { params });
+    },
+
+    setSearchSurfaceHideOnAppBlur(shouldHide: boolean): Promise<void> {
+        return invoke('set_search_surface_hide_on_app_blur', { shouldHide });
     },
 
     resizeWindowHeight(params: ResizeWindowHeightParams): Promise<void> {

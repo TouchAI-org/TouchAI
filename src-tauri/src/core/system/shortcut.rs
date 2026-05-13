@@ -4,6 +4,7 @@
 //!
 //! 负责解析、注册和处理全局快捷键
 
+use log::warn;
 use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{
@@ -13,10 +14,31 @@ use tauri_plugin_global_shortcut::{
 static CURRENT_SHORTCUT: Mutex<Option<Shortcut>> = Mutex::new(None);
 static REGISTRATION_STATUS: Mutex<(bool, Option<String>)> = Mutex::new((false, None));
 
+/// 先异步跳出 WM_HOTKEY 回调栈，再把搜索窗口切换投递回 Tauri 主事件循环。
+fn schedule_search_window_toggle(app_handle: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let task_handle = app_handle.clone();
+        if let Err(error) = app_handle.run_on_main_thread(move || {
+            if let Err(error) = crate::core::window::show_search_window_from_shortcut(&task_handle)
+            {
+                warn!(
+                    "Failed to toggle search window from global shortcut: {}",
+                    error
+                );
+            }
+        }) {
+            warn!(
+                "Failed to queue global shortcut task on main thread: {}",
+                error
+            );
+        }
+    });
+}
+
 pub fn create_shortcut_handler() -> impl Fn(&AppHandle, &Shortcut, ShortcutEvent) {
-    move |app_handle, _received_shortcut, event| {
+    move |app_handle, _shortcut, event| {
         if event.state == ShortcutState::Pressed {
-            let _ = crate::core::window::show_search_window_from_shortcut(app_handle);
+            schedule_search_window_toggle(app_handle.clone());
         }
     }
 }

@@ -4,12 +4,7 @@
     import { useWindowResize } from '@composables/useWindowResize';
     import { AppEvent, eventService } from '@services/EventService';
     import { native } from '@services/NativeService';
-    import type {
-        PopupClosedPayload,
-        PopupDataPayload,
-        PopupKeydownPayload,
-        PopupType,
-    } from '@services/PopupService';
+    import type { PopupDataPayload, PopupKeydownPayload, PopupType } from '@services/PopupService';
     import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
@@ -20,6 +15,7 @@
 
     const popupType = ref<PopupType | null>(null);
     const popupId = ref<string | null>(null);
+    const popupSessionVersion = ref<number | null>(null);
     const popupData = shallowRef<unknown>(null);
     const componentRef = ref<{
         handleKeyDown?: (e: KeyboardEvent) => void;
@@ -27,6 +23,7 @@
     } | null>(null);
     const popupContainer = ref<HTMLElement | null>(null);
     const unlisteners: (() => void)[] = [];
+    const closedPopupIds = new Set<string>();
 
     const popupComponent = computed(() =>
         popupType.value ? popupRegistry.get(popupType.value)?.component : null
@@ -35,21 +32,44 @@
         return {
             data: popupData.value,
             isInPopup: true,
+            popupIdentity:
+                popupId.value && popupSessionVersion.value !== null
+                    ? {
+                          popupId: popupId.value,
+                          windowLabel: getCurrentWindow().label,
+                          popupSessionVersion: popupSessionVersion.value,
+                      }
+                    : null,
         };
     });
 
+    /**
+     * 请求 Rust 关闭当前 popup 窗口。
+     */
     async function close() {
         const currentPopupId = popupId.value;
-        const currentType = popupType.value;
-        if (currentPopupId && currentType) {
-            await eventService.emit(AppEvent.POPUP_CLOSED, {
-                popupId: currentPopupId,
-                type: currentType,
-                windowLabel: getCurrentWindow().label,
-            } satisfies PopupClosedPayload);
-        }
+        const currentPopupSessionVersion = popupSessionVersion.value;
+        const currentWindowLabel = getCurrentWindow().label;
 
-        await getCurrentWindow().hide();
+        popupId.value = null;
+        popupSessionVersion.value = null;
+        popupData.value = null;
+        resetMeasuredHeight();
+
+        if (currentPopupId && currentPopupSessionVersion !== null) {
+            await native.window
+                .hidePopupWindow({
+                    popupId: currentPopupId,
+                    windowLabel: currentWindowLabel,
+                    popupSessionVersion: currentPopupSessionVersion,
+                })
+                .catch((error: unknown) => {
+                    console.error(
+                        '[PopupView] Failed to hide popup window via native manager:',
+                        error
+                    );
+                });
+        }
     }
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -70,8 +90,7 @@
     popupType.value = type;
 
     const config = type ? popupRegistry.get(type) : null;
-    const shouldReturnFocusToMainWindow = config?.returnFocusToMainWindowOnFocus !== false;
-    const { invalidate, cancelScheduledWindowShow } = useWindowResize({
+    const { resetMeasuredHeight } = useWindowResize({
         target: popupContainer,
         maxHeight: config?.height,
         minHeight: config?.minHeight,
@@ -80,23 +99,46 @@
     onMounted(async () => {
         const currentLabel = getCurrentWindow().label;
 
+        /**
+         * 判断 payload 是否仍然对应当前 popup 会话。
+         */
+        function isCurrentPayloadSession(payload: PopupDataPayload) {
+            return (
+                popupId.value === payload.popupId &&
+                popupSessionVersion.value === payload.popupSessionVersion &&
+                popupType.value === payload.type
+            );
+        }
+
         // 监听数据更新 - 直接透传，不关心具体结构
         unlisteners.push(
             await eventService.on(AppEvent.POPUP_DATA, async (payload: PopupDataPayload) => {
                 if (payload.windowLabel !== currentLabel) return;
 
+                if (closedPopupIds.has(payload.popupId)) {
+                    return;
+                }
+
+                if (!payload.isShow && popupId.value !== payload.popupId) {
+                    return;
+                }
+
                 popupId.value = payload.popupId;
+                popupSessionVersion.value = payload.popupSessionVersion;
                 popupType.value = payload.type;
                 popupData.value = payload.data;
-                // 仅在弹窗首次展示（isShow）时 invalidate，触发 resize → show 流程。
-                // 纯数据更新（如搜索过滤）由 ResizeObserver 自行处理高度变化，
-                // 避免 popup-data 与 popup-closed 竞态把已关闭弹窗再次拉起。
+                // 原生窗口已由 PopupManager.show() 显示；PopupView 只在首次数据到达后接管焦点与初始选中态。
                 if (payload.isShow) {
-                    await invalidate();
-                    if (!shouldReturnFocusToMainWindow) {
-                        await getCurrentWindow().setFocus();
-                    }
                     await nextTick();
+                    if (!isCurrentPayloadSession(payload)) {
+                        return;
+                    }
+
+                    await getCurrentWindow().setFocus();
+                    await nextTick();
+                    if (!isCurrentPayloadSession(payload)) {
+                        return;
+                    }
                     componentRef.value?.handlePopupShown?.();
                 }
             })
@@ -108,10 +150,12 @@
 
         // 监听关闭事件：终止当前 pendingShow 流程，避免关闭后再次执行 show。
         unlisteners.push(
-            await eventService.on(AppEvent.POPUP_CLOSED, (payload: PopupClosedPayload) => {
+            await eventService.on(AppEvent.POPUP_CLOSED, (payload) => {
                 if (payload.windowLabel !== currentLabel) {
                     return;
                 }
+
+                closedPopupIds.add(payload.popupId);
 
                 if (popupId.value && payload.popupId !== popupId.value) {
                     return;
@@ -119,31 +163,10 @@
 
                 if (payload.popupId === popupId.value) {
                     popupId.value = null;
+                    popupSessionVersion.value = null;
+                    popupData.value = null;
                 }
-                cancelScheduledWindowShow();
-            })
-        );
-
-        // 焦点返回主窗口
-        unlisteners.push(
-            await getCurrentWindow().listen('tauri://focus', () => {
-                if (!shouldReturnFocusToMainWindow) {
-                    return;
-                }
-                void eventService.emit(AppEvent.POPUP_FOCUS_MAIN, {});
-            })
-        );
-
-        unlisteners.push(
-            await getCurrentWindow().listen('tauri://blur', async () => {
-                try {
-                    const appFocused = await native.window.isAppFocused();
-                    if (!appFocused) {
-                        await close();
-                    }
-                } catch (error) {
-                    console.error('[PopupView] Failed to close popup on blur:', error);
-                }
+                resetMeasuredHeight();
             })
         );
 

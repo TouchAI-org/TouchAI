@@ -6,6 +6,7 @@ import {
 } from '@/services/AgentService/infrastructure/attachments';
 
 import type { TaskExecutionMode } from '../task/types';
+import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from './builtin';
 import type { PromptAssembly, PromptFragment, PromptFragmentSource, PromptSnapshot } from './types';
 
 const TOOL_DISCIPLINE_SYSTEM_PROMPT = [
@@ -81,7 +82,7 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
     const executionMode = options.executionMode ?? 'foreground';
     const fragmentsBySource: Record<PromptFragmentSource, PromptFragment[]> = {
         override: buildFragments('override', options.override ?? []),
-        platform: buildFragments('platform', options.platform ?? []),
+        platform: buildFragments('platform', options.platform ?? [TOUCHAI_BUILTIN_SYSTEM_PROMPT]),
         policy: buildFragments('policy', options.policy ?? [TOOL_DISCIPLINE_SYSTEM_PROMPT]),
         agent_profile: buildFragments('agent_profile', options.agentProfile ?? []),
         session_memory: buildFragments('session_memory', options.sessionMemory ?? []),

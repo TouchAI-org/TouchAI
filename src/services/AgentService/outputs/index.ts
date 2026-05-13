@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { sendNotification } from '@tauri-apps/plugin-notification';
+import { notify } from '@services/NotificationService';
 
 import type { RuntimePersistenceIssue } from '../execution';
 
@@ -12,7 +12,7 @@ import type { RuntimePersistenceIssue } from '../execution';
  */
 export async function reportRuntimePersistenceIssue(issue: RuntimePersistenceIssue): Promise<void> {
     try {
-        await sendNotification({
+        notify({
             title: issue.title,
             body: issue.body,
         });

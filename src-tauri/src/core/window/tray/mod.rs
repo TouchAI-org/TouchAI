@@ -58,7 +58,7 @@ pub fn preload_tray_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
         return Ok(());
     }
 
-    let _window = WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         app,
         "tray-menu",
         WebviewUrl::App("/tray-menu".parse().unwrap()),
@@ -72,6 +72,9 @@ pub fn preload_tray_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
     .visible(false)
     .focused(false)
     .build()?;
+
+    crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)
+        .map_err(std::io::Error::other)?;
 
     Ok(())
 }

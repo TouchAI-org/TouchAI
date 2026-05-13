@@ -1,7 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <div class="mb-4 flex justify-end">
+    <div class="mb-4 flex flex-col items-end">
         <div class="bg-primary-100 max-w-[80%] rounded-lg px-4 py-2 break-words">
             <div class="text-[15px] leading-[1.6]">
                 <div class="user-text whitespace-pre-wrap text-gray-900 select-text">
@@ -37,24 +37,47 @@
                 </div>
             </div>
         </div>
+
+        <!-- 复制按钮 - 气泡外部右下角 -->
+        <div v-if="message.content" class="mt-1">
+            <ActionButton icon="copy" :handler="handleCopy" aria-label="Copy message" />
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
+    import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
+    import { notify } from '@services/NotificationService';
 
+    import { clipboardService } from '@/services/ClipboardService';
     import type { SessionMessage } from '@/types/session';
 
     interface Props {
         message: SessionMessage;
     }
 
-    defineProps<Props>();
+    const props = defineProps<Props>();
+
+    async function handleCopy() {
+        try {
+            await clipboardService.writeText(props.message.content);
+            notify({ title: 'TouchAI', body: '已复制到剪贴板' });
+        } catch (error) {
+            console.error('[UserMessage] Failed to copy:', error);
+            notify({ title: 'TouchAI', body: '复制失败' });
+        }
+    }
 </script>
 
 <style scoped>
     .user-text {
         font-family:
             'Source Han Serif CN', 'Noto Serif SC', 'Source Han Serif', 'Noto Serif CJK SC', serif;
+    }
+
+    .user-text::selection {
+        background-color: var(--color-primary-200);
+        color: inherit;
     }
 </style>

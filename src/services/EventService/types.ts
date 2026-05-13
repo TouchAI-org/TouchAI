@@ -3,8 +3,8 @@
 import type {
     PopupClosedPayload,
     PopupDataPayload,
-    PopupFocusMainPayload,
     PopupKeydownPayload,
+    PopupModelSearchQueryChangePayload,
     PopupModelSelectPayload,
     PopupReadyPayload,
     PopupSessionOpenPayload,
@@ -44,9 +44,12 @@ export enum AppEvent {
     POPUP_CLOSED = 'popup-closed',
     POPUP_KEYDOWN = 'popup-keydown',
     POPUP_MODEL_SELECT = 'popup-model-select',
+    POPUP_MODEL_SEARCH_QUERY_CHANGE = 'popup-model-search-query-change',
     POPUP_SESSION_OPEN = 'popup-session-history-open-session',
     POPUP_SESSION_SEARCH_QUERY_CHANGE = 'popup-session-history-search-query-change',
-    POPUP_FOCUS_MAIN = 'popup-focus-main',
+    SEARCH_SURFACE_SHOWN = 'search-surface-shown',
+    SEARCH_SURFACE_HIDDEN = 'search-surface-hidden',
+    SEARCH_SURFACE_COMMAND = 'search-surface-command',
     SESSION_TASK_STATUS_CHANGED = 'session:task:status-changed',
 }
 
@@ -92,6 +95,21 @@ export interface WindowResizeEvent {
     height: number;
 }
 
+export interface SearchSurfaceShownEvent {
+    source: 'shortcut';
+    sequence?: number;
+}
+
+export interface SearchSurfaceHiddenEvent {
+    reason: 'app-blur-hide' | 'manual-dismiss' | 'policy-toggle-hide';
+    sequence?: number;
+}
+
+export interface SearchSurfaceCommandEvent {
+    command: 'toggle-model-dropdown';
+    source: 'webview2-accelerator';
+}
+
 // ==================== 资源事件 ====================
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -132,9 +150,12 @@ export interface AppEventMap {
     [AppEvent.POPUP_CLOSED]: PopupClosedPayload;
     [AppEvent.POPUP_KEYDOWN]: PopupKeydownPayload;
     [AppEvent.POPUP_MODEL_SELECT]: PopupModelSelectPayload;
+    [AppEvent.POPUP_MODEL_SEARCH_QUERY_CHANGE]: PopupModelSearchQueryChangePayload;
     [AppEvent.POPUP_SESSION_OPEN]: PopupSessionOpenPayload;
     [AppEvent.POPUP_SESSION_SEARCH_QUERY_CHANGE]: PopupSessionSearchQueryChangePayload;
-    [AppEvent.POPUP_FOCUS_MAIN]: PopupFocusMainPayload;
+    [AppEvent.SEARCH_SURFACE_SHOWN]: SearchSurfaceShownEvent;
+    [AppEvent.SEARCH_SURFACE_HIDDEN]: SearchSurfaceHiddenEvent;
+    [AppEvent.SEARCH_SURFACE_COMMAND]: SearchSurfaceCommandEvent;
     [AppEvent.SESSION_TASK_STATUS_CHANGED]: SessionTaskStatusChangedEvent;
 }
 

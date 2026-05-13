@@ -5,6 +5,8 @@ import {
 } from '@services/PopupService';
 import { onMounted, onUnmounted, ref } from 'vue';
 
+import type { SearchPopupSessionIdentity } from './searchInteraction';
+
 interface UseSessionHistoryPopupOptions {
     getAnchorElement: () => HTMLElement | null;
     getPopupData: () => SessionHistoryData;
@@ -12,6 +14,30 @@ interface UseSessionHistoryPopupOptions {
     onSessionOpen: (sessionId: number) => Promise<void> | void;
     onSessionSearchQueryChange: (query: string) => Promise<void> | void;
     onClose: () => Promise<void> | void;
+    onPopupSessionStart?: (identity: SearchPopupSessionIdentity) => void;
+    onPopupSessionEnd?: () => void;
+}
+
+/**
+ * 从 popupId 中解析 popup session version。
+ */
+function parsePopupSessionVersion(popupId: string) {
+    const segments = popupId.split(':');
+    const value = Number(segments[segments.length - 1] ?? '');
+    return Number.isFinite(value) ? value : 0;
+}
+/**
+ * 判断指定历史会话 popup 会话是否仍然是 popupManager 当前会话。
+ */
+function isLiveSessionHistoryPopupSession(identity: SearchPopupSessionIdentity) {
+    const state = popupManager.state;
+    return (
+        state.isOpen === true &&
+        state.currentType === 'session-history-popup' &&
+        state.currentPopupId === identity.popupId &&
+        state.currentWindowLabel === identity.windowLabel &&
+        state.currentPopupSessionVersion === identity.popupSessionVersion
+    );
 }
 
 /**
@@ -29,6 +55,8 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
         onSessionOpen,
         onSessionSearchQueryChange,
         onClose,
+        onPopupSessionStart,
+        onPopupSessionEnd,
     } = options;
 
     let cleanupFn: (() => void) | null = null;
@@ -49,14 +77,34 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
         }
 
         try {
-            const popupId = await popupManager.toggle(
+            const popupId = await popupManager.show(
                 'session-history-popup',
                 anchorElement,
                 getPopupData()
             );
-            activePopupId = popupId;
-            hasActivePopupSession = Boolean(popupId);
-            isOpen.value = Boolean(popupId);
+            const identity = popupId
+                ? {
+                      popupId,
+                      windowLabel: 'popup-session-history-popup',
+                      popupSessionVersion: parsePopupSessionVersion(popupId),
+                  }
+                : null;
+            const isLivePopupSession = identity
+                ? isLiveSessionHistoryPopupSession(identity)
+                : false;
+
+            if (!identity || !isLivePopupSession) {
+                activePopupId = null;
+                hasActivePopupSession = false;
+                isOpen.value = false;
+                onPopupSessionEnd?.();
+                return;
+            }
+
+            activePopupId = identity.popupId;
+            hasActivePopupSession = true;
+            isOpen.value = true;
+            onPopupSessionStart?.(identity);
         } catch (error) {
             activePopupId = null;
             hasActivePopupSession = false;
@@ -75,10 +123,22 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
             return;
         }
 
-        await popupManager.hide();
+        const closingIdentity =
+            activePopupId !== null
+                ? {
+                      popupId: activePopupId,
+                      windowLabel: 'popup-session-history-popup',
+                      popupSessionVersion: parsePopupSessionVersion(activePopupId),
+                  }
+                : null;
         activePopupId = null;
         hasActivePopupSession = false;
         isOpen.value = false;
+        onPopupSessionEnd?.();
+
+        if (closingIdentity) {
+            await popupManager.hide(closingIdentity);
+        }
     }
 
     /**
@@ -125,6 +185,7 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
                     activePopupId = null;
                     hasActivePopupSession = false;
                     isOpen.value = false;
+                    onPopupSessionEnd?.();
 
                     if (!isSessionHistoryActive()) {
                         return;
@@ -154,6 +215,7 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
         activePopupId = null;
         hasActivePopupSession = false;
         isOpen.value = false;
+        onPopupSessionEnd?.();
         cleanupFn?.();
         cleanupFn = null;
 

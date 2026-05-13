@@ -48,7 +48,7 @@ const ModelTagNode = createSearchTagNode({
             [
                 'span',
                 { class: 'search-tag-label search-tag-label--model' },
-                `@${HTMLAttributes.modelName || ''}`,
+                HTMLAttributes.modelName || '',
             ],
             createTagCloseButton('model'),
         ];

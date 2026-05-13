@@ -154,7 +154,11 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { AppEvent, eventService } from '@services/EventService';
-    import type { SessionHistoryData, SessionHistorySessionItem } from '@services/PopupService';
+    import type {
+        PopupSessionIdentity,
+        SessionHistoryData,
+        SessionHistorySessionItem,
+    } from '@services/PopupService';
     import type { ComponentPublicInstance } from 'vue';
     import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
@@ -165,7 +169,13 @@
     interface Props {
         data: SessionHistoryData | null;
         isInPopup?: boolean;
+        popupIdentity?: PopupSessionIdentity | null;
     }
+
+    const props = withDefaults(defineProps<Props>(), {
+        isInPopup: false,
+        popupIdentity: null,
+    });
 
     interface SessionGroup {
         label: string;
@@ -187,10 +197,6 @@
         sessionId: number;
         offset: number;
     }
-
-    const props = withDefaults(defineProps<Props>(), {
-        isInPopup: false,
-    });
 
     const emit = defineEmits<{
         close: [];
@@ -321,7 +327,11 @@
     function handleSearchInput(event: Event) {
         const target = event.target as HTMLInputElement;
         localSearchQuery.value = target.value;
+        if (!props.popupIdentity) {
+            return;
+        }
         void eventService.emit(AppEvent.POPUP_SESSION_SEARCH_QUERY_CHANGE, {
+            ...props.popupIdentity,
             query: target.value,
         });
     }
@@ -336,7 +346,14 @@
     }
 
     async function handleOpenSession(sessionId: number) {
-        await eventService.emit(AppEvent.POPUP_SESSION_OPEN, { sessionId });
+        if (!props.popupIdentity) {
+            return;
+        }
+
+        await eventService.emit(AppEvent.POPUP_SESSION_OPEN, {
+            ...props.popupIdentity,
+            sessionId,
+        });
         emit('close');
     }
 

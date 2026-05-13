@@ -277,6 +277,16 @@
         lastScrollTop.value = conversationContainer.value.scrollTop;
     }
 
+    function smoothScrollToBottom() {
+        if (!conversationContainer.value) return;
+        lastAutoScrollAt.value = Date.now();
+        conversationContainer.value.scrollTo({
+            top: conversationContainer.value.scrollHeight,
+            behavior: 'smooth',
+        });
+        lastScrollTop.value = conversationContainer.value.scrollTop;
+    }
+
     /**
      * 统一按当前位置刷新“跳到底部”按钮，避免时间轴跳转和消息追加各自维护一套显示条件。
      */
@@ -335,7 +345,7 @@
 
     // 滚动到底部
     function scrollToBottom() {
-        syncToBottom();
+        smoothScrollToBottom();
         isAutoScrollEnabled.value = outputScrollBehavior.value === 'follow_output';
         showScrollToBottom.value = false;
     }

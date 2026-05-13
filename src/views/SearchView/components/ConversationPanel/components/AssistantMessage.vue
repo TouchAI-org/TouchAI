@@ -51,27 +51,33 @@
                         </div>
                     </div>
 
-                    <template v-for="part in renderedParts" :key="part.id">
-                        <MarkdownContent
-                            v-if="part.type === 'text'"
-                            :content="part.content"
-                            :final="!message.isStreaming"
-                        />
-                        <ToolCallItem
-                            v-else-if="part.type === 'tool_call'"
-                            :tool-call="part.toolCall"
-                        />
-                        <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
-                        <ToolApprovalCard
-                            v-else-if="part.type === 'approval'"
-                            :approval="part.approval"
-                            :attention-token="
-                                part.approval.status === 'pending' ? approvalAttentionToken : 0
-                            "
-                            @approve="handleApprove"
-                            @reject="handleReject"
-                        />
-                    </template>
+                    <div v-if="renderedParts.length > 0" class="assistant-message-parts">
+                        <div
+                            v-for="part in renderedParts"
+                            :key="part.id"
+                            class="assistant-message-part"
+                        >
+                            <MarkdownContent
+                                v-if="part.type === 'text'"
+                                :content="part.content"
+                                :final="!message.isStreaming"
+                            />
+                            <ToolCallItem
+                                v-else-if="part.type === 'tool_call'"
+                                :tool-call="part.toolCall"
+                            />
+                            <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
+                            <ToolApprovalCard
+                                v-else-if="part.type === 'approval'"
+                                :approval="part.approval"
+                                :attention-token="
+                                    part.approval.status === 'pending' ? approvalAttentionToken : 0
+                                "
+                                @approve="handleApprove"
+                                @reject="handleReject"
+                            />
+                        </div>
+                    </div>
 
                     <div
                         v-if="message.statusText"
@@ -92,20 +98,12 @@
                 </template>
 
                 <div v-if="showMessageActions" class="mt-3 flex items-center gap-1">
-                    <button
-                        class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                        aria-label="Copy message"
-                        @click.stop="handleCopy"
-                    >
-                        <AppIcon name="copy" class="h-4 w-4" />
-                    </button>
-                    <button
-                        class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                    <ActionButton icon="copy" :handler="handleCopy" aria-label="Copy message" />
+                    <ActionButton
+                        icon="refresh"
+                        :handler="handleRegenerate"
                         aria-label="Regenerate response"
-                        @click.stop="handleRegenerate"
-                    >
-                        <AppIcon name="refresh" class="h-4 w-4" />
-                    </button>
+                    />
                 </div>
             </div>
         </div>
@@ -113,10 +111,12 @@
 </template>
 
 <script setup lang="ts">
+    import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { sendNotification } from '@tauri-apps/plugin-notification';
     import { computed, onUnmounted, ref, watch } from 'vue';
+    import { notify } from '@services/NotificationService';
 
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
@@ -330,22 +330,13 @@
         }
     );
 
-    // 复制消息内容
     async function handleCopy() {
         try {
             await clipboardService.writeText(props.message.content);
-            // 显示复制成功提示
-            sendNotification({
-                title: 'TouchAI',
-                body: '已复制到剪贴板',
-            });
+            notify({ title: 'TouchAI', body: '已复制到剪贴板' });
         } catch (error) {
-            console.error('[AssistantMessage] Failed to copy message:', error);
-            // 显示复制失败提示
-            sendNotification({
-                title: 'TouchAI',
-                body: '复制失败',
-            });
+            console.error('[AssistantMessage] Failed to copy:', error);
+            notify({ title: 'TouchAI', body: '复制失败' });
         }
     }
 
@@ -363,6 +354,15 @@
 </script>
 
 <style scoped>
+    .assistant-message-parts {
+        display: grid;
+        gap: 0.72rem;
+    }
+
+    .assistant-message-part {
+        min-width: 0;
+    }
+
     /* reasoning 样式 */
     .reasoning-content {
         font-family:

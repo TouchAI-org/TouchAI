@@ -2,12 +2,12 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { useSessionStatus } from '@composables/useSessionStatus';
+    import { notify } from '@services/NotificationService';
     import {
         popupManager as popupService,
         type SessionHistoryData,
         type SessionHistorySessionItem,
     } from '@services/PopupService';
-    import { sendNotification } from '@tauri-apps/plugin-notification';
     import { nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
@@ -20,20 +20,22 @@
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
     import SearchBar from './components/SearchBar/index.vue';
     import {
+        createPopupSurfaceCoordinator,
+        createSearchEntryPolicy,
+        createSearchInteractionContext,
         useQuickSearchCoordinator,
-        useSearchAttachments,
-        useSearchDraftController,
-    } from './composables/useSearchInput';
+        useSearchOverlayMachine,
+    } from './composables/searchInteraction';
+    import { useSearchAttachments, useSearchDraftController } from './composables/useSearchInput';
     import {
         useSearchKeyboard,
         useSearchModelDropdownCoordinator,
-        useSearchOverlayMachine,
         useSearchPageController,
         useSearchPageLifecycle,
         useSearchPanelFocusRestore,
+        useSearchWindowPin,
     } from './composables/useSearchPage';
     import { useSearchRequestFlow } from './composables/useSearchRequest';
-    import { useSearchWindowPin } from './composables/useSearchWindowPin';
     import { useSessionHistoryPopup } from './composables/useSessionHistoryPopup';
     import type {
         ConversationPanelHandle,
@@ -69,8 +71,8 @@
     });
     const modelDropdownState = ref<SearchModelDropdownState>({
         isOpen: false,
-        query: '',
     });
+    const modelDropdownQuery = ref('');
     const quickSearchOpen = ref(false);
     const quickSearchPanel = ref<QuickSearchHandle>();
     const conversationPanel = ref<ConversationPanelHandle>();
@@ -86,6 +88,23 @@
         sendPrompt?: (text: string) => void;
         openLink?: (url: string) => void;
     };
+    const searchInteractionContext = createSearchInteractionContext();
+    const searchEntryPolicy = createSearchEntryPolicy();
+    const popupSurfaceCoordinator = createPopupSurfaceCoordinator(searchInteractionContext);
+
+    /**
+     * 判断交互上下文里的 popup 会话是否仍然对应 popupManager 当前会话。
+     */
+    function isLiveActivePopupSession() {
+        const activeIdentity = searchInteractionContext.state.activePopupIdentity;
+        return (
+            popupService.state.isOpen === true &&
+            activeIdentity !== null &&
+            popupService.state.currentPopupId === activeIdentity.popupId &&
+            popupService.state.currentWindowLabel === activeIdentity.windowLabel &&
+            popupService.state.currentPopupSessionVersion === activeIdentity.popupSessionVersion
+        );
+    }
 
     const controller = useSearchPageController({
         searchBar,
@@ -171,17 +190,6 @@
         modelDropdownState,
     });
 
-    useSearchPageLifecycle({
-        pageContainer,
-        controller,
-        viewReady,
-        isDragging,
-        isPinned,
-        syncWindowPinState,
-        clearSession,
-        handleShortcutAutoPaste: tryShortcutAutoPaste,
-    });
-
     function isDisplayableSessionStatus(
         status: SessionTaskStatus | null | undefined
     ): status is SessionHistorySessionItem['displayStatus'] {
@@ -210,21 +218,63 @@
     }
 
     const {
-        openModelDropdownWithLayoutSync,
         closeModelDropdown,
         hideAllDropdowns,
+        refreshModelDropdownData,
         handleToggleModelDropdownRequest: handleToggleModelDropdownRequestBase,
     } = useSearchModelDropdownCoordinator({
         pageContainer,
         controller,
         modelOverride,
         modelDropdownState,
+        modelDropdownQuery,
         requestModelDropdownOpen,
         handleQuickSearchClosedForModelDropdown,
         handleLayoutStableForModelDropdown,
         handleModelDropdownOpened,
         handleModelDropdownClosed,
         syncOverlayState,
+        onPopupSessionStart: (identity) => {
+            popupSurfaceCoordinator.activatePopup({
+                ...identity,
+                popupType: 'model-dropdown-surface',
+            });
+        },
+        onPopupSessionEnd: () => {
+            popupSurfaceCoordinator.clearActivePopup();
+        },
+    });
+
+    async function handleAiModelsUpdated() {
+        controller.invalidateModelDropdownData();
+        await controller.loadActiveModel();
+
+        if (!modelDropdownState.value.isOpen) {
+            return;
+        }
+
+        await controller.prefetchModelDropdownData();
+        await refreshModelDropdownData();
+    }
+
+    const { hideSearchWindow } = useSearchPageLifecycle({
+        pageContainer,
+        controller,
+        viewReady,
+        isDragging,
+        isPinned,
+        interactionContext: searchInteractionContext,
+        syncWindowPinState,
+        clearSession,
+        reconcilePopupSurfaces: hideAllPopups,
+        onSurfaceHidden: clearSurfaceUiAfterHidden,
+        handleSearchSurfaceCommand: async (payload) => {
+            if (payload.command === 'toggle-model-dropdown') {
+                await handleToggleModelDropdownRequest();
+            }
+        },
+        handleAiModelsUpdated,
+        handleShortcutAutoPaste: tryShortcutAutoPaste,
     });
 
     function getSessionHistoryPopupData(): SessionHistoryData {
@@ -250,6 +300,15 @@
         onSessionOpen: handleOpenSession,
         onSessionSearchQueryChange: handleSessionSearchQueryChange,
         onClose: () => setSessionHistoryPopupOpen(false),
+        onPopupSessionStart: (identity) => {
+            popupSurfaceCoordinator.activatePopup({
+                ...identity,
+                popupType: 'session-history-surface',
+            });
+        },
+        onPopupSessionEnd: () => {
+            popupSurfaceCoordinator.clearActivePopup();
+        },
     });
 
     useSearchKeyboard({
@@ -267,12 +326,16 @@
         approvePendingToolApproval,
         rejectPendingToolApproval,
         promptPendingToolApprovalAttention,
+        getActivePopupType: () =>
+            isLiveActivePopupSession() ? searchInteractionContext.state.activePopupType : null,
+        hasActivePopupWindowFocus: () => isLiveActivePopupSession(),
         isQuickSearchOpen,
         shouldTriggerQuickSearch,
         sessionHistoryPopupOpen,
         hideAllPopups,
+        hideSearchWindow,
         closeModelDropdown,
-        openModelDropdown,
+        toggleModelDropdown: handleToggleModelDropdownRequest,
         openHistoryDialog,
         startNewSession: handleStartNewSession,
         toggleWindowPin: handleToggleWindowPin,
@@ -294,10 +357,6 @@
         draft.modelOverride = nextModelOverride;
     }
 
-    function handleModelDropdownStateChange(state: SearchModelDropdownState) {
-        modelDropdownState.value = state;
-    }
-
     function handleAttachmentRemoveRequest(id: string) {
         removeAttachment(id);
     }
@@ -311,7 +370,7 @@
             await setWindowPinned(value);
         } catch (error) {
             console.error('[SearchView] Failed to update window pin state:', error);
-            await sendNotification({
+            await notify({
                 title: 'TouchAI - 置顶切换失败',
                 body: '窗口置顶状态更新失败，请稍后重试',
             });
@@ -333,7 +392,6 @@
             return;
         }
 
-        // capture 层接管 paste，阻止 Tiptap 和页面同时处理同一次粘贴导致文本重复。
         event.preventDefault();
         event.stopPropagation();
         void handlePaste();
@@ -343,25 +401,48 @@
      * 在快捷键唤起窗口后尝试 auto-paste。
      */
     async function tryShortcutAutoPaste() {
-        //1. 只有空白草稿/空会话才 auto-paste，避免覆盖用户已经建立的上下文。
+        const visibilityEpoch = searchInteractionContext.state.visibilityEpoch;
+
         if (
-            !canAutoPasteIntoDraft({
-                queryText: queryText.value,
-                attachmentCount: attachments.value.length,
-                sessionMessageCount: sessionHistory.value.length,
-                hasModelOverride: Boolean(modelOverride.value.modelId),
+            !searchEntryPolicy.shouldCheckShortcutEntry({
+                activationSource: searchInteractionContext.state.activationSource,
+                visibilityEpoch,
+                entryCheckArmedVisibilityEpoch:
+                    searchInteractionContext.state.entryCheckArmedVisibilityEpoch,
+                lastEntryCheckedVisibilityEpoch:
+                    searchInteractionContext.state.lastEntryCheckedVisibilityEpoch,
             })
         ) {
             return;
         }
 
-        //2. native 消费成功才投影，并且 auto-paste 路径统一裁掉首尾空白。
-        const payload = await clipboardService.consumeShortcutAutoPastePayload(3000);
-        if (!payload) {
-            return;
-        }
+        try {
+            if (
+                !canAutoPasteIntoDraft({
+                    queryText: queryText.value,
+                    attachmentCount: attachments.value.length,
+                    sessionMessageCount: sessionHistory.value.length,
+                    hasModelOverride: Boolean(modelOverride.value.modelId),
+                })
+            ) {
+                return;
+            }
 
-        await importClipboardPayload(payload, { trimTextBoundary: true });
+            const payload = await clipboardService.consumeShortcutAutoPastePayload(3000);
+            if (!payload) {
+                return;
+            }
+
+            if (!searchEntryPolicy.shouldConsumeSnapshot(payload.snapshotId)) {
+                return;
+            }
+
+            searchEntryPolicy.markSnapshotConsumed(payload.snapshotId);
+
+            await importClipboardPayload(payload, { trimTextBoundary: true });
+        } finally {
+            searchInteractionContext.markEntryChecked(visibilityEpoch);
+        }
     }
 
     async function closeSessionHistoryPopup() {
@@ -377,9 +458,13 @@
         await hideAllDropdowns();
     }
 
-    async function openModelDropdown() {
-        await closeSessionHistoryPopup();
-        await openModelDropdownWithLayoutSync();
+    async function clearSurfaceUiAfterHidden() {
+        await setSessionHistoryPopupOpen(false);
+        modelDropdownState.value = {
+            isOpen: false,
+        };
+        modelDropdownQuery.value = '';
+        handleModelDropdownClosed();
     }
 
     async function handleToggleModelDropdownRequest() {
@@ -388,7 +473,6 @@
     }
 
     async function openHistoryDialog() {
-        // 如果历史弹窗已经打开，则关闭它
         if (
             sessionHistoryPopupOpen.value ||
             (popupService.state.isOpen &&
@@ -485,7 +569,7 @@
             await toggleWindowPin();
         } catch (error) {
             console.error('[SearchView] Failed to toggle window pin state:', error);
-            await sendNotification({
+            await notify({
                 title: 'TouchAI - 置顶切换失败',
                 body: '窗口置顶状态更新失败，请稍后重试',
             });
@@ -506,7 +590,6 @@
             const isMissingSession =
                 error instanceof Error && /not found|不存在/i.test(error.message);
 
-            // 会话列表和数据库可能短暂不同步；若目标会话已不存在，先刷新列表再提示用户。
             if (isMissingSession) {
                 void refreshSessionList().catch((refreshError) => {
                     console.error(
@@ -516,7 +599,7 @@
                 });
             }
 
-            await sendNotification({
+            await notify({
                 title: 'TouchAI - 打开会话失败',
                 body: isMissingSession
                     ? '该会话不存在，历史列表已刷新'
@@ -550,10 +633,6 @@
         window.open(normalizedUrl, '_blank');
     }
 
-    /**
-     * 请求运行或等待审批时，搜索框会被禁用并主动 blur。
-     * 这里把焦点接力给 SearchView 内部宿主，避免 Esc 落到浏览器默认行为上。
-     */
     async function focusSearchKeyboardHost() {
         await nextTick();
 
@@ -707,7 +786,6 @@
                 @model-change="handleModelChange"
                 @cursor-context-change="handleCursorContextChange"
                 @model-override-change="handleModelOverrideChange"
-                @model-dropdown-state-change="handleModelDropdownStateChange"
                 @request-prefetch-model-dropdown="handleModelDropdownPrefetch"
                 @request-toggle-model-dropdown="handleToggleModelDropdownRequest"
                 @drag-start="isDragging = true"

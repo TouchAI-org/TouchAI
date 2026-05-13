@@ -31,6 +31,15 @@ export interface ShowPopupWindowParams {
     width: number;
     height: number;
     popupType: string;
+    popupId: string;
+    windowLabel: string;
+    popupSessionVersion: number;
+}
+
+export interface HidePopupWindowParams {
+    popupId: string;
+    windowLabel: string;
+    popupSessionVersion: number;
 }
 
 export interface ResizeWindowHeightParams {

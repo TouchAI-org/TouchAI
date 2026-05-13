@@ -2,7 +2,7 @@
 
 import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
 import { MetaKey } from '@database/schema';
-import { sendNotification } from '@tauri-apps/plugin-notification';
+import { notify } from '@services/NotificationService';
 
 interface StartupTask {
     key: MetaKey;
@@ -17,7 +17,7 @@ interface StartupTask {
 const tasks: StartupTask[] = [
     {
         key: MetaKey.IMPORT_SUCCESS,
-        handler: (message) => sendNotification({ title: 'TouchAI', body: message }),
+        handler: (message) => notify({ title: 'TouchAI', body: message }),
     },
 ];
 

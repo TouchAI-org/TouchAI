@@ -36,6 +36,7 @@ import { type ModelCapabilities, useModelSelection } from './useModelSelection';
 export type { ModelCapabilities } from './useModelSelection';
 
 interface UseSearchInputOptions {
+    searchBarContainerRef: Ref<HTMLElement | null>;
     editorHostRef: Ref<HTMLElement | null>;
     queryText: Ref<string>;
     attachments: Ref<Index[]>;
@@ -79,6 +80,7 @@ export function useSearchInput(
 ) {
     const {
         editorHostRef,
+        searchBarContainerRef,
         queryText,
         attachments,
         modelOverride,
@@ -103,8 +105,7 @@ export function useSearchInput(
     // 2. 子能力组合
     // 顶层编排：模型选择、拖拽行为各自独立，组合在 search bar。
     const modelSelection = deps.createModelSelection({
-        searchQuery,
-        editor,
+        searchBarContainerRef,
         logoContainerRef,
         modelOverride,
     });
@@ -163,7 +164,6 @@ export function useSearchInput(
      */
     function initEditor() {
         const extensions = createSearchEditorExtensions({
-            placeholder: modelSelection.currentPlaceholder.value,
             onTagRemoved: (tagName, id) => {
                 if (controlledTagSyncDepth > 0) {
                     return;
@@ -228,17 +228,6 @@ export function useSearchInput(
         { immediate: true }
     );
 
-    // 监听 placeholder 变化，动态更新编辑器
-    watch(modelSelection.currentPlaceholder, (newPlaceholder) => {
-        const ed = editor.value;
-        if (!ed) return;
-        // Tiptap Placeholder 扩展不支持运行时更新，通过 DOM 属性同步
-        const firstParagraph = ed.view.dom.querySelector('p.is-editor-empty');
-        if (firstParagraph) {
-            firstParagraph.setAttribute('data-placeholder', newPlaceholder);
-        }
-    });
-
     /**
      * 统一刷新页面层需要的编辑器上下文事实，避免多个 watch 各自重复推导。
      *
@@ -260,10 +249,6 @@ export function useSearchInput(
      */
     function syncControlledQueryToEditor(nextQuery: string) {
         searchQuery.value = nextQuery;
-
-        if (modelSelection.isModelDropdownOpen.value) {
-            return;
-        }
 
         const ed = editor.value;
         if (!ed) {
@@ -325,12 +310,10 @@ export function useSearchInput(
 
     /**
      * 将页面层受控的模型覆盖状态投影到编辑器标签。
-     * 模型搜索会话打开时会暂时清空编辑器承载搜索输入，此时禁止回写标签，
-     * 等会话关闭并恢复草稿后再同步，避免把 dropdown 查询框污染成正文内容。
      */
     function syncControlledModelOverrideToEditor() {
         const ed = editor.value;
-        if (!ed || modelSelection.isModelDropdownOpen.value) {
+        if (!ed) {
             return;
         }
 
@@ -394,7 +377,7 @@ export function useSearchInput(
      */
     function syncControlledAttachmentsToEditor() {
         const ed = editor.value;
-        if (!ed || modelSelection.isModelDropdownOpen.value) {
+        if (!ed) {
             return;
         }
 
@@ -449,7 +432,6 @@ export function useSearchInput(
             modelSelection.selectedModelId.value,
             modelSelection.selectedProviderId.value,
             modelSelection.selectedModelName.value,
-            modelSelection.isModelDropdownOpen.value,
         ],
         () => {
             syncControlledModelOverrideToEditor();
@@ -459,7 +441,6 @@ export function useSearchInput(
 
     watch(
         () => ({
-            isModelDropdownOpen: modelSelection.isModelDropdownOpen.value,
             attachments: attachments.value.map((attachment) => ({
                 id: attachment.id,
                 name: attachment.name,
@@ -477,16 +458,11 @@ export function useSearchInput(
 
     // 5. 输入与附件行为
     /**
-     * 处理输入变更：普通输入同步到页面草稿；模型搜索模式则只刷新 dropdown 查询。
+     * 处理输入变更：仅同步普通草稿文本。
      *
      * @returns void
      */
     function onInput() {
-        if (modelSelection.isModelDropdownOpen.value) {
-            modelSelection.updateDropdownSearchQuery(searchQuery.value);
-            return;
-        }
-
         if (!isApplyingControlledQuery && searchQuery.value !== queryText.value) {
             emitQueryText(searchQuery.value);
         }
@@ -637,12 +613,9 @@ export function useSearchInput(
         selectedModel: modelSelection.selectedModel,
         selectedProviderId: modelSelection.selectedProviderId,
         activeModel: modelSelection.activeModel,
-        isModelDropdownOpen: modelSelection.isModelDropdownOpen,
-        modelDropdownSearchQuery: modelSelection.dropdownSearchQuery,
         prefetchModelDropdownData: modelSelection.loadPopupModels,
         invalidateModelDropdownData: modelSelection.invalidatePopupModels,
         prepareModelDropdownOpen: modelSelection.prepareModelDropdownOpen,
-        resetModelDropdownState: modelSelection.resetModelDropdownState,
         selectModelFromDropdown: modelSelection.handleModelSelect,
         getModelDropdownAnchor: modelSelection.getModelDropdownAnchor,
         getModelDropdownContext: modelSelection.getModelDropdownContext,

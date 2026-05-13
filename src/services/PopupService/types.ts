@@ -49,8 +49,6 @@ export interface PopupConfig<TData = unknown> {
     calculatePosition: PositionCalculator;
     /** 可选的数据验证器 */
     dataValidator?: (data: unknown) => data is TData;
-    /** popup 获取焦点后，是否立即把焦点交还给主窗口 */
-    returnFocusToMainWindowOnFocus?: boolean;
 }
 
 /**
@@ -125,30 +123,28 @@ export type PopupDataFor<T extends PopupType> = T extends 'model-dropdown-popup'
       ? SessionHistoryData
       : never;
 
-export interface PopupClosedPayload {
+export interface PopupSessionIdentity {
     popupId: string;
-    type: PopupType;
     windowLabel: string;
+    popupSessionVersion: number;
+}
+
+export interface PopupClosedPayload extends PopupSessionIdentity {
+    type: PopupType;
 }
 
 export interface PopupReadyPayload {
     windowLabel: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface PopupFocusMainPayload {}
-
 /**
  * 弹窗数据更新事件载荷
  */
-export interface PopupDataPayload {
-    popupId: string;
+export interface PopupDataPayload extends PopupSessionIdentity {
     type: PopupType;
     data: PopupData;
-    windowLabel?: string;
     /** true 表示弹窗首次展示（来自 show()），缺省/false 表示纯数据更新（来自 updateData()）。
-     *  PopupView 仅在 isShow 时触发 invalidate → pendingShow，
-     *  避免 updateData 的跨窗口事件与 popup-closed 竞态把已关闭弹窗再次显示。 */
+     *  原生窗口显示由 PopupManager.show() 负责，PopupView 仅用它区分首次聚焦和普通数据刷新。 */
     isShow?: boolean;
 }
 
@@ -160,15 +156,19 @@ export interface PopupKeydownPayload {
     targetType: PopupType;
 }
 
-export interface PopupModelSelectPayload {
+export interface PopupModelSelectPayload extends PopupSessionIdentity {
     modelDbId: number;
 }
 
-export interface PopupSessionOpenPayload {
+export interface PopupSessionOpenPayload extends PopupSessionIdentity {
     sessionId: number;
 }
 
-export interface PopupSessionSearchQueryChangePayload {
+export interface PopupSessionSearchQueryChangePayload extends PopupSessionIdentity {
+    query: string;
+}
+
+export interface PopupModelSearchQueryChangePayload extends PopupSessionIdentity {
     query: string;
 }
 
@@ -177,6 +177,7 @@ export interface PopupSessionSearchQueryChangePayload {
  */
 export interface PopupEventHandlers {
     onModelSelect?: (modelDbId: number) => void;
+    onModelSearchQueryChange?: (query: string) => void;
     onSessionOpen?: (sessionId: number) => void;
     onSessionSearchQueryChange?: (query: string) => void;
     onClose?: (payload: PopupClosedPayload) => void;

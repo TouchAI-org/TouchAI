@@ -9,6 +9,7 @@ pub mod resize;
 pub mod search;
 pub mod settings;
 pub mod tray;
+pub(crate) mod webview_defaults;
 
 pub use search::{hide_search_window, show_search_window_from_shortcut};
 pub use settings::build_settings_window;

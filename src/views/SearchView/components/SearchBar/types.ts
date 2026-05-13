@@ -10,5 +10,4 @@ export interface SearchModelOverride {
 
 export interface SearchModelDropdownState {
     isOpen: boolean;
-    query: string;
 }

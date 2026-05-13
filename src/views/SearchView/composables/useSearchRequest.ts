@@ -4,7 +4,7 @@
  */
 import { useAgent } from '@composables/agent';
 import type { SessionEntity } from '@database/types';
-import { sendNotification } from '@tauri-apps/plugin-notification';
+import { notify } from '@services/NotificationService';
 import { onUnmounted, type Ref, ref } from 'vue';
 
 import {
@@ -319,7 +319,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     async function handleSubmit(query: string) {
         const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
         if (unsupportedAttachmentMessage) {
-            sendNotification({ title: 'TouchAI', body: unsupportedAttachmentMessage });
+            notify({ title: 'TouchAI', body: unsupportedAttachmentMessage });
             return;
         }
 
