@@ -128,7 +128,6 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onHideWindow,
         onClearSession,
         onClearDraft,
-        onClearAll,
         onPrimaryShortcut,
     } = options;
 
