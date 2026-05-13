@@ -87,6 +87,7 @@
                             <span class="dot"></span>
                             <span class="dot"></span>
                         </div>
+                        <span class="loading-tip">{{ currentTip }}</span>
                     </div>
                 </template>
 
@@ -115,10 +116,11 @@
     import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { sendNotification } from '@tauri-apps/plugin-notification';
-    import { computed, ref, watch } from 'vue';
+    import { computed, onUnmounted, ref, watch } from 'vue';
 
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
+    import { useSettingsStore } from '@/stores/settings';
     import type {
         SessionMessage,
         ToolApprovalInfo,
@@ -166,6 +168,71 @@
               type: 'approval';
               approval: ToolApprovalInfo;
           };
+
+    // ── 加载提示轮播（#136：加载指示器旁显示上下文提示）──────────────────
+
+    const settingsStore = useSettingsStore();
+
+    // 快捷键提示动态读取用户设置中的实际快捷键
+    const shortcutTip = computed(() => `按 ${settingsStore.globalShortcut} 快速呼出/隐藏 TouchAI`);
+
+    // TODO: 后续改为数据驱动 — 提示列表应从配置文件/远程源获取，支持动态扩展和本地化
+    const BASE_TIPS = [
+        '按 Ctrl+Enter 发送消息',
+        '支持拖拽图片到输入框直接发送',
+        '在输入框输入 @ 可快速切换模型',
+        '点击历史按钮可查看和切换会话',
+        '按 Ctrl+K 打开快速搜索面板',
+        '右键消息可复制或重新生成回复',
+        '在设置中可自定义全局快捷键和主题',
+        '按 Esc 可逐步清除输入内容',
+        '长消息支持 Markdown 渲染和代码高亮',
+        '工具调用结果会内联展示在对话中',
+    ];
+
+    const allTips = computed(() => [shortcutTip.value, ...BASE_TIPS]);
+
+    // UI 层记忆：跨流式会话保持轮播进度，确保提示均等曝光
+    let lastTipIndex = 0;
+
+    const currentTipIndex = ref(0);
+    const currentTip = computed(() => allTips.value[currentTipIndex.value]);
+
+    let tipTimer: ReturnType<typeof setInterval> | null = null;
+
+    function startTipRotation() {
+        const len = allTips.value.length;
+        if (len <= 1) return;
+        currentTipIndex.value = lastTipIndex % len;
+        tipTimer = setInterval(() => {
+            currentTipIndex.value = (currentTipIndex.value + 1) % len;
+        }, 5000);
+    }
+
+    function stopTipRotation() {
+        if (tipTimer !== null) {
+            clearInterval(tipTimer);
+            tipTimer = null;
+        }
+        lastTipIndex = currentTipIndex.value;
+    }
+
+    // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
+    watch(
+        () => props.message.isStreaming,
+        (streaming) => {
+            if (streaming) {
+                startTipRotation();
+            } else {
+                stopTipRotation();
+            }
+        },
+        { immediate: true }
+    );
+
+    onUnmounted(() => {
+        stopTipRotation();
+    });
 
     const isReasoningExpanded = ref(true); // 默认展开
     const isRequestStateMessage = computed(() => {
@@ -375,5 +442,14 @@
             opacity: 1;
             transform: scale(1);
         }
+    }
+
+    .loading-tip {
+        font-size: 12px;
+        color: var(--color-gray-400);
+        margin-left: 8px;
+        white-space: nowrap;
+        opacity: 0.6;
+        transition: opacity 0.4s ease;
     }
 </style>
