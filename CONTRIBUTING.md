@@ -49,6 +49,20 @@ Maintainers may close low-quality AI-assisted contributions without detailed rev
 
 See [AI-assisted contributions](docs/ai-assisted-contributions.md) for the full policy.
 
+## Contributor License Agreement (CLA)
+
+TouchAI accepts external code contributions under a Contributor License Agreement (CLA).
+
+The CLA lets contributors keep their copyright while granting TouchAI the rights needed to distribute the project under GPL and future alternative licenses, including dual-license models.
+
+If you open your first external pull request and see a failing `CLA Assistant` check, follow the link in the check and complete the signature flow before merge.
+
+The CLA does not replace the rest of the contribution process:
+
+- code changes are still generally issue-first
+- high-risk areas are still RFC-first
+- testing, reviewability, and AI disclosure rules still apply
+
 ## Branches, draft PRs, and review
 
 TouchAI uses GitHub `Draft PR` as the only supported work-in-progress flow.

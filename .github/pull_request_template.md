@@ -1,3 +1,6 @@
+> First external contributors may need to complete the `CLA Assistant` check before merge.
+> For code changes, this PR must link the related issue or RFC in the section below.
+
 ## Summary
 
 Describe the change and the user-facing impact.
