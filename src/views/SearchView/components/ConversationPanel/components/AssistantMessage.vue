@@ -114,7 +114,6 @@
     import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
-    import { sendNotification } from '@tauri-apps/plugin-notification';
     import { computed, onUnmounted, ref, watch } from 'vue';
     import { notify } from '@services/NotificationService';
 
