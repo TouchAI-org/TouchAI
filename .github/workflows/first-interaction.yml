@@ -1,0 +1,161 @@
+name: First Interaction
+
+on:
+    issues:
+        types:
+            - opened
+    pull_request_target:
+        types:
+            - opened
+
+permissions:
+    contents: read
+    issues: write
+    pull-requests: write
+
+jobs:
+    first-issue:
+        name: Welcome first issue
+        if: github.event_name == 'issues'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Welcome first-time issue author
+              uses: actions/github-script@v9
+              with:
+                  script: |
+                      const association = context.payload.issue.author_association;
+                      const login = context.payload.issue.user.login;
+
+                      if (context.payload.issue.user.type === 'Bot') {
+                        core.info('Skipping bot issue author.');
+                        return;
+                      }
+
+                      if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
+                        core.info(`Skipping maintainer issue author: ${association}`);
+                        return;
+                      }
+
+                      const search = await github.rest.search.issuesAndPullRequests({
+                        q: `repo:${context.repo.owner}/${context.repo.repo} is:issue author:${login}`,
+                        per_page: 2,
+                      });
+
+                      if (search.data.total_count !== 1) {
+                        core.info(`Not first issue for ${login}.`);
+                        return;
+                      }
+
+                      const body = [
+                        'Thanks for opening your first issue in TouchAI.',
+                        '',
+                        '感谢你提交第一个 TouchAI issue。',
+                        '',
+                        'Before we move forward, please make sure this is the right entry point:',
+                        '在继续之前，请先确认这是正确的入口：',
+                        '',
+                        '- Bug reports and accepted feature work belong in Issues.',
+                        '  Bug 报告和已明确的功能工作应提交到 Issues。',
+                        '- Usage questions and troubleshooting are usually better in [Discussions](https://github.com/TouchAI-org/TouchAI/discussions) or the [support guide](https://github.com/TouchAI-org/TouchAI/blob/main/SUPPORT.md).',
+                        '  使用问题和排障通常更适合发到 [Discussions](https://github.com/TouchAI-org/TouchAI/discussions) 或 [支持说明](https://github.com/TouchAI-org/TouchAI/blob/main/SUPPORT.md)。',
+                        '- High-risk architecture, runtime, MCP, or schema changes are RFC-first.',
+                        '  高风险架构、runtime、MCP、schema 相关改动需要先走 RFC。',
+                        '',
+                        'If you want to contribute code for this area, start here:',
+                        '如果你想围绕这个问题参与代码贡献，请先看这里：',
+                        '',
+                        '- [Contributing guide](https://github.com/TouchAI-org/TouchAI/blob/main/CONTRIBUTING.md)',
+                        '  [贡献指南](https://github.com/TouchAI-org/TouchAI/blob/main/CONTRIBUTING.md)',
+                        '- [AI-assisted contributions](https://github.com/TouchAI-org/TouchAI/blob/main/docs/ai-assisted-contributions.md)',
+                        '  [AI 辅助贡献说明](https://github.com/TouchAI-org/TouchAI/blob/main/docs/ai-assisted-contributions.md)',
+                        '',
+                        'Contribution tips:',
+                        '贡献提示：',
+                        '',
+                        '- Code changes should usually be issue-first.',
+                        '  代码改动通常需要先有 issue。',
+                        '- If this issue is later labeled `good first issue`, `help wanted`, or `status:accepted`, you can comment `/assign` to claim it. After the claim is accepted, you can start working on the code and open a Draft PR or a pull request when the work is ready.',
+                        '  如果这个 issue 后续带有 `good first issue`、`help wanted` 或 `status:accepted` 标签，你可以评论 `/assign` 来认领。认领成功后，就可以开始修改代码，并在工作进行中创建 Draft PR，或在准备好后提交 Pull Request。',
+                        '- RFC-first areas must be discussed before implementation.',
+                        '  RFC 范围内的内容需要先讨论再实现。',
+                        '',
+                        'Thanks again for helping improve TouchAI.',
+                        '再次感谢你帮助改进 TouchAI。',
+                      ].join('\n');
+
+                      await github.rest.issues.createComment({
+                        ...context.repo,
+                        issue_number: context.payload.issue.number,
+                        body,
+                      });
+
+    first-pr:
+        name: Welcome first PR
+        if: github.event_name == 'pull_request_target'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Welcome first-time PR author
+              uses: actions/github-script@v9
+              with:
+                  script: |
+                      const association = context.payload.pull_request.author_association;
+                      const login = context.payload.pull_request.user.login;
+
+                      if (context.payload.pull_request.user.type === 'Bot') {
+                        core.info('Skipping bot PR author.');
+                        return;
+                      }
+
+                      if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
+                        core.info(`Skipping maintainer PR author: ${association}`);
+                        return;
+                      }
+
+                      const search = await github.rest.search.issuesAndPullRequests({
+                        q: `repo:${context.repo.owner}/${context.repo.repo} is:pr author:${login}`,
+                        per_page: 2,
+                      });
+
+                      if (search.data.total_count !== 1) {
+                        core.info(`Not first PR for ${login}.`);
+                        return;
+                      }
+
+                      const body = [
+                        'Thanks for your first pull request to TouchAI.',
+                        '',
+                        '感谢你向 TouchAI 提交第一条 Pull Request。',
+                        '',
+                        'A few quick checks before review:',
+                        '评审前请先快速确认以下几点：',
+                        '',
+                        '- Link the related issue or RFC.',
+                        '  请关联对应的 issue 或 RFC。',
+                        '- If this PR is still evolving, keep it as a Draft PR.',
+                        '  如果这条 PR 还在演进中，请保持为 Draft PR。',
+                        '- Pull request titles should follow Conventional Commits.',
+                        '  Pull Request 标题需要符合 Conventional Commits 规范。',
+                        '- If AI tools materially assisted this change, disclose that in the PR description.',
+                        '  如果本次改动有实质性的 AI 辅助，请在 PR 描述中披露。',
+                        '- Add testing evidence for the commands you ran.',
+                        '  请补充你实际执行过的测试验证信息。',
+                        '- If the `CLA Assistant` check appears, please complete signature before merge.',
+                        '  如果出现 `CLA Assistant` 检查，请先完成签署再进入合并流程。',
+                        '',
+                        'Helpful links:',
+                        '相关链接：',
+                        '',
+                        '- [Contributing guide](https://github.com/TouchAI-org/TouchAI/blob/main/CONTRIBUTING.md)',
+                        '  [贡献指南](https://github.com/TouchAI-org/TouchAI/blob/main/CONTRIBUTING.md)',
+                        '- [AI-assisted contributions](https://github.com/TouchAI-org/TouchAI/blob/main/docs/ai-assisted-contributions.md)',
+                        '  [AI 辅助贡献说明](https://github.com/TouchAI-org/TouchAI/blob/main/docs/ai-assisted-contributions.md)',
+                        '',
+                        'Thanks for contributing.',
+                        '感谢贡献。',
+                      ].join('\n');
+
+                      await github.rest.issues.createComment({
+                        ...context.repo,
+                        issue_number: context.payload.pull_request.number,
+                        body,
+                      });
