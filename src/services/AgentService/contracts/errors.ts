@@ -85,6 +85,30 @@ const ERROR_MESSAGES: Record<AiErrorCode, string> = {
     [AiErrorCode.UNKNOWN]: '未知错误',
 };
 
+const TRANSIENT_TRANSPORT_ERROR_PATTERNS = [
+    'error sending request',
+    'failed to fetch',
+    'connection refused',
+    'connection reset',
+    'connection closed',
+    'connection aborted',
+    'connection timed out',
+    'connection error',
+    'network unreachable',
+    'temporary failure',
+    'tls handshake',
+    'dns error',
+    'econnrefused',
+    'econnreset',
+    'etimedout',
+    'enotfound',
+    'epipe',
+];
+
+function isTransientTransportErrorMessage(message: string): boolean {
+    return TRANSIENT_TRANSPORT_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
+}
+
 /**
  * AI 服务统一错误类
  */
@@ -169,7 +193,7 @@ export class AiError extends Error {
         const cause = error === undefined ? undefined : error;
 
         if (error instanceof Error || typeof error == 'string') {
-            const message = error instanceof Error ? error.message.toLowerCase() : error;
+            const message = (error instanceof Error ? error.message : error).toLowerCase();
             const originalMessage = error instanceof Error ? error.message : String(error);
 
             // 取消相关（abort / cancel / AbortError）
@@ -184,7 +208,11 @@ export class AiError extends Error {
             }
 
             // 网络错误
-            if (message.includes('network') || message.includes('fetch')) {
+            if (
+                message.includes('network') ||
+                message.includes('fetch') ||
+                isTransientTransportErrorMessage(message)
+            ) {
                 return new AiError(AiErrorCode.NETWORK_ERROR, error, originalMessage, {
                     cause,
                 });
