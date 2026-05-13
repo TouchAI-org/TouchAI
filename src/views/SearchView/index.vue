@@ -743,7 +743,6 @@
         tabindex="-1"
         :class="[
             'search-view-container bg-background-primary relative flex h-full w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl focus:outline-none',
-            isLoading ? 'loading' : '',
         ]"
         @paste.capture="handlePagePaste"
     >
@@ -781,6 +780,7 @@
                 :query-text="queryText"
                 :attachments="attachments"
                 :model-override="modelOverride"
+                :is-loading="isLoading"
                 @update:query-text="handleQueryTextChange"
                 @attachment-remove-request="handleAttachmentRemoveRequest"
                 @model-change="handleModelChange"
@@ -808,85 +808,5 @@
 <style scoped>
     .search-view-container {
         border: 1.5px solid var(--color-gray-300);
-    }
-
-    .search-view-container.loading {
-        border: 2px solid transparent;
-        background-image:
-            linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-            linear-gradient(
-                90deg,
-                var(--color-blue-500),
-                var(--color-violet-500),
-                var(--color-pink-500),
-                var(--color-violet-500),
-                var(--color-blue-500)
-            );
-        background-origin: border-box;
-        background-clip: padding-box, border-box;
-        animation: border-flow 1.5s linear infinite;
-    }
-
-    @keyframes border-flow {
-        0% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-blue-500),
-                    var(--color-violet-500),
-                    var(--color-pink-500),
-                    var(--color-violet-500),
-                    var(--color-blue-500)
-                );
-        }
-        25% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-violet-500),
-                    var(--color-pink-500),
-                    var(--color-violet-500),
-                    var(--color-blue-500),
-                    var(--color-violet-500)
-                );
-        }
-        50% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-pink-500),
-                    var(--color-violet-500),
-                    var(--color-blue-500),
-                    var(--color-violet-500),
-                    var(--color-pink-500)
-                );
-        }
-        75% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-violet-500),
-                    var(--color-blue-500),
-                    var(--color-violet-500),
-                    var(--color-pink-500),
-                    var(--color-violet-500)
-                );
-        }
-        100% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-blue-500),
-                    var(--color-violet-500),
-                    var(--color-pink-500),
-                    var(--color-violet-500),
-                    var(--color-blue-500)
-                );
-        }
     }
 </style>

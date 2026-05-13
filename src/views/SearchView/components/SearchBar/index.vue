@@ -19,7 +19,11 @@
                 v-if="selectedModel || activeModel"
                 :model-id="selectedModel?.model_id || activeModel?.model_id || ''"
                 :name="selectedModel?.name || activeModel?.name || 'model'"
-                class="border-2 border-gray-300 transition-colors hover:border-gray-400"
+                :is-loading="isLoading"
+                :class="[
+                    'transition-colors',
+                    isLoading ? '' : 'border-2 border-gray-300 hover:border-gray-400',
+                ]"
             />
             <img v-else :src="logo" alt="TouchAI" class="h-8 w-8 object-contain select-none" />
         </div>
@@ -63,19 +67,21 @@
         queryText?: string;
         attachments?: Index[];
         modelOverride?: SearchModelOverride;
+        isLoading?: boolean;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         disabled: false,
         queryText: '',
         attachments: () => [],
+        isLoading: false,
         modelOverride: () => ({
             modelId: null,
             providerId: null,
         }),
     });
 
-    const { disabled, queryText, attachments, modelOverride } = toRefs(props);
+    const { disabled, queryText, attachments, modelOverride, isLoading } = toRefs(props);
     const searchBarContainerRef = ref<HTMLElement | null>(null);
     const editorHostRef = ref<HTMLElement | null>(null);
     let selectionDragCleanup: (() => void) | null = null;
