@@ -4,11 +4,15 @@
     <div
         data-model-dropdown-popover="true"
         :class="[
-            'model-dropdown-popover max-h-96 overflow-hidden rounded-lg border border-stone-200/90 bg-white shadow-lg backdrop-blur',
+            'model-dropdown-popover max-h-96 overflow-hidden rounded-lg border border-stone-200/90 bg-white shadow-lg',
+            hasConfiguredModels || effectiveSearchQuery ? 'backdrop-blur' : '',
             isInPopup ? 'w-full' : 'absolute top-full left-0 z-[9999] mt-2 w-80',
         ]"
     >
-        <div class="border-b border-stone-200/80 px-3 py-2.5">
+        <div
+            v-if="hasConfiguredModels || effectiveSearchQuery"
+            class="border-b border-stone-200/80 px-3 py-2.5"
+        >
             <label
                 class="history-search-field focus-within:border-primary-300 flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 transition-colors focus-within:bg-white"
             >
@@ -95,6 +99,15 @@
                             : '请先在设置中心配置模型'
                     }}
                 </p>
+                <button
+                    v-if="!effectiveSearchQuery"
+                    type="button"
+                    class="text-primary-600 hover:text-primary-700 mt-1 inline-flex items-center gap-1.5 rounded-md border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-medium shadow-sm transition-colors hover:border-stone-300"
+                    @click="handleOpenSettings"
+                >
+                    <AppIcon name="settings" class="h-3.5 w-3.5" />
+                    <span>前往设置中心</span>
+                </button>
             </div>
         </div>
     </div>
@@ -106,6 +119,7 @@
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import { AppEvent, eventService } from '@services/EventService';
+    import { native } from '@services/NativeService';
     import type {
         ModelDropdownData,
         ModelDropdownPopupItem,
@@ -138,6 +152,7 @@
     const selectedProviderId = computed(() => props.data?.selectedProviderId ?? null);
     const searchQuery = computed(() => props.data?.searchQuery ?? '');
     const models = computed<ModelDropdownPopupItem[]>(() => props.data?.models ?? []);
+    const hasConfiguredModels = computed(() => models.value.length > 0);
     const effectiveSearchQuery = computed(() => {
         return localSearchQuery.value.trim() || searchQuery.value.trim();
     });
@@ -179,6 +194,15 @@
             ...props.popupIdentity,
             query: target.value,
         });
+    }
+
+    async function handleOpenSettings() {
+        try {
+            await native.window.openSettingsWindow();
+            emit('close');
+        } catch (error) {
+            console.error('[ModelDropdownPopup] Failed to open settings window:', error);
+        }
     }
 
     const scrollToHighlighted = async () => {
