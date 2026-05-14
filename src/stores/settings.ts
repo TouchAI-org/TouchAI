@@ -10,9 +10,9 @@ import { computed, ref } from 'vue';
 import {
     DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
     resolveSearchWindowDefaultSize,
-    SearchWindowSizePreset as SearchWindowSizePresets,
     type SearchWindowDefaultSize,
     type SearchWindowSizePreset,
+    SearchWindowSizePreset as SearchWindowSizePresets,
 } from '@/config/searchWindow';
 import { z } from '@/utils/zod';
 
