@@ -294,6 +294,94 @@ function moveCursorAcrossTag(editor: Editor, direction: 'left' | 'right') {
     });
 }
 
+function getLeadingModelTagTextStart(doc: PmNode): number | null {
+    let textStart: number | null = null;
+
+    doc.descendants((node, pos) => {
+        if (pos > 1) {
+            return false;
+        }
+
+        if (node.type.name === MODEL_TAG_NODE) {
+            textStart = pos + node.nodeSize;
+            return false;
+        }
+
+        return true;
+    });
+
+    return textStart;
+}
+
+function isSelectionInFirstParagraph(doc: PmNode, position: number): boolean {
+    const $position = doc.resolve(position);
+
+    for (let depth = $position.depth; depth > 0; depth -= 1) {
+        if ($position.node(depth).type.name !== 'paragraph') {
+            continue;
+        }
+
+        return $position.index(depth - 1) === 0;
+    }
+
+    return false;
+}
+
+function moveCursorToPosition(editor: Editor, position: number) {
+    return editor.commands.command(({ tr }: { tr: Transaction }) => {
+        tr.setSelection(TextSelection.create(tr.doc, position));
+        return true;
+    });
+}
+
+function isAtVisualLineStartForArrowUp(editor: Editor): boolean {
+    try {
+        return editor.view.endOfTextblock('up');
+    } catch {
+        // 单测中的 Editor 可能尚未挂载 view；运行时场景仍会走真实判断。
+        return true;
+    }
+}
+
+/**
+ * 为模型标签后的正文起点建立 ArrowUp 硬边界。
+ * 当光标位于首段第一视觉行并继续上移时，最多只能停在正文起点，
+ * 不允许进入模型标签前的位置。
+ */
+export function handleArrowUpNearTextStart(editor: Editor): boolean {
+    const textStart = getLeadingModelTagTextStart(editor.state.doc);
+    if (textStart === null) {
+        return false;
+    }
+
+    const { selection, doc } = editor.state;
+    if (selection instanceof NodeSelection && selection.node.type.name === MODEL_TAG_NODE) {
+        return moveCursorToPosition(editor, textStart);
+    }
+
+    if (!selection.empty) {
+        if (selection.from < textStart || selection.to < textStart) {
+            return moveCursorToPosition(editor, textStart);
+        }
+
+        return false;
+    }
+
+    if (selection.from <= textStart) {
+        return moveCursorToPosition(editor, textStart);
+    }
+
+    if (!isSelectionInFirstParagraph(doc, selection.from)) {
+        return false;
+    }
+
+    if (!isAtVisualLineStartForArrowUp(editor)) {
+        return false;
+    }
+
+    return moveCursorToPosition(editor, textStart);
+}
+
 // ─── 搜索键盘快捷键 ─────────────────────────────────────────────
 
 const SearchKeyboard = Extension.create({
@@ -316,6 +404,9 @@ const SearchKeyboard = Extension.create({
             },
             ArrowRight: ({ editor }: { editor: Editor }) => {
                 return moveCursorAcrossTag(editor, 'right');
+            },
+            ArrowUp: ({ editor }: { editor: Editor }) => {
+                return handleArrowUpNearTextStart(editor);
             },
             'Shift-ArrowLeft': ({ editor }: { editor: Editor }) => {
                 return extendSelectionAcrossTag(editor, 'left');
@@ -406,20 +497,7 @@ export function isCursorAtDocStart(editor: Editor): boolean {
 /** 判断光标是否位于模型标签后的正文起点。 */
 export function isCursorAtTextStart(editor: Editor): boolean {
     const { from, to } = editor.state.selection;
-    let textStart = 1;
-
-    editor.state.doc.descendants((node, pos) => {
-        if (pos > 1) {
-            return false;
-        }
-
-        if (node.type.name === MODEL_TAG_NODE) {
-            textStart = pos + node.nodeSize;
-            return false;
-        }
-
-        return true;
-    });
+    const textStart = getLeadingModelTagTextStart(editor.state.doc) ?? 1;
 
     return from <= textStart && to <= textStart;
 }

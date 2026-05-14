@@ -95,6 +95,7 @@ type SearchKeyboardSurface = 'search-surface' | SearchPopupSurfaceType;
 type SearchQuickSearchDirection = 'up' | 'down' | 'left' | 'right';
 type SearchPrimaryShortcutKey = 'h' | 'l' | 'n' | 'm' | 'p' | '.' | 'backspace';
 export type SessionInputHistoryDirection = 'older' | 'newer';
+export type SessionInputHistoryNavigationResult = 'navigated' | 'blocked' | 'ignored';
 
 interface PendingApprovalState {
     callId?: string;
@@ -133,7 +134,9 @@ interface CreateSearchKeyboardRouterOptions {
     onMoveQuickSearchSelection: (direction: SearchQuickSearchDirection) => void;
     onOpenHighlightedQuickSearchItem: () => void | Promise<void>;
     onCloseQuickSearch: () => void;
-    onNavigateInputHistory: (direction: SessionInputHistoryDirection) => boolean;
+    onNavigateInputHistory: (
+        direction: SessionInputHistoryDirection
+    ) => SessionInputHistoryNavigationResult;
     onHideAllPopups: () => void | Promise<void>;
     onCancelRequest: () => void;
     onClearModelOverride: () => void;
@@ -166,7 +169,9 @@ export interface UseSearchKeyboardOptions {
     sessionHistoryPopupOpen: Ref<boolean>;
     hideAllPopups: () => Promise<void>;
     hideSearchWindow: () => Promise<void>;
-    navigateInputHistory: (direction: SessionInputHistoryDirection) => boolean;
+    navigateInputHistory: (
+        direction: SessionInputHistoryDirection
+    ) => SessionInputHistoryNavigationResult;
     closeModelDropdown: () => Promise<void>;
     toggleModelDropdown: () => Promise<void>;
     openHistoryDialog: () => Promise<void>;
@@ -860,7 +865,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                     return false;
                 }
 
-                return onNavigateInputHistory('older');
+                return onNavigateInputHistory('older') !== 'ignored';
             }
 
             if (input.key === 'ArrowDown') {
@@ -868,7 +873,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                     return false;
                 }
 
-                if (onNavigateInputHistory('newer')) {
+                if (onNavigateInputHistory('newer') === 'navigated') {
                     return true;
                 }
 

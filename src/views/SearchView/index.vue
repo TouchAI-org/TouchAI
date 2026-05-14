@@ -29,6 +29,7 @@
         navigateSessionInputHistory,
         type SessionInputHistoryBrowseState,
         type SessionInputHistoryDirection,
+        type SessionInputHistoryNavigationResult,
         useQuickSearchCoordinator,
         useSearchOverlayMachine,
     } from './composables/searchInteraction';
@@ -369,7 +370,9 @@
         ];
     }
 
-    function navigateInputHistory(direction: SessionInputHistoryDirection): boolean {
+    function navigateInputHistory(
+        direction: SessionInputHistoryDirection
+    ): SessionInputHistoryNavigationResult {
         const result = navigateSessionInputHistory({
             entries: sessionInputHistoryEntries.value,
             currentQuery: queryText.value,
@@ -378,13 +381,21 @@
         });
 
         if (!result.changed) {
-            return false;
+            if (
+                direction === 'older' &&
+                cursorContext.value.isMultiLine &&
+                cursorContext.value.cursorAtTextStart
+            ) {
+                return 'blocked';
+            }
+
+            return 'ignored';
         }
 
         suppressInputHistoryBrowseReset.value = true;
         inputHistoryBrowseState.value = result.state;
         queryText.value = result.nextQuery;
-        return true;
+        return 'navigated';
     }
 
     useSearchKeyboard({
