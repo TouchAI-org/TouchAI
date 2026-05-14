@@ -48,6 +48,29 @@ pub fn run() {
         .manage(BashExecutionRegistry::new())
         .manage(McpClientManager::new())
         .on_window_event(|window, event| {
+            // 主窗口尺寸/位置变化时，记录到状态机用于区分程序化 resize 和用户操作。
+            if window.label() == "main" {
+                match event {
+                    WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+                        let app_handle = window.app_handle().clone();
+                        let window = window.clone();
+                        if let Err(error) =
+                            core::window::resize::record_search_window_runtime_resize(
+                                &app_handle,
+                                &window,
+                            )
+                        {
+                            warn!(
+                                "Failed to record search window runtime resize for '{}': {}",
+                                window.label(),
+                                error
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             if matches!(event, WindowEvent::Focused(false)) {
                 let app_handle = window.app_handle().clone();
                 let window_label = window.label().to_string();
