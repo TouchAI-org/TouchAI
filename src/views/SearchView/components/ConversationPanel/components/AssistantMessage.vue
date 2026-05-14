@@ -93,7 +93,7 @@
                             <span class="dot"></span>
                             <span class="dot"></span>
                         </div>
-                        <span class="loading-tip">{{ currentTip }}</span>
+                        <span v-if="tipVisible" class="loading-tip">{{ currentTip }}</span>
                     </div>
                 </template>
 
@@ -190,24 +190,35 @@
     const lastTipIndex = ref(0);
 
     const currentTipIndex = ref(0);
+    const tipVisible = ref(false);
     const currentTip = computed(() => TIPS[currentTipIndex.value]);
 
     let tipTimer: ReturnType<typeof setInterval> | null = null;
+    let tipDelayTimer: ReturnType<typeof setTimeout> | null = null;
 
     function startTipRotation() {
         const len = TIPS.length;
         if (len <= 1) return;
-        currentTipIndex.value = lastTipIndex.value % len;
-        tipTimer = setInterval(() => {
-            currentTipIndex.value = (currentTipIndex.value + 1) % len;
-        }, 5000);
+        // 20 秒延迟后才显示 tip（hiqiancheng 反馈）
+        tipDelayTimer = setTimeout(() => {
+            tipVisible.value = true;
+            currentTipIndex.value = lastTipIndex.value % len;
+            tipTimer = setInterval(() => {
+                currentTipIndex.value = (currentTipIndex.value + 1) % len;
+            }, 5000);
+        }, 20000);
     }
 
     function stopTipRotation() {
+        if (tipDelayTimer !== null) {
+            clearTimeout(tipDelayTimer);
+            tipDelayTimer = null;
+        }
         if (tipTimer !== null) {
             clearInterval(tipTimer);
             tipTimer = null;
         }
+        tipVisible.value = false;
         lastTipIndex.value = currentTipIndex.value;
     }
 
