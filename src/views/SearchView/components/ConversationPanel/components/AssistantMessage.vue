@@ -93,7 +93,11 @@
                             <span class="dot"></span>
                             <span class="dot"></span>
                         </div>
-                        <span v-if="tipVisible" class="loading-tip">{{ currentTip }}</span>
+                        <Transition name="tip-fade" mode="out-in">
+                            <span v-if="tipVisible" :key="currentTipIndex" class="loading-tip">
+                                {{ currentTip }}
+                            </span>
+                        </Transition>
                     </div>
                 </template>
 
@@ -456,6 +460,21 @@
         margin-left: 8px;
         white-space: nowrap;
         opacity: 0.6;
-        transition: opacity 0.4s ease;
+        transition: opacity 0.3s ease;
+    }
+
+    .tip-fade-enter-active {
+        transition: opacity 0.3s ease;
+    }
+    .tip-fade-leave-active {
+        transition: opacity 0.3s ease;
+    }
+    .tip-fade-enter-from,
+    .tip-fade-leave-to {
+        opacity: 0;
+    }
+    .tip-fade-enter-to,
+    .tip-fade-leave-from {
+        opacity: 0.6;
     }
 </style>
