@@ -7,6 +7,7 @@ import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tip
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
 
+import { MODEL_TAG_NODE } from '../tags/model';
 import {
     getAllSearchTags,
     getSearchTag,
@@ -400,6 +401,27 @@ export function isPlainText(editor: Editor): boolean {
 export function isCursorAtDocStart(editor: Editor): boolean {
     const { from, to } = editor.state.selection;
     return from <= 1 && to <= 1;
+}
+
+/** 判断光标是否位于模型标签后的正文起点。 */
+export function isCursorAtTextStart(editor: Editor): boolean {
+    const { from, to } = editor.state.selection;
+    let textStart = 1;
+
+    editor.state.doc.descendants((node, pos) => {
+        if (pos > 1) {
+            return false;
+        }
+
+        if (node.type.name === MODEL_TAG_NODE) {
+            textStart = pos + node.nodeSize;
+            return false;
+        }
+
+        return true;
+    });
+
+    return from <= textStart && to <= textStart;
 }
 
 /** 判断光标是否在文档末尾。 */

@@ -27,6 +27,7 @@ import {
     isBlankEditorAreaTarget,
     isCursorAtDocEnd,
     isCursorAtDocStart,
+    isCursorAtTextStart,
     isSearchTagDomTarget,
     resolveMouseEventTarget,
     setEditorText,
@@ -99,6 +100,7 @@ export function useSearchInput(
     const logoContainerRef = ref<HTMLElement | null>(null);
     const isMultiLineState = ref(false);
     const cursorAtStart = ref(false);
+    const cursorAtTextStart = ref(false);
     const cursorAtEnd = ref(false);
     let cachedLineHeight = 0;
     let isApplyingControlledQuery = false;
@@ -199,6 +201,7 @@ export function useSearchInput(
             onSelectionUpdate: () => {
                 // 光标位置变化时滚动到可见区域（例如使用上下键移动光标）
                 cursorAtStart.value = isCursorAtStart();
+                cursorAtTextStart.value = isCursorAtTextStartPosition();
                 cursorAtEnd.value = isCursorAtEnd();
                 scrollCursorIntoView();
             },
@@ -240,6 +243,7 @@ export function useSearchInput(
     function syncEditorDerivedState(ed: Editor) {
         isMultiLineState.value = computeIsMultiLine(ed);
         cursorAtStart.value = isCursorAtStart();
+        cursorAtTextStart.value = isCursorAtTextStartPosition();
         cursorAtEnd.value = isCursorAtEnd();
     }
 
@@ -485,6 +489,17 @@ export function useSearchInput(
     }
 
     /**
+     * 判断光标是否位于模型标签后的正文起点。
+     *
+     * @returns 光标位于正文起点时为 true。
+     */
+    function isCursorAtTextStartPosition(): boolean {
+        const ed = editor.value;
+        if (!ed) return false;
+        return isCursorAtTextStart(ed);
+    }
+
+    /**
      * 判断光标是否位于编辑器结束位置。
      *
      * @returns 光标位于结束位置时为 true。
@@ -637,6 +652,7 @@ export function useSearchInput(
         isCursorAtStart,
         isMultiLine: isMultiLineState,
         cursorAtStart,
+        cursorAtTextStart,
         cursorAtEnd,
         focus,
         loadActiveModel: modelSelection.loadActiveModel,

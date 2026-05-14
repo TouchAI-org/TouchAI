@@ -74,6 +74,7 @@
     const cursorContext = ref<SearchCursorContext>({
         isMultiLine: false,
         cursorAtStart: true,
+        cursorAtTextStart: true,
         cursorAtEnd: true,
     });
     const modelDropdownState = ref<SearchModelDropdownState>({

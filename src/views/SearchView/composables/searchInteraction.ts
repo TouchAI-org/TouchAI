@@ -119,6 +119,7 @@ interface CreateSearchKeyboardRouterOptions {
     shouldTriggerQuickSearch: (query: string) => boolean;
     isMultiLineCursor: () => boolean;
     isCursorAtStart: () => boolean;
+    isCursorAtTextStart: () => boolean;
     isCursorAtEnd: () => boolean;
     hasModelOverride: () => boolean;
     getSessionHistoryCount: () => number;
@@ -719,7 +720,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         hasQuickSearchHighlight,
         shouldTriggerQuickSearch,
         isMultiLineCursor,
-        isCursorAtStart,
+        isCursorAtTextStart,
         isCursorAtEnd,
         hasModelOverride,
         getSessionHistoryCount,
@@ -855,7 +856,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
         if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
             if (input.key === 'ArrowUp') {
-                if (isMultiLineCursor() && !isCursorAtStart()) {
+                if (isMultiLineCursor() && !isCursorAtTextStart()) {
                     return false;
                 }
 
@@ -963,6 +964,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         shouldTriggerQuickSearch,
         isMultiLineCursor: () => cursorContext.value.isMultiLine,
         isCursorAtStart: () => cursorContext.value.cursorAtStart,
+        isCursorAtTextStart: () => cursorContext.value.cursorAtTextStart,
         isCursorAtEnd: () => cursorContext.value.cursorAtEnd,
         hasModelOverride: () => Boolean(modelOverride.value.modelId),
         getSessionHistoryCount: () => sessionHistory.value.length,

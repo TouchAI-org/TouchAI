@@ -1,6 +1,7 @@
 export interface SearchCursorContext {
     isMultiLine: boolean;
     cursorAtStart: boolean;
+    cursorAtTextStart: boolean;
     cursorAtEnd: boolean;
 }
 
