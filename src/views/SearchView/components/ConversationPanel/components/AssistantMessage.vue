@@ -440,6 +440,7 @@
 
     .loading-tip {
         font-size: 12px;
+        font-family: 'Source Han Serif SC', 'Noto Serif SC', 'Source Serif Pro', 'Georgia', serif;
         color: var(--color-gray-400);
         margin-left: 8px;
         white-space: nowrap;
