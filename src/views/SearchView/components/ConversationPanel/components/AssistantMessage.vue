@@ -119,7 +119,6 @@
 
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
-    import { useSettingsStore } from '@/stores/settings';
     import type {
         SessionMessage,
         ToolApprovalInfo,
@@ -176,36 +175,30 @@
     //  TODO: 后续改为数据驱动 — 提示列表从配置文件/远程源获取，支持动态扩展。
     //  目前仅添加基础提示，后续可在 GitHub issue 中征集更多功能性提示。
 
-    const settingsStore = useSettingsStore();
-
-    // 快捷键提示：动态读取用户设置 + 引导去设置自定义
-    const shortcutTip = computed(
-        () => `按下 ${settingsStore.globalShortcut} 随时随地唤起TouchAI，可在设置中自定义`
-    );
-
-    const BASE_TIPS = [
-        '消息量大，需要分点列表？使用 Shift+Enter 换行',
-        '需要发图？直接粘贴并发送',
-        '按 Ctrl+M 或点击模型图标可快速切换模型',
-        '需要找回历史？右上角历史按钮，点击查看与切换会话',
-        '对话结束后，消息下方按钮可点击复制',
-        '结果不满意？点击消息下方按钮重新生成回复',
+    const TIPS = [
+        'Shift+Enter 换行，适合分段表述',
+        '直接粘贴图片并发送',
+        'Ctrl+M 或点击模型图标切换模型',
+        'Ctrl+H 快速打开历史会话',
+        'Ctrl+P 切换窗口置顶',
+        'Ctrl+N 开启新会话',
+        '右上角历史按钮可查看和切换历史会话',
+        '消息下方按钮可复制内容',
+        '消息下方按钮可重新生成回复',
     ];
 
-    const allTips = computed(() => [shortcutTip.value, ...BASE_TIPS]);
-
     // UI 层记忆：跨流式会话保持轮播进度，确保提示均等曝光
-    let lastTipIndex = 0;
+    const lastTipIndex = ref(0);
 
     const currentTipIndex = ref(0);
-    const currentTip = computed(() => allTips.value[currentTipIndex.value]);
+    const currentTip = computed(() => TIPS[currentTipIndex.value]);
 
     let tipTimer: ReturnType<typeof setInterval> | null = null;
 
     function startTipRotation() {
-        const len = allTips.value.length;
+        const len = TIPS.length;
         if (len <= 1) return;
-        currentTipIndex.value = lastTipIndex % len;
+        currentTipIndex.value = lastTipIndex.value % len;
         tipTimer = setInterval(() => {
             currentTipIndex.value = (currentTipIndex.value + 1) % len;
         }, 5000);
@@ -216,7 +209,7 @@
             clearInterval(tipTimer);
             tipTimer = null;
         }
-        lastTipIndex = currentTipIndex.value;
+        lastTipIndex.value = currentTipIndex.value;
     }
 
     // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
