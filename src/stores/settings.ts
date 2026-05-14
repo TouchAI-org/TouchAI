@@ -7,6 +7,13 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
+import {
+    DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
+    resolveSearchWindowDefaultSize,
+    SearchWindowSizePreset as SearchWindowSizePresets,
+    type SearchWindowDefaultSize,
+    type SearchWindowSizePreset,
+} from '@/config/searchWindow';
 import { z } from '@/utils/zod';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
@@ -16,6 +23,8 @@ export interface GeneralSettingsData {
     startOnBoot: boolean;
     startMinimized: boolean;
     outputScrollBehavior: OutputScrollBehavior;
+    searchWindowSizePreset: SearchWindowSizePreset;
+    searchWindowDefaultSize: SearchWindowDefaultSize;
 }
 
 const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
@@ -23,14 +32,28 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     startOnBoot: false,
     startMinimized: true,
     outputScrollBehavior: 'follow_output',
+    searchWindowSizePreset: DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
+    searchWindowDefaultSize: resolveSearchWindowDefaultSize(DEFAULT_SEARCH_WINDOW_SIZE_PRESET),
 };
+
+function createDefaultGeneralSettings(): GeneralSettingsData {
+    return {
+        ...DEFAULT_GENERAL_SETTINGS,
+        searchWindowDefaultSize: {
+            ...DEFAULT_GENERAL_SETTINGS.searchWindowDefaultSize,
+        },
+    };
+}
 
 type GeneralSettingValue = SettingsGeneralUpdatedEvent['value'];
 
 const outputScrollBehaviorSchema = z.enum(['follow_output', 'stay_position', 'jump_to_top']);
+const searchWindowSizePresetSchema = z.enum(
+    Object.keys(SearchWindowSizePresets) as [SearchWindowSizePreset, ...SearchWindowSizePreset[]]
+);
 
 export const useSettingsStore = defineStore('settings', () => {
-    const settings = ref<GeneralSettingsData>({ ...DEFAULT_GENERAL_SETTINGS });
+    const settings = ref<GeneralSettingsData>(createDefaultGeneralSettings());
     const initialized = ref(false);
     const loading = ref(false);
     const windowLabel = ref('unknown');
@@ -45,6 +68,21 @@ export const useSettingsStore = defineStore('settings', () => {
             return result.data;
         }
         return DEFAULT_GENERAL_SETTINGS.outputScrollBehavior;
+    }
+
+    function normalizeSearchWindowSizePreset(value: string | null): SearchWindowSizePreset {
+        const result = searchWindowSizePresetSchema.safeParse(value);
+        if (result.success) {
+            return result.data;
+        }
+        return DEFAULT_GENERAL_SETTINGS.searchWindowSizePreset;
+    }
+
+    function applySearchWindowSizePreset(preset: SearchWindowSizePreset): void {
+        settings.value.searchWindowSizePreset = preset;
+        settings.value.searchWindowDefaultSize = {
+            ...resolveSearchWindowDefaultSize(preset),
+        };
     }
 
     function applySetting(key: GeneralSettingKey, value: GeneralSettingValue): void {
@@ -65,6 +103,9 @@ export const useSettingsStore = defineStore('settings', () => {
             case 'output_scroll_behavior':
                 settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(String(value));
                 break;
+            case 'search_window_size_preset':
+                applySearchWindowSizePreset(normalizeSearchWindowSizePreset(String(value)));
+                break;
             default:
                 break;
         }
@@ -80,6 +121,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 return String(settings.value.startMinimized);
             case 'output_scroll_behavior':
                 return settings.value.outputScrollBehavior;
+            case 'search_window_size_preset':
+                return settings.value.searchWindowSizePreset;
             default:
                 return '';
         }
@@ -95,6 +138,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.startMinimized;
             case 'output_scroll_behavior':
                 return settings.value.outputScrollBehavior;
+            case 'search_window_size_preset':
+                return settings.value.searchWindowSizePreset;
             default:
                 return '';
         }
@@ -110,11 +155,18 @@ export const useSettingsStore = defineStore('settings', () => {
     async function loadFromDatabase() {
         loading.value = true;
         try {
-            const [globalShortcut, startOnBoot, startMinimized, outputScroll] = await Promise.all([
+            const [
+                globalShortcut,
+                startOnBoot,
+                startMinimized,
+                outputScroll,
+                searchWindowSizePreset,
+            ] = await Promise.all([
                 getSettingValue({ key: 'global_shortcut' }),
                 getSettingValue({ key: 'start_on_boot' }),
                 getSettingValue({ key: 'start_minimized' }),
                 getSettingValue({ key: 'output_scroll_behavior' }),
+                getSettingValue({ key: 'search_window_size_preset' }),
             ]);
 
             settings.value.globalShortcut =
@@ -128,12 +180,14 @@ export const useSettingsStore = defineStore('settings', () => {
                     ? DEFAULT_GENERAL_SETTINGS.startMinimized
                     : startMinimized === 'true';
             settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(outputScroll);
+            applySearchWindowSizePreset(normalizeSearchWindowSizePreset(searchWindowSizePreset));
 
             await Promise.allSettled([
                 persistDefaultIfMissing('global_shortcut', globalShortcut),
                 persistDefaultIfMissing('start_on_boot', startOnBoot),
                 persistDefaultIfMissing('start_minimized', startMinimized),
                 persistDefaultIfMissing('output_scroll_behavior', outputScroll),
+                persistDefaultIfMissing('search_window_size_preset', searchWindowSizePreset),
             ]);
         } finally {
             loading.value = false;
@@ -231,8 +285,14 @@ export const useSettingsStore = defineStore('settings', () => {
         await updateSetting('output_scroll_behavior', mode);
     }
 
+    async function updateSearchWindowSizePreset(preset: SearchWindowSizePreset) {
+        await updateSetting('search_window_size_preset', normalizeSearchWindowSizePreset(preset));
+    }
+
     const outputScrollBehavior = computed(() => settings.value.outputScrollBehavior);
     const globalShortcut = computed(() => settings.value.globalShortcut);
+    const searchWindowSizePreset = computed(() => settings.value.searchWindowSizePreset);
+    const searchWindowDefaultSize = computed(() => settings.value.searchWindowDefaultSize);
 
     return {
         settings,
@@ -240,6 +300,8 @@ export const useSettingsStore = defineStore('settings', () => {
         loading,
         outputScrollBehavior,
         globalShortcut,
+        searchWindowSizePreset,
+        searchWindowDefaultSize,
         initialize,
         dispose,
         refresh,
@@ -247,5 +309,6 @@ export const useSettingsStore = defineStore('settings', () => {
         updateStartOnBoot,
         updateStartMinimized,
         updateOutputScrollBehavior,
+        updateSearchWindowSizePreset,
     };
 });

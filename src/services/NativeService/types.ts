@@ -1,3 +1,6 @@
+import type { SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
+export type { SearchWindowDefaultSize, SearchWindowHeightMode };
+
 export interface PopupConfig {
     id: string;
     width: number;
@@ -45,6 +48,21 @@ export interface HidePopupWindowParams {
 export interface ResizeWindowHeightParams {
     targetHeight: number;
     center?: boolean;
+    animate?: boolean;
+    respectManualOverride?: boolean;
+}
+
+export interface SearchWindowMinimumSize {
+    minWidth: number;
+    minHeight: number;
+    maxHeight: number | null;
+}
+
+export interface SearchWindowState {
+    defaults: SearchWindowDefaultSize;
+    currentWidth: number;
+    currentHeight: number;
+    heightMode: SearchWindowHeightMode;
 }
 
 export interface TauriLogPayload {

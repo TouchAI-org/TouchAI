@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { SearchWindowSizePreset as SearchWindowSizePresets } from '@/config/searchWindow';
 import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 
 import { arrayFromScalarSchema, nonEmptyTrimmedStringSchema, z } from '../../utils/toolSchema';
@@ -10,13 +11,20 @@ export const SUPPORTED_SETTING_KEYS = [
     'start_on_boot',
     'start_minimized',
     'output_scroll_behavior',
+    'search_window_size_preset',
 ] as const;
 export const OUTPUT_SCROLL_BEHAVIORS = ['follow_output', 'stay_position', 'jump_to_top'] as const;
+export const SEARCH_WINDOW_SIZE_PRESETS = Object.keys(SearchWindowSizePresets) as [
+    'small',
+    'normal',
+    'large',
+];
 export const TOOL_KEY_TO_STORE_KEY = {
     global_shortcut: 'globalShortcut',
     start_on_boot: 'startOnBoot',
     start_minimized: 'startMinimized',
     output_scroll_behavior: 'outputScrollBehavior',
+    search_window_size_preset: 'searchWindowSizePreset',
 } as const;
 
 export type SettingToolAction = (typeof SETTING_TOOL_ACTIONS)[number];
@@ -82,9 +90,19 @@ export const SETTING_DEFINITIONS: Record<SupportedSettingKey, SettingDefinition>
         allowedValues: OUTPUT_SCROLL_BEHAVIORS,
         examples: [...OUTPUT_SCROLL_BEHAVIORS],
     },
+    search_window_size_preset: {
+        key: 'search_window_size_preset',
+        label: '搜索窗口默认尺寸',
+        description: '控制搜索窗口超时恢复和空态时使用的默认尺寸档位。',
+        type: 'enum',
+        allowedValues: SEARCH_WINDOW_SIZE_PRESETS,
+        examples: [...SEARCH_WINDOW_SIZE_PRESETS],
+        sideEffect: '修改后会立即同步搜索窗口默认尺寸。',
+    },
 };
 
 export const outputScrollBehaviorSchema = z.enum(OUTPUT_SCROLL_BEHAVIORS);
+export const searchWindowSizePresetSchema = z.enum(SEARCH_WINDOW_SIZE_PRESETS);
 const supportedSettingKeySchema = z.enum(SUPPORTED_SETTING_KEYS);
 const rawSettingValueSchema = z.union([z.string(), z.boolean(), z.number()]);
 
@@ -108,6 +126,7 @@ export const settingValueSchemaByKey = {
     start_on_boot: z.boolean(),
     start_minimized: z.boolean(),
     output_scroll_behavior: outputScrollBehaviorSchema,
+    search_window_size_preset: searchWindowSizePresetSchema,
 };
 
 /**
