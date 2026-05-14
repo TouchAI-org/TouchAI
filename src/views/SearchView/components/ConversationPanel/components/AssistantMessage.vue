@@ -455,6 +455,7 @@
 
     .loading-tip {
         font-size: 12px;
+        font-weight: 600;
         font-family: 'Source Han Serif SC', 'Noto Serif SC', 'Source Serif Pro', 'Georgia', serif;
         color: var(--color-gray-500);
         margin-left: 8px;
