@@ -426,3 +426,57 @@ impl Default for SearchWindowRuntime {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{should_hide_on_focus_lost, FocusLostDecisionInput};
+
+    fn decision_input(window_label: &'static str) -> FocusLostDecisionInput<'static> {
+        FocusLostDecisionInput {
+            window_label,
+            hide_on_app_blur: true,
+            main_visible: true,
+            main_maximized: false,
+            main_always_on_top: false,
+            app_focused: false,
+            has_popup_sessions: false,
+        }
+    }
+
+    #[test]
+    fn main_blur_keeps_surface_visible_while_popup_session_is_open() {
+        let should_hide = should_hide_on_focus_lost(FocusLostDecisionInput {
+            has_popup_sessions: true,
+            ..decision_input("main")
+        });
+
+        assert!(!should_hide);
+    }
+
+    #[test]
+    fn main_blur_hides_surface_when_app_focus_is_lost_without_popups() {
+        let should_hide = should_hide_on_focus_lost(decision_input("main"));
+
+        assert!(should_hide);
+    }
+
+    #[test]
+    fn blur_does_not_hide_surface_when_policy_is_disabled() {
+        let should_hide = should_hide_on_focus_lost(FocusLostDecisionInput {
+            hide_on_app_blur: false,
+            ..decision_input("main")
+        });
+
+        assert!(!should_hide);
+    }
+
+    #[test]
+    fn blur_does_not_hide_surface_while_app_is_still_focused() {
+        let should_hide = should_hide_on_focus_lost(FocusLostDecisionInput {
+            app_focused: true,
+            ..decision_input("main")
+        });
+
+        assert!(!should_hide);
+    }
+}

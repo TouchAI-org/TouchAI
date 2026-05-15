@@ -69,6 +69,22 @@ fn clamp_window_y(y: f64, height: f64, monitor: &Option<Monitor>, scale_factor: 
     y.max(min_y).min(max_y)
 }
 
+/// 计算窗口在保持原中心点时的下一个逻辑 y 坐标，并约束在显示器可视范围内。
+fn centered_window_y(
+    base_logical_y: f64,
+    base_logical_height: f64,
+    next_logical_height: f64,
+    monitor: &Option<Monitor>,
+    scale_factor: f64,
+) -> f64 {
+    clamp_window_y(
+        base_logical_y - (next_logical_height - base_logical_height) / 2.0,
+        next_logical_height,
+        monitor,
+        scale_factor,
+    )
+}
+
 /// 应用窗口尺寸，并在需要时同步调整中心位置。
 fn apply_window_size<R: Runtime>(
     window: &WebviewWindow<R>,
@@ -90,8 +106,9 @@ fn apply_window_size<R: Runtime>(
 
     if center {
         if let (Some(logical_x), Some(base_logical_y)) = (logical_x, base_logical_y) {
-            let adjusted_y = clamp_window_y(
-                base_logical_y - (logical_height - base_logical_height) / 2.0,
+            let adjusted_y = centered_window_y(
+                base_logical_y,
+                base_logical_height,
                 logical_height,
                 monitor,
                 scale_factor,
@@ -106,6 +123,18 @@ fn apply_window_size<R: Runtime>(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::centered_window_y;
+
+    #[test]
+    fn centered_window_y_moves_up_by_half_the_growth_when_unconstrained() {
+        let next_y = centered_window_y(300.0, 60.0, 180.0, &None, 1.0);
+
+        assert_eq!(next_y, 240.0);
+    }
 }
 
 /// 设置窗口最小尺寸（逻辑像素）。
