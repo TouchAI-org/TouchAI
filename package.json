@@ -13,8 +13,11 @@
         "preview": "vite preview",
         "tauri": "tauri",
         "test": "vitest",
+        "test:unit": "vitest run --passWithNoTests",
+        "test:coverage": "vitest run --coverage --passWithNoTests",
+        "test:typecheck": "vue-tsc -p tsconfig.vitest.json --noEmit",
         "test:ui": "vitest --ui",
-        "test:run": "vitest run --passWithNoTests",
+        "test:run": "pnpm test:unit",
         "type:check": "vue-tsc --noEmit",
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
@@ -86,6 +89,7 @@
         "@types/node": "^25.8.0",
         "@types/turndown": "^5.0.6",
         "@vitejs/plugin-vue": "^6.0.7",
+        "@vitest/coverage-v8": "^4.1.6",
         "@vitest/ui": "^4.1.6",
         "@vue/test-utils": "^2.4.10",
         "drizzle-kit": "^0.31.10",
@@ -97,6 +101,7 @@
         "eslint-plugin-vue": "^10.9.1",
         "globals": "^17.6.0",
         "husky": "^9.1.7",
+        "jsdom": "^29.1.1",
         "lint-staged": "^17.0.4",
         "prettier": "3.8.3",
         "prettier-plugin-tailwindcss": "^0.8.0",
@@ -112,6 +117,7 @@
     },
     "pnpm": {
         "overrides": {
+            "@vitest/coverage-v8": "4.1.6",
             "dompurify": "3.4.2"
         }
     },

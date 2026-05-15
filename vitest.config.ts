@@ -7,9 +7,25 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
   test: {
+    environment: 'jsdom',
     globals: true,
     include: ['tests/**/*.{test,spec}.{ts,js}', 'src/**/*.{test,spec}.{ts,js}'],
     exclude: ['node_modules', 'dist', '.idea', '.git', '.cache'],
+    setupFiles: ['./tests/setup/vitest.ts'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'json-summary'],
+      reportsDirectory: './coverage/unit',
+      include: ['src/**/*.{ts,vue}'],
+      exclude: [
+        'src/**/*.d.ts',
+        'src/main.ts',
+        'src/router/**',
+        'src/assets/**',
+        'src/styles/**',
+        'src/**/index.vue',
+      ],
+    },
   },
   resolve: {
     alias: {
