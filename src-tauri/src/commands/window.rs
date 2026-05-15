@@ -1,13 +1,44 @@
 //! 窗口命令。
 
 use crate::core::window::popup::{self, PopupConfig, PopupRegistry};
-use tauri::{AppHandle, State, WebviewWindow};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResizeWindowHeightParams {
     pub target_height: f64,
     pub center: Option<bool>,
+    /// 是否启用高度动画（None 时 main 窗口默认启用）。
+    pub animate: Option<bool>,
+    /// 是否遵循原生侧的 ManualOverride 模式（None 时默认 true）。
+    pub respect_manual_override: Option<bool>,
+}
+
+/// 搜索窗口默认尺寸，双向序列化用于 IPC 命令的请求和响应。
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchWindowDefaultsPayload {
+    pub width: f64,
+    pub height: f64,
+}
+
+/// 设置搜索窗口最小尺寸约束的请求载荷。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchWindowMinimumSizePayload {
+    pub min_width: f64,
+    pub min_height: f64,
+    pub max_height: Option<f64>,
+}
+
+/// 搜索窗口当前状态快照，返回给前端用于同步高度模式。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchWindowStatePayload {
+    pub defaults: SearchWindowDefaultsPayload,
+    pub current_width: f64,
+    pub current_height: f64,
+    pub height_mode: crate::core::window::search::bounds::HeightMode,
 }
 
 #[derive(serde::Deserialize)]
@@ -99,8 +130,72 @@ pub async fn resize_window_height(
     window: WebviewWindow,
     params: ResizeWindowHeightParams,
 ) -> Result<(), String> {
-    crate::core::window::resize::resize_window_height(window, params.target_height, params.center)
-        .await
+    crate::core::window::resize::resize_window_height(
+        window,
+        params.target_height,
+        params.center,
+        params.animate,
+        params.respect_manual_override,
+    )
+    .await
+}
+
+/// 更新搜索窗口默认尺寸，返回经最小值约束后的实际值。
+#[tauri::command]
+pub fn set_search_window_defaults(
+    app: AppHandle,
+    defaults: SearchWindowDefaultsPayload,
+) -> Result<SearchWindowDefaultsPayload, String> {
+    let next = crate::core::window::search::surface::update_window_defaults(
+        &app,
+        crate::core::window::search::bounds::SearchWindowDefaults {
+            width: defaults.width,
+            height: defaults.height,
+        },
+    )?;
+
+    Ok(SearchWindowDefaultsPayload {
+        width: next.width,
+        height: next.height,
+    })
+}
+
+/// 动态设置搜索窗口的最小/最大高度约束。
+#[tauri::command]
+pub fn set_search_window_min_size(
+    app: AppHandle,
+    size: SearchWindowMinimumSizePayload,
+) -> Result<(), String> {
+    crate::core::window::resize::set_search_window_min_size(
+        &app,
+        size.min_width,
+        size.min_height,
+        size.max_height,
+    )
+}
+
+/// 将搜索窗口尺寸重置为当前默认值并居中。
+#[tauri::command]
+pub fn reset_search_window_bounds(window: WebviewWindow) -> Result<(), String> {
+    crate::core::window::resize::reset_search_window_to_defaults(&window)
+}
+
+/// 获取搜索窗口当前状态快照（默认尺寸、当前宽高、高度模式）。
+#[tauri::command]
+pub fn get_search_window_state(app: AppHandle) -> Result<SearchWindowStatePayload, String> {
+    let runtime = app
+        .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    let snapshot = runtime.window_state().snapshot();
+    Ok(SearchWindowStatePayload {
+        defaults: SearchWindowDefaultsPayload {
+            width: snapshot.defaults.width,
+            height: snapshot.defaults.height,
+        },
+        current_width: snapshot.current_width,
+        current_height: snapshot.current_height,
+        height_mode: snapshot.height_mode,
+    })
 }
 
 #[tauri::command]
@@ -109,4 +204,10 @@ pub fn set_search_surface_hide_on_app_blur(
     should_hide: bool,
 ) -> Result<(), String> {
     crate::core::window::search::set_search_surface_hide_on_app_blur(app, should_hide)
+}
+
+/// 设置是否允许用户通过手动拖拽覆盖搜索窗口高度。
+#[tauri::command]
+pub fn set_search_window_allow_height_override(app: AppHandle, allow: bool) -> Result<(), String> {
+    crate::core::window::search::surface::set_allow_height_override(&app, allow)
 }

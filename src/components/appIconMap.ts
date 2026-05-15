@@ -12,9 +12,11 @@ import IconData from '~icons/bx/data';
 import IconArrowDown from '~icons/bx/down-arrow-alt';
 import IconEdit from '~icons/bx/edit-alt';
 import IconError from '~icons/bx/error';
+import IconExitFullscreen from '~icons/bx/exit-fullscreen';
 import IconFile from '~icons/bx/file';
 import IconFileBlank from '~icons/bx/file-blank';
 import IconFolderOpen from '~icons/bx/folder-open';
+import IconFullscreen from '~icons/bx/fullscreen';
 import IconHide from '~icons/bx/hide';
 import IconHistory from '~icons/bx/history';
 import IconInfoCircle from '~icons/bx/info-circle';
@@ -50,6 +52,7 @@ export const appIconMap = {
     'eye-off': IconHide,
     file: IconFile,
     'folder-open': IconFolderOpen,
+    fullscreen: IconFullscreen,
     history: IconHistory,
     'information-circle': IconInfoCircle,
     llm: IconBrain,
@@ -67,6 +70,7 @@ export const appIconMap = {
     wrench: IconWrench,
     x: IconX,
     'x-circle': IconXCircle,
+    'exit-fullscreen': IconExitFullscreen,
 } satisfies Record<string, Component>;
 
 export const appIconFallback = IconInfoCircle;

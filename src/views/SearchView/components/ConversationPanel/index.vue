@@ -3,14 +3,16 @@
   -->
 
 <template>
-    <div class="relative h-full min-h-0 w-full">
+    <div class="relative w-full" :class="props.fillAvailableHeight ? 'h-full min-h-0' : ''">
         <ConversationToolbar
             ref="conversationToolbar"
             :is-pinned="isPinned"
+            :is-maximized="isMaximized"
             :can-pin="messages.length > 0"
             :disabled="toolbarDisabled"
             :history-open="historyOpen"
             @pin-change="emit('pinChange', $event)"
+            @maximize-toggle="emit('maximizeToggle')"
             @new-session="emit('newSession')"
             @history-open-change="emit('historyOpenChange', $event)"
             @history-prefetch="emit('historyPrefetch', $event)"
@@ -21,7 +23,8 @@
         <div
             ref="conversationContainer"
             tabindex="0"
-            class="conversation-container bg-background-primary h-full min-h-0 w-full overflow-y-auto px-10 pt-[4.5rem] pb-5 focus:outline-none"
+            class="conversation-container bg-background-primary min-h-0 w-full overflow-y-auto px-10 pt-[4.5rem] pb-5 focus:outline-none"
+            :class="props.fillAvailableHeight ? 'h-full' : ''"
             :style="conversationContainerStyle"
             @scroll="handleScroll"
             @wheel.passive="markUserScrollIntent"
@@ -95,6 +98,8 @@
         isLoading: boolean;
         error: Error | null;
         isPinned: boolean;
+        isMaximized?: boolean;
+        fillAvailableHeight?: boolean;
         historyOpen: boolean;
         toolbarDisabled?: boolean;
         maxHeight?: number;
@@ -105,11 +110,14 @@
         maxHeight: 600,
         toolbarDisabled: false,
         approvalAttentionToken: 0,
+        isMaximized: false,
+        fillAvailableHeight: false,
     });
 
     const emit = defineEmits<{
         regenerateMessage: [messageId: string];
         pinChange: [isPinned: boolean];
+        maximizeToggle: [];
         newSession: [];
         historyOpenChange: [payload: { open: boolean; anchorElement: HTMLElement | null }];
         historyPrefetch: [anchorElement: HTMLElement | null];
@@ -140,10 +148,17 @@
     const scrollTop = ref(0);
     const scrollHeight = ref(0);
     const clientHeight = ref(0);
-    const conversationContainerStyle = computed(() => ({
-        height: '100%',
-        maxHeight: `${props.maxHeight}px`,
-    }));
+    const conversationContainerStyle = computed(() =>
+        props.fillAvailableHeight
+            ? {
+                  height: '100%',
+                  maxHeight: 'none',
+              }
+            : {
+                  height: 'auto',
+                  maxHeight: `${props.maxHeight}px`,
+              }
+    );
 
     // 暴露 focus 方法
     function focus() {

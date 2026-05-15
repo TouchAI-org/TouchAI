@@ -7,6 +7,10 @@
     import { storeToRefs } from 'pinia';
     import { onMounted, onUnmounted, ref, watch } from 'vue';
 
+    import {
+        resolveSearchWindowDefaultSize,
+        type SearchWindowSizePreset,
+    } from '@/config/searchWindow';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
 
     defineOptions({
@@ -24,6 +28,15 @@
         { value: 'follow_output', label: '跟踪输出', description: '输出时自动滚动到最新内容' },
         { value: 'stay_position', label: '保持原位', description: '输出时不改变当前滚动位置' },
         { value: 'jump_to_top', label: '跳转到开头', description: '输出时自动跳到会话顶部' },
+    ];
+
+    const searchWindowSizeOptions: Array<{
+        value: SearchWindowSizePreset;
+        label: string;
+    }> = [
+        { value: 'small', label: '小' },
+        { value: 'normal', label: '常规' },
+        { value: 'large', label: '大' },
     ];
 
     const shortcutInput = ref<HTMLInputElement | null>(null);
@@ -316,6 +329,20 @@
         }
     };
 
+    const saveSearchWindowSizePreset = async (preset: SearchWindowSizePreset) => {
+        try {
+            const size = resolveSearchWindowDefaultSize(preset);
+
+            await settingsStore.updateSearchWindowSizePreset(preset);
+            await native.window.setSearchWindowDefaults(size);
+
+            alertMessage.value?.success('搜索窗口尺寸已更新', 2000);
+        } catch (error) {
+            console.error('Failed to save search window size preset:', error);
+            alertMessage.value?.error('保存搜索窗口尺寸失败', 3000);
+        }
+    };
+
     onMounted(async () => {
         await loadSettings();
 
@@ -518,6 +545,20 @@
                             }}
                         </p>
                     </div>
+                </div>
+            </div>
+
+            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
+                <h2 class="font-serif text-lg font-semibold text-gray-900">搜索窗口</h2>
+                <div class="space-y-2">
+                    <label class="block font-serif text-sm font-medium text-gray-700">
+                        默认尺寸
+                    </label>
+                    <CustomSelect
+                        v-model="settings.searchWindowSizePreset"
+                        :options="searchWindowSizeOptions"
+                        @update:model-value="saveSearchWindowSizePreset"
+                    />
                 </div>
             </div>
         </div>
