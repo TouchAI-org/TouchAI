@@ -6,6 +6,7 @@
 use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use tauri::Manager;
+use tauri::{Runtime, WebviewWindow};
 #[cfg(target_os = "windows")]
 use webview2_com::AcceleratorKeyPressedEventHandler;
 #[cfg(target_os = "windows")]
@@ -94,8 +95,8 @@ fn is_search_surface_accelerator_command(
 
 #[cfg(target_os = "windows")]
 /// 在主搜索窗口注册 WebView2 accelerator 兜底，避免 DOM 未接管焦点时首个 Ctrl+M 丢失。
-fn register_search_surface_accelerator_bridge(
-    window: &tauri::WebviewWindow,
+fn register_search_surface_accelerator_bridge<R: Runtime>(
+    window: &WebviewWindow<R>,
     controller: &ICoreWebView2Controller,
 ) -> Result<(), String> {
     if window.label() != "main" {
@@ -247,7 +248,9 @@ fn register_devtools_accelerator_handler(
 /**
  * 为桌面窗口应用统一的 webview 运行时默认配置。
  */
-pub(crate) fn apply_webview_runtime_defaults(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel();
     let window_clone = window.clone();
     window
@@ -274,6 +277,8 @@ pub(crate) fn apply_webview_runtime_defaults(window: &tauri::WebviewWindow) -> R
 /**
  * 非 Windows 平台无需额外的 WebView2 默认配置。
  */
-pub(crate) fn apply_webview_runtime_defaults(_window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
+    _window: &WebviewWindow<R>,
+) -> Result<(), String> {
     Ok(())
 }

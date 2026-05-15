@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use super::bounds::{SearchWindowDefaults, SearchWindowState};
 
@@ -192,8 +192,8 @@ impl SearchWindowRuntime {
 }
 
 /// 更新搜索窗口默认尺寸。
-pub fn update_window_defaults(
-    app_handle: &AppHandle,
+pub fn update_window_defaults<R: Runtime>(
+    app_handle: &AppHandle<R>,
     defaults: SearchWindowDefaults,
 ) -> Result<SearchWindowDefaults, String> {
     let runtime = app_handle
@@ -224,7 +224,10 @@ fn should_hide_on_focus_lost(input: FocusLostDecisionInput<'_>) -> bool {
 }
 
 /// 设置搜索窗口组应用失焦隐藏策略。
-pub fn set_hide_on_app_blur(app_handle: &AppHandle, should_hide: bool) -> Result<(), String> {
+pub fn set_hide_on_app_blur<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    should_hide: bool,
+) -> Result<(), String> {
     let runtime = app_handle
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
@@ -233,7 +236,10 @@ pub fn set_hide_on_app_blur(app_handle: &AppHandle, should_hide: bool) -> Result
 }
 
 /// 设置当前搜索窗口是否允许高度手动 override。
-pub fn set_allow_height_override(app_handle: &AppHandle, allow: bool) -> Result<(), String> {
+pub fn set_allow_height_override<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    allow: bool,
+) -> Result<(), String> {
     let runtime = app_handle
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
@@ -242,8 +248,8 @@ pub fn set_allow_height_override(app_handle: &AppHandle, allow: bool) -> Result<
 }
 
 /// 广播并清空所有已登记的 popup 关闭事实。
-pub fn emit_registered_popup_closed(
-    app_handle: &AppHandle,
+pub fn emit_registered_popup_closed<R: Runtime>(
+    app_handle: &AppHandle<R>,
     sessions: Vec<PopupSurfaceSession>,
 ) -> Result<(), String> {
     for session in sessions {
@@ -255,8 +261,8 @@ pub fn emit_registered_popup_closed(
 }
 
 /// 隐藏所有 popup 原生窗口，并广播 popup 关闭事实。
-pub fn hide_popup_surface(
-    app_handle: &AppHandle,
+pub fn hide_popup_surface<R: Runtime>(
+    app_handle: &AppHandle<R>,
     target_session: Option<PopupSurfaceSession>,
 ) -> Result<(), String> {
     if let Some(target_session) = target_session.as_ref() {
@@ -300,7 +306,10 @@ pub fn hide_popup_surface(
 }
 
 /// 显示搜索窗口组并广播原生事实。
-pub fn show_surface(app_handle: &AppHandle, source: SearchSurfaceShowSource) -> Result<(), String> {
+pub fn show_surface<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    source: SearchSurfaceShowSource,
+) -> Result<(), String> {
     let runtime = app_handle
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
@@ -321,7 +330,10 @@ pub fn show_surface(app_handle: &AppHandle, source: SearchSurfaceShowSource) -> 
 }
 
 /// 隐藏搜索窗口组并广播原生事实。
-pub fn hide_surface(app_handle: &AppHandle, reason: SearchSurfaceHideReason) -> Result<(), String> {
+pub fn hide_surface<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    reason: SearchSurfaceHideReason,
+) -> Result<(), String> {
     let runtime = app_handle
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
@@ -343,7 +355,10 @@ pub fn hide_surface(app_handle: &AppHandle, reason: SearchSurfaceHideReason) -> 
 }
 
 /// 在原生窗口失焦时判断是否离开搜索窗口组，必要时隐藏完整 surface。
-pub fn handle_focus_lost(app_handle: &AppHandle, window_label: &str) -> Result<(), String> {
+pub fn handle_focus_lost<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    window_label: &str,
+) -> Result<(), String> {
     let runtime = app_handle
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
@@ -369,7 +384,7 @@ pub fn handle_focus_lost(app_handle: &AppHandle, window_label: &str) -> Result<(
 }
 
 /// 处理搜索窗口组窗口失焦事件。
-pub fn handle_window_blur(app_handle: &AppHandle, window_label: &str) {
+pub fn handle_window_blur<R: Runtime>(app_handle: &AppHandle<R>, window_label: &str) {
     if window_label != "main" && !window_label.starts_with("popup-") {
         return;
     }
@@ -384,7 +399,7 @@ pub fn handle_window_blur(app_handle: &AppHandle, window_label: &str) {
 }
 
 /// 处理 popup 窗口被销毁后的 runtime 清理。
-pub fn handle_window_destroyed(app_handle: &AppHandle, window_label: &str) {
+pub fn handle_window_destroyed<R: Runtime>(app_handle: &AppHandle<R>, window_label: &str) {
     if !window_label.starts_with("popup-") {
         return;
     }

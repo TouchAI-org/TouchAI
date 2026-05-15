@@ -74,28 +74,20 @@ impl DatabaseRuntime {
     pub async fn initialize(app: &tauri::App) -> Result<Self, String> {
         let database_path = app_directory_path(AppDirectory::Data)?.join(DATABASE_FILE_NAME);
         let database_contract = resolve_database_contract(app)?;
-        let pool = create_sqlite_pool(&database_path).await?;
+        Self::initialize_with_paths(database_path, database_contract, true).await
+    }
 
-        // 数据库契约统一收敛在前端目录，release 直接读取 exe 内嵌资源。
-        migrate_database(&pool, &database_contract).await?;
-        ensure_runtime_guards(&pool, &database_contract).await?;
-        apply_seed(&pool, &database_contract).await?;
-
-        let runtime = Self {
-            inner: Arc::new(DatabaseRuntimeInner {
-                pool,
-                database_path,
-                database_contract,
-                tx_registry: Mutex::new(HashMap::new()),
-            }),
-        };
-        runtime.spawn_tx_cleanup();
-
-        info!(
-            "Database runtime initialized at {}",
-            runtime.inner.database_path.display()
-        );
-        Ok(runtime)
+    #[doc(hidden)]
+    pub async fn initialize_for_tests(root: &std::path::Path) -> Result<Self, String> {
+        let database_path = root.join(DATABASE_FILE_NAME);
+        let database_contract = DatabaseContractSource::from_root(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .ok_or_else(|| "Failed to resolve project database contract directory".to_string())?
+                .join("src")
+                .join("database"),
+        )?;
+        Self::initialize_with_paths(database_path, database_contract, false).await
     }
 
     pub async fn query(
@@ -296,6 +288,37 @@ impl DatabaseRuntime {
             .await
             .map_err(|error| format!("Failed to finalize sqlite transaction '{tx_id}': {error}"))?;
         Ok(())
+    }
+
+    async fn initialize_with_paths(
+        database_path: PathBuf,
+        database_contract: DatabaseContractSource,
+        spawn_tx_cleanup: bool,
+    ) -> Result<Self, String> {
+        let pool = create_sqlite_pool(&database_path).await?;
+
+        // 数据库契约统一收敛在前端目录，release 直接读取 exe 内嵌资源。
+        migrate_database(&pool, &database_contract).await?;
+        ensure_runtime_guards(&pool, &database_contract).await?;
+        apply_seed(&pool, &database_contract).await?;
+
+        let runtime = Self {
+            inner: Arc::new(DatabaseRuntimeInner {
+                pool,
+                database_path,
+                database_contract,
+                tx_registry: Mutex::new(HashMap::new()),
+            }),
+        };
+        if spawn_tx_cleanup {
+            runtime.spawn_tx_cleanup();
+        }
+
+        info!(
+            "Database runtime initialized at {}",
+            runtime.inner.database_path.display()
+        );
+        Ok(runtime)
     }
 }
 

@@ -2,6 +2,8 @@
 
 mod commands;
 mod core;
+#[doc(hidden)]
+pub mod testing;
 
 use core::built_in_tools::BashExecutionRegistry;
 use core::database::DatabaseRuntime;
@@ -94,7 +96,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(commands::invoke_handler());
+        .invoke_handler(commands::invoke_handler::<tauri::Wry>());
 
     let app_result = builder
         .setup(|app| {

@@ -2,9 +2,9 @@
 
 //! 设置窗口管理逻辑。
 
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
-pub async fn build_settings_window(app: &AppHandle) -> Result<(), String> {
+pub async fn build_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     if let Some(settings_window) = app.get_webview_window("settings") {
         settings_window.unminimize().map_err(|e| e.to_string())?;
         settings_window.show().map_err(|e| e.to_string())?;

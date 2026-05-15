@@ -6648,6 +6648,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
+ "tempfile",
  "time",
  "tokio",
  "webview2-com",

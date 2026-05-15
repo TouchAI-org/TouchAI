@@ -1,0 +1,48 @@
+use std::path::Path;
+
+use tauri::{
+    test::{mock_builder, MockRuntime},
+    App, Builder, Manager, Runtime,
+};
+
+use crate::{
+    commands,
+    core::{
+        database::DatabaseRuntime,
+        window::{popup::PopupRegistry, search::surface::SearchSurfaceRuntime},
+    },
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchSurfacePolicySnapshot {
+    pub hide_on_app_blur: bool,
+    pub allow_height_override: bool,
+}
+
+pub fn test_builder() -> Builder<MockRuntime> {
+    mock_builder()
+        .invoke_handler(commands::invoke_handler::<MockRuntime>())
+        .manage(PopupRegistry::new())
+        .manage(SearchSurfaceRuntime::new())
+}
+
+pub fn attach_test_database_runtime(
+    builder: Builder<MockRuntime>,
+    database_root: &Path,
+) -> Result<Builder<MockRuntime>, String> {
+    let runtime =
+        tauri::async_runtime::block_on(DatabaseRuntime::initialize_for_tests(database_root))?;
+    Ok(builder.manage(runtime))
+}
+
+pub fn popup_registry_has<R: Runtime>(app: &App<R>, id: &str) -> bool {
+    app.state::<PopupRegistry>().has(id)
+}
+
+pub fn search_surface_policies<R: Runtime>(app: &App<R>) -> SearchSurfacePolicySnapshot {
+    let runtime = app.state::<SearchSurfaceRuntime>();
+    SearchSurfacePolicySnapshot {
+        hide_on_app_blur: runtime.should_hide_on_app_blur(),
+        allow_height_override: runtime.should_allow_height_override(),
+    }
+}

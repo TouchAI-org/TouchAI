@@ -9,6 +9,10 @@ use tauri_codegen::embedded_assets::{AssetOptions, EmbeddedAssets};
 fn main() {
     generate_database_embedded_assets().expect("failed to generate embedded database assets");
 
+    #[cfg(target_os = "windows")]
+    configure_windows_common_controls_manifest()
+        .expect("failed to configure Windows common-controls manifest");
+
     // Compile Everything SDK C source on Windows
     #[cfg(target_os = "windows")]
     {
@@ -18,6 +22,24 @@ fn main() {
     }
 
     tauri_build::build()
+}
+
+#[cfg(target_os = "windows")]
+fn configure_windows_common_controls_manifest() -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_path = PathBuf::from("windows-common-controls.manifest").canonicalize()?;
+    emit_rerun_if_changed(&manifest_path)?;
+
+    // Integration-test executables on Windows do not inherit the app manifest that
+    // the packaged Tauri binary gets. Explicitly requesting Common Controls v6 keeps
+    // GUI-linked test binaries from loading the legacy comctl32 surface and crashing
+    // on symbols such as TaskDialogIndirect during process startup.
+    println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+    println!(
+        "cargo:rustc-link-arg-tests=/MANIFESTINPUT:{}",
+        manifest_path.display()
+    );
+
+    Ok(())
 }
 
 fn generate_database_embedded_assets() -> Result<(), Box<dyn std::error::Error>> {

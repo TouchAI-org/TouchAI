@@ -5,7 +5,7 @@
 pub mod bounds;
 pub mod surface;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
 #[cfg(target_os = "windows")]
 use raw_window_handle::HasWindowHandle;
@@ -22,7 +22,7 @@ use windows::Win32::{
 };
 
 /// 隐藏主搜索窗口。
-pub fn hide_search_window(app: AppHandle) -> Result<(), String> {
+pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     surface::hide_surface(&app, surface::SearchSurfaceHideReason::ManualDismiss)
 }
 
@@ -55,7 +55,9 @@ fn shortcut_action_requires_foreground_activation(action: ShortcutToggleAction) 
 }
 
 /// 处理全局快捷键触发的搜索窗口显隐切换。
-pub fn show_search_window_from_shortcut(app_handle: &AppHandle) -> Result<(), String> {
+pub fn show_search_window_from_shortcut<R: Runtime>(
+    app_handle: &AppHandle<R>,
+) -> Result<(), String> {
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
@@ -83,22 +85,26 @@ pub fn show_search_window_from_shortcut(app_handle: &AppHandle) -> Result<(), St
 }
 
 /// 设置应用失焦时是否由原生层自动隐藏搜索窗口组。
-pub fn set_search_surface_hide_on_app_blur(
-    app_handle: AppHandle,
+pub fn set_search_surface_hide_on_app_blur<R: Runtime>(
+    app_handle: AppHandle<R>,
     should_hide: bool,
 ) -> Result<(), String> {
     surface::set_hide_on_app_blur(&app_handle, should_hide)
 }
 
 /// 显示搜索窗口，并确保它成为后续键盘输入的目标窗口。
-pub(super) fn show_and_activate_search_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(super) fn show_and_activate_search_window<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
     let _ = window.unminimize();
     window.show().map_err(|e| e.to_string())?;
     reactivate_search_window_input(window)
 }
 
 /// 让主搜索窗口重新成为键盘输入目标，并唤醒 WebView2 accelerator 管线。
-pub(super) fn reactivate_search_window_input(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(super) fn reactivate_search_window_input<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
     window.set_focus().map_err(|e| e.to_string())?;
     focus_search_webview_content(window)?;
     prime_webview_input_pipeline();
@@ -164,7 +170,9 @@ fn prime_webview_input_pipeline() {}
 
 #[cfg(target_os = "windows")]
 /// 将键盘焦点推进 WebView2 内容层，确保页面可以收到后续 keydown。
-pub(super) fn focus_search_webview_content(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(super) fn focus_search_webview_content<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
     let main_hwnd = get_window_hwnd(window)?;
     let main_hwnd_raw = main_hwnd.0 as isize;
     let (tx, rx) = std::sync::mpsc::channel();
@@ -215,7 +223,9 @@ fn select_search_webview_focus_hwnd(parent_hwnd: HWND, child_hwnd: HWND) -> HWND
 
 #[cfg(not(target_os = "windows"))]
 /// 非 Windows 平台无需额外推进 WebView 内容焦点。
-pub(super) fn focus_search_webview_content(_window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(super) fn focus_search_webview_content<R: Runtime>(
+    _window: &WebviewWindow<R>,
+) -> Result<(), String> {
     Ok(())
 }
 
@@ -226,7 +236,7 @@ const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
 
 #[cfg(target_os = "windows")]
 /// 获取 Tauri WebviewWindow 对应的 Win32 HWND。
-fn get_window_hwnd(window: &tauri::WebviewWindow) -> Result<HWND, String> {
+fn get_window_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String> {
     let window_handle = window
         .window_handle()
         .map_err(|e| format!("Failed to get window handle: {}", e))?;
@@ -239,7 +249,7 @@ fn get_window_hwnd(window: &tauri::WebviewWindow) -> Result<HWND, String> {
 
 #[cfg(target_os = "windows")]
 /// 设置 Windows 搜索窗口圆角和边框样式。
-pub fn set_search_window_style(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub fn set_search_window_style<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
     let hwnd = get_window_hwnd(window)?;
 
     unsafe {
@@ -267,6 +277,6 @@ pub fn set_search_window_style(window: &tauri::WebviewWindow) -> Result<(), Stri
 
 #[cfg(not(target_os = "windows"))]
 /// 在非 Windows 平台跳过搜索窗口样式设置。
-pub fn set_search_window_style(_window: &tauri::WebviewWindow) -> Result<(), String> {
+pub fn set_search_window_style<R: Runtime>(_window: &WebviewWindow<R>) -> Result<(), String> {
     Ok(())
 }

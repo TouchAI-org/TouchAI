@@ -6,10 +6,10 @@ use log::warn;
 use tauri::{
     image::Image,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Manager, PhysicalPosition, Runtime, WebviewUrl, WebviewWindowBuilder,
 };
 
-pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
     let icon = load_tray_icon()?;
 
     let _tray = TrayIconBuilder::new()
@@ -45,7 +45,7 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn close_tray_menu(app: AppHandle) -> Result<(), String> {
+pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("tray-menu") {
         window.hide().map_err(|e| e.to_string())?;
     }
@@ -53,7 +53,7 @@ pub fn close_tray_menu(app: AppHandle) -> Result<(), String> {
 }
 
 /// 预加载托盘菜单窗口（隐藏状态），加速首次右键响应
-pub fn preload_tray_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
     if app.get_webview_window("tray-menu").is_some() {
         return Ok(());
     }
@@ -90,8 +90,8 @@ fn load_tray_icon() -> Result<Image<'static>, Box<dyn std::error::Error>> {
     Ok(icon)
 }
 
-fn show_tray_menu(
-    app: &AppHandle,
+fn show_tray_menu<R: Runtime>(
+    app: &AppHandle<R>,
     click_position: PhysicalPosition<f64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let menu_width = 140.0;

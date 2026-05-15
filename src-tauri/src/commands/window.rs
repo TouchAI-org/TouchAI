@@ -1,7 +1,7 @@
 //! 窗口命令。
 
 use crate::core::window::popup::{self, PopupConfig, PopupRegistry};
-use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,17 +63,17 @@ pub struct HidePopupWindowParams {
 }
 
 #[tauri::command]
-pub fn hide_search_window(app: AppHandle) -> Result<(), String> {
+pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::core::window::hide_search_window(app)
 }
 
 #[tauri::command]
-pub async fn open_settings_window(app: AppHandle) -> Result<(), String> {
+pub async fn open_settings_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::core::window::build_settings_window(&app).await
 }
 
 #[tauri::command]
-pub fn close_tray_menu(app: AppHandle) -> Result<(), String> {
+pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::core::window::tray::close_tray_menu(app)
 }
 
@@ -87,16 +87,16 @@ pub fn register_popup_configs(
 }
 
 #[tauri::command]
-pub async fn preload_popup_windows(
-    app: AppHandle,
+pub async fn preload_popup_windows<R: Runtime>(
+    app: AppHandle<R>,
     registry: State<'_, PopupRegistry>,
 ) -> Result<(), String> {
     popup::preload_popup_windows(app, registry.inner()).await
 }
 
 #[tauri::command]
-pub async fn show_popup_window(
-    app: AppHandle,
+pub async fn show_popup_window<R: Runtime>(
+    app: AppHandle<R>,
     registry: State<'_, PopupRegistry>,
     params: ShowPopupWindowParams,
 ) -> Result<(), String> {
@@ -116,7 +116,10 @@ pub async fn show_popup_window(
 }
 
 #[tauri::command]
-pub fn hide_popup_window(app: AppHandle, params: HidePopupWindowParams) -> Result<(), String> {
+pub fn hide_popup_window<R: Runtime>(
+    app: AppHandle<R>,
+    params: HidePopupWindowParams,
+) -> Result<(), String> {
     popup::hide_popup_window(
         app,
         params.popup_id,
@@ -126,8 +129,8 @@ pub fn hide_popup_window(app: AppHandle, params: HidePopupWindowParams) -> Resul
 }
 
 #[tauri::command]
-pub async fn resize_window_height(
-    window: WebviewWindow,
+pub async fn resize_window_height<R: Runtime>(
+    window: WebviewWindow<R>,
     params: ResizeWindowHeightParams,
 ) -> Result<(), String> {
     crate::core::window::resize::resize_window_height(
@@ -142,8 +145,8 @@ pub async fn resize_window_height(
 
 /// 更新搜索窗口默认尺寸，返回经最小值约束后的实际值。
 #[tauri::command]
-pub fn set_search_window_defaults(
-    app: AppHandle,
+pub fn set_search_window_defaults<R: Runtime>(
+    app: AppHandle<R>,
     defaults: SearchWindowDefaultsPayload,
 ) -> Result<SearchWindowDefaultsPayload, String> {
     let next = crate::core::window::search::surface::update_window_defaults(
@@ -162,8 +165,8 @@ pub fn set_search_window_defaults(
 
 /// 动态设置搜索窗口的最小/最大高度约束。
 #[tauri::command]
-pub fn set_search_window_min_size(
-    app: AppHandle,
+pub fn set_search_window_min_size<R: Runtime>(
+    app: AppHandle<R>,
     size: SearchWindowMinimumSizePayload,
 ) -> Result<(), String> {
     crate::core::window::resize::set_search_window_min_size(
@@ -176,13 +179,15 @@ pub fn set_search_window_min_size(
 
 /// 将搜索窗口尺寸重置为当前默认值并居中。
 #[tauri::command]
-pub fn reset_search_window_bounds(window: WebviewWindow) -> Result<(), String> {
+pub fn reset_search_window_bounds<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
     crate::core::window::resize::reset_search_window_to_defaults(&window)
 }
 
 /// 获取搜索窗口当前状态快照（默认尺寸、当前宽高、高度模式）。
 #[tauri::command]
-pub fn get_search_window_state(app: AppHandle) -> Result<SearchWindowStatePayload, String> {
+pub fn get_search_window_state<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<SearchWindowStatePayload, String> {
     let runtime = app
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
@@ -199,8 +204,8 @@ pub fn get_search_window_state(app: AppHandle) -> Result<SearchWindowStatePayloa
 }
 
 #[tauri::command]
-pub fn set_search_surface_hide_on_app_blur(
-    app: AppHandle,
+pub fn set_search_surface_hide_on_app_blur<R: Runtime>(
+    app: AppHandle<R>,
     should_hide: bool,
 ) -> Result<(), String> {
     crate::core::window::search::set_search_surface_hide_on_app_blur(app, should_hide)
@@ -208,6 +213,9 @@ pub fn set_search_surface_hide_on_app_blur(
 
 /// 设置是否允许用户通过手动拖拽覆盖搜索窗口高度。
 #[tauri::command]
-pub fn set_search_window_allow_height_override(app: AppHandle, allow: bool) -> Result<(), String> {
+pub fn set_search_window_allow_height_override<R: Runtime>(
+    app: AppHandle<R>,
+    allow: bool,
+) -> Result<(), String> {
     crate::core::window::search::surface::set_allow_height_override(&app, allow)
 }

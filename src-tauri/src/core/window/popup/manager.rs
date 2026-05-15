@@ -6,7 +6,7 @@ use crate::core::window::popup::PopupRegistry;
 use log::warn;
 #[cfg(target_os = "windows")]
 use raw_window_handle::HasWindowHandle;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 #[cfg(target_os = "windows")]
 use windows::Win32::{
     Foundation::HWND,
@@ -20,7 +20,7 @@ fn is_app_surface_label(label: &str) -> bool {
 
 #[cfg(target_os = "windows")]
 /// 获取 Tauri WebviewWindow 对应的 Win32 HWND。
-fn get_window_hwnd(window: &tauri::WebviewWindow) -> Result<HWND, String> {
+fn get_window_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String> {
     let window_handle = window
         .window_handle()
         .map_err(|e| format!("Failed to get window handle: {}", e))?;
@@ -33,7 +33,7 @@ fn get_window_hwnd(window: &tauri::WebviewWindow) -> Result<HWND, String> {
 
 #[cfg(target_os = "windows")]
 /// 判断当前前台窗口是否是指定窗口或其 WebView 子窗口。
-fn is_foreground_window_family(window: &tauri::WebviewWindow) -> Result<bool, String> {
+fn is_foreground_window_family<R: Runtime>(window: &WebviewWindow<R>) -> Result<bool, String> {
     let hwnd = get_window_hwnd(window)?;
     let foreground_hwnd = unsafe { GetForegroundWindow() };
     if foreground_hwnd.0.is_null() {
@@ -63,8 +63,8 @@ fn foreground_belongs_to_window_family(
     is_same_window || is_child_window || is_root_window || is_root_owner_window
 }
 
-pub fn build_popup_window(
-    app: &AppHandle,
+pub fn build_popup_window<R: Runtime>(
+    app: &AppHandle<R>,
     window_label: &str,
     title: &str,
     url: String,
@@ -72,7 +72,7 @@ pub fn build_popup_window(
     height: f64,
     x: f64,
     y: f64,
-) -> Result<tauri::WebviewWindow, String> {
+) -> Result<WebviewWindow<R>, String> {
     let make_builder = || {
         tauri::WebviewWindowBuilder::new(
             app,
@@ -105,7 +105,10 @@ pub fn build_popup_window(
     Ok(window)
 }
 
-pub async fn preload_popup_windows(app: AppHandle, registry: &PopupRegistry) -> Result<(), String> {
+pub async fn preload_popup_windows<R: Runtime>(
+    app: AppHandle<R>,
+    registry: &PopupRegistry,
+) -> Result<(), String> {
     let configs = registry.get_all();
 
     if configs.is_empty() {
@@ -143,8 +146,8 @@ pub async fn preload_popup_windows(app: AppHandle, registry: &PopupRegistry) -> 
     Ok(())
 }
 
-pub async fn show_popup_window(
-    app: AppHandle,
+pub async fn show_popup_window<R: Runtime>(
+    app: AppHandle<R>,
     registry: &PopupRegistry,
     x: f64,
     y: f64,
@@ -202,8 +205,8 @@ pub async fn show_popup_window(
     Ok(())
 }
 
-pub fn hide_popup_window(
-    app: AppHandle,
+pub fn hide_popup_window<R: Runtime>(
+    app: AppHandle<R>,
     popup_id: String,
     window_label: String,
     popup_session_version: u64,
@@ -219,7 +222,7 @@ pub fn hide_popup_window(
     )
 }
 
-pub fn is_app_focused(app: AppHandle) -> Result<bool, String> {
+pub fn is_app_focused<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     for (label, window) in app.webview_windows() {
         if !is_app_surface_label(&label) {

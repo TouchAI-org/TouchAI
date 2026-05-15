@@ -2,7 +2,7 @@
 
 //! 数据库运行时命令。
 
-use tauri::{State, WebviewWindow};
+use tauri::{Runtime, State, WebviewWindow};
 
 use crate::core::database::{
     types::{
@@ -32,8 +32,8 @@ pub async fn database_batch(
 
 /// 开启由 Rust 托管连接生命周期的事务。
 #[tauri::command]
-pub async fn database_tx_begin(
-    window: WebviewWindow,
+pub async fn database_tx_begin<R: Runtime>(
+    window: WebviewWindow<R>,
     runtime: State<'_, DatabaseRuntime>,
     behavior: Option<DatabaseTransactionBehavior>,
 ) -> Result<String, String> {

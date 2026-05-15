@@ -7,8 +7,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use tauri::{
-    LogicalUnit, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow, Window,
-    WindowSizeConstraints,
+    AppHandle, LogicalUnit, Manager, Monitor, PhysicalPosition, PhysicalSize, Runtime,
+    WebviewWindow, Window, WindowSizeConstraints,
 };
 
 use super::search::bounds::{clamp_height, clamp_width, HeightMode, SearchWindowFrame};
@@ -18,7 +18,7 @@ const ANIMATION_FRAME_INTERVAL_MS: u64 = 16;
 const HEIGHT_TOLERANCE: f64 = 1.0;
 
 /// 最大化窗口跳过内容驱动的 resize，避免撑满屏幕时被自动高度覆盖。
-fn is_content_driven_resize_allowed(window: &tauri::WebviewWindow) -> Result<bool, String> {
+fn is_content_driven_resize_allowed<R: Runtime>(window: &WebviewWindow<R>) -> Result<bool, String> {
     Ok(!window.is_maximized().map_err(|e| e.to_string())?)
 }
 
@@ -70,8 +70,8 @@ fn clamp_window_y(y: f64, height: f64, monitor: &Option<Monitor>, scale_factor: 
 }
 
 /// 应用窗口尺寸，并在需要时同步调整中心位置。
-fn apply_window_size(
-    window: &tauri::WebviewWindow,
+fn apply_window_size<R: Runtime>(
+    window: &WebviewWindow<R>,
     logical_width: f64,
     logical_height: f64,
     center: bool,
@@ -109,8 +109,8 @@ fn apply_window_size(
 }
 
 /// 设置窗口最小尺寸（逻辑像素）。
-fn apply_window_min_size(
-    window: &tauri::WebviewWindow,
+fn apply_window_min_size<R: Runtime>(
+    window: &WebviewWindow<R>,
     logical_width: f64,
     logical_height: f64,
 ) -> Result<(), String> {
@@ -127,8 +127,8 @@ fn apply_window_min_size(
 const DEFAULT_MAX_HEIGHT_UNCONSTRAINED: f64 = 2000.0;
 
 /// 设置窗口尺寸约束（最小宽高 + 可选最大高度）。
-fn apply_window_resize_constraints(
-    window: &tauri::WebviewWindow,
+fn apply_window_resize_constraints<R: Runtime>(
+    window: &WebviewWindow<R>,
     min_width: f64,
     min_height: f64,
     max_height: Option<f64>,
@@ -163,9 +163,9 @@ fn logical_frame_from_physical(
 }
 
 /// 记录用户在运行时对搜索窗口的手动 resize/move。
-pub fn record_search_window_runtime_resize(
-    app_handle: &tauri::AppHandle,
-    window: &Window,
+pub fn record_search_window_runtime_resize<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    window: &Window<R>,
 ) -> Result<HeightMode, String> {
     let runtime = app_handle
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
@@ -185,8 +185,8 @@ pub fn record_search_window_runtime_resize(
 }
 
 /// 动态设置搜索窗口的最小/最大高度约束。
-pub fn set_search_window_min_size(
-    app_handle: &tauri::AppHandle,
+pub fn set_search_window_min_size<R: Runtime>(
+    app_handle: &AppHandle<R>,
     min_width: f64,
     min_height: f64,
     max_height: Option<f64>,
@@ -198,7 +198,9 @@ pub fn set_search_window_min_size(
 }
 
 /// 将搜索窗口尺寸重置为当前默认值，并清空手动高度 override。
-pub fn reset_search_window_to_defaults(window: &WebviewWindow) -> Result<(), String> {
+pub fn reset_search_window_to_defaults<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
     let runtime = window
         .app_handle()
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
@@ -267,8 +269,8 @@ pub fn reset_search_window_to_defaults(window: &WebviewWindow) -> Result<(), Str
 /// - 动画策略统一在 Rust 侧执行；
 /// - 前端可通过 `center` 显式控制是否垂直居中，未传时按窗口类型使用默认策略；
 /// - `main` 窗口默认启用居中 + 动画，其他窗口默认直接调整。
-pub async fn resize_window_height(
-    window: WebviewWindow,
+pub async fn resize_window_height<R: Runtime>(
+    window: WebviewWindow<R>,
     target_height: f64,
     center: Option<bool>,
     animate: Option<bool>,
