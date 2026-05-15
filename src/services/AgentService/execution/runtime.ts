@@ -5,6 +5,7 @@ import type { SessionTurnEntity } from '@database/types';
 
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import { PersistenceProjector } from '../outputs/persistence';
@@ -129,6 +130,7 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     modelId?: string;
     providerId?: number;
     attachments?: AttachmentIndex[];
+    inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;
     promptSnapshot?: PromptSnapshot;
     environment?: ConversationRuntimeEnvironment;
@@ -223,6 +225,7 @@ export class AiConversationRuntime {
                 prompt: this.options.prompt,
                 attachments,
                 executionMode: this.options.executionMode ?? 'foreground',
+                inputSnapshot: this.options.inputSnapshot,
             }));
         const baseMessages = await buildPromptTransportMessages({
             sessionId: this.options.sessionId,

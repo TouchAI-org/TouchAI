@@ -1,5 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import type { JSONContent } from '@tiptap/core';
+
 import type { ToolExecutionSource as AiToolExecutionSource } from '@/services/AgentService/contracts/tooling';
 import type { Index } from '@/services/AgentService/infrastructure/attachments';
 import type {
@@ -130,6 +132,89 @@ export interface PendingToolApproval {
     keyboardApproveAt: number;
 }
 
+export interface InputHistorySnapshot {
+    text: string;
+    attachments: Index[];
+    editorDoc?: JSONContent;
+}
+
+function cloneJsonContent<T>(value: T): T {
+    if (typeof structuredClone === 'function') {
+        try {
+            return structuredClone(value);
+        } catch {
+            // 回退到 JSON 克隆，兼容可序列化的响应式对象。
+        }
+    }
+
+    return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isValidInputHistoryAttachment(attachment: Index | null | undefined): attachment is Index {
+    return Boolean(
+        attachment &&
+        typeof attachment.id === 'string' &&
+        (attachment.type === 'image' || attachment.type === 'file') &&
+        typeof attachment.path === 'string' &&
+        typeof attachment.originPath === 'string' &&
+        typeof attachment.name === 'string'
+    );
+}
+
+export function cloneInputHistorySnapshot(
+    snapshot: InputHistorySnapshot | null | undefined
+): InputHistorySnapshot | null {
+    if (!snapshot) {
+        return null;
+    }
+
+    const attachments = snapshot.attachments
+        .filter(isValidInputHistoryAttachment)
+        .map((attachment) => ({ ...attachment }));
+
+    return {
+        text: snapshot.text,
+        attachments,
+        ...(snapshot.editorDoc ? { editorDoc: cloneJsonContent(snapshot.editorDoc) } : {}),
+    };
+}
+
+export function createInputHistorySnapshot(input: {
+    text: string;
+    attachments?: Index[] | null;
+    editorDoc?: JSONContent | null;
+}): InputHistorySnapshot {
+    return (
+        cloneInputHistorySnapshot({
+            text: input.text,
+            attachments: input.attachments ?? [],
+            ...(input.editorDoc ? { editorDoc: input.editorDoc } : {}),
+        }) ?? {
+            text: input.text,
+            attachments: [],
+        }
+    );
+}
+
+export function hasInputHistorySnapshotContent(snapshot: InputHistorySnapshot): boolean {
+    return snapshot.text.trim().length > 0 || snapshot.attachments.length > 0;
+}
+
+export function getInputHistorySnapshotKey(snapshot: InputHistorySnapshot): string {
+    return JSON.stringify({
+        text: snapshot.text,
+        attachments: snapshot.attachments.map((attachment) => ({
+            id: attachment.id,
+            attachmentId: attachment.attachmentId ?? null,
+            hash: attachment.hash ?? null,
+            type: attachment.type,
+            path: attachment.path,
+            originPath: attachment.originPath,
+            name: attachment.name,
+        })),
+    });
+}
+
 export interface SessionMessage {
     id: string;
     role: 'user' | 'assistant';
@@ -141,6 +226,7 @@ export interface SessionMessage {
      */
     statusText?: string;
     attachments?: Index[];
+    inputSnapshot?: InputHistorySnapshot;
     toolCalls?: ToolCallInfo[];
     approvals?: ToolApprovalInfo[];
     widgets?: WidgetInfo[];

@@ -16,6 +16,12 @@
     import { clipboardService } from '@/services/ClipboardService';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
+    import {
+        createInputHistorySnapshot,
+        getInputHistorySnapshotKey,
+        type InputHistorySnapshot,
+        type SessionMessage,
+    } from '@/types/session';
 
     import ConversationPanel from './components/ConversationPanel/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
@@ -94,8 +100,9 @@
     );
     const suppressInputHistoryBrowseReset = ref(false);
     const excludedInputHistoryMessageIds = ref<Set<string>>(new Set());
-    const pendingExcludedInputHistoryContents = ref<string[]>([]);
+    const pendingExcludedInputHistoryKeys = ref<string[]>([]);
     const observedUserMessageIds = ref<Set<string>>(new Set());
+    const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
     const { searchWindowDefaultSize } = storeToRefs(settingsStore);
@@ -109,6 +116,48 @@
     const searchEntryPolicy = createSearchEntryPolicy();
     const popupSurfaceCoordinator = createPopupSurfaceCoordinator(searchInteractionContext);
     const suppressQuickSearchAutoOpenOnce = ref(false);
+
+    function createMessageInputHistorySnapshot(message: SessionMessage): InputHistorySnapshot {
+        return createInputHistorySnapshot({
+            text: message.inputSnapshot?.text ?? message.content,
+            attachments: message.inputSnapshot?.attachments ?? message.attachments ?? [],
+            editorDoc: message.inputSnapshot?.editorDoc,
+        });
+    }
+
+    function buildCurrentInputHistorySnapshot(query = queryText.value): InputHistorySnapshot {
+        const capturedSnapshot = searchBar.value?.captureInputHistorySnapshot();
+        return createInputHistorySnapshot({
+            text: capturedSnapshot?.text ?? query,
+            attachments: capturedSnapshot?.attachments ?? attachments.value,
+            editorDoc: capturedSnapshot?.editorDoc,
+        });
+    }
+
+    function applyInputHistorySnapshot(snapshot: InputHistorySnapshot) {
+        const normalizedSnapshot = createInputHistorySnapshot(snapshot);
+        const restoreVersion = inputHistoryRestoreVersion.value + 1;
+        inputHistoryRestoreVersion.value = restoreVersion;
+        suppressInputHistoryBrowseReset.value = true;
+
+        try {
+            const restoredText =
+                searchBar.value?.restoreInputHistorySnapshot(normalizedSnapshot) ??
+                normalizedSnapshot.text;
+            attachments.value = normalizedSnapshot.attachments;
+            queryText.value = restoredText;
+        } catch (error) {
+            console.error('[SearchView] Failed to restore input history snapshot:', error);
+            attachments.value = normalizedSnapshot.attachments;
+            queryText.value = normalizedSnapshot.text;
+        } finally {
+            void nextTick().then(() => {
+                if (inputHistoryRestoreVersion.value === restoreVersion) {
+                    suppressInputHistoryBrowseReset.value = false;
+                }
+            });
+        }
+    }
 
     /**
      * 判断交互上下文里的 popup 会话是否仍然对应 popupManager 当前会话。
@@ -183,6 +232,7 @@
         clearDraft,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
     });
 
     const {
@@ -358,15 +408,17 @@
 
     function resetSessionInputHistoryTracking() {
         excludedInputHistoryMessageIds.value = new Set();
-        pendingExcludedInputHistoryContents.value = [];
+        pendingExcludedInputHistoryKeys.value = [];
         observedUserMessageIds.value = new Set();
+        inputHistoryRestoreVersion.value = 0;
+        suppressInputHistoryBrowseReset.value = false;
         resetInputHistoryBrowseState();
     }
 
-    function queueExcludedInputHistoryContent(content: string) {
-        pendingExcludedInputHistoryContents.value = [
-            ...pendingExcludedInputHistoryContents.value,
-            content,
+    function queueExcludedInputHistorySnapshot(snapshot: InputHistorySnapshot) {
+        pendingExcludedInputHistoryKeys.value = [
+            ...pendingExcludedInputHistoryKeys.value,
+            getInputHistorySnapshotKey(createInputHistorySnapshot(snapshot)),
         ];
     }
 
@@ -375,7 +427,7 @@
     ): SessionInputHistoryNavigationResult {
         const result = navigateSessionInputHistory({
             entries: sessionInputHistoryEntries.value,
-            currentQuery: queryText.value,
+            currentDraft: buildCurrentInputHistorySnapshot(queryText.value),
             direction,
             state: inputHistoryBrowseState.value,
         });
@@ -392,9 +444,8 @@
             return 'ignored';
         }
 
-        suppressInputHistoryBrowseReset.value = true;
         inputHistoryBrowseState.value = result.state;
-        queryText.value = result.nextQuery;
+        applyInputHistorySnapshot(result.nextSnapshot);
         return 'navigated';
     }
 
@@ -421,6 +472,8 @@
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
+        isBrowsingInputHistory: () =>
+            inputHistoryBrowseState.value.pointer !== sessionInputHistoryEntries.value.length,
         navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown: handleToggleModelDropdownRequest,
@@ -740,7 +793,7 @@
                 continue;
             }
 
-            queueExcludedInputHistoryContent(message.content);
+            queueExcludedInputHistorySnapshot(createMessageInputHistorySnapshot(message));
             break;
         }
 
@@ -758,8 +811,12 @@
             return;
         }
 
-        queueExcludedInputHistoryContent(normalizedText);
-        void handleSubmit(normalizedText);
+        const widgetSnapshot = createInputHistorySnapshot({
+            text: normalizedText,
+            attachments: [],
+        });
+        queueExcludedInputHistorySnapshot(widgetSnapshot);
+        void handleSubmit(normalizedText, widgetSnapshot);
     }
 
     function handleWidgetOpenLink(url: string) {
@@ -835,14 +892,19 @@
     );
 
     watch(
-        queryText,
+        () =>
+            getInputHistorySnapshotKey(
+                createInputHistorySnapshot({
+                    text: queryText.value,
+                    attachments: attachments.value,
+                })
+            ),
         (value, previousValue) => {
             if (value === previousValue) {
                 return;
             }
 
             if (suppressInputHistoryBrowseReset.value) {
-                suppressInputHistoryBrowseReset.value = false;
                 return;
             }
 
@@ -860,7 +922,7 @@
         (messages) => {
             const observedIds = new Set(observedUserMessageIds.value);
             const excludedIds = new Set(excludedInputHistoryMessageIds.value);
-            const pendingContents = [...pendingExcludedInputHistoryContents.value];
+            const pendingKeys = [...pendingExcludedInputHistoryKeys.value];
             let didMutate = false;
 
             for (const message of messages) {
@@ -870,9 +932,13 @@
 
                 observedIds.add(message.id);
 
-                if (pendingContents.length > 0 && pendingContents[0] === message.content) {
+                if (
+                    pendingKeys.length > 0 &&
+                    pendingKeys[0] ===
+                        getInputHistorySnapshotKey(createMessageInputHistorySnapshot(message))
+                ) {
                     excludedIds.add(message.id);
-                    pendingContents.shift();
+                    pendingKeys.shift();
                     didMutate = true;
                 }
             }
@@ -881,7 +947,7 @@
 
             if (didMutate) {
                 excludedInputHistoryMessageIds.value = excludedIds;
-                pendingExcludedInputHistoryContents.value = pendingContents;
+                pendingExcludedInputHistoryKeys.value = pendingKeys;
             }
         },
         { deep: true, flush: 'post' }

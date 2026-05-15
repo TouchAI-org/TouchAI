@@ -4,6 +4,7 @@ import {
     type AttachmentIndex,
     inspectAttachments,
 } from '@/services/AgentService/infrastructure/attachments';
+import type { InputHistorySnapshot } from '@/types/session';
 
 import type { TaskExecutionMode } from '../task/types';
 import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from './builtin';
@@ -35,6 +36,7 @@ const PROMPT_SOURCE_ORDER: PromptFragmentSource[] = [
 interface ComposePromptSnapshotOptions {
     prompt: string;
     attachments?: AttachmentIndex[];
+    inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;
     override?: string[];
     platform?: string[];
@@ -121,5 +123,12 @@ export async function composePromptSnapshot(
             .map((fragment) => fragment.content)
             .join('\n\n')
             .trim(),
+        ...(options.inputSnapshot?.editorDoc
+            ? {
+                  inputSnapshot: {
+                      editorDoc: options.inputSnapshot.editorDoc,
+                  },
+              }
+            : {}),
     };
 }

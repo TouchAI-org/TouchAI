@@ -154,7 +154,12 @@ class SessionTaskCenter {
                 throw runtimeEnvironmentResult.reason;
             }
 
-            projection.bootstrap(historyResult.value, options.prompt, options.attachments);
+            projection.bootstrap(
+                historyResult.value,
+                options.prompt,
+                options.attachments,
+                options.inputSnapshot
+            );
 
             const runtime = new AiConversationRuntime(this.executor, {
                 taskId,
@@ -163,6 +168,7 @@ class SessionTaskCenter {
                 modelId: options.modelId,
                 providerId: options.providerId,
                 attachments: options.attachments,
+                inputSnapshot: options.inputSnapshot,
                 executionMode: options.executionMode ?? 'foreground',
                 environment: runtimeEnvironmentResult.value,
                 signal: abortController.signal,

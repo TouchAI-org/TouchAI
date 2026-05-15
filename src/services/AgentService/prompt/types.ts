@@ -1,5 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import type { JSONContent } from '@tiptap/core';
+
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 
 import type { AttachmentDerivedKind, AttachmentSemanticIntent } from '../contracts/protocol';
@@ -58,6 +60,10 @@ export interface PromptAssembly {
     attachments: PromptSnapshotAttachmentSummary[];
 }
 
+export interface PromptInputSnapshot {
+    editorDoc?: JSONContent;
+}
+
 /**
  * 同一 turn 内被冻结的 prompt 快照。
  *
@@ -67,4 +73,5 @@ export interface PromptSnapshot extends PromptAssembly {
     id: string;
     createdAt: string;
     systemPrompt: string;
+    inputSnapshot?: PromptInputSnapshot;
 }

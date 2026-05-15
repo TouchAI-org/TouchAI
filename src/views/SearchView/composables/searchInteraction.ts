@@ -7,7 +7,14 @@ import { AppEvent, eventService } from '@services/EventService';
 import type { PopupKeydownPayload } from '@services/PopupService';
 import { computed, type ComputedRef, reactive, type Ref, ref, watch } from 'vue';
 
-import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import {
+    cloneInputHistorySnapshot,
+    createInputHistorySnapshot,
+    hasInputHistorySnapshotContent,
+    type InputHistorySnapshot,
+    type PendingToolApproval,
+    type SessionMessage,
+} from '@/types/session';
 
 import type {
     PendingRequest,
@@ -122,6 +129,7 @@ interface CreateSearchKeyboardRouterOptions {
     isCursorAtStart: () => boolean;
     isCursorAtTextStart: () => boolean;
     isCursorAtEnd: () => boolean;
+    isBrowsingInputHistory: () => boolean;
     hasModelOverride: () => boolean;
     getSessionHistoryCount: () => number;
     isLoading: () => boolean;
@@ -169,6 +177,7 @@ export interface UseSearchKeyboardOptions {
     sessionHistoryPopupOpen: Ref<boolean>;
     hideAllPopups: () => Promise<void>;
     hideSearchWindow: () => Promise<void>;
+    isBrowsingInputHistory: () => boolean;
     navigateInputHistory: (
         direction: SessionInputHistoryDirection
     ) => SessionInputHistoryNavigationResult;
@@ -195,19 +204,19 @@ function createEmptyModelOverride(): SearchModelOverride {
 
 export interface SessionInputHistoryBrowseState {
     pointer: number;
-    draftBeforeBrowse: string | null;
+    draftBeforeBrowse: InputHistorySnapshot | null;
 }
 
 export interface NavigateSessionInputHistoryOptions {
-    entries: string[];
-    currentQuery: string;
+    entries: InputHistorySnapshot[];
+    currentDraft: InputHistorySnapshot;
     direction: SessionInputHistoryDirection;
     state: SessionInputHistoryBrowseState;
 }
 
 export interface NavigateSessionInputHistoryResult {
     changed: boolean;
-    nextQuery: string;
+    nextSnapshot: InputHistorySnapshot;
     state: SessionInputHistoryBrowseState;
 }
 
@@ -221,18 +230,26 @@ export interface NavigateSessionInputHistoryResult {
 export function extractSessionInputHistoryEntries(
     messages: SessionMessage[],
     options: { excludedMessageIds?: ReadonlySet<string> } = {}
-): string[] {
+): InputHistorySnapshot[] {
     const excludedMessageIds = options.excludedMessageIds ?? new Set<string>();
 
     return messages
-        .filter((message) => {
+        .map((message) => ({
+            message,
+            snapshot: createInputHistorySnapshot({
+                text: message.inputSnapshot?.text ?? message.content,
+                attachments: message.inputSnapshot?.attachments ?? message.attachments ?? [],
+                editorDoc: message.inputSnapshot?.editorDoc,
+            }),
+        }))
+        .filter(({ message, snapshot }) => {
             return (
                 message.role === 'user' &&
                 !excludedMessageIds.has(message.id) &&
-                message.content.length > 0
+                hasInputHistorySnapshotContent(snapshot)
             );
         })
-        .map((message) => message.content);
+        .map(({ snapshot }) => snapshot);
 }
 
 export function createSessionInputHistoryBrowseState(
@@ -253,14 +270,14 @@ export function createSessionInputHistoryBrowseState(
 export function navigateSessionInputHistory(
     options: NavigateSessionInputHistoryOptions
 ): NavigateSessionInputHistoryResult {
-    const { entries, currentQuery, direction } = options;
+    const { entries, currentDraft, direction } = options;
     const latestPointer = entries.length;
     const currentPointer = Math.min(Math.max(options.state.pointer, 0), latestPointer);
 
     if (entries.length === 0) {
         return {
             changed: false,
-            nextQuery: currentQuery,
+            nextSnapshot: createInputHistorySnapshot(currentDraft),
             state: createSessionInputHistoryBrowseState(latestPointer),
         };
     }
@@ -269,10 +286,12 @@ export function navigateSessionInputHistory(
         if (currentPointer === 0) {
             return {
                 changed: false,
-                nextQuery: entries[0] ?? currentQuery,
+                nextSnapshot:
+                    cloneInputHistorySnapshot(entries[0]) ??
+                    createInputHistorySnapshot(currentDraft),
                 state: {
                     pointer: 0,
-                    draftBeforeBrowse: options.state.draftBeforeBrowse,
+                    draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
                 },
             };
         }
@@ -281,13 +300,15 @@ export function navigateSessionInputHistory(
             currentPointer === latestPointer ? latestPointer - 1 : currentPointer - 1;
         return {
             changed: true,
-            nextQuery: entries[nextPointer] ?? currentQuery,
+            nextSnapshot:
+                cloneInputHistorySnapshot(entries[nextPointer]) ??
+                createInputHistorySnapshot(currentDraft),
             state: {
                 pointer: nextPointer,
                 draftBeforeBrowse:
                     currentPointer === latestPointer
-                        ? currentQuery
-                        : options.state.draftBeforeBrowse,
+                        ? createInputHistorySnapshot(currentDraft)
+                        : cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
             },
         };
     }
@@ -295,10 +316,10 @@ export function navigateSessionInputHistory(
     if (currentPointer === latestPointer) {
         return {
             changed: false,
-            nextQuery: currentQuery,
+            nextSnapshot: createInputHistorySnapshot(currentDraft),
             state: {
                 pointer: latestPointer,
-                draftBeforeBrowse: options.state.draftBeforeBrowse,
+                draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
             },
         };
     }
@@ -306,13 +327,18 @@ export function navigateSessionInputHistory(
     const nextPointer = Math.min(latestPointer, currentPointer + 1);
     return {
         changed: true,
-        nextQuery:
+        nextSnapshot:
             nextPointer === latestPointer
-                ? (options.state.draftBeforeBrowse ?? '')
-                : (entries[nextPointer] ?? currentQuery),
+                ? (cloneInputHistorySnapshot(options.state.draftBeforeBrowse) ??
+                  createInputHistorySnapshot({
+                      text: '',
+                      attachments: [],
+                  }))
+                : (cloneInputHistorySnapshot(entries[nextPointer]) ??
+                  createInputHistorySnapshot(currentDraft)),
         state: {
             pointer: nextPointer,
-            draftBeforeBrowse: options.state.draftBeforeBrowse,
+            draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
         },
     };
 }
@@ -727,6 +753,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         isMultiLineCursor,
         isCursorAtTextStart,
         isCursorAtEnd,
+        isBrowsingInputHistory,
         hasModelOverride,
         getSessionHistoryCount,
         isLoading,
@@ -861,7 +888,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
         if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
             if (input.key === 'ArrowUp') {
-                if (isMultiLineCursor() && !isCursorAtTextStart()) {
+                if (!isBrowsingInputHistory() && isMultiLineCursor() && !isCursorAtTextStart()) {
                     return false;
                 }
 
@@ -869,7 +896,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             }
 
             if (input.key === 'ArrowDown') {
-                if (isMultiLineCursor() && !isCursorAtEnd()) {
+                if (!isBrowsingInputHistory() && isMultiLineCursor() && !isCursorAtEnd()) {
                     return false;
                 }
 
@@ -927,6 +954,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
+        isBrowsingInputHistory,
         navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown,
@@ -971,6 +999,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         isCursorAtStart: () => cursorContext.value.cursorAtStart,
         isCursorAtTextStart: () => cursorContext.value.cursorAtTextStart,
         isCursorAtEnd: () => cursorContext.value.cursorAtEnd,
+        isBrowsingInputHistory,
         hasModelOverride: () => Boolean(modelOverride.value.modelId),
         getSessionHistoryCount: () => sessionHistory.value.length,
         isLoading: () => isLoading.value,

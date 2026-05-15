@@ -122,6 +122,8 @@
         cursorAtEnd,
         focus,
         loadActiveModel,
+        captureInputHistorySnapshot,
+        restoreInputHistorySnapshot,
         handleContainerMouseDown,
         handleEditorMouseDown,
         initEditor,
@@ -263,6 +265,8 @@
         getModelDropdownContext,
         focus,
         loadActiveModel,
+        captureInputHistorySnapshot,
+        restoreInputHistorySnapshot,
     });
 </script>
 
