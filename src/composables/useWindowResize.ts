@@ -16,12 +16,13 @@ interface WindowResizeOptions {
 }
 
 /*
- * 窗口高度自动适应内容
+ * 通用窗口高度自动适应内容。
+ * 仅负责观察目标元素高度并请求原生窗口 resize。
  */
 export function useWindowResize(options: WindowResizeOptions) {
+    const currentWindow = getCurrentWindow();
     const currentHeight = ref(0);
-    const isMainWindow = getCurrentWindow().label === 'main';
-
+    const isMainWindow = currentWindow.label === 'main';
     const maxHeight = options.maxHeight ?? Infinity;
     const minHeight = options.minHeight ?? 0;
     const center = options.center ?? isMainWindow;
@@ -33,24 +34,21 @@ export function useWindowResize(options: WindowResizeOptions) {
         const newHeight = Math.ceil(clamped);
 
         if (!isMainWindow) {
-            const isVisible = await getCurrentWindow()
-                .isVisible()
-                .catch(() => true);
+            const isVisible = await currentWindow.isVisible().catch(() => true);
             if (!isVisible) {
                 return;
             }
         }
 
-        const heightChanged = newHeight !== currentHeight.value;
-
-        if (heightChanged) {
-            // 目标高度与居中策略都交由 Rust 侧执行，确保不同入口行为一致。
-            await native.window.resizeWindowHeight({
-                targetHeight: newHeight,
-                center,
-            });
-            currentHeight.value = newHeight;
+        if (newHeight === currentHeight.value) {
+            return;
         }
+
+        await native.window.resizeWindowHeight({
+            targetHeight: newHeight,
+            center,
+        });
+        currentHeight.value = newHeight;
     }
 
     function measureElementHeight(el: HTMLElement) {
@@ -88,12 +86,13 @@ export function useWindowResize(options: WindowResizeOptions) {
         }
     }
 
-    // 监听 target ref，元素就绪时自动开始观察
     watch(
         options.target,
         (el) => {
             cleanup();
-            if (el) observeTarget(el);
+            if (el) {
+                observeTarget(el);
+            }
         },
         { immediate: true }
     );
@@ -103,8 +102,6 @@ export function useWindowResize(options: WindowResizeOptions) {
     return {
         currentHeight,
         resetMeasuredHeight: () => {
-            // popup 已进入关闭链路时，后续隐藏态的 DOM 收缩不应再回写原生窗口；
-            // 同时清空缓存高度，确保下次 reopen 即使内容高度相同也会重新校正窗口尺寸。
             currentHeight.value = 0;
         },
     };

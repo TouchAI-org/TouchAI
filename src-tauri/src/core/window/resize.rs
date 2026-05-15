@@ -204,10 +204,6 @@ pub fn reset_search_window_to_defaults(window: &WebviewWindow) -> Result<(), Str
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
     let snapshot = runtime.window_state().reset_to_defaults();
-    runtime.window_state().begin_programmatic_resize();
-    runtime
-        .window_state()
-        .note_programmatic_resize_target(snapshot.current_width, snapshot.current_height);
     let result: Result<(), String> = (|| {
         if window.is_maximized().map_err(|e| e.to_string())? {
             window
@@ -229,6 +225,13 @@ pub fn reset_search_window_to_defaults(window: &WebviewWindow) -> Result<(), Str
             position,
             window.outer_size().map_err(|e| e.to_string())?,
             scale_factor,
+        );
+        runtime.window_state().begin_programmatic_resize();
+        runtime.window_state().note_programmatic_resize_target(
+            logical_frame.width,
+            logical_frame.height,
+            snapshot.current_width,
+            snapshot.current_height,
         );
         apply_window_min_size(window, snapshot.current_width, snapshot.current_height)?;
 
@@ -336,9 +339,12 @@ pub async fn resize_window_height(
     {
         let result: Result<(), String> = if let Some(runtime) = search_window_runtime.as_ref() {
             runtime.window_state().begin_programmatic_resize();
-            runtime
-                .window_state()
-                .note_programmatic_resize_target(logical_width, clamped_height);
+            runtime.window_state().note_programmatic_resize_target(
+                logical_width,
+                start_height,
+                logical_width,
+                clamped_height,
+            );
             let result: Result<(), String> = (|| {
                 apply_window_size(
                     &window,
@@ -387,9 +393,12 @@ pub async fn resize_window_height(
 
     if let Some(runtime) = search_window_runtime.as_ref() {
         runtime.window_state().begin_programmatic_resize();
-        runtime
-            .window_state()
-            .note_programmatic_resize_target(logical_width, clamped_height);
+        runtime.window_state().note_programmatic_resize_target(
+            logical_width,
+            start_height,
+            logical_width,
+            clamped_height,
+        );
     }
     let animation_result: Result<(), String> = async {
         loop {

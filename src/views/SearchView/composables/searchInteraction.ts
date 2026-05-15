@@ -79,6 +79,7 @@ interface UseQuickSearchCoordinatorOptions {
     modelDropdownState: Ref<SearchModelDropdownState>;
     quickSearchOpen: Ref<boolean>;
     controller: SearchPageController;
+    suppressNextAutoOpen?: Ref<boolean>;
 }
 
 interface UseSearchOverlayMachineOptions {
@@ -164,6 +165,7 @@ export interface UseSearchKeyboardOptions {
     openHistoryDialog: () => Promise<void>;
     startNewSession: () => Promise<void>;
     toggleWindowPin: () => Promise<void>;
+    toggleWindowMaximize: () => Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
     clearAll: () => void;
     cancelRequest: () => void;
@@ -388,6 +390,7 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         modelDropdownState,
         quickSearchOpen,
         controller,
+        suppressNextAutoOpen,
     } = options;
 
     const isQuickSearchOpen = computed(() => {
@@ -406,6 +409,12 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
     }
 
     function syncQuickSearchPanel(query = queryText.value) {
+        if (suppressNextAutoOpen?.value) {
+            suppressNextAutoOpen.value = false;
+            controller.closeQuickSearch();
+            return;
+        }
+
         if (shouldTriggerQuickSearch(query)) {
             controller.triggerQuickSearch(query);
             return;
@@ -775,6 +784,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         openHistoryDialog,
         startNewSession,
         toggleWindowPin,
+        toggleWindowMaximize,
         handleSubmit,
         clearAll,
         cancelRequest,
@@ -899,6 +909,13 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         }
 
         if (event.defaultPrevented) {
+            return;
+        }
+
+        if (event.key === 'F11') {
+            event.preventDefault();
+            event.stopPropagation();
+            await toggleWindowMaximize();
             return;
         }
 

@@ -3,7 +3,6 @@
  * 集中管理页面 controller、生命周期编排、popup 打开时序与 DOM 事件挂载。
  */
 import { useAlert } from '@composables/useAlert';
-import { useWindowResize } from '@composables/useWindowResize';
 import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
 import { initNotificationPermission, notify } from '@services/NotificationService';
@@ -28,7 +27,6 @@ import type { createSearchInteractionContext, UseSearchKeyboardOptions } from '.
 import { createSearchKeydownHandler } from './searchInteraction';
 import { useModelDropdownPopup } from './useModelDropdownPopup';
 
-const WINDOW_MAX_HEIGHT = 700;
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export function useSearchWindowPin() {
@@ -336,14 +334,14 @@ export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOp
 }
 
 interface UseSearchPageLifecycleOptions {
-    pageContainer: Ref<HTMLElement | null>;
     controller: SearchPageController;
     viewReady: Ref<boolean>;
     isDragging: Ref<boolean>;
     isPinned: Ref<boolean>;
+    isMaximized?: Readonly<Ref<boolean>>;
     interactionContext: ReturnType<typeof createSearchInteractionContext>;
     syncWindowPinState: () => Promise<boolean>;
-    clearSession: () => void;
+    clearSession: () => void | Promise<void>;
     reconcilePopupSurfaces?: () => Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
     handleSearchSurfaceCommand?: (payload: {
@@ -356,11 +354,11 @@ interface UseSearchPageLifecycleOptions {
 
 export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     const {
-        pageContainer,
         controller,
         viewReady,
         isDragging,
         isPinned,
+        isMaximized,
         interactionContext,
         syncWindowPinState,
         clearSession,
@@ -382,8 +380,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let lifecycleInitialized = false;
     let restoredShortcutActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
-
-    useWindowResize({ target: pageContainer, maxHeight: WINDOW_MAX_HEIGHT });
 
     async function hideSearchWindow() {
         await native.window.hideSearchWindow();
@@ -463,7 +459,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 HIDE_TIMEOUT_MS
             )
         ) {
-            clearSession();
+            await Promise.resolve(clearSession());
         }
 
         const activationEpoch = interactionContext.state.activationEpoch;
@@ -589,11 +585,11 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
     onMounted(() => {
         stopPinnedWatch = watch(
-            isPinned,
-            (nextPinned) => {
+            [isPinned, isDragging, () => Boolean(isMaximized?.value)],
+            ([nextPinned, dragging, maximized]) => {
                 interactionContext.state.isPinned = nextPinned;
                 void native.window
-                    .setSearchSurfaceHideOnAppBlur(!nextPinned && !isDragging.value)
+                    .setSearchSurfaceHideOnAppBlur(!nextPinned && !dragging && !maximized)
                     .catch((error) => {
                         console.error(
                             '[SearchView] Failed to sync search surface app-blur policy:',

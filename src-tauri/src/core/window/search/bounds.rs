@@ -87,6 +87,8 @@ struct SearchWindowStateInner {
     last_known_frame: Option<SearchWindowFrame>,
     /// 程序化 resize 引用计数，>0 时表示正处于动画或系统 resize 中。
     programmatic_resize_depth: usize,
+    /// 程序化 resize 的起始尺寸，用于识别动画中间帧。
+    programmatic_resize_origin: Option<(f64, f64)>,
     /// 程序化 resize 的预期目标尺寸，用于区分动画帧事件和用户拖拽事件。
     expected_programmatic_size: Option<(f64, f64)>,
 }
@@ -101,9 +103,16 @@ impl Default for SearchWindowStateInner {
             height_mode: HeightMode::Auto,
             last_known_frame: None,
             programmatic_resize_depth: 0,
+            programmatic_resize_origin: None,
             expected_programmatic_size: None,
         }
     }
+}
+
+fn is_value_within_programmatic_range(value: f64, start: f64, end: f64) -> bool {
+    let min = start.min(end) - RUNTIME_RESIZE_TOLERANCE;
+    let max = start.max(end) + RUNTIME_RESIZE_TOLERANCE;
+    value >= min && value <= max
 }
 
 fn snapshot_of(inner: &SearchWindowStateInner) -> SearchWindowStateSnapshot {
@@ -165,6 +174,8 @@ impl SearchWindowState {
     ) -> HeightMode {
         let mut inner = self.inner.lock().expect("search window state poisoned");
         let normalized = frame.with_size(frame.width, frame.height);
+        let raw_width = normalized.width;
+        let raw_height = normalized.height;
         let mut next_width = normalized.width;
         let mut next_height = if allow_height_override {
             normalized.height
@@ -182,25 +193,42 @@ impl SearchWindowState {
             inner
                 .expected_programmatic_size
                 .is_some_and(|(expected_width, expected_height)| {
-                    (next_width - expected_width).abs() <= RUNTIME_RESIZE_TOLERANCE
-                        && (next_height - expected_height).abs() <= RUNTIME_RESIZE_TOLERANCE
+                    (raw_width - expected_width).abs() <= RUNTIME_RESIZE_TOLERANCE
+                        && (raw_height - expected_height).abs() <= RUNTIME_RESIZE_TOLERANCE
                 });
 
-        inner.current_width = next_width;
-        inner.current_height = next_height;
-        inner.last_known_frame = Some(SearchWindowFrame {
-            width: next_width,
-            height: next_height,
-            ..normalized
-        });
+        let fits_programmatic_resize_path = inner
+            .programmatic_resize_origin
+            .zip(inner.expected_programmatic_size)
+            .is_some_and(
+                |((origin_width, origin_height), (expected_width, expected_height))| {
+                    is_value_within_programmatic_range(raw_width, origin_width, expected_width)
+                        && is_value_within_programmatic_range(
+                            raw_height,
+                            origin_height,
+                            expected_height,
+                        )
+                },
+            );
+
+        inner.last_known_frame = Some(normalized);
 
         if inner.programmatic_resize_depth > 0 {
             // 匹配预期目标 → 确认为程序化 resize，清除预期。
             if matches_expected_programmatic_size {
+                if let Some((expected_width, expected_height)) = inner.expected_programmatic_size {
+                    inner.current_width = expected_width;
+                    inner.current_height = expected_height;
+                }
                 inner.height_mode = HeightMode::Auto;
                 inner.expected_programmatic_size = None;
-            // 高度变更但不匹配预期 → 用户在动画期间手动拖拽，允许进入 ManualOverride。
-            } else if height_changed && allow_height_override {
+            // 动画路径内的中间帧一律视为程序化 resize，不能误记为手动 override。
+            } else if fits_programmatic_resize_path {
+                return inner.height_mode;
+            // 高度超出程序化路径范围，才视为用户在动画期间手动拖拽。
+            } else if allow_height_override {
+                inner.current_width = raw_width;
+                inner.current_height = raw_height;
                 inner.height_mode = HeightMode::ManualOverride;
             }
             return inner.height_mode;
@@ -208,10 +236,17 @@ impl SearchWindowState {
 
         // 守护外的延迟事件：匹配预期尺寸时也确认为 Auto。
         if matches_expected_programmatic_size {
+            if let Some((expected_width, expected_height)) = inner.expected_programmatic_size {
+                inner.current_width = expected_width;
+                inner.current_height = expected_height;
+            }
             inner.height_mode = HeightMode::Auto;
             inner.expected_programmatic_size = None;
             return inner.height_mode;
         }
+
+        inner.current_width = next_width;
+        inner.current_height = next_height;
 
         if height_changed && allow_height_override {
             inner.height_mode = HeightMode::ManualOverride;
@@ -270,6 +305,7 @@ impl SearchWindowState {
         inner.current_height = inner.defaults.height;
         inner.height_mode = HeightMode::Auto;
         inner.last_known_frame = None;
+        inner.programmatic_resize_origin = None;
         inner.expected_programmatic_size = None;
 
         snapshot_of(&inner)
@@ -284,15 +320,27 @@ impl SearchWindowState {
     }
 
     /// 记录程序化 resize 的预期目标尺寸，用于匹配后续事件。
-    pub fn note_programmatic_resize_target(&self, width: f64, height: f64) {
+    pub fn note_programmatic_resize_target(
+        &self,
+        origin_width: f64,
+        origin_height: f64,
+        target_width: f64,
+        target_height: f64,
+    ) {
         let mut inner = self.inner.lock().expect("search window state poisoned");
-        inner.expected_programmatic_size = Some((clamp_width(width), clamp_height(height)));
+        inner.programmatic_resize_origin =
+            Some((clamp_width(origin_width), clamp_height(origin_height)));
+        inner.expected_programmatic_size =
+            Some((clamp_width(target_width), clamp_height(target_height)));
     }
 
     /// 退出程序化 resize 守护区间，引用计数 -1。
     pub fn end_programmatic_resize(&self) {
         let mut inner = self.inner.lock().expect("search window state poisoned");
         inner.programmatic_resize_depth = inner.programmatic_resize_depth.saturating_sub(1);
+        if inner.programmatic_resize_depth == 0 {
+            inner.programmatic_resize_origin = None;
+        }
     }
 }
 
@@ -374,7 +422,7 @@ mod tests {
         });
 
         state.begin_programmatic_resize();
-        state.note_programmatic_resize_target(900.0, 360.0);
+        state.note_programmatic_resize_target(900.0, 280.0, 900.0, 360.0);
 
         let animation_mode = state.record_runtime_resize(frame(900.0, 360.0), true, true);
         let manual_mode = state.record_runtime_resize(frame(900.0, 520.0), true, true);
@@ -456,7 +504,7 @@ mod tests {
         });
 
         state.begin_programmatic_resize();
-        state.note_programmatic_resize_target(900.0, 520.0);
+        state.note_programmatic_resize_target(900.0, 280.0, 900.0, 520.0);
         state.end_programmatic_resize();
 
         let mode = state.record_runtime_resize(frame(900.0, 520.0), true, false);
