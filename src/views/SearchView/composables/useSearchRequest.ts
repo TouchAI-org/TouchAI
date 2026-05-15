@@ -426,13 +426,12 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         const selectedModelId = modelOverride.value.modelId;
         const selectedProviderId = modelOverride.value.providerId;
         const supportedAttachments = (userMessage.attachments || []).filter(isAttachmentSupported);
-        const inputSnapshot =
-            createInputHistorySnapshot({
-                text: userMessage.inputSnapshot?.text ?? userMessage.content,
-                attachments: userMessage.inputSnapshot?.attachments ?? userMessage.attachments ?? [],
-                editorDoc: userMessage.inputSnapshot?.editorDoc,
-                excludeFromHistory: true,
-            });
+        const inputSnapshot = createInputHistorySnapshot({
+            text: userMessage.inputSnapshot?.text ?? userMessage.content,
+            attachments: userMessage.inputSnapshot?.attachments ?? userMessage.attachments ?? [],
+            editorDoc: userMessage.inputSnapshot?.editorDoc,
+            excludeFromHistory: true,
+        });
 
         await sendRequest(
             inputSnapshot.text,

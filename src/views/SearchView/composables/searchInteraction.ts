@@ -225,7 +225,9 @@ export interface NavigateSessionInputHistoryResult {
  * 该列表保持原始发送顺序，允许重复内容；
  * 仅收集显式允许进入输入历史的 user prompt。
  */
-export function extractSessionInputHistoryEntries(messages: SessionMessage[]): InputHistorySnapshot[] {
+export function extractSessionInputHistoryEntries(
+    messages: SessionMessage[]
+): InputHistorySnapshot[] {
     return messages
         .map((message) => ({
             message,
