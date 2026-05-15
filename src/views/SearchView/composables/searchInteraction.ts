@@ -203,6 +203,7 @@ function createEmptyModelOverride(): SearchModelOverride {
 export interface SessionInputHistoryBrowseState {
     pointer: number;
     draftBeforeBrowse: InputHistorySnapshot | null;
+    activeBrowseSnapshot: InputHistorySnapshot | null;
 }
 
 export interface NavigateSessionInputHistoryOptions {
@@ -256,6 +257,7 @@ export function createSessionInputHistoryBrowseState(
     return {
         pointer: entryCount,
         draftBeforeBrowse: null,
+        activeBrowseSnapshot: null,
     };
 }
 
@@ -271,6 +273,11 @@ export function navigateSessionInputHistory(
     const { entries, currentDraft, direction } = options;
     const latestPointer = entries.length;
     const currentPointer = Math.min(Math.max(options.state.pointer, 0), latestPointer);
+    const currentBrowseSnapshot =
+        cloneInputHistorySnapshot(options.state.activeBrowseSnapshot) ??
+        (currentPointer < latestPointer
+            ? cloneInputHistorySnapshot(entries[currentPointer])
+            : null);
 
     if (entries.length === 0) {
         return {
@@ -285,28 +292,31 @@ export function navigateSessionInputHistory(
             return {
                 changed: false,
                 nextSnapshot:
+                    currentBrowseSnapshot ??
                     cloneInputHistorySnapshot(entries[0]) ??
                     createInputHistorySnapshot(currentDraft),
                 state: {
                     pointer: 0,
                     draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
+                    activeBrowseSnapshot: currentBrowseSnapshot,
                 },
             };
         }
 
         const nextPointer =
             currentPointer === latestPointer ? latestPointer - 1 : currentPointer - 1;
+        const nextSnapshot =
+            cloneInputHistorySnapshot(entries[nextPointer]) ?? createInputHistorySnapshot(currentDraft);
         return {
             changed: true,
-            nextSnapshot:
-                cloneInputHistorySnapshot(entries[nextPointer]) ??
-                createInputHistorySnapshot(currentDraft),
+            nextSnapshot,
             state: {
                 pointer: nextPointer,
                 draftBeforeBrowse:
                     currentPointer === latestPointer
                         ? createInputHistorySnapshot(currentDraft)
                         : cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
+                activeBrowseSnapshot: nextSnapshot,
             },
         };
     }
@@ -318,25 +328,28 @@ export function navigateSessionInputHistory(
             state: {
                 pointer: latestPointer,
                 draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
+                activeBrowseSnapshot: null,
             },
         };
     }
 
     const nextPointer = Math.min(latestPointer, currentPointer + 1);
+    const nextSnapshot =
+        nextPointer === latestPointer
+            ? (cloneInputHistorySnapshot(options.state.draftBeforeBrowse) ??
+              createInputHistorySnapshot({
+                  text: '',
+                  attachments: [],
+              }))
+            : (cloneInputHistorySnapshot(entries[nextPointer]) ??
+              createInputHistorySnapshot(currentDraft));
     return {
         changed: true,
-        nextSnapshot:
-            nextPointer === latestPointer
-                ? (cloneInputHistorySnapshot(options.state.draftBeforeBrowse) ??
-                  createInputHistorySnapshot({
-                      text: '',
-                      attachments: [],
-                  }))
-                : (cloneInputHistorySnapshot(entries[nextPointer]) ??
-                  createInputHistorySnapshot(currentDraft)),
+        nextSnapshot,
         state: {
             pointer: nextPointer,
             draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
+            activeBrowseSnapshot: nextPointer === latestPointer ? null : nextSnapshot,
         },
     };
 }

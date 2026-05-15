@@ -406,6 +406,17 @@
         inputHistoryBrowseState.value = createSessionInputHistoryBrowseState(entryCount);
     }
 
+    function updateActiveInputHistoryBrowseSnapshot(snapshot: InputHistorySnapshot) {
+        if (inputHistoryBrowseState.value.pointer === sessionInputHistoryEntries.value.length) {
+            return;
+        }
+
+        inputHistoryBrowseState.value = {
+            ...inputHistoryBrowseState.value,
+            activeBrowseSnapshot: createInputHistorySnapshot(snapshot),
+        };
+    }
+
     function resetSessionInputHistoryTracking() {
         excludedInputHistoryMessageIds.value = new Set();
         pendingExcludedInputHistoryKeys.value = [];
@@ -910,7 +921,7 @@
                 return;
             }
 
-            resetInputHistoryBrowseState(sessionInputHistoryEntries.value.length);
+            updateActiveInputHistoryBrowseSnapshot(buildCurrentInputHistorySnapshot(queryText.value));
         },
         { flush: 'sync' }
     );
