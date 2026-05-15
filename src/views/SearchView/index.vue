@@ -472,8 +472,6 @@
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
-        isBrowsingInputHistory: () =>
-            inputHistoryBrowseState.value.pointer !== sessionInputHistoryEntries.value.length,
         navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown: handleToggleModelDropdownRequest,

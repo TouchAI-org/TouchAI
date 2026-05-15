@@ -129,7 +129,6 @@ interface CreateSearchKeyboardRouterOptions {
     isCursorAtStart: () => boolean;
     isCursorAtTextStart: () => boolean;
     isCursorAtEnd: () => boolean;
-    isBrowsingInputHistory: () => boolean;
     hasModelOverride: () => boolean;
     getSessionHistoryCount: () => number;
     isLoading: () => boolean;
@@ -177,7 +176,6 @@ export interface UseSearchKeyboardOptions {
     sessionHistoryPopupOpen: Ref<boolean>;
     hideAllPopups: () => Promise<void>;
     hideSearchWindow: () => Promise<void>;
-    isBrowsingInputHistory: () => boolean;
     navigateInputHistory: (
         direction: SessionInputHistoryDirection
     ) => SessionInputHistoryNavigationResult;
@@ -753,7 +751,6 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         isMultiLineCursor,
         isCursorAtTextStart,
         isCursorAtEnd,
-        isBrowsingInputHistory,
         hasModelOverride,
         getSessionHistoryCount,
         isLoading,
@@ -888,7 +885,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
         if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
             if (input.key === 'ArrowUp') {
-                if (!isBrowsingInputHistory() && isMultiLineCursor() && !isCursorAtTextStart()) {
+                if (isMultiLineCursor() && !isCursorAtTextStart()) {
                     return false;
                 }
 
@@ -896,7 +893,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             }
 
             if (input.key === 'ArrowDown') {
-                if (!isBrowsingInputHistory() && isMultiLineCursor() && !isCursorAtEnd()) {
+                if (isMultiLineCursor() && !isCursorAtEnd()) {
                     return false;
                 }
 
@@ -954,7 +951,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
-        isBrowsingInputHistory,
         navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown,
@@ -999,7 +995,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         isCursorAtStart: () => cursorContext.value.cursorAtStart,
         isCursorAtTextStart: () => cursorContext.value.cursorAtTextStart,
         isCursorAtEnd: () => cursorContext.value.cursorAtEnd,
-        isBrowsingInputHistory,
         hasModelOverride: () => Boolean(modelOverride.value.modelId),
         getSessionHistoryCount: () => sessionHistory.value.length,
         isLoading: () => isLoading.value,
