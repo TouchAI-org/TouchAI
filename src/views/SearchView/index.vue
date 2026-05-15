@@ -921,7 +921,9 @@
                 return;
             }
 
-            updateActiveInputHistoryBrowseSnapshot(buildCurrentInputHistorySnapshot(queryText.value));
+            updateActiveInputHistoryBrowseSnapshot(
+                buildCurrentInputHistorySnapshot(queryText.value)
+            );
         },
         { flush: 'sync' }
     );

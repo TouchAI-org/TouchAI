@@ -306,7 +306,8 @@ export function navigateSessionInputHistory(
         const nextPointer =
             currentPointer === latestPointer ? latestPointer - 1 : currentPointer - 1;
         const nextSnapshot =
-            cloneInputHistorySnapshot(entries[nextPointer]) ?? createInputHistorySnapshot(currentDraft);
+            cloneInputHistorySnapshot(entries[nextPointer]) ??
+            createInputHistorySnapshot(currentDraft);
         return {
             changed: true,
             nextSnapshot,
