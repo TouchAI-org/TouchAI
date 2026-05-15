@@ -249,6 +249,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
             providerDriver: this.driver,
             providerId: options.providerId,
             modelId: options.model,
+            supportsReasoning: options.supportsReasoning,
             attachmentContext,
             attachmentRequestIndex: options.attachmentRequestIndex,
         });
@@ -354,12 +355,21 @@ export abstract class AiSdkProviderBase implements AiProvider {
     }
 
     protected async readJsonResponse(response: Response): Promise<unknown> {
+        const responseText = (await response.text()).replace(/^\uFEFF/, '');
+
         if (!response.ok) {
-            const message = await response.text();
-            throw new Error(`HTTP ${response.status}: ${message || response.statusText}`);
+            throw new Error(`HTTP ${response.status}: ${responseText || response.statusText}`);
         }
 
-        return response.json();
+        try {
+            return responseText ? JSON.parse(responseText) : null;
+        } catch {
+            const contentType = response.headers.get('content-type') || 'unknown content type';
+            const preview = responseText.replace(/\s+/g, ' ').trim().slice(0, 120);
+            throw new Error(
+                `Expected JSON response, but received ${contentType}${preview ? `: ${preview}` : ''}`
+            );
+        }
     }
 
     protected getCustomHeaders(): Record<string, string> {

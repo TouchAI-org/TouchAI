@@ -22,6 +22,20 @@ function toTransportToolName(toolLog: ToolLogHistoryRow): string {
     return toolLog.tool_name;
 }
 
+function buildAssistantTransportContent(row: {
+    content: string;
+    reasoning: string | null;
+}): AiMessage['content'] {
+    if (!row.reasoning?.trim()) {
+        return row.content;
+    }
+
+    return [
+        { type: 'reasoning', text: row.reasoning },
+        ...(row.content ? [{ type: 'text', text: row.content } as const] : []),
+    ];
+}
+
 /**
  * 将会话历史重组为下一轮请求可继续复用的模型消息。
  */
@@ -78,7 +92,7 @@ export async function loadSessionTransportMessages(options: {
                 rowIndex -= 1;
                 messages.push({
                     role: 'assistant',
-                    content: row.content,
+                    content: buildAssistantTransportContent(row),
                     tool_calls: pendingToolCalls,
                 });
                 continue;
@@ -93,7 +107,7 @@ export async function loadSessionTransportMessages(options: {
 
             messages.push({
                 role: 'assistant',
-                content: row.content,
+                content: buildAssistantTransportContent(row),
                 tool_calls: pendingToolCalls,
             });
             continue;
@@ -159,7 +173,7 @@ export async function loadSessionTransportMessages(options: {
 
         messages.push({
             role: row.role as 'user' | 'assistant' | 'system',
-            content: row.content,
+            content: row.role === 'assistant' ? buildAssistantTransportContent(row) : row.content,
         });
     }
 

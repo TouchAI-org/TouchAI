@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
 import { z } from '@/utils/zod';
 
@@ -8,7 +8,7 @@ import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
-const openAiStyleModelsSchema = z.object({
+const openAiCompatibleModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
@@ -17,21 +17,26 @@ const openAiStyleModelsSchema = z.object({
 });
 
 /**
- * OpenAI 官方适配器。
+ * OpenAI-compatible 适配器。
+ *
+ * 使用 @ai-sdk/openai-compatible SDK，默认不发送 stream_options，
+ * 兼容不支持该参数的第三方 provider（如 MiMo）。
  */
-export class OpenAIProviderAdapter extends AiSdkProviderBase {
-    readonly name = 'OpenAI';
-    readonly driver = 'openai' as const;
+export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
+    readonly name = 'OpenAI 兼容';
+    readonly driver = 'openai-compatible' as const;
 
-    private sdkProvider = createOpenAI({
+    private sdkProvider = createOpenAICompatible({
+        name: 'openai-compatible',
         apiKey: this.apiKey,
-        baseURL: this.getApiTargets().sdkBaseUrl || undefined,
+        baseURL: this.getApiTargets().sdkBaseUrl || '',
         headers: this.getCustomHeaders(),
         fetch: this.fetch,
+        includeUsage: false,
     });
 
     protected createLanguageModel(modelId: string) {
-        return this.sdkProvider.chat(modelId);
+        return this.sdkProvider.chatModel(modelId);
     }
 
     protected getDiscoveryHeaders(): Record<string, string> {
@@ -46,7 +51,7 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
     }
 
     protected parseModelList(payload: unknown) {
-        const parsed = openAiStyleModelsSchema.parse(payload);
+        const parsed = openAiCompatibleModelsSchema.parse(payload);
         return parsed.data.map((model) => ({
             id: model.id,
             name: model.id,

@@ -94,6 +94,7 @@ export interface AttachmentDeliveryManifest {
  */
 export type AiContentPart =
     | { type: 'text'; text: string }
+    | { type: 'reasoning'; text: string }
     | {
           type: 'image';
           name: string;
@@ -141,6 +142,7 @@ export interface AiRequestOptions {
     model: string;
     providerId?: number;
     messages: AiMessage[];
+    supportsReasoning?: boolean;
     stream?: boolean;
     signal?: AbortSignal;
     tools?: AiToolDefinition[];
