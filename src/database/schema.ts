@@ -91,6 +91,7 @@ export const messages = sqliteTable('messages', {
         enum: ['user', 'assistant', 'system', 'tool_call', 'tool_result'],
     }).notNull(),
     content: text('content').notNull(),
+    reasoning: text('reasoning'),
     tool_log_id: integer('tool_log_id'), // 关联 mcp_tool_logs 表 ID（仅 tool_result 消息使用）
     tool_log_kind: text('tool_log_kind', {
         enum: ['mcp', 'builtin'],

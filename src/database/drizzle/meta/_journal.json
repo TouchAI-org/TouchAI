@@ -8,6 +8,13 @@
       "when": 1775543674540,
       "tag": "0000_lyrical_toad",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778889600000,
+      "tag": "0001_silent_reasoning",
+      "breakpoints": true
     }
   ]
 }

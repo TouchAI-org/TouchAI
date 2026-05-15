@@ -36,6 +36,7 @@ interface PersistedHistoryEntry {
     id: number;
     role: MessageRow['role'];
     content: string;
+    reasoning: string | null;
     created_at: string;
     attachments?: Awaited<ReturnType<typeof hydratePersistedAttachments>>;
     toolCalls?: ToolCallInfo[];
@@ -220,6 +221,7 @@ async function buildPersistedEntries(
                 id: row.id,
                 role: row.role,
                 content: row.content,
+                reasoning: row.reasoning,
                 created_at: row.created_at,
                 attachments:
                     row.role === 'user'
@@ -465,6 +467,10 @@ function convertEntriesToSessionHistory(
         }
 
         const assistantMessage = ensureAssistantMessage(entry);
+
+        if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.reasoning?.trim()) {
+            assistantMessage.reasoning = `${assistantMessage.reasoning ?? ''}${entry.reasoning}`;
+        }
 
         if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.content) {
             assistantMessage.content += entry.content;

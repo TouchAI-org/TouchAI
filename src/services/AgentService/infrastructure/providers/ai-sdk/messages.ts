@@ -357,29 +357,38 @@ async function mapToolAttachmentPart(
     };
 }
 
-function mapAssistantTextParts(
-    content: AiMessage['content']
-): Array<{ type: 'text'; text: string }> {
+function mapAssistantContentParts(
+    content: AiMessage['content'],
+    supportsReasoning: boolean
+): Array<{ type: 'text'; text: string } | { type: 'reasoning'; text: string }> {
     if (!Array.isArray(content)) {
         return content ? [{ type: 'text', text: content }] : [];
     }
 
-    return content.flatMap((part) => {
+    const parts: Array<{ type: 'text'; text: string } | { type: 'reasoning'; text: string }> = [];
+
+    for (const part of content) {
         if (part.type === 'text') {
-            return [{ type: 'text' as const, text: part.text }];
+            parts.push({ type: 'text', text: part.text });
+            continue;
+        }
+
+        if (part.type === 'reasoning') {
+            if (supportsReasoning) {
+                parts.push({ type: 'reasoning', text: part.text });
+            }
+            continue;
         }
 
         if (part.type === 'file') {
-            return [
-                {
-                    type: 'text' as const,
-                    text: renderFilePart(part, part.meta),
-                },
-            ];
+            parts.push({
+                type: 'text',
+                text: renderFilePart(part, part.meta),
+            });
         }
+    }
 
-        return [];
-    });
+    return parts;
 }
 
 function buildToolResultHoistNotice(message: Pick<AiMessage, 'name' | 'tool_call_id'>): string {
@@ -544,6 +553,7 @@ interface BuildModelMessagesOptions {
     providerDriver: ProviderDriver;
     providerId?: number;
     modelId: string;
+    supportsReasoning?: boolean;
     attachmentContext?: ProviderAttachmentRequestContext;
     attachmentRequestIndex?: number;
 }
@@ -553,6 +563,7 @@ export async function buildModelMessages(
 ): Promise<BuildModelMessagesResult> {
     const mappedMessages: ModelMessage[] = [];
     const manifestEntries: AttachmentDeliveryManifestEntry[] = [];
+    const supportsReasoning = options.supportsReasoning ?? true;
     const deliveryPlan = planAttachmentDeliveryForMessages({
         messages: options.messages,
         providerDriver: options.providerDriver,
@@ -604,7 +615,7 @@ export async function buildModelMessages(
             continue;
         }
 
-        const contentParts = mapAssistantTextParts(message.content);
+        const contentParts = mapAssistantContentParts(message.content, supportsReasoning);
         const toolCallParts: ToolCallPart[] =
             message.tool_calls?.flatMap((toolCall) => {
                 const toolName = normalizeToolName(toolCall.name);

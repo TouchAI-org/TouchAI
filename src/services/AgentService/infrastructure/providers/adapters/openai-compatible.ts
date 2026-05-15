@@ -6,6 +6,7 @@ import { z } from '@/utils/zod';
 
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
+import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
 const openAiCompatibleModelsSchema = z.object({
     data: z.array(
@@ -67,11 +68,12 @@ export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
             };
         }
 
+        const sdkBaseUrl = resolveOpenAiStyleSdkBaseUrl(this.normalizedBaseUrl);
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
-            sdkBaseUrl: this.normalizedBaseUrl,
-            generationTarget: `${this.normalizedBaseUrl}/chat/completions`,
-            discoveryTarget: `${this.normalizedBaseUrl}/models`,
+            sdkBaseUrl,
+            generationTarget: `${sdkBaseUrl}/chat/completions`,
+            discoveryTarget: `${sdkBaseUrl}/models`,
         };
     }
 }
