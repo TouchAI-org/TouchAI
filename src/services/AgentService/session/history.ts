@@ -471,6 +471,7 @@ function convertEntriesToSessionHistory(
                     text: entry.content,
                     attachments: entry.attachments ?? [],
                     editorDoc: promptSnapshot?.inputSnapshot?.editorDoc,
+                    excludeFromHistory: promptSnapshot?.inputSnapshot?.excludeFromHistory,
                 }),
                 parts: [],
                 timestamp: parseDbDateTimestamp(entry.created_at),

@@ -85,6 +85,7 @@ export class SessionTaskProjection {
             text: prompt,
             attachments: snapshotAttachments,
             editorDoc: inputSnapshot?.editorDoc,
+            excludeFromHistory: inputSnapshot?.excludeFromHistory,
         });
         this.snapshot.sessionHistory.push({
             id: crypto.randomUUID(),

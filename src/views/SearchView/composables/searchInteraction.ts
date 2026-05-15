@@ -223,15 +223,9 @@ export interface NavigateSessionInputHistoryResult {
  * 从当前会话消息中提取可用于输入历史导航的 user prompt 列表。
  *
  * 该列表保持原始发送顺序，允许重复内容；
- * `excludedMessageIds` 用于剔除本轮前端明确标记为“非手动输入”的 user message
- * （例如 regenerate 触发的新 user turn）。
+ * 仅收集显式允许进入输入历史的 user prompt。
  */
-export function extractSessionInputHistoryEntries(
-    messages: SessionMessage[],
-    options: { excludedMessageIds?: ReadonlySet<string> } = {}
-): InputHistorySnapshot[] {
-    const excludedMessageIds = options.excludedMessageIds ?? new Set<string>();
-
+export function extractSessionInputHistoryEntries(messages: SessionMessage[]): InputHistorySnapshot[] {
     return messages
         .map((message) => ({
             message,
@@ -239,12 +233,13 @@ export function extractSessionInputHistoryEntries(
                 text: message.inputSnapshot?.text ?? message.content,
                 attachments: message.inputSnapshot?.attachments ?? message.attachments ?? [],
                 editorDoc: message.inputSnapshot?.editorDoc,
+                excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
             }),
         }))
         .filter(({ message, snapshot }) => {
             return (
                 message.role === 'user' &&
-                !excludedMessageIds.has(message.id) &&
+                snapshot.excludeFromHistory !== true &&
                 hasInputHistorySnapshotContent(snapshot)
             );
         })

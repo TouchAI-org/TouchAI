@@ -127,8 +127,17 @@ export async function composePromptSnapshot(
             ? {
                   inputSnapshot: {
                       editorDoc: options.inputSnapshot.editorDoc,
+                      ...(options.inputSnapshot.excludeFromHistory
+                          ? { excludeFromHistory: true }
+                          : {}),
                   },
               }
-            : {}),
+            : options.inputSnapshot?.excludeFromHistory
+              ? {
+                    inputSnapshot: {
+                        excludeFromHistory: true,
+                    },
+                }
+              : {}),
     };
 }

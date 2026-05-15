@@ -427,10 +427,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         const selectedProviderId = modelOverride.value.providerId;
         const supportedAttachments = (userMessage.attachments || []).filter(isAttachmentSupported);
         const inputSnapshot =
-            userMessage.inputSnapshot ??
             createInputHistorySnapshot({
-                text: userMessage.content,
-                attachments: userMessage.attachments ?? [],
+                text: userMessage.inputSnapshot?.text ?? userMessage.content,
+                attachments: userMessage.inputSnapshot?.attachments ?? userMessage.attachments ?? [],
+                editorDoc: userMessage.inputSnapshot?.editorDoc,
+                excludeFromHistory: true,
             });
 
         await sendRequest(

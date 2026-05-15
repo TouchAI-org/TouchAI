@@ -20,7 +20,6 @@
         createInputHistorySnapshot,
         getInputHistorySnapshotKey,
         type InputHistorySnapshot,
-        type SessionMessage,
     } from '@/types/session';
 
     import ConversationPanel from './components/ConversationPanel/index.vue';
@@ -99,9 +98,6 @@
         createSessionInputHistoryBrowseState()
     );
     const suppressInputHistoryBrowseReset = ref(false);
-    const excludedInputHistoryMessageIds = ref<Set<string>>(new Set());
-    const pendingExcludedInputHistoryKeys = ref<string[]>([]);
-    const observedUserMessageIds = ref<Set<string>>(new Set());
     const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
@@ -117,20 +113,13 @@
     const popupSurfaceCoordinator = createPopupSurfaceCoordinator(searchInteractionContext);
     const suppressQuickSearchAutoOpenOnce = ref(false);
 
-    function createMessageInputHistorySnapshot(message: SessionMessage): InputHistorySnapshot {
-        return createInputHistorySnapshot({
-            text: message.inputSnapshot?.text ?? message.content,
-            attachments: message.inputSnapshot?.attachments ?? message.attachments ?? [],
-            editorDoc: message.inputSnapshot?.editorDoc,
-        });
-    }
-
     function buildCurrentInputHistorySnapshot(query = queryText.value): InputHistorySnapshot {
         const capturedSnapshot = searchBar.value?.captureInputHistorySnapshot();
         return createInputHistorySnapshot({
             text: capturedSnapshot?.text ?? query,
             attachments: capturedSnapshot?.attachments ?? attachments.value,
             editorDoc: capturedSnapshot?.editorDoc,
+            excludeFromHistory: capturedSnapshot?.excludeFromHistory,
         });
     }
 
@@ -145,10 +134,12 @@
                 searchBar.value?.restoreInputHistorySnapshot(normalizedSnapshot) ??
                 normalizedSnapshot.text;
             attachments.value = normalizedSnapshot.attachments;
+            syncAttachmentSupport();
             queryText.value = restoredText;
         } catch (error) {
             console.error('[SearchView] Failed to restore input history snapshot:', error);
             attachments.value = normalizedSnapshot.attachments;
+            syncAttachmentSupport();
             queryText.value = normalizedSnapshot.text;
         } finally {
             void nextTick().then(() => {
@@ -190,6 +181,7 @@
         clearAttachments,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        syncAttachmentSupport,
     } = useSearchAttachments({
         attachments,
     });
@@ -397,9 +389,7 @@
     });
 
     const sessionInputHistoryEntries = computed(() =>
-        extractSessionInputHistoryEntries(sessionHistory.value, {
-            excludedMessageIds: excludedInputHistoryMessageIds.value,
-        })
+        extractSessionInputHistoryEntries(sessionHistory.value)
     );
 
     function resetInputHistoryBrowseState(entryCount = sessionInputHistoryEntries.value.length) {
@@ -418,19 +408,9 @@
     }
 
     function resetSessionInputHistoryTracking() {
-        excludedInputHistoryMessageIds.value = new Set();
-        pendingExcludedInputHistoryKeys.value = [];
-        observedUserMessageIds.value = new Set();
         inputHistoryRestoreVersion.value = 0;
         suppressInputHistoryBrowseReset.value = false;
         resetInputHistoryBrowseState();
-    }
-
-    function queueExcludedInputHistorySnapshot(snapshot: InputHistorySnapshot) {
-        pendingExcludedInputHistoryKeys.value = [
-            ...pendingExcludedInputHistoryKeys.value,
-            getInputHistorySnapshotKey(createInputHistorySnapshot(snapshot)),
-        ];
     }
 
     function navigateInputHistory(
@@ -791,21 +771,6 @@
     }
 
     async function handleRegenerateMessage(messageId: string) {
-        const messageIndex = sessionHistory.value.findIndex((message) => message.id === messageId);
-        if (messageIndex <= 0) {
-            return;
-        }
-
-        for (let index = messageIndex - 1; index >= 0; index -= 1) {
-            const message = sessionHistory.value[index];
-            if (message?.role !== 'user') {
-                continue;
-            }
-
-            queueExcludedInputHistorySnapshot(createMessageInputHistorySnapshot(message));
-            break;
-        }
-
         await handleRegenerateMessageRequest(messageId);
     }
 
@@ -823,8 +788,8 @@
         const widgetSnapshot = createInputHistorySnapshot({
             text: normalizedText,
             attachments: [],
+            excludeFromHistory: true,
         });
-        queueExcludedInputHistorySnapshot(widgetSnapshot);
         void handleSubmit(normalizedText, widgetSnapshot);
     }
 
@@ -926,42 +891,6 @@
             );
         },
         { flush: 'sync' }
-    );
-
-    watch(
-        sessionHistory,
-        (messages) => {
-            const observedIds = new Set(observedUserMessageIds.value);
-            const excludedIds = new Set(excludedInputHistoryMessageIds.value);
-            const pendingKeys = [...pendingExcludedInputHistoryKeys.value];
-            let didMutate = false;
-
-            for (const message of messages) {
-                if (message.role !== 'user' || observedIds.has(message.id)) {
-                    continue;
-                }
-
-                observedIds.add(message.id);
-
-                if (
-                    pendingKeys.length > 0 &&
-                    pendingKeys[0] ===
-                        getInputHistorySnapshotKey(createMessageInputHistorySnapshot(message))
-                ) {
-                    excludedIds.add(message.id);
-                    pendingKeys.shift();
-                    didMutate = true;
-                }
-            }
-
-            observedUserMessageIds.value = observedIds;
-
-            if (didMutate) {
-                excludedInputHistoryMessageIds.value = excludedIds;
-                pendingExcludedInputHistoryKeys.value = pendingKeys;
-            }
-        },
-        { deep: true, flush: 'post' }
     );
 
     watch(

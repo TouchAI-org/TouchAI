@@ -136,6 +136,7 @@ export interface InputHistorySnapshot {
     text: string;
     attachments: Index[];
     editorDoc?: JSONContent;
+    excludeFromHistory?: boolean;
 }
 
 function cloneJsonContent<T>(value: T): T {
@@ -176,6 +177,7 @@ export function cloneInputHistorySnapshot(
         text: snapshot.text,
         attachments,
         ...(snapshot.editorDoc ? { editorDoc: cloneJsonContent(snapshot.editorDoc) } : {}),
+        ...(snapshot.excludeFromHistory ? { excludeFromHistory: true } : {}),
     };
 }
 
@@ -183,15 +185,18 @@ export function createInputHistorySnapshot(input: {
     text: string;
     attachments?: Index[] | null;
     editorDoc?: JSONContent | null;
+    excludeFromHistory?: boolean;
 }): InputHistorySnapshot {
     return (
         cloneInputHistorySnapshot({
             text: input.text,
             attachments: input.attachments ?? [],
             ...(input.editorDoc ? { editorDoc: input.editorDoc } : {}),
+            ...(input.excludeFromHistory ? { excludeFromHistory: true } : {}),
         }) ?? {
             text: input.text,
             attachments: [],
+            ...(input.excludeFromHistory ? { excludeFromHistory: true } : {}),
         }
     );
 }
@@ -203,6 +208,7 @@ export function hasInputHistorySnapshotContent(snapshot: InputHistorySnapshot): 
 export function getInputHistorySnapshotKey(snapshot: InputHistorySnapshot): string {
     return JSON.stringify({
         text: snapshot.text,
+        excludeFromHistory: snapshot.excludeFromHistory === true,
         attachments: snapshot.attachments.map((attachment) => ({
             id: attachment.id,
             attachmentId: attachment.attachmentId ?? null,

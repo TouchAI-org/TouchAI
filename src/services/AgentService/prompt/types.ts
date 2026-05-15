@@ -62,6 +62,7 @@ export interface PromptAssembly {
 
 export interface PromptInputSnapshot {
     editorDoc?: JSONContent;
+    excludeFromHistory?: boolean;
 }
 
 /**
