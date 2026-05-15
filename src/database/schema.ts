@@ -227,7 +227,9 @@ export const providers = sqliteTable('providers', {
     driver: text('driver', {
         enum: [
             'openai',
+            'openai-compatible',
             'anthropic',
+            'anthropic-compatible',
             'google',
             'deepseek',
             'xai',

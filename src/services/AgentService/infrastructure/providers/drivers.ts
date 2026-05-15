@@ -4,11 +4,13 @@ import type { ProviderDriver } from '@database/schema';
 
 import { AlibabaProviderAdapter } from './adapters/alibaba';
 import { AnthropicProviderAdapter } from './adapters/anthropic';
+import { AnthropicCompatibleProviderAdapter } from './adapters/anthropic-compatible';
 import { DeepSeekProviderAdapter } from './adapters/deepseek';
 import { GoogleProviderAdapter } from './adapters/google';
 import { MiniMaxProviderAdapter } from './adapters/minimax';
 import { MoonshotProviderAdapter } from './adapters/moonshot';
 import { OpenAIProviderAdapter } from './adapters/openai';
+import { OpenAICompatibleProviderAdapter } from './adapters/openai-compatible';
 import { XaiProviderAdapter } from './adapters/xai';
 import { ZhipuProviderAdapter } from './adapters/zhipu';
 import type { AiProvider, AiProviderConfig } from './types';
@@ -37,11 +39,25 @@ const providerDrivers: ProviderDriverEntry[] = [
         create: (config) => new OpenAIProviderAdapter(config),
     },
     {
+        driver: 'openai-compatible',
+        label: 'OpenAI 兼容',
+        logo: 'openai.png',
+        placeholder: 'https://api.example.com/v1',
+        create: (config) => new OpenAICompatibleProviderAdapter(config),
+    },
+    {
         driver: 'anthropic',
         label: 'Anthropic',
         logo: 'anthropic.png',
         placeholder: 'https://api.anthropic.com',
         create: (config) => new AnthropicProviderAdapter(config),
+    },
+    {
+        driver: 'anthropic-compatible',
+        label: 'Anthropic 兼容',
+        logo: 'anthropic.png',
+        placeholder: 'https://api.example.com',
+        create: (config) => new AnthropicCompatibleProviderAdapter(config),
     },
     {
         driver: 'google',
