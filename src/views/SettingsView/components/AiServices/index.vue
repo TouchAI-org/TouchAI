@@ -184,6 +184,7 @@
 
             // 重新加载服务商列表
             await loadProviders();
+            await broadcastModelsUpdated();
 
             if (newEnabled === 1) {
                 alert.success('服务商已启用');
@@ -345,6 +346,7 @@
             if (selectedProviderId.value) {
                 await loadModelsForProvider(selectedProviderId.value, true); // 强制刷新
             }
+            await broadcastModelsUpdated();
             alert.success('保存成功');
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '保存失败');
@@ -357,6 +359,7 @@
             if (selectedProviderId.value) {
                 await loadModelsForProvider(selectedProviderId.value, true); // 强制刷新
             }
+            await broadcastModelsUpdated();
             if (!silent) {
                 alert.success('删除成功');
             }
@@ -375,6 +378,7 @@
                 await loadModelsForProvider(selectedProviderId.value, true);
             }
 
+            await broadcastModelsUpdated();
             alert.success('设置成功');
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '设置失败');
@@ -480,6 +484,7 @@
             }
 
             await loadModelsForProvider(currentProviderId, true); // 强制刷新缓存
+            await broadcastModelsUpdated();
             if (!silent) {
                 alert.success(`刷新成功，新增 ${newModels.length} 个模型`);
             }
