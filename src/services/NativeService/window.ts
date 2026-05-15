@@ -4,6 +4,9 @@ import type {
     HidePopupWindowParams,
     PopupConfig,
     ResizeWindowHeightParams,
+    SearchWindowDefaultSize,
+    SearchWindowMinimumSize,
+    SearchWindowState,
     ShowPopupWindowParams,
 } from './types';
 
@@ -40,7 +43,27 @@ export const window = {
         return invoke('set_search_surface_hide_on_app_blur', { shouldHide });
     },
 
+    setSearchWindowAllowHeightOverride(allow: boolean): Promise<void> {
+        return invoke('set_search_window_allow_height_override', { allow });
+    },
+
     resizeWindowHeight(params: ResizeWindowHeightParams): Promise<void> {
         return invoke('resize_window_height', { params });
+    },
+
+    setSearchWindowDefaults(defaults: SearchWindowDefaultSize): Promise<SearchWindowDefaultSize> {
+        return invoke('set_search_window_defaults', { defaults });
+    },
+
+    setSearchWindowMinSize(size: SearchWindowMinimumSize): Promise<void> {
+        return invoke('set_search_window_min_size', { size });
+    },
+
+    resetSearchWindowBounds(): Promise<void> {
+        return invoke('reset_search_window_bounds');
+    },
+
+    getSearchWindowState(): Promise<SearchWindowState> {
+        return invoke('get_search_window_state');
     },
 } as const;
