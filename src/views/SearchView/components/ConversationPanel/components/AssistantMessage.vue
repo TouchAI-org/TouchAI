@@ -318,7 +318,7 @@
         const marginTop =
             lastPart?.type === 'tool_call' || lastPart?.type === 'approval' ? 'mt-4' : 'mt-2';
 
-        return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop];
+        return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop, 'mb-3'];
     });
     const showMessageActions = computed(() => {
         return !props.message.isStreaming && !isRequestStateMessage.value;
