@@ -1,7 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <div class="mb-4 flex justify-start">
+    <div class="flex justify-start" :class="message.isStreaming ? 'mb-0' : 'mb-4'">
         <div class="w-full break-words">
             <div class="text-[15px] leading-[1.8]">
                 <!-- 请求状态消息 -->
@@ -314,11 +314,9 @@
         return parts;
     });
     const streamingIndicatorClass = computed(() => {
-        const lastPart = renderedParts.value[renderedParts.value.length - 1];
-        const marginTop =
-            lastPart?.type === 'tool_call' || lastPart?.type === 'approval' ? 'mt-4' : 'mt-2';
+        const marginTop = 'mt-5';
 
-        return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop, 'mb-3'];
+        return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop, 'mb-2'];
     });
     const showMessageActions = computed(() => {
         return !props.message.isStreaming && !isRequestStateMessage.value;
@@ -422,6 +420,10 @@
     .reasoning-content :deep(h6) {
         color: var(--color-gray-500);
         font-weight: 600;
+    }
+
+    .streaming-indicator {
+        min-height: 1.2em;
     }
 
     .dot {
