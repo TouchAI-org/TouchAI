@@ -1,0 +1,165 @@
+name: Desktop E2E Smoke
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    pull-requests: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        name: Classify PR changes
+        runs-on: ubuntu-latest
+        outputs:
+            docs_only: ${{ steps.classify.outputs.docs_only }}
+        steps:
+            - id: classify
+              name: Detect docs-only pull requests
+              uses: actions/github-script@v9
+              with:
+                  script: |
+                      if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
+                        core.setOutput('docs_only', 'false');
+                        return;
+                      }
+
+                      const docsOnlyPatterns = [
+                        /^docs\//,
+                        /^[^/]+\.md$/,
+                        /^COPYING$/,
+                        /^\.github\/ISSUE_TEMPLATE\//,
+                        /^\.github\/dependabot\.yml$/,
+                        /^\.github\/labeler\.yml$/,
+                        /^\.github\/labels\.yml$/,
+                        /^\.github\/pull_request_template\.md$/,
+                        /^CLAUDE\.md$/,
+                        /^CODE_OF_CONDUCT\.md$/,
+                        /^CONTRIBUTING\.md$/,
+                        /^README\.en\.md$/,
+                        /^README\.md$/,
+                        /^SECURITY\.md$/,
+                        /^SUPPORT\.md$/,
+                      ];
+
+                      let files = [];
+
+                      if (context.eventName === 'pull_request') {
+                        files = await github.paginate(github.rest.pulls.listFiles, {
+                          ...context.repo,
+                          pull_number: context.issue.number,
+                          per_page: 100,
+                        });
+                      } else if (context.eventName === 'push') {
+                        const before = context.payload.before;
+                        const after = context.payload.after;
+
+                        if (!before || !after || /^0+$/.test(before)) {
+                          core.setOutput('docs_only', 'false');
+                          return;
+                        }
+
+                        const comparison = await github.rest.repos.compareCommits({
+                          ...context.repo,
+                          base: before,
+                          head: after,
+                        });
+
+                        files = comparison.data.files ?? [];
+
+                        if (files.length >= 300) {
+                          core.setOutput('docs_only', 'false');
+                          return;
+                        }
+                      }
+
+                      const docsOnly =
+                        files.length > 0 &&
+                        files.every((file) => docsOnlyPatterns.some((pattern) => pattern.test(file.filename)));
+
+                      core.setOutput('docs_only', docsOnly ? 'true' : 'false');
+
+            - name: Report classification
+              run: echo "docs_only=${{ steps.classify.outputs.docs_only }}"
+
+    desktop-e2e-smoke:
+        name: Desktop E2E Smoke (${{ matrix.label }})
+        needs: changes
+        if: needs.changes.outputs.docs_only != 'true' && (github.event_name != 'pull_request' || matrix.os == 'windows-latest')
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: windows-latest
+                      label: Windows
+                      command: pnpm test:e2e
+                    - os: ubuntu-latest
+                      label: Linux
+                      command: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" pnpm test:e2e
+        env:
+            TOUCHAI_CARGO_TARGET_DIR: src-tauri/target/e2e
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Linux system dependencies
+              if: matrix.os == 'ubuntu-latest'
+              run: |
+                  sudo apt update
+                  sudo apt install -y \
+                    build-essential \
+                    curl \
+                    file \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
+                    pkg-config \
+                    webkit2gtk-driver \
+                    wget \
+                    xvfb
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri -> target/e2e
+
+            - name: Install frontend dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Install E2E dependencies
+              run: pnpm install --dir e2e-tests --no-frozen-lockfile
+
+            - name: Install tauri-driver
+              run: cargo install tauri-driver --locked
+
+            - name: Install Edge WebDriver
+              if: matrix.os == 'windows-latest'
+              shell: pwsh
+              run: |
+                  cargo install msedgedriver-tool
+                  msedgedriver-tool.exe
+                  "$PWD" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+            - name: Run desktop smoke tests
+              run: ${{ matrix.command }}

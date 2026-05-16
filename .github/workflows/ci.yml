@@ -74,7 +74,6 @@ jobs:
 
                         files = comparison.data.files ?? [];
 
-                        // GitHub truncates compareCommits file lists at 300 entries. Fall back to full CI when unsure.
                         if (files.length >= 300) {
                           core.setOutput('docs_only', 'false');
                           return;
@@ -136,14 +135,14 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               uses: actions/dependency-review-action@v5
 
-    checks:
-        name: Checks
+    frontend-quality:
+        name: Frontend Quality
         needs: changes
         runs-on: ubuntu-latest
         steps:
-            - name: Skip heavy checks for docs-only PRs
+            - name: Skip frontend quality checks for docs-only PRs
               if: needs.changes.outputs.docs_only == 'true'
-              run: echo 'Heavy CI checks are skipped for docs-only changes.'
+              run: echo 'Frontend quality checks are skipped for docs-only changes.'
 
             - uses: actions/checkout@v6
               if: needs.changes.outputs.docs_only != 'true'
@@ -156,6 +155,67 @@ jobs:
               with:
                   node-version: 22
                   cache: pnpm
+
+            - name: Install dependencies
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm install --frozen-lockfile
+
+            - name: Type check
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm type:check
+
+            - name: Type check tests
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm test:typecheck
+
+            - name: Lint
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm lint:check
+
+            - name: Format check
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm format:check
+
+    frontend-tests:
+        name: Frontend Tests
+        needs: changes
+        runs-on: ubuntu-latest
+        steps:
+            - name: Skip frontend tests for docs-only PRs
+              if: needs.changes.outputs.docs_only == 'true'
+              run: echo 'Frontend tests are skipped for docs-only changes.'
+
+            - uses: actions/checkout@v4
+              if: needs.changes.outputs.docs_only != 'true'
+
+            - uses: pnpm/action-setup@v6
+              if: needs.changes.outputs.docs_only != 'true'
+
+            - uses: actions/setup-node@v6
+              if: needs.changes.outputs.docs_only != 'true'
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm install --frozen-lockfile
+
+            - name: Run frontend tests
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm test:unit
+
+    rust-checks:
+        name: Rust Checks
+        needs: changes
+        runs-on: ubuntu-latest
+        steps:
+            - name: Skip Rust checks for docs-only PRs
+              if: needs.changes.outputs.docs_only == 'true'
+              run: echo 'Rust checks are skipped for docs-only changes.'
+
+            - uses: actions/checkout@v4
+              if: needs.changes.outputs.docs_only != 'true'
 
             - name: Install Linux system dependencies
               if: needs.changes.outputs.docs_only != 'true'
@@ -184,26 +244,6 @@ jobs:
               with:
                   workspaces: src-tauri -> target
 
-            - name: Install dependencies
-              if: needs.changes.outputs.docs_only != 'true'
-              run: pnpm install --frozen-lockfile
-
-            - name: Type check
-              if: needs.changes.outputs.docs_only != 'true'
-              run: pnpm type:check
-
-            - name: Lint
-              if: needs.changes.outputs.docs_only != 'true'
-              run: pnpm lint:check
-
-            - name: Format check
-              if: needs.changes.outputs.docs_only != 'true'
-              run: pnpm format:check
-
-            - name: Run tests
-              if: needs.changes.outputs.docs_only != 'true'
-              run: pnpm test:run
-
             - name: Check Rust formatting
               if: needs.changes.outputs.docs_only != 'true'
               run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -212,10 +252,48 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               run: pnpm check:rust
 
+    frontend-coverage:
+        name: Frontend Coverage
+        needs:
+            - changes
+            - frontend-tests
+        if: needs.changes.outputs.docs_only != 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Run coverage
+              run: pnpm test:coverage
+
+            - name: Summarize coverage
+              run: |
+                  node -e "const fs = require('node:fs'); const summary = JSON.parse(fs.readFileSync('.coverage/unit/coverage-summary.json', 'utf8')).total; fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, ['## Frontend Coverage', '', '| Metric | Percent |', '| --- | ---: |', `| Statements | ${summary.statements.pct}% |`, `| Branches | ${summary.branches.pct}% |`, `| Functions | ${summary.functions.pct}% |`, `| Lines | ${summary.lines.pct}% |`, ''].join('\n'))"
+
+            - name: Upload coverage artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: frontend-coverage-report
+                  path: .coverage/unit
+                  if-no-files-found: error
+
     build-windows:
         name: Build (Windows)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs_only != 'true'
-        needs: checks
+        needs:
+            - changes
+            - frontend-quality
+            - frontend-tests
+            - rust-checks
         runs-on: windows-latest
         steps:
             - uses: actions/checkout@v6

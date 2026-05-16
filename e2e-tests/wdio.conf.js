@@ -35,6 +35,18 @@ function resolveAppBinaryPath() {
     );
 }
 
+function assertBuiltAppExists() {
+    const appBinaryPath = resolveAppBinaryPath();
+
+    if (!fs.existsSync(appBinaryPath)) {
+        throw new Error(
+            `TouchAI debug binary was not produced at ${appBinaryPath}. Check the Tauri build output above.`
+        );
+    }
+
+    return appBinaryPath;
+}
+
 function resolveTempDirectory() {
     if (process.env.TOUCHAI_TEST_TEMP) {
         return process.env.TOUCHAI_TEST_TEMP;
@@ -159,6 +171,7 @@ export const config = {
     host: '127.0.0.1',
     port: 4444,
     specs: ['./test/specs/**/*.e2e.js'],
+    bail: 1,
     maxInstances: 1,
     waitforTimeout: 15000,
     connectionRetryTimeout: 120000,
@@ -193,12 +206,17 @@ export const config = {
         });
 
         if (buildResult.status !== 0) {
-            throw new Error(
+            console.error(
                 `Failed to build TouchAI debug binary for E2E. Exit code: ${buildResult.status}`
             );
+            process.exit(buildResult.status ?? 1);
         }
+
+        assertBuiltAppExists();
     },
     beforeSession: async () => {
+        assertBuiltAppExists();
+
         const tauriDriverPath = resolveTauriDriverPath();
         const nativeDriverPath = resolveNativeDriverPath();
 

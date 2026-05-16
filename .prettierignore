@@ -4,6 +4,7 @@ dist/
 build/
 *.min.*
 coverage/
+.coverage/
 
 # Drizzle 生成的迁移文件
 src/database/drizzle/
@@ -50,6 +51,8 @@ temp/
 .e2e-runtime/
 .e2e-tools/
 .cargo-temp/
+rust-target/
+rust-temp/
 
 src-tauri/target/**/*
 src-tauri/gen/**/*

@@ -17,8 +17,8 @@ export default defineConfig({
     setupFiles: ['./tests/setup/vitest.ts'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html', 'json-summary'],
-      reportsDirectory: './coverage/unit',
+      reporter: ['text', 'html', 'json-summary', 'lcov'],
+      reportsDirectory: './.coverage/unit',
       include: ['src/**/*.{ts,vue}'],
       exclude: [
         'src/**/*.d.ts',
@@ -27,7 +27,64 @@ export default defineConfig({
         'src/assets/**',
         'src/styles/**',
         'src/**/index.vue',
+        'src/components/appIconMap.ts',
       ],
+      thresholds: {
+        'src/services/EventService/**/*.ts': {
+          statements: 90,
+          branches: 100,
+          functions: 100,
+          lines: 90,
+        },
+        'src/services/NativeService/**/*.ts': {
+          statements: 90,
+          branches: 80,
+          functions: 90,
+          lines: 90,
+        },
+        'src/views/SearchView/components/QuickSearchPanel/composables/**/*.ts': {
+          statements: 75,
+          branches: 65,
+          functions: 75,
+          lines: 80,
+        },
+        'src/views/SearchView/components/QuickSearchPanel/utils/**/*.ts': {
+          statements: 95,
+          branches: 60,
+          functions: 100,
+          lines: 95,
+        },
+        'src/views/SearchView/components/SearchBar/composables/**/*.ts': {
+          statements: 70,
+          branches: 50,
+          functions: 75,
+          lines: 72,
+        },
+        'src/views/SearchView/composables/interaction/useSearchKeyboardRouter.ts': {
+          statements: 85,
+          branches: 75,
+          functions: 85,
+          lines: 85,
+        },
+        'src/views/SearchView/composables/useSearchInput.ts': {
+          statements: 90,
+          branches: 75,
+          functions: 100,
+          lines: 90,
+        },
+        'src/views/SearchView/composables/useSearchRequest.ts': {
+          statements: 60,
+          branches: 45,
+          functions: 50,
+          lines: 60,
+        },
+        'src/views/SearchView/utils/clipboardDraft.ts': {
+          statements: 95,
+          branches: 75,
+          functions: 100,
+          lines: 95,
+        },
+      },
     },
   },
   resolve: {
