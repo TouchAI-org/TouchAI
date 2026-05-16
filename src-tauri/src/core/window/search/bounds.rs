@@ -356,10 +356,7 @@ pub fn clamp_height(height: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        clamp_height, clamp_width, HeightMode, SearchWindowDefaults, SearchWindowFrame,
-        SearchWindowState,
-    };
+    use super::{HeightMode, SearchWindowDefaults, SearchWindowFrame, SearchWindowState};
 
     fn frame(width: f64, height: f64) -> SearchWindowFrame {
         SearchWindowFrame {
@@ -370,8 +367,20 @@ mod tests {
         }
     }
 
+    fn state_with_defaults(width: f64, height: f64) -> SearchWindowState {
+        let state = SearchWindowState::default();
+        state.update_defaults(SearchWindowDefaults { width, height });
+        state
+    }
+
+    fn state_with_manual_override() -> SearchWindowState {
+        let state = state_with_defaults(920.0, 280.0);
+        state.record_runtime_resize(frame(920.0, 540.0), true, true);
+        state
+    }
+
     #[test]
-    fn update_defaults_clamps_values_before_storing_them() {
+    fn update_defaults_clamps_below_minimum_size() {
         let state = SearchWindowState::default();
         let stored = state.update_defaults(SearchWindowDefaults {
             width: 120.0,
@@ -379,13 +388,8 @@ mod tests {
         });
         let snapshot = state.snapshot();
 
-        assert_eq!(
-            stored,
-            SearchWindowDefaults {
-                width: clamp_width(120.0),
-                height: clamp_height(24.0),
-            }
-        );
+        assert_eq!(stored.width, 420.0);
+        assert_eq!(stored.height, 60.0);
         assert_eq!(snapshot.defaults, stored);
         assert_eq!(snapshot.current_width, stored.width);
         assert_eq!(snapshot.current_height, stored.height);
@@ -393,8 +397,7 @@ mod tests {
 
     #[test]
     fn update_defaults_preserves_manual_override_height() {
-        let state = SearchWindowState::default();
-        state.record_runtime_resize(frame(920.0, 540.0), true, true);
+        let state = state_with_manual_override();
 
         let stored = state.update_defaults(SearchWindowDefaults {
             width: 1000.0,
@@ -411,11 +414,7 @@ mod tests {
 
     #[test]
     fn auto_height_target_uses_default_height_as_lower_bound() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 960.0,
-            height: 320.0,
-        });
+        let state = state_with_defaults(960.0, 320.0);
 
         let target = state.auto_height_target_with_policy(180.0, true);
 
@@ -425,12 +424,7 @@ mod tests {
 
     #[test]
     fn auto_height_target_returns_none_when_manual_override_is_respected() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 920.0,
-            height: 280.0,
-        });
-        state.record_runtime_resize(frame(920.0, 540.0), true, true);
+        let state = state_with_manual_override();
 
         let target = state.auto_height_target_with_policy(360.0, true);
 
@@ -440,12 +434,7 @@ mod tests {
 
     #[test]
     fn auto_height_target_can_clear_manual_override_when_policy_allows_it() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 920.0,
-            height: 280.0,
-        });
-        state.record_runtime_resize(frame(920.0, 540.0), true, true);
+        let state = state_with_manual_override();
 
         let target = state.auto_height_target_with_policy(360.0, false);
         let snapshot = state.snapshot();
@@ -457,11 +446,7 @@ mod tests {
 
     #[test]
     fn runtime_height_resize_enters_manual_override_when_override_is_allowed() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 900.0,
-            height: 280.0,
-        });
+        let state = state_with_defaults(900.0, 280.0);
 
         let mode = state.record_runtime_resize(frame(900.0, 520.0), true, true);
         let snapshot = state.snapshot();
@@ -487,11 +472,7 @@ mod tests {
 
     #[test]
     fn runtime_height_resize_is_ignored_when_override_is_disabled() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 900.0,
-            height: 300.0,
-        });
+        let state = state_with_defaults(900.0, 300.0);
 
         let mode = state.record_runtime_resize(frame(960.0, 540.0), false, false);
         let snapshot = state.snapshot();
@@ -516,6 +497,21 @@ mod tests {
     }
 
     #[test]
+    fn apply_programmatic_size_clamps_dimensions_and_updates_mode() {
+        let state = SearchWindowState::default();
+
+        let snapshot = state.apply_programmatic_size(
+            Some(300.0),
+            Some(24.0),
+            Some(HeightMode::ManualOverride),
+        );
+
+        assert_eq!(snapshot.current_width, 420.0);
+        assert_eq!(snapshot.current_height, 60.0);
+        assert_eq!(snapshot.height_mode, HeightMode::ManualOverride);
+    }
+
+    #[test]
     fn matching_programmatic_resize_target_keeps_auto_mode() {
         let state = SearchWindowState::default();
         state.update_defaults(SearchWindowDefaults {
@@ -535,11 +531,7 @@ mod tests {
 
     #[test]
     fn intermediate_programmatic_resize_frame_keeps_previous_snapshot() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 900.0,
-            height: 280.0,
-        });
+        let state = state_with_defaults(900.0, 280.0);
         state.begin_programmatic_resize();
         state.note_programmatic_resize_target(900.0, 280.0, 900.0, 360.0);
 
@@ -553,12 +545,24 @@ mod tests {
     }
 
     #[test]
+    fn nested_programmatic_resize_guards_stay_active_until_the_last_end() {
+        let state = state_with_defaults(900.0, 280.0);
+        state.begin_programmatic_resize();
+        state.begin_programmatic_resize();
+        state.note_programmatic_resize_target(900.0, 280.0, 900.0, 360.0);
+        state.end_programmatic_resize();
+
+        let mode = state.record_runtime_resize(frame(900.0, 320.0), true, true);
+        let snapshot = state.snapshot();
+
+        assert_eq!(mode, HeightMode::Auto);
+        assert_eq!(snapshot.current_height, 280.0);
+        assert_eq!(snapshot.height_mode, HeightMode::Auto);
+    }
+
+    #[test]
     fn out_of_path_resize_during_programmatic_resize_enters_manual_override() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 900.0,
-            height: 280.0,
-        });
+        let state = state_with_defaults(900.0, 280.0);
         state.begin_programmatic_resize();
         state.note_programmatic_resize_target(900.0, 280.0, 900.0, 360.0);
 
@@ -572,11 +576,7 @@ mod tests {
 
     #[test]
     fn delayed_programmatic_resize_event_after_guard_ends_keeps_auto_mode() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 900.0,
-            height: 280.0,
-        });
+        let state = state_with_defaults(900.0, 280.0);
         state.begin_programmatic_resize();
         state.note_programmatic_resize_target(900.0, 280.0, 900.0, 520.0);
         state.end_programmatic_resize();
@@ -591,11 +591,7 @@ mod tests {
 
     #[test]
     fn reset_to_defaults_restores_default_snapshot() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 1000.0,
-            height: 340.0,
-        });
+        let state = state_with_defaults(1000.0, 340.0);
         state.record_runtime_resize(frame(1080.0, 560.0), true, true);
 
         let snapshot = state.reset_to_defaults();
@@ -608,11 +604,7 @@ mod tests {
 
     #[test]
     fn reset_to_defaults_allows_future_auto_height_updates() {
-        let state = SearchWindowState::default();
-        state.update_defaults(SearchWindowDefaults {
-            width: 1000.0,
-            height: 340.0,
-        });
+        let state = state_with_defaults(1000.0, 340.0);
         state.record_runtime_resize(frame(1080.0, 560.0), true, true);
         state.reset_to_defaults();
 
