@@ -65,6 +65,10 @@ export interface SearchWindowState {
     heightMode: SearchWindowHeightMode;
 }
 
+export interface RuntimeInfo {
+    isE2eTestMode: boolean;
+}
+
 export interface TauriLogPayload {
     level: number;
     message: string;

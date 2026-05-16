@@ -55,7 +55,7 @@
 </script>
 
 <template>
-    <div class="bg-background-primary flex h-screen w-screen flex-col">
+    <div class="bg-background-primary flex h-screen w-screen flex-col" data-testid="settings-view">
         <TitleBar title="设置" />
 
         <div class="flex flex-1 overflow-hidden">

@@ -13,6 +13,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import { useSettingsStore } from '@/stores/settings';
+import { isE2eTestMode } from '@/utils/runtimeMode';
 
 import type {
     ConversationPanelHandle,
@@ -473,6 +474,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     }
 
     async function initializeGlobalShortcut() {
+        if (await isE2eTestMode()) {
+            return;
+        }
+
         try {
             await settingsStore.initialize();
             await native.shortcut.registerGlobalShortcut(settingsStore.globalShortcut);
@@ -527,7 +532,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             .catch(() => true);
         await syncWindowPinStateSafely('initialize');
         await initFocusListener();
-        await initNotificationPermission();
+        if (!(await isE2eTestMode())) {
+            await initNotificationPermission();
+        }
         await runStartupTasks();
     }
 

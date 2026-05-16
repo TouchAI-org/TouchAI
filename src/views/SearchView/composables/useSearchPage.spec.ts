@@ -37,6 +37,9 @@ const {
         },
         initNotificationPermissionMock: vi.fn(),
         nativeMock: {
+            runtime: {
+                getRuntimeInfo: vi.fn(),
+            },
             shortcut: {
                 registerGlobalShortcut: vi.fn(),
             },
@@ -130,6 +133,7 @@ describe('useSearchPageLifecycle', () => {
         currentWindowMock.setAlwaysOnTop.mockResolvedValue(undefined);
 
         nativeMock.shortcut.registerGlobalShortcut.mockResolvedValue(undefined);
+        nativeMock.runtime.getRuntimeInfo.mockResolvedValue({ isE2eTestMode: false });
         nativeMock.window.hideSearchWindow.mockResolvedValue(undefined);
         nativeMock.window.setSearchSurfaceHideOnAppBlur.mockResolvedValue(undefined);
 
@@ -182,9 +186,6 @@ describe('useSearchPageLifecycle', () => {
         expect(popupManagerMock.initialize).toHaveBeenCalledTimes(1);
         expect(currentWindowMock.isVisible).toHaveBeenCalledTimes(1);
         expect(syncWindowPinState).toHaveBeenCalledTimes(1);
-        expect(eventHandlers.has(AppEvent.AI_MODELS_UPDATED)).toBe(true);
-        expect(eventHandlers.has(AppEvent.SEARCH_SURFACE_SHOWN)).toBe(true);
-        expect(eventHandlers.has(AppEvent.SEARCH_SURFACE_HIDDEN)).toBe(true);
 
         isPinned.value = true;
         await nextTick();

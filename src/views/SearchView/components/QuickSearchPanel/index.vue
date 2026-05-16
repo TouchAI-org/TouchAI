@@ -4,6 +4,7 @@
 
 <template>
     <div
+        data-testid="quick-search-panel"
         class="quick-search-panel mt-1.5 w-full rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur"
         @click.self="handleBlankSurfaceClick"
     >

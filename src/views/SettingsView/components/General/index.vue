@@ -367,7 +367,7 @@
 <template>
     <AlertMessage ref="alertMessage" />
 
-    <div class="p-6">
+    <div class="p-6" data-testid="settings-general-section">
         <div class="mx-auto max-w-4xl space-y-6">
             <div class="rounded-lg border border-gray-200 bg-white p-6">
                 <div class="flex items-center gap-4">
@@ -395,6 +395,7 @@
                     <input
                         ref="shortcutInput"
                         v-model="displayShortcut"
+                        data-testid="settings-global-shortcut-input"
                         type="text"
                         readonly
                         :class="[
@@ -509,6 +510,8 @@
                                 'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
                                 settings.startMinimized ? 'bg-primary-600' : 'bg-gray-200',
                             ]"
+                            data-testid="settings-start-minimized-toggle"
+                            :aria-pressed="settings.startMinimized"
                             @click="
                                 settings.startMinimized = !settings.startMinimized;
                                 saveStartMinimized();

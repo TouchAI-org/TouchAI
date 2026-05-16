@@ -9,4 +9,5 @@ pub mod autostart;
 pub mod clipboard;
 pub mod logging;
 pub mod paths;
+pub mod runtime;
 pub mod shortcut;

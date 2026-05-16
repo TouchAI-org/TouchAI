@@ -47,6 +47,9 @@ temp/
 # Agent / tool working directories
 .codex/
 .worktrees/
+.e2e-runtime/
+.e2e-tools/
+.cargo-temp/
 
 src-tauri/target/**/*
 src-tauri/gen/**/*

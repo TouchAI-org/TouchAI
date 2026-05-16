@@ -46,6 +46,7 @@
         <button
             v-for="item in navigationItems"
             :key="item.id"
+            :data-testid="`settings-nav-${item.id}`"
             :class="[
                 'flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg transition-colors',
                 activeSection === item.id

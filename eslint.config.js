@@ -28,12 +28,29 @@ export default defineConfig([
             },
         },
     },
+    {
+        files: ['e2e-tests/**/*.js'],
+        languageOptions: {
+            globals: {
+                ...globals.mocha,
+                browser: 'readonly',
+                $: 'readonly',
+                $$: 'readonly',
+            },
+        },
+    },
     // 忽略文件
     globalIgnores([
         'node_modules',
         'dist',
         'build',
         'src-tauri',
+        '.e2e-runtime',
+        '.e2e-runtime/**',
+        '.e2e-tools',
+        '.e2e-tools/**',
+        '.cargo-temp',
+        '.cargo-temp/**',
         '**/*d.ts',
         '.worktrees',
         '.tmp',

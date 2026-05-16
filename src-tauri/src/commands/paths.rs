@@ -18,3 +18,9 @@ pub fn get_app_directory_path(directory: String) -> Result<String, String> {
     let directory = paths::parse_app_directory_key(&directory)?;
     paths::app_directory_path(directory).map(|path| path.to_string_lossy().to_string())
 }
+
+/// 获取当前运行时模式。
+#[tauri::command]
+pub fn get_runtime_info() -> crate::core::system::runtime::RuntimeInfo {
+    crate::core::system::runtime::RuntimeInfo::current()
+}

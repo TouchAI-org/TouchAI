@@ -92,6 +92,11 @@ pub fn set_search_surface_hide_on_app_blur<R: Runtime>(
     surface::set_hide_on_app_blur(&app_handle, should_hide)
 }
 
+/// 仅用于测试模式：显示主搜索窗口并立即激活其输入焦点。
+pub fn show_search_window_for_testing<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    show_and_activate_search_window(window)
+}
+
 /// 显示搜索窗口，并确保它成为后续键盘输入的目标窗口。
 pub(super) fn show_and_activate_search_window<R: Runtime>(
     window: &WebviewWindow<R>,

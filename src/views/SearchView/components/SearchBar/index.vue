@@ -5,6 +5,7 @@
 <template>
     <div
         ref="searchBarContainerRef"
+        data-testid="search-bar"
         class="search-bar-container relative flex h-full min-h-14 w-full items-center gap-2 p-3 transition-all duration-250 ease-in-out"
         @mousedown="handleContainerMouseDown"
     >
@@ -26,6 +27,7 @@
 
         <div
             ref="editorHostRef"
+            data-testid="search-editor-host"
             class="search-bar-editor-host custom-scrollbar-thin flex min-h-0 flex-1 cursor-default self-stretch overflow-y-auto"
             :class="[
                 disabled ? 'pointer-events-none opacity-60' : '',

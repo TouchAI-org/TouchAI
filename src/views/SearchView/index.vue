@@ -2,6 +2,7 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { useSessionStatus } from '@composables/useSessionStatus';
+    import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
     import {
         popupManager as popupService,
@@ -21,6 +22,7 @@
         getInputHistorySnapshotKey,
         type InputHistorySnapshot,
     } from '@/types/session';
+    import { isE2eTestMode } from '@/utils/runtimeMode';
 
     import ConversationPanel from './components/ConversationPanel/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
@@ -107,6 +109,10 @@
     const widgetBridgeWindow = window as Window & {
         sendPrompt?: (text: string) => void;
         openLink?: (url: string) => void;
+        __TOUCHAI_E2E__?: {
+            openSettingsWindow: () => Promise<void>;
+            setSearchQuery: (text: string) => void;
+        };
     };
     const searchInteractionContext = createSearchInteractionContext();
     const searchEntryPolicy = createSearchEntryPolicy();
@@ -811,6 +817,33 @@
         await handleRegenerateMessageRequest(messageId);
     }
 
+    function applyE2eSearchQuery(nextText: string) {
+        const snapshot = createInputHistorySnapshot({
+            text: nextText,
+            attachments: [],
+        });
+        const restoredText =
+            searchBar.value?.restoreInputHistorySnapshot(snapshot) ?? snapshot.text;
+        attachments.value = snapshot.attachments;
+        syncAttachmentSupport();
+        queryText.value = restoredText;
+    }
+
+    async function installE2eBridge() {
+        if (!(await isE2eTestMode())) {
+            return;
+        }
+
+        widgetBridgeWindow.__TOUCHAI_E2E__ = {
+            async openSettingsWindow() {
+                await native.window.openSettingsWindow();
+            },
+            setSearchQuery(text: string) {
+                applyE2eSearchQuery(text);
+            },
+        };
+    }
+
     function handleWidgetSendPrompt(text: string) {
         const normalizedText = text.trim();
         if (!normalizedText) {
@@ -871,9 +904,14 @@
 
             viewReady.value = true;
 
-            mcpManager.autoConnect().catch((initializeError) => {
-                console.error('[SearchView] Failed to auto-connect MCP servers:', initializeError);
-            });
+            if (!(await isE2eTestMode())) {
+                mcpManager.autoConnect().catch((initializeError) => {
+                    console.error(
+                        '[SearchView] Failed to auto-connect MCP servers:',
+                        initializeError
+                    );
+                });
+            }
         } catch (initializeError) {
             console.error('[SearchView] Failed to initialize dependencies:', initializeError);
             viewReady.value = false;
@@ -986,6 +1024,7 @@
     onMounted(() => {
         widgetBridgeWindow.sendPrompt = handleWidgetSendPrompt;
         widgetBridgeWindow.openLink = handleWidgetOpenLink;
+        void installE2eBridge();
         void initialize();
     });
 
@@ -997,6 +1036,10 @@
         if (widgetBridgeWindow.openLink === handleWidgetOpenLink) {
             delete widgetBridgeWindow.openLink;
         }
+
+        if (widgetBridgeWindow.__TOUCHAI_E2E__) {
+            delete widgetBridgeWindow.__TOUCHAI_E2E__;
+        }
     });
 </script>
 
@@ -1004,6 +1047,7 @@
     <div
         ref="pageContainer"
         tabindex="-1"
+        data-testid="search-view"
         :class="[
             'search-view-container bg-background-primary relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl focus:outline-none',
             fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',

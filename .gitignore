@@ -28,3 +28,5 @@ assets/**/*
 data/**/*
 nul
 cache/**/*
+.e2e-runtime/
+.e2e-tools/

@@ -50,6 +50,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         database::database_export_backup,
         database::database_import_backup,
         paths::get_app_directory_path,
+        paths::get_runtime_info,
         built_in_tools::built_in_tools_execute_bash,
         built_in_tools::built_in_tools_cancel_bash,
         mcp::mcp_connect_server,

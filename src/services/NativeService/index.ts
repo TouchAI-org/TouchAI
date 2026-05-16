@@ -6,6 +6,7 @@ import { log } from './log';
 import * as mcp from './mcp';
 import { paths } from './paths';
 import { quickSearch } from './quickSearch';
+import { runtime } from './runtime';
 import { shortcut } from './shortcut';
 import { window } from './window';
 
@@ -40,6 +41,7 @@ export {
     mcp,
     paths,
     quickSearch,
+    runtime,
     shortcut,
     window,
 };
@@ -55,4 +57,5 @@ export const native = {
     paths,
     mcp,
     quickSearch,
+    runtime,
 } as const;

@@ -32,6 +32,10 @@ pub(crate) const APP_DIRECTORY_LAYOUT: &[(AppDirectory, &str, &str)] = &[
 /// - Debug: 回溯到项目根目录
 /// - Release: 取可执行文件同级目录
 fn resolve_app_root_directory() -> Result<PathBuf, String> {
+    if let Some(path) = crate::core::system::runtime::resolve_app_root_override() {
+        return Ok(path);
+    }
+
     let exe_dir = std::env::current_exe()
         .map_err(|err| format!("Failed to resolve current exe: {err}"))?
         .parent()
