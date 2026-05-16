@@ -422,6 +422,11 @@
         font-weight: 600;
     }
 
+    .streaming-indicator {
+        position: relative;
+        min-height: 1.2em;
+    }
+
     .dot {
         width: 4px;
         height: 4px;
@@ -454,7 +459,8 @@
     .loading-tip {
         position: absolute;
         left: 28px;
-        top: -5px;
+        top: 50%;
+        transform: translateY(-50%);
         font-size: 12px;
         font-weight: 600;
         font-family: 'Source Han Serif SC', 'Noto Serif SC', 'Source Serif Pro', 'Georgia', serif;
