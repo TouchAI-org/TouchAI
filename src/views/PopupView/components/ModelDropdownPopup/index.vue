@@ -89,11 +89,18 @@
                     {{ emptyStateMessage }}
                 </p>
                 <p class="text-[11px] leading-4 text-stone-500">
-                    {{
-                        effectiveSearchQuery
-                            ? '可以尝试更短的关键词重新搜索'
-                            : '请先在设置中心配置模型'
-                    }}
+                    <span v-if="effectiveSearchQuery">可以尝试更短的关键词重新搜索</span>
+                    <span v-else class="inline-flex items-baseline">
+                        <span>请先在</span>
+                        <button
+                            type="button"
+                            class="text-primary-600 hover:text-primary-700 decoration-primary-300 cursor-pointer font-medium underline underline-offset-2 transition-colors"
+                            @click="openSettingsFromEmptyState"
+                        >
+                            设置中心
+                        </button>
+                        <span>配置模型</span>
+                    </span>
                 </p>
             </div>
         </div>
@@ -106,6 +113,7 @@
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import { AppEvent, eventService } from '@services/EventService';
+    import { native } from '@services/NativeService';
     import type {
         ModelDropdownData,
         ModelDropdownPopupItem,
@@ -166,6 +174,15 @@
             modelDbId,
         });
         emit('close');
+    }
+
+    async function openSettingsFromEmptyState() {
+        try {
+            await native.window.openSettingsWindow();
+            emit('close');
+        } catch (error) {
+            console.error('[SearchView] Failed to open settings from model dropdown:', error);
+        }
     }
 
     function handleSearchInput(event: Event) {

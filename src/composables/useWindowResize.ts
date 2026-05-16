@@ -28,8 +28,9 @@ export function useWindowResize(options: WindowResizeOptions) {
     const center = options.center ?? isMainWindow;
 
     let resizeObserver: ResizeObserver | null = null;
+    let observedElement: HTMLElement | null = null;
 
-    async function resize(pageHeight: number) {
+    async function resize(pageHeight: number, force = false) {
         const clamped = Math.max(minHeight, Math.min(pageHeight, maxHeight));
         const newHeight = Math.ceil(clamped);
 
@@ -40,7 +41,7 @@ export function useWindowResize(options: WindowResizeOptions) {
             }
         }
 
-        if (newHeight === currentHeight.value) {
+        if (!force && newHeight === currentHeight.value) {
             return;
         }
 
@@ -60,6 +61,7 @@ export function useWindowResize(options: WindowResizeOptions) {
     }
 
     function observeTarget(el: HTMLElement) {
+        observedElement = el;
         resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
                 const target = entry.target as HTMLElement;
@@ -84,6 +86,7 @@ export function useWindowResize(options: WindowResizeOptions) {
             resizeObserver.disconnect();
             resizeObserver = null;
         }
+        observedElement = null;
     }
 
     watch(
@@ -101,6 +104,11 @@ export function useWindowResize(options: WindowResizeOptions) {
 
     return {
         currentHeight,
+        requestResize: async () => {
+            if (observedElement) {
+                await resize(measureElementHeight(observedElement), true);
+            }
+        },
         resetMeasuredHeight: () => {
             currentHeight.value = 0;
         },
