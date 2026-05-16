@@ -134,7 +134,7 @@ jobs:
 
             - name: Dependency review
               if: needs.changes.outputs.docs_only != 'true'
-              uses: actions/dependency-review-action@v4
+              uses: actions/dependency-review-action@v5
 
     checks:
         name: Checks
