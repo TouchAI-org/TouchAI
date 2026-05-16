@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     getTauriInvokeCalls,
     installTauriMocks,
+    interceptTauriInvoke,
     resetTauriMocks,
 } from '../../../tests/utils/tauri';
 import { createPopupManager } from './manager';
@@ -45,6 +46,26 @@ function buildAnchor() {
     trigger.className = 'search-view-container';
     document.body.appendChild(trigger);
     return trigger;
+}
+
+function createModelDropdownData(searchQuery = '') {
+    return {
+        activeModelId: 'gpt-5',
+        activeProviderId: 1,
+        selectedModelId: 'gpt-5',
+        selectedProviderId: 1,
+        searchQuery,
+        models: [],
+    };
+}
+
+function createSessionHistoryData(searchQuery = '') {
+    return {
+        sessions: [],
+        activeSessionId: null,
+        searchQuery,
+        isLoading: false,
+    };
 }
 
 function getPopupDataEmitCalls() {
@@ -143,14 +164,11 @@ describe('popupManager', () => {
     it('only hides the active popup when the requested identity still matches the current session', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
-        const firstPopupId = await popupManager.show('model-dropdown-popup', anchor, {
-            activeModelId: 'gpt-5',
-            activeProviderId: 1,
-            selectedModelId: 'gpt-5',
-            selectedProviderId: 1,
-            searchQuery: '',
-            models: [],
-        });
+        const firstPopupId = await popupManager.show(
+            'model-dropdown-popup',
+            anchor,
+            createModelDropdownData()
+        );
 
         const staleIdentity = {
             popupId: firstPopupId,
@@ -163,14 +181,11 @@ describe('popupManager', () => {
             type: 'model-dropdown-popup',
         });
 
-        const nextPopupId = await popupManager.show('model-dropdown-popup', anchor, {
-            activeModelId: 'gpt-5',
-            activeProviderId: 1,
-            selectedModelId: 'gpt-5',
-            selectedProviderId: 1,
-            searchQuery: 'next-session',
-            models: [],
-        });
+        const nextPopupId = await popupManager.show(
+            'model-dropdown-popup',
+            anchor,
+            createModelDropdownData('next-session')
+        );
 
         await popupManager.hide(staleIdentity);
         let hideCalls = getTauriInvokeCalls('hide_popup_window');
@@ -202,12 +217,11 @@ describe('popupManager', () => {
         const onClose = vi.fn();
         const unlisten = await popupManager.listen({ onClose });
 
-        const firstPopupId = await popupManager.show('session-history-popup', anchor, {
-            sessions: [],
-            activeSessionId: null,
-            searchQuery: 'first',
-            isLoading: false,
-        });
+        const firstPopupId = await popupManager.show(
+            'session-history-popup',
+            anchor,
+            createSessionHistoryData('first')
+        );
 
         await emit(AppEvent.POPUP_CLOSED, {
             popupId: firstPopupId,
@@ -216,12 +230,11 @@ describe('popupManager', () => {
             type: 'session-history-popup',
         });
 
-        const secondPopupId = await popupManager.show('session-history-popup', anchor, {
-            sessions: [],
-            activeSessionId: null,
-            searchQuery: 'second',
-            isLoading: false,
-        });
+        const secondPopupId = await popupManager.show(
+            'session-history-popup',
+            anchor,
+            createSessionHistoryData('second')
+        );
 
         await emit(AppEvent.POPUP_CLOSED, {
             popupId: firstPopupId,
@@ -237,6 +250,147 @@ describe('popupManager', () => {
             currentWindowLabel: 'popup-session-history-popup',
             currentPopupSessionVersion: 2,
         });
+
+        unlisten();
+    });
+
+    it('rolls back the failed popup session so the next show can open a fresh version', async () => {
+        const popupManager = createPopupManager();
+        const anchor = buildAnchor();
+        let shouldFailFirstShow = true;
+
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'show_popup_window' && shouldFailFirstShow) {
+                shouldFailFirstShow = false;
+                throw new Error('native show failed');
+            }
+
+            return next();
+        });
+
+        await expect(
+            popupManager.show('model-dropdown-popup', anchor, createModelDropdownData('first'))
+        ).rejects.toThrow('native show failed');
+
+        expect(popupManager.state).toMatchObject({
+            isOpen: false,
+            currentType: null,
+            currentPopupId: null,
+            currentWindowLabel: null,
+            currentPopupSessionVersion: null,
+        });
+
+        const nextPopupId = await popupManager.show(
+            'model-dropdown-popup',
+            anchor,
+            createModelDropdownData('second')
+        );
+
+        expect(nextPopupId).toBe('popup-model-dropdown-popup:2');
+        expect(popupManager.state).toMatchObject({
+            isOpen: true,
+            currentType: 'model-dropdown-popup',
+            currentPopupId: 'popup-model-dropdown-popup:2',
+            currentWindowLabel: 'popup-model-dropdown-popup',
+            currentPopupSessionVersion: 2,
+        });
+        expect(getPopupDataEmitCalls()).toHaveLength(1);
+    });
+
+    it('only forwards popup interaction events for the current popup session', async () => {
+        const popupManager = createPopupManager();
+        const anchor = buildAnchor();
+        const onModelSelect = vi.fn();
+        const onModelSearchQueryChange = vi.fn();
+        const onSessionOpen = vi.fn();
+        const onSessionSearchQueryChange = vi.fn();
+        const unlisten = await popupManager.listen({
+            onModelSelect,
+            onModelSearchQueryChange,
+            onSessionOpen,
+            onSessionSearchQueryChange,
+        });
+
+        const staleModelPopupId = await popupManager.show(
+            'model-dropdown-popup',
+            anchor,
+            createModelDropdownData('stale-model')
+        );
+        const currentModelPopupId = await popupManager.show(
+            'model-dropdown-popup',
+            anchor,
+            createModelDropdownData('current-model')
+        );
+
+        await emit(AppEvent.POPUP_MODEL_SELECT, {
+            popupId: staleModelPopupId,
+            popupSessionVersion: 1,
+            windowLabel: 'popup-model-dropdown-popup',
+            modelDbId: 11,
+        });
+        await emit(AppEvent.POPUP_MODEL_SELECT, {
+            popupId: currentModelPopupId,
+            popupSessionVersion: 2,
+            windowLabel: 'popup-model-dropdown-popup',
+            modelDbId: 12,
+        });
+        await emit(AppEvent.POPUP_MODEL_SEARCH_QUERY_CHANGE, {
+            popupId: staleModelPopupId,
+            popupSessionVersion: 1,
+            windowLabel: 'popup-model-dropdown-popup',
+            query: 'stale-model-query',
+        });
+        await emit(AppEvent.POPUP_MODEL_SEARCH_QUERY_CHANGE, {
+            popupId: currentModelPopupId,
+            popupSessionVersion: 2,
+            windowLabel: 'popup-model-dropdown-popup',
+            query: 'current-model-query',
+        });
+
+        const staleSessionPopupId = await popupManager.show(
+            'session-history-popup',
+            anchor,
+            createSessionHistoryData('stale-session')
+        );
+        const currentSessionPopupId = await popupManager.show(
+            'session-history-popup',
+            anchor,
+            createSessionHistoryData('current-session')
+        );
+
+        await emit(AppEvent.POPUP_SESSION_OPEN, {
+            popupId: staleSessionPopupId,
+            popupSessionVersion: 1,
+            windowLabel: 'popup-session-history-popup',
+            sessionId: 21,
+        });
+        await emit(AppEvent.POPUP_SESSION_OPEN, {
+            popupId: currentSessionPopupId,
+            popupSessionVersion: 2,
+            windowLabel: 'popup-session-history-popup',
+            sessionId: 22,
+        });
+        await emit(AppEvent.POPUP_SESSION_SEARCH_QUERY_CHANGE, {
+            popupId: staleSessionPopupId,
+            popupSessionVersion: 1,
+            windowLabel: 'popup-session-history-popup',
+            query: 'stale-session-query',
+        });
+        await emit(AppEvent.POPUP_SESSION_SEARCH_QUERY_CHANGE, {
+            popupId: currentSessionPopupId,
+            popupSessionVersion: 2,
+            windowLabel: 'popup-session-history-popup',
+            query: 'current-session-query',
+        });
+
+        expect(onModelSelect).toHaveBeenCalledTimes(1);
+        expect(onModelSelect).toHaveBeenCalledWith(12);
+        expect(onModelSearchQueryChange).toHaveBeenCalledTimes(1);
+        expect(onModelSearchQueryChange).toHaveBeenCalledWith('current-model-query');
+        expect(onSessionOpen).toHaveBeenCalledTimes(1);
+        expect(onSessionOpen).toHaveBeenCalledWith(22);
+        expect(onSessionSearchQueryChange).toHaveBeenCalledTimes(1);
+        expect(onSessionSearchQueryChange).toHaveBeenCalledWith('current-session-query');
 
         unlisten();
     });
