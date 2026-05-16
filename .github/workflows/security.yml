@@ -110,7 +110,7 @@ jobs:
               if: needs.changes.outputs.docs_only == 'true'
               run: echo "CodeQL is not required for docs-only pull requests (${{ matrix.language }})."
 
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               if: needs.changes.outputs.docs_only != 'true'
 
             - name: Initialize CodeQL
@@ -150,7 +150,7 @@ jobs:
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - uses: actions/setup-node@v6
               with:
