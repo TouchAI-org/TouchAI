@@ -207,8 +207,7 @@ fn register_devtools_accelerator_handler(
                 args.VirtualKey(&mut virtual_key)?;
 
                 let is_control_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
-                let is_shift_down =
-                    (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
+                let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
 
                 if !is_devtools_accelerator_command(
                     key_event_kind.0,
@@ -254,12 +253,11 @@ pub(crate) fn apply_webview_runtime_defaults(window: &tauri::WebviewWindow) -> R
     window
         .with_webview(move |webview| {
             let controller = webview.controller();
-            let result =
-                disable_browser_accelerator_keys_with_controller(&controller).and_then(|_| {
+            let result = disable_browser_accelerator_keys_with_controller(&controller)
+                .and_then(|_| {
                     register_search_surface_accelerator_bridge(&window_clone, &controller)
-                }).and_then(|_| {
-                    register_devtools_accelerator_handler(&controller)
-                });
+                })
+                .and_then(|_| register_devtools_accelerator_handler(&controller));
             let _ = tx.send(result);
         })
         .map_err(|error| format!("Failed to access platform webview: {}", error))?;
