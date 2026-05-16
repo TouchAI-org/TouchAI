@@ -31,6 +31,10 @@ pub fn is_e2e_test_mode() -> bool {
     )
 }
 
+pub fn should_enable_single_instance() -> bool {
+    !is_e2e_test_mode()
+}
+
 pub fn resolve_app_root_override() -> Option<PathBuf> {
     std::env::var(TOUCHAI_APP_ROOT_ENV)
         .ok()

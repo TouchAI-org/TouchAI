@@ -98,6 +98,22 @@ pub fn run() {
         })
         .invoke_handler(commands::invoke_handler::<tauri::Wry>());
 
+    let builder = if core::system::runtime::should_enable_single_instance() {
+        builder.plugin(tauri_plugin_single_instance::init(
+            |app, _args: Vec<String>, _cwd: String| {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                } else {
+                    warn!("Main window not found while handling second-instance activation");
+                }
+            },
+        ))
+    } else {
+        builder
+    };
+
     let app_result = builder
         .setup(|app| {
             if let Err(err) = setup::setup_app(app) {

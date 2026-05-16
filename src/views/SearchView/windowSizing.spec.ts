@@ -1,9 +1,39 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SearchWindowHeightMode } from '@/config/searchWindow';
 
+const windowApiMock = vi.hoisted(() => {
+    let resizeListener: (() => void) | null = null;
+    const unlisten = vi.fn();
+    const currentWindow = {
+        onResized: vi.fn((listener: () => void) => {
+            resizeListener = listener;
+            return Promise.resolve(unlisten);
+        }),
+        isMaximized: vi.fn(),
+    };
+
+    return {
+        currentWindow,
+        emitResize: () => resizeListener?.(),
+        reset: () => {
+            resizeListener = null;
+            unlisten.mockReset();
+            currentWindow.onResized.mockClear();
+            currentWindow.isMaximized.mockReset();
+        },
+        unlisten,
+    };
+});
+
+vi.mock('@tauri-apps/api/window', () => ({
+    getCurrentWindow: () => windowApiMock.currentWindow,
+}));
+
 import {
     createWindowViewportSyncScheduler,
+    ensureWindowMaximized,
+    ensureWindowRestoredFromMaximized,
     resolveEffectiveWindowMaximized,
     resolveSearchWindowDefaultSizeApplyAction,
     resolveSearchWindowHeightPolicy,
@@ -13,6 +43,11 @@ import {
     shouldRemeasureAfterMaximizedRestore,
     shouldRepairIdleSearchWindowHeight,
 } from './windowSizing';
+
+afterEach(() => {
+    vi.useRealTimers();
+    windowApiMock.reset();
+});
 
 describe('resolveSearchWindowHeightPolicy', () => {
     it('enables auto resize and manual override only when a conversation panel exists', () => {
@@ -261,6 +296,65 @@ describe('layout policy helpers', () => {
     });
 });
 
+describe('window maximize helpers', () => {
+    it('returns immediately when the window is already restored from maximized state', async () => {
+        const window = {
+            isMaximized: vi.fn().mockResolvedValue(false),
+            maximize: vi.fn(),
+            unmaximize: vi.fn(),
+        };
+
+        await expect(ensureWindowRestoredFromMaximized(window)).resolves.toBe(true);
+
+        expect(window.unmaximize).not.toHaveBeenCalled();
+        expect(windowApiMock.currentWindow.onResized).not.toHaveBeenCalled();
+    });
+
+    it('waits for the resize stream to settle before confirming a maximized window was restored', async () => {
+        vi.useFakeTimers();
+        const window = {
+            isMaximized: vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false),
+            maximize: vi.fn(),
+            unmaximize: vi.fn().mockResolvedValue(undefined),
+        };
+        windowApiMock.currentWindow.isMaximized.mockResolvedValue(false);
+
+        const restorePromise = ensureWindowRestoredFromMaximized(window);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(window.unmaximize).toHaveBeenCalledTimes(1);
+
+        windowApiMock.emitResize();
+        vi.advanceTimersByTime(49);
+        await Promise.resolve();
+        expect(windowApiMock.unlisten).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(1);
+        await expect(restorePromise).resolves.toBe(true);
+        expect(windowApiMock.unlisten).toHaveBeenCalledTimes(1);
+    });
+
+    it('times out maximize confirmation when the window never emits a stabilized resize event', async () => {
+        vi.useFakeTimers();
+        const window = {
+            isMaximized: vi.fn().mockResolvedValue(false),
+            maximize: vi.fn().mockResolvedValue(undefined),
+            unmaximize: vi.fn(),
+        };
+
+        const maximizePromise = ensureWindowMaximized(window);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(window.maximize).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(200);
+        await expect(maximizePromise).resolves.toBe(false);
+        expect(windowApiMock.unlisten).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('createWindowViewportSyncScheduler', () => {
     it('runs immediately the first time and coalesces repeated schedules inside the throttle window', async () => {
         vi.useFakeTimers();
@@ -295,5 +389,25 @@ describe('createWindowViewportSyncScheduler', () => {
 
         expect(sync).toHaveBeenCalledTimes(1);
         vi.useRealTimers();
+    });
+
+    it('swallows sync failures so later scheduling can continue', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const sync = vi.fn(async () => undefined);
+        sync.mockRejectedValueOnce(new Error('sync failed')).mockResolvedValueOnce(undefined);
+        const scheduler = createWindowViewportSyncScheduler(sync, 0);
+
+        scheduler.schedule();
+        await Promise.resolve();
+        scheduler.schedule();
+        await Promise.resolve();
+
+        expect(sync).toHaveBeenCalledTimes(2);
+        expect(consoleError).toHaveBeenCalledWith(
+            '[SearchView] Failed to sync viewport state:',
+            expect.any(Error)
+        );
+
+        consoleError.mockRestore();
     });
 });

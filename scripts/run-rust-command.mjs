@@ -12,6 +12,16 @@ function resolveWorkspaceRoot(cwd) {
     return cwd;
 }
 
+function resolveRustArtifactsRoot(workspaceRoot) {
+    const configuredRoot = process.env.TOUCHAI_RUST_ARTIFACTS_ROOT?.trim();
+
+    if (!configuredRoot) {
+        return workspaceRoot;
+    }
+
+    return path.resolve(configuredRoot);
+}
+
 function main() {
     const mode = process.argv[2];
 
@@ -22,8 +32,9 @@ function main() {
 
     const cwd = process.cwd();
     const workspaceRoot = resolveWorkspaceRoot(cwd);
-    const targetDir = path.join(workspaceRoot, 'rust-target', mode);
-    const tempDir = path.join(workspaceRoot, 'rust-temp', mode);
+    const artifactsRoot = resolveRustArtifactsRoot(workspaceRoot);
+    const targetDir = path.join(artifactsRoot, 'rust-target', mode);
+    const tempDir = path.join(artifactsRoot, 'rust-temp', mode);
 
     mkdirSync(targetDir, { recursive: true });
     mkdirSync(tempDir, { recursive: true });
