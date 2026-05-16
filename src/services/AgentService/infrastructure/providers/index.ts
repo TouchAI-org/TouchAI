@@ -20,3 +20,4 @@ export type {
     ProviderAttachmentFileRefStrategy,
     ProviderConfigJson,
 } from './types';
+export { resolveOpenAiStyleSdkBaseUrl } from './utils';

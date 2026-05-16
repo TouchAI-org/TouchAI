@@ -16,6 +16,11 @@
     import { clipboardService } from '@/services/ClipboardService';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
+    import {
+        createInputHistorySnapshot,
+        getInputHistorySnapshotKey,
+        type InputHistorySnapshot,
+    } from '@/types/session';
 
     import ConversationPanel from './components/ConversationPanel/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
@@ -24,6 +29,12 @@
         createPopupSurfaceCoordinator,
         createSearchEntryPolicy,
         createSearchInteractionContext,
+        createSessionInputHistoryBrowseState,
+        extractSessionInputHistoryEntries,
+        navigateSessionInputHistory,
+        type SessionInputHistoryBrowseState,
+        type SessionInputHistoryDirection,
+        type SessionInputHistoryNavigationResult,
         useQuickSearchCoordinator,
         useSearchOverlayMachine,
     } from './composables/searchInteraction';
@@ -69,6 +80,8 @@
     const cursorContext = ref<SearchCursorContext>({
         isMultiLine: false,
         cursorAtStart: true,
+        cursorAtTextStart: true,
+        cursorAtEnd: true,
     });
     const modelDropdownState = ref<SearchModelDropdownState>({
         isOpen: false,
@@ -81,6 +94,11 @@
     const pageContainer = ref<HTMLElement | null>(null);
     const approvalAttentionToken = ref(0);
     const isDragging = ref(false);
+    const inputHistoryBrowseState = ref<SessionInputHistoryBrowseState>(
+        createSessionInputHistoryBrowseState()
+    );
+    const suppressInputHistoryBrowseReset = ref(false);
+    const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
     const { searchWindowDefaultSize } = storeToRefs(settingsStore);
@@ -94,6 +112,43 @@
     const searchEntryPolicy = createSearchEntryPolicy();
     const popupSurfaceCoordinator = createPopupSurfaceCoordinator(searchInteractionContext);
     const suppressQuickSearchAutoOpenOnce = ref(false);
+
+    function buildCurrentInputHistorySnapshot(query = queryText.value): InputHistorySnapshot {
+        const capturedSnapshot = searchBar.value?.captureInputHistorySnapshot();
+        return createInputHistorySnapshot({
+            text: capturedSnapshot?.text ?? query,
+            attachments: capturedSnapshot?.attachments ?? attachments.value,
+            editorDoc: capturedSnapshot?.editorDoc,
+            excludeFromHistory: capturedSnapshot?.excludeFromHistory,
+        });
+    }
+
+    function applyInputHistorySnapshot(snapshot: InputHistorySnapshot) {
+        const normalizedSnapshot = createInputHistorySnapshot(snapshot);
+        const restoreVersion = inputHistoryRestoreVersion.value + 1;
+        inputHistoryRestoreVersion.value = restoreVersion;
+        suppressInputHistoryBrowseReset.value = true;
+
+        try {
+            const restoredText =
+                searchBar.value?.restoreInputHistorySnapshot(normalizedSnapshot) ??
+                normalizedSnapshot.text;
+            attachments.value = normalizedSnapshot.attachments;
+            syncAttachmentSupport();
+            queryText.value = restoredText;
+        } catch (error) {
+            console.error('[SearchView] Failed to restore input history snapshot:', error);
+            attachments.value = normalizedSnapshot.attachments;
+            syncAttachmentSupport();
+            queryText.value = normalizedSnapshot.text;
+        } finally {
+            void nextTick().then(() => {
+                if (inputHistoryRestoreVersion.value === restoreVersion) {
+                    suppressInputHistoryBrowseReset.value = false;
+                }
+            });
+        }
+    }
 
     /**
      * 判断交互上下文里的 popup 会话是否仍然对应 popupManager 当前会话。
@@ -126,6 +181,7 @@
         clearAttachments,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        syncAttachmentSupport,
     } = useSearchAttachments({
         attachments,
     });
@@ -162,12 +218,13 @@
         handleSubmit,
         clearAll,
         cancelRequest,
-        handleRegenerateMessage,
+        handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
         modelOverride,
         clearDraft,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
     });
 
     const {
@@ -331,6 +388,58 @@
         },
     });
 
+    const sessionInputHistoryEntries = computed(() =>
+        extractSessionInputHistoryEntries(sessionHistory.value)
+    );
+
+    function resetInputHistoryBrowseState(entryCount = sessionInputHistoryEntries.value.length) {
+        inputHistoryBrowseState.value = createSessionInputHistoryBrowseState(entryCount);
+    }
+
+    function updateActiveInputHistoryBrowseSnapshot(snapshot: InputHistorySnapshot) {
+        if (inputHistoryBrowseState.value.pointer === sessionInputHistoryEntries.value.length) {
+            return;
+        }
+
+        inputHistoryBrowseState.value = {
+            ...inputHistoryBrowseState.value,
+            activeBrowseSnapshot: createInputHistorySnapshot(snapshot),
+        };
+    }
+
+    function resetSessionInputHistoryTracking() {
+        inputHistoryRestoreVersion.value = 0;
+        suppressInputHistoryBrowseReset.value = false;
+        resetInputHistoryBrowseState();
+    }
+
+    function navigateInputHistory(
+        direction: SessionInputHistoryDirection
+    ): SessionInputHistoryNavigationResult {
+        const result = navigateSessionInputHistory({
+            entries: sessionInputHistoryEntries.value,
+            currentDraft: buildCurrentInputHistorySnapshot(queryText.value),
+            direction,
+            state: inputHistoryBrowseState.value,
+        });
+
+        if (!result.changed) {
+            if (
+                direction === 'older' &&
+                cursorContext.value.isMultiLine &&
+                cursorContext.value.cursorAtTextStart
+            ) {
+                return 'blocked';
+            }
+
+            return 'ignored';
+        }
+
+        inputHistoryBrowseState.value = result.state;
+        applyInputHistorySnapshot(result.nextSnapshot);
+        return 'navigated';
+    }
+
     useSearchKeyboard({
         viewReady,
         queryText,
@@ -354,6 +463,7 @@
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
+        navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown: handleToggleModelDropdownRequest,
         openHistoryDialog,
@@ -589,6 +699,7 @@
         controller.closeQuickSearch();
         await hideAllPopups();
         startNewSession();
+        resetSessionInputHistoryTracking();
         await controller.focusSearchInput();
     }
 
@@ -616,6 +727,7 @@
     async function handleOpenSession(sessionId: number) {
         controller.closeQuickSearch();
         await hideAllPopups();
+        resetSessionInputHistoryTracking();
 
         try {
             await openSession(sessionId);
@@ -658,6 +770,10 @@
         }
     }
 
+    async function handleRegenerateMessage(messageId: string) {
+        await handleRegenerateMessageRequest(messageId);
+    }
+
     function handleWidgetSendPrompt(text: string) {
         const normalizedText = text.trim();
         if (!normalizedText) {
@@ -669,7 +785,12 @@
             return;
         }
 
-        void handleSubmit(normalizedText);
+        const widgetSnapshot = createInputHistorySnapshot({
+            text: normalizedText,
+            attachments: [],
+            excludeFromHistory: true,
+        });
+        void handleSubmit(normalizedText, widgetSnapshot);
     }
 
     function handleWidgetOpenLink(url: string) {
@@ -723,12 +844,63 @@
     }
 
     watch(
+        sessionInputHistoryEntries,
+        (entries, previousEntries) => {
+            const previousLength = previousEntries?.length ?? 0;
+            const nextLength = entries.length;
+            const currentPointer = inputHistoryBrowseState.value.pointer;
+
+            if (currentPointer === previousLength) {
+                inputHistoryBrowseState.value = {
+                    ...inputHistoryBrowseState.value,
+                    pointer: nextLength,
+                };
+                return;
+            }
+
+            if (currentPointer > nextLength) {
+                resetInputHistoryBrowseState(nextLength);
+            }
+        },
+        { flush: 'sync' }
+    );
+
+    watch(
+        () =>
+            getInputHistorySnapshotKey(
+                createInputHistorySnapshot({
+                    text: queryText.value,
+                    attachments: attachments.value,
+                })
+            ),
+        (value, previousValue) => {
+            if (value === previousValue) {
+                return;
+            }
+
+            if (suppressInputHistoryBrowseReset.value) {
+                return;
+            }
+
+            if (inputHistoryBrowseState.value.pointer === sessionInputHistoryEntries.value.length) {
+                return;
+            }
+
+            updateActiveInputHistoryBrowseSnapshot(
+                buildCurrentInputHistorySnapshot(queryText.value)
+            );
+        },
+        { flush: 'sync' }
+    );
+
+    watch(
         () => sessionHistory.value.length,
         async (length, previousLength) => {
             if (!viewReady.value || length > 0 || !previousLength) {
                 return;
             }
 
+            resetSessionInputHistoryTracking();
             await closeSessionHistoryPopup();
             await controller.focusSearchInput();
         },

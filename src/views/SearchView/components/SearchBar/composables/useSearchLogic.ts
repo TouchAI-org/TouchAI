@@ -8,6 +8,7 @@ import {
     buildAttachmentPromptMetas,
     type Index,
 } from '@/services/AgentService/infrastructure/attachments';
+import { createInputHistorySnapshot, type InputHistorySnapshot } from '@/types/session';
 
 import {
     ATTACHMENT_TAG_NODE,
@@ -22,12 +23,16 @@ import type { SearchModelOverride } from '../types';
 import {
     createSearchEditorExtensions,
     findSearchTagChip,
+    getEditorJSON,
     getEditorText,
     handleEditorClick,
     isBlankEditorAreaTarget,
+    isCursorAtDocEnd,
     isCursorAtDocStart,
+    isCursorAtTextStart,
     isSearchTagDomTarget,
     resolveMouseEventTarget,
+    setEditorJSON,
     setEditorText,
 } from '../utils/tiptap';
 import { useDragging } from './useDragging';
@@ -98,8 +103,12 @@ export function useSearchInput(
     const logoContainerRef = ref<HTMLElement | null>(null);
     const isMultiLineState = ref(false);
     const cursorAtStart = ref(false);
+    const cursorAtTextStart = ref(false);
+    const cursorAtEnd = ref(false);
     let cachedLineHeight = 0;
     let isApplyingControlledQuery = false;
+    let isRestoringInputHistory = false;
+    let inputHistoryRestoreToken = 0;
     let controlledTagSyncDepth = 0;
 
     // 2. 子能力组合
@@ -197,6 +206,8 @@ export function useSearchInput(
             onSelectionUpdate: () => {
                 // 光标位置变化时滚动到可见区域（例如使用上下键移动光标）
                 cursorAtStart.value = isCursorAtStart();
+                cursorAtTextStart.value = isCursorAtTextStartPosition();
+                cursorAtEnd.value = isCursorAtEnd();
                 scrollCursorIntoView();
             },
         });
@@ -237,6 +248,8 @@ export function useSearchInput(
     function syncEditorDerivedState(ed: Editor) {
         isMultiLineState.value = computeIsMultiLine(ed);
         cursorAtStart.value = isCursorAtStart();
+        cursorAtTextStart.value = isCursorAtTextStartPosition();
+        cursorAtEnd.value = isCursorAtEnd();
     }
 
     /**
@@ -276,6 +289,11 @@ export function useSearchInput(
     }
 
     watch(queryText, (nextQuery) => {
+        if (isRestoringInputHistory) {
+            searchQuery.value = nextQuery;
+            return;
+        }
+
         syncControlledQueryToEditor(nextQuery);
     });
 
@@ -375,18 +393,13 @@ export function useSearchInput(
      * 这里故意使用“增删改”而不是整份重建文档，避免用户正在输入时丢失光标、
      * 也避免误改模型标签或正文段落结构。
      */
-    function syncControlledAttachmentsToEditor() {
-        const ed = editor.value;
-        if (!ed) {
-            return;
-        }
-
+    function syncAttachmentsToEditor(ed: Editor, nextAttachments: Index[]) {
         const currentTags = getAttachmentTags(ed);
         const currentById = new Map<string, AttachmentTagAttrs>(
             currentTags.map((tag) => [tag.attachmentId, tag])
         );
-        const metas = buildAttachmentPromptMetas(attachments.value);
-        const nextTags = attachments.value.map((attachment, index) =>
+        const metas = buildAttachmentPromptMetas(nextAttachments);
+        const nextTags = nextAttachments.map((attachment, index) =>
             toAttachmentTagAttrs(attachment, metas[index]!.alias)
         );
         const nextById = new Map<string, AttachmentTagAttrs>(
@@ -404,7 +417,7 @@ export function useSearchInput(
         for (const [index, nextTag] of nextTags.entries()) {
             const currentTag = currentById.get(nextTag.attachmentId);
             if (!currentTag) {
-                const draftInsertionOffset = attachments.value[index]?.draftInsertionOffset;
+                const draftInsertionOffset = nextAttachments[index]?.draftInsertionOffset;
                 const sameOffsetIndex =
                     typeof draftInsertionOffset === 'number'
                         ? (sameOffsetInsertionCounts.get(draftInsertionOffset) ?? 0)
@@ -425,6 +438,72 @@ export function useSearchInput(
                 runControlledTagSync(() => updateAttachmentTag(ed, nextTag));
             }
         }
+    }
+
+    function syncControlledAttachmentsToEditor() {
+        const ed = editor.value;
+        if (!ed) {
+            return;
+        }
+
+        syncAttachmentsToEditor(ed, attachments.value);
+    }
+
+    function captureInputHistorySnapshot(): InputHistorySnapshot {
+        const ed = editor.value;
+        return createInputHistorySnapshot({
+            text: ed ? getEditorText(ed) : queryText.value,
+            attachments: attachments.value,
+            editorDoc: ed ? getEditorJSON(ed) : undefined,
+        });
+    }
+
+    function restoreInputHistorySnapshot(snapshot: InputHistorySnapshot): string {
+        const normalizedSnapshot = createInputHistorySnapshot(snapshot);
+        const ed = editor.value;
+        if (!ed) {
+            return normalizedSnapshot.text;
+        }
+
+        searchQuery.value = normalizedSnapshot.text;
+        const restoreToken = ++inputHistoryRestoreToken;
+        isRestoringInputHistory = true;
+        isApplyingControlledQuery = true;
+        try {
+            runControlledTagSync(() => {
+                if (normalizedSnapshot.editorDoc) {
+                    setEditorJSON(ed, normalizedSnapshot.editorDoc);
+                } else {
+                    setEditorText(ed, normalizedSnapshot.text);
+                }
+                syncControlledModelOverrideToEditor();
+                syncAttachmentsToEditor(ed, normalizedSnapshot.attachments);
+            });
+        } catch (error) {
+            console.error(
+                '[SearchBar] Failed to restore editor snapshot, fallback to plain text:',
+                error
+            );
+            runControlledTagSync(() => {
+                setEditorText(ed, normalizedSnapshot.text);
+                syncControlledModelOverrideToEditor();
+                syncAttachmentsToEditor(ed, normalizedSnapshot.attachments);
+            });
+        } finally {
+            isApplyingControlledQuery = false;
+        }
+
+        const restoredText = getEditorText(ed);
+        searchQuery.value = restoredText;
+        ed.commands.focus('end');
+        syncEditorDerivedState(ed);
+        scrollCursorIntoView();
+        queueMicrotask(() => {
+            if (inputHistoryRestoreToken === restoreToken) {
+                isRestoringInputHistory = false;
+            }
+        });
+        return restoredText;
     }
 
     watch(
@@ -451,6 +530,10 @@ export function useSearchInput(
             })),
         }),
         () => {
+            if (isRestoringInputHistory) {
+                return;
+            }
+
             syncControlledAttachmentsToEditor();
         },
         { immediate: true, flush: 'post', deep: true }
@@ -478,6 +561,28 @@ export function useSearchInput(
         const ed = editor.value;
         if (!ed) return false;
         return isCursorAtDocStart(ed);
+    }
+
+    /**
+     * 判断光标是否位于模型标签后的正文起点。
+     *
+     * @returns 光标位于正文起点时为 true。
+     */
+    function isCursorAtTextStartPosition(): boolean {
+        const ed = editor.value;
+        if (!ed) return false;
+        return isCursorAtTextStart(ed);
+    }
+
+    /**
+     * 判断光标是否位于编辑器结束位置。
+     *
+     * @returns 光标位于结束位置时为 true。
+     */
+    function isCursorAtEnd(): boolean {
+        const ed = editor.value;
+        if (!ed) return false;
+        return isCursorAtDocEnd(ed);
     }
 
     /**
@@ -622,6 +727,8 @@ export function useSearchInput(
         isCursorAtStart,
         isMultiLine: isMultiLineState,
         cursorAtStart,
+        cursorAtTextStart,
+        cursorAtEnd,
         focus,
         loadActiveModel: modelSelection.loadActiveModel,
         handleContainerMouseDown: dragging.handleContainerMouseDown,
@@ -630,5 +737,7 @@ export function useSearchInput(
         destroyEditor,
         onEditorClick,
         clearDraggingState: dragging.clearEditorSelectionDragState,
+        captureInputHistorySnapshot,
+        restoreInputHistorySnapshot,
     };
 }

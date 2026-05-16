@@ -78,6 +78,7 @@ export interface MessageEntity {
     session_id: number;
     role: DbMessageRole;
     content: string;
+    reasoning: string | null;
     tool_log_id: number | null;
     tool_log_kind: DbToolLogKind | null;
     created_at: string;
@@ -88,6 +89,7 @@ export interface MessageCreateData {
     session_id: number;
     role: DbMessageRole;
     content: string;
+    reasoning?: string | null;
     tool_log_id?: number | null;
     tool_log_kind?: DbToolLogKind | null;
     created_at?: string;

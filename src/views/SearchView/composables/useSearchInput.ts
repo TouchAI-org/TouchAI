@@ -117,6 +117,7 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
     return {
         attachments,
         handleModelChange,
+        syncAttachmentSupport,
         createAttachmentFromClipboardPath: createNormalizedAttachment,
         removeAttachment,
         clearAttachments,

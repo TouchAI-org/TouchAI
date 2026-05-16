@@ -101,10 +101,15 @@ interface ToolExecutionResult {
 }
 
 type AttemptStepResult =
-    | { type: 'done' }
+    | {
+          type: 'done';
+          chunkResponse: string;
+          chunkReasoning: string;
+      }
     | {
           type: 'tool_calls';
           chunkResponse: string;
+          chunkReasoning: string;
           toolCalls: AiToolCall[];
       };
 
@@ -114,11 +119,16 @@ export type AttemptExecutionResult =
           model: ModelWithProvider;
           response: string;
           reasoning: string;
+          finalStepResponse: string;
+          finalStepReasoning: string;
       }
     | {
           type: 'failed';
           error: AiError;
           response: string;
+          reasoning: string;
+          partialResponse: string;
+          partialReasoning: string;
           resumeCheckpoint: AttemptCheckpoint;
           hasVisibleOutputSinceCheckpoint: boolean;
           hasToolActivitySinceCheckpoint: boolean;
@@ -197,6 +207,33 @@ function extractProviderErrorDetails(error: unknown): ProviderErrorDetails | nul
 
 function cloneAiMessages(messages: AiMessage[]): AiMessage[] {
     return JSON.parse(JSON.stringify(messages)) as AiMessage[];
+}
+
+function subtractCheckpointContent(current: string, checkpoint: string): string {
+    return current.startsWith(checkpoint) ? current.slice(checkpoint.length) : current;
+}
+
+function buildAssistantToolCallHistoryMessage(
+    chunkResponse: string,
+    chunkReasoning: string,
+    toolCalls: AiToolCall[]
+): AiMessage {
+    if (!chunkReasoning.trim()) {
+        return {
+            role: 'assistant',
+            content: chunkResponse,
+            tool_calls: toolCalls,
+        };
+    }
+
+    return {
+        role: 'assistant',
+        content: [
+            { type: 'reasoning', text: chunkReasoning },
+            ...(chunkResponse ? [{ type: 'text' as const, text: chunkResponse }] : []),
+        ],
+        tool_calls: toolCalls,
+    };
 }
 
 async function buildToolResultMessageContent(
@@ -331,7 +368,8 @@ export class AiRequestExecutor {
         tools?: AiToolDefinition[],
         signal?: AbortSignal,
         attachmentRequestIndex?: number,
-        onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved']
+        onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
+        supportsReasoning = true
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
         console.debug(
             `[AiRequestExecutor] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
@@ -340,6 +378,7 @@ export class AiRequestExecutor {
             model: modelId,
             providerId,
             messages,
+            supportsReasoning,
             tools,
             signal,
             attachmentRequestIndex,
@@ -567,9 +606,11 @@ export class AiRequestExecutor {
             runtime.tools,
             options.signal,
             runtime.iteration,
-            options.onAttachmentManifestResolved
+            options.onAttachmentManifestResolved,
+            runtime.activeModel.reasoning === 1
         );
         let chunkResponse = '';
+        let chunkReasoning = '';
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
 
@@ -577,6 +618,7 @@ export class AiRequestExecutor {
             throwIfAborted(options.signal);
 
             if (chunk.reasoning) {
+                chunkReasoning += chunk.reasoning;
                 runtime.reasoning += chunk.reasoning;
                 runtime.hasVisibleOutputSinceCheckpoint = true;
             }
@@ -606,13 +648,18 @@ export class AiRequestExecutor {
 
         const isToolRelated = finishReason === 'tool_calls' || finishReason === 'tool_use';
         if (!isToolRelated || !toolCalls || toolCalls.length === 0) {
-            return { type: 'done' };
+            return {
+                type: 'done',
+                chunkResponse,
+                chunkReasoning,
+            };
         }
 
         runtime.hasToolActivitySinceCheckpoint = true;
         return {
             type: 'tool_calls',
             chunkResponse,
+            chunkReasoning,
             toolCalls,
         };
     }
@@ -688,14 +735,17 @@ export class AiRequestExecutor {
             iteration: runtime.iteration,
         });
 
-        runtime.messages.push({
-            role: 'assistant',
-            content: options.step.chunkResponse,
-            tool_calls: options.step.toolCalls,
-        });
+        runtime.messages.push(
+            buildAssistantToolCallHistoryMessage(
+                options.step.chunkResponse,
+                options.step.chunkReasoning,
+                options.step.toolCalls
+            )
+        );
 
         const toolCallMessageId = await options.persister.persistToolCallMessage(
-            options.step.chunkResponse
+            options.step.chunkResponse,
+            options.step.chunkReasoning
         );
 
         const toolResults = await Promise.all(
@@ -842,6 +892,14 @@ export class AiRequestExecutor {
                 model: runtime.activeModel,
                 response: runtime.response,
                 reasoning: runtime.reasoning,
+                finalStepResponse: subtractCheckpointContent(
+                    runtime.response,
+                    resumeCheckpoint.response
+                ),
+                finalStepReasoning: subtractCheckpointContent(
+                    runtime.reasoning,
+                    resumeCheckpoint.reasoning
+                ),
             };
         } catch (error) {
             // AI SDK RetryError 包装了真正的错误——解包后传递给分类器
@@ -860,6 +918,15 @@ export class AiRequestExecutor {
                 type: 'failed',
                 error: classifiedError,
                 response: runtime.response,
+                reasoning: runtime.reasoning,
+                partialResponse: subtractCheckpointContent(
+                    runtime.response,
+                    resumeCheckpoint.response
+                ),
+                partialReasoning: subtractCheckpointContent(
+                    runtime.reasoning,
+                    resumeCheckpoint.reasoning
+                ),
                 resumeCheckpoint,
                 hasVisibleOutputSinceCheckpoint: runtime.hasVisibleOutputSinceCheckpoint,
                 hasToolActivitySinceCheckpoint: runtime.hasToolActivitySinceCheckpoint,

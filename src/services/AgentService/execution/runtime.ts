@@ -5,6 +5,7 @@ import type { SessionTurnEntity } from '@database/types';
 
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import { PersistenceProjector } from '../outputs/persistence';
@@ -129,6 +130,7 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     modelId?: string;
     providerId?: number;
     attachments?: AttachmentIndex[];
+    inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;
     promptSnapshot?: PromptSnapshot;
     environment?: ConversationRuntimeEnvironment;
@@ -223,6 +225,7 @@ export class AiConversationRuntime {
                 prompt: this.options.prompt,
                 attachments,
                 executionMode: this.options.executionMode ?? 'foreground',
+                inputSnapshot: this.options.inputSnapshot,
             }));
         const baseMessages = await buildPromptTransportMessages({
             sessionId: this.options.sessionId,
@@ -329,7 +332,8 @@ export class AiConversationRuntime {
     ): Promise<ExecuteRequestResult> {
         try {
             await context.persister.markCompleted({
-                response: result.response,
+                response: result.finalStepResponse,
+                reasoning: result.finalStepReasoning,
                 durationMs: Date.now() - this.startedAt,
             });
         } catch (persistError) {
@@ -396,7 +400,10 @@ export class AiConversationRuntime {
 
                 if (attemptResult.error.is(AiErrorCode.REQUEST_CANCELLED)) {
                     try {
-                        await context.persister.markCancelled(attemptResult.response);
+                        await context.persister.markCancelled(
+                            attemptResult.partialResponse,
+                            attemptResult.partialReasoning
+                        );
                     } catch (persistError) {
                         console.error(
                             '[AiConversationRuntime] Failed to persist cancellation:',
@@ -464,7 +471,8 @@ export class AiConversationRuntime {
                 try {
                     await context.persister.markFailed(
                         attemptResult.error.message,
-                        attemptResult.response
+                        attemptResult.partialResponse,
+                        attemptResult.partialReasoning
                     );
                 } catch (persistError) {
                     console.error(

@@ -1,7 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
-import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import type { InputHistorySnapshot, PendingToolApproval, SessionMessage } from '@/types/session';
 
 import type { TaskModelSummary } from '../execution';
 import type { AttemptCheckpoint } from '../execution/executor';
@@ -47,6 +47,7 @@ export interface StartSessionTaskOptions {
     modelId?: string;
     providerId?: number;
     attachments?: AttachmentIndex[];
+    inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;
     signal?: AbortSignal;
 }
