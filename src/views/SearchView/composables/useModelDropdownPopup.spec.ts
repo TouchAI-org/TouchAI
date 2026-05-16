@@ -88,6 +88,38 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
+    it('rejects a popup session that is already stale by the time open resolves', async () => {
+        Object.assign(popupManagerState, {
+            currentPopupId: 'popup-model-dropdown-popup:2',
+            currentPopupSessionVersion: 2,
+        });
+        const onPopupSessionStart = vi.fn();
+        const onPopupSessionEnd = vi.fn();
+        const mounted = await mountComposable(() =>
+            useModelDropdownPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData({ searchQuery: 'stale-open' }),
+                isModelDropdownActive: () => true,
+                onModelSelect: () => undefined,
+                onModelSearchQueryChange: () => undefined,
+                onClose: () => undefined,
+                onPopupSessionStart,
+                onPopupSessionEnd,
+            })
+        );
+
+        expect(mounted.result.isLiveSession()).toBe(false);
+
+        await mounted.result.open();
+
+        expect(mounted.result.isOpen.value).toBe(false);
+        expect(mounted.result.isLiveSession()).toBe(false);
+        expect(onPopupSessionStart).not.toHaveBeenCalled();
+        expect(onPopupSessionEnd).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
+    });
+
     it('ignores stale popup close events and preserves the live session until the active popup closes', async () => {
         let onCloseListener:
             | ((payload: {
@@ -141,6 +173,49 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
+    it('closes the local popup session without notifying the page when the model dropdown is no longer active', async () => {
+        let onCloseListener:
+            | ((payload: {
+                  popupId: string;
+                  popupSessionVersion: number;
+                  windowLabel: string;
+                  type: 'model-dropdown-popup';
+              }) => void)
+            | undefined;
+        vi.mocked(popupManager.listen).mockImplementation(async (handlers) => {
+            onCloseListener = handlers.onClose as typeof onCloseListener;
+            return () => undefined;
+        });
+        const onClose = vi.fn();
+        const onPopupSessionEnd = vi.fn();
+        const mounted = await mountComposable(() =>
+            useModelDropdownPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isModelDropdownActive: () => false,
+                onModelSelect: () => undefined,
+                onModelSearchQueryChange: () => undefined,
+                onClose,
+                onPopupSessionEnd,
+            })
+        );
+
+        await mounted.result.open();
+
+        onCloseListener?.({
+            popupId: 'popup-model-dropdown-popup:1',
+            popupSessionVersion: 1,
+            windowLabel: 'popup-model-dropdown-popup',
+            type: 'model-dropdown-popup',
+        });
+
+        expect(mounted.result.isOpen.value).toBe(false);
+        expect(onClose).not.toHaveBeenCalled();
+        expect(onPopupSessionEnd).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
+    });
+
     it('closes the active popup session with the current identity', async () => {
         const onPopupSessionEnd = vi.fn();
         const mounted = await mountComposable(() =>
@@ -167,5 +242,34 @@ describe('useModelDropdownPopup', () => {
         expect(onPopupSessionEnd).toHaveBeenCalledTimes(1);
 
         mounted.unmount();
+    });
+
+    it('cleans up a late popup listener registration if the composable unmounts first', async () => {
+        let resolveListen: ((cleanup: () => void) => void) | undefined;
+        const lateCleanup = vi.fn();
+        vi.mocked(popupManager.listen).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveListen = resolve;
+                })
+        );
+
+        const mounted = await mountComposable(() =>
+            useModelDropdownPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isModelDropdownActive: () => true,
+                onModelSelect: () => undefined,
+                onModelSearchQueryChange: () => undefined,
+                onClose: () => undefined,
+            })
+        );
+
+        mounted.unmount();
+        resolveListen?.(lateCleanup);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(lateCleanup).toHaveBeenCalledTimes(1);
     });
 });

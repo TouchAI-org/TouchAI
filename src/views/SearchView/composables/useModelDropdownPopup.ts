@@ -63,6 +63,7 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
     let cleanupFn: (() => void) | null = null;
     let activePopupId: string | null = null;
     let hasActivePopupSession = false;
+    let disposed = false;
     const isOpen = ref(false);
 
     /**
@@ -146,42 +147,63 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
         await popupManager.updateData(getPopupData());
     }
 
-    onMounted(async () => {
-        cleanupFn = await popupManager.listen({
-            onModelSelect: (modelDbId) => {
-                void Promise.resolve(onModelSelect(modelDbId)).catch((error) => {
-                    console.error('[SearchView] Failed to handle model dropdown selection:', error);
-                });
-            },
-            onModelSearchQueryChange: (query) => {
-                void Promise.resolve(onModelSearchQueryChange(query)).catch((error) => {
-                    console.error(
-                        '[SearchView] Failed to update model dropdown search query from popup:',
-                        error
-                    );
-                });
-            },
-            onClose: (payload: PopupClosedPayload) => {
-                if (!activePopupId || payload.popupId !== activePopupId) {
+    onMounted(() => {
+        disposed = false;
+
+        void popupManager
+            .listen({
+                onModelSelect: (modelDbId) => {
+                    void Promise.resolve(onModelSelect(modelDbId)).catch((error) => {
+                        console.error(
+                            '[SearchView] Failed to handle model dropdown selection:',
+                            error
+                        );
+                    });
+                },
+                onModelSearchQueryChange: (query) => {
+                    void Promise.resolve(onModelSearchQueryChange(query)).catch((error) => {
+                        console.error(
+                            '[SearchView] Failed to update model dropdown search query from popup:',
+                            error
+                        );
+                    });
+                },
+                onClose: (payload: PopupClosedPayload) => {
+                    if (!activePopupId || payload.popupId !== activePopupId) {
+                        return;
+                    }
+
+                    activePopupId = null;
+                    hasActivePopupSession = false;
+                    isOpen.value = false;
+                    onPopupSessionEnd?.();
+
+                    // popup-closed 是全局事件，这里只在模型下拉实际持有同一 popupId 时
+                    // 才通知领域层关闭，避免切换其他 popup 时误重置模型搜索状态。
+                    if (!isModelDropdownActive()) {
+                        return;
+                    }
+                    onClose();
+                },
+            })
+            .then((nextCleanupFn) => {
+                if (disposed) {
+                    nextCleanupFn();
                     return;
                 }
 
-                activePopupId = null;
-                hasActivePopupSession = false;
-                isOpen.value = false;
-                onPopupSessionEnd?.();
-
-                // popup-closed 是全局事件，这里只在模型下拉实际持有同一 popupId 时
-                // 才通知领域层关闭，避免切换其他 popup 时误重置模型搜索状态。
-                if (!isModelDropdownActive()) {
-                    return;
-                }
-                onClose();
-            },
-        });
+                cleanupFn = nextCleanupFn;
+            })
+            .catch((error) => {
+                console.error(
+                    '[SearchView] Failed to register model dropdown popup listeners:',
+                    error
+                );
+            });
     });
 
     onUnmounted(() => {
+        disposed = true;
         cleanupFn?.();
         cleanupFn = null;
         activePopupId = null;
