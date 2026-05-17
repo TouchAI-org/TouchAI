@@ -1,11 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type {
-    BuiltInBashExecutionRequest,
-    BuiltInBashExecutionResponse,
-    BuiltInRipgrepExecutionRequest,
-    BuiltInRipgrepExecutionResponse,
-} from './types';
+import type { BuiltInBashExecutionRequest, BuiltInBashExecutionResponse } from './types';
 
 /**
  * 原生内置工具桥接层。
@@ -16,13 +11,5 @@ export const builtInTools = {
     },
     cancelBash(executionId: string): Promise<boolean> {
         return invoke('built_in_tools_cancel_bash', { executionId });
-    },
-    executeRipgrep(
-        request: BuiltInRipgrepExecutionRequest
-    ): Promise<BuiltInRipgrepExecutionResponse> {
-        return invoke('built_in_tools_execute_ripgrep', { request });
-    },
-    cancelRipgrep(executionId: string): Promise<boolean> {
-        return invoke('built_in_tools_cancel_ripgrep', { executionId });
     },
 } as const;

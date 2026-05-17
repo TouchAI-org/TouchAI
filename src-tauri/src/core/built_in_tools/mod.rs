@@ -14,8 +14,4 @@ mod embedded_ripgrep {
 
 pub use bash::execute_bash;
 pub use registry::{BashExecutionRegistry, BuiltInProcessExecutionRegistry};
-pub use ripgrep::execute_ripgrep;
-pub use types::{
-    BuiltInBashExecutionRequest, BuiltInBashExecutionResponse, BuiltInRipgrepExecutionRequest,
-    BuiltInRipgrepExecutionResponse,
-};
+pub use types::{BuiltInBashExecutionRequest, BuiltInBashExecutionResponse};

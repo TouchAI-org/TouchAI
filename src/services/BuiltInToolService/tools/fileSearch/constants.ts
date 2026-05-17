@@ -88,7 +88,7 @@ export const fileSearchArgsSchema = z.object({
 export const FILE_SEARCH_TOOL_DESCRIPTION = [
     'Search for files and folders by NAME or PATH on the local machine.',
     'Use this ONLY to locate files by their name, path, or extension.',
-    'Do NOT use this for searching content inside files — use the Ripgrep tool instead for any content, code, or text search.',
+    'Do NOT use this for searching content inside files — use `rg` (ripgrep) via Bash instead for any content, code, or text search.',
 ].join(' ');
 
 function withExamples(description: string, ...examples: string[]): string {

@@ -73,7 +73,6 @@ export interface BuiltInToolQueries {
 
 const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'file_search',
-    'ripgrep',
     'read',
     'setting',
     'web_fetch',
@@ -90,10 +89,6 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
 
     if (toolId === 'file_search') {
         return '搜索本机文件';
-    }
-
-    if (toolId === 'ripgrep') {
-        return '用 ripgrep 搜索文件内容，优先用于代码和文本搜索';
     }
 
     if (toolId === 'read') {

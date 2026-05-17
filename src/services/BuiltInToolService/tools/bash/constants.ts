@@ -122,6 +122,8 @@ export const BASH_TOOL_DESCRIPTION = [
     'Shell: Windows PowerShell (`powershell.exe` run with `-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command`).',
     'Use PowerShell syntax, cmdlets, and Windows paths instead of bash/sh syntax.',
     'For multiline text in PowerShell, prefer here-strings such as `@\'...\'@` or `@"..."@` instead of `\\n` escape sequences.',
+    '`rg` (ripgrep) is available on PATH. For content/code search, ALWAYS use `rg` instead of `Select-String`, `findstr`, or reading files manually — ripgrep is faster, respects .gitignore, and supports regex.',
+    'Common rg examples: `rg "pattern" src/`, `rg -t ts "pattern"`, `rg --json "pattern" src/`, `rg -g "*.ts" "pattern"`.',
 ].join(' ');
 
 /**

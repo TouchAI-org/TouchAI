@@ -1,6 +1,9 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
 //! Windows PowerShell 执行器。
+//!
+//! 执行前会尝试释放嵌入的 rg 二进制到 assets/bin，
+//! 并将该目录追加到 PATH，使模型可通过 bash 直接调用 rg。
 
 #[cfg(target_os = "windows")]
 use std::process::{ExitStatus, Stdio};
@@ -14,6 +17,7 @@ use tokio::time;
 
 use super::process_utils::{combine_output, read_stream, resolve_timeout_ms, terminate_child};
 use super::registry::BashExecutionRegistry;
+use super::ripgrep::get_bundled_rg_directory;
 use super::types::{BuiltInBashExecutionRequest, BuiltInBashExecutionResponse};
 
 #[cfg(target_os = "windows")]
@@ -26,12 +30,8 @@ const UTF8_POWERSHELL_PRELUDE: &str =
 
 /// 执行 PowerShell 非交互命令并返回结构化结果。
 ///
-/// # 参数
-/// - `request`: 命令文本、工作目录和超时配置。
-///
-/// # 返回值
-/// - 成功时返回完整 stdout/stderr、退出码和耗时。
-/// - 启动失败、工作目录非法或非 Windows 平台时返回错误。
+/// 执行前会尝试释放嵌入的 rg 二进制并将其目录追加到 PATH，
+/// 使模型可以直接在 bash 中调用 `rg`。
 pub async fn execute_bash(
     request: BuiltInBashExecutionRequest,
     registry: &BashExecutionRegistry,
@@ -44,6 +44,17 @@ pub async fn execute_bash(
 
     #[cfg(target_os = "windows")]
     execute_bash_windows(request, registry).await
+}
+
+/// 构建 PATH 前缀脚本：如果 bundled rg 可用，将其目录追加到 PATH 最前面。
+#[cfg(target_os = "windows")]
+fn build_path_prelude() -> String {
+    if let Some(rg_dir) = get_bundled_rg_directory() {
+        let rg_path = rg_dir.to_string_lossy().replace('\'', "''");
+        format!("$env:PATH = '{rg_path};' + $env:PATH;")
+    } else {
+        String::new()
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -183,8 +194,14 @@ enum BashExecutionCompletion {
     Cancelled(ExitStatus),
 }
 
+/// 组装 PowerShell 脚本：UTF-8 预设 + rg PATH 前缀 + 用户命令。
 #[cfg(target_os = "windows")]
 fn build_powershell_command_script(command: &str) -> String {
-    // 保持用户命令从新行开始，避免破坏 here-string 等必须行首起始的语法。
-    format!("{}\n{}", UTF8_POWERSHELL_PRELUDE, command)
+    let path_prelude = build_path_prelude();
+    if path_prelude.is_empty() {
+        // 保持用户命令从新行开始，避免破坏 here-string 等必须行首起始的语法。
+        format!("{}\n{}", UTF8_POWERSHELL_PRELUDE, command)
+    } else {
+        format!("{}\n{}\n{}", UTF8_POWERSHELL_PRELUDE, path_prelude, command)
+    }
 }
