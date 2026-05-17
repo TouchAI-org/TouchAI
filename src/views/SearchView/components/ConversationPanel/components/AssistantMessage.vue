@@ -420,8 +420,8 @@
     }
 
     .dot {
-        width: 4px;
-        height: 4px;
+        width: 3px;
+        height: 3px;
         border-radius: 50%;
         background-color: var(--color-gray-500);
         animation: pulse 1.4s infinite ease-in-out;
