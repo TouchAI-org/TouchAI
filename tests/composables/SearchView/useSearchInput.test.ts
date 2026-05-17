@@ -25,7 +25,10 @@ vi.mock('@/services/ClipboardService', () => ({
     },
 }));
 
-import { useSearchAttachments, useSearchDraftController } from './useSearchInput';
+import {
+    useSearchAttachments,
+    useSearchDraftController,
+} from '@/views/SearchView/composables/useSearchInput';
 
 function createAttachmentIndex(
     id: string,

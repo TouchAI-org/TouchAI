@@ -1,10 +1,8 @@
+import { mountComposable } from '@tests/utils/composables';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computed, nextTick, ref } from 'vue';
 
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
-
-import { mountComposable } from '../../../../tests/utils/composables';
-import type { SearchCursorContext, SearchModelOverride, SearchPageController } from '../types';
 import {
     createPopupSurfaceCoordinator,
     createSearchEntryPolicy,
@@ -15,7 +13,12 @@ import {
     navigateSessionInputHistory,
     useQuickSearchCoordinator,
     useSearchOverlayMachine,
-} from './searchInteraction';
+} from '@/views/SearchView/composables/searchInteraction';
+import type {
+    SearchCursorContext,
+    SearchModelOverride,
+    SearchPageController,
+} from '@/views/SearchView/types';
 
 function createUserMessage(id: string, overrides: Partial<SessionMessage> = {}): SessionMessage {
     return {

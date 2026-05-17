@@ -22,9 +22,8 @@ import {
 } from '@services/NativeService';
 import type { DatabaseQueryResponse } from '@services/NativeService/database';
 import type { SearchWindowState } from '@services/NativeService/types';
+import { getLastTauriInvokeCall, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
 import { describe, expect, it } from 'vitest';
-
-import { getLastTauriInvokeCall, interceptTauriInvoke, mockTauriCommand } from '../../utils/tauri';
 
 async function callAndExpectInvoke<T>(
     call: () => Promise<T>,

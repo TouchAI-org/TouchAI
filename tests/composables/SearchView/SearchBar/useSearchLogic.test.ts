@@ -1,9 +1,8 @@
+import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
 import { createInputHistorySnapshot } from '@/types/session';
-
-import { mountComposable } from '../../../../../../tests/utils/composables';
 
 type SearchEditorExtensionOptions = {
     onTagRemoved?: (tagType: string, value: string) => void;
@@ -176,7 +175,7 @@ vi.mock('./useModelSelection', () => ({
     useModelSelection: vi.fn(() => modelSelectionState.current),
 }));
 
-import { useSearchInput } from './useSearchLogic';
+import { useSearchInput } from '@/views/SearchView/components/SearchBar/composables/useSearchLogic';
 
 function getModelSelectionMock() {
     return modelSelectionState.current as {

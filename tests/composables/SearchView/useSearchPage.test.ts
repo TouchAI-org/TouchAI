@@ -1,10 +1,10 @@
 import { AppEvent } from '@services/EventService';
+import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
-import { mountComposable } from '../../../../tests/utils/composables';
-import { createSearchInteractionContext } from './searchInteraction';
-import { useSearchPageLifecycle } from './useSearchPage';
+import { createSearchInteractionContext } from '@/views/SearchView/composables/searchInteraction';
+import { useSearchPageLifecycle } from '@/views/SearchView/composables/useSearchPage';
 
 const {
     currentWindowMock,

@@ -25,7 +25,7 @@ vi.mock('../utils/tiptap', () => ({
     resolveMouseEventTarget: resolveMouseEventTargetMock,
 }));
 
-import { useDragging } from './useDragging';
+import { useDragging } from '@/views/SearchView/components/SearchBar/composables/useDragging';
 
 function createEditor(
     options: {

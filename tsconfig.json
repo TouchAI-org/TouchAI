@@ -28,7 +28,8 @@
             "@services/*": ["./src/services/*"],
             "@composables/*": ["./src/composables/*"],
             "@database": ["./src/database"],
-            "@database/*": ["./src/database/*"]
+            "@database/*": ["./src/database/*"],
+            "@tests/*": ["./tests/*"]
         }
     },
     "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],

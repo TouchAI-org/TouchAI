@@ -4,9 +4,8 @@ import type {
     SettingsGeneralUpdatedEvent,
 } from '@services/EventService/types';
 import { emit } from '@tauri-apps/api/event';
+import { getLastTauriInvokeCall, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it, vi } from 'vitest';
-
-import { getLastTauriInvokeCall, interceptTauriInvoke } from '../../utils/tauri';
 
 describe('EventService', () => {
     it('emits typed application events through the tauri event plugin', async () => {

@@ -1,13 +1,12 @@
 import type { SessionEntity } from '@database/types';
 import type { Index } from '@services/AgentService/infrastructure/attachments';
+import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
 import { AppEvent } from '@/services/EventService/types';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
-
-import { mountComposable } from '../../../../tests/utils/composables';
-import { useSearchRequestFlow } from './useSearchRequest';
+import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
 
 const {
     agentCallbacks,

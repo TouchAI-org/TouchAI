@@ -1,10 +1,9 @@
+import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
 import { SearchWindowHeightMode } from '@/config/searchWindow';
-
-import { mountComposable } from '../../../../tests/utils/composables';
-import { useSearchWindowResize } from './useSearchWindowResize';
+import { useSearchWindowResize } from '@/views/SearchView/composables/useSearchWindowResize';
 
 const { currentWindowMock, nativeMock } = vi.hoisted(() => ({
     currentWindowMock: {

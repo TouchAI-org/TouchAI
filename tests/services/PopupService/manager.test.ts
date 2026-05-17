@@ -1,14 +1,13 @@
 import { AppEvent } from '@services/EventService';
+import { createPopupManager } from '@services/PopupService/manager';
 import { emit } from '@tauri-apps/api/event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import {
     getTauriInvokeCalls,
     installTauriMocks,
     interceptTauriInvoke,
     resetTauriMocks,
-} from '../../../tests/utils/tauri';
-import { createPopupManager } from './manager';
+} from '@tests/utils/tauri';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./registry', () => ({
     initializeBuiltInPopups: vi.fn(),

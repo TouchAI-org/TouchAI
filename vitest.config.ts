@@ -12,7 +12,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    include: ['tests/**/*.{test,spec}.{ts,js}', 'src/**/*.{test,spec}.{ts,js}'],
+    include: ['tests/**/*.test.{ts,js}'],
     exclude: ['node_modules', 'dist', '.idea', '.git', '.cache'],
     setupFiles: ['./tests/setup/vitest.ts'],
     coverage: {
@@ -98,6 +98,7 @@ export default defineConfig({
       '@utils': resolve(__dirname, './src/utils'),
       '@types': resolve(__dirname, './src/types'),
       '@styles': resolve(__dirname, './src/styles'),
+      '@tests': resolve(__dirname, './tests'),
     },
   },
   optimizeDeps: {

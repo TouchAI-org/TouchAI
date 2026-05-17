@@ -42,7 +42,7 @@ import {
     shouldFillConversationAvailableHeight,
     shouldRemeasureAfterMaximizedRestore,
     shouldRepairIdleSearchWindowHeight,
-} from './windowSizing';
+} from '@/views/SearchView/windowSizing';
 
 afterEach(() => {
     vi.useRealTimers();

@@ -1,7 +1,7 @@
 import type { QuickShortcutItem } from '@services/NativeService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useQuickSearchClickStats } from './useQuickSearchClickStats';
+import { useQuickSearchClickStats } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchClickStats';
 
 const { findQuickSearchClicksByQueryMock, upsertQuickSearchClickMock } = vi.hoisted(() => ({
     findQuickSearchClicksByQueryMock: vi.fn(),

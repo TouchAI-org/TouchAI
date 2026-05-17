@@ -1,7 +1,6 @@
+import { createPopupPositionCalculator } from '@services/PopupService/position';
+import type { PopupConfig, WindowInfo } from '@services/PopupService/types';
 import { describe, expect, it, vi } from 'vitest';
-
-import { createPopupPositionCalculator } from './position';
-import type { PopupConfig, WindowInfo } from './types';
 
 function createWindowInfo(): WindowInfo {
     return {

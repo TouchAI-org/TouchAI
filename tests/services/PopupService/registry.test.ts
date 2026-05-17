@@ -1,6 +1,5 @@
+import type { WindowInfo } from '@services/PopupService/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import type { WindowInfo } from './types';
 
 vi.mock('@/views/PopupView/components/ModelDropdownPopup/index.vue', () => ({
     default: { name: 'ModelDropdownPopupStub' },
@@ -49,7 +48,7 @@ function createWindowInfo(overrides: Partial<WindowInfo> = {}): WindowInfo {
 
 async function loadRegistryModule() {
     vi.resetModules();
-    return import('./registry');
+    return import('@services/PopupService/registry');
 }
 
 describe('popupRegistry built-in contracts', () => {

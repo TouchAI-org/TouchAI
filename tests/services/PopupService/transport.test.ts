@@ -1,7 +1,6 @@
 import { AppEvent } from '@services/EventService';
+import { createPopupTransport } from '@services/PopupService/transport';
 import { describe, expect, it, vi } from 'vitest';
-
-import { createPopupTransport } from './transport';
 
 describe('createPopupTransport', () => {
     it('forwards popup window commands and popup data events through injected boundaries', async () => {

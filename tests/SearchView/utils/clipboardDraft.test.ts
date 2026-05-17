@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { ref } from 'vue';
 
 import type { ClipboardPayload } from '@/services/NativeService/types';
-
-import { applyClipboardPayloadToDraft, canAutoPasteIntoDraft } from './clipboardDraft';
+import {
+    applyClipboardPayloadToDraft,
+    canAutoPasteIntoDraft,
+} from '@/views/SearchView/utils/clipboardDraft';
 
 interface DraftAttachment {
     type: 'image' | 'file';

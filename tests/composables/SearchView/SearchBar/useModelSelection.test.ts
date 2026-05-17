@@ -1,9 +1,9 @@
 import type { ModelWithProvider } from '@database/queries/models';
+import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-import { mountComposable } from '../../../../../../tests/utils/composables';
-import { useModelSelection } from './useModelSelection';
+import { useModelSelection } from '@/views/SearchView/components/SearchBar/composables/useModelSelection';
 
 function createModel(id: number, overrides: Partial<ModelWithProvider> = {}): ModelWithProvider {
     return {

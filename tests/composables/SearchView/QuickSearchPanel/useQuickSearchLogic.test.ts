@@ -1,9 +1,9 @@
 import type { QuickShortcutItem } from '@services/NativeService';
+import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-import { mountComposable } from '../../../../../../tests/utils/composables';
-import { useQuickSearchLogic } from './useQuickSearchLogic';
+import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 
 const { assetLoaderMock, clickStatsMock, layoutMock } = vi.hoisted(() => ({
     assetLoaderMock: {

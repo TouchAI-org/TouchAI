@@ -1,7 +1,6 @@
+import { createPopupSessionState } from '@services/PopupService/sessionState';
+import type { PopupClosedPayload, PopupDataPayload, PopupType } from '@services/PopupService/types';
 import { describe, expect, it } from 'vitest';
-
-import { createPopupSessionState } from './sessionState';
-import type { PopupClosedPayload, PopupDataPayload, PopupType } from './types';
 
 function sessionPayload(
     type: PopupType,

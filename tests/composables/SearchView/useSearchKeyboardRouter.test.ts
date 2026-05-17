@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createSearchKeyboardRouter } from './useSearchKeyboardRouter';
+import { createSearchKeyboardRouter } from '@/views/SearchView/composables/interaction/useSearchKeyboardRouter';
 
 async function flushAsyncWork() {
     await Promise.resolve();

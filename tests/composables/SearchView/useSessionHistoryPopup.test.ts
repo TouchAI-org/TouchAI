@@ -1,15 +1,15 @@
-import { type ModelDropdownData, popupManager } from '@services/PopupService';
+import { popupManager, type SessionHistoryData } from '@services/PopupService';
+import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { mountComposable } from '../../../../tests/utils/composables';
-import { useModelDropdownPopup } from './useModelDropdownPopup';
+import { useSessionHistoryPopup } from '@/views/SearchView/composables/useSessionHistoryPopup';
 
 const { popupManagerMock, popupManagerState } = vi.hoisted(() => ({
     popupManagerState: {
         isOpen: true,
-        currentType: 'model-dropdown-popup' as const,
-        currentPopupId: 'popup-model-dropdown-popup:1',
-        currentWindowLabel: 'popup-model-dropdown-popup',
+        currentType: 'session-history-popup' as const,
+        currentPopupId: 'popup-session-history-popup:1',
+        currentWindowLabel: 'popup-session-history-popup',
         currentPopupSessionVersion: 1,
         isInitialized: true,
     },
@@ -21,14 +21,12 @@ const { popupManagerMock, popupManagerState } = vi.hoisted(() => ({
     },
 }));
 
-function createPopupData(overrides: Partial<ModelDropdownData> = {}): ModelDropdownData {
+function createPopupData(overrides: Partial<SessionHistoryData> = {}): SessionHistoryData {
     return {
-        activeModelId: 'gpt-5',
-        activeProviderId: 1,
-        selectedModelId: 'gpt-5',
-        selectedProviderId: 1,
+        sessions: [],
+        activeSessionId: null,
         searchQuery: '',
-        models: [],
+        isLoading: false,
         ...overrides,
     };
 }
@@ -40,18 +38,18 @@ vi.mock('@services/PopupService', () => ({
     },
 }));
 
-describe('useModelDropdownPopup', () => {
+describe('useSessionHistoryPopup', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         Object.assign(popupManagerState, {
             isOpen: true,
-            currentType: 'model-dropdown-popup',
-            currentPopupId: 'popup-model-dropdown-popup:1',
-            currentWindowLabel: 'popup-model-dropdown-popup',
+            currentType: 'session-history-popup',
+            currentPopupId: 'popup-session-history-popup:1',
+            currentWindowLabel: 'popup-session-history-popup',
             currentPopupSessionVersion: 1,
             isInitialized: true,
         });
-        vi.mocked(popupManager.show).mockResolvedValue('popup-model-dropdown-popup:1');
+        vi.mocked(popupManager.show).mockResolvedValue('popup-session-history-popup:1');
         vi.mocked(popupManager.hide).mockResolvedValue(undefined);
         vi.mocked(popupManager.updateData).mockResolvedValue(undefined);
         vi.mocked(popupManager.listen).mockResolvedValue(() => undefined);
@@ -61,72 +59,78 @@ describe('useModelDropdownPopup', () => {
         document.body.innerHTML = '';
     });
 
-    it('opens the popup and reports a live session when popupManager confirms the same session', async () => {
-        const onPopupSessionStart = vi.fn();
-        const mounted = await mountComposable(() =>
-            useModelDropdownPopup({
-                getAnchorElement: () => document.createElement('button'),
-                getPopupData: () => createPopupData({ searchQuery: 'model' }),
-                isModelDropdownActive: () => true,
-                onModelSelect: () => undefined,
-                onModelSearchQueryChange: () => undefined,
-                onClose: () => undefined,
-                onPopupSessionStart,
-            })
-        );
-
-        await mounted.result.open();
-
-        expect(mounted.result.isOpen.value).toBe(true);
-        expect(mounted.result.isLiveSession()).toBe(true);
-        expect(onPopupSessionStart).toHaveBeenCalledWith({
-            popupId: 'popup-model-dropdown-popup:1',
-            windowLabel: 'popup-model-dropdown-popup',
-            popupSessionVersion: 1,
-        });
-
-        mounted.unmount();
-    });
-
-    it('rejects a popup session that is already stale by the time open resolves', async () => {
-        Object.assign(popupManagerState, {
-            currentPopupId: 'popup-model-dropdown-popup:2',
-            currentPopupSessionVersion: 2,
-        });
+    it('opens the popup and reports the active popup session only when popupManager confirms the same live session', async () => {
         const onPopupSessionStart = vi.fn();
         const onPopupSessionEnd = vi.fn();
+        const anchor = document.createElement('button');
+
         const mounted = await mountComposable(() =>
-            useModelDropdownPopup({
-                getAnchorElement: () => document.createElement('button'),
-                getPopupData: () => createPopupData({ searchQuery: 'stale-open' }),
-                isModelDropdownActive: () => true,
-                onModelSelect: () => undefined,
-                onModelSearchQueryChange: () => undefined,
+            useSessionHistoryPopup({
+                getAnchorElement: () => anchor,
+                getPopupData: () => createPopupData({ searchQuery: 'hello' }),
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
                 onClose: () => undefined,
                 onPopupSessionStart,
                 onPopupSessionEnd,
             })
         );
 
-        expect(mounted.result.isLiveSession()).toBe(false);
+        await mounted.result.open();
+
+        expect(popupManager.show).toHaveBeenCalledWith(
+            'session-history-popup',
+            anchor,
+            createPopupData({ searchQuery: 'hello' })
+        );
+        expect(mounted.result.isOpen.value).toBe(true);
+        expect(onPopupSessionStart).toHaveBeenCalledWith({
+            popupId: 'popup-session-history-popup:1',
+            windowLabel: 'popup-session-history-popup',
+            popupSessionVersion: 1,
+        });
+        expect(onPopupSessionEnd).not.toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('rejects a popup session that is already stale by the time open resolves', async () => {
+        Object.assign(popupManagerState, {
+            currentPopupId: 'popup-session-history-popup:2',
+            currentPopupSessionVersion: 2,
+        });
+        const onPopupSessionStart = vi.fn();
+        const onPopupSessionEnd = vi.fn();
+        const mounted = await mountComposable(() =>
+            useSessionHistoryPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData({ searchQuery: 'stale-open' }),
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
+                onClose: () => undefined,
+                onPopupSessionStart,
+                onPopupSessionEnd,
+            })
+        );
 
         await mounted.result.open();
 
         expect(mounted.result.isOpen.value).toBe(false);
-        expect(mounted.result.isLiveSession()).toBe(false);
         expect(onPopupSessionStart).not.toHaveBeenCalled();
         expect(onPopupSessionEnd).toHaveBeenCalledTimes(1);
 
         mounted.unmount();
     });
 
-    it('ignores stale popup close events and preserves the live session until the active popup closes', async () => {
+    it('ignores stale popup close events and only notifies close for the active session', async () => {
         let onCloseListener:
             | ((payload: {
                   popupId: string;
                   popupSessionVersion: number;
                   windowLabel: string;
-                  type: 'model-dropdown-popup';
+                  type: 'session-history-popup';
               }) => void)
             | undefined;
         vi.mocked(popupManager.listen).mockImplementation(async (handlers) => {
@@ -136,12 +140,12 @@ describe('useModelDropdownPopup', () => {
         const onClose = vi.fn();
         const onPopupSessionEnd = vi.fn();
         const mounted = await mountComposable(() =>
-            useModelDropdownPopup({
+            useSessionHistoryPopup({
                 getAnchorElement: () => document.createElement('button'),
                 getPopupData: () => createPopupData(),
-                isModelDropdownActive: () => true,
-                onModelSelect: () => undefined,
-                onModelSearchQueryChange: () => undefined,
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
                 onClose,
                 onPopupSessionEnd,
             })
@@ -150,20 +154,20 @@ describe('useModelDropdownPopup', () => {
         await mounted.result.open();
 
         onCloseListener?.({
-            popupId: 'popup-model-dropdown-popup:99',
-            popupSessionVersion: 99,
-            windowLabel: 'popup-model-dropdown-popup',
-            type: 'model-dropdown-popup',
+            popupId: 'popup-session-history-popup:999',
+            popupSessionVersion: 999,
+            windowLabel: 'popup-session-history-popup',
+            type: 'session-history-popup',
         });
 
         expect(mounted.result.isOpen.value).toBe(true);
         expect(onClose).not.toHaveBeenCalled();
 
         onCloseListener?.({
-            popupId: 'popup-model-dropdown-popup:1',
+            popupId: 'popup-session-history-popup:1',
             popupSessionVersion: 1,
-            windowLabel: 'popup-model-dropdown-popup',
-            type: 'model-dropdown-popup',
+            windowLabel: 'popup-session-history-popup',
+            type: 'session-history-popup',
         });
 
         expect(mounted.result.isOpen.value).toBe(false);
@@ -173,13 +177,13 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
-    it('closes the local popup session without notifying the page when the model dropdown is no longer active', async () => {
+    it('closes the local popup session without notifying the page when session history is no longer active', async () => {
         let onCloseListener:
             | ((payload: {
                   popupId: string;
                   popupSessionVersion: number;
                   windowLabel: string;
-                  type: 'model-dropdown-popup';
+                  type: 'session-history-popup';
               }) => void)
             | undefined;
         vi.mocked(popupManager.listen).mockImplementation(async (handlers) => {
@@ -189,12 +193,12 @@ describe('useModelDropdownPopup', () => {
         const onClose = vi.fn();
         const onPopupSessionEnd = vi.fn();
         const mounted = await mountComposable(() =>
-            useModelDropdownPopup({
+            useSessionHistoryPopup({
                 getAnchorElement: () => document.createElement('button'),
                 getPopupData: () => createPopupData(),
-                isModelDropdownActive: () => false,
-                onModelSelect: () => undefined,
-                onModelSearchQueryChange: () => undefined,
+                isSessionHistoryActive: () => false,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
                 onClose,
                 onPopupSessionEnd,
             })
@@ -203,10 +207,10 @@ describe('useModelDropdownPopup', () => {
         await mounted.result.open();
 
         onCloseListener?.({
-            popupId: 'popup-model-dropdown-popup:1',
+            popupId: 'popup-session-history-popup:1',
             popupSessionVersion: 1,
-            windowLabel: 'popup-model-dropdown-popup',
-            type: 'model-dropdown-popup',
+            windowLabel: 'popup-session-history-popup',
+            type: 'session-history-popup',
         });
 
         expect(mounted.result.isOpen.value).toBe(false);
@@ -216,32 +220,25 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
-    it('closes the active popup session with the current identity', async () => {
+    it('hides the current popup session on unmount when the popup is still open', async () => {
         const onPopupSessionEnd = vi.fn();
         const mounted = await mountComposable(() =>
-            useModelDropdownPopup({
+            useSessionHistoryPopup({
                 getAnchorElement: () => document.createElement('button'),
                 getPopupData: () => createPopupData(),
-                isModelDropdownActive: () => true,
-                onModelSelect: () => undefined,
-                onModelSearchQueryChange: () => undefined,
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
                 onClose: () => undefined,
                 onPopupSessionEnd,
             })
         );
 
         await mounted.result.open();
-        await mounted.result.close();
-
-        expect(popupManager.hide).toHaveBeenCalledWith({
-            popupId: 'popup-model-dropdown-popup:1',
-            popupSessionVersion: 1,
-            windowLabel: 'popup-model-dropdown-popup',
-        });
-        expect(mounted.result.isOpen.value).toBe(false);
-        expect(onPopupSessionEnd).toHaveBeenCalledTimes(1);
-
         mounted.unmount();
+
+        expect(popupManager.hide).toHaveBeenCalledTimes(1);
+        expect(onPopupSessionEnd).toHaveBeenCalled();
     });
 
     it('cleans up a late popup listener registration if the composable unmounts first', async () => {
@@ -255,12 +252,12 @@ describe('useModelDropdownPopup', () => {
         );
 
         const mounted = await mountComposable(() =>
-            useModelDropdownPopup({
+            useSessionHistoryPopup({
                 getAnchorElement: () => document.createElement('button'),
                 getPopupData: () => createPopupData(),
-                isModelDropdownActive: () => true,
-                onModelSelect: () => undefined,
-                onModelSearchQueryChange: () => undefined,
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
                 onClose: () => undefined,
             })
         );

@@ -2,7 +2,10 @@ import type { QuickShortcutItem } from '@services/NativeService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-import { useAssetLoader, type UseAssetLoaderDeps } from './useAssetLoader';
+import {
+    useAssetLoader,
+    type UseAssetLoaderDeps,
+} from '@/views/SearchView/components/QuickSearchPanel/composables/useAssetLoader';
 
 vi.mock('@services/NativeService', () => ({
     native: {

@@ -2,7 +2,7 @@ import type { QuickShortcutItem } from '@services/NativeService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
-import { useLayout } from './useLayout';
+import { useLayout } from '@/views/SearchView/components/QuickSearchPanel/composables/useLayout';
 
 function createShortcut(id: number): QuickShortcutItem {
     return {

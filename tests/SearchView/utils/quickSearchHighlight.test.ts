@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildMatchTokens, splitNameByTokens } from './quickSearchHighlight';
+import {
+    buildMatchTokens,
+    splitNameByTokens,
+} from '@/views/SearchView/components/QuickSearchPanel/utils/quickSearchHighlight';
 
 describe('quickSearchHighlight', () => {
     it('normalizes query tokens by trimming, deduplicating, and sorting longer matches first', () => {
