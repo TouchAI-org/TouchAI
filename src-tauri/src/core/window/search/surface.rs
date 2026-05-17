@@ -8,6 +8,8 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager};
 
+use super::bounds::{SearchWindowDefaults, SearchWindowState};
+
 /// 搜索窗口组显示来源。
 pub enum SearchSurfaceShowSource {
     Shortcut,
@@ -68,8 +70,10 @@ pub struct PopupSurfaceSession {
 /// 搜索窗口组原生运行时状态。
 pub struct SearchWindowRuntime {
     hide_on_app_blur: AtomicBool,
+    allow_height_override: AtomicBool,
     sequence: AtomicU64,
     popup_sessions: Mutex<HashMap<String, PopupSurfaceSession>>,
+    window_state: SearchWindowState,
 }
 
 /// 搜索窗口组失焦隐藏决策输入。
@@ -78,6 +82,7 @@ struct FocusLostDecisionInput<'a> {
     window_label: &'a str,
     hide_on_app_blur: bool,
     main_visible: bool,
+    main_maximized: bool,
     main_always_on_top: bool,
     app_focused: bool,
     has_popup_sessions: bool,
@@ -90,8 +95,10 @@ impl SearchWindowRuntime {
     pub fn new() -> Self {
         Self {
             hide_on_app_blur: AtomicBool::new(true),
+            allow_height_override: AtomicBool::new(false),
             sequence: AtomicU64::new(0),
             popup_sessions: Mutex::new(HashMap::new()),
+            window_state: SearchWindowState::default(),
         }
     }
 
@@ -108,6 +115,16 @@ impl SearchWindowRuntime {
     /// 读取应用失焦自动隐藏策略。
     pub fn should_hide_on_app_blur(&self) -> bool {
         self.hide_on_app_blur.load(Ordering::Relaxed)
+    }
+
+    /// 设置当前是否允许用户通过手动 resize 覆盖窗口高度。
+    pub fn set_allow_height_override(&self, allow: bool) {
+        self.allow_height_override.store(allow, Ordering::Relaxed);
+    }
+
+    /// 读取当前是否允许用户通过手动 resize 覆盖窗口高度。
+    pub fn should_allow_height_override(&self) -> bool {
+        self.allow_height_override.load(Ordering::Relaxed)
     }
 
     /// 记录一个 popup 原生窗口会话。
@@ -167,6 +184,22 @@ impl SearchWindowRuntime {
             .expect("search surface popup session state poisoned");
         !sessions.is_empty()
     }
+
+    /// 返回搜索窗口尺寸状态。
+    pub fn window_state(&self) -> &SearchWindowState {
+        &self.window_state
+    }
+}
+
+/// 更新搜索窗口默认尺寸。
+pub fn update_window_defaults(
+    app_handle: &AppHandle,
+    defaults: SearchWindowDefaults,
+) -> Result<SearchWindowDefaults, String> {
+    let runtime = app_handle
+        .try_state::<SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    Ok(runtime.window_state().update_defaults(defaults))
 }
 
 /// 判断某次原生失焦是否应该隐藏完整搜索窗口组。
@@ -175,6 +208,9 @@ fn should_hide_on_focus_lost(input: FocusLostDecisionInput<'_>) -> bool {
         return false;
     }
     if input.app_focused {
+        return false;
+    }
+    if input.main_maximized {
         return false;
     }
 
@@ -193,6 +229,15 @@ pub fn set_hide_on_app_blur(app_handle: &AppHandle, should_hide: bool) -> Result
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
     runtime.set_hide_on_app_blur(should_hide);
+    Ok(())
+}
+
+/// 设置当前搜索窗口是否允许高度手动 override。
+pub fn set_allow_height_override(app_handle: &AppHandle, allow: bool) -> Result<(), String> {
+    let runtime = app_handle
+        .try_state::<SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    runtime.set_allow_height_override(allow);
     Ok(())
 }
 
@@ -230,7 +275,16 @@ pub fn hide_popup_surface(
             let _ = window.set_focusable(false);
             window.hide().map_err(|error| error.to_string())?;
         }
-        emit_registered_popup_closed(app_handle, vec![closed_session])
+        emit_registered_popup_closed(app_handle, vec![closed_session])?;
+
+        // popup 关闭后将键盘焦点还给主搜索窗口。
+        if let Some(main_window) = app_handle.get_webview_window("main") {
+            if main_window.is_visible().unwrap_or(false) {
+                super::reactivate_search_window_input(&main_window)?;
+            }
+        }
+
+        Ok(())
     } else {
         let runtime = app_handle
             .try_state::<SearchWindowRuntime>()
@@ -301,6 +355,7 @@ pub fn handle_focus_lost(app_handle: &AppHandle, window_label: &str) -> Result<(
         window_label,
         hide_on_app_blur: runtime.should_hide_on_app_blur(),
         main_visible: main_window.is_visible().unwrap_or(false),
+        main_maximized: main_window.is_maximized().unwrap_or(false),
         main_always_on_top: main_window.is_always_on_top().unwrap_or(false),
         app_focused: crate::core::window::popup::is_app_focused(app_handle.clone())?,
         has_popup_sessions: runtime.has_popup_sessions(),

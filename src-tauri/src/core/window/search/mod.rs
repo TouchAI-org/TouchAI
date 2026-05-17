@@ -2,6 +2,7 @@
 
 //! 主窗口管理逻辑。
 
+pub mod bounds;
 pub mod surface;
 
 use tauri::{AppHandle, Manager};
@@ -93,6 +94,11 @@ pub fn set_search_surface_hide_on_app_blur(
 pub(super) fn show_and_activate_search_window(window: &tauri::WebviewWindow) -> Result<(), String> {
     let _ = window.unminimize();
     window.show().map_err(|e| e.to_string())?;
+    reactivate_search_window_input(window)
+}
+
+/// 让主搜索窗口重新成为键盘输入目标，并唤醒 WebView2 accelerator 管线。
+pub(super) fn reactivate_search_window_input(window: &tauri::WebviewWindow) -> Result<(), String> {
     window.set_focus().map_err(|e| e.to_string())?;
     focus_search_webview_content(window)?;
     prime_webview_input_pipeline();

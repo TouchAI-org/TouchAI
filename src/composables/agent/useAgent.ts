@@ -10,7 +10,7 @@ import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { type Index } from '@/services/AgentService/infrastructure/attachments';
 import { buildSessionHistoryFromData } from '@/services/AgentService/session';
 import { getSessionData } from '@/services/AgentService/session';
-import type { LoadedSessionInfo } from '@/types/session';
+import type { InputHistorySnapshot, LoadedSessionInfo } from '@/types/session';
 
 import { useAgentState } from './useAgentState';
 
@@ -183,6 +183,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     async function sendRequest(
         prompt: string,
         attachments: Index[] = [],
+        inputSnapshot?: InputHistorySnapshot,
         modelId?: string,
         providerId?: number
     ) {
@@ -208,6 +209,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 modelId,
                 providerId,
                 attachments,
+                inputSnapshot,
                 executionMode: 'foreground',
                 signal: startAbortController.signal,
             });

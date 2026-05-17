@@ -69,7 +69,8 @@ export type GeneralSettingKey =
     | 'global_shortcut'
     | 'start_on_boot'
     | 'start_minimized'
-    | 'output_scroll_behavior';
+    | 'output_scroll_behavior'
+    | 'search_window_size_preset';
 
 export interface SettingsGeneralUpdatedEvent {
     sourceId: string;

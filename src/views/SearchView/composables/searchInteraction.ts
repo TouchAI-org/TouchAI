@@ -7,7 +7,14 @@ import { AppEvent, eventService } from '@services/EventService';
 import type { PopupKeydownPayload } from '@services/PopupService';
 import { computed, type ComputedRef, reactive, type Ref, ref, watch } from 'vue';
 
-import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import {
+    cloneInputHistorySnapshot,
+    createInputHistorySnapshot,
+    hasInputHistorySnapshotContent,
+    type InputHistorySnapshot,
+    type PendingToolApproval,
+    type SessionMessage,
+} from '@/types/session';
 
 import type {
     PendingRequest,
@@ -79,6 +86,7 @@ interface UseQuickSearchCoordinatorOptions {
     modelDropdownState: Ref<SearchModelDropdownState>;
     quickSearchOpen: Ref<boolean>;
     controller: SearchPageController;
+    suppressNextAutoOpen?: Ref<boolean>;
 }
 
 interface UseSearchOverlayMachineOptions {
@@ -93,6 +101,8 @@ interface SyncOverlayStateOptions {
 type SearchKeyboardSurface = 'search-surface' | SearchPopupSurfaceType;
 type SearchQuickSearchDirection = 'up' | 'down' | 'left' | 'right';
 type SearchPrimaryShortcutKey = 'h' | 'l' | 'n' | 'm' | 'p' | '.' | 'backspace';
+export type SessionInputHistoryDirection = 'older' | 'newer';
+export type SessionInputHistoryNavigationResult = 'navigated' | 'blocked' | 'ignored';
 
 interface PendingApprovalState {
     callId?: string;
@@ -117,6 +127,9 @@ interface CreateSearchKeyboardRouterOptions {
     hasQuickSearchHighlight: () => boolean;
     shouldTriggerQuickSearch: (query: string) => boolean;
     isMultiLineCursor: () => boolean;
+    isCursorAtStart: () => boolean;
+    isCursorAtTextStart: () => boolean;
+    isCursorAtEnd: () => boolean;
     hasModelOverride: () => boolean;
     getSessionHistoryCount: () => number;
     isLoading: () => boolean;
@@ -129,11 +142,15 @@ interface CreateSearchKeyboardRouterOptions {
     onMoveQuickSearchSelection: (direction: SearchQuickSearchDirection) => void;
     onOpenHighlightedQuickSearchItem: () => void | Promise<void>;
     onCloseQuickSearch: () => void;
+    onNavigateInputHistory: (
+        direction: SessionInputHistoryDirection
+    ) => SessionInputHistoryNavigationResult;
     onHideAllPopups: () => void | Promise<void>;
     onCancelRequest: () => void;
     onClearModelOverride: () => void;
     onHideWindow: () => void | Promise<void>;
     onClearSession: () => void;
+    onClearDraft: () => void;
     onClearAll: () => void;
     onPrimaryShortcut: (key: SearchPrimaryShortcutKey) => void | Promise<void>;
 }
@@ -161,11 +178,15 @@ export interface UseSearchKeyboardOptions {
     sessionHistoryPopupOpen: Ref<boolean>;
     hideAllPopups: () => Promise<void>;
     hideSearchWindow: () => Promise<void>;
+    navigateInputHistory: (
+        direction: SessionInputHistoryDirection
+    ) => SessionInputHistoryNavigationResult;
     closeModelDropdown: () => Promise<void>;
     toggleModelDropdown: () => Promise<void>;
     openHistoryDialog: () => Promise<void>;
     startNewSession: () => Promise<void>;
     toggleWindowPin: () => Promise<void>;
+    toggleWindowMaximize: () => Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
     clearAll: () => void;
     cancelRequest: () => void;
@@ -178,6 +199,158 @@ function createEmptyModelOverride(): SearchModelOverride {
     return {
         modelId: null,
         providerId: null,
+    };
+}
+
+export interface SessionInputHistoryBrowseState {
+    pointer: number;
+    draftBeforeBrowse: InputHistorySnapshot | null;
+    activeBrowseSnapshot: InputHistorySnapshot | null;
+}
+
+export interface NavigateSessionInputHistoryOptions {
+    entries: InputHistorySnapshot[];
+    currentDraft: InputHistorySnapshot;
+    direction: SessionInputHistoryDirection;
+    state: SessionInputHistoryBrowseState;
+}
+
+export interface NavigateSessionInputHistoryResult {
+    changed: boolean;
+    nextSnapshot: InputHistorySnapshot;
+    state: SessionInputHistoryBrowseState;
+}
+
+/**
+ * 从当前会话消息中提取可用于输入历史导航的 user prompt 列表。
+ *
+ * 该列表保持原始发送顺序，允许重复内容；
+ * 仅收集显式允许进入输入历史的 user prompt。
+ */
+export function extractSessionInputHistoryEntries(
+    messages: SessionMessage[]
+): InputHistorySnapshot[] {
+    return messages
+        .map((message) => ({
+            message,
+            snapshot: createInputHistorySnapshot({
+                text: message.inputSnapshot?.text ?? message.content,
+                attachments: message.inputSnapshot?.attachments ?? message.attachments ?? [],
+                editorDoc: message.inputSnapshot?.editorDoc,
+                excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
+            }),
+        }))
+        .filter(({ message, snapshot }) => {
+            return (
+                message.role === 'user' &&
+                snapshot.excludeFromHistory !== true &&
+                hasInputHistorySnapshotContent(snapshot)
+            );
+        })
+        .map(({ snapshot }) => snapshot);
+}
+
+export function createSessionInputHistoryBrowseState(
+    entryCount = 0
+): SessionInputHistoryBrowseState {
+    return {
+        pointer: entryCount,
+        draftBeforeBrowse: null,
+        activeBrowseSnapshot: null,
+    };
+}
+
+/**
+ * 在输入历史中前后导航。
+ *
+ * `pointer === entries.length` 表示“最新位置”，也就是未浏览历史时的尾位置；
+ * 进入历史浏览的第一步会先缓存当前草稿，向下浏览回到尾位置时再恢复该草稿。
+ */
+export function navigateSessionInputHistory(
+    options: NavigateSessionInputHistoryOptions
+): NavigateSessionInputHistoryResult {
+    const { entries, currentDraft, direction } = options;
+    const latestPointer = entries.length;
+    const currentPointer = Math.min(Math.max(options.state.pointer, 0), latestPointer);
+    const currentBrowseSnapshot =
+        cloneInputHistorySnapshot(options.state.activeBrowseSnapshot) ??
+        (currentPointer < latestPointer
+            ? cloneInputHistorySnapshot(entries[currentPointer])
+            : null);
+
+    if (entries.length === 0) {
+        return {
+            changed: false,
+            nextSnapshot: createInputHistorySnapshot(currentDraft),
+            state: createSessionInputHistoryBrowseState(latestPointer),
+        };
+    }
+
+    if (direction === 'older') {
+        if (currentPointer === 0) {
+            return {
+                changed: false,
+                nextSnapshot:
+                    currentBrowseSnapshot ??
+                    cloneInputHistorySnapshot(entries[0]) ??
+                    createInputHistorySnapshot(currentDraft),
+                state: {
+                    pointer: 0,
+                    draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
+                    activeBrowseSnapshot: currentBrowseSnapshot,
+                },
+            };
+        }
+
+        const nextPointer =
+            currentPointer === latestPointer ? latestPointer - 1 : currentPointer - 1;
+        const nextSnapshot =
+            cloneInputHistorySnapshot(entries[nextPointer]) ??
+            createInputHistorySnapshot(currentDraft);
+        return {
+            changed: true,
+            nextSnapshot,
+            state: {
+                pointer: nextPointer,
+                draftBeforeBrowse:
+                    currentPointer === latestPointer
+                        ? createInputHistorySnapshot(currentDraft)
+                        : cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
+                activeBrowseSnapshot: nextSnapshot,
+            },
+        };
+    }
+
+    if (currentPointer === latestPointer) {
+        return {
+            changed: false,
+            nextSnapshot: createInputHistorySnapshot(currentDraft),
+            state: {
+                pointer: latestPointer,
+                draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
+                activeBrowseSnapshot: null,
+            },
+        };
+    }
+
+    const nextPointer = Math.min(latestPointer, currentPointer + 1);
+    const nextSnapshot =
+        nextPointer === latestPointer
+            ? (cloneInputHistorySnapshot(options.state.draftBeforeBrowse) ??
+              createInputHistorySnapshot({
+                  text: '',
+                  attachments: [],
+              }))
+            : (cloneInputHistorySnapshot(entries[nextPointer]) ??
+              createInputHistorySnapshot(currentDraft));
+    return {
+        changed: true,
+        nextSnapshot,
+        state: {
+            pointer: nextPointer,
+            draftBeforeBrowse: cloneInputHistorySnapshot(options.state.draftBeforeBrowse),
+            activeBrowseSnapshot: nextPointer === latestPointer ? null : nextSnapshot,
+        },
     };
 }
 
@@ -390,6 +563,7 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         modelDropdownState,
         quickSearchOpen,
         controller,
+        suppressNextAutoOpen,
     } = options;
 
     const isQuickSearchOpen = computed(() => {
@@ -408,6 +582,12 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
     }
 
     function syncQuickSearchPanel(query = queryText.value) {
+        if (suppressNextAutoOpen?.value) {
+            suppressNextAutoOpen.value = false;
+            controller.closeQuickSearch();
+            return;
+        }
+
         if (shouldTriggerQuickSearch(query)) {
             controller.triggerQuickSearch(query);
             return;
@@ -583,6 +763,8 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         hasQuickSearchHighlight,
         shouldTriggerQuickSearch,
         isMultiLineCursor,
+        isCursorAtTextStart,
+        isCursorAtEnd,
         hasModelOverride,
         getSessionHistoryCount,
         isLoading,
@@ -595,12 +777,13 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onMoveQuickSearchSelection,
         onOpenHighlightedQuickSearchItem,
         onCloseQuickSearch,
+        onNavigateInputHistory,
         onHideAllPopups,
         onCancelRequest,
         onClearModelOverride,
         onHideWindow,
         onClearSession,
-        onClearAll,
+        onClearDraft,
         onPrimaryShortcut,
     } = options;
 
@@ -649,22 +832,26 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                 return true;
             }
 
-            if (!queryText.trim() && hasModelOverride()) {
+            // Step 1: Clear input text first without exiting the current conversation
+            if (queryText.trim()) {
+                onClearDraft();
+                return true;
+            }
+
+            // Step 2: Clear model selection
+            if (hasModelOverride()) {
                 onClearModelOverride();
                 return true;
             }
 
-            if (!queryText.trim() && getSessionHistoryCount() === 0) {
-                runKeyboardEffect(onHideWindow);
-                return true;
-            }
-
+            // Step 3: Exit conversation if session exists
             if (getSessionHistoryCount() > 0) {
                 onClearSession();
                 return true;
             }
 
-            onClearAll();
+            // Step 4: Hide window if no session
+            runKeyboardEffect(onHideWindow);
             return true;
         }
 
@@ -710,24 +897,34 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             }
         }
 
-        if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
-            if (input.key === 'ArrowDown') {
-                if (!shouldTriggerQuickSearch(queryText)) {
+          if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
+            if (input.key === 'ArrowUp') {
+                if (isMultiLineCursor() && !isCursorAtTextStart()) {
                     return false;
                 }
 
-                onOpenQuickSearch();
-                return true;
+                return onNavigateInputHistory('older') !== 'ignored';
             }
 
-            if (input.key === 'ArrowUp') {
-                if (isMultiLineCursor()) {
+            if (input.key === 'ArrowDown') {
+                if (isMultiLineCursor() && !isCursorAtEnd()) {
+                    return false;
+                }
+
+                if (onNavigateInputHistory('newer') === 'navigated') {
+                    return true;
+                }
+
+                if (!shouldTriggerQuickSearch(queryText)) {
                     return false;
                 }
 
                 if (queryText.trim() || hasAttachments()) {
                     runKeyboardEffect(onSubmit);
+                    return true;
                 }
+
+                onOpenQuickSearch();
                 return true;
             }
         }
@@ -774,11 +971,13 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
+        navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown,
         openHistoryDialog,
         startNewSession,
         toggleWindowPin,
+        toggleWindowMaximize,
         handleSubmit,
         clearAll,
         cancelRequest,
@@ -814,6 +1013,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         hasQuickSearchHighlight: () => controller.isQuickSearchItemHighlighted(),
         shouldTriggerQuickSearch,
         isMultiLineCursor: () => cursorContext.value.isMultiLine,
+        isCursorAtStart: () => cursorContext.value.cursorAtStart,
+        isCursorAtTextStart: () => cursorContext.value.cursorAtTextStart,
+        isCursorAtEnd: () => cursorContext.value.cursorAtEnd,
         hasModelOverride: () => Boolean(modelOverride.value.modelId),
         getSessionHistoryCount: () => sessionHistory.value.length,
         isLoading: () => isLoading.value,
@@ -842,6 +1044,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         onCloseQuickSearch: () => {
             controller.closeQuickSearch();
         },
+        onNavigateInputHistory: (direction) => {
+            return navigateInputHistory(direction);
+        },
         onHideAllPopups: async () => {
             await hideAllPopups();
         },
@@ -856,6 +1061,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         },
         onClearSession: () => {
             clearSession();
+        },
+        onClearDraft: () => {
+            queryText.value = '';
         },
         onClearAll: () => {
             clearAll();
@@ -904,6 +1112,13 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         }
 
         if (event.defaultPrevented) {
+            return;
+        }
+
+        if (event.key === 'F11') {
+            event.preventDefault();
+            event.stopPropagation();
+            await toggleWindowMaximize();
             return;
         }
 

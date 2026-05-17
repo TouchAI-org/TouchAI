@@ -8,13 +8,19 @@
         type SessionHistoryData,
         type SessionHistorySessionItem,
     } from '@services/PopupService';
-    import { nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
+    import { storeToRefs } from 'pinia';
+    import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
+    import {
+        createInputHistorySnapshot,
+        getInputHistorySnapshotKey,
+        type InputHistorySnapshot,
+    } from '@/types/session';
 
     import ConversationPanel from './components/ConversationPanel/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
@@ -23,6 +29,12 @@
         createPopupSurfaceCoordinator,
         createSearchEntryPolicy,
         createSearchInteractionContext,
+        createSessionInputHistoryBrowseState,
+        extractSessionInputHistoryEntries,
+        navigateSessionInputHistory,
+        type SessionInputHistoryBrowseState,
+        type SessionInputHistoryDirection,
+        type SessionInputHistoryNavigationResult,
         useQuickSearchCoordinator,
         useSearchOverlayMachine,
     } from './composables/searchInteraction';
@@ -36,6 +48,7 @@
         useSearchWindowPin,
     } from './composables/useSearchPage';
     import { useSearchRequestFlow } from './composables/useSearchRequest';
+    import { useSearchWindowResize } from './composables/useSearchWindowResize';
     import { useSessionHistoryPopup } from './composables/useSessionHistoryPopup';
     import type {
         ConversationPanelHandle,
@@ -47,7 +60,6 @@
         SearchModelOverride,
     } from './types';
     import { canAutoPasteIntoDraft } from './utils/clipboardDraft';
-
     defineOptions({
         name: 'SearchViewPage',
     });
@@ -68,6 +80,8 @@
     const cursorContext = ref<SearchCursorContext>({
         isMultiLine: false,
         cursorAtStart: true,
+        cursorAtTextStart: true,
+        cursorAtEnd: true,
     });
     const modelDropdownState = ref<SearchModelDropdownState>({
         isOpen: false,
@@ -80,8 +94,14 @@
     const pageContainer = ref<HTMLElement | null>(null);
     const approvalAttentionToken = ref(0);
     const isDragging = ref(false);
+    const inputHistoryBrowseState = ref<SessionInputHistoryBrowseState>(
+        createSessionInputHistoryBrowseState()
+    );
+    const suppressInputHistoryBrowseReset = ref(false);
+    const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
+    const { searchWindowDefaultSize } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin();
     const widgetBridgeWindow = window as Window & {
@@ -91,6 +111,44 @@
     const searchInteractionContext = createSearchInteractionContext();
     const searchEntryPolicy = createSearchEntryPolicy();
     const popupSurfaceCoordinator = createPopupSurfaceCoordinator(searchInteractionContext);
+    const suppressQuickSearchAutoOpenOnce = ref(false);
+
+    function buildCurrentInputHistorySnapshot(query = queryText.value): InputHistorySnapshot {
+        const capturedSnapshot = searchBar.value?.captureInputHistorySnapshot();
+        return createInputHistorySnapshot({
+            text: capturedSnapshot?.text ?? query,
+            attachments: capturedSnapshot?.attachments ?? attachments.value,
+            editorDoc: capturedSnapshot?.editorDoc,
+            excludeFromHistory: capturedSnapshot?.excludeFromHistory,
+        });
+    }
+
+    function applyInputHistorySnapshot(snapshot: InputHistorySnapshot) {
+        const normalizedSnapshot = createInputHistorySnapshot(snapshot);
+        const restoreVersion = inputHistoryRestoreVersion.value + 1;
+        inputHistoryRestoreVersion.value = restoreVersion;
+        suppressInputHistoryBrowseReset.value = true;
+
+        try {
+            const restoredText =
+                searchBar.value?.restoreInputHistorySnapshot(normalizedSnapshot) ??
+                normalizedSnapshot.text;
+            attachments.value = normalizedSnapshot.attachments;
+            syncAttachmentSupport();
+            queryText.value = restoredText;
+        } catch (error) {
+            console.error('[SearchView] Failed to restore input history snapshot:', error);
+            attachments.value = normalizedSnapshot.attachments;
+            syncAttachmentSupport();
+            queryText.value = normalizedSnapshot.text;
+        } finally {
+            void nextTick().then(() => {
+                if (inputHistoryRestoreVersion.value === restoreVersion) {
+                    suppressInputHistoryBrowseReset.value = false;
+                }
+            });
+        }
+    }
 
     /**
      * 判断交互上下文里的 popup 会话是否仍然对应 popupManager 当前会话。
@@ -123,6 +181,7 @@
         clearAttachments,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        syncAttachmentSupport,
     } = useSearchAttachments({
         attachments,
     });
@@ -159,12 +218,29 @@
         handleSubmit,
         clearAll,
         cancelRequest,
-        handleRegenerateMessage,
+        handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
         modelOverride,
         clearDraft,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
+    });
+
+    const {
+        contentReady: searchViewContentReady,
+        isMaximized,
+        effectiveWindowMaximized,
+        fillConversationAvailableHeight,
+        toggleMaximize: toggleMaximizeBase,
+        syncWindowState: syncSearchWindowState,
+        remeasureTargetHeight,
+    } = useSearchWindowResize({
+        target: pageContainer,
+        sessionCount: computed(() => sessionHistory.value.length),
+        quickSearchOpen,
+        defaultSize: searchWindowDefaultSize,
+        ready: viewReady,
     });
 
     const { isQuickSearchOpen, shouldTriggerQuickSearch } = useQuickSearchCoordinator({
@@ -176,6 +252,7 @@
         modelDropdownState,
         quickSearchOpen,
         controller,
+        suppressNextAutoOpen: suppressQuickSearchAutoOpenOnce,
     });
 
     const {
@@ -258,14 +335,14 @@
     }
 
     const { hideSearchWindow } = useSearchPageLifecycle({
-        pageContainer,
         controller,
         viewReady,
         isDragging,
         isPinned,
+        isMaximized: effectiveWindowMaximized,
         interactionContext: searchInteractionContext,
         syncWindowPinState,
-        clearSession,
+        clearSession: clearSessionToIdle,
         reconcilePopupSurfaces: hideAllPopups,
         onSurfaceHidden: clearSurfaceUiAfterHidden,
         handleSearchSurfaceCommand: async (payload) => {
@@ -311,6 +388,58 @@
         },
     });
 
+    const sessionInputHistoryEntries = computed(() =>
+        extractSessionInputHistoryEntries(sessionHistory.value)
+    );
+
+    function resetInputHistoryBrowseState(entryCount = sessionInputHistoryEntries.value.length) {
+        inputHistoryBrowseState.value = createSessionInputHistoryBrowseState(entryCount);
+    }
+
+    function updateActiveInputHistoryBrowseSnapshot(snapshot: InputHistorySnapshot) {
+        if (inputHistoryBrowseState.value.pointer === sessionInputHistoryEntries.value.length) {
+            return;
+        }
+
+        inputHistoryBrowseState.value = {
+            ...inputHistoryBrowseState.value,
+            activeBrowseSnapshot: createInputHistorySnapshot(snapshot),
+        };
+    }
+
+    function resetSessionInputHistoryTracking() {
+        inputHistoryRestoreVersion.value = 0;
+        suppressInputHistoryBrowseReset.value = false;
+        resetInputHistoryBrowseState();
+    }
+
+    function navigateInputHistory(
+        direction: SessionInputHistoryDirection
+    ): SessionInputHistoryNavigationResult {
+        const result = navigateSessionInputHistory({
+            entries: sessionInputHistoryEntries.value,
+            currentDraft: buildCurrentInputHistorySnapshot(queryText.value),
+            direction,
+            state: inputHistoryBrowseState.value,
+        });
+
+        if (!result.changed) {
+            if (
+                direction === 'older' &&
+                cursorContext.value.isMultiLine &&
+                cursorContext.value.cursorAtTextStart
+            ) {
+                return 'blocked';
+            }
+
+            return 'ignored';
+        }
+
+        inputHistoryBrowseState.value = result.state;
+        applyInputHistorySnapshot(result.nextSnapshot);
+        return 'navigated';
+    }
+
     useSearchKeyboard({
         viewReady,
         queryText,
@@ -335,15 +464,17 @@
         sessionHistoryPopupOpen,
         hideAllPopups,
         hideSearchWindow,
+        navigateInputHistory,
         closeModelDropdown,
         toggleModelDropdown: handleToggleModelDropdownRequest,
         openHistoryDialog,
         startNewSession: handleStartNewSession,
         toggleWindowPin: handleToggleWindowPin,
+        toggleWindowMaximize: handleToggleMaximize,
         handleSubmit,
         clearAll,
         cancelRequest,
-        clearSession,
+        clearSession: clearSessionToIdle,
     });
 
     function handleQueryTextChange(value: string) {
@@ -554,6 +685,13 @@
         await updateSessionSearchQuery(value);
     }
 
+    async function clearSessionToIdle() {
+        suppressQuickSearchAutoOpenOnce.value = true;
+        clearSession();
+        await nextTick();
+        await controller.focusSearchInput();
+    }
+
     async function handleStartNewSession() {
         if (sessionHistory.value.length === 0) {
             return;
@@ -562,6 +700,7 @@
         controller.closeQuickSearch();
         await hideAllPopups();
         startNewSession();
+        resetSessionInputHistoryTracking();
         await controller.focusSearchInput();
     }
 
@@ -577,13 +716,34 @@
         }
     }
 
+    async function handleToggleMaximize() {
+        try {
+            await hideAllPopups();
+            await toggleMaximizeBase();
+        } catch (error) {
+            console.error('[SearchView] Failed to toggle maximized state:', error);
+        }
+    }
+
     async function handleOpenSession(sessionId: number) {
         controller.closeQuickSearch();
         await hideAllPopups();
+        resetSessionInputHistoryTracking();
 
         try {
             await openSession(sessionId);
-            await nextTick();
+            await syncSearchWindowState().catch((error) => {
+                console.error(
+                    '[SearchView] Failed to sync search window state after session open:',
+                    error
+                );
+            });
+            await remeasureTargetHeight().catch((error) => {
+                console.error(
+                    '[SearchView] Failed to remeasure window height after session open:',
+                    error
+                );
+            });
             conversationPanel.value?.revealLatestContent();
         } catch (error) {
             console.error('[SearchView] Failed to open session:', error);
@@ -611,6 +771,10 @@
         }
     }
 
+    async function handleRegenerateMessage(messageId: string) {
+        await handleRegenerateMessageRequest(messageId);
+    }
+
     function handleWidgetSendPrompt(text: string) {
         const normalizedText = text.trim();
         if (!normalizedText) {
@@ -622,7 +786,12 @@
             return;
         }
 
-        void handleSubmit(normalizedText);
+        const widgetSnapshot = createInputHistorySnapshot({
+            text: normalizedText,
+            attachments: [],
+            excludeFromHistory: true,
+        });
+        void handleSubmit(normalizedText, widgetSnapshot);
     }
 
     function handleWidgetOpenLink(url: string) {
@@ -657,6 +826,12 @@
             await syncWindowPinState().catch((error) => {
                 console.error('[SearchView] Failed to sync window pin state on initialize:', error);
             });
+            await syncSearchWindowState().catch((error) => {
+                console.error(
+                    '[SearchView] Failed to sync search window state on initialize:',
+                    error
+                );
+            });
 
             viewReady.value = true;
 
@@ -670,12 +845,63 @@
     }
 
     watch(
+        sessionInputHistoryEntries,
+        (entries, previousEntries) => {
+            const previousLength = previousEntries?.length ?? 0;
+            const nextLength = entries.length;
+            const currentPointer = inputHistoryBrowseState.value.pointer;
+
+            if (currentPointer === previousLength) {
+                inputHistoryBrowseState.value = {
+                    ...inputHistoryBrowseState.value,
+                    pointer: nextLength,
+                };
+                return;
+            }
+
+            if (currentPointer > nextLength) {
+                resetInputHistoryBrowseState(nextLength);
+            }
+        },
+        { flush: 'sync' }
+    );
+
+    watch(
+        () =>
+            getInputHistorySnapshotKey(
+                createInputHistorySnapshot({
+                    text: queryText.value,
+                    attachments: attachments.value,
+                })
+            ),
+        (value, previousValue) => {
+            if (value === previousValue) {
+                return;
+            }
+
+            if (suppressInputHistoryBrowseReset.value) {
+                return;
+            }
+
+            if (inputHistoryBrowseState.value.pointer === sessionInputHistoryEntries.value.length) {
+                return;
+            }
+
+            updateActiveInputHistoryBrowseSnapshot(
+                buildCurrentInputHistorySnapshot(queryText.value)
+            );
+        },
+        { flush: 'sync' }
+    );
+
+    watch(
         () => sessionHistory.value.length,
         async (length, previousLength) => {
             if (!viewReady.value || length > 0 || !previousLength) {
                 return;
             }
 
+            resetSessionInputHistoryTracking();
             await closeSessionHistoryPopup();
             await controller.focusSearchInput();
         },
@@ -743,14 +969,18 @@
         ref="pageContainer"
         tabindex="-1"
         :class="[
-            'search-view-container bg-background-primary relative flex h-full w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl focus:outline-none',
+            'search-view-container bg-background-primary relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl focus:outline-none',
+            fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
             isLoading ? 'loading' : '',
         ]"
         @paste.capture="handlePagePaste"
     >
         <div
-            v-if="viewReady && sessionHistory.length > 0"
-            class="min-h-0 w-full flex-1 overflow-hidden"
+            v-if="searchViewContentReady && sessionHistory.length > 0"
+            :class="[
+                'w-full overflow-hidden',
+                fillConversationAvailableHeight ? 'min-h-0 flex-1' : '',
+            ]"
         >
             <ConversationPanel
                 ref="conversationPanel"
@@ -758,9 +988,12 @@
                 :is-loading="isLoading"
                 :error="error"
                 :is-pinned="isPinned"
+                :is-maximized="isMaximized"
+                :fill-available-height="fillConversationAvailableHeight"
                 :history-open="sessionHistoryPopupOpen"
                 :approval-attention-token="approvalAttentionToken"
                 @pin-change="handlePinChange"
+                @maximize-toggle="handleToggleMaximize"
                 @new-session="handleStartNewSession"
                 @history-open-change="handleHistoryOpenChange"
                 @history-prefetch="handleHistoryPrefetch"
@@ -772,10 +1005,10 @@
             />
         </div>
         <div
-            v-if="viewReady && sessionHistory.length > 0"
+            v-if="searchViewContentReady && sessionHistory.length > 0"
             class="w-full border-t-[0.5px] border-gray-300/80"
         ></div>
-        <div v-if="viewReady" class="relative w-full">
+        <div v-if="searchViewContentReady" class="relative w-full">
             <SearchBar
                 ref="searchBar"
                 :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"

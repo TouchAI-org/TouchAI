@@ -55,7 +55,7 @@ rmcp = { version = "0.8", features = [
 ] }
 reqwest = { version = "0.13", features = ["json", "stream", "blocking"] }
 futures = "0.3"
-clipboard-rs = "0.2.4"
+clipboard-rs = "0.3.4"
 html5gum = { version = "0.8.3", default-features = false }
 
 [profile.release]

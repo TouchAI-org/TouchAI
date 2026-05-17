@@ -19,18 +19,22 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
-        ))
-        .plugin(tauri_plugin_single_instance::init(
-            |app, _args: Vec<String>, _cwd: String| {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                } else {
-                    warn!("Main window not found while handling second-instance activation");
-                }
-            },
-        ))
+        ));
+
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(
+        |app, _args: Vec<String>, _cwd: String| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            } else {
+                warn!("Main window not found while handling second-instance activation");
+            }
+        },
+    ));
+
+    let builder = builder
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
@@ -48,6 +52,29 @@ pub fn run() {
         .manage(BashExecutionRegistry::new())
         .manage(McpClientManager::new())
         .on_window_event(|window, event| {
+            // 主窗口尺寸/位置变化时，记录到状态机用于区分程序化 resize 和用户操作。
+            if window.label() == "main" {
+                match event {
+                    WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+                        let app_handle = window.app_handle().clone();
+                        let window = window.clone();
+                        if let Err(error) =
+                            core::window::resize::record_search_window_runtime_resize(
+                                &app_handle,
+                                &window,
+                            )
+                        {
+                            warn!(
+                                "Failed to record search window runtime resize for '{}': {}",
+                                window.label(),
+                                error
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             if matches!(event, WindowEvent::Focused(false)) {
                 let app_handle = window.app_handle().clone();
                 let window_label = window.label().to_string();

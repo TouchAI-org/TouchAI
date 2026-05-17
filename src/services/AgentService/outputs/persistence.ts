@@ -74,6 +74,7 @@ interface PersistenceProjectorOptions {
 
 interface CompleteTurnOptions {
     response: string;
+    reasoning: string;
     durationMs: number;
     tokensUsed?: number | null;
 }
@@ -104,6 +105,7 @@ type PersistedCheckpointModel = Pick<
 
 type PersistedAiContentPart =
     | Extract<AiContentPart, { type: 'text' }>
+    | Extract<AiContentPart, { type: 'reasoning' }>
     | {
           type: 'image';
           alias: string;
@@ -282,6 +284,7 @@ export class PersistenceProjector {
                     this.prompt,
                     null,
                     null,
+                    null,
                     persistedAttachments,
                     tx,
                     sessionId
@@ -305,10 +308,12 @@ export class PersistenceProjector {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
-                    options.response.trim() && !this.assistantMessageId
+                    (options.response.trim() || options.reasoning.trim()) &&
+                    !this.assistantMessageId
                         ? await this.persistMessage(
                               'assistant',
                               options.response,
+                              options.reasoning,
                               null,
                               null,
                               [],
@@ -343,14 +348,19 @@ export class PersistenceProjector {
     /**
      * 当前轮次失败阶段：更新最终失败状态和错误信息。
      */
-    async markFailed(errorMessage: string, partialResponse?: string): Promise<void> {
+    async markFailed(
+        errorMessage: string,
+        partialResponse?: string,
+        partialReasoning = ''
+    ): Promise<void> {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
-                    partialResponse?.trim() && !this.assistantMessageId
+                    (partialResponse?.trim() || partialReasoning.trim()) && !this.assistantMessageId
                         ? await this.persistMessage(
                               'assistant',
-                              partialResponse,
+                              partialResponse ?? '',
+                              partialReasoning,
                               null,
                               null,
                               [],
@@ -384,14 +394,15 @@ export class PersistenceProjector {
     /**
      * 当前轮次取消阶段：更新取消状态。
      */
-    async markCancelled(partialResponse?: string): Promise<void> {
+    async markCancelled(partialResponse?: string, partialReasoning = ''): Promise<void> {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
-                    partialResponse?.trim() && !this.assistantMessageId
+                    (partialResponse?.trim() || partialReasoning.trim()) && !this.assistantMessageId
                         ? await this.persistMessage(
                               'assistant',
-                              partialResponse,
+                              partialResponse ?? '',
+                              partialReasoning,
                               null,
                               null,
                               [],
@@ -525,8 +536,8 @@ export class PersistenceProjector {
     /**
      * 持久化工具调用消息。
      */
-    async persistToolCallMessage(text?: string): Promise<number> {
-        return this.persistMessage('tool_call', text || '');
+    async persistToolCallMessage(text?: string, reasoning = ''): Promise<number> {
+        return this.persistMessage('tool_call', text || '', reasoning);
     }
 
     /**
@@ -539,7 +550,14 @@ export class PersistenceProjector {
         toolLogKind: ToolLogKind | null,
         attachments: AttachmentIndex[] = []
     ): Promise<number> {
-        return this.persistMessage('tool_result', result, toolLogId, toolLogKind, attachments);
+        return this.persistMessage(
+            'tool_result',
+            result,
+            null,
+            toolLogId,
+            toolLogKind,
+            attachments
+        );
     }
 
     async persistCheckpoint(checkpoint: AttemptCheckpoint): Promise<void> {
@@ -628,6 +646,7 @@ export class PersistenceProjector {
     private async persistMessage(
         role: MessageRole,
         content: string,
+        reasoning?: string | null,
         toolLogId?: number | null,
         toolLogKind?: ToolLogKind | null,
         attachments: Array<AttachmentIndex | AttachmentEntity> = [],
@@ -641,6 +660,7 @@ export class PersistenceProjector {
                 session_id: resolvedSessionId,
                 role: role as MessageRole,
                 content,
+                reasoning: reasoning?.trim() ? reasoning : null,
                 tool_log_id: toolLogId ?? null,
                 tool_log_kind: toolLogKind ?? null,
             },

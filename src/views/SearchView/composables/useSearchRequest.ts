@@ -14,7 +14,12 @@ import {
 import { dismissSessionTerminalStatus, listSessions } from '@/services/AgentService/session';
 import { eventService } from '@/services/EventService';
 import { AppEvent } from '@/services/EventService/types';
-import type { LoadedSessionInfo, SessionMessage } from '@/types/session';
+import {
+    createInputHistorySnapshot,
+    type InputHistorySnapshot,
+    type LoadedSessionInfo,
+    type SessionMessage,
+} from '@/types/session';
 
 import type { PendingRequest, SearchModelOverride } from '../types';
 
@@ -23,6 +28,7 @@ interface UseSearchRequestFlowOptions {
     clearDraft: (options?: { preserveModelTag?: boolean }) => void;
     getSupportedAttachments: () => Index[];
     getUnsupportedAttachmentMessage: () => string | null;
+    getCurrentInputSnapshot: (query: string) => InputHistorySnapshot;
 }
 
 const SESSION_LIST_LIMIT = 40;
@@ -53,8 +59,13 @@ function findNearestPrecedingUserMessage(
  * @returns 请求流状态与页面事件处理函数。
  */
 export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
-    const { modelOverride, clearDraft, getSupportedAttachments, getUnsupportedAttachmentMessage } =
-        options;
+    const {
+        modelOverride,
+        clearDraft,
+        getSupportedAttachments,
+        getUnsupportedAttachmentMessage,
+        getCurrentInputSnapshot,
+    } = options;
 
     const pendingRequest = ref<PendingRequest | null>(null);
     const isWaitingForCompletion = ref(false);
@@ -136,6 +147,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             const {
                 query,
                 attachments: pendingAttachments,
+                inputSnapshot,
                 modelId,
                 providerId,
             } = pendingRequest.value;
@@ -143,7 +155,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
             clearDraft({ preserveModelTag: true });
 
-            await sendRequest(query, pendingAttachments, modelId, providerId);
+            await sendRequest(query, pendingAttachments, inputSnapshot, modelId, providerId);
         },
         onError: () => {
             invalidateSessionListCache({
@@ -316,12 +328,14 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         }
     }
 
-    async function handleSubmit(query: string) {
+    async function handleSubmit(query: string, inputSnapshotOverride?: InputHistorySnapshot) {
         const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
         if (unsupportedAttachmentMessage) {
             notify({ title: 'TouchAI', body: unsupportedAttachmentMessage });
             return;
         }
+
+        const inputSnapshot = inputSnapshotOverride ?? getCurrentInputSnapshot(query);
 
         if (isLoading.value) {
             if (pendingRequest.value) {
@@ -333,6 +347,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             pendingRequest.value = {
                 query,
                 attachments: getSupportedAttachments(),
+                inputSnapshot,
                 modelId: selectedModelId ?? undefined,
                 providerId: selectedProviderId ?? undefined,
             };
@@ -349,6 +364,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         await sendRequest(
             query,
             supportedAttachments,
+            inputSnapshot,
             selectedModelId ?? undefined,
             selectedProviderId ?? undefined
         );
@@ -410,10 +426,17 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         const selectedModelId = modelOverride.value.modelId;
         const selectedProviderId = modelOverride.value.providerId;
         const supportedAttachments = (userMessage.attachments || []).filter(isAttachmentSupported);
+        const inputSnapshot = createInputHistorySnapshot({
+            text: userMessage.inputSnapshot?.text ?? userMessage.content,
+            attachments: userMessage.inputSnapshot?.attachments ?? userMessage.attachments ?? [],
+            editorDoc: userMessage.inputSnapshot?.editorDoc,
+            excludeFromHistory: true,
+        });
 
         await sendRequest(
-            userMessage.content,
+            inputSnapshot.text,
             supportedAttachments,
+            inputSnapshot,
             selectedModelId ?? undefined,
             selectedProviderId ?? undefined
         );

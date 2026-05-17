@@ -64,23 +64,24 @@
             :name="provider.name"
             size="small"
             :show-badge="provider.is_builtin === 1"
+            class="shrink-0"
         />
 
         <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-                <h3 class="truncate font-serif text-sm font-medium text-gray-900">
+            <div class="flex min-w-0 items-center gap-2">
+                <h3 class="min-w-0 flex-1 truncate font-serif text-sm font-medium text-gray-900">
                     {{ provider.name }}
                 </h3>
                 <span
                     v-if="hasDefaultModel"
-                    class="bg-primary-50 text-primary-600 rounded-full px-2 py-0.5 text-xs"
+                    class="bg-primary-50 text-primary-600 shrink-0 rounded-full px-2 py-0.5 text-xs whitespace-nowrap"
                 >
                     默认
                 </span>
             </div>
         </div>
 
-        <label class="relative inline-flex cursor-pointer items-center" @click.stop>
+        <label class="relative inline-flex shrink-0 cursor-pointer items-center" @click.stop>
             <input
                 type="checkbox"
                 :checked="provider.enabled === 1"

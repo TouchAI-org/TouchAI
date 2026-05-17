@@ -11,6 +11,7 @@
 
     interface Props {
         isPinned: boolean;
+        isMaximized?: boolean;
         historyOpen: boolean;
         canPin?: boolean;
         disabled?: boolean;
@@ -23,6 +24,7 @@
 
     const emit = defineEmits<{
         pinChange: [isPinned: boolean];
+        maximizeToggle: [];
         newSession: [];
         historyOpenChange: [payload: { open: boolean; anchorElement: HTMLElement | null }];
         historyPrefetch: [anchorElement: HTMLElement | null];
@@ -35,6 +37,14 @@
 
     function togglePinned() {
         emit('pinChange', !props.isPinned);
+    }
+
+    function toggleMaximized() {
+        if (props.disabled) {
+            return;
+        }
+
+        emit('maximizeToggle');
     }
 
     function handleNewSession() {
@@ -135,6 +145,19 @@
                     <AppIcon name="history" class="h-4 w-4" />
                 </button>
             </div>
+
+            <button
+                type="button"
+                class="toolbar-button"
+                :class="disabled ? 'toolbar-button--disabled' : ''"
+                :aria-label="isMaximized ? '还原窗口' : '最大化窗口'"
+                :aria-pressed="isMaximized"
+                data-drag-exclude="true"
+                @mousedown.stop
+                @click.stop="toggleMaximized"
+            >
+                <AppIcon :name="isMaximized ? 'exit-fullscreen' : 'fullscreen'" class="h-4 w-4" />
+            </button>
 
             <button
                 v-if="canPin"

@@ -118,8 +118,12 @@
         getModelDropdownContext,
         isMultiLine,
         cursorAtStart,
+        cursorAtTextStart,
+        cursorAtEnd,
         focus,
         loadActiveModel,
+        captureInputHistorySnapshot,
+        restoreInputHistorySnapshot,
         handleContainerMouseDown,
         handleEditorMouseDown,
         initEditor,
@@ -144,11 +148,13 @@
         emit('cursorContextChange', {
             isMultiLine: isMultiLine.value,
             cursorAtStart: cursorAtStart.value,
+            cursorAtTextStart: cursorAtTextStart.value,
+            cursorAtEnd: cursorAtEnd.value,
         });
     }
 
     watch(
-        () => [isMultiLine.value, cursorAtStart.value],
+        () => [isMultiLine.value, cursorAtStart.value, cursorAtTextStart.value, cursorAtEnd.value],
         () => emitCursorContext(),
         { immediate: true, flush: 'sync' }
     );
@@ -259,6 +265,8 @@
         getModelDropdownContext,
         focus,
         loadActiveModel,
+        captureInputHistorySnapshot,
+        restoreInputHistorySnapshot,
     });
 </script>
 

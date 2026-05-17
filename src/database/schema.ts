@@ -25,6 +25,7 @@ export enum SettingKey {
     LANGUAGE = 'language',
     AUTO_START = 'auto_start',
     OUTPUT_SCROLL_BEHAVIOR = 'output_scroll_behavior',
+    SEARCH_WINDOW_SIZE_PRESET = 'search_window_size_preset',
 }
 
 export type ToolLogKind = 'mcp' | 'builtin';
@@ -90,6 +91,7 @@ export const messages = sqliteTable('messages', {
         enum: ['user', 'assistant', 'system', 'tool_call', 'tool_result'],
     }).notNull(),
     content: text('content').notNull(),
+    reasoning: text('reasoning'),
     tool_log_id: integer('tool_log_id'), // 关联 mcp_tool_logs 表 ID（仅 tool_result 消息使用）
     tool_log_kind: text('tool_log_kind', {
         enum: ['mcp', 'builtin'],
@@ -226,7 +228,9 @@ export const providers = sqliteTable('providers', {
     driver: text('driver', {
         enum: [
             'openai',
+            'openai-compatible',
             'anthropic',
+            'anthropic-compatible',
             'google',
             'deepseek',
             'xai',

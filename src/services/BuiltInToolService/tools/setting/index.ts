@@ -2,6 +2,7 @@
 
 import { native } from '@services/NativeService';
 
+import { resolveSearchWindowDefaultSize } from '@/config/searchWindow';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import type { GeneralSettingsData } from '@/stores/settings';
 import { truncateText } from '@/utils/text';
@@ -95,6 +96,13 @@ async function applySettingSideEffect(
         } else {
             await native.autostart.disableAutostart();
         }
+        return;
+    }
+
+    if (key === 'search_window_size_preset') {
+        await native.window.setSearchWindowDefaults(
+            resolveSearchWindowDefaultSize(value as GeneralSettingsData['searchWindowSizePreset'])
+        );
     }
 }
 
@@ -120,6 +128,11 @@ async function persistSettingValue(
         case 'output_scroll_behavior':
             await settingsStore.updateOutputScrollBehavior(
                 value as GeneralSettingsData['outputScrollBehavior']
+            );
+            return;
+        case 'search_window_size_preset':
+            await settingsStore.updateSearchWindowSizePreset(
+                value as GeneralSettingsData['searchWindowSizePreset']
             );
             return;
         default:

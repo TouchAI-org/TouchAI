@@ -15,12 +15,18 @@ import {
     SHOW_WIDGET_TOOL_NAME,
     type ShowWidgetPayload,
 } from '@/services/BuiltInToolService/tools/widgetTool';
-import type { SessionMessage, ToolCallInfo, WidgetInfo } from '@/types/session';
+import {
+    createInputHistorySnapshot,
+    type SessionMessage,
+    type ToolCallInfo,
+    type WidgetInfo,
+} from '@/types/session';
 import { parseDbDateTimestamp } from '@/utils/date';
 import { createTextPart } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
 import { getRetryStatusMessage } from '../execution/retry';
+import type { PromptSnapshot } from '../prompt/types';
 import { getSessionData, type SessionData } from './manager';
 import {
     ensureAssistantWidgets,
@@ -36,6 +42,7 @@ interface PersistedHistoryEntry {
     id: number;
     role: MessageRow['role'];
     content: string;
+    reasoning: string | null;
     created_at: string;
     attachments?: Awaited<ReturnType<typeof hydratePersistedAttachments>>;
     toolCalls?: ToolCallInfo[];
@@ -220,6 +227,7 @@ async function buildPersistedEntries(
                 id: row.id,
                 role: row.role,
                 content: row.content,
+                reasoning: row.reasoning,
                 created_at: row.created_at,
                 attachments:
                     row.role === 'user'
@@ -283,7 +291,8 @@ async function buildPersistedEntries(
  * @returns UI 可直接消费的对话历史。
  */
 function convertEntriesToSessionHistory(
-    entries: PersistedHistoryEntry[]
+    entries: PersistedHistoryEntry[],
+    promptSnapshotsByMessageId: Map<number, PromptSnapshot>
 ): SessionHistoryBuildResult {
     const history: SessionMessage[] = [];
     const historyIndexByPersistedMessageId = new Map<number, number>();
@@ -451,12 +460,19 @@ function convertEntriesToSessionHistory(
     for (const entry of entries) {
         if (entry.role === 'user') {
             flushAssistantMessage();
+            const promptSnapshot = promptSnapshotsByMessageId.get(entry.id);
             const historyIndex = history.length;
             history.push({
                 id: `user-${entry.id}`,
                 role: 'user',
                 content: entry.content,
                 attachments: entry.attachments?.length ? entry.attachments : undefined,
+                inputSnapshot: createInputHistorySnapshot({
+                    text: entry.content,
+                    attachments: entry.attachments ?? [],
+                    editorDoc: promptSnapshot?.inputSnapshot?.editorDoc,
+                    excludeFromHistory: promptSnapshot?.inputSnapshot?.excludeFromHistory,
+                }),
                 parts: [],
                 timestamp: parseDbDateTimestamp(entry.created_at),
             });
@@ -465,6 +481,10 @@ function convertEntriesToSessionHistory(
         }
 
         const assistantMessage = ensureAssistantMessage(entry);
+
+        if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.reasoning?.trim()) {
+            assistantMessage.reasoning = `${assistantMessage.reasoning ?? ''}${entry.reasoning}`;
+        }
 
         if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.content) {
             assistantMessage.content += entry.content;
@@ -829,8 +849,25 @@ export async function buildSessionHistory(
     options: BuildSessionHistoryOptions
 ): Promise<SessionMessage[]> {
     const { messages, turns, attempts, resolveServerName } = options;
+    const promptSnapshotsByMessageId = new Map<number, PromptSnapshot>();
+    for (const turn of turns) {
+        if (turn.prompt_message_id === null) {
+            continue;
+        }
+
+        try {
+            const promptSnapshot = JSON.parse(turn.prompt_snapshot_json) as PromptSnapshot;
+            promptSnapshotsByMessageId.set(turn.prompt_message_id, promptSnapshot);
+        } catch (error) {
+            console.error('[SessionHistory] Failed to parse prompt snapshot JSON:', error);
+        }
+    }
+
     return injectDerivedRequestStatuses(
-        convertEntriesToSessionHistory(await buildPersistedEntries(messages, resolveServerName)),
+        convertEntriesToSessionHistory(
+            await buildPersistedEntries(messages, resolveServerName),
+            promptSnapshotsByMessageId
+        ),
         turns,
         attempts
     );

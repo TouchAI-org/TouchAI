@@ -8,7 +8,13 @@
  * 本文件只保留核心生命周期、消息管理和跨子关注点的编排逻辑。
  */
 
-import type { PendingToolApproval, SessionMessage, ToolApprovalInfo } from '@/types/session';
+import {
+    cloneInputHistorySnapshot,
+    createInputHistorySnapshot,
+    type PendingToolApproval,
+    type SessionMessage,
+    type ToolApprovalInfo,
+} from '@/types/session';
 import { createTextPart } from '@/utils/session';
 
 import type { AiStreamChunk } from '../../contracts/protocol';
@@ -70,14 +76,23 @@ export class SessionTaskProjection {
     bootstrap(
         history: SessionMessage[],
         prompt: string,
-        attachments: StartSessionTaskOptions['attachments']
+        attachments: StartSessionTaskOptions['attachments'],
+        inputSnapshot?: StartSessionTaskOptions['inputSnapshot']
     ): void {
         this.snapshot.sessionHistory = cloneValue(history);
+        const snapshotAttachments = inputSnapshot?.attachments ?? attachments ?? [];
+        const userInputSnapshot = createInputHistorySnapshot({
+            text: prompt,
+            attachments: snapshotAttachments,
+            editorDoc: inputSnapshot?.editorDoc,
+            excludeFromHistory: inputSnapshot?.excludeFromHistory,
+        });
         this.snapshot.sessionHistory.push({
             id: crypto.randomUUID(),
             role: 'user',
             content: prompt,
-            attachments: attachments?.length ? cloneValue(attachments) : undefined,
+            attachments: snapshotAttachments.length ? cloneValue(snapshotAttachments) : undefined,
+            inputSnapshot: cloneInputHistorySnapshot(userInputSnapshot) ?? undefined,
             parts: [],
             timestamp: Date.now(),
         });
