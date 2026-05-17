@@ -23,19 +23,6 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ));
 
-    #[cfg(not(debug_assertions))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(
-        |app, _args: Vec<String>, _cwd: String| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            } else {
-                warn!("Main window not found while handling second-instance activation");
-            }
-        },
-    ));
-
     let builder = builder
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
@@ -98,21 +85,22 @@ pub fn run() {
         })
         .invoke_handler(commands::invoke_handler::<tauri::Wry>());
 
-    let builder = if core::system::runtime::should_enable_single_instance() {
-        builder.plugin(tauri_plugin_single_instance::init(
-            |app, _args: Vec<String>, _cwd: String| {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                } else {
-                    warn!("Main window not found while handling second-instance activation");
-                }
-            },
-        ))
-    } else {
-        builder
-    };
+    let builder =
+        if cfg!(not(debug_assertions)) && core::system::runtime::should_enable_single_instance() {
+            builder.plugin(tauri_plugin_single_instance::init(
+                |app, _args: Vec<String>, _cwd: String| {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    } else {
+                        warn!("Main window not found while handling second-instance activation");
+                    }
+                },
+            ))
+        } else {
+            builder
+        };
 
     let app_result = builder
         .setup(|app| {
