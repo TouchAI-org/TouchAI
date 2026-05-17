@@ -1,13 +1,36 @@
+use flate2::read::GzDecoder;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::{
     fs,
+    io::{Cursor, Read},
     path::{Path, PathBuf},
 };
 
 use quote::ToTokens;
 use tauri_codegen::embedded_assets::{AssetOptions, EmbeddedAssets};
 
+#[derive(Debug, Deserialize)]
+struct RipgrepManifest {
+    version: String,
+    targets: std::collections::BTreeMap<String, RipgrepTarget>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RipgrepTarget {
+    size: u64,
+    digest: String,
+    #[serde(default)]
+    binary_digest: String,
+    format: String,
+    #[serde(rename = "archivePath")]
+    archive_path: String,
+    url: String,
+}
+
 fn main() {
     generate_database_embedded_assets().expect("failed to generate embedded database assets");
+    prepare_bundled_ripgrep().expect("failed to prepare bundled ripgrep");
 
     #[cfg(target_os = "windows")]
     configure_windows_common_controls_manifest()
@@ -128,4 +151,149 @@ fn emit_rerun_if_changed(path: &Path) -> Result<(), Box<dyn std::error::Error>> 
         }
     }
     Ok(())
+}
+
+fn prepare_bundled_ripgrep() -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_path = PathBuf::from("resources/ripgrep/manifest.json");
+    println!("cargo:rerun-if-changed={}", manifest_path.display());
+
+    let manifest: RipgrepManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+    let target_triple = std::env::var("TARGET")?;
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
+    let cache_dir = PathBuf::from("target")
+        .join("ripgrep-cache")
+        .join(&manifest.version)
+        .join(&target_triple);
+
+    if let Some(target) = manifest.targets.get(&target_triple) {
+        let binary_path = materialize_target_binary(target, &cache_dir)?;
+        let binary_hash = if !target.binary_digest.is_empty() {
+            target.binary_digest.clone()
+        } else {
+            sha256_file(&binary_path)?
+        };
+        generate_ripgrep_asset_module(&out_dir, &binary_path, &binary_hash)?;
+    } else {
+        generate_empty_ripgrep_asset_module(&out_dir)?;
+    }
+
+    Ok(())
+}
+
+fn materialize_target_binary(
+    target: &RipgrepTarget,
+    cache_dir: &Path,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    fs::create_dir_all(cache_dir)?;
+    let file_name = Path::new(&target.archive_path)
+        .file_name()
+        .ok_or("missing archive file name")?;
+    let binary_path = cache_dir.join(file_name);
+
+    if binary_path.exists() {
+        let existing_hash = sha256_file(&binary_path)?;
+        if existing_hash == target.digest
+            || (!target.binary_digest.is_empty() && existing_hash == target.binary_digest)
+        {
+            return Ok(binary_path);
+        }
+    }
+
+    let response = ureq::get(&target.url).call()?;
+    let bytes = response
+        .into_reader()
+        .bytes()
+        .collect::<Result<Vec<_>, _>>()?;
+    if bytes.len() as u64 != target.size {
+        return Err(format!("ripgrep download size mismatch for {}", target.url).into());
+    }
+
+    let actual_digest = sha256_hex(&bytes);
+    if actual_digest != target.digest {
+        return Err(format!("ripgrep digest mismatch for {}", target.url).into());
+    }
+
+    let extracted = extract_target_binary(&bytes, &target.format, &target.archive_path)?;
+    fs::write(&binary_path, extracted)?;
+    Ok(binary_path)
+}
+
+fn generate_ripgrep_asset_module(
+    out_dir: &Path,
+    binary_path: &Path,
+    digest: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let file_name = binary_path
+        .file_name()
+        .ok_or("missing ripgrep file name")?
+        .to_string_lossy();
+
+    fs::write(
+        out_dir.join("ripgrep-binary.rs"),
+        format!(
+            "pub const BUNDLED_RIPGREP_FILENAME: &str = {file_name:?};\n\
+             pub const BUNDLED_RIPGREP_SHA256: &str = {digest:?};\n\
+             pub static BUNDLED_RIPGREP_BYTES: &[u8] = include_bytes!(r#\"{path}\"#);\n",
+            file_name = file_name,
+            digest = digest,
+            path = binary_path.canonicalize()?.display()
+        ),
+    )?;
+
+    Ok(())
+}
+
+fn generate_empty_ripgrep_asset_module(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    fs::write(
+        out_dir.join("ripgrep-binary.rs"),
+        "pub const BUNDLED_RIPGREP_FILENAME: &str = \"\";\n\
+         pub const BUNDLED_RIPGREP_SHA256: &str = \"\";\n\
+         pub static BUNDLED_RIPGREP_BYTES: &[u8] = &[];\n",
+    )?;
+
+    Ok(())
+}
+
+fn sha256_file(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(sha256_hex(&fs::read(path)?))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut output, "{byte:02x}");
+    }
+    output
+}
+
+fn extract_target_binary(
+    archive_bytes: &[u8],
+    format: &str,
+    archive_path: &str,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    match format {
+        "zip" => {
+            let mut archive = zip::ZipArchive::new(Cursor::new(archive_bytes))?;
+            let mut file = archive.by_name(archive_path)?;
+            let mut extracted = Vec::new();
+            file.read_to_end(&mut extracted)?;
+            Ok(extracted)
+        }
+        "tar.gz" => {
+            let decoder = GzDecoder::new(Cursor::new(archive_bytes));
+            let mut archive = tar::Archive::new(decoder);
+            for entry in archive.entries()? {
+                let mut entry = entry?;
+                if entry.path()?.to_string_lossy() == archive_path {
+                    let mut extracted = Vec::new();
+                    entry.read_to_end(&mut extracted)?;
+                    return Ok(extracted);
+                }
+            }
+            Err(format!("missing ripgrep archive entry {}", archive_path).into())
+        }
+        other => Err(format!("unsupported ripgrep archive format: {other}").into()),
+    }
 }
