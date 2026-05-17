@@ -19,7 +19,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     }),
 }));
 
-vi.mock('../utils/tiptap', () => ({
+vi.mock('@/views/SearchView/components/SearchBar/utils/tiptap', () => ({
     isBlankEditorAreaTarget: isBlankEditorAreaTargetMock,
     isSearchTagDomTarget: isSearchTagDomTargetMock,
     resolveMouseEventTarget: resolveMouseEventTargetMock,

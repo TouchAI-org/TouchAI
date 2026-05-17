@@ -354,6 +354,7 @@ describe('createSearchKeyboardRouter', () => {
                 getActiveSurface: () => 'search-surface',
                 hasActivePopupWindowFocus: () => false,
                 getQueryText: () => '',
+                hasAttachments: () => false,
                 isQuickSearchOpen: () => false,
                 hasQuickSearchHighlight: () => false,
                 shouldTriggerQuickSearch: () => false,
@@ -384,10 +385,25 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onRejectApproval).toHaveBeenCalledWith('approval-1');
     });
 
-    it('opens quick search when ArrowDown cannot navigate newer history and the query is eligible', () => {
+    it('submits when ArrowDown cannot navigate newer history and query text is present', () => {
         const { router, callbacks } = createKeyboardRouter({
             getQueryText: () => 'touch',
             shouldTriggerQuickSearch: () => true,
+            onNavigateInputHistory: vi.fn(() => 'ignored' as const),
+        });
+
+        const handled = router.route({ key: 'ArrowDown' });
+
+        expect(handled).toBe(true);
+        expect(callbacks.onSubmit).toHaveBeenCalledTimes(1);
+        expect(callbacks.onOpenQuickSearch).not.toHaveBeenCalled();
+    });
+
+    it('opens quick search when ArrowDown cannot navigate newer history and query is empty with eligible trigger', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => '',
+            shouldTriggerQuickSearch: () => true,
+            hasAttachments: () => false,
             onNavigateInputHistory: vi.fn(() => 'ignored' as const),
         });
 

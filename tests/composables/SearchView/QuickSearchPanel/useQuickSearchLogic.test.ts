@@ -36,18 +36,21 @@ const { assetLoaderMock, clickStatsMock, layoutMock } = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('./useAssetLoader', () => ({
+vi.mock('@/views/SearchView/components/QuickSearchPanel/composables/useAssetLoader', () => ({
     useAssetLoader: vi.fn(() => assetLoaderMock),
 }));
 
-vi.mock('./useLayout', () => ({
+vi.mock('@/views/SearchView/components/QuickSearchPanel/composables/useLayout', () => ({
     COLLAPSED_VISIBLE_ROWS: 5,
     useLayout: vi.fn(() => layoutMock),
 }));
 
-vi.mock('./useQuickSearchClickStats', () => ({
-    useQuickSearchClickStats: vi.fn(() => clickStatsMock),
-}));
+vi.mock(
+    '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchClickStats',
+    () => ({
+        useQuickSearchClickStats: vi.fn(() => clickStatsMock),
+    })
+);
 
 function createShortcut(name: string, path = `D:/${name}.lnk`): QuickShortcutItem {
     return {

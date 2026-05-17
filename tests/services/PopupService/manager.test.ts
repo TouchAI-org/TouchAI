@@ -9,7 +9,7 @@ import {
 } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./registry', () => ({
+vi.mock('@services/PopupService/registry', () => ({
     initializeBuiltInPopups: vi.fn(),
     popupRegistry: {
         getSerializableConfig: vi.fn(() => [

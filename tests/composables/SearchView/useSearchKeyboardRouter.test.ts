@@ -37,6 +37,7 @@ function createKeyboardRouter(
             getActiveSurface: () => 'search-surface',
             hasActivePopupWindowFocus: () => false,
             getQueryText: () => '',
+            hasAttachments: () => false,
             isQuickSearchOpen: () => false,
             hasQuickSearchHighlight: () => false,
             shouldTriggerQuickSearch: () => false,

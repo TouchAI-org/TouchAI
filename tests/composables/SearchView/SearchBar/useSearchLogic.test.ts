@@ -126,7 +126,7 @@ const {
     };
 });
 
-vi.mock('../tags', () => ({}));
+vi.mock('@/views/SearchView/components/SearchBar/tags', () => ({}));
 
 vi.mock('@tiptap/vue-3', () => ({
     Editor: MockEditor,
@@ -136,7 +136,7 @@ vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
     buildAttachmentPromptMetas: buildAttachmentPromptMetasMock,
 }));
 
-vi.mock('../tags/attachment', () => ({
+vi.mock('@/views/SearchView/components/SearchBar/tags/attachment', () => ({
     ATTACHMENT_TAG_NODE: 'attachment-tag',
     getAttachmentTags: getAttachmentTagsMock,
     insertAttachmentTag: insertAttachmentTagMock,
@@ -144,14 +144,14 @@ vi.mock('../tags/attachment', () => ({
     updateAttachmentTag: updateAttachmentTagMock,
 }));
 
-vi.mock('../tags/model', () => ({
+vi.mock('@/views/SearchView/components/SearchBar/tags/model', () => ({
     MODEL_TAG_NODE: 'model-tag',
     getModelTag: getModelTagMock,
     insertModelTag: insertModelTagMock,
     removeModelTag: removeModelTagMock,
 }));
 
-vi.mock('../utils/tiptap', () => ({
+vi.mock('@/views/SearchView/components/SearchBar/utils/tiptap', () => ({
     createSearchEditorExtensions: createSearchEditorExtensionsMock,
     findSearchTagChip: findSearchTagChipMock,
     getEditorJSON: getEditorJSONMock,
@@ -167,11 +167,11 @@ vi.mock('../utils/tiptap', () => ({
     setEditorText: setEditorTextMock,
 }));
 
-vi.mock('./useDragging', () => ({
+vi.mock('@/views/SearchView/components/SearchBar/composables/useDragging', () => ({
     useDragging: vi.fn(() => useDraggingMock),
 }));
 
-vi.mock('./useModelSelection', () => ({
+vi.mock('@/views/SearchView/components/SearchBar/composables/useModelSelection', () => ({
     useModelSelection: vi.fn(() => modelSelectionState.current),
 }));
 

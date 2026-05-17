@@ -217,6 +217,15 @@ jobs:
             - uses: actions/checkout@v4
               if: needs.changes.outputs.docs_only != 'true'
 
+            - uses: pnpm/action-setup@v6
+              if: needs.changes.outputs.docs_only != 'true'
+
+            - uses: actions/setup-node@v6
+              if: needs.changes.outputs.docs_only != 'true'
+              with:
+                  node-version: 22
+                  cache: pnpm
+
             - name: Install Linux system dependencies
               if: needs.changes.outputs.docs_only != 'true'
               run: |
