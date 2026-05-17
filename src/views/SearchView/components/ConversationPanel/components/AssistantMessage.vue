@@ -1,7 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <div class="mb-4 flex justify-start">
+    <div class="flex justify-start" :class="message.isStreaming ? 'mb-0' : 'mb-4'">
         <div class="w-full break-words">
             <div class="text-[15px] leading-[1.8]">
                 <!-- 请求状态消息 -->
@@ -93,6 +93,11 @@
                             <span class="dot"></span>
                             <span class="dot"></span>
                         </div>
+                        <Transition name="tip-fade" mode="out-in">
+                            <span v-if="tipVisible" :key="currentTipIndex" class="loading-tip">
+                                {{ currentTip }}
+                            </span>
+                        </Transition>
                     </div>
                 </template>
 
@@ -114,7 +119,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { notify } from '@services/NotificationService';
-    import { computed, ref, watch } from 'vue';
+    import { computed, onUnmounted, ref, watch } from 'vue';
 
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
@@ -165,6 +170,70 @@
               type: 'approval';
               approval: ToolApprovalInfo;
           };
+
+    const TIPS = [
+        'Shift+Enter 换行，适合分段表述',
+        'Ctrl+M 或点击模型图标切换模型',
+        'Ctrl+H 快速打开历史会话',
+        'Ctrl+P 切换窗口置顶',
+        'Ctrl+N 开启新会话',
+        '右上角历史按钮可查看和切换历史会话',
+        '消息下方按钮可复制内容',
+        '消息下方按钮可重新生成回复',
+    ];
+
+    // UI 层记忆：跨流式会话保持轮播进度，确保提示均等曝光
+    const lastTipIndex = ref(0);
+
+    const currentTipIndex = ref(0);
+    const tipVisible = ref(false);
+    const currentTip = computed(() => TIPS[currentTipIndex.value]);
+
+    let tipTimer: ReturnType<typeof setInterval> | null = null;
+    let tipDelayTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function startTipRotation() {
+        const len = TIPS.length;
+        if (len <= 1) return;
+        // 20 秒延迟后才显示 tip
+        tipDelayTimer = setTimeout(() => {
+            tipVisible.value = true;
+            currentTipIndex.value = lastTipIndex.value % len;
+            tipTimer = setInterval(() => {
+                currentTipIndex.value = (currentTipIndex.value + 1) % len;
+            }, 5000);
+        }, 20000);
+    }
+
+    function stopTipRotation() {
+        if (tipDelayTimer !== null) {
+            clearTimeout(tipDelayTimer);
+            tipDelayTimer = null;
+        }
+        if (tipTimer !== null) {
+            clearInterval(tipTimer);
+            tipTimer = null;
+        }
+        tipVisible.value = false;
+        lastTipIndex.value = currentTipIndex.value;
+    }
+
+    // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
+    watch(
+        () => props.message.isStreaming,
+        (streaming) => {
+            if (streaming) {
+                startTipRotation();
+            } else {
+                stopTipRotation();
+            }
+        },
+        { immediate: true }
+    );
+
+    onUnmounted(() => {
+        stopTipRotation();
+    });
 
     const isReasoningExpanded = ref(true); // 默认展开
     const isRequestStateMessage = computed(() => {
@@ -237,11 +306,9 @@
         return parts;
     });
     const streamingIndicatorClass = computed(() => {
-        const lastPart = renderedParts.value[renderedParts.value.length - 1];
-        const marginTop =
-            lastPart?.type === 'tool_call' || lastPart?.type === 'approval' ? 'mt-4' : 'mt-2';
+        const marginTop = 'mt-5';
 
-        return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop];
+        return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop, 'mb-2'];
     });
     const showMessageActions = computed(() => {
         return !props.message.isStreaming && !isRequestStateMessage.value;
@@ -347,9 +414,14 @@
         font-weight: 600;
     }
 
+    .streaming-indicator {
+        position: relative;
+        min-height: 1.2em;
+    }
+
     .dot {
-        width: 4px;
-        height: 4px;
+        width: 3px;
+        height: 3px;
         border-radius: 50%;
         background-color: var(--color-gray-500);
         animation: pulse 1.4s infinite ease-in-out;
@@ -374,5 +446,34 @@
             opacity: 1;
             transform: scale(1);
         }
+    }
+
+    .loading-tip {
+        position: absolute;
+        left: 28px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 12px;
+        font-weight: 600;
+        font-family: var(--font-serif);
+        color: var(--color-gray-500);
+        white-space: nowrap;
+        opacity: 0.7;
+        transition: opacity 0.3s ease;
+    }
+
+    .tip-fade-enter-active {
+        transition: opacity 0.3s ease;
+    }
+    .tip-fade-leave-active {
+        transition: opacity 0.3s ease;
+    }
+    .tip-fade-enter-from,
+    .tip-fade-leave-to {
+        opacity: 0;
+    }
+    .tip-fade-enter-to,
+    .tip-fade-leave-from {
+        opacity: 0.6;
     }
 </style>
