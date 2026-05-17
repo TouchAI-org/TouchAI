@@ -16,7 +16,7 @@ struct BuiltInProcessRegistryState {
     pending_cancellations: HashMap<String, Instant>,
 }
 
-/// 维护”执行 ID -> 取消信号发送端”的映射。
+/// 维护"执行 ID -> 取消信号发送端"的映射。
 ///
 /// 前端通过 execution_id 发起取消命令时，
 /// 原生层不直接持有子进程句柄，而是向正在等待中的执行任务发送一个取消信号，
@@ -45,7 +45,7 @@ impl BuiltInProcessExecutionRegistry {
 
         // 取消命令可能比实际执行注册更早到达。
         // 如果 execution_id 已被提前标记为待取消，则在注册瞬间立刻把取消信号打给本次执行，
-        // 从而覆盖 IPC/线程调度乱序造成的“先取消、后注册”竞态。
+        // 从而覆盖 IPC/线程调度乱序造成的"先取消、后注册"竞态。
         if state.pending_cancellations.remove(&execution_id).is_some() {
             let _ = sender.send(());
             return receiver;
