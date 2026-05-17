@@ -19,18 +19,22 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
-        ))
-        .plugin(tauri_plugin_single_instance::init(
-            |app, _args: Vec<String>, _cwd: String| {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                } else {
-                    warn!("Main window not found while handling second-instance activation");
-                }
-            },
-        ))
+        ));
+
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(
+        |app, _args: Vec<String>, _cwd: String| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            } else {
+                warn!("Main window not found while handling second-instance activation");
+            }
+        },
+    ));
+
+    let builder = builder
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())

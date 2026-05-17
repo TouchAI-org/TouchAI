@@ -21,7 +21,7 @@
         handleKeyDown?: (e: KeyboardEvent) => void;
         handlePopupShown?: () => void;
     } | null>(null);
-    const popupContainer = ref<HTMLElement | null>(null);
+    const popupContent = ref<HTMLElement | null>(null);
     const unlisteners: (() => void)[] = [];
     const closedPopupIds = new Set<string>();
 
@@ -90,8 +90,8 @@
     popupType.value = type;
 
     const config = type ? popupRegistry.get(type) : null;
-    const { resetMeasuredHeight } = useWindowResize({
-        target: popupContainer,
+    const { requestResize, resetMeasuredHeight } = useWindowResize({
+        target: popupContent,
         maxHeight: config?.height,
         minHeight: config?.minHeight,
     });
@@ -127,6 +127,11 @@
                 popupSessionVersion.value = payload.popupSessionVersion;
                 popupType.value = payload.type;
                 popupData.value = payload.data;
+                await nextTick();
+                if (!isCurrentPayloadSession(payload)) {
+                    return;
+                }
+                await requestResize();
                 // 原生窗口已由 PopupManager.show() 显示；PopupView 只在首次数据到达后接管焦点与初始选中态。
                 if (payload.isShow) {
                     await nextTick();
@@ -196,14 +201,10 @@
 </script>
 
 <template>
-    <div ref="popupContainer" class="popup-container w-screen bg-transparent">
-        <component
-            :is="popupComponent"
-            v-if="popupComponent"
-            ref="componentRef"
-            v-bind="popupProps"
-            @close="close"
-        />
+    <div class="popup-container w-screen bg-transparent">
+        <div v-if="popupComponent" ref="popupContent" class="popup-content w-screen">
+            <component :is="popupComponent" ref="componentRef" v-bind="popupProps" @close="close" />
+        </div>
     </div>
 </template>
 

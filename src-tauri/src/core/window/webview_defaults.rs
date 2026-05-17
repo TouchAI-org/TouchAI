@@ -15,7 +15,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
 };
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
 #[cfg(target_os = "windows")]
 use windows_core::Interface;
 
@@ -159,6 +159,91 @@ fn register_search_surface_accelerator_bridge(
 }
 
 #[cfg(target_os = "windows")]
+/// 判断是否命中了需要打开 DevTools 的快捷键。
+fn is_devtools_accelerator_command(
+    key_event_kind: i32,
+    virtual_key: u32,
+    is_control_down: bool,
+    is_shift_down: bool,
+) -> bool {
+    let is_key_down = key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN.0
+        || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0;
+    if !is_key_down {
+        return false;
+    }
+    // F12
+    if virtual_key == 0x7B {
+        return true;
+    }
+    // Ctrl+Shift+I
+    if is_control_down && is_shift_down && virtual_key == 0x49 {
+        return true;
+    }
+    false
+}
+
+#[cfg(target_os = "windows")]
+/// 在 debug 构建中注册 F12 / Ctrl+Shift+I 快捷键以打开 DevTools。
+fn register_devtools_accelerator_handler(
+    controller: &ICoreWebView2Controller,
+) -> Result<(), String> {
+    if !cfg!(debug_assertions) {
+        return Ok(());
+    }
+
+    let mut token = 0i64;
+    let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
+        move |controller: Option<ICoreWebView2Controller>,
+              args: Option<ICoreWebView2AcceleratorKeyPressedEventArgs>| {
+            let (Some(controller), Some(args)) = (controller, args) else {
+                return Ok(());
+            };
+
+            unsafe {
+                let mut key_event_kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
+                args.KeyEventKind(&mut key_event_kind)?;
+
+                let mut virtual_key = 0u32;
+                args.VirtualKey(&mut virtual_key)?;
+
+                let is_control_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
+                let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
+
+                if !is_devtools_accelerator_command(
+                    key_event_kind.0,
+                    virtual_key,
+                    is_control_down,
+                    is_shift_down,
+                ) {
+                    return Ok(());
+                }
+
+                if let Ok(args2) =
+                    Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
+                {
+                    let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
+                }
+                let _ = args.SetHandled(true);
+
+                if let Ok(core_webview) = controller.CoreWebView2() {
+                    let _ = core_webview.OpenDevToolsWindow();
+                }
+            }
+
+            Ok(())
+        },
+    ));
+
+    unsafe {
+        controller
+            .add_AcceleratorKeyPressed(&handler, &mut token)
+            .map_err(|error| format!("Failed to add devtools accelerator handler: {}", error))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
 /**
  * 为桌面窗口应用统一的 webview 运行时默认配置。
  */
@@ -168,10 +253,11 @@ pub(crate) fn apply_webview_runtime_defaults(window: &tauri::WebviewWindow) -> R
     window
         .with_webview(move |webview| {
             let controller = webview.controller();
-            let result =
-                disable_browser_accelerator_keys_with_controller(&controller).and_then(|_| {
+            let result = disable_browser_accelerator_keys_with_controller(&controller)
+                .and_then(|_| {
                     register_search_surface_accelerator_bridge(&window_clone, &controller)
-                });
+                })
+                .and_then(|_| register_devtools_accelerator_handler(&controller));
             let _ = tx.send(result);
         })
         .map_err(|error| format!("Failed to access platform webview: {}", error))?;
