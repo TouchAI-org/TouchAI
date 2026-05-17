@@ -118,3 +118,52 @@ pub async fn terminate_child(
         .await
         .map_err(|error| format!("Failed to reap {label} process: {error}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn combine_output_both_non_empty() {
+        let result = combine_output("hello", "world");
+        assert_eq!(result, "STDOUT:\nhello\n\nSTDERR:\nworld");
+    }
+
+    #[test]
+    fn combine_output_stdout_only() {
+        let result = combine_output("hello", "");
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn combine_output_stderr_only() {
+        let result = combine_output("", "error");
+        assert_eq!(result, "STDERR:\nerror");
+    }
+
+    #[test]
+    fn combine_output_both_empty() {
+        let result = combine_output("", "");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn resolve_timeout_ms_uses_provided_value() {
+        assert_eq!(resolve_timeout_ms(Some(5000), 15000, 120000), 5000);
+    }
+
+    #[test]
+    fn resolve_timeout_ms_falls_back_to_default() {
+        assert_eq!(resolve_timeout_ms(None, 15000, 120000), 15000);
+    }
+
+    #[test]
+    fn resolve_timeout_ms_clamps_to_max() {
+        assert_eq!(resolve_timeout_ms(Some(200000), 15000, 120000), 120000);
+    }
+
+    #[test]
+    fn resolve_timeout_ms_clamps_zero_to_one() {
+        assert_eq!(resolve_timeout_ms(Some(0), 15000, 120000), 1);
+    }
+}

@@ -82,3 +82,34 @@ pub fn get_bundled_rg_directory() -> Option<&'static PathBuf> {
         .get_or_init(verify_and_resolve_binary_dir)
         .as_ref()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sha256_hex_matches_known_digest() {
+        // SHA-256 of empty input
+        let result = sha256_hex(b"");
+        assert_eq!(
+            result,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn sha256_hex_produces_64_char_lowercase() {
+        let result = sha256_hex(b"hello world");
+        assert_eq!(result.len(), 64);
+        assert!(result
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn sha256_hex_different_inputs_differ() {
+        let a = sha256_hex(b"aaa");
+        let b = sha256_hex(b"bbb");
+        assert_ne!(a, b);
+    }
+}
