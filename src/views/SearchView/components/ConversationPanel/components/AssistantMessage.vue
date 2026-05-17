@@ -171,14 +171,6 @@
               approval: ToolApprovalInfo;
           };
 
-    // ── 加载提示轮播（#136：加载指示器旁显示上下文提示）──────────────────
-    //
-    //  原则：宁缺毋滥 — 每条提示必须有可运行代码支撑，且描述非显而易见的操作。
-    //  已在界面直观体现的功能（如 Markdown 渲染、工具内联展示）不重复提示。
-    //
-    //  TODO: 后续改为数据驱动 — 提示列表从配置文件/远程源获取，支持动态扩展。
-    //  目前仅添加基础提示，后续可在 GitHub issue 中征集更多功能性提示。
-
     const TIPS = [
         'Shift+Enter 换行，适合分段表述',
         'Ctrl+M 或点击模型图标切换模型',
@@ -203,7 +195,7 @@
     function startTipRotation() {
         const len = TIPS.length;
         if (len <= 1) return;
-        // 20 秒延迟后才显示 tip（hiqiancheng 反馈）
+        // 20 秒延迟后才显示 tip
         tipDelayTimer = setTimeout(() => {
             tipVisible.value = true;
             currentTipIndex.value = lastTipIndex.value % len;
@@ -463,7 +455,7 @@
         transform: translateY(-50%);
         font-size: 12px;
         font-weight: 600;
-        font-family: 'Source Han Serif SC', 'Noto Serif SC', 'Source Serif Pro', 'Georgia', serif;
+        font-family: var(--font-serif);
         color: var(--color-gray-500);
         white-space: nowrap;
         opacity: 0.7;
