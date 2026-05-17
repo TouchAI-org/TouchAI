@@ -27,7 +27,7 @@ export interface SearchBarHandle {
     focus: () => void | Promise<void>;
     loadActiveModel: () => void | Promise<void>;
 
-  insertTextAtCursor: (text: string) => void;
+    insertTextAtCursor: (text: string) => void;
     insertAttachmentAtCursor: (
         attachmentId: string,
         fileName: string,
@@ -35,7 +35,7 @@ export interface SearchBarHandle {
         preview?: string,
         alias?: string
     ) => void;
-  
+
     captureInputHistorySnapshot: () => InputHistorySnapshot;
     restoreInputHistorySnapshot: (snapshot: InputHistorySnapshot) => string;
 }
