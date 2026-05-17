@@ -45,3 +45,57 @@ pub struct BuiltInBashExecutionResponse {
     /// 为了避免前端重复拼接，原生层直接给出组合输出。
     pub combined_output: String,
 }
+
+/// 内置 Ripgrep 工具的执行请求。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltInRipgrepExecutionRequest {
+    /// 本次执行的唯一标识，用于后续取消。
+    pub execution_id: String,
+    /// 传递给 rg 的完整参数列表。
+    pub argv: Vec<String>,
+    /// 可选工作目录。
+    pub working_directory: Option<String>,
+    /// 可选超时，单位毫秒。
+    pub timeout_ms: Option<u64>,
+}
+
+/// rg 二进制来源。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RipgrepBinarySource {
+    /// 编译时嵌入，运行时释放到 assets/bin。
+    Bundled,
+    /// 回退到系统 PATH 中的 rg。
+    System,
+}
+
+/// 内置 Ripgrep 工具的结构化执行结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltInRipgrepExecutionResponse {
+    /// 原始命令全文。
+    pub command: String,
+    /// 实际使用的 rg 二进制路径。
+    pub binary_path: String,
+    /// 二进制来源。
+    pub binary_source: RipgrepBinarySource,
+    /// 实际使用的工作目录。
+    pub working_directory: Option<String>,
+    /// 进程退出码。
+    pub exit_code: Option<i32>,
+    /// 是否成功退出。rg 找到匹配返回 0，无匹配返回 1，两者都视为成功。
+    pub success: bool,
+    /// 是否因超时中止。
+    pub timed_out: bool,
+    /// 是否因外部取消请求而中止。
+    pub cancelled: bool,
+    /// 总耗时，单位毫秒。
+    pub duration_ms: u64,
+    /// 标准输出全文。
+    pub stdout: String,
+    /// 标准错误全文。
+    pub stderr: String,
+    /// 组合输出。
+    pub combined_output: String,
+}

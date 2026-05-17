@@ -11,31 +11,36 @@ use tokio::sync::oneshot;
 const PENDING_CANCELLATION_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
-struct BashExecutionRegistryState {
+struct BuiltInProcessRegistryState {
     senders: HashMap<String, oneshot::Sender<()>>,
     pending_cancellations: HashMap<String, Instant>,
 }
 
-/// 维护“执行 ID -> 取消信号发送端”的映射。
+/// 维护”执行 ID -> 取消信号发送端”的映射。
 ///
 /// 前端通过 execution_id 发起取消命令时，
 /// 原生层不直接持有子进程句柄，而是向正在等待中的执行任务发送一个取消信号，
-/// 由执行任务自己负责终止并回收 PowerShell 子进程。
+/// 由执行任务自己负责终止并回收子进程。
 #[derive(Default)]
-pub struct BashExecutionRegistry {
-    state: Mutex<BashExecutionRegistryState>,
+pub struct BuiltInProcessExecutionRegistry {
+    state: Mutex<BuiltInProcessRegistryState>,
 }
 
-impl BashExecutionRegistry {
+pub type BashExecutionRegistry = BuiltInProcessExecutionRegistry;
+
+impl BuiltInProcessExecutionRegistry {
     pub fn new() -> Self {
         Self {
-            state: Mutex::new(BashExecutionRegistryState::default()),
+            state: Mutex::new(BuiltInProcessRegistryState::default()),
         }
     }
 
     pub fn register(&self, execution_id: String) -> oneshot::Receiver<()> {
         let (sender, receiver) = oneshot::channel();
-        let mut state = self.state.lock().expect("BashExecutionRegistry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .expect("BuiltInProcessExecutionRegistry poisoned");
         prune_expired_pending_cancellations(&mut state);
 
         // 取消命令可能比实际执行注册更早到达。
@@ -60,7 +65,10 @@ impl BashExecutionRegistry {
     /// 返回 `true` 表示该执行正在进行中，已立即发送取消信号；
     /// 返回 `false` 表示未找到活跃执行，已记录为待取消（覆盖先取消后注册的竞态）。
     pub fn cancel(&self, execution_id: &str) -> bool {
-        let mut state = self.state.lock().expect("BashExecutionRegistry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .expect("BuiltInProcessExecutionRegistry poisoned");
         prune_expired_pending_cancellations(&mut state);
 
         if let Some(sender) = state.senders.remove(execution_id) {
@@ -75,14 +83,17 @@ impl BashExecutionRegistry {
     }
 
     pub fn complete(&self, execution_id: &str) {
-        let mut state = self.state.lock().expect("BashExecutionRegistry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .expect("BuiltInProcessExecutionRegistry poisoned");
         prune_expired_pending_cancellations(&mut state);
         state.senders.remove(execution_id);
         state.pending_cancellations.remove(execution_id);
     }
 }
 
-fn prune_expired_pending_cancellations(state: &mut BashExecutionRegistryState) {
+fn prune_expired_pending_cancellations(state: &mut BuiltInProcessRegistryState) {
     let now = Instant::now();
     state
         .pending_cancellations

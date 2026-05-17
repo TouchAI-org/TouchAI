@@ -13,6 +13,7 @@ pub enum AppDirectory {
     CacheIcons,
     Assets,
     AssetsFont,
+    AssetsBin,
 }
 
 /// 应用基础目录布局统一声明。
@@ -25,6 +26,7 @@ pub(crate) const APP_DIRECTORY_LAYOUT: &[(AppDirectory, &str, &str)] = &[
     (AppDirectory::CacheIcons, "CACHE_ICONS", "cache/icons"),
     (AppDirectory::Assets, "ASSETS", "assets"),
     (AppDirectory::AssetsFont, "ASSETS_FONT", "assets/font"),
+    (AppDirectory::AssetsBin, "ASSETS_BIN", "assets/bin"),
 ];
 
 /// 解析应用根目录。

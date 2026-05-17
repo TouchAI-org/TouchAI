@@ -7,12 +7,12 @@ use std::process::{ExitStatus, Stdio};
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 
-use tokio::io::AsyncReadExt;
 #[cfg(target_os = "windows")]
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 #[cfg(target_os = "windows")]
 use tokio::time;
 
+use super::process_utils::{combine_output, read_stream, resolve_timeout_ms, terminate_child};
 use super::registry::BashExecutionRegistry;
 use super::types::{BuiltInBashExecutionRequest, BuiltInBashExecutionResponse};
 
@@ -56,16 +56,13 @@ async fn execute_bash_windows(
         return Err("Command cannot be empty".to_string());
     }
 
-    let timeout_ms = request
-        .timeout_ms
-        .unwrap_or(DEFAULT_TIMEOUT_MS)
-        .clamp(1, MAX_TIMEOUT_MS);
+    let timeout_ms = resolve_timeout_ms(request.timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
     let command_script = build_powershell_command_script(trimmed_command);
     let execution_id = request.execution_id.clone();
     let mut cancel_receiver = registry.register(execution_id.clone());
 
     // 只启动一次受控的 PowerShell 子进程，并显式关闭配置文件加载与交互能力，
-    // 避免用户本地命令环境配置把工具执行语义变成“因机器而异”。
+    // 避免用户本地命令环境配置把工具执行语义变成"因机器而异"。
     let mut command = Command::new("powershell.exe");
     command
         .arg("-NoLogo")
@@ -120,7 +117,7 @@ async fn execute_bash_windows(
 
     // 进程退出和超时共用一个分支选择：
     // - 正常结束：保留真实退出码；
-    // - 超时：主动终止并回收进程，确保宿主不会留下孤儿进程。
+    // - 超时/取消：主动终止并回收进程，确保宿主不会留下孤儿进程。
     let completion: Result<BashExecutionCompletion, String> = tokio::select! {
         status = child.wait() => {
             Ok(BashExecutionCompletion::Completed(
@@ -129,14 +126,14 @@ async fn execute_bash_windows(
         }
         _ = &mut timeout => {
             Ok(BashExecutionCompletion::TimedOut(
-                terminate_child(&mut child, "timed out")
+                terminate_child(&mut child, "PowerShell timed out")
                     .await
                     .map_err(|error| format!("Failed to terminate timed out PowerShell process: {}", error))?
             ))
         }
         _ = &mut cancel_signal => {
             Ok(BashExecutionCompletion::Cancelled(
-                terminate_child(&mut child, "cancelled")
+                terminate_child(&mut child, "PowerShell cancelled")
                     .await
                     .map_err(|error| format!("Failed to terminate cancelled PowerShell process: {}", error))?
             ))
@@ -187,100 +184,7 @@ enum BashExecutionCompletion {
 }
 
 #[cfg(target_os = "windows")]
-async fn terminate_child(child: &mut Child, reason: &str) -> Result<ExitStatus, String> {
-    if let Some(status) = child
-        .try_wait()
-        .map_err(|error| format!("Failed to inspect {reason} PowerShell process: {error}"))?
-    {
-        return Ok(status);
-    }
-
-    // Windows 上仅终止父 PowerShell 进程并不保证其派生的 pip/python 等子进程
-    // 会一起退出；优先用 taskkill /T /F 杀整棵进程树，再回退到直接 kill。
-    let child_pid = child.id();
-    if let Some(pid) = child_pid {
-        let taskkill_result = Command::new("taskkill")
-            .arg("/PID")
-            .arg(pid.to_string())
-            .arg("/T")
-            .arg("/F")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW)
-            .status()
-            .await;
-
-        match taskkill_result {
-            Ok(status) if status.success() => {}
-            Ok(status) => {
-                if child
-                    .try_wait()
-                    .map_err(|error| {
-                        format!(
-                            "Failed to inspect {reason} PowerShell process after taskkill fallback: {error}"
-                        )
-                    })?
-                    .is_none()
-                {
-                    child.kill().await.map_err(|error| {
-                        format!(
-                            "Failed to kill {reason} PowerShell process after taskkill exit code {}: {error}",
-                            status
-                        )
-                    })?;
-                }
-            }
-            Err(error) => {
-                child.kill().await.map_err(|kill_error| {
-                    format!(
-                        "Failed to invoke taskkill for {reason} PowerShell process ({error}); direct kill also failed: {kill_error}"
-                    )
-                })?;
-            }
-        }
-    } else {
-        child
-            .kill()
-            .await
-            .map_err(|error| format!("Failed to kill {reason} PowerShell process: {error}"))?;
-    }
-
-    child
-        .wait()
-        .await
-        .map_err(|error| format!("Failed to reap {reason} PowerShell process: {error}"))
-}
-
-#[cfg(target_os = "windows")]
 fn build_powershell_command_script(command: &str) -> String {
     // 保持用户命令从新行开始，避免破坏 here-string 等必须行首起始的语法。
     format!("{}\n{}", UTF8_POWERSHELL_PRELUDE, command)
-}
-
-/// 读取完整 stdout/stderr。
-///
-/// 这里先在子进程入口尽量把输出统一成 UTF-8，再在 Rust 侧做宽松解码；
-/// 对工具日志来说，“尽可能保留可读内容”比“遇到坏字节直接失败”更重要。
-async fn read_stream<R>(mut reader: R) -> Result<String, String>
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    let mut buffer = Vec::new();
-    reader
-        .read_to_end(&mut buffer)
-        .await
-        .map_err(|error| format!("Failed to read process stream: {}", error))?;
-
-    Ok(String::from_utf8_lossy(&buffer).trim().to_string())
-}
-
-/// 统一组合 stdout/stderr，方便上层日志和工具结果直接使用。
-fn combine_output(stdout: &str, stderr: &str) -> String {
-    match (stdout.is_empty(), stderr.is_empty()) {
-        (false, false) => format!("STDOUT:\n{}\n\nSTDERR:\n{}", stdout, stderr),
-        (false, true) => stdout.to_string(),
-        (true, false) => format!("STDERR:\n{}", stderr),
-        (true, true) => String::new(),
-    }
 }

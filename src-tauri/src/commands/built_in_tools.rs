@@ -4,8 +4,10 @@
 
 use crate::core::built_in_tools::{
     self, BashExecutionRegistry, BuiltInBashExecutionRequest, BuiltInBashExecutionResponse,
+    BuiltInProcessExecutionRegistry, BuiltInRipgrepExecutionRequest,
+    BuiltInRipgrepExecutionResponse,
 };
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// 执行内置 Bash 工具请求。
 ///
@@ -24,6 +26,25 @@ pub async fn built_in_tools_execute_bash(
 pub fn built_in_tools_cancel_bash(
     execution_id: String,
     registry: State<'_, BashExecutionRegistry>,
+) -> Result<bool, String> {
+    Ok(registry.cancel(&execution_id))
+}
+
+/// 执行内置 Ripgrep 工具请求。
+#[tauri::command]
+pub async fn built_in_tools_execute_ripgrep(
+    app: AppHandle,
+    request: BuiltInRipgrepExecutionRequest,
+    registry: State<'_, BuiltInProcessExecutionRegistry>,
+) -> Result<BuiltInRipgrepExecutionResponse, String> {
+    built_in_tools::execute_ripgrep(app, request, registry.inner()).await
+}
+
+/// 取消一条正在执行中的内置 Ripgrep 请求。
+#[tauri::command]
+pub fn built_in_tools_cancel_ripgrep(
+    execution_id: String,
+    registry: State<'_, BuiltInProcessExecutionRegistry>,
 ) -> Result<bool, String> {
     Ok(registry.cancel(&execution_id))
 }

@@ -5,7 +5,7 @@ mod core;
 #[doc(hidden)]
 pub mod testing;
 
-use core::built_in_tools::BashExecutionRegistry;
+use core::built_in_tools::BuiltInProcessExecutionRegistry;
 use core::database::DatabaseRuntime;
 use core::mcp::McpClientManager;
 use core::setup;
@@ -38,7 +38,7 @@ pub fn run() {
         )
         .manage(PopupRegistry::new())
         .manage(core::window::search::surface::SearchSurfaceRuntime::new())
-        .manage(BashExecutionRegistry::new())
+        .manage(BuiltInProcessExecutionRegistry::new())
         .manage(McpClientManager::new())
         .on_window_event(|window, event| {
             // 主窗口尺寸/位置变化时，记录到状态机用于区分程序化 resize 和用户操作。
