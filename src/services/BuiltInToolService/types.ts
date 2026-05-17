@@ -18,6 +18,7 @@ import type { AttachmentIndex } from '@/services/AgentService/infrastructure/att
 export type BuiltInToolId =
     | 'bash'
     | 'file_search'
+    | 'ripgrep'
     | 'read'
     | 'setting'
     | 'web_fetch'

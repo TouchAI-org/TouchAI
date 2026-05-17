@@ -28,6 +28,28 @@ export interface BuiltInBashExecutionResponse {
     combinedOutput: string;
 }
 
+export interface BuiltInRipgrepExecutionRequest {
+    executionId: string;
+    argv: string[];
+    workingDirectory?: string | null;
+    timeoutMs?: number | null;
+}
+
+export interface BuiltInRipgrepExecutionResponse {
+    command: string;
+    binaryPath: string;
+    binarySource: 'bundled' | 'system';
+    workingDirectory: string | null;
+    exitCode: number | null;
+    success: boolean;
+    timedOut: boolean;
+    cancelled: boolean;
+    durationMs: number;
+    stdout: string;
+    stderr: string;
+    combinedOutput: string;
+}
+
 export interface ShowPopupWindowParams {
     x: number;
     y: number;

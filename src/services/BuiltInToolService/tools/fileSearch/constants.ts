@@ -85,7 +85,11 @@ export const fileSearchArgsSchema = z.object({
 /**
  * 暴露给模型的 FileSearch 工具说明。
  */
-export const FILE_SEARCH_TOOL_DESCRIPTION = '搜索本机文件';
+export const FILE_SEARCH_TOOL_DESCRIPTION = [
+    'Search for files and folders by NAME or PATH on the local machine.',
+    'Use this ONLY to locate files by their name, path, or extension.',
+    'Do NOT use this for searching content inside files — use the Ripgrep tool instead for any content, code, or text search.',
+].join(' ');
 
 function withExamples(description: string, ...examples: string[]): string {
     return `${description} Examples: ${examples.join(' | ')}.`;

@@ -22,6 +22,8 @@ export type {
 export type {
     BuiltInBashExecutionRequest,
     BuiltInBashExecutionResponse,
+    BuiltInRipgrepExecutionRequest,
+    BuiltInRipgrepExecutionResponse,
     ClipboardPayload,
     PopupConfig,
     QuickSearchFileItem,
