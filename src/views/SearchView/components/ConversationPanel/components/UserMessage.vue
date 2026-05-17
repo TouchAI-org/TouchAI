@@ -4,7 +4,11 @@
     <div class="mb-4 flex flex-col items-end">
         <div class="bg-primary-100 max-w-[80%] rounded-lg px-4 py-2 break-words">
             <div class="text-[15px] leading-[1.6]">
-                <div class="user-text whitespace-pre-wrap text-gray-900 select-text">
+                <!-- 文本内容 -->
+                <div
+                    v-if="message.content"
+                    class="user-text whitespace-pre-wrap text-gray-900 select-text"
+                >
                     {{ message.content }}
                 </div>
 

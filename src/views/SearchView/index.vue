@@ -443,6 +443,7 @@
     useSearchKeyboard({
         viewReady,
         queryText,
+        attachments,
         cursorContext,
         modelOverride,
         modelDropdownState,

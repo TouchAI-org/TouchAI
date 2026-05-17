@@ -116,14 +116,29 @@ async function buildUserPromptMessage(options: {
             : await buildAttachmentParts(attachments)
         : [];
 
+    const hasText = options.prompt.trim().length > 0;
+    const hasAttachments = attachmentParts.length > 0;
+
+    let content: string | AiContentPart[];
+
+    if (hasAttachments && !hasDraftInsertionOffsets) {
+        if (hasText) {
+            content = [
+                { type: 'text', text: options.prompt },
+                ...attachmentParts,
+            ] as AiContentPart[];
+        } else {
+            content = attachmentParts;
+        }
+    } else if (hasAttachments) {
+        content = attachmentParts;
+    } else {
+        content = options.prompt || 'no prompt';
+    }
+
     return {
         role: 'user',
-        content:
-            attachmentParts.length > 0 && !hasDraftInsertionOffsets
-                ? ([{ type: 'text', text: options.prompt }, ...attachmentParts] as AiContentPart[])
-                : attachmentParts.length > 0
-                  ? attachmentParts
-                  : options.prompt,
+        content,
     };
 }
 
