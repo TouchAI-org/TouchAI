@@ -27,7 +27,7 @@
         "test:ui": "vitest --configLoader runner --ui",
         "test:rust": "node ./scripts/run-rust-command.mjs test",
         "test:e2e": "pnpm --dir e2e-tests test",
-        "test:coverage:rust": "cargo tarpaulin --manifest-path src-tauri/Cargo.toml --all-targets --branch --out xml --out stdout --output-dir .coverage/rust",
+        "test:coverage:rust": "mkdir -p .coverage/rust && cargo tarpaulin --manifest-path src-tauri/Cargo.toml --all-targets --branch --out xml --output-dir .coverage/rust",
         "test:pr": "pnpm check && pnpm test:unit && pnpm test:rust && pnpm test:coverage",
         "prepare": "husky",
         "db:generate": "drizzle-kit generate",
