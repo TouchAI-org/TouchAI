@@ -1,5 +1,7 @@
+import { type ContextMenuItem, useContextMenu } from '@composables/useContextMenu';
+import { clipboardService } from '@services/ClipboardService';
 import { native, type QuickShortcutItem } from '@services/NativeService';
-import { openPath } from '@tauri-apps/plugin-opener';
+import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import {
@@ -11,8 +13,13 @@ import { useAssetLoader } from './useAssetLoader';
 import { COLLAPSED_VISIBLE_ROWS, useLayout } from './useLayout';
 import { useQuickSearchClickStats } from './useQuickSearchClickStats';
 
-const LIMIT = 60; // 单次搜索最多返回结果数
-const DEBOUNCE_MS = 80; // 输入防抖延时（ms）
+const PAGE_SIZE = 60;
+const DEBOUNCE_MS = 80;
+
+const CONTEXT_MENU_ITEMS: ContextMenuItem[] = [
+    { key: 'open-folder', label: '打开所在文件夹', icon: 'folder-open' },
+    { key: 'copy-path', label: '复制路径', icon: 'copy' },
+];
 
 interface UseQuickSearchFlowOptions {
     searchQuery: Ref<string>;
@@ -25,6 +32,10 @@ interface UseQuickSearchFlowOptions {
     requestId: Ref<number>;
     searchInFlight: Ref<boolean>;
     pendingQuery: Ref<string | null>;
+    currentPage: Ref<number>;
+    totalFiles: Ref<number>;
+    totalResults: Ref<number>;
+    nextOffset: Ref<number>;
     resetResultState: () => void;
     setVisibleRows: (rows: number) => void;
     syncLayout: () => Promise<void>;
@@ -70,13 +81,16 @@ function useQuickSearchFlow(
         searchQuery,
         enabled,
         emitOpenUpdate,
-        isOpen,
         results,
         highlightedIndex,
         itemRefs,
         requestId,
         searchInFlight,
         pendingQuery,
+        currentPage,
+        totalFiles,
+        totalResults,
+        nextOffset,
         resetResultState,
         setVisibleRows,
         syncLayout,
@@ -89,6 +103,7 @@ function useQuickSearchFlow(
 
     // 1. 搜索流程状态
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastSearchedQuery = '';
     const clickStats = useQuickSearchClickStats();
 
     // 2. 名称高亮匹配
@@ -160,32 +175,40 @@ function useQuickSearchFlow(
             return;
         }
 
-        // 使用单调递增请求号，丢弃延迟返回的旧查询结果。
+        // 相同查询且已有结果时跳过，避免失焦恢复等场景重复搜索覆盖多页结果。
+        if (trimmedQuery === lastSearchedQuery && results.value.length > 0) {
+            return;
+        }
+
         const reqId = ++requestId.value;
 
         try {
-            const searchResults = await deps.quickSearch.searchShortcuts(trimmedQuery, LIMIT);
+            const searchResult = await deps.quickSearch.searchShortcuts(trimmedQuery, PAGE_SIZE, 0);
             if (reqId !== requestId.value) return;
 
-            if (searchQuery.value.trim() !== trimmedQuery || !enabled.value) {
-                return;
+            if (searchQuery.value.trim() !== trimmedQuery || !enabled.value) return;
+
+            let rankedShortcuts = searchResult.shortcuts;
+            if (searchResult.shortcuts.length > 0) {
+                rankedShortcuts = await clickStats.rankResults(trimmedQuery, rankedShortcuts);
+                if (reqId !== requestId.value) return;
             }
 
-            if (searchResults.length === 0) {
-                hide();
-                return;
-            }
+            const mergedResults = [...rankedShortcuts, ...searchResult.files];
 
-            const rankedResults = await clickStats.rankResults(trimmedQuery, searchResults);
-            if (reqId !== requestId.value) return;
-            if (searchQuery.value.trim() !== trimmedQuery || !enabled.value) {
+            if (mergedResults.length === 0) {
+                close();
                 return;
             }
 
             emitOpenUpdate(true);
-            results.value = rankedResults;
+            results.value = mergedResults;
+            lastSearchedQuery = trimmedQuery;
+            totalFiles.value = searchResult.total_files;
+            totalResults.value = searchResult.total_results;
+            nextOffset.value = searchResult.next_offset;
+            currentPage.value = 0;
             itemRefs.value = [];
-            // 新结果到达后重置资源加载状态，避免沿用上一次查询的加载队列。
             resetLoadingState();
             highlightedIndex.value = -1;
             setVisibleRows(COLLAPSED_VISIBLE_ROWS);
@@ -195,9 +218,21 @@ function useQuickSearchFlow(
         } catch (error) {
             console.error('[QuickSearchPanel] Failed to search shortcuts:', error);
             if (reqId === requestId.value) {
-                hide();
+                close();
             }
         }
+    }
+
+    /**
+     * 跳转到指定页码重新执行当前查询。
+     *
+     * @param page 目标页码（0-indexed）。
+     * @returns void
+     */
+    function goToPage() {
+        const query = searchQuery.value.trim();
+        if (!query) return;
+        void executeSearch(query);
     }
 
     /**
@@ -213,7 +248,6 @@ function useQuickSearchFlow(
             return;
         }
 
-        // 同一时刻只执行一个搜索；输入连发时仅保留最后一次查询。
         if (searchInFlight.value) {
             pendingQuery.value = currentQuery;
             return;
@@ -226,9 +260,7 @@ function useQuickSearchFlow(
 
                 const pending = pendingQuery.value?.trim() ?? '';
                 pendingQuery.value = null;
-                if (!pending || pending === currentQuery) {
-                    break;
-                }
+                if (!pending || pending === currentQuery) break;
                 currentQuery = pending;
             }
         } finally {
@@ -245,13 +277,11 @@ function useQuickSearchFlow(
      */
     function scheduleSearch(query: string) {
         clearDebounceTimer();
-        // 输入防抖，避免每个按键都触发 native 搜索。
         debounceTimer = setTimeout(() => {
             void runSearchLoop(query);
         }, DEBOUNCE_MS);
     }
 
-    // 4. 面板生命周期与交互
     /**
      * 打开面板并立即执行当前查询。
      *
@@ -271,67 +301,23 @@ function useQuickSearchFlow(
     }
 
     /**
-     * 隐藏面板并重置结果展示状态。
+     * 关闭面板并清空结果状态。
      *
      * @returns void
      */
-    function hide() {
-        // 仅关闭面板，不主动清空缓存；缓存回收由 close/prune 控制。
+    function close() {
+        clearDebounceTimer();
+        lastSearchedQuery = '';
+        requestId.value += 1;
+        pendingQuery.value = null;
+        pruneIconMaps(true);
         resetLoadingState();
         emitOpenUpdate(false);
         resetResultState();
     }
 
     /**
-     * 关闭面板并使当前所有异步任务失效。
-     *
-     * @returns void
-     */
-    function close() {
-        clearDebounceTimer();
-        // 递增 requestId 可让当前所有异步任务自然失效。
-        requestId.value += 1;
-        pendingQuery.value = null;
-        pruneIconMaps(true);
-        hide();
-    }
-
-    /**
-     * 获取当前高亮项。
-     *
-     * @returns 当前高亮项；无结果或面板关闭时返回 null。
-     */
-    function getHighlightedItem(): QuickShortcutItem | null {
-        if (!isOpen.value || results.value.length === 0) {
-            return null;
-        }
-        return results.value[highlightedIndex.value] ?? null;
-    }
-
-    /**
-     * 打开当前高亮项，并在前端记录点击统计。
-     *
-     * @returns Promise<void>
-     */
-    async function openHighlightedItem() {
-        const shortcut = getHighlightedItem();
-        if (!shortcut) return;
-
-        try {
-            // 点击统计由前端写入 SQLite，并同步更新内存缓存。
-            clickStats.recordClick(searchQuery.value, shortcut.path);
-            await deps.window.hideSearchWindow();
-            await deps.openPath(shortcut.path);
-        } catch (error) {
-            console.error('[QuickSearchPanel] Failed to open shortcut:', error);
-        }
-    }
-
-    /**
-     * 触发搜索查询，无论面板是否打开。
-     * 不依赖面板 prop 中的 searchQuery（该值因 Vue 渲染批处理可能滞后），
-     * 而是由调用方直接传入最新查询文本。
-     * 查询到结果后面板会通过 executeSearch 自动打开。
+     * 从外部触发搜索（页面层调用）。
      *
      * @param query 查询文本。
      * @returns void
@@ -339,67 +325,145 @@ function useQuickSearchFlow(
     function triggerSearch(query: string) {
         if (!enabled.value) return;
 
-        const trimmed = query.trim();
-        if (!trimmed) {
+        if (!query.trim()) {
             close();
             return;
         }
 
-        void refreshStatus();
-        scheduleSearch(trimmed);
+        emitOpenUpdate(true);
+        scheduleSearch(query);
+    }
+
+    // 4. 右键菜单
+    const isContextMenuOpen = ref(false);
+
+    const { open: openContextMenu, close: closeContextMenu } = useContextMenu<QuickShortcutItem>(
+        CONTEXT_MENU_ITEMS,
+        async (key, item) => {
+            isContextMenuOpen.value = false;
+            await handleContextMenuAction(key, item);
+        }
+    );
+
+    async function handleContextMenuAction(key: string, item: QuickShortcutItem) {
+        if (key === 'open-folder') {
+            try {
+                await revealItemInDir(item.path);
+            } catch (error) {
+                console.error('[QuickSearchPanel] Failed to reveal in folder:', error);
+            }
+        } else if (key === 'copy-path') {
+            try {
+                await clipboardService.writeText(item.path);
+            } catch (error) {
+                console.error('[QuickSearchPanel] Failed to copy path:', error);
+            }
+        }
+    }
+
+    function handleContextMenu(event: MouseEvent, index: number) {
+        const item = results.value[index];
+        if (!item) return;
+        highlightedIndex.value = index;
+        isContextMenuOpen.value = true;
+        openContextMenu(event, item);
+    }
+
+    function openContextMenuForItem(index: number) {
+        const item = results.value[index];
+        if (!item) return;
+        highlightedIndex.value = index;
+        const el = itemRefs.value[index];
+        if (el) {
+            const rect = el.getBoundingClientRect();
+            const syntheticEvent = new MouseEvent('contextmenu', {
+                clientX: rect.left + rect.width / 2,
+                clientY: rect.top + rect.height / 2,
+                bubbles: true,
+            });
+            isContextMenuOpen.value = true;
+            openContextMenu(syntheticEvent, item);
+        }
+    }
+
+    function openContextMenuForHighlightedItem() {
+        if (highlightedIndex.value >= 0) {
+            openContextMenuForItem(highlightedIndex.value);
+        }
+    }
+
+    function closeContextMenuAndReset() {
+        isContextMenuOpen.value = false;
+        closeContextMenu();
+    }
+
+    // Item interactions
+    function getHighlightedItem(): QuickShortcutItem | null {
+        if (highlightedIndex.value < 0) return null;
+        return results.value[highlightedIndex.value] ?? null;
+    }
+
+    async function openHighlightedItem() {
+        const item = getHighlightedItem();
+        if (!item) return;
+
+        clickStats.recordClick(searchQuery.value, item.path);
+
+        try {
+            await deps.openPath(item.path);
+        } catch (error) {
+            console.error('[QuickSearchPanel] Failed to open path:', error);
+        }
     }
 
     /**
-     * 清理搜索流程的计时器与加载状态。
+     * 处理结果项点击并打开对应路径。
      *
-     * @returns void
+     * @param index 点击项索引。
+     * @returns Promise<void>
      */
-    function cleanup() {
-        clearDebounceTimer();
-        resetLoadingState();
-    }
+    async function handleItemClick(index: number) {
+        const item = results.value[index];
+        if (!item) return;
 
-    /**
-     * 当页面层直接把 open 设为 false 时，同步回收面板内部异步状态。
-     * 这是受控组件的兜底收敛路径，避免旧查询在页面已判定关闭后又把结果回填回来。
-     */
-    function syncClosedStateFromParent() {
-        clearDebounceTimer();
-        requestId.value += 1;
-        pendingQuery.value = null;
-        pruneIconMaps(true);
-        resetLoadingState();
-        resetResultState();
+        highlightedIndex.value = index;
+        clickStats.recordClick(searchQuery.value, item.path);
+
+        try {
+            await deps.openPath(item.path);
+        } catch (error) {
+            console.error('[QuickSearchPanel] Failed to open path:', error);
+        }
     }
 
     return {
         prepareIndex,
         open,
         close,
-        syncClosedStateFromParent,
         getHighlightedItem,
         openHighlightedItem,
         triggerSearch,
+        goToPage,
         getNameSegments,
-        cleanup,
+        scheduleSearch,
+        handleContextMenu,
+        openContextMenuForItem,
+        openContextMenuForHighlightedItem,
+        handleItemClick,
+        isContextMenuOpen,
+        closeContextMenuAndReset,
+        cleanup: () => {
+            clearDebounceTimer();
+            pruneIconMaps(true);
+        },
     };
 }
 
-/**
- * QuickSearchPanel 顶层编排层。
- * 负责聚合布局、资源加载、搜索流程与组件生命周期。
- *
- * @param options 面板输入状态与事件回调。
- * @param deps 可注入搜索副作用依赖，默认使用 native 与 opener。
- * @returns 面板渲染状态与交互方法。
- */
-export function useQuickSearchLogic(
-    options: UseQuickSearchLogicOptions,
-    deps: UseQuickSearchDeps = DEFAULT_DEPS
-) {
-    const { open, searchQuery, enabled, emitOpenUpdate } = options;
+// --- 状态 composable ---
 
-    // 1. 基础状态
+function useQuickSearchState(options: UseQuickSearchLogicOptions) {
+    const { open, emitOpenUpdate } = options;
+
     const results = ref<QuickShortcutItem[]>([]);
     const highlightedIndex = ref(-1);
     const itemRefs = ref<HTMLElement[]>([]);
@@ -407,8 +471,11 @@ export function useQuickSearchLogic(
     const requestId = ref(0);
     const searchInFlight = ref(false);
     const pendingQuery = ref<string | null>(null);
+    const currentPage = ref(0);
+    const totalFiles = ref(0);
+    const totalResults = ref(0);
+    const nextOffset = ref(0);
 
-    // 2. 子能力组合
     const layout = useLayout({
         isOpen: open,
         results,
@@ -426,6 +493,7 @@ export function useQuickSearchLogic(
         gridGap: layout.gridGap,
         selectionMaxHeight: layout.selectionMaxHeight,
         scrollRef,
+        viewMode: layout.viewMode,
     });
 
     /**
@@ -437,8 +505,77 @@ export function useQuickSearchLogic(
         results.value = [];
         highlightedIndex.value = -1;
         itemRefs.value = [];
+        currentPage.value = 0;
+        totalFiles.value = 0;
+        totalResults.value = 0;
+        nextOffset.value = 0;
         layout.resetLayoutState();
     }
+
+    return {
+        state: {
+            emitOpenUpdate,
+            isOpen: open,
+            results,
+            highlightedIndex,
+            itemRefs,
+            requestId,
+            searchInFlight,
+            pendingQuery,
+            currentPage,
+            totalFiles,
+            totalResults,
+            nextOffset,
+            resetResultState,
+            setVisibleRows: layout.setVisibleRows,
+            syncLayout: layout.syncLayout,
+            scheduleIconLoad: assets.scheduleIconLoad,
+            scheduleImageLoad: assets.scheduleImageLoad,
+            flushPendingLoads: assets.flushPendingLoads,
+            resetLoadingState: assets.resetLoadingState,
+            pruneIconMaps: assets.pruneIconMaps,
+        },
+        deps: {
+            scrollRef,
+            layout,
+            assets,
+        },
+    };
+}
+
+// --- 主 composable ---
+
+export function useQuickSearchLogic(
+    options: UseQuickSearchLogicOptions,
+    deps: UseQuickSearchDeps = DEFAULT_DEPS
+) {
+    const { open, searchQuery, enabled, emitOpenUpdate } = options;
+
+    const {
+        state: {
+            results,
+            highlightedIndex,
+            itemRefs,
+            requestId,
+            searchInFlight,
+            pendingQuery,
+            currentPage,
+            totalFiles,
+            totalResults,
+            nextOffset,
+            resetResultState,
+            setVisibleRows,
+            syncLayout,
+            scheduleIconLoad,
+            scheduleImageLoad,
+            flushPendingLoads,
+            resetLoadingState,
+            pruneIconMaps,
+        },
+        deps: { scrollRef, layout, assets },
+    } = useQuickSearchState(options);
+
+    const isLoadingMore = ref(false);
 
     const quickSearch = useQuickSearchFlow(
         {
@@ -452,49 +589,106 @@ export function useQuickSearchLogic(
             requestId,
             searchInFlight,
             pendingQuery,
+            currentPage,
+            totalFiles,
+            totalResults,
+            nextOffset,
             resetResultState,
-            setVisibleRows: layout.setVisibleRows,
-            syncLayout: layout.syncLayout,
-            scheduleIconLoad: assets.scheduleIconLoad,
-            scheduleImageLoad: assets.scheduleImageLoad,
-            flushPendingLoads: assets.flushPendingLoads,
-            resetLoadingState: assets.resetLoadingState,
-            pruneIconMaps: assets.pruneIconMaps,
+            setVisibleRows,
+            syncLayout,
+            scheduleIconLoad,
+            scheduleImageLoad,
+            flushPendingLoads,
+            resetLoadingState,
+            pruneIconMaps,
         },
         deps
     );
 
-    let isSyncingCloseToParent = false;
+    // 5. 无限滚动懒加载
+    /**
+     * 加载下一页文件结果并追加到当前列表。
+     * 由滚动事件触发，使用 nextOffset 避免前端计算偏移错位。
+     */
+    async function loadMore() {
+        if (isLoadingMore.value) return;
+        if (results.value.length >= totalResults.value) return;
 
-    function requestCloseFromPanel() {
-        if (open.value) {
-            isSyncingCloseToParent = true;
+        isLoadingMore.value = true;
+        const query = searchQuery.value.trim();
+        const offset = nextOffset.value;
+        try {
+            const searchResult = await deps.quickSearch.searchShortcuts(query, PAGE_SIZE, offset);
+            if (searchResult.files.length === 0) return;
+            const savedScrollTop = scrollRef.value?.scrollTop ?? 0;
+            results.value.push(...searchResult.files);
+            totalFiles.value = searchResult.total_files;
+            totalResults.value = searchResult.total_results;
+            nextOffset.value = searchResult.next_offset;
+            currentPage.value++;
+            await nextTick();
+            requestAnimationFrame(() => {
+                if (scrollRef.value) {
+                    scrollRef.value.scrollTop = savedScrollTop;
+                }
+            });
+            assets.scheduleIconLoad(requestId.value, false);
+            assets.scheduleImageLoad(requestId.value, false);
+        } catch (error) {
+            console.error('[QuickSearchPanel] Failed to load more:', error);
+        } finally {
+            isLoadingMore.value = false;
         }
-        quickSearch.close();
     }
 
-    // 3. 组件交互
-    /**
-     * 处理结果项点击并打开对应路径。
-     *
-     * @param index 点击项索引。
-     * @returns Promise<void>
-     */
-    async function handleItemClick(index: number) {
-        highlightedIndex.value = index;
-        await quickSearch.openHighlightedItem();
+    function handleScrollWithLoadMore() {
+        assets.handleScroll();
+        const el = scrollRef.value;
+        if (!el || isLoadingMore.value) return;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+            void loadMore();
+        }
     }
 
-    /**
-     * 处理视口变化并同步布局。
-     *
-     * @returns void
-     */
-    function handleViewportResize() {
-        layout.updateLayout();
+    // Keyboard navigation
+    function moveSelection(direction: 'up' | 'down' | 'left' | 'right') {
+        layout.moveSelection(direction);
     }
 
-    // 4. 生命周期与状态同步
+    // 6. 生命周期与状态同步
+    watch(open, (isOpen) => {
+        if (isOpen) {
+            if (results.value.length > 0) {
+                layout.updateLayout();
+                if (highlightedIndex.value >= 0) {
+                    layout.scrollHighlightedIntoView();
+                }
+            } else {
+                void syncLayout();
+            }
+            assets.scheduleIconLoad(requestId.value, false);
+            assets.scheduleImageLoad(requestId.value, false);
+        } else {
+            if (results.value.length === 0) {
+                highlightedIndex.value = -1;
+                void nextTick(() => {
+                    if (scrollRef.value) {
+                        scrollRef.value.scrollTop = 0;
+                    }
+                });
+            }
+        }
+    });
+
+    watch(
+        [searchQuery, enabled],
+        ([query, isEnabled]) => {
+            if (!isEnabled || !open.value) return;
+            quickSearch.scheduleSearch(query);
+        },
+        { flush: 'post' }
+    );
+
     onMounted(() => {
         void quickSearch.prepareIndex(false);
         window.addEventListener('resize', handleViewportResize);
@@ -511,73 +705,71 @@ export function useQuickSearchLogic(
         }
     });
 
-    watch(
-        [open, results],
-        ([open]) => {
-            if (!open) return;
-            void layout.syncLayout();
-            assets.scheduleIconLoad(requestId.value, false);
-            assets.scheduleImageLoad(requestId.value, false);
-        },
-        { flush: 'post' }
-    );
+    /**
+     * 处理视口变化并同步布局。
+     *
+     * @returns void
+     */
+    function handleViewportResize() {
+        if (!open.value || results.value.length === 0) return;
+        layout.updateLayout();
+    }
 
-    watch(
-        open,
-        (nextOpen, previousOpen) => {
-            if (nextOpen || !previousOpen) {
-                return;
+    function requestCloseFromPanel() {
+        quickSearch.close();
+    }
+
+    /**
+     * 收缩面板到默认折叠态，清除高亮并重置滚动位置。
+     * 用于 Escape 键触发的"回到初始状态"操作。
+     */
+    function collapseToDefault() {
+        highlightedIndex.value = -1;
+        layout.setVisibleRows(COLLAPSED_VISIBLE_ROWS);
+        layout.updateLayout();
+        void nextTick(() => {
+            if (scrollRef.value) {
+                scrollRef.value.scrollTop = 0;
             }
+        });
+    }
 
-            if (isSyncingCloseToParent) {
-                isSyncingCloseToParent = false;
-                return;
-            }
-
-            quickSearch.syncClosedStateFromParent();
-        },
-        { flush: 'sync' }
-    );
-
-    watch(
-        results,
-        (items) => {
-            if (items.length === 0) {
-                highlightedIndex.value = -1;
-                return;
-            }
-
-            highlightedIndex.value = -1;
-            void nextTick(() => {
-                if (scrollRef.value) {
-                    scrollRef.value.scrollTop = 0;
-                }
-            });
-        },
-        { flush: 'post' }
-    );
-
+    // Return
     return {
-        isOpen: open,
         results,
         highlightedIndex,
         itemRefs,
         scrollRef,
         scrollStyle: layout.scrollStyle,
         gridStyle: layout.gridStyle,
-        moveSelection: layout.moveSelection,
+        moveSelection,
         iconMap: assets.iconMap,
         imagePreviewMap: assets.imagePreviewMap,
         isImageItem: assets.isImageItem,
         getItemHoverTitle: assets.getItemHoverTitle,
-        handleScroll: assets.handleScroll,
+        handleScroll: handleScrollWithLoadMore,
+        isContextMenuOpen: quickSearch.isContextMenuOpen,
+        closeContextMenu: quickSearch.closeContextMenuAndReset,
         getNameSegments: quickSearch.getNameSegments,
-        handleItemClick,
+        handleItemClick: quickSearch.handleItemClick,
+        handleContextMenu: quickSearch.handleContextMenu,
+        openContextMenuForItem: quickSearch.openContextMenuForItem,
+        openContextMenuForHighlightedItem: quickSearch.openContextMenuForHighlightedItem,
         open: quickSearch.open,
         close: requestCloseFromPanel,
-        syncClosedState: quickSearch.syncClosedStateFromParent,
+        syncClosedState: () => {},
         getHighlightedItem: quickSearch.getHighlightedItem,
         openHighlightedItem: quickSearch.openHighlightedItem,
         triggerSearch: quickSearch.triggerSearch,
+        goToPage: quickSearch.goToPage,
+        goToNextPage: () => quickSearch.goToPage(),
+        goToPreviousPage: () => quickSearch.goToPage(),
+        currentPage,
+        totalFiles,
+        totalResults,
+        isLoadingMore,
+        viewMode: layout.viewMode,
+        toggleViewMode: layout.toggleViewMode,
+        collapseToDefault,
     };
 }
