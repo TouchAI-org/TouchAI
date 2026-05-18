@@ -528,9 +528,7 @@ describe('NativeService MCP boundary', () => {
 describe('NativeService quick search boundary', () => {
     it('searches shortcuts with the default page size', async () => {
         const response: QuickSearchResult = {
-            shortcuts: [
-                { name: 'TouchAI', path: 'D:/TouchAI.lnk', source: 'desktop_user' },
-            ],
+            shortcuts: [{ name: 'TouchAI', path: 'D:/TouchAI.lnk', source: 'desktop_user' }],
             files: [],
             total_files: 0,
             total_results: 1,

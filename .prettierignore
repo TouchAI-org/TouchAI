@@ -56,3 +56,4 @@ rust-temp/
 
 src-tauri/target/**/*
 src-tauri/gen/**/*
+.claude/
