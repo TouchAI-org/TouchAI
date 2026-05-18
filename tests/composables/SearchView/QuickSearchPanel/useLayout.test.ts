@@ -333,6 +333,33 @@ describe('useLayout', () => {
         expect(layout.visibleRows.value).toBe(8);
     });
 
+    it('syncLayout calls updateLayout after nextTick and rAF', async () => {
+        const isOpen = ref(true);
+        const results = ref([createShortcut(1), createShortcut(2)]);
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+        const panelElement = document.createElement('div');
+        panelElement.appendChild(scrollElement);
+        document.body.appendChild(panelElement);
+
+        setReadonlyNumber(scrollElement, 'clientWidth', 400);
+        setReadonlyNumber(panelElement, 'clientWidth', 400);
+        setReadonlyNumber(document.documentElement, 'clientWidth', 400);
+        setReadonlyNumber(window, 'innerWidth', 400);
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        await layout.syncLayout();
+
+        // After syncLayout, gridColumns should be updated.
+        expect(layout.gridColumns.value).toBeGreaterThanOrEqual(1);
+    });
+
     it('scrollHighlightedIntoView does nothing when highlight is -1', async () => {
         const isOpen = ref(true);
         const results = ref([createShortcut(1)]);

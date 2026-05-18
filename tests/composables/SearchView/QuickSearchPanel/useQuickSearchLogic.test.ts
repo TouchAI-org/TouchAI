@@ -327,6 +327,55 @@ describe('useQuickSearchLogic', () => {
         mounted.unmount();
     });
 
+    it('getNameSegments returns segments with match highlights', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('TouchAI')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'touch';
+        mounted.result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        const segments = mounted.result.getNameSegments('TouchAI');
+        expect(segments.length).toBeGreaterThan(0);
+        expect(segments.some((s) => s.matched)).toBe(true);
+
+        mounted.unmount();
+    });
+
     it('skips re-search when the same query already has results', async () => {
         const open = ref(false);
         const searchQuery = ref('');
