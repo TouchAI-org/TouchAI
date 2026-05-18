@@ -314,16 +314,15 @@ jobs:
 
             - name: Summarize coverage
               run: |
-                  xml_file=$(find .coverage/rust -name '*.xml' -type f | head -1)
-                  if [ -z "$xml_file" ]; then
-                    echo "::warning::No coverage XML file found in .coverage/rust/"
+                  if [ ! -f cobertura.xml ]; then
+                    echo "::warning::cobertura.xml not found in project root"
                     echo "## Rust Coverage" >> "$GITHUB_STEP_SUMMARY"
                     echo "" >> "$GITHUB_STEP_SUMMARY"
                     echo "No coverage XML file produced. Check tarpaulin output above." >> "$GITHUB_STEP_SUMMARY"
                   else
                     node -e "
                       const fs = require('node:fs');
-                      const xml = fs.readFileSync('$xml_file', 'utf8');
+                      const xml = fs.readFileSync('cobertura.xml', 'utf8');
                       const rateMatch = xml.match(/line-rate=\"([0-9.]+)\"/);
                       const branchMatch = xml.match(/branch-rate=\"([0-9.]+)\"/);
                       const linePct = rateMatch ? (parseFloat(rateMatch[1]) * 100).toFixed(1) : 'N/A';
@@ -338,8 +337,8 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: rust-coverage-report
-                  path: .coverage/rust
-                  if-no-files-found: error
+                  path: cobertura.xml
+                  if-no-files-found: warn
 
     frontend-coverage:
         name: Frontend Coverage
