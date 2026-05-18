@@ -15,6 +15,7 @@ import {
     paths,
     quickSearch,
     type QuickSearchFileItem,
+    type QuickSearchResult,
     type QuickSearchStatus,
     type QuickShortcutItem,
     shortcut,
@@ -526,17 +527,23 @@ describe('NativeService MCP boundary', () => {
 });
 
 describe('NativeService quick search boundary', () => {
-    it('searches shortcuts with the default limit', async () => {
-        const response: QuickShortcutItem[] = [
-            { name: 'TouchAI', path: 'D:/TouchAI.lnk', source: 'desktop_user' },
-        ];
+    it('searches shortcuts with the default page size', async () => {
+        const response: QuickSearchResult = {
+            shortcuts: [
+                { name: 'TouchAI', path: 'D:/TouchAI.lnk', source: 'desktop_user' },
+            ],
+            files: [],
+            total_files: 0,
+            total_results: 1,
+            next_offset: 0,
+        };
         mockTauriCommand('quick_search_search_shortcuts', response);
 
         await expect(
             callAndExpectInvoke(
                 () => quickSearch.searchShortcuts('touch'),
                 'quick_search_search_shortcuts',
-                { query: 'touch', limit: 60 }
+                { query: 'touch', pageSize: 60, offset: 0 }
             )
         ).resolves.toEqual(response);
     });

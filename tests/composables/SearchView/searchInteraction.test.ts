@@ -55,6 +55,14 @@ function createControllerStub() {
         moveQuickSearchSelection: vi.fn(),
         openHighlightedQuickSearchItem: vi.fn().mockResolvedValue(undefined),
         triggerQuickSearch: vi.fn(),
+        goToPageQuickSearch: vi.fn(),
+        goToNextPageQuickSearch: vi.fn(),
+        goToPreviousPageQuickSearch: vi.fn(),
+        openQuickSearchContextMenu: vi.fn(),
+        toggleQuickSearchView: vi.fn(),
+        collapseQuickSearch: vi.fn(),
+        isQuickSearchContextMenuOpen: vi.fn(() => false),
+        closeQuickSearchContextMenu: vi.fn(),
     } satisfies SearchPageController;
 }
 
@@ -336,6 +344,11 @@ describe('createSearchKeyboardRouter', () => {
             onMoveQuickSearchSelection: vi.fn(),
             onOpenHighlightedQuickSearchItem: vi.fn(),
             onCloseQuickSearch: vi.fn(),
+            onQuickSearchPageUp: vi.fn(),
+            onQuickSearchPageDown: vi.fn(),
+            onQuickSearchContextMenu: vi.fn(),
+            onQuickSearchToggleView: vi.fn(),
+            onQuickSearchCollapse: vi.fn(),
             onNavigateInputHistory: vi.fn(() => 'ignored' as const),
             onHideAllPopups: vi.fn(),
             onCancelRequest: vi.fn(),

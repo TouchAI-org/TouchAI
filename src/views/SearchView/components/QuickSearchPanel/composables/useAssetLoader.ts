@@ -355,6 +355,15 @@ export function useAssetLoader(
             }
         }
 
+        let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+
+        function clearPendingTimer() {
+            if (pendingTimer !== null) {
+                clearTimeout(pendingTimer);
+                pendingTimer = null;
+            }
+        }
+
         function scheduleLoad(reqId = requestId.value, immediate = false) {
             if (!isOpen.value || reqId !== requestId.value) return;
 
@@ -367,14 +376,16 @@ export function useAssetLoader(
                 return;
             }
 
+            clearPendingTimer();
             config.clearTimer();
             const delay = immediate ? 0 : config.delayMs;
-            setTimeout(() => {
+            pendingTimer = setTimeout(() => {
+                pendingTimer = null;
                 void loadBatch(requestId.value);
             }, delay);
         }
 
-        return { loadBatch, scheduleLoad };
+        return { loadBatch, scheduleLoad, clearPendingTimer };
     }
 
     // 间接引用，让 createBatchLoader 内部的 schedule 回调能指向最终的 scheduleLoad。
@@ -492,6 +503,8 @@ export function useAssetLoader(
         // 统一收敛所有加载状态，供 close/hide/新查询复用。
         clearIconLoadTimer();
         clearImageLoadTimer();
+        iconLoader.clearPendingTimer();
+        imageLoader.clearPendingTimer();
         iconLoadPending = false;
         iconLoadInFlight = false;
         imageLoadPending = false;
