@@ -17,7 +17,6 @@ import {
     type QuickSearchFileItem,
     type QuickSearchResult,
     type QuickSearchStatus,
-    type QuickShortcutItem,
     shortcut,
     window as windowCommands,
 } from '@services/NativeService';
