@@ -4,15 +4,16 @@
 
 use std::collections::HashMap;
 
-use crate::core::search::{self, QuickSearchFileItem, QuickSearchStatus, QuickShortcutItem};
+use crate::core::search::{self, QuickSearchFileItem, QuickSearchResult, QuickSearchStatus};
 
 /// 搜索快捷项（前端主查询入口）。
 #[tauri::command]
 pub async fn quick_search_search_shortcuts(
     query: String,
-    limit: Option<usize>,
-) -> Result<Vec<QuickShortcutItem>, String> {
-    search::quick_search_search_shortcuts(query, limit).await
+    page_size: Option<usize>,
+    offset: Option<u32>,
+) -> Result<QuickSearchResult, String> {
+    search::quick_search_search_shortcuts(query, page_size, offset).await
 }
 
 /// 搜索普通文件（内置 `file_search` 工具入口）。

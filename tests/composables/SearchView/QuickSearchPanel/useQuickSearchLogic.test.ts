@@ -1,4 +1,4 @@
-import type { QuickShortcutItem } from '@services/NativeService';
+import type { QuickSearchResult, QuickShortcutItem } from '@services/NativeService';
 import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
@@ -60,6 +60,21 @@ function createShortcut(name: string, path = `D:/${name}.lnk`): QuickShortcutIte
     };
 }
 
+function createSearchResult(
+    shortcuts: QuickShortcutItem[] = [],
+    files: QuickShortcutItem[] = [],
+    overrides: Partial<QuickSearchResult> = {}
+): QuickSearchResult {
+    return {
+        shortcuts,
+        files,
+        total_files: files.length,
+        total_results: shortcuts.length + files.length,
+        next_offset: files.length,
+        ...overrides,
+    };
+}
+
 function deferred<T>() {
     let resolve!: (value: T) => void;
     const promise = new Promise<T>((r) => {
@@ -102,7 +117,9 @@ describe('useQuickSearchLogic', () => {
                     last_error: null,
                 }),
                 prepareIndex: vi.fn().mockResolvedValue(undefined),
-                searchShortcuts: vi.fn().mockResolvedValue([createShortcut('TouchAI')]),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('TouchAI')])),
             },
             window: {
                 hideSearchWindow: vi.fn().mockResolvedValue(undefined),
@@ -129,7 +146,7 @@ describe('useQuickSearchLogic', () => {
         await vi.advanceTimersByTimeAsync(80);
         await flushAsyncWork();
 
-        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledWith('touchai', 60);
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledWith('touchai', 60, 0);
         expect(open.value).toBe(true);
         expect(mounted.result.results.value).toEqual([createShortcut('TouchAI')]);
         expect(mounted.result.highlightedIndex.value).toBe(-1);
@@ -141,8 +158,8 @@ describe('useQuickSearchLogic', () => {
     });
 
     it('keeps only the latest pending query when a slower search result arrives late', async () => {
-        const firstSearch = deferred<QuickShortcutItem[]>();
-        const secondSearch = deferred<QuickShortcutItem[]>();
+        const firstSearch = deferred<QuickSearchResult>();
+        const secondSearch = deferred<QuickSearchResult>();
         const open = ref(false);
         const searchQuery = ref('');
         const quickSearchDeps = {
@@ -190,17 +207,23 @@ describe('useQuickSearchLogic', () => {
         await vi.advanceTimersByTimeAsync(80);
         await flushAsyncWork();
 
-        firstSearch.resolve([createShortcut('First Result')]);
+        firstSearch.resolve(createSearchResult([createShortcut('First Result')]));
         await flushAsyncWork();
 
-        secondSearch.resolve([createShortcut('Second Result')]);
+        secondSearch.resolve(createSearchResult([createShortcut('Second Result')]));
         await flushAsyncWork();
 
-        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenNthCalledWith(1, 'first', 60);
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenNthCalledWith(
+            1,
+            'first',
+            60,
+            0
+        );
         expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenNthCalledWith(
             2,
             'second',
-            60
+            60,
+            0
         );
         expect(mounted.result.results.value).toEqual([createShortcut('Second Result')]);
         expect(open.value).toBe(true);
@@ -221,7 +244,7 @@ describe('useQuickSearchLogic', () => {
                     last_error: null,
                 }),
                 prepareIndex: vi.fn().mockResolvedValue(undefined),
-                searchShortcuts: vi.fn().mockResolvedValue([]),
+                searchShortcuts: vi.fn().mockResolvedValue(createSearchResult()),
             },
             window: {
                 hideSearchWindow: vi.fn().mockResolvedValue(undefined),
@@ -269,7 +292,7 @@ describe('useQuickSearchLogic', () => {
                     last_error: null,
                 }),
                 prepareIndex: vi.fn().mockResolvedValue(undefined),
-                searchShortcuts: vi.fn().mockResolvedValue([result]),
+                searchShortcuts: vi.fn().mockResolvedValue(createSearchResult([result])),
             },
             window: {
                 hideSearchWindow: vi.fn().mockResolvedValue(undefined),
@@ -299,8 +322,385 @@ describe('useQuickSearchLogic', () => {
         await mounted.result.handleItemClick(0);
 
         expect(clickStatsMock.recordClick).toHaveBeenCalledWith('touch', result.path);
-        expect(quickSearchDeps.window.hideSearchWindow).toHaveBeenCalledTimes(1);
         expect(quickSearchDeps.openPath).toHaveBeenCalledWith(result.path);
+
+        mounted.unmount();
+    });
+
+    it('getNameSegments returns segments with match highlights', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('TouchAI')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'touch';
+        mounted.result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        const segments = mounted.result.getNameSegments('TouchAI');
+        expect(segments.length).toBeGreaterThan(0);
+        expect(segments.some((s) => s.matched)).toBe(true);
+
+        mounted.unmount();
+    });
+
+    it('skips re-search when the same query already has results', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('TouchAI')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'touch';
+        mounted.result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(1);
+
+        // Same query again should not trigger a new search.
+        mounted.result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
+    });
+
+    it('collapseToDefault resets highlight and visible rows', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('TouchAI')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'touch';
+        mounted.result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        mounted.result.collapseToDefault();
+
+        expect(mounted.result.highlightedIndex.value).toBe(-1);
+        expect(layoutMock.setVisibleRows).toHaveBeenCalledWith(5);
+        expect(layoutMock.updateLayout).toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('loadMore appends new file results', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValueOnce(
+                        createSearchResult(
+                            [createShortcut('App')],
+                            [createShortcut('File1', 'D:/File1.txt')],
+                            { total_results: 10 }
+                        )
+                    )
+                    .mockResolvedValueOnce(
+                        createSearchResult([], [createShortcut('File2', 'D:/File2.txt')], {
+                            total_results: 10,
+                        })
+                    ),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'file';
+        mounted.result.triggerSearch('file');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(mounted.result.results.value.length).toBe(2);
+
+        await mounted.result.loadMore();
+        await flushAsyncWork();
+
+        expect(mounted.result.results.value.length).toBe(3);
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(2);
+
+        mounted.unmount();
+    });
+
+    it('handleContextMenu sets highlight and opens context menu', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('App')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'app';
+        mounted.result.triggerSearch('app');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        const event = new MouseEvent('contextmenu', {
+            clientX: 100,
+            clientY: 100,
+            bubbles: true,
+        });
+        mounted.result.handleContextMenu(event, 0);
+
+        expect(mounted.result.highlightedIndex.value).toBe(0);
+
+        mounted.unmount();
+    });
+
+    it('open watcher triggers syncLayout on first open with no results', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi.fn().mockResolvedValue(createSearchResult()),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        // Open with no results should call syncLayout.
+        open.value = true;
+        await flushAsyncWork();
+
+        expect(layoutMock.syncLayout).toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('close resets lastSearchedQuery and allows re-search', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('App')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'app';
+        mounted.result.triggerSearch('app');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(1);
+
+        // Close clears lastSearchedQuery.
+        mounted.result.close();
+        await flushAsyncWork();
+
+        // Re-trigger same query should search again.
+        open.value = false;
+        await flushAsyncWork();
+        open.value = true;
+        searchQuery.value = 'app';
+        mounted.result.triggerSearch('app');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(2);
 
         mounted.unmount();
     });

@@ -75,8 +75,6 @@ interface ShouldCheckShortcutEntryInput {
     lastEntryCheckedVisibilityEpoch: number | null;
 }
 
-type PopupSessionEventIdentity = SearchPopupSessionIdentity;
-
 interface UseQuickSearchCoordinatorOptions {
     queryText: Ref<string>;
     attachments: Ref<unknown[]>;
@@ -142,6 +140,11 @@ interface CreateSearchKeyboardRouterOptions {
     onMoveQuickSearchSelection: (direction: SearchQuickSearchDirection) => void;
     onOpenHighlightedQuickSearchItem: () => void | Promise<void>;
     onCloseQuickSearch: () => void;
+    onQuickSearchPageUp: () => void;
+    onQuickSearchPageDown: () => void;
+    onQuickSearchContextMenu: () => void;
+    onQuickSearchToggleView: () => void;
+    onQuickSearchCollapse: () => void;
     onNavigateInputHistory: (
         direction: SessionInputHistoryDirection
     ) => SessionInputHistoryNavigationResult;
@@ -528,7 +531,7 @@ export function createPopupSurfaceCoordinator(
         interactionContext.clearActivePopupSession();
     }
 
-    function isCurrentPopupEvent(input: PopupSessionEventIdentity) {
+    function isCurrentPopupEvent(input: SearchPopupSessionIdentity) {
         if (!state.activePopupIdentity) {
             return false;
         }
@@ -777,6 +780,11 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onMoveQuickSearchSelection,
         onOpenHighlightedQuickSearchItem,
         onCloseQuickSearch,
+        onQuickSearchPageUp,
+        onQuickSearchPageDown,
+        onQuickSearchContextMenu,
+        onQuickSearchToggleView,
+        onQuickSearchCollapse,
         onNavigateInputHistory,
         onHideAllPopups,
         onCancelRequest,
@@ -822,6 +830,12 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         }
 
         if (input.key === 'Escape' || input.key === 'Esc') {
+            // 快速搜索有高亮时，Escape 只收缩面板、清除高亮，不走清空输入链路。
+            if (isQuickSearchOpen() && hasQuickSearchHighlight()) {
+                onQuickSearchCollapse();
+                return true;
+            }
+
             if (getActiveSurface() !== 'search-surface') {
                 runKeyboardEffect(onHideAllPopups);
                 return true;
@@ -864,6 +878,28 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         }
 
         if (isQuickSearchOpen()) {
+            // PageUp/PageDown 翻页
+            if (input.key === 'PageUp') {
+                onQuickSearchPageUp();
+                return true;
+            }
+            if (input.key === 'PageDown') {
+                onQuickSearchPageDown();
+                return true;
+            }
+
+            // Menu 键或 Shift+F10 打开右键菜单
+            if (input.key === 'ContextMenu' || (input.key === 'F10' && input.shiftKey)) {
+                onQuickSearchContextMenu();
+                return true;
+            }
+
+            // Ctrl+G 切换网格/列表视图
+            if (input.key === 'g' && (input.ctrlKey || input.metaKey)) {
+                onQuickSearchToggleView();
+                return true;
+            }
+
             if (hasQuickSearchHighlight()) {
                 const directionMap: Partial<Record<string, SearchQuickSearchDirection>> = {
                     ArrowUp: 'up',
@@ -1044,6 +1080,21 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         onCloseQuickSearch: () => {
             controller.closeQuickSearch();
         },
+        onQuickSearchPageUp: () => {
+            controller.goToPreviousPageQuickSearch();
+        },
+        onQuickSearchPageDown: () => {
+            controller.goToNextPageQuickSearch();
+        },
+        onQuickSearchContextMenu: () => {
+            controller.openQuickSearchContextMenu();
+        },
+        onQuickSearchToggleView: () => {
+            controller.toggleQuickSearchView();
+        },
+        onQuickSearchCollapse: () => {
+            controller.collapseQuickSearch();
+        },
         onNavigateInputHistory: (direction) => {
             return navigateInputHistory(direction);
         },
@@ -1108,6 +1159,17 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
 
     return async function handleKeyDown(event: KeyboardEvent) {
         if (!viewReady.value) {
+            return;
+        }
+
+        // 右键菜单打开时，Escape 关闭菜单，其它键不拦截。
+        if (controller.isQuickSearchContextMenuOpen()) {
+            if (event.key === 'Escape' || event.key === 'Esc') {
+                controller.closeQuickSearchContextMenu();
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            // 非 Escape 键不拦截，传播到 useContextMenu 的 document listener 处理上下键导航。
             return;
         }
 
