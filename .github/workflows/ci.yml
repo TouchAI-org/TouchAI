@@ -261,6 +261,78 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               run: pnpm check:rust
 
+            - name: Run Rust tests
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm test:rust
+
+    rust-coverage:
+        name: Rust Coverage
+        needs:
+            - changes
+            - rust-checks
+        if: needs.changes.outputs.docs_only != 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Linux system dependencies
+              run: |
+                  sudo apt update
+                  sudo apt install -y \
+                    build-essential \
+                    curl \
+                    file \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
+                    pkg-config \
+                    wget
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri -> target
+
+            - name: Install cargo-tarpaulin
+              run: cargo install cargo-tarpaulin
+
+            - name: Run Rust coverage
+              run: pnpm test:coverage:rust
+
+            - name: Summarize coverage
+              run: |
+                  node -e "
+                    const fs = require('node:fs');
+                    const xml = fs.readFileSync('.coverage/rust/cobertura.xml', 'utf8');
+                    const rateMatch = xml.match(/line-rate=\"([0-9.]+)\"/);
+                    const branchMatch = xml.match(/branch-rate=\"([0-9.]+)\"/);
+                    const linePct = rateMatch ? (parseFloat(rateMatch[1]) * 100).toFixed(1) : 'N/A';
+                    const branchPct = branchMatch ? (parseFloat(branchMatch[1]) * 100).toFixed(1) : 'N/A';
+                    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+                      ['## Rust Coverage', '', '| Metric | Percent |', '| --- | ---: |',
+                       '| Lines | ' + linePct + '% |', '| Branches | ' + branchPct + '% |', ''].join('\n'));
+                  "
+
+            - name: Upload coverage artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: rust-coverage-report
+                  path: .coverage/rust
+                  if-no-files-found: error
+
     frontend-coverage:
         name: Frontend Coverage
         needs:
