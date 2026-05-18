@@ -764,6 +764,7 @@ export function useQuickSearchLogic(
         goToPage: quickSearch.goToPage,
         goToNextPage: () => quickSearch.goToPage(),
         goToPreviousPage: () => quickSearch.goToPage(),
+        loadMore,
         currentPage,
         totalFiles,
         totalResults,

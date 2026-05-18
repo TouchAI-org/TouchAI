@@ -62,7 +62,8 @@ function createShortcut(name: string, path = `D:/${name}.lnk`): QuickShortcutIte
 
 function createSearchResult(
     shortcuts: QuickShortcutItem[] = [],
-    files: QuickShortcutItem[] = []
+    files: QuickShortcutItem[] = [],
+    overrides: Partial<QuickSearchResult> = {}
 ): QuickSearchResult {
     return {
         shortcuts,
@@ -70,6 +71,7 @@ function createSearchResult(
         total_files: files.length,
         total_results: shortcuts.length + files.length,
         next_offset: files.length,
+        ...overrides,
     };
 }
 
@@ -321,6 +323,175 @@ describe('useQuickSearchLogic', () => {
 
         expect(clickStatsMock.recordClick).toHaveBeenCalledWith('touch', result.path);
         expect(quickSearchDeps.openPath).toHaveBeenCalledWith(result.path);
+
+        mounted.unmount();
+    });
+
+    it('skips re-search when the same query already has results', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('TouchAI')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'touch';
+        mounted.result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(1);
+
+        // Same query again should not trigger a new search.
+        mounted.result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
+    });
+
+    it('collapseToDefault resets highlight and visible rows', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('TouchAI')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'touch';
+        mounted.result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        mounted.result.collapseToDefault();
+
+        expect(mounted.result.highlightedIndex.value).toBe(-1);
+        expect(layoutMock.setVisibleRows).toHaveBeenCalledWith(5);
+        expect(layoutMock.updateLayout).toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('loadMore appends new file results', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValueOnce(
+                        createSearchResult(
+                            [createShortcut('App')],
+                            [createShortcut('File1', 'D:/File1.txt')],
+                            { total_results: 10 }
+                        )
+                    )
+                    .mockResolvedValueOnce(
+                        createSearchResult([], [createShortcut('File2', 'D:/File2.txt')], {
+                            total_results: 10,
+                        })
+                    ),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'file';
+        mounted.result.triggerSearch('file');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(mounted.result.results.value.length).toBe(2);
+
+        await mounted.result.loadMore();
+        await flushAsyncWork();
+
+        expect(mounted.result.results.value.length).toBe(3);
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(2);
 
         mounted.unmount();
     });
