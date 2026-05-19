@@ -12,8 +12,8 @@ use tauri::State;
 /// 命令层保持薄封装，避免把参数校验、平台分支和进程生命周期管理
 /// 散落到 Tauri 注册入口；真正的执行流程统一收口到核心层。
 ///
-/// 执行前会自动释放嵌入的 rg 二进制并追加到 PATH，
-/// 使模型可以直接在 bash 中调用 `rg`。
+/// 执行前会自动释放嵌入的 rg / rtk 二进制并追加到 PATH，
+/// 使模型可以直接在 bash 中调用 `rg` / `rtk`。
 #[tauri::command]
 pub async fn built_in_tools_execute_bash(
     request: BuiltInBashExecutionRequest,

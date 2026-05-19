@@ -72,7 +72,7 @@ export async function resolveCommandContext(args: Record<string, unknown>, confi
         throw new Error(`Working directory is outside the allowed scope: ${workingDirectory}`);
     }
 
-    return { command, workingDirectory };
+    return { command, workingDirectory, rawOutput: parsedArgs.rawOutput ?? false };
 }
 
 export function truncateOutput(output: string, maxLength: number): string {
@@ -86,6 +86,7 @@ export interface ParsedBashToolResult {
     shell: string | null;
     duration: string | null;
     output: string | null;
+    compressed: boolean;
 }
 
 export function formatBashToolResult(
@@ -93,12 +94,16 @@ export function formatBashToolResult(
     commandContext: BashCommandContext,
     maxOutputChars: number
 ): string {
-    const header = [
+    const headerLines = [
         `Shell: ${response.shell}`,
         `Working directory: ${commandContext.workingDirectory}`,
         `Exit code: ${response.exitCode ?? 'none'}`,
         `Duration: ${response.durationMs}ms`,
-    ].join('\n');
+    ];
+    if (response.compressed) {
+        headerLines.push('Compressed: true');
+    }
+    const header = headerLines.join('\n');
     const output = truncateOutput(response.combinedOutput.trim(), maxOutputChars);
 
     return [header, '', output || '[命令无输出]'].join('\n');
@@ -111,6 +116,7 @@ export function parseBashToolResult(result?: string): ParsedBashToolResult {
             shell: null,
             duration: null,
             output: null,
+            compressed: false,
         };
     }
 
@@ -123,6 +129,7 @@ export function parseBashToolResult(result?: string): ParsedBashToolResult {
         shell: null,
         duration: null,
         output: outputText,
+        compressed: false,
     };
     let matchedHeader = false;
 
@@ -136,6 +143,11 @@ export function parseBashToolResult(result?: string): ParsedBashToolResult {
         if (line.startsWith('Duration: ')) {
             const value = line.slice('Duration: '.length).trim();
             meta.duration = value || null;
+            matchedHeader = true;
+        }
+
+        if (line === 'Compressed: true') {
+            meta.compressed = true;
             matchedHeader = true;
         }
     }

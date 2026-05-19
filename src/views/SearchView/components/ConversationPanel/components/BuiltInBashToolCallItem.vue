@@ -27,6 +27,13 @@
                             {{ bashShellText }}
                         </span>
                         <div class="tool-call-bash-panel-header-meta">
+                            <span
+                                v-if="bashCompressed"
+                                class="tool-call-compressed-icon"
+                                title="Tokens节省已启用"
+                            >
+                                <AppIcon name="leaf" class="tool-call-compressed-icon-svg" />
+                            </span>
                             <span :class="['tool-call-bash-status-text', bashStatusClass]">
                                 {{ bashStatusText }}
                             </span>
@@ -83,6 +90,7 @@
 </template>
 
 <script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
     import { computed, ref } from 'vue';
 
     import { parseBashToolResult } from '@/services/BuiltInToolService/tools/bash/helper';
@@ -143,6 +151,7 @@
         }
     );
     const bashResultMeta = computed(() => parseBashToolResult(props.toolCall.result));
+    const bashCompressed = computed(() => bashResultMeta.value.compressed);
     const bashCommandText = computed(() => {
         return (
             normalizeInlineText(props.toolCall.arguments?.command) || props.summaryText || '命令'
@@ -400,6 +409,18 @@
     .tool-call-log-verb {
         color: inherit;
         font-size: 0.9em;
+    }
+
+    .tool-call-compressed-icon {
+        display: inline-flex;
+        align-items: center;
+        margin-right: 0.3rem;
+        color: var(--color-primary-400);
+
+        .tool-call-compressed-icon-svg {
+            width: 0.85em;
+            height: 0.85em;
+        }
     }
 
     .tool-call-log-content,

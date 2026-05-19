@@ -12,6 +12,8 @@ export interface BuiltInBashExecutionRequest {
     command: string;
     workingDirectory?: string | null;
     timeoutMs?: number | null;
+    compactOutput?: boolean;
+    rawOutput?: boolean;
 }
 
 export interface BuiltInBashExecutionResponse {
@@ -26,6 +28,7 @@ export interface BuiltInBashExecutionResponse {
     stdout: string;
     stderr: string;
     combinedOutput: string;
+    compressed?: boolean;
 }
 
 export interface ShowPopupWindowParams {

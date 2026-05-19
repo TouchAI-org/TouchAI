@@ -267,6 +267,40 @@
                         "
                     />
                 </div>
+
+                <div>
+                    <label class="block font-serif text-sm font-medium text-gray-600">
+                        压缩命令输出
+                    </label>
+                    <p class="mt-0.5 font-serif text-xs text-gray-400">
+                        开启后命令输出会自动压缩，大幅降低 Token 消耗。
+                    </p>
+                    <label class="relative mt-1.5 inline-flex shrink-0 cursor-pointer items-center">
+                        <input
+                            type="checkbox"
+                            :checked="modelValue.compactOutput"
+                            :disabled="disabled"
+                            class="peer sr-only"
+                            @change="patch({ compactOutput: !modelValue.compactOutput })"
+                        />
+                        <div
+                            class="peer h-5 w-9 rounded-full transition-colors"
+                            :class="{
+                                'bg-primary-500': modelValue.compactOutput,
+                                'bg-gray-200': !modelValue.compactOutput,
+                                'cursor-not-allowed opacity-50': disabled,
+                            }"
+                        >
+                            <div
+                                class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform"
+                                :class="{
+                                    'translate-x-4': modelValue.compactOutput,
+                                    'translate-x-0': !modelValue.compactOutput,
+                                }"
+                            ></div>
+                        </div>
+                    </label>
+                </div>
             </div>
         </section>
     </div>

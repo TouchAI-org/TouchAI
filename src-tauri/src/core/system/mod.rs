@@ -6,8 +6,17 @@
 
 pub mod assets;
 pub mod autostart;
+pub mod bundled;
 pub mod clipboard;
 pub mod logging;
 pub mod paths;
 pub mod runtime;
 pub mod shortcut;
+
+mod embedded_ripgrep {
+    include!(concat!(env!("OUT_DIR"), "/ripgrep-binary.rs"));
+}
+
+mod embedded_rtk {
+    include!(concat!(env!("OUT_DIR"), "/rtk-binary.rs"));
+}
