@@ -69,6 +69,12 @@ sha2 = "0.10"
 [dev-dependencies]
 tempfile = "3"
 
+[profile.dev]
+# dev 模式不生成完整 debug symbols，大幅减少磁盘和内存占用
+debug = 0
+opt-level = 0
+incremental = true
+
 [profile.release]
 codegen-units = 1
 incremental = false
