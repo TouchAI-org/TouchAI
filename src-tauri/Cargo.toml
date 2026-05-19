@@ -75,6 +75,12 @@ debug = 0
 opt-level = 0
 incremental = true
 
+[profile.ci-check]
+# CI 专用 check profile：保留 debug=1 便于报错定位，codegen-units=256 加速编译
+inherits = "dev"
+debug = 1
+codegen-units = 256
+
 [profile.release]
 codegen-units = 1
 incremental = false

@@ -39,16 +39,23 @@ function main() {
     mkdirSync(targetDir, { recursive: true });
     mkdirSync(tempDir, { recursive: true });
 
+    const cargoArgs = [
+        mode,
+        '--manifest-path',
+        'src-tauri/Cargo.toml',
+        '--all-targets',
+        '--target-dir',
+        targetDir,
+    ];
+
+    // CI 环境使用 ci-check profile（debug=1, codegen-units=256），加速编译并保留调试信息
+    if (process.env.CI) {
+        cargoArgs.push('--profile', 'ci-check');
+    }
+
     const result = spawnSync(
         'cargo',
-        [
-            mode,
-            '--manifest-path',
-            'src-tauri/Cargo.toml',
-            '--all-targets',
-            '--target-dir',
-            targetDir,
-        ],
+        cargoArgs,
         {
             cwd,
             env: {
