@@ -35,6 +35,7 @@ impl BuiltInProcessExecutionRegistry {
         }
     }
 
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub fn register(&self, execution_id: String) -> oneshot::Receiver<()> {
         let (sender, receiver) = oneshot::channel();
         let mut state = self
@@ -64,6 +65,7 @@ impl BuiltInProcessExecutionRegistry {
     ///
     /// 返回 `true` 表示该执行正在进行中，已立即发送取消信号；
     /// 返回 `false` 表示未找到活跃执行，已记录为待取消（覆盖先取消后注册的竞态）。
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub fn cancel(&self, execution_id: &str) -> bool {
         let mut state = self
             .state
@@ -82,6 +84,7 @@ impl BuiltInProcessExecutionRegistry {
         false
     }
 
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub fn complete(&self, execution_id: &str) {
         let mut state = self
             .state

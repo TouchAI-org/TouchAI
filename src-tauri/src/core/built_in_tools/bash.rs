@@ -15,14 +15,18 @@ use tokio::process::Command;
 #[cfg(target_os = "windows")]
 use tokio::time;
 
+#[cfg(target_os = "windows")]
 use super::process_utils::{combine_output, read_stream, resolve_timeout_ms, terminate_child};
 use super::registry::BashExecutionRegistry;
 use super::types::{BuiltInBashExecutionRequest, BuiltInBashExecutionResponse};
-use crate::core::system::bundled::{get_bundled_rg_directory, get_bundled_rtk_directory};
+#[cfg(target_os = "windows")]
+use crate::core::system::bundled::get_bundled_rtk_directory;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(target_os = "windows")]
 const DEFAULT_TIMEOUT_MS: u64 = 15_000;
+#[cfg(target_os = "windows")]
 const MAX_TIMEOUT_MS: u64 = 120_000;
 #[cfg(target_os = "windows")]
 const UTF8_POWERSHELL_PRELUDE: &str =
@@ -46,13 +50,10 @@ pub async fn execute_bash(
     execute_bash_windows(request, registry).await
 }
 
-/// 构建 PATH 前缀脚本：如果 bundled rg / rtk 可用，将其目录追加到 PATH 最前面。
+/// 构建 PATH 前缀脚本：如果 bundled rtk 可用，将其目录追加到 PATH 最前面。
 #[cfg(target_os = "windows")]
 fn build_path_prelude() -> String {
     let mut dirs = Vec::new();
-    if let Some(rg_dir) = get_bundled_rg_directory() {
-        dirs.push(rg_dir.to_string_lossy().replace('\'', "''"));
-    }
     if let Some(rtk_dir) = get_bundled_rtk_directory() {
         dirs.push(rtk_dir.to_string_lossy().replace('\'', "''"));
     }

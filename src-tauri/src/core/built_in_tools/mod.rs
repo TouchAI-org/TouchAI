@@ -3,6 +3,7 @@
 //! 内置工具原生能力。
 
 mod bash;
+#[cfg(target_os = "windows")]
 mod process_utils;
 mod registry;
 mod types;

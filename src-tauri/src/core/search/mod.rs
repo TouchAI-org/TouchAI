@@ -20,9 +20,13 @@ mod manager;
 #[cfg(target_os = "windows")]
 mod provider_everything;
 
+#[cfg(target_os = "windows")]
 const DEFAULT_LIMIT: usize = 60;
+#[cfg(target_os = "windows")]
 const MAX_LIMIT: usize = 200;
+#[cfg(target_os = "windows")]
 const DEFAULT_ICON_SIZE: u32 = 48;
+#[cfg(target_os = "windows")]
 const MAX_ICON_SIZE: u32 = 256;
 
 /// 搜索快捷项列表（Windows）。

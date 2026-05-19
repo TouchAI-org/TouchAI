@@ -69,26 +69,6 @@ fn resolve(filename: &str, sha256: &str, bytes: &[u8]) -> Option<PathBuf> {
     Some(bin_dir)
 }
 
-// ── rg ────────────────────────────────────────────────────────────────
-
-static RG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
-
-/// 获取已验证的 rg 二进制目录（带 OnceLock 缓存，仅首次调用时执行验证）。
-///
-/// 返回的目录路径可直接追加到 PATH，使 rg 对 bash 工具可见。
-/// 不支持的平台或验证失败时返回 None。
-pub fn get_bundled_rg_directory() -> Option<&'static PathBuf> {
-    RG_DIR
-        .get_or_init(|| {
-            resolve(
-                super::embedded_ripgrep::BUNDLED_RIPGREP_FILENAME,
-                super::embedded_ripgrep::BUNDLED_RIPGREP_SHA256,
-                super::embedded_ripgrep::BUNDLED_RIPGREP_BYTES,
-            )
-        })
-        .as_ref()
-}
-
 // ── rtk ───────────────────────────────────────────────────────────────
 
 static RTK_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();

@@ -30,7 +30,6 @@ struct BundledTarget {
 
 fn main() {
     generate_database_embedded_assets().expect("failed to generate embedded database assets");
-    prepare_bundled("ripgrep").expect("failed to prepare bundled ripgrep");
     prepare_bundled("rtk").expect("failed to prepare bundled rtk");
 
     #[cfg(target_os = "windows")]
