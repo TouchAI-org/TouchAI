@@ -94,6 +94,11 @@ strip = true
 inherits = "release"
 codegen-units = 16
 
+[profile.ci-release.package."*"]
+# CI 依赖包也并行编译，进一步压降 release 构建时间
+opt-level = "z"
+codegen-units = 16
+
 [profile.release.package."*"]
 opt-level = "z"
 codegen-units = 1
