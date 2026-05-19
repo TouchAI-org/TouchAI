@@ -89,6 +89,11 @@ opt-level = "z"
 panic = "abort"
 strip = true
 
+[profile.ci-release]
+# CI release profile：保留 fat LTO，放宽 codegen-units 加速编译
+inherits = "release"
+codegen-units = 16
+
 [profile.release.package."*"]
 opt-level = "z"
 codegen-units = 1
