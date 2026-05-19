@@ -127,3 +127,11 @@ export interface QuickSearchStatus {
     last_refresh_ms: number | null;
     last_error: string | null;
 }
+
+export interface QuickSearchResult {
+    shortcuts: QuickShortcutItem[];
+    files: QuickShortcutItem[];
+    total_files: number;
+    total_results: number;
+    next_offset: number;
+}

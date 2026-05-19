@@ -1,17 +1,22 @@
 @reference "@styles/tailwind.css";
 
 .quick-search-scroll {
-    width: 100%;
-    max-width: 100%;
-    margin: 0 auto;
-    height: var(--quick-selection-max-height, 200px);
-    min-height: var(--quick-selection-max-height, 200px);
-    max-height: var(--quick-selection-max-height, 200px);
     padding: var(--quick-edge-space, 4px);
     box-sizing: border-box;
     display: flex;
     justify-content: center;
     align-items: flex-start;
+}
+
+/* 公共面板尺寸规则：scroll / placeholder / empty 共享相同的宽高约束。 */
+.quick-search-scroll,
+.quick-search-loading-placeholder,
+.quick-search-empty {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    height: var(--quick-selection-max-height, 200px);
+    min-height: var(--quick-selection-max-height, 200px);
 }
 
 .quick-search-scrollbar {
@@ -35,22 +40,7 @@
     align-content: start;
 }
 
-.quick-search-loading-placeholder {
-    width: 100%;
-    max-width: 100%;
-    margin: 0 auto;
-    height: var(--quick-selection-max-height, 200px);
-    min-height: var(--quick-selection-max-height, 200px);
-    max-height: var(--quick-selection-max-height, 200px);
-}
-
 .quick-search-empty {
-    width: 100%;
-    max-width: 100%;
-    margin: 0 auto;
-    height: var(--quick-selection-max-height, 200px);
-    min-height: var(--quick-selection-max-height, 200px);
-    max-height: var(--quick-selection-max-height, 200px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -79,4 +69,28 @@
 .quick-search-icon-placeholder {
     background: linear-gradient(135deg, rgba(243, 244, 246, 0.95), rgba(229, 231, 235, 0.95));
     border: 1px solid rgba(209, 213, 219, 0.9);
+}
+
+/* 列表视图 */
+.quick-search-list {
+    --qs-icon-size: 16px;
+    --qs-name-width: 100px;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    margin: 0;
+    flex: 0 0 auto;
+    align-items: stretch;
+}
+
+/* 状态栏 */
+.quick-search-status {
+    border-top: 1px solid rgba(229, 231, 235, 0.6);
+    margin-top: 2px;
+    padding-top: 4px;
+}
+
+.quick-search-status-text {
+    user-select: none;
+    white-space: nowrap;
 }

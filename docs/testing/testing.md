@@ -10,21 +10,43 @@ Guidelines for writing and maintaining tests in the TouchAI codebase.
 4. **Use real code paths where possible.** Only mock at system boundaries (Tauri IPC, network, OS). Never mock your own pure functions or local strategy objects.
 5. **Control all nondeterminism.** Time, timers, randomness, temp dirs, and network responses must be test-controlled.
 
+## Test-Driven Development (TDD)
+
+We strongly recommend TDD for all `feat` and `fix` work. The cycle:
+
+1. **Red** -- Write a failing test that describes the desired behavior.
+2. **Green** -- Write the minimum code to make the test pass.
+3. **Refactor** -- Clean up the code while keeping tests green.
+
+Workflow:
+
+- Start by writing a test for the expected behavior (happy path, edge case, error path).
+- Run `pnpm test` (watch mode) and confirm the test fails.
+- Implement the code until the test passes.
+- Refactor, then run `pnpm test:pr` to verify full quality gate including coverage.
+
+Exceptions: exploratory spikes, pure UI layout tweaks, or configuration changes where the behavior is better verified manually. In these cases, explain why TDD was not followed in the PR.
+
 ## Running Tests
 
 ```bash
-pnpm test              # Vitest watch mode
-pnpm test:run          # Single run (CI mode)
-pnpm test:coverage     # Run with coverage report
+pnpm test              # Vitest watch mode (development)
+pnpm test:unit         # Single run (CI mode)
+pnpm test:coverage     # Run with frontend coverage report
 pnpm test:e2e          # Desktop E2E smoke (requires tauri-driver)
+pnpm test:pr           # Full PR gate (quality checks + all tests + frontend coverage)
+pnpm check             # Quality checks only (type, lint, format, Rust)
 ```
 
 For Rust:
 
 ```bash
+pnpm test:rust                          # Run Rust tests
+pnpm test:coverage:rust                 # Run Rust tests with coverage (requires cargo-tarpaulin)
 cargo check --manifest-path src-tauri/Cargo.toml --all-targets
-cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+CI runs both frontend and Rust coverage. Coverage reports are uploaded as artifacts and summarized in the GitHub step summary.
 
 ## File Placement
 
@@ -144,4 +166,4 @@ Before submitting a test PR, verify:
 - [ ] Mocks are limited to system boundaries.
 - [ ] Test names explain the failure reason.
 - [ ] Happy path, edge case, and error path are all covered.
-- [ ] Tests pass via `pnpm test:run`.
+- [ ] Tests pass via `pnpm test:pr` (includes type check, lint, format, unit tests, and coverage).

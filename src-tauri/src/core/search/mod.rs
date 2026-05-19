@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use tauri::async_runtime;
 
 mod types;
-pub use types::{QuickSearchFileItem, QuickSearchStatus, QuickShortcutItem};
+pub use types::{QuickSearchFileItem, QuickSearchResult, QuickSearchStatus};
 
 #[cfg(target_os = "windows")]
 mod assets;
@@ -20,6 +20,10 @@ mod manager;
 #[cfg(target_os = "windows")]
 mod provider_everything;
 
+#[cfg(target_os = "windows")]
+const DEFAULT_PAGE_SIZE: usize = 60;
+#[cfg(target_os = "windows")]
+const MAX_PAGE_SIZE: usize = 200;
 #[cfg(target_os = "windows")]
 const DEFAULT_LIMIT: usize = 60;
 #[cfg(target_os = "windows")]
@@ -37,19 +41,24 @@ const MAX_ICON_SIZE: u32 = 256;
 #[cfg(target_os = "windows")]
 pub async fn quick_search_search_shortcuts(
     query: String,
-    limit: Option<usize>,
-) -> Result<Vec<QuickShortcutItem>, String> {
-    // 限制查询条数，避免前端一次性请求过多结果。
-    let normalized_limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    page_size: Option<usize>,
+    offset: Option<u32>,
+) -> Result<QuickSearchResult, String> {
+    let normalized_page_size = page_size
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let normalized_offset = offset.unwrap_or(0);
     // 搜索过程含阻塞调用，放到阻塞线程池避免卡住异步运行时。
-    let shortcuts =
-        async_runtime::spawn_blocking(move || manager::search_shortcuts(&query, normalized_limit))
-            .await
-            .map_err(|err| format!("quick_search_search_shortcuts task join failed: {}", err))?;
+    let result = async_runtime::spawn_blocking(move || {
+        manager::search_shortcuts(&query, normalized_page_size, normalized_offset)
+    })
+    .await
+    .map_err(|err| format!("quick_search_search_shortcuts task join failed: {}", err))?;
 
     // 记住返回路径，缩略图请求按白名单校验。
-    assets::remember_search_paths(&shortcuts);
-    Ok(shortcuts)
+    assets::remember_search_paths(&result.shortcuts);
+    assets::remember_search_paths(&result.files);
+    Ok(result)
 }
 
 /// 搜索普通文件列表（Windows）。
@@ -74,11 +83,17 @@ pub async fn quick_search_search_files(
 /// 搜索快捷项列表（非 Windows 平台降级实现）。
 #[cfg(not(target_os = "windows"))]
 pub async fn quick_search_search_shortcuts(
-    query: String,
-    _limit: Option<usize>,
-) -> Result<Vec<QuickShortcutItem>, String> {
-    let _ = query;
-    Ok(Vec::new())
+    _query: String,
+    _page_size: Option<usize>,
+    _offset: Option<u32>,
+) -> Result<QuickSearchResult, String> {
+    Ok(QuickSearchResult {
+        shortcuts: Vec::new(),
+        files: Vec::new(),
+        total_files: 0,
+        total_results: 0,
+        next_offset: 0,
+    })
 }
 
 /// 搜索普通文件列表（非 Windows 平台降级实现）。

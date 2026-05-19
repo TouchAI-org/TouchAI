@@ -24,6 +24,21 @@ pub struct QuickSearchFileItem {
     pub path: String,
 }
 
+/// 分页搜索结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct QuickSearchResult {
+    /// 匹配的快捷方式列表（仅 page=0 时非空）。
+    pub shortcuts: Vec<QuickShortcutItem>,
+    /// 当前页的文件结果。
+    pub files: Vec<QuickShortcutItem>,
+    /// 去重后的文件结果总数（用于分页）。
+    pub total_files: usize,
+    /// Everything 报告的匹配总数（用于状态栏显示）。
+    pub total_results: u32,
+    /// 下次 loadMore 应传回的 Everything 偏移量。
+    pub next_offset: u32,
+}
+
 /// 快速搜索运行时状态快照。
 #[derive(Debug, Clone, Serialize)]
 pub struct QuickSearchStatus {

@@ -7,7 +7,7 @@
 //! 2. 组合“本地索引 + Everything 前台查询”的两阶段搜索；
 //! 3. 在后台异步补全 `.lnk` 目标信息，避免把主查询链路拖慢。
 
-use super::types::{QuickSearchFileItem, QuickSearchStatus, QuickShortcutItem};
+use super::types::{QuickSearchFileItem, QuickSearchResult, QuickSearchStatus, QuickShortcutItem};
 use log::{debug, warn};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -47,9 +47,6 @@ use sync::{lock_mutex, read_lock, try_lock_mutex, write_lock};
 const INDEX_REFRESH_TTL: Duration = Duration::from_secs(30);
 const TARGET_RESOLVER_WORKERS: usize = 2;
 const EVERYTHING_QUERY_MIN_RESULTS: usize = 24;
-const EVERYTHING_QUERY_MAX_RESULTS: usize = 120;
-const EVERYTHING_QUERY_LIMIT_MULTIPLIER: usize = 2;
-const EVERYTHING_QUERY_EXTRA_RESULTS: usize = 12;
 
 /// 快速搜索调度器。
 struct QuickSearchManager {
@@ -94,27 +91,44 @@ impl QuickSearchManager {
         }
     }
 
-    /// 执行两阶段搜索。
+    /// 执行两阶段分页搜索。
     ///
-    /// 第一阶段优先走本地快捷方式索引，保证大部分查询能以低延迟返回；
-    /// 如果索引结果不足，再前台补查 Everything 普通文件，把剩余名额补齐。
-    /// 这样既保留了快捷方式排序质量，也避免所有查询都落到较重的 IPC 调用上。
-    fn search(self: &'static Self, query: &str, limit: usize) -> Vec<QuickShortcutItem> {
+    /// 第一阶段获取全部匹配的快捷方式（不限制数量）；
+    /// 第二阶段从 Everything 获取文件结果并按页切片。
+    /// 返回 QuickSearchResult，shortcuts 仅在 page=0 时非空。
+    fn search(
+        self: &'static Self,
+        query: &str,
+        page_size: usize,
+        offset: u32,
+    ) -> QuickSearchResult {
         let trimmed_query = query.trim();
         if trimmed_query.is_empty() {
-            return Vec::new();
+            return QuickSearchResult {
+                shortcuts: Vec::new(),
+                files: Vec::new(),
+                total_files: 0,
+                total_results: 0,
+                next_offset: 0,
+            };
         }
 
         let query_tokens = tokenize_query(trimmed_query);
         if query_tokens.is_empty() {
-            return Vec::new();
+            return QuickSearchResult {
+                shortcuts: Vec::new(),
+                files: Vec::new(),
+                total_files: 0,
+                total_results: 0,
+                next_offset: 0,
+            };
         }
 
         let started = Instant::now();
         let state = read_lock(&self.state);
         let shortcut_records = &state.records;
 
-        // 第一阶段：用本地索引做模糊匹配排序。
+        // 第一阶段：用本地索引做模糊匹配，获取全部匹配快捷方式。
         let mut shortcut_entries: Vec<(QuickShortcutItem, i32, String, String, String)> =
             shortcut_records
                 .iter()
@@ -140,12 +154,9 @@ impl QuickSearchManager {
                 .then_with(|| left.3.cmp(&right.3))
         });
 
-        // 两套去重同时存在：
-        // - 快捷方式去重键：去掉指向同一目标的重复快捷方式别名；
-        // - 路径：避免第二阶段文件结果把第一阶段已有路径重新塞回来。
         let mut seen_paths = HashSet::new();
         let mut seen_shortcut_keys = HashSet::new();
-        let mut results = Vec::with_capacity(limit);
+        let mut matched_shortcuts = Vec::new();
 
         for (item, _, dedupe_key, path_norm, _) in shortcut_entries {
             if !seen_shortcut_keys.insert(dedupe_key) {
@@ -154,50 +165,35 @@ impl QuickSearchManager {
             if !seen_paths.insert(path_norm) {
                 continue;
             }
-            results.push(item);
-            if results.len() >= limit {
-                break;
-            }
+            matched_shortcuts.push(item);
         }
 
-        let remaining_slots = limit.saturating_sub(results.len());
-        if remaining_slots == 0 {
-            debug!(
-                "[QuickSearch] fuzzy_match_ms={} result_count={} stage=shortcut_only",
-                started.elapsed().as_millis(),
-                results.len()
-            );
-            return results;
-        }
+        let shortcut_count = matched_shortcuts.len();
 
-        let query_limit = (remaining_slots
-            .saturating_mul(EVERYTHING_QUERY_LIMIT_MULTIPLIER)
-            .saturating_add(EVERYTHING_QUERY_EXTRA_RESULTS))
-        .clamp(EVERYTHING_QUERY_MIN_RESULTS, EVERYTHING_QUERY_MAX_RESULTS);
+        // 第二阶段：从 Everything 获取文件，使用 offset 翻页，多取一些补偿去重损耗。
+        let fetch_limit = (page_size + shortcut_count).max(EVERYTHING_QUERY_MIN_RESULTS);
+        let fetch_offset = offset;
 
-        // 第二阶段：尝试前台向 Everything 查询补足普通文件结果。
-        let everything_paths = match try_lock_mutex(&self.everything_client) {
-            Some(mut client) => match client.query_paths(trimmed_query, query_limit as u32) {
-                Ok(paths) => Some(paths),
+        // 等待 Everything 客户端锁可用（refresh_worker 可能正在占用）。
+        let mut client = lock_mutex(&self.everything_client);
+        let everything_result =
+            match client.query_file_paths(trimmed_query, fetch_limit as u32, fetch_offset, false) {
+                Ok(result) => Some(result),
                 Err(error) => {
                     debug!(
-                        "[QuickSearch] foreground query failed, fallback to cached results only: {}",
-                        error.message
-                    );
+                    "[QuickSearch] foreground query failed, fallback to cached results only: {}",
+                    error.message
+                );
                     None
                 }
-            },
-            None => {
-                debug!(
-                    "[QuickSearch] everything client busy, skip foreground file query this round"
-                );
-                None
-            }
-        };
+            };
+        drop(client);
 
-        let mut file_entries: Vec<(QuickShortcutItem, bool, String, String)> = Vec::new();
-        if let Some(paths) = everything_paths {
-            for path in paths {
+        let mut total_results: u32 = 0;
+        let mut deduped_files: Vec<QuickShortcutItem> = Vec::new();
+        if let Some(result) = everything_result {
+            total_results = result.total;
+            for path in result.paths {
                 let path_norm = normalize_path_str(&path);
                 if seen_paths.contains(&path_norm) {
                     continue;
@@ -208,50 +204,48 @@ impl QuickSearchManager {
                 let Some(name) = display_name_from_path(path_obj, is_shortcut) else {
                     continue;
                 };
-                let name_norm = normalize_for_match(&name);
                 let source = if is_shortcut {
                     classify_shortcut_source(&path_norm, &self.roots).to_string()
                 } else {
                     "file".to_string()
                 };
 
-                file_entries.push((
-                    QuickShortcutItem { name, path, source },
-                    is_shortcut,
-                    path_norm,
-                    name_norm,
-                ));
+                seen_paths.insert(path_norm);
+                deduped_files.push(QuickShortcutItem { name, path, source });
             }
         }
 
-        file_entries.sort_by(|left, right| {
-            right
-                .1
-                .cmp(&left.1)
-                .then_with(|| left.3.cmp(&right.3))
-                .then_with(|| left.2.cmp(&right.2))
-        });
+        // 文件按名称排序，保证分页稳定。
+        deduped_files.sort_by(|left, right| left.name.cmp(&right.name));
 
-        for (item, _, path_norm, _) in file_entries {
-            if !seen_paths.insert(path_norm) {
-                continue;
-            }
-            results.push(item);
-            if results.len() >= limit {
-                break;
-            }
-        }
+        // 已按 offset 从 Everything 获取，直接取前 page_size 条（去重后可能少于 page_size）。
+        let total_files = deduped_files.len();
+        let files = deduped_files[..total_files.min(page_size)].to_vec();
+
+        let shortcuts = if offset == 0 {
+            matched_shortcuts
+        } else {
+            Vec::new()
+        };
 
         debug!(
-            "[QuickSearch] fuzzy_match_ms={} result_count={} query_limit={}",
+            "[QuickSearch] fuzzy_match_ms={} shortcut_count={} total_files={} offset={} page_size={}",
             started.elapsed().as_millis(),
-            results.len(),
-            query_limit
+            shortcut_count,
+            total_files,
+            offset,
+            page_size
         );
 
-        // 异步触发后台刷新，不阻塞当前搜索返回。
         let _ = self.refresh_index(false, true);
-        results
+
+        QuickSearchResult {
+            shortcuts,
+            files,
+            total_files,
+            total_results,
+            next_offset: offset + fetch_limit as u32,
+        }
     }
 
     /// 直接查询 Everything 普通文件结果。
@@ -278,8 +272,9 @@ impl QuickSearchManager {
             }
 
             client
-                .query_file_paths(trimmed_query, limit as u32, include_shortcuts)
+                .query_file_paths(trimmed_query, limit as u32, 0, include_shortcuts)
                 .map_err(|error| self.map_everything_error(error))?
+                .paths
         };
 
         self.mark_everything_ready();
@@ -669,9 +664,9 @@ pub fn get_status() -> QuickSearchStatus {
     manager().status()
 }
 
-/// 执行搜索并返回排序后的快捷项结果。
-pub fn search_shortcuts(query: &str, limit: usize) -> Vec<QuickShortcutItem> {
-    manager().search(query, limit.max(1))
+/// 执行分页搜索并返回快捷方式与文件结果。
+pub fn search_shortcuts(query: &str, page_size: usize, offset: u32) -> QuickSearchResult {
+    manager().search(query, page_size.max(1), offset)
 }
 
 /// 执行文件搜索并返回 Everything 结果。

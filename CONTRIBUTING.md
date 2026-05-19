@@ -105,17 +105,28 @@ TouchAI supports lightweight self-assignment on eligible issues.
 
 To keep a claim active, leave a visible progress update in the issue thread within 7 days. If a claimed issue stays inactive for 14 days, the claim may be released automatically so someone else can pick it up.
 
-## Before opening a pull request
+## Testing and TDD
 
-Run the checks that CI expects:
+For detailed testing guidelines, principles, and coverage requirements, see [docs/testing/testing.md](docs/testing/testing.md).
+
+We strongly recommend **Test-Driven Development (TDD)** for all `feat` and `fix` work:
+
+1. **Red** -- Write a failing test that describes the desired behavior.
+2. **Green** -- Write the minimum code to make the test pass.
+3. **Refactor** -- Clean up the code while keeping tests green.
+
+Before opening a PR, run the single validation command:
 
 ```bash
-pnpm type:check
-pnpm lint:check
-pnpm format:check
-pnpm test:run
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+pnpm test:pr
+```
+
+This runs all quality checks (type check, lint, format, Rust checks), unit tests, and coverage in one pass. It is equivalent to what CI expects.
+
+## Before opening a pull request
+
+```bash
+pnpm test:pr
 ```
 
 ## Pull request checklist

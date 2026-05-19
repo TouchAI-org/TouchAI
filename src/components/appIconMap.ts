@@ -17,10 +17,12 @@ import IconFile from '~icons/bx/file';
 import IconFileBlank from '~icons/bx/file-blank';
 import IconFolderOpen from '~icons/bx/folder-open';
 import IconFullscreen from '~icons/bx/fullscreen';
+import IconGridAlt from '~icons/bx/grid-alt';
 import IconHide from '~icons/bx/hide';
 import IconHistory from '~icons/bx/history';
 import IconInfoCircle from '~icons/bx/info-circle';
 import IconLeaf from '~icons/bx/leaf';
+import IconMenu from '~icons/bx/menu';
 import IconMinus from '~icons/bx/minus';
 import IconPin from '~icons/bx/pin';
 import IconPlay from '~icons/bx/play';
@@ -54,7 +56,9 @@ export const appIconMap = {
     file: IconFile,
     'folder-open': IconFolderOpen,
     fullscreen: IconFullscreen,
+    'grid-alt': IconGridAlt,
     history: IconHistory,
+    'list-ul': IconMenu,
     'information-circle': IconInfoCircle,
     llm: IconBrain,
     leaf: IconLeaf,

@@ -30,7 +30,7 @@ Link the issue or RFC:
 ## Testing evidence
 
 \`\`\`text
-pnpm test:run
+pnpm test:pr
 \`\`\`
 
 ## Risk notes
@@ -66,7 +66,7 @@ Link the issue or RFC:
 ## Testing evidence
 
 \`\`\`text
-pnpm test:run
+pnpm test:pr
 \`\`\`
 
 ## Risk notes

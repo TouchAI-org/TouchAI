@@ -78,6 +78,7 @@ function createLoaderContext(
         gridColumns?: number;
         gridGap?: number;
         selectionMaxHeight?: number;
+        viewMode?: 'grid' | 'list';
         scrollTop?: number;
         clientHeight?: number;
         deps?: Partial<UseAssetLoaderDeps>;
@@ -99,6 +100,7 @@ function createLoaderContext(
     const gridColumns = ref(options.gridColumns ?? 2);
     const gridGap = ref(options.gridGap ?? 8);
     const selectionMaxHeight = ref(options.selectionMaxHeight ?? 32);
+    const viewMode = ref<'grid' | 'list'>(options.viewMode ?? 'grid');
     const scrollRef = ref<HTMLElement | null>(
         createScrollContainer({
             scrollTop: options.scrollTop,
@@ -118,6 +120,7 @@ function createLoaderContext(
                 gridGap,
                 selectionMaxHeight,
                 scrollRef,
+                viewMode,
             },
             deps
         ),
