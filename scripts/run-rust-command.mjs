@@ -33,34 +33,39 @@ function main() {
     const cwd = process.cwd();
     const workspaceRoot = resolveWorkspaceRoot(cwd);
     const artifactsRoot = resolveRustArtifactsRoot(workspaceRoot);
-    const targetDir = path.join(artifactsRoot, 'rust-target', mode);
-    const tempDir = path.join(artifactsRoot, 'rust-temp', mode);
+    // CI 环境统一 target 目录，避免 check 和 test 重复编译
+    const sharedDir = process.env.CI ? 'ci-check' : mode;
+    const targetDir = path.join(artifactsRoot, 'rust-target', sharedDir);
+    const tempDir = path.join(artifactsRoot, 'rust-temp', sharedDir);
 
     mkdirSync(targetDir, { recursive: true });
     mkdirSync(tempDir, { recursive: true });
 
-    const result = spawnSync(
-        'cargo',
-        [
-            mode,
-            '--manifest-path',
-            'src-tauri/Cargo.toml',
-            '--all-targets',
-            '--target-dir',
-            targetDir,
-        ],
-        {
-            cwd,
-            env: {
-                ...process.env,
-                CARGO_TARGET_DIR: targetDir,
-                TEMP: tempDir,
-                TMP: tempDir,
-            },
-            shell: true,
-            stdio: 'inherit',
-        }
-    );
+    const cargoArgs = [
+        mode,
+        '--manifest-path',
+        'src-tauri/Cargo.toml',
+        '--all-targets',
+        '--target-dir',
+        targetDir,
+    ];
+
+    // CI 环境使用 ci-check profile（debug=1, codegen-units=256），加速编译并保留调试信息
+    if (process.env.CI) {
+        cargoArgs.push('--profile', 'ci-check');
+    }
+
+    const result = spawnSync('cargo', cargoArgs, {
+        cwd,
+        env: {
+            ...process.env,
+            CARGO_TARGET_DIR: targetDir,
+            TEMP: tempDir,
+            TMP: tempDir,
+        },
+        shell: true,
+        stdio: 'inherit',
+    });
 
     if (typeof result.status === 'number') {
         process.exit(result.status);

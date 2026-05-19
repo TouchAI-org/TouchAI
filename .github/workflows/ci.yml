@@ -201,9 +201,22 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               run: pnpm install --frozen-lockfile
 
-            - name: Run frontend tests
+            - name: Run frontend tests with coverage
               if: needs.changes.outputs.docs_only != 'true'
-              run: pnpm test:unit
+              run: pnpm test:coverage
+
+            - name: Summarize coverage
+              if: needs.changes.outputs.docs_only != 'true'
+              run: |
+                  node -e "const fs = require('node:fs'); const summary = JSON.parse(fs.readFileSync('.coverage/unit/coverage-summary.json', 'utf8')).total; fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, ['## Frontend Coverage', '', '| Metric | Percent |', '| --- | ---: |', `| Statements | ${summary.statements.pct}% |`, `| Branches | ${summary.branches.pct}% |`, `| Functions | ${summary.functions.pct}% |`, `| Lines | ${summary.lines.pct}% |`, ''].join('\n'))"
+
+            - name: Upload coverage artifact
+              if: needs.changes.outputs.docs_only != 'true'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: frontend-coverage-report
+                  path: .coverage/unit
+                  if-no-files-found: error
 
     rust-checks:
         name: Rust Checks
@@ -264,115 +277,6 @@ jobs:
             - name: Run Rust tests
               if: needs.changes.outputs.docs_only != 'true'
               run: pnpm test:rust
-
-    rust-coverage:
-        name: Rust Coverage
-        needs:
-            - changes
-            - rust-checks
-        if: needs.changes.outputs.docs_only != 'true'
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-
-            - uses: pnpm/action-setup@v6
-
-            - uses: actions/setup-node@v6
-              with:
-                  node-version: 22
-                  cache: pnpm
-
-            - name: Install Linux system dependencies
-              run: |
-                  sudo apt update
-                  sudo apt install -y \
-                    build-essential \
-                    curl \
-                    file \
-                    libayatana-appindicator3-dev \
-                    libglib2.0-dev \
-                    librsvg2-dev \
-                    libssl-dev \
-                    libwebkit2gtk-4.1-dev \
-                    libxdo-dev \
-                    pkg-config \
-                    wget
-
-            - name: Install Rust stable
-              uses: dtolnay/rust-toolchain@stable
-
-            - name: Rust cache
-              uses: swatinem/rust-cache@v2
-              with:
-                  workspaces: src-tauri -> target
-
-            - name: Install cargo-tarpaulin
-              run: cargo install cargo-tarpaulin
-
-            - name: Run Rust coverage
-              run: pnpm test:coverage:rust
-
-            - name: Summarize coverage
-              run: |
-                  if [ ! -f cobertura.xml ]; then
-                    echo "::warning::cobertura.xml not found in project root"
-                    echo "## Rust Coverage" >> "$GITHUB_STEP_SUMMARY"
-                    echo "" >> "$GITHUB_STEP_SUMMARY"
-                    echo "No coverage XML file produced. Check tarpaulin output above." >> "$GITHUB_STEP_SUMMARY"
-                  else
-                    node -e "
-                      const fs = require('node:fs');
-                      const xml = fs.readFileSync('cobertura.xml', 'utf8');
-                      const rateMatch = xml.match(/line-rate=\"([0-9.]+)\"/);
-                      const branchMatch = xml.match(/branch-rate=\"([0-9.]+)\"/);
-                      const linePct = rateMatch ? (parseFloat(rateMatch[1]) * 100).toFixed(1) : 'N/A';
-                      const branchPct = branchMatch ? (parseFloat(branchMatch[1]) * 100).toFixed(1) : 'N/A';
-                      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-                        ['## Rust Coverage', '', '| Metric | Percent |', '| --- | ---: |',
-                         '| Lines | ' + linePct + '% |', '| Branches | ' + branchPct + '% |', ''].join('\n'));
-                    "
-                  fi
-
-            - name: Upload coverage artifact
-              uses: actions/upload-artifact@v4
-              with:
-                  name: rust-coverage-report
-                  path: cobertura.xml
-                  if-no-files-found: warn
-
-    frontend-coverage:
-        name: Frontend Coverage
-        needs:
-            - changes
-            - frontend-tests
-        if: needs.changes.outputs.docs_only != 'true'
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-
-            - uses: pnpm/action-setup@v6
-
-            - uses: actions/setup-node@v6
-              with:
-                  node-version: 22
-                  cache: pnpm
-
-            - name: Install dependencies
-              run: pnpm install --frozen-lockfile
-
-            - name: Run coverage
-              run: pnpm test:coverage
-
-            - name: Summarize coverage
-              run: |
-                  node -e "const fs = require('node:fs'); const summary = JSON.parse(fs.readFileSync('.coverage/unit/coverage-summary.json', 'utf8')).total; fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, ['## Frontend Coverage', '', '| Metric | Percent |', '| --- | ---: |', `| Statements | ${summary.statements.pct}% |`, `| Branches | ${summary.branches.pct}% |`, `| Functions | ${summary.functions.pct}% |`, `| Lines | ${summary.lines.pct}% |`, ''].join('\n'))"
-
-            - name: Upload coverage artifact
-              uses: actions/upload-artifact@v4
-              with:
-                  name: frontend-coverage-report
-                  path: .coverage/unit
-                  if-no-files-found: error
 
     build-windows:
         name: Build (Windows)
