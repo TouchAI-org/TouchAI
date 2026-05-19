@@ -70,34 +70,25 @@ sha2 = "0.10"
 tempfile = "3"
 
 [profile.dev]
-# dev 模式不生成完整 debug symbols，大幅减少磁盘和内存占用
+# dev：本地调试用，不生成 debug symbols，最小化磁盘占用
 debug = 0
 opt-level = 0
 incremental = true
 
 [profile.ci-check]
-# CI 专用 check profile：保留 debug=1 便于报错定位，codegen-units=256 加速编译
+# CI check：速度优先，debug=1 保留行号信息，codegen-units=256 最大并行
 inherits = "dev"
 debug = 1
 codegen-units = 256
 
 [profile.release]
+# 本地 release：极致体积
 codegen-units = 1
 incremental = false
 lto = "fat"
 opt-level = "z"
 panic = "abort"
 strip = true
-
-[profile.ci-release]
-# CI release profile：保留 fat LTO，放宽 codegen-units 加速编译
-inherits = "release"
-codegen-units = 16
-
-[profile.ci-release.package."*"]
-# CI 依赖包也并行编译，进一步压降 release 构建时间
-opt-level = "z"
-codegen-units = 16
 
 [profile.release.package."*"]
 opt-level = "z"

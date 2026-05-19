@@ -321,8 +321,6 @@ jobs:
               uses: swatinem/rust-cache@v2
               with:
                   workspaces: src-tauri -> target
-                  shared-key: ci-release
-                  cache-on-failure: true
 
             - name: Get short commit SHA
               id: sha
@@ -333,8 +331,6 @@ jobs:
 
             - name: Build Tauri app
               uses: tauri-apps/tauri-action@v0.6.2
-              with:
-                  args: --profile ci-release
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -343,13 +339,13 @@ jobs:
               with:
                   name: touchai-installers-windows-${{ steps.sha.outputs.short }}
                   path: |
-                      src-tauri/target/ci-release/bundle/nsis/*.exe
-                      src-tauri/target/ci-release/bundle/msi/*.msi
+                      src-tauri/target/release/bundle/nsis/*.exe
+                      src-tauri/target/release/bundle/msi/*.msi
                   if-no-files-found: warn
 
             - name: Upload portable
               uses: actions/upload-artifact@v7
               with:
                   name: touchai-portable-windows-${{ steps.sha.outputs.short }}
-                  path: src-tauri/target/ci-release/TouchAI.exe
+                  path: src-tauri/target/release/TouchAI.exe
                   if-no-files-found: warn
