@@ -27,14 +27,16 @@ If AI tools materially assisted this contribution, disclose that here or point t
 
 List the commands you ran and the results you observed.
 
-- Every code PR: `pnpm test:pr`
-- Frontend behavior / test / Vitest changes: `pnpm test:coverage`
+- Every code PR: `pnpm test:pr` (includes type check, lint, format, all tests, and frontend coverage)
+- Rust behavior / test changes: `pnpm test:coverage:rust` (requires cargo-tarpaulin, or rely on CI)
 - Desktop startup / window / search / popup / settings / E2E harness / workflow changes: `pnpm test:e2e`
-- If `cargo test` or `pnpm test:e2e` could not run locally, state the exact blocker and rely on CI evidence before merge.
+- If any command could not run locally, state the exact blocker and rely on CI evidence before merge.
+
+Did you follow TDD (test-first) for feature and fix work? Strongly recommended. See [docs/testing/testing.md](../docs/testing/testing.md).
 
 ```text
 pnpm test:pr
-pnpm test:coverage
+pnpm test:coverage:rust
 pnpm test:e2e
 ```
 
@@ -58,7 +60,7 @@ Include UI evidence here when the change affects the interface.
 - [ ] If this touches `AgentService`, runtime, MCP, or schema boundaries, there is an accepted RFC.
 - [ ] If this changes architecture or adds a new cross-boundary abstraction, there is an accepted RFC.
 - [ ] I ran `pnpm test:pr` for this code PR, or this is a docs-only change.
-- [ ] If I changed frontend runtime behavior or tests, I reviewed `pnpm test:coverage` and did not add coverage-only tests.
+- [ ] If I changed Rust behavior or tests, I reviewed `pnpm test:coverage:rust` or relied on CI coverage evidence.
 - [ ] If I changed desktop startup/window/search/popup/settings/E2E paths, I ran `pnpm test:e2e` locally or documented why CI is the first valid proof.
 - [ ] I added tests or explained why tests are not appropriate.
 - [ ] I updated docs when behavior changed.

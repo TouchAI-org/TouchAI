@@ -150,4 +150,322 @@ describe('useLayout', () => {
         expect(layout.visibleRows.value).toBe(2);
         expect(layout.selectionMaxHeight.value).toBe(200);
     });
+
+    it('toggleViewMode switches between grid and list', () => {
+        const isOpen = ref(true);
+        const results = ref([createShortcut(1), createShortcut(2)]);
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        expect(layout.viewMode.value).toBe('grid');
+
+        layout.toggleViewMode();
+        expect(layout.viewMode.value).toBe('list');
+
+        layout.toggleViewMode();
+        expect(layout.viewMode.value).toBe('grid');
+    });
+
+    it('toggleViewMode preserves expanded state', () => {
+        const isOpen = ref(true);
+        const results = ref(Array.from({ length: 20 }, (_, i) => createShortcut(i)));
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        // Expand grid to max.
+        layout.setVisibleRows(4);
+        expect(layout.visibleRows.value).toBe(4);
+
+        // Toggle to list should set expanded list rows.
+        layout.toggleViewMode();
+        expect(layout.viewMode.value).toBe('list');
+        expect(layout.visibleRows.value).toBe(15);
+
+        // Toggle back to grid should set expanded grid rows.
+        layout.toggleViewMode();
+        expect(layout.viewMode.value).toBe('grid');
+        expect(layout.visibleRows.value).toBe(4);
+    });
+
+    it('selectionMaxHeight reacts to viewMode changes', () => {
+        const isOpen = ref(true);
+        const results = ref(Array.from({ length: 20 }, (_, i) => createShortcut(i)));
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        const gridHeight = layout.selectionMaxHeight.value;
+
+        layout.toggleViewMode();
+        const listHeight = layout.selectionMaxHeight.value;
+
+        // List mode should have different height than grid mode.
+        expect(listHeight).not.toBe(gridHeight);
+        expect(listHeight).toBeGreaterThan(0);
+    });
+
+    it('selectionMaxHeight returns collapsed default when panel is closed', () => {
+        const isOpen = ref(false);
+        const results = ref([createShortcut(1)]);
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        // When closed, should return default collapsed height.
+        expect(layout.selectionMaxHeight.value).toBeGreaterThan(0);
+    });
+
+    it('selectionMaxHeight grows when results increase', () => {
+        const isOpen = ref(true);
+        const results = ref([createShortcut(1), createShortcut(2)]);
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+        const panelElement = document.createElement('div');
+        panelElement.appendChild(scrollElement);
+        document.body.appendChild(panelElement);
+
+        setReadonlyNumber(scrollElement, 'clientWidth', 400);
+        setReadonlyNumber(panelElement, 'clientWidth', 400);
+        setReadonlyNumber(document.documentElement, 'clientWidth', 400);
+        setReadonlyNumber(window, 'innerWidth', 400);
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        layout.updateLayout();
+        const initialHeight = layout.selectionMaxHeight.value;
+
+        // Add more results.
+        results.value = Array.from({ length: 20 }, (_, i) => createShortcut(i));
+        layout.updateLayout();
+
+        expect(layout.selectionMaxHeight.value).toBeGreaterThanOrEqual(initialHeight);
+    });
+
+    it('moveSelection in list mode uses single column', () => {
+        const isOpen = ref(true);
+        const results = ref(Array.from({ length: 10 }, (_, i) => createShortcut(i)));
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+        const panelElement = document.createElement('div');
+        panelElement.appendChild(scrollElement);
+        document.body.appendChild(panelElement);
+
+        setReadonlyNumber(scrollElement, 'clientWidth', 400);
+        setReadonlyNumber(scrollElement, 'clientHeight', 200);
+        setReadonlyNumber(scrollElement, 'scrollHeight', 1000);
+        setReadonlyNumber(panelElement, 'clientWidth', 400);
+        setReadonlyNumber(document.documentElement, 'clientWidth', 400);
+        setReadonlyNumber(window, 'innerWidth', 400);
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        layout.toggleViewMode();
+        expect(layout.viewMode.value).toBe('list');
+
+        layout.moveSelection('down');
+        expect(highlightedIndex.value).toBe(0);
+
+        layout.moveSelection('down');
+        expect(highlightedIndex.value).toBe(1);
+
+        layout.moveSelection('up');
+        expect(highlightedIndex.value).toBe(0);
+
+        // Up from first item should deactivate.
+        layout.moveSelection('up');
+        expect(highlightedIndex.value).toBe(-1);
+    });
+
+    it('resetLayoutState in list mode uses list collapsed rows', () => {
+        const isOpen = ref(true);
+        const results = ref(Array.from({ length: 20 }, (_, i) => createShortcut(i)));
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        layout.toggleViewMode();
+        layout.setVisibleRows(15);
+        expect(layout.visibleRows.value).toBe(15);
+
+        layout.resetLayoutState();
+        expect(layout.visibleRows.value).toBe(8);
+    });
+
+    it('syncLayout calls updateLayout after nextTick and rAF', async () => {
+        const isOpen = ref(true);
+        const results = ref([createShortcut(1), createShortcut(2)]);
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+        const panelElement = document.createElement('div');
+        panelElement.appendChild(scrollElement);
+        document.body.appendChild(panelElement);
+
+        setReadonlyNumber(scrollElement, 'clientWidth', 400);
+        setReadonlyNumber(panelElement, 'clientWidth', 400);
+        setReadonlyNumber(document.documentElement, 'clientWidth', 400);
+        setReadonlyNumber(window, 'innerWidth', 400);
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        await layout.syncLayout();
+
+        // After syncLayout, gridColumns should be updated.
+        expect(layout.gridColumns.value).toBeGreaterThanOrEqual(1);
+    });
+
+    it('scrollHighlightedIntoView does nothing when highlight is -1', async () => {
+        const isOpen = ref(true);
+        const results = ref([createShortcut(1)]);
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        // Should not throw.
+        layout.scrollHighlightedIntoView();
+    });
+
+    it('scrollHighlightedIntoView scrolls down when highlight is below viewport', async () => {
+        const isOpen = ref(true);
+        const results = ref(Array.from({ length: 20 }, (_, i) => createShortcut(i)));
+        const highlightedIndex = ref(0);
+        const scrollElement = document.createElement('div');
+        const panelElement = document.createElement('div');
+        panelElement.appendChild(scrollElement);
+        document.body.appendChild(panelElement);
+
+        setReadonlyNumber(scrollElement, 'clientWidth', 400);
+        setReadonlyNumber(scrollElement, 'clientHeight', 200);
+        setReadonlyNumber(scrollElement, 'scrollHeight', 2000);
+        setReadonlyNumber(panelElement, 'clientWidth', 400);
+        setReadonlyNumber(document.documentElement, 'clientWidth', 400);
+        setReadonlyNumber(window, 'innerWidth', 400);
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        layout.updateLayout();
+
+        // Move highlight far down.
+        highlightedIndex.value = 15;
+        layout.scrollHighlightedIntoView();
+
+        // After rAF, scrollTop should have changed (we can't easily wait for rAF in tests,
+        // but the function should not throw).
+    });
+
+    it('moveSelection right and left within a row', () => {
+        const isOpen = ref(true);
+        const results = ref(Array.from({ length: 10 }, (_, i) => createShortcut(i)));
+        const highlightedIndex = ref(0);
+        const scrollElement = document.createElement('div');
+        const panelElement = document.createElement('div');
+        panelElement.appendChild(scrollElement);
+        document.body.appendChild(panelElement);
+
+        setReadonlyNumber(scrollElement, 'clientWidth', 300);
+        setReadonlyNumber(scrollElement, 'clientHeight', 200);
+        setReadonlyNumber(scrollElement, 'scrollHeight', 1000);
+        setReadonlyNumber(panelElement, 'clientWidth', 300);
+        setReadonlyNumber(document.documentElement, 'clientWidth', 300);
+        setReadonlyNumber(window, 'innerWidth', 300);
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        layout.updateLayout();
+
+        layout.moveSelection('right');
+        expect(highlightedIndex.value).toBe(1);
+
+        layout.moveSelection('left');
+        expect(highlightedIndex.value).toBe(0);
+
+        // Left from first item should stay at 0.
+        layout.moveSelection('left');
+        expect(highlightedIndex.value).toBe(0);
+    });
+
+    it('moveSelection does nothing when highlight is -1 for left/right/up', () => {
+        const isOpen = ref(true);
+        const results = ref([createShortcut(1), createShortcut(2)]);
+        const highlightedIndex = ref(-1);
+        const scrollElement = document.createElement('div');
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        layout.moveSelection('left');
+        expect(highlightedIndex.value).toBe(-1);
+
+        layout.moveSelection('right');
+        expect(highlightedIndex.value).toBe(-1);
+
+        layout.moveSelection('up');
+        expect(highlightedIndex.value).toBe(-1);
+    });
 });

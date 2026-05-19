@@ -55,21 +55,17 @@ function main() {
         cargoArgs.push('--profile', 'ci-check');
     }
 
-    const result = spawnSync(
-        'cargo',
-        cargoArgs,
-        {
-            cwd,
-            env: {
-                ...process.env,
-                CARGO_TARGET_DIR: targetDir,
-                TEMP: tempDir,
-                TMP: tempDir,
-            },
-            shell: true,
-            stdio: 'inherit',
-        }
-    );
+    const result = spawnSync('cargo', cargoArgs, {
+        cwd,
+        env: {
+            ...process.env,
+            CARGO_TARGET_DIR: targetDir,
+            TEMP: tempDir,
+            TMP: tempDir,
+        },
+        shell: true,
+        stdio: 'inherit',
+    });
 
     if (typeof result.status === 'number') {
         process.exit(result.status);

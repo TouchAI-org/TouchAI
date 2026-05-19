@@ -184,6 +184,15 @@ export function useSearchPageController(options: {
               getHighlightedItem: () => unknown | null;
               openHighlightedItem: () => Promise<void>;
               triggerSearch: (query: string) => void;
+              goToPage: (page: number) => void;
+              goToNextPage: () => void;
+              goToPreviousPage: () => void;
+              openContextMenuForItem: (index: number) => void;
+              openContextMenuForHighlightedItem: () => void;
+              toggleViewMode: () => void;
+              collapseToDefault: () => void;
+              isContextMenuOpen: boolean;
+              closeContextMenu: () => void;
           }
         | undefined
     >;
@@ -257,11 +266,7 @@ export function useSearchPageController(options: {
     }
 
     function closeQuickSearch() {
-        const wasOpen = quickSearchOpen.value;
         quickSearchOpen.value = false;
-        if (!wasOpen) {
-            quickSearchPanel.value?.syncClosedState();
-        }
     }
 
     function moveQuickSearchSelection(direction: 'up' | 'down' | 'left' | 'right') {
@@ -274,6 +279,40 @@ export function useSearchPageController(options: {
 
     function triggerQuickSearch(query: string) {
         quickSearchPanel.value?.triggerSearch(query);
+    }
+
+    function goToPageQuickSearch(page: number) {
+        quickSearchPanel.value?.goToPage(page);
+    }
+
+    function goToNextPageQuickSearch() {
+        quickSearchPanel.value?.goToNextPage();
+    }
+
+    function goToPreviousPageQuickSearch() {
+        quickSearchPanel.value?.goToPreviousPage();
+    }
+
+    function openQuickSearchContextMenu() {
+        quickSearchPanel.value?.openContextMenuForHighlightedItem();
+    }
+
+    function toggleQuickSearchView() {
+        quickSearchPanel.value?.toggleViewMode();
+    }
+
+    function collapseQuickSearch() {
+        quickSearchPanel.value?.collapseToDefault();
+        void focusSearchInput();
+    }
+
+    function isQuickSearchContextMenuOpen() {
+        return quickSearchPanel.value?.isContextMenuOpen ?? false;
+    }
+
+    function closeQuickSearchContextMenu() {
+        quickSearchPanel.value?.closeContextMenu();
+        void focusSearchInput();
     }
 
     return {
@@ -293,6 +332,14 @@ export function useSearchPageController(options: {
         moveQuickSearchSelection,
         openHighlightedQuickSearchItem,
         triggerQuickSearch,
+        goToPageQuickSearch,
+        goToNextPageQuickSearch,
+        goToPreviousPageQuickSearch,
+        openQuickSearchContextMenu,
+        toggleQuickSearchView,
+        collapseQuickSearch,
+        isQuickSearchContextMenuOpen,
+        closeQuickSearchContextMenu,
     };
 }
 

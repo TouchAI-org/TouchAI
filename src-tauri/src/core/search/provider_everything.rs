@@ -30,6 +30,15 @@ impl EverythingError {
     }
 }
 
+/// Everything 查询结果。
+#[derive(Debug)]
+pub(crate) struct QueryPathsResult {
+    /// 当前页的路径列表。
+    pub(crate) paths: Vec<String>,
+    /// Everything 报告的匹配总数。
+    pub(crate) total: u32,
+}
+
 /// Everything 查询客户端（轻量无状态包装）。
 pub(crate) struct EverythingClient;
 
@@ -64,7 +73,8 @@ impl EverythingClient {
         &mut self,
         search_text: &str,
         max_results: u32,
-    ) -> Result<Vec<String>, EverythingError> {
+        offset: u32,
+    ) -> Result<QueryPathsResult, EverythingError> {
         unsafe {
             // 每次查询前重置 SDK 内部状态，避免沿用上次参数。
             Everything_Reset();
@@ -76,6 +86,7 @@ impl EverythingClient {
             Everything_SetMatchCase(0);
             Everything_SetRegex(0);
             Everything_SetMax(max_results);
+            Everything_SetOffset(offset);
 
             if Everything_QueryW(1) == 0 {
                 let error_code = Everything_GetLastError();
@@ -87,6 +98,7 @@ impl EverythingClient {
                 });
             }
 
+            let total = Everything_GetTotResults();
             let result_count = Everything_GetNumResults();
             let mut results = Vec::with_capacity(result_count as usize);
             // 复用缓冲区以减少每条结果的分配开销。
@@ -115,7 +127,10 @@ impl EverythingClient {
             }
 
             Everything_Reset();
-            Ok(results)
+            Ok(QueryPathsResult {
+                paths: results,
+                total,
+            })
         }
     }
 
@@ -124,11 +139,15 @@ impl EverythingClient {
         &mut self,
         search_text: &str,
         max_results: u32,
+        offset: u32,
         include_shortcuts: bool,
-    ) -> Result<Vec<String>, EverythingError> {
+    ) -> Result<QueryPathsResult, EverythingError> {
         let trimmed_query = search_text.trim();
         if trimmed_query.is_empty() {
-            return Ok(Vec::new());
+            return Ok(QueryPathsResult {
+                paths: Vec::new(),
+                total: 0,
+            });
         }
 
         let mut query_parts = vec![EVERYTHING_FILE_ONLY_FILTER.to_string()];
@@ -136,10 +155,10 @@ impl EverythingClient {
             query_parts.push(EVERYTHING_EXCLUDE_SHORTCUT_FILTER.to_string());
         }
         // 把过滤器前缀和用户查询拼成一次 Everything 搜索表达式，
-        // 这样“只搜文件 / 是否包含 .lnk”两个约束始终在同一个 IPC 请求里生效。
+        // 这样"只搜文件 / 是否包含 .lnk"两个约束始终在同一个 IPC 请求里生效。
         query_parts.push(trimmed_query.to_string());
 
-        self.query_paths(&query_parts.join(" "), max_results)
+        self.query_paths(&query_parts.join(" "), max_results, offset)
     }
 
     /// 查询系统中所有快捷方式路径。
@@ -147,7 +166,9 @@ impl EverythingClient {
         self.query_paths(
             EVERYTHING_SHORTCUT_SEARCH_TERM,
             EVERYTHING_QUERY_ALL_RESULTS,
+            0,
         )
+        .map(|result| result.paths)
     }
 }
 
@@ -161,8 +182,10 @@ unsafe extern "system" {
     fn Everything_SetMatchCase(bEnable: i32);
     fn Everything_SetRegex(bEnable: i32);
     fn Everything_SetMax(dwMax: u32);
+    fn Everything_SetOffset(dwOffset: u32);
     fn Everything_QueryW(bWait: i32) -> i32;
     fn Everything_GetNumResults() -> u32;
+    fn Everything_GetTotResults() -> u32;
     fn Everything_GetResultFullPathNameW(
         dwIndex: u32,
         wbuf: *mut u16,
