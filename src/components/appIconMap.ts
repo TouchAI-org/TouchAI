@@ -20,6 +20,7 @@ import IconFullscreen from '~icons/bx/fullscreen';
 import IconHide from '~icons/bx/hide';
 import IconHistory from '~icons/bx/history';
 import IconInfoCircle from '~icons/bx/info-circle';
+import IconLeaf from '~icons/bx/leaf';
 import IconMinus from '~icons/bx/minus';
 import IconPin from '~icons/bx/pin';
 import IconPlay from '~icons/bx/play';
@@ -56,6 +57,7 @@ export const appIconMap = {
     history: IconHistory,
     'information-circle': IconInfoCircle,
     llm: IconBrain,
+    leaf: IconLeaf,
     mcp: IconPlug,
     minimize: IconMinus,
     pin: IconPin,

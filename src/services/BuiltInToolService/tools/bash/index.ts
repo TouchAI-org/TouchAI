@@ -52,6 +52,8 @@ async function executeCancelableBash(
         command: string;
         workingDirectory?: string | null;
         timeoutMs?: number | null;
+        compactOutput?: boolean;
+        rawOutput?: boolean;
     },
     signal?: AbortSignal
 ) {
@@ -156,6 +158,8 @@ export async function executeBashTool(
             command: commandContext.command,
             workingDirectory: commandContext.workingDirectory,
             timeoutMs: config.timeoutMs,
+            compactOutput: config.compactOutput,
+            rawOutput: commandContext.rawOutput,
         },
         context.signal
     );

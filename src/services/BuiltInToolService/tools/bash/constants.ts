@@ -27,6 +27,7 @@ export interface BashToolConfig {
     allowedWorkingDirectories: string[];
     timeoutMs: number;
     maxOutputChars: number;
+    compactOutput: boolean;
 }
 
 /**
@@ -35,6 +36,7 @@ export interface BashToolConfig {
 export interface BashCommandContext {
     command: string;
     workingDirectory: string;
+    rawOutput: boolean;
 }
 
 /**
@@ -55,11 +57,13 @@ export const DEFAULT_BASH_TOOL_CONFIG: BashToolConfig = {
     allowedWorkingDirectories: [],
     timeoutMs: 15000,
     maxOutputChars: 12000,
+    compactOutput: false,
 };
 
 export const bashCommandContextSchema = z.object({
     command: nonEmptyTrimmedStringSchema,
     workingDirectory: optionalTrimmedStringSchema,
+    rawOutput: z.boolean().optional(),
 });
 
 export const bashApprovalPayloadSchema = bashCommandContextSchema.extend({
@@ -82,6 +86,7 @@ export const bashToolConfigSchema = z
             .catch(undefined),
         timeoutMs: optionalIntegerInRangeSchema(1000, 120000).catch(undefined),
         maxOutputChars: optionalIntegerInRangeSchema(1000, 50000).catch(undefined),
+        compactOutput: z.boolean().optional().catch(undefined),
     })
     .transform(
         (value): BashToolConfig => ({
@@ -94,6 +99,7 @@ export const bashToolConfigSchema = z
                     : DEFAULT_BASH_TOOL_CONFIG.allowedWorkingDirectories,
             timeoutMs: value.timeoutMs ?? DEFAULT_BASH_TOOL_CONFIG.timeoutMs,
             maxOutputChars: value.maxOutputChars ?? DEFAULT_BASH_TOOL_CONFIG.maxOutputChars,
+            compactOutput: value.compactOutput ?? DEFAULT_BASH_TOOL_CONFIG.compactOutput,
         })
     );
 
@@ -145,6 +151,12 @@ export const BASH_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
         workingDirectory: {
             type: 'string',
             description: 'Optional working directory inside the configured allowlist.',
+        },
+        rawOutput: {
+            type: 'boolean',
+            description:
+                'Default false: command output is compressed to essential information. Set to true if the compressed output is missing information you need — this returns the raw, unfiltered result (WILL RERUN).',
+            default: false,
         },
     },
     required: ['command', 'reason'],
