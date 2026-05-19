@@ -33,8 +33,10 @@ function main() {
     const cwd = process.cwd();
     const workspaceRoot = resolveWorkspaceRoot(cwd);
     const artifactsRoot = resolveRustArtifactsRoot(workspaceRoot);
-    const targetDir = path.join(artifactsRoot, 'rust-target', mode);
-    const tempDir = path.join(artifactsRoot, 'rust-temp', mode);
+    // CI 环境统一 target 目录，避免 check 和 test 重复编译
+    const sharedDir = process.env.CI ? 'ci-check' : mode;
+    const targetDir = path.join(artifactsRoot, 'rust-target', sharedDir);
+    const tempDir = path.join(artifactsRoot, 'rust-temp', sharedDir);
 
     mkdirSync(targetDir, { recursive: true });
     mkdirSync(tempDir, { recursive: true });
