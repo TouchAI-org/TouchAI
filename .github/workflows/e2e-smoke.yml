@@ -119,7 +119,9 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Install E2E dependencies
-              run: pnpm install --dir e2e-tests --no-frozen-lockfile
+              run: |
+                  pnpm --dir e2e-tests install --ignore-workspace --no-lockfile
+                  pnpm --dir e2e-tests exec wdio --version
 
             - name: Install tauri-driver
               run: cargo install tauri-driver --locked
