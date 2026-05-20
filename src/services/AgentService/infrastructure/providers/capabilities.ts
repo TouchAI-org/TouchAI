@@ -132,6 +132,17 @@ const providerAttachmentCapabilitiesByDriver: Record<
         fileRefStrategy: 'none',
         remoteRefTransportMode: 'provider-file-ref',
     },
+    mimo: {
+        supportsImageInput: true,
+        supportsDocumentInput: false,
+        supportsExternalUrl: false,
+        supportsProviderFileRef: false,
+        supportsMediaInToolResults: false,
+        prefersFileRefForPdf: false,
+        maxInlineRequestBytes: DEFAULT_MAX_INLINE_REQUEST_BYTES,
+        fileRefStrategy: 'none',
+        remoteRefTransportMode: 'provider-file-ref',
+    },
 };
 
 export function getProviderAttachmentCapabilities(

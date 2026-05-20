@@ -87,6 +87,12 @@ INSERT INTO providers (
 SELECT '智谱', 'zhipu', 'https://open.bigmodel.cn/api/paas/v4', NULL, NULL, 'zhipu.png', 0, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = '智谱');
 
+INSERT INTO providers (
+    name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
+)
+SELECT 'Xiaomi MiMo', 'mimo', 'https://token-plan-cn.xiaomimimo.com/v1', NULL, NULL, 'mimo.png', 0, 1
+WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'Xiaomi MiMo');
+
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
