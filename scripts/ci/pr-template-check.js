@@ -11,7 +11,7 @@ const REQUIRED_HEADERS = [
 ];
 
 const ISSUE_REFERENCE_PATTERN =
-    /(?:\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|related to)\s+#\d+\b|(?:^|\s)#\d+\b|TouchAI-org\/TouchAI#\d+\b|https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/(?:issues|pull|discussions)\/\d+\b)/im;
+    /(?:\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|related to)\s+#\d+\b|(?:^|\s)#\d+\b|TouchAI-org\/TouchAI#\d+\b|https:\/\/github\.com\/[^/\s]+\/[^/\s]+(?:\/(?:issues|pull|discussions)\/\d+)?\b)/im;
 
 function normalizeBody(body) {
     return body.replace(/\r\n/g, '\n');
