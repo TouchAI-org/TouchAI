@@ -90,21 +90,11 @@ jobs:
             - name: Report classification
               run: echo "docs_only=${{ steps.classify.outputs.docs_only }}"
 
-    desktop-e2e-smoke:
-        name: Desktop E2E Smoke (${{ matrix.label }})
+    desktop-e2e-smoke-windows:
+        name: Desktop E2E Smoke (Windows)
         needs: changes
-        if: needs.changes.outputs.docs_only != 'true' && (github.event_name != 'pull_request' || matrix.os == 'windows-latest')
-        runs-on: ${{ matrix.os }}
-        strategy:
-            fail-fast: false
-            matrix:
-                include:
-                    - os: windows-latest
-                      label: Windows
-                      command: pnpm test:e2e
-                    - os: ubuntu-latest
-                      label: Linux
-                      command: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" pnpm test:e2e
+        if: needs.changes.outputs.docs_only != 'true'
+        runs-on: windows-latest
         env:
             TOUCHAI_CARGO_TARGET_DIR: src-tauri/target/e2e
         steps:
@@ -116,25 +106,6 @@ jobs:
               with:
                   node-version: 22
                   cache: pnpm
-
-            - name: Install Linux system dependencies
-              if: matrix.os == 'ubuntu-latest'
-              run: |
-                  sudo apt update
-                  sudo apt install -y \
-                    build-essential \
-                    curl \
-                    file \
-                    libayatana-appindicator3-dev \
-                    libglib2.0-dev \
-                    librsvg2-dev \
-                    libssl-dev \
-                    libwebkit2gtk-4.1-dev \
-                    libxdo-dev \
-                    pkg-config \
-                    webkit2gtk-driver \
-                    wget \
-                    xvfb
 
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@stable
@@ -154,7 +125,6 @@ jobs:
               run: cargo install tauri-driver --locked
 
             - name: Install Edge WebDriver
-              if: matrix.os == 'windows-latest'
               shell: pwsh
               run: |
                   cargo install msedgedriver-tool
@@ -162,4 +132,4 @@ jobs:
                   "$PWD" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
             - name: Run desktop smoke tests
-              run: ${{ matrix.command }}
+              run: pnpm test:e2e

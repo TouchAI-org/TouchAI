@@ -318,7 +318,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Upload installers
-              uses: actions/upload-artifact@v7
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: touchai-installers-windows-${{ steps.sha.outputs.short }}
                   path: |
@@ -327,7 +327,7 @@ jobs:
                   if-no-files-found: warn
 
             - name: Upload portable
-              uses: actions/upload-artifact@v7
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: touchai-portable-windows-${{ steps.sha.outputs.short }}
                   path: src-tauri/target/release/TouchAI.exe
