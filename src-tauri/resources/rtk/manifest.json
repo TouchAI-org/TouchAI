@@ -19,6 +19,7 @@
         "aarch64-apple-darwin": {
             "size": 3726714,
             "digest": "60c2c325b4edf0367cfa9716ac2e2c888abcd065eff45d01510da6561ab82e3c",
+            "binary_digest": "aa84021875b75e72ccf73adea524e3cba0b10e9e5097359b6dadf74e6500f3eb",
             "format": "tar.gz",
             "archivePath": "rtk",
             "url": "https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-aarch64-apple-darwin.tar.gz"

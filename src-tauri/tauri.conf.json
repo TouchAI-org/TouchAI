@@ -29,6 +29,7 @@
                 "skipTaskbar": true
             }
         ],
+        "macOSPrivateApi": true,
         "security": {
             "csp": {
                 "default-src": "'self' tauri: asset: https: http:",
