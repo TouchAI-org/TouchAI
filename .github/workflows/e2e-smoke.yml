@@ -124,12 +124,15 @@ jobs:
             - name: Install tauri-driver
               run: cargo install tauri-driver --locked
 
-            - name: Install Edge WebDriver
+            - name: Configure Edge WebDriver
               shell: pwsh
               run: |
-                  cargo install msedgedriver-tool
-                  msedgedriver-tool.exe
-                  "$PWD" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                  $driverPath = Join-Path $env:EDGEWEBDRIVER 'msedgedriver.exe'
+                  if (-not (Test-Path -LiteralPath $driverPath)) {
+                    throw "msedgedriver.exe was not found at $driverPath"
+                  }
+                  & $driverPath --version
+                  "TOUCHAI_MSEDGEDRIVER_PATH=$driverPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
             - name: Run desktop smoke tests
               run: pnpm test:e2e
