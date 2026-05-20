@@ -96,7 +96,7 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         runs-on: windows-latest
         env:
-            TOUCHAI_CARGO_TARGET_DIR: src-tauri/target/e2e
+            TOUCHAI_CARGO_TARGET_DIR: ${{ github.workspace }}\src-tauri\target\e2e
         steps:
             - uses: actions/checkout@v4
 
