@@ -2,21 +2,15 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-function resolveWorkspaceRoot(cwd) {
-    const parent = path.dirname(cwd);
-
-    if (path.basename(parent) === '.worktrees') {
-        return path.dirname(parent);
-    }
-
-    return cwd;
+function resolveRepoRoot(cwd) {
+    return path.resolve(cwd, '..', '..');
 }
 
-function resolveRustArtifactsRoot(workspaceRoot) {
+function resolveRustArtifactsRoot(repoRoot) {
     const configuredRoot = process.env.TOUCHAI_RUST_ARTIFACTS_ROOT?.trim();
 
     if (!configuredRoot) {
-        return workspaceRoot;
+        return repoRoot;
     }
 
     return path.resolve(configuredRoot);
@@ -31,8 +25,8 @@ function main() {
     }
 
     const cwd = process.cwd();
-    const workspaceRoot = resolveWorkspaceRoot(cwd);
-    const artifactsRoot = resolveRustArtifactsRoot(workspaceRoot);
+    const repoRoot = resolveRepoRoot(cwd);
+    const artifactsRoot = resolveRustArtifactsRoot(repoRoot);
     // CI 环境统一 target 目录，避免 check 和 test 重复编译
     const sharedDir = process.env.CI ? 'ci-check' : mode;
     const targetDir = path.join(artifactsRoot, 'rust-target', sharedDir);
@@ -55,21 +49,17 @@ function main() {
         cargoArgs.push('--profile', 'ci-check');
     }
 
-    const result = spawnSync(
-        'cargo',
-        cargoArgs,
-        {
-            cwd,
-            env: {
-                ...process.env,
-                CARGO_TARGET_DIR: targetDir,
-                TEMP: tempDir,
-                TMP: tempDir,
-            },
-            shell: true,
-            stdio: 'inherit',
-        }
-    );
+    const result = spawnSync('cargo', cargoArgs, {
+        cwd,
+        env: {
+            ...process.env,
+            CARGO_TARGET_DIR: targetDir,
+            TEMP: tempDir,
+            TMP: tempDir,
+        },
+        shell: true,
+        stdio: 'inherit',
+    });
 
     if (typeof result.status === 'number') {
         process.exit(result.status);

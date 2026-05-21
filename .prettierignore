@@ -7,15 +7,17 @@ coverage/
 .coverage/
 
 # Drizzle 生成的迁移文件
-src/database/drizzle/
+apps/desktop/src/database/drizzle/
 
 # 配置文件（保持原样）
 *.config.js
 *.config.ts
+*.config.mjs
 vite.config.*
 tsconfig.json
 package.json
 *d.ts
+*.mdx
 tsconfig.node.json
 
 # 锁定文件（不应格式化）
@@ -54,5 +56,7 @@ temp/
 rust-target/
 rust-temp/
 
-src-tauri/target/**/*
-src-tauri/gen/**/*
+apps/desktop/src-tauri/target/**/*
+apps/desktop/src-tauri/gen/**/*
+apps/site/.astro/
+apps/site/dist/

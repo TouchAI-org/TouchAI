@@ -20,7 +20,7 @@ struct RipgrepManifest {
 struct RipgrepTarget {
     size: u64,
     digest: String,
-    #[serde(default)]
+    #[serde(default, rename = "binaryDigest")]
     binary_digest: String,
     format: String,
     #[serde(rename = "archivePath")]

@@ -10,7 +10,8 @@ Install the local toolchain first:
 
 ```bash
 pnpm install
-pnpm tauri dev
+pnpm tauri dev # Desktop APP
+pnpm site:dev # Offical Website
 ```
 
 ## Choose the right entry point
@@ -114,8 +115,8 @@ pnpm type:check
 pnpm lint:check
 pnpm format:check
 pnpm test:run
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
+cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
 ```
 
 ## Pull request checklist

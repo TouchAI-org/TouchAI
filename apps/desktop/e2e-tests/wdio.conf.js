@@ -6,7 +6,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const repoRoot = path.resolve(__dirname, '..');
+const desktopRoot = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(desktopRoot, '..', '..');
 const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
 
 let tauriDriver;
@@ -15,7 +16,9 @@ let sessionRuntimePath;
 
 function resolveCargoTargetDirectory() {
     if (process.env.TOUCHAI_CARGO_TARGET_DIR) {
-        return process.env.TOUCHAI_CARGO_TARGET_DIR;
+        return path.isAbsolute(process.env.TOUCHAI_CARGO_TARGET_DIR)
+            ? process.env.TOUCHAI_CARGO_TARGET_DIR
+            : path.resolve(repoRoot, process.env.TOUCHAI_CARGO_TARGET_DIR);
     }
 
     const temporaryTargetDirectory = path.resolve(resolveTempDirectory(), 'touchai-cargo-target');
@@ -23,7 +26,7 @@ function resolveCargoTargetDirectory() {
         fs.mkdirSync(temporaryTargetDirectory, { recursive: true });
         return temporaryTargetDirectory;
     } catch {
-        return path.resolve(repoRoot, 'src-tauri', 'target');
+        return path.resolve(desktopRoot, 'src-tauri', 'target');
     }
 }
 
@@ -170,7 +173,7 @@ registerShutdownCleanup(() => {
 export const config = {
     host: '127.0.0.1',
     port: 4444,
-    specs: ['./test/specs/**/*.e2e.js'],
+    specs: [path.join(__dirname, 'test/specs/**/*.e2e.js')],
     bail: 1,
     maxInstances: 1,
     waitforTimeout: 15000,

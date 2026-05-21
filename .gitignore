@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 .worktrees/
 dist
+apps/*/dist
 dist-ssr
 *.local
 *.tsbuildinfo
@@ -33,7 +34,10 @@ cache/**/*
 .e2e-tools/
 coverage/
 .coverage/
+apps/*/.astro/
 tmp-cargo-target/
 tmp-cargo-temp/
 rust-target/
 rust-temp/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/

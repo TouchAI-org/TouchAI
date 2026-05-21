@@ -4,9 +4,9 @@
     "version": "0.1.0",
     "identifier": "com.qiancheng.touchai",
     "build": {
-        "beforeDevCommand": "pnpm dev",
+        "beforeDevCommand": "pnpm --filter @touchai/desktop dev",
         "devUrl": "http://localhost:1420",
-        "beforeBuildCommand": "pnpm build",
+        "beforeBuildCommand": "pnpm --filter @touchai/desktop build",
         "frontendDist": "../dist"
     },
     "app": {
