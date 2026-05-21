@@ -5,6 +5,8 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { resolveE2eAppBinaryPath, resolveTauriBuildArgs } from './wdio.paths.js';
+
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
@@ -28,11 +30,7 @@ function resolveCargoTargetDirectory() {
 }
 
 function resolveAppBinaryPath() {
-    return path.resolve(
-        resolveCargoTargetDirectory(),
-        'debug',
-        process.platform === 'win32' ? 'TouchAI.exe' : 'TouchAI'
-    );
+    return resolveE2eAppBinaryPath(resolveCargoTargetDirectory());
 }
 
 function assertBuiltAppExists() {
@@ -40,7 +38,7 @@ function assertBuiltAppExists() {
 
     if (!fs.existsSync(appBinaryPath)) {
         throw new Error(
-            `TouchAI debug binary was not produced at ${appBinaryPath}. Check the Tauri build output above.`
+            `TouchAI E2E binary was not produced at ${appBinaryPath}. Check the Tauri build output above.`
         );
     }
 
@@ -170,7 +168,13 @@ registerShutdownCleanup(() => {
 export const config = {
     host: '127.0.0.1',
     port: 4444,
-    specs: ['./test/specs/**/*.e2e.js'],
+    specs: [
+        [
+            './test/specs/app-start.e2e.js',
+            './test/specs/search-smoke.e2e.js',
+            './test/specs/settings-smoke.e2e.js',
+        ],
+    ],
     bail: 1,
     maxInstances: 1,
     waitforTimeout: 15000,
@@ -193,7 +197,7 @@ export const config = {
         fs.rmSync(runtimeRoot, { recursive: true, force: true });
         fs.mkdirSync(runtimeRoot, { recursive: true });
 
-        const buildResult = spawnSync('pnpm', ['tauri', 'build', '--debug', '--no-bundle'], {
+        const buildResult = spawnSync('pnpm', resolveTauriBuildArgs(), {
             cwd: repoRoot,
             stdio: 'inherit',
             shell: true,

@@ -97,6 +97,7 @@ jobs:
         runs-on: windows-latest
         env:
             TOUCHAI_CARGO_TARGET_DIR: ${{ github.workspace }}\src-tauri\target\e2e
+            TOUCHAI_E2E_CARGO_PROFILE: ci-check
         steps:
             - uses: actions/checkout@v4
 
