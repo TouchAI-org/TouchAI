@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri::async_runtime;
 
 mod types;
@@ -19,14 +19,16 @@ mod assets;
 mod manager;
 #[cfg(target_os = "windows")]
 mod provider_everything;
+#[cfg(target_os = "macos")]
+mod provider_spotlight;
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const DEFAULT_PAGE_SIZE: usize = 60;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const MAX_PAGE_SIZE: usize = 200;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const DEFAULT_LIMIT: usize = 60;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const MAX_LIMIT: usize = 200;
 #[cfg(target_os = "windows")]
 const DEFAULT_ICON_SIZE: u32 = 48;
@@ -80,8 +82,26 @@ pub async fn quick_search_search_files(
     .map_err(|err| format!("quick_search_search_files task join failed: {}", err))?
 }
 
-/// 搜索快捷项列表（非 Windows 平台降级实现）。
-#[cfg(not(target_os = "windows"))]
+/// 搜索快捷项列表（macOS Spotlight）。
+#[cfg(target_os = "macos")]
+pub async fn quick_search_search_shortcuts(
+    query: String,
+    page_size: Option<usize>,
+    offset: Option<u32>,
+) -> Result<QuickSearchResult, String> {
+    let normalized_page_size = page_size
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let normalized_offset = offset.unwrap_or(0);
+    async_runtime::spawn_blocking(move || {
+        provider_spotlight::search_shortcuts(&query, normalized_page_size, normalized_offset)
+    })
+    .await
+    .map_err(|err| format!("quick_search_search_shortcuts task join failed: {}", err))?
+}
+
+/// 搜索快捷项列表（未支持平台降级实现）。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub async fn quick_search_search_shortcuts(
     _query: String,
     _page_size: Option<usize>,
@@ -96,8 +116,24 @@ pub async fn quick_search_search_shortcuts(
     })
 }
 
-/// 搜索普通文件列表（非 Windows 平台降级实现）。
-#[cfg(not(target_os = "windows"))]
+/// 搜索普通文件列表（macOS Spotlight）。
+#[cfg(target_os = "macos")]
+pub async fn quick_search_search_files(
+    query: String,
+    limit: Option<usize>,
+    include_shortcuts: Option<bool>,
+) -> Result<Vec<QuickSearchFileItem>, String> {
+    let normalized_limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let include_shortcuts = include_shortcuts.unwrap_or(false);
+    async_runtime::spawn_blocking(move || {
+        provider_spotlight::search_files(&query, normalized_limit, include_shortcuts)
+    })
+    .await
+    .map_err(|err| format!("quick_search_search_files task join failed: {}", err))?
+}
+
+/// 搜索普通文件列表（未支持平台降级实现）。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub async fn quick_search_search_files(
     query: String,
     _limit: Option<usize>,
@@ -184,8 +220,14 @@ pub fn quick_search_prepare_index(force: Option<bool>) -> Result<(), String> {
     manager::prepare_index(force.unwrap_or(false))
 }
 
-/// 预热/刷新索引（非 Windows 平台降级实现）。
-#[cfg(not(target_os = "windows"))]
+/// 预热/刷新索引（macOS Spotlight）。
+#[cfg(target_os = "macos")]
+pub fn quick_search_prepare_index(force: Option<bool>) -> Result<(), String> {
+    provider_spotlight::prepare_index(force)
+}
+
+/// 预热/刷新索引（未支持平台降级实现）。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn quick_search_prepare_index(force: Option<bool>) -> Result<(), String> {
     let _ = force;
     Ok(())
@@ -197,8 +239,14 @@ pub fn quick_search_get_status() -> QuickSearchStatus {
     manager::get_status()
 }
 
-/// 获取快速搜索当前运行状态（非 Windows 平台降级实现）。
-#[cfg(not(target_os = "windows"))]
+/// 获取快速搜索当前运行状态（macOS Spotlight）。
+#[cfg(target_os = "macos")]
+pub fn quick_search_get_status() -> QuickSearchStatus {
+    provider_spotlight::get_status()
+}
+
+/// 获取快速搜索当前运行状态（未支持平台降级实现）。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn quick_search_get_status() -> QuickSearchStatus {
     QuickSearchStatus {
         provider: "unavailable".to_string(),
