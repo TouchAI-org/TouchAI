@@ -104,6 +104,7 @@ function useQuickSearchFlow(
     // 1. 搜索流程状态
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let lastSearchedQuery = '';
+    let providerUnavailable = false;
     const clickStats = useQuickSearchClickStats();
 
     // 2. 名称高亮匹配
@@ -140,8 +141,10 @@ function useQuickSearchFlow(
      */
     async function refreshStatus() {
         try {
-            await deps.quickSearch.getStatus();
+            const status = await deps.quickSearch.getStatus();
+            providerUnavailable = status.provider === 'unavailable';
         } catch (error) {
+            providerUnavailable = true;
             console.warn('[QuickSearchPanel] Failed to get status:', error);
         }
     }
@@ -171,6 +174,11 @@ function useQuickSearchFlow(
     async function executeSearch(query: string) {
         const trimmedQuery = query.trim();
         if (!trimmedQuery) {
+            close();
+            return;
+        }
+
+        if (providerUnavailable) {
             close();
             return;
         }
@@ -289,6 +297,10 @@ function useQuickSearchFlow(
      */
     function open() {
         if (!enabled.value) return;
+        if (providerUnavailable) {
+            close();
+            return;
+        }
 
         const query = searchQuery.value.trim();
         if (!query) {
@@ -324,6 +336,10 @@ function useQuickSearchFlow(
      */
     function triggerSearch(query: string) {
         if (!enabled.value) return;
+        if (providerUnavailable) {
+            close();
+            return;
+        }
 
         if (!query.trim()) {
             close();
