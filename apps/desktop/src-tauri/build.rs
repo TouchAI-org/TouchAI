@@ -11,16 +11,16 @@ use quote::ToTokens;
 use tauri_codegen::embedded_assets::{AssetOptions, EmbeddedAssets};
 
 #[derive(Debug, Deserialize)]
-struct RipgrepManifest {
+struct BundledManifest {
     version: String,
-    targets: std::collections::BTreeMap<String, RipgrepTarget>,
+    targets: std::collections::BTreeMap<String, BundledTarget>,
 }
 
 #[derive(Debug, Deserialize)]
-struct RipgrepTarget {
+struct BundledTarget {
     size: u64,
     digest: String,
-    #[serde(default, rename = "binaryDigest")]
+    #[serde(default, alias = "binaryDigest")]
     binary_digest: String,
     format: String,
     #[serde(rename = "archivePath")]
@@ -30,7 +30,7 @@ struct RipgrepTarget {
 
 fn main() {
     generate_database_embedded_assets().expect("failed to generate embedded database assets");
-    prepare_bundled_ripgrep().expect("failed to prepare bundled ripgrep");
+    prepare_bundled("rtk").expect("failed to prepare bundled rtk");
 
     #[cfg(target_os = "windows")]
     configure_windows_common_controls_manifest()
@@ -153,41 +153,51 @@ fn emit_rerun_if_changed(path: &Path) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
-fn prepare_bundled_ripgrep() -> Result<(), Box<dyn std::error::Error>> {
-    let manifest_path = PathBuf::from("resources/ripgrep/manifest.json");
+// ── 通用二进制打包 ───────────────────────────────────────────────────
+
+/// 编译时下载、校验、嵌入一个外部二进制。
+///
+/// `name` 同时决定：
+/// - manifest 路径：`resources/{name}/manifest.json`
+/// - 缓存目录：`target/{name}-cache/{version}/{triple}`
+/// - 生成产物：`{OUT_DIR}/{name}-binary.rs`
+///   其中常量名为 `BUNDLED_{NAME_UPPER}_FILENAME` / `_SHA256` / `_BYTES`
+fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_path = PathBuf::from(format!("resources/{name}/manifest.json"));
     println!("cargo:rerun-if-changed={}", manifest_path.display());
 
-    let manifest: RipgrepManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+    let manifest: BundledManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
     let target_triple = std::env::var("TARGET")?;
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
     let cache_dir = PathBuf::from("target")
-        .join("ripgrep-cache")
+        .join(format!("{name}-cache"))
         .join(&manifest.version)
         .join(&target_triple);
 
     if let Some(target) = manifest.targets.get(&target_triple) {
-        let binary_path = materialize_target_binary(target, &cache_dir)?;
+        let binary_path = materialize_binary(name, target, &cache_dir)?;
         let binary_hash = if !target.binary_digest.is_empty() {
             target.binary_digest.clone()
         } else {
             sha256_file(&binary_path)?
         };
-        generate_ripgrep_asset_module(&out_dir, &binary_path, &binary_hash)?;
+        generate_asset_module(name, &out_dir, &binary_path, &binary_hash)?;
     } else {
-        generate_empty_ripgrep_asset_module(&out_dir)?;
+        generate_empty_asset_module(name, &out_dir)?;
     }
 
     Ok(())
 }
 
-fn materialize_target_binary(
-    target: &RipgrepTarget,
+fn materialize_binary(
+    name: &str,
+    target: &BundledTarget,
     cache_dir: &Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     fs::create_dir_all(cache_dir)?;
     let file_name = Path::new(&target.archive_path)
         .file_name()
-        .ok_or("missing archive file name")?;
+        .ok_or(format!("{name}: missing archive file name"))?;
     let binary_path = cache_dir.join(file_name);
 
     if binary_path.exists() {
@@ -205,35 +215,37 @@ fn materialize_target_binary(
         .bytes()
         .collect::<Result<Vec<_>, _>>()?;
     if bytes.len() as u64 != target.size {
-        return Err(format!("ripgrep download size mismatch for {}", target.url).into());
+        return Err(format!("{name}: download size mismatch for {}", target.url).into());
     }
 
     let actual_digest = sha256_hex(&bytes);
     if actual_digest != target.digest {
-        return Err(format!("ripgrep digest mismatch for {}", target.url).into());
+        return Err(format!("{name}: digest mismatch for {}", target.url).into());
     }
 
-    let extracted = extract_target_binary(&bytes, &target.format, &target.archive_path)?;
+    let extracted = extract_target_binary(name, &bytes, &target.format, &target.archive_path)?;
     fs::write(&binary_path, extracted)?;
     Ok(binary_path)
 }
 
-fn generate_ripgrep_asset_module(
+fn generate_asset_module(
+    name: &str,
     out_dir: &Path,
     binary_path: &Path,
     digest: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file_name = binary_path
         .file_name()
-        .ok_or("missing ripgrep file name")?
+        .ok_or(format!("{name}: missing file name"))?
         .to_string_lossy();
+    let const_prefix = name.to_uppercase().replace('-', "_");
 
     fs::write(
-        out_dir.join("ripgrep-binary.rs"),
+        out_dir.join(format!("{name}-binary.rs")),
         format!(
-            "pub const BUNDLED_RIPGREP_FILENAME: &str = {file_name:?};\n\
-             pub const BUNDLED_RIPGREP_SHA256: &str = {digest:?};\n\
-             pub static BUNDLED_RIPGREP_BYTES: &[u8] = include_bytes!(r#\"{path}\"#);\n",
+            "pub const BUNDLED_{const_prefix}_FILENAME: &str = {file_name:?};\n\
+             pub const BUNDLED_{const_prefix}_SHA256: &str = {digest:?};\n\
+             pub static BUNDLED_{const_prefix}_BYTES: &[u8] = include_bytes!(r#\"{path}\"#);\n",
             file_name = file_name,
             digest = digest,
             path = binary_path.canonicalize()?.display()
@@ -243,12 +255,19 @@ fn generate_ripgrep_asset_module(
     Ok(())
 }
 
-fn generate_empty_ripgrep_asset_module(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn generate_empty_asset_module(
+    name: &str,
+    out_dir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let const_prefix = name.to_uppercase().replace('-', "_");
+
     fs::write(
-        out_dir.join("ripgrep-binary.rs"),
-        "pub const BUNDLED_RIPGREP_FILENAME: &str = \"\";\n\
-         pub const BUNDLED_RIPGREP_SHA256: &str = \"\";\n\
-         pub static BUNDLED_RIPGREP_BYTES: &[u8] = &[];\n",
+        out_dir.join(format!("{name}-binary.rs")),
+        format!(
+            "pub const BUNDLED_{const_prefix}_FILENAME: &str = \"\";\n\
+             pub const BUNDLED_{const_prefix}_SHA256: &str = \"\";\n\
+             pub static BUNDLED_{const_prefix}_BYTES: &[u8] = &[];\n",
+        ),
     )?;
 
     Ok(())
@@ -269,6 +288,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn extract_target_binary(
+    name: &str,
     archive_bytes: &[u8],
     format: &str,
     archive_path: &str,
@@ -292,8 +312,8 @@ fn extract_target_binary(
                     return Ok(extracted);
                 }
             }
-            Err(format!("missing ripgrep archive entry {}", archive_path).into())
+            Err(format!("{name}: missing archive entry {archive_path}").into())
         }
-        other => Err(format!("unsupported ripgrep archive format: {other}").into()),
+        other => Err(format!("{name}: unsupported archive format: {other}").into()),
     }
 }

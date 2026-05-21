@@ -339,6 +339,10 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               run: pnpm check:rust
 
+            - name: Run Rust tests
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm test:rust
+
     build-windows:
         name: Build (Windows)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'

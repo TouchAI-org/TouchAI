@@ -116,6 +116,7 @@ jobs:
         runs-on: windows-latest
         env:
             TOUCHAI_CARGO_TARGET_DIR: apps/desktop/src-tauri/target/e2e
+            TOUCHAI_E2E_CARGO_PROFILE: ci-check
         steps:
             - uses: actions/checkout@v4
 
@@ -140,12 +141,47 @@ jobs:
             - name: Install tauri-driver
               run: cargo install tauri-driver --locked
 
-            - name: Install Edge WebDriver
+            - name: Configure Edge WebDriver
               shell: pwsh
               run: |
-                  cargo install msedgedriver-tool
-                  msedgedriver-tool.exe
-                  "$PWD" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                  $applicationRoots = @()
+                  if (${env:ProgramFiles(x86)}) {
+                    $applicationRoots += Join-Path ${env:ProgramFiles(x86)} 'Microsoft\EdgeWebView\Application'
+                  }
+
+                  if ($env:ProgramFiles) {
+                    $applicationRoots += Join-Path $env:ProgramFiles 'Microsoft\EdgeWebView\Application'
+                  }
+
+                  $runtime = $applicationRoots |
+                    Where-Object { Test-Path -LiteralPath $_ } |
+                    ForEach-Object { Get-ChildItem -LiteralPath $_ -Directory } |
+                    Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+                    Sort-Object { [version]$_.Name } -Descending |
+                    Select-Object -First 1
+
+                  if (-not $runtime) {
+                    throw "Microsoft Edge WebView2 runtime version directory was not found."
+                  }
+
+                  $driverVersion = $runtime.Name
+                  $toolsDir = Join-Path $env:RUNNER_TEMP 'touchai-edgedriver'
+                  $archivePath = Join-Path $toolsDir 'edgedriver_win64.zip'
+                  $driverDir = Join-Path $toolsDir $driverVersion
+                  $driverPath = Join-Path $driverDir 'msedgedriver.exe'
+                  $downloadUrl = "https://msedgedriver.microsoft.com/$driverVersion/edgedriver_win64.zip"
+
+                  New-Item -ItemType Directory -Force -Path $toolsDir, $driverDir | Out-Null
+                  Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $archivePath
+                  Expand-Archive -LiteralPath $archivePath -DestinationPath $driverDir -Force
+
+                  if (-not (Test-Path -LiteralPath $driverPath)) {
+                    throw "msedgedriver.exe was not found after extracting $archivePath"
+                  }
+
+                  Write-Host "Using Microsoft Edge WebView2 runtime $driverVersion"
+                  & $driverPath --version
+                  "TOUCHAI_MSEDGEDRIVER_PATH=$driverPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
             - name: Run desktop smoke tests
               run: pnpm test:e2e

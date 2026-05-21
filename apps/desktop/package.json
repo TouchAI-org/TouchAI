@@ -16,8 +16,9 @@
         "test:unit": "vitest run --configLoader runner --passWithNoTests",
         "test:coverage": "vitest run --configLoader runner --coverage --passWithNoTests",
         "test:e2e": "node ./scripts/run-e2e-command.mjs",
-        "test:pr": "pnpm type:check && pnpm test:typecheck && pnpm lint:check && pnpm format:check && pnpm test:unit && cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check && pnpm check:rust",
+        "test:pr": "pnpm check && pnpm test:unit && pnpm test:rust && pnpm test:coverage",
         "test:rust": "node ./scripts/run-rust-command.mjs test",
+        "test:coverage:rust": "cargo tarpaulin --manifest-path src-tauri/Cargo.toml --all-targets --branch --out xml",
         "test:typecheck": "node ./scripts/run-node-command.mjs vue-tsc -p tsconfig.vitest.json --noEmit",
         "test:ui": "vitest --configLoader runner --ui",
         "test:run": "pnpm test:unit",
@@ -28,6 +29,7 @@
         "format:fix": "prettier --write ../../apps/desktop --ignore-path ../../.prettierignore && pnpm run format:rust:fix",
         "format:rust:fix": "cargo fmt --manifest-path src-tauri/Cargo.toml --all",
         "check:rust": "node ./scripts/run-rust-command.mjs check",
+        "check": "pnpm type:check && pnpm test:typecheck && pnpm lint:check && pnpm format:check && cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check && pnpm check:rust",
         "db:generate": "drizzle-kit generate",
         "db:studio": "drizzle-kit studio"
     },

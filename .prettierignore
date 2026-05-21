@@ -60,3 +60,4 @@ apps/desktop/src-tauri/target/**/*
 apps/desktop/src-tauri/gen/**/*
 apps/site/.astro/
 apps/site/dist/
+.claude/

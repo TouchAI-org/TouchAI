@@ -16,6 +16,12 @@ pub struct BuiltInBashExecutionRequest {
     pub working_directory: Option<String>,
     /// 可选超时，单位毫秒。
     pub timeout_ms: Option<u64>,
+    /// 是否启用输出压缩：执行前自动为命令添加压缩前缀以精简输出。
+    #[serde(default)]
+    pub compact_output: bool,
+    /// 是否跳过压缩直接返回原始输出。为 true 时不走 rtk。
+    #[serde(default)]
+    pub raw_output: bool,
 }
 
 /// 内置 Bash 工具的结构化执行结果。
@@ -44,4 +50,7 @@ pub struct BuiltInBashExecutionResponse {
     pub stderr: String,
     /// 为了避免前端重复拼接，原生层直接给出组合输出。
     pub combined_output: String,
+    /// 输出是否经过 rtk 压缩。
+    #[serde(default)]
+    pub compressed: bool,
 }

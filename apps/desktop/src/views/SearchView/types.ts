@@ -48,6 +48,15 @@ export interface QuickSearchHandle {
     getHighlightedItem: () => unknown | null;
     openHighlightedItem: () => Promise<void>;
     triggerSearch: (query: string) => void;
+    goToPage: (page: number) => void;
+    goToNextPage: () => void;
+    goToPreviousPage: () => void;
+    openContextMenuForItem: (index: number) => void;
+    openContextMenuForHighlightedItem: () => void;
+    toggleViewMode: () => void;
+    collapseToDefault: () => void;
+    isContextMenuOpen: boolean;
+    closeContextMenu: () => void;
 }
 
 export interface ConversationPanelHandle {
@@ -74,6 +83,14 @@ export interface SearchPageController {
     moveQuickSearchSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
     openHighlightedQuickSearchItem: () => Promise<void>;
     triggerQuickSearch: (query: string) => void;
+    goToPageQuickSearch: (page: number) => void;
+    goToNextPageQuickSearch: () => void;
+    goToPreviousPageQuickSearch: () => void;
+    openQuickSearchContextMenu: () => void;
+    toggleQuickSearchView: () => void;
+    collapseQuickSearch: () => void;
+    isQuickSearchContextMenuOpen: () => boolean;
+    closeQuickSearchContextMenu: () => void;
 }
 
 export interface PendingRequest {

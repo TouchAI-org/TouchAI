@@ -238,6 +238,7 @@ export const providers = sqliteTable('providers', {
             'alibaba',
             'minimax',
             'zhipu',
+            'mimo',
         ],
     }).notNull(),
     api_endpoint: text('api_endpoint').notNull(),

@@ -12,6 +12,8 @@ export interface BuiltInBashExecutionRequest {
     command: string;
     workingDirectory?: string | null;
     timeoutMs?: number | null;
+    compactOutput?: boolean;
+    rawOutput?: boolean;
 }
 
 export interface BuiltInBashExecutionResponse {
@@ -26,6 +28,7 @@ export interface BuiltInBashExecutionResponse {
     stdout: string;
     stderr: string;
     combinedOutput: string;
+    compressed?: boolean;
 }
 
 export interface ShowPopupWindowParams {
@@ -123,4 +126,12 @@ export interface QuickSearchStatus {
     index_warmed: boolean;
     last_refresh_ms: number | null;
     last_error: string | null;
+}
+
+export interface QuickSearchResult {
+    shortcuts: QuickShortcutItem[];
+    files: QuickShortcutItem[];
+    total_files: number;
+    total_results: number;
+    next_offset: number;
 }

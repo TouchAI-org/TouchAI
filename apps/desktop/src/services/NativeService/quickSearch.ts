@@ -1,18 +1,22 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { QuickSearchFileItem, QuickSearchStatus, QuickShortcutItem } from './types';
+import type { QuickSearchFileItem, QuickSearchResult, QuickSearchStatus } from './types';
 
-const DEFAULT_LIMIT = 60;
+const DEFAULT_PAGE_SIZE = 60;
 const DEFAULT_ICON_SIZE = 48;
 
 export const quickSearch = {
-    searchShortcuts(query: string, limit = DEFAULT_LIMIT): Promise<QuickShortcutItem[]> {
-        return invoke('quick_search_search_shortcuts', { query, limit });
+    searchShortcuts(
+        query: string,
+        pageSize = DEFAULT_PAGE_SIZE,
+        offset = 0
+    ): Promise<QuickSearchResult> {
+        return invoke('quick_search_search_shortcuts', { query, pageSize, offset });
     },
 
     searchFiles(
         query: string,
-        limit = DEFAULT_LIMIT,
+        limit = DEFAULT_PAGE_SIZE,
         options?: { includeShortcuts?: boolean }
     ): Promise<QuickSearchFileItem[]> {
         return invoke('quick_search_search_files', {

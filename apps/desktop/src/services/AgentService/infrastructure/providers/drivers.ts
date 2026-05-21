@@ -7,6 +7,7 @@ import { AnthropicProviderAdapter } from './adapters/anthropic';
 import { AnthropicCompatibleProviderAdapter } from './adapters/anthropic-compatible';
 import { DeepSeekProviderAdapter } from './adapters/deepseek';
 import { GoogleProviderAdapter } from './adapters/google';
+import { MiMoProviderAdapter } from './adapters/mimo';
 import { MiniMaxProviderAdapter } from './adapters/minimax';
 import { MoonshotProviderAdapter } from './adapters/moonshot';
 import { OpenAIProviderAdapter } from './adapters/openai';
@@ -107,6 +108,13 @@ const providerDrivers: ProviderDriverEntry[] = [
         logo: 'zhipu.png',
         placeholder: 'https://open.bigmodel.cn/api/paas/v4',
         create: (config) => new ZhipuProviderAdapter(config),
+    },
+    {
+        driver: 'mimo',
+        label: 'Xiaomi MiMo',
+        logo: 'mimo.png',
+        placeholder: 'https://token-plan-cn.xiaomimimo.com/v1',
+        create: (config) => new MiMoProviderAdapter(config),
     },
 ];
 

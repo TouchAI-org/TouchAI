@@ -1,9 +1,13 @@
 import type { QuickShortcutItem } from '@services/NativeService';
 import { computed, nextTick, type Ref, ref } from 'vue';
 
+export type ViewMode = 'grid' | 'list';
+
 export const BASE_GAP_PX = 8; // 网格默认间距（px）
 export const MIN_GAP_PX = 4; // 网格允许的最小间距（px）
 export const ITEM_SIZE_PX = 88; // 单个结果项方块尺寸（px）
+export const LIST_ROW_HEIGHT_PX = 40; // 列表视图行高（px）
+export const LIST_ROW_GAP_PX = 0; // 列表视图行间距（px）
 export const COLLAPSED_VISIBLE_ROWS = 2; // 折叠态可见行数
 export const EXPANDED_VISIBLE_ROWS = 4; // 展开态可见行数
 
@@ -15,6 +19,12 @@ const DEFAULT_MAX_HEIGHT_PX =
     2 * DEFAULT_EDGE_SPACE_PX +
     COLLAPSED_VISIBLE_ROWS * ITEM_SIZE_PX +
     (COLLAPSED_VISIBLE_ROWS - 1) * BASE_GAP_PX;
+
+// 列表模式下的默认面板最大高度（px）。
+const LIST_COLLAPSED_VISIBLE_ROWS = 8;
+const LIST_EXPANDED_VISIBLE_ROWS = 15;
+const LIST_DEFAULT_MAX_HEIGHT_PX =
+    2 * DEFAULT_EDGE_SPACE_PX + LIST_COLLAPSED_VISIBLE_ROWS * LIST_ROW_HEIGHT_PX;
 
 interface UseLayoutOptions {
     isOpen: Ref<boolean>;
@@ -33,12 +43,32 @@ interface UseLayoutOptions {
 export function useLayout(options: UseLayoutOptions) {
     const { isOpen, results, highlightedIndex, scrollRef } = options;
 
-    // 1. 网格布局状态
+    // 1. 视图模式与布局状态
+    const viewMode = ref<ViewMode>('grid');
     const gridColumns = ref(1);
     const gridGap = ref(BASE_GAP_PX);
     const edgeSpace = ref(DEFAULT_EDGE_SPACE_PX);
     const visibleRows = ref(COLLAPSED_VISIBLE_ROWS);
-    const selectionMaxHeight = ref(DEFAULT_MAX_HEIGHT_PX);
+    const selectionMaxHeight = computed(() => {
+        if (!isOpen.value || results.value.length === 0) {
+            return viewMode.value === 'list' ? LIST_DEFAULT_MAX_HEIGHT_PX : DEFAULT_MAX_HEIGHT_PX;
+        }
+        if (viewMode.value === 'list') {
+            const totalRows = results.value.length;
+            const effectiveRows = Math.max(1, Math.min(visibleRows.value, totalRows));
+            return (
+                2 * DEFAULT_EDGE_SPACE_PX +
+                effectiveRows * LIST_ROW_HEIGHT_PX +
+                (effectiveRows - 1) * LIST_ROW_GAP_PX
+            );
+        }
+        const columns = Math.max(gridColumns.value, 1);
+        const totalRows = Math.max(1, Math.ceil(results.value.length / columns));
+        const effectiveRows = Math.max(1, Math.min(visibleRows.value, totalRows));
+        return (
+            2 * edgeSpace.value + effectiveRows * ITEM_SIZE_PX + (effectiveRows - 1) * gridGap.value
+        );
+    });
 
     const scrollStyle = computed(() => ({
         '--quick-edge-space': `${edgeSpace.value}px`,
@@ -50,20 +80,41 @@ export function useLayout(options: UseLayoutOptions) {
         gap: `${gridGap.value}px`,
     }));
 
-    // 2. 布局计算
+    // 2. 视图模式切换
     /**
-     * 按行数计算面板最大高度。
+     * 切换网格/列表视图模式。
      *
-     * @param rows 可见行数。
-     * @param edge 面板左右留白（px）。
-     * @param gap 网格项间距（px）。
-     * @returns 面板最大高度（px）。
+     * @returns void
      */
-    function computeMaxHeight(rows: number, edge: number, gap: number): number {
-        const safeRows = Math.max(rows, 1);
-        return 2 * edge + safeRows * ITEM_SIZE_PX + (safeRows - 1) * gap;
+    function toggleViewMode() {
+        viewMode.value = viewMode.value === 'grid' ? 'list' : 'grid';
+        visibleRows.value =
+            viewMode.value === 'list' ? LIST_EXPANDED_VISIBLE_ROWS : EXPANDED_VISIBLE_ROWS;
+        updateLayout();
+        if (highlightedIndex.value >= 0) {
+            scrollHighlightedIntoView();
+        }
     }
 
+    /**
+     * 获取当前模式下的行高。
+     *
+     * @returns 行高（px）。
+     */
+    function currentRowHeight(): number {
+        return viewMode.value === 'list' ? LIST_ROW_HEIGHT_PX : ITEM_SIZE_PX;
+    }
+
+    /**
+     * 获取当前模式下的行间距。
+     *
+     * @returns 行间距（px）。
+     */
+    function currentRowGap(): number {
+        return viewMode.value === 'list' ? LIST_ROW_GAP_PX : gridGap.value;
+    }
+
+    // 3. 布局计算
     /**
      * 设置可见行数，并限制在折叠行数与展开行数之间。
      *
@@ -71,7 +122,17 @@ export function useLayout(options: UseLayoutOptions) {
      * @returns void
      */
     function setVisibleRows(rows: number) {
-        visibleRows.value = Math.max(COLLAPSED_VISIBLE_ROWS, Math.min(rows, EXPANDED_VISIBLE_ROWS));
+        if (viewMode.value === 'list') {
+            visibleRows.value = Math.max(
+                LIST_COLLAPSED_VISIBLE_ROWS,
+                Math.min(rows, LIST_EXPANDED_VISIBLE_ROWS)
+            );
+        } else {
+            visibleRows.value = Math.max(
+                COLLAPSED_VISIBLE_ROWS,
+                Math.min(rows, EXPANDED_VISIBLE_ROWS)
+            );
+        }
     }
 
     /**
@@ -83,12 +144,11 @@ export function useLayout(options: UseLayoutOptions) {
         gridColumns.value = 1;
         gridGap.value = BASE_GAP_PX;
         edgeSpace.value = DEFAULT_EDGE_SPACE_PX;
-        setVisibleRows(COLLAPSED_VISIBLE_ROWS);
-        selectionMaxHeight.value = computeMaxHeight(
-            visibleRows.value,
-            DEFAULT_EDGE_SPACE_PX,
-            BASE_GAP_PX
-        );
+        if (viewMode.value === 'list') {
+            visibleRows.value = LIST_COLLAPSED_VISIBLE_ROWS;
+        } else {
+            setVisibleRows(COLLAPSED_VISIBLE_ROWS);
+        }
     }
 
     /**
@@ -99,6 +159,12 @@ export function useLayout(options: UseLayoutOptions) {
     function updateLayout() {
         if (!isOpen.value || results.value.length === 0) {
             resetLayoutState();
+            return;
+        }
+
+        if (viewMode.value === 'list') {
+            gridColumns.value = 1;
+            edgeSpace.value = DEFAULT_EDGE_SPACE_PX;
             return;
         }
 
@@ -131,12 +197,9 @@ export function useLayout(options: UseLayoutOptions) {
             gap = Math.max(fittedGap, MIN_GAP_PX);
         }
         const edge = Math.max(gap, MIN_EDGE_SPACE_PX);
-        const totalRows = Math.max(1, Math.ceil(results.value.length / columns));
-        const effectiveRows = Math.max(1, Math.min(visibleRows.value, totalRows));
         gridColumns.value = columns;
         gridGap.value = gap;
         edgeSpace.value = edge;
-        selectionMaxHeight.value = computeMaxHeight(effectiveRows, edge, gap);
     }
 
     /**
@@ -161,14 +224,13 @@ export function useLayout(options: UseLayoutOptions) {
      *
      * @returns Promise<void>
      */
-    async function scrollHighlightedIntoView() {
-        await nextTick();
+    function scrollHighlightedIntoView() {
         if (highlightedIndex.value < 0) return;
         const scrollContainer = scrollRef.value;
         if (!scrollContainer) return;
 
         const activeColumns = Math.max(gridColumns.value, 1);
-        const rowHeight = ITEM_SIZE_PX + Math.max(gridGap.value, 0);
+        const rowHeight = currentRowHeight() + Math.max(currentRowGap(), 0);
         if (rowHeight <= 0) return;
 
         const targetRow = Math.floor(highlightedIndex.value / activeColumns);
@@ -183,15 +245,16 @@ export function useLayout(options: UseLayoutOptions) {
             nextFirstRow = targetRow - visRows + 1;
         }
 
-        const maxScrollTop = Math.max(
-            scrollContainer.scrollHeight - scrollContainer.clientHeight,
-            0
-        );
-        const alignedScrollTop = Math.min(Math.max(nextFirstRow * rowHeight, 0), maxScrollTop);
-        // 使用行对齐滚动，避免在网格里出现“半行”偏移。
-        if (Math.abs(scrollContainer.scrollTop - alignedScrollTop) > 0.5) {
-            scrollContainer.scrollTop = alignedScrollTop;
-        }
+        requestAnimationFrame(() => {
+            const maxScrollTop = Math.max(
+                scrollContainer.scrollHeight - scrollContainer.clientHeight,
+                0
+            );
+            const alignedScrollTop = Math.min(Math.max(nextFirstRow * rowHeight, 0), maxScrollTop);
+            if (Math.abs(scrollContainer.scrollTop - alignedScrollTop) > 0.5) {
+                scrollContainer.scrollTop = alignedScrollTop;
+            }
+        });
     }
 
     /**
@@ -207,9 +270,12 @@ export function useLayout(options: UseLayoutOptions) {
         if (!isOpen.value || results.value.length === 0) return;
 
         const maxIndex = results.value.length - 1;
-        const activeColumns = Math.max(gridColumns.value, 1);
+        const activeColumns = viewMode.value === 'list' ? 1 : Math.max(gridColumns.value, 1);
         const currentIndex = highlightedIndex.value;
         let nextIndex = currentIndex;
+
+        const collapsedRows =
+            viewMode.value === 'list' ? LIST_COLLAPSED_VISIBLE_ROWS : COLLAPSED_VISIBLE_ROWS;
 
         switch (direction) {
             case 'left':
@@ -228,6 +294,15 @@ export function useLayout(options: UseLayoutOptions) {
                 } else {
                     nextIndex = Math.max(nextIndex - activeColumns, 0);
                 }
+                // 向上回到折叠区域或去激活时自动收缩。
+                if (visibleRows.value !== collapsedRows) {
+                    const shouldCollapse =
+                        nextIndex < 0 || Math.floor(nextIndex / activeColumns) < collapsedRows;
+                    if (shouldCollapse) {
+                        setVisibleRows(collapsedRows);
+                        updateLayout();
+                    }
+                }
                 break;
             case 'down':
                 if (currentIndex < 0) {
@@ -237,13 +312,26 @@ export function useLayout(options: UseLayoutOptions) {
                     const currentRow = Math.floor(currentIndex / activeColumns);
                     nextIndex = Math.min(nextIndex + activeColumns, maxIndex);
                     if (
-                        visibleRows.value === COLLAPSED_VISIBLE_ROWS &&
-                        currentRow >= COLLAPSED_VISIBLE_ROWS - 1 &&
+                        visibleRows.value === collapsedRows &&
+                        currentRow >= collapsedRows - 1 &&
                         nextIndex > currentIndex
                     ) {
-                        // 向下越过折叠区域时自动扩展行数，减少键盘操作阻断感。
-                        setVisibleRows(EXPANDED_VISIBLE_ROWS);
+                        // 展开前记录当前高亮行的视觉位置，展开后恢复，避免内容跳动。
+                        const container = scrollRef.value;
+                        const rowTop =
+                            currentRow * (currentRowHeight() + Math.max(currentRowGap(), 0));
+                        const offsetInViewport = container ? rowTop - container.scrollTop : 0;
+                        setVisibleRows(
+                            viewMode.value === 'list'
+                                ? LIST_EXPANDED_VISIBLE_ROWS
+                                : EXPANDED_VISIBLE_ROWS
+                        );
                         updateLayout();
+                        if (container) {
+                            requestAnimationFrame(() => {
+                                container.scrollTop = rowTop - offsetInViewport;
+                            });
+                        }
                     }
                 }
                 break;
@@ -256,16 +344,19 @@ export function useLayout(options: UseLayoutOptions) {
     }
 
     return {
+        viewMode,
         gridColumns,
         gridGap,
         visibleRows,
         selectionMaxHeight,
         scrollStyle,
         gridStyle,
+        toggleViewMode,
         setVisibleRows,
         resetLayoutState,
         updateLayout,
         syncLayout,
         moveSelection,
+        scrollHighlightedIntoView,
     };
 }
