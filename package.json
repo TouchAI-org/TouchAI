@@ -59,7 +59,8 @@
     "pnpm": {
         "overrides": {
             "@vitest/coverage-v8": "4.1.6",
-            "dompurify": "3.4.2"
+            "dompurify": "3.4.2",
+            "serialize-javascript": "7.0.5"
         }
     },
     "lint-staged": {
