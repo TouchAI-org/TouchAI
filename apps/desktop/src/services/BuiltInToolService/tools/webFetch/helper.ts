@@ -16,6 +16,7 @@ import {
 } from './constants';
 
 const turndownService = createTurndownService();
+const BLOCKED_RESOURCE_PROTOCOLS = new Set(['data:', 'javascript:', 'vbscript:']);
 
 interface WebFetchRequest {
     url: URL;
@@ -381,17 +382,18 @@ function absolutizeResourceUrls(root: ParentNode, baseUrl: string): void {
     root.querySelectorAll<HTMLElement>('[href], [src]').forEach((element) => {
         for (const attributeName of ['href', 'src']) {
             const rawValue = element.getAttribute(attributeName);
-            if (
-                !rawValue ||
-                rawValue.startsWith('#') ||
-                rawValue.startsWith('data:') ||
-                rawValue.startsWith('javascript:')
-            ) {
+            if (!rawValue || rawValue.trimStart().startsWith('#')) {
                 continue;
             }
 
             try {
-                element.setAttribute(attributeName, new URL(rawValue, baseUrl).toString());
+                const absoluteUrl = new URL(rawValue, baseUrl);
+                if (BLOCKED_RESOURCE_PROTOCOLS.has(absoluteUrl.protocol.toLowerCase())) {
+                    element.removeAttribute(attributeName);
+                    continue;
+                }
+
+                element.setAttribute(attributeName, absoluteUrl.toString());
             } catch {
                 // 非法 URL 片段直接保留原样，避免因为单个属性失败而中断整个转换流程。
             }

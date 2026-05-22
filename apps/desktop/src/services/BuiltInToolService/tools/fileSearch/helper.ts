@@ -10,13 +10,16 @@ export interface FileSearchQueryContext {
     everythingQuery: string;
 }
 
+function escapeQuotedSearchValue(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 function quoteSearchValue(value: string): string {
-    const escaped = value.replace(/"/g, '\\"');
-    if (!/[\s|<>!;]/.test(escaped)) {
-        return escaped;
+    if (!/[\s|<>!;"]/.test(value)) {
+        return value;
     }
 
-    return `"${escaped}"`;
+    return `"${escapeQuotedSearchValue(value)}"`;
 }
 
 function buildToggleClause(enabledName: string, disabledName: string, value?: boolean): string[] {

@@ -329,7 +329,7 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               uses: swatinem/rust-cache@v2
               with:
-                  workspaces: apps/desktop/src-tauri -> target
+                  workspaces: apps/desktop/src-tauri -> ../../../rust-target/ci-check
 
             - name: Check Rust formatting
               if: needs.changes.outputs.docs_only != 'true'

@@ -4,17 +4,18 @@
 
 use super::types::*;
 use log::{debug, error, info, warn};
+use reqwest as mcp_reqwest;
 use rmcp::{
-    model::CallToolRequestParam,
+    model::CallToolRequestParams,
     service::{RunningService, ServiceExt},
     transport::{
-        ConfigureCommandExt, SseClientTransport, StreamableHttpClientTransport, TokioChildProcess,
+        streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
+        StreamableHttpClientTransport, TokioChildProcess,
     },
 };
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use tauri_plugin_http::reqwest as mcp_reqwest;
 use tokio::{
     io::AsyncReadExt,
     process::ChildStderr,
@@ -126,42 +127,6 @@ impl McpClient {
         self.store_service_and_set_connected(result, "stdio").await
     }
 
-    /// 通过 SSE 传输连接到 MCP 服务器。
-    pub async fn connect_sse(
-        &self,
-        url: String,
-        headers: Option<HashMap<String, String>>,
-    ) -> Result<(), String> {
-        info!("Connecting to MCP server {} (SSE): {}", self.server_id, url);
-
-        self.set_status(ServerStatus::Connecting).await;
-        self.clear_error().await;
-
-        let http_client = Self::build_http_client(headers)?;
-
-        // 创建 SSE 传输
-        let url_str: Arc<str> = url.into();
-        let transport = SseClientTransport::start_with_client(
-            http_client,
-            rmcp::transport::sse_client::SseClientConfig {
-                sse_endpoint: url_str,
-                ..Default::default()
-            },
-        )
-        .await
-        .map_err(|e| {
-            let err_msg = format!("Failed to create SSE transport: {}", e);
-            error!("{}", err_msg);
-            err_msg
-        })?;
-
-        self.store_service_and_set_connected(
-            ().serve(transport).await.map_err(|e| e.to_string()),
-            "SSE",
-        )
-        .await
-    }
-
     /// 通过 HTTP 传输连接到 MCP 服务器（Streamable HTTP）。
     pub async fn connect_http(
         &self,
@@ -182,10 +147,7 @@ impl McpClient {
         let url_str: Arc<str> = url.into();
         let transport = StreamableHttpClientTransport::with_client(
             http_client,
-            rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig {
-                uri: url_str,
-                ..Default::default()
-            },
+            StreamableHttpClientTransportConfig::with_uri(url_str),
         );
 
         self.store_service_and_set_connected(
@@ -441,17 +403,14 @@ impl McpClient {
             .ok_or_else(|| "Service not connected".to_string())?;
 
         // 将参数转换为 JsonObject
-        let args_obj = arguments.as_object().cloned();
+        let request = if let Some(args_obj) = arguments.as_object().cloned() {
+            CallToolRequestParams::new(tool_name).with_arguments(args_obj)
+        } else {
+            CallToolRequestParams::new(tool_name)
+        };
 
         // 调用工具
-        match service
-            .peer()
-            .call_tool(CallToolRequestParam {
-                name: tool_name.into(),
-                arguments: args_obj,
-            })
-            .await
-        {
+        match service.peer().call_tool(request).await {
             Ok(response) => {
                 // 转换内容
                 let content: Vec<ToolContent> = response

@@ -47,34 +47,11 @@ impl McpClientManager {
                     .ok_or_else(|| "URL is required for SSE transport".to_string())?;
                 let headers = config.headers;
 
-                // 先尝试 Streamable HTTP（许多原 SSE 服务器已迁移到此协议），
-                // 若失败则回退到传统 SSE
-                let http_result = client.connect_http(url.clone(), headers.clone()).await;
-                if http_result.is_err() {
-                    warn!(
-                        "Streamable HTTP failed for server {}, falling back to legacy SSE: {:?}",
-                        config.id,
-                        http_result.as_ref().err()
-                    );
-                    // 重建客户端以重置状态
-                    let client_new = Arc::new(McpClient::new(config.id, config.name.clone()));
-                    let sse_result = client_new.connect_sse(url, headers).await;
-                    if sse_result.is_ok() {
-                        // 回退成功，使用新客户端
-                        let mut clients = self.clients.write().await;
-                        clients.insert(config.id, client_new);
-                        return Ok(());
-                    }
-                    warn!(
-                        "Legacy SSE also failed for server {}: {:?}",
-                        config.id,
-                        sse_result.as_ref().err()
-                    );
-                    // 两者均失败，返回 Streamable HTTP 错误（更常见的协议）
-                    http_result
-                } else {
-                    http_result
-                }
+                warn!(
+                    "Legacy SSE transport is unavailable in the upgraded MCP SDK; attempting Streamable HTTP for server {}",
+                    config.id
+                );
+                client.connect_http(url, headers).await
             }
             TransportType::Http => {
                 let url = config
