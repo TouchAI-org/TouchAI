@@ -21,6 +21,7 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             docs_only: ${{ steps.classify.outputs.docs_only }}
+            desktop_changed: ${{ steps.classify.outputs.desktop_changed }}
         steps:
             - id: classify
               name: Detect docs-only pull requests
@@ -29,6 +30,7 @@ jobs:
                   script: |
                       if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
                         core.setOutput('docs_only', 'false');
+                        core.setOutput('desktop_changed', 'true');
                         return;
                       }
 
@@ -49,6 +51,14 @@ jobs:
                         /^SECURITY\.md$/,
                         /^SUPPORT\.md$/,
                       ];
+                      const desktopPatterns = [
+                        /^apps\/desktop\//,
+                        /^packages\//,
+                        /^package\.json$/,
+                        /^pnpm-lock\.yaml$/,
+                        /^pnpm-workspace\.yaml$/,
+                        /^\.github\/workflows\/e2e-smoke\.yml$/,
+                      ];
 
                       let files = [];
 
@@ -64,6 +74,7 @@ jobs:
 
                         if (!before || !after || /^0+$/.test(before)) {
                           core.setOutput('docs_only', 'false');
+                          core.setOutput('desktop_changed', 'true');
                           return;
                         }
 
@@ -77,6 +88,7 @@ jobs:
 
                         if (files.length >= 300) {
                           core.setOutput('docs_only', 'false');
+                          core.setOutput('desktop_changed', 'true');
                           return;
                         }
                       }
@@ -84,19 +96,26 @@ jobs:
                       const docsOnly =
                         files.length > 0 &&
                         files.every((file) => docsOnlyPatterns.some((pattern) => pattern.test(file.filename)));
+                      const filenames = files.map((file) => file.filename);
+                      const desktopChanged =
+                        filenames.length === 0 ||
+                        filenames.some((filename) => desktopPatterns.some((pattern) => pattern.test(filename)));
 
                       core.setOutput('docs_only', docsOnly ? 'true' : 'false');
+                      core.setOutput('desktop_changed', desktopChanged ? 'true' : 'false');
 
             - name: Report classification
-              run: echo "docs_only=${{ steps.classify.outputs.docs_only }}"
+              run: |
+                  echo "docs_only=${{ steps.classify.outputs.docs_only }}"
+                  echo "desktop_changed=${{ steps.classify.outputs.desktop_changed }}"
 
     desktop-e2e-smoke-windows:
         name: Desktop E2E Smoke (Windows)
         needs: changes
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'
         runs-on: windows-latest
         env:
-            TOUCHAI_CARGO_TARGET_DIR: ${{ github.workspace }}\src-tauri\target\e2e
+            TOUCHAI_CARGO_TARGET_DIR: apps/desktop/src-tauri/target/e2e
             TOUCHAI_E2E_CARGO_PROFILE: ci-check
         steps:
             - uses: actions/checkout@v4
@@ -114,15 +133,10 @@ jobs:
             - name: Rust cache
               uses: swatinem/rust-cache@v2
               with:
-                  workspaces: src-tauri -> target/e2e
+                  workspaces: apps/desktop/src-tauri -> target/e2e
 
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
-
-            - name: Install E2E dependencies
-              run: |
-                  pnpm --dir e2e-tests install --ignore-workspace --no-lockfile
-                  pnpm --dir e2e-tests exec wdio --version
 
             - name: Install tauri-driver
               run: cargo install tauri-driver --locked

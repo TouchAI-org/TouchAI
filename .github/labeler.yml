@@ -1,36 +1,37 @@
 'area:frontend':
     - changed-files:
           - any-glob-to-any-file:
-                - 'src/views/**'
-                - 'src/components/**'
-                - 'src/composables/**'
-                - 'public/**'
-                - 'index.html'
+                - 'apps/desktop/src/views/**'
+                - 'apps/desktop/src/components/**'
+                - 'apps/desktop/src/composables/**'
+                - 'apps/desktop/public/**'
+                - 'apps/desktop/index.html'
+                - 'apps/site/**'
 
 'area:tauri':
     - changed-files:
           - any-glob-to-any-file:
-                - 'src-tauri/**'
+                - 'apps/desktop/src-tauri/**'
 
 'area:agent-service':
     - changed-files:
           - any-glob-to-any-file:
-                - 'src/services/AgentService/**'
-                - 'src/composables/agent/**'
-                - 'src/types/session.ts'
+                - 'apps/desktop/src/services/AgentService/**'
+                - 'apps/desktop/src/composables/agent/**'
+                - 'apps/desktop/src/types/session.ts'
 
 'area:database':
     - changed-files:
           - any-glob-to-any-file:
-                - 'src/database/**'
-                - 'drizzle.config.ts'
+                - 'apps/desktop/src/database/**'
+                - 'apps/desktop/drizzle.config.ts'
 
 'area:mcp':
     - changed-files:
           - any-glob-to-any-file:
-                - 'src/services/AgentService/infrastructure/mcp/**'
-                - 'src/views/SettingsView/components/McpTools/**'
-                - 'src/stores/mcp.ts'
+                - 'apps/desktop/src/services/AgentService/infrastructure/mcp/**'
+                - 'apps/desktop/src/views/SettingsView/components/McpTools/**'
+                - 'apps/desktop/src/stores/mcp.ts'
 
 'area:ci':
     - changed-files:

@@ -10,7 +10,8 @@ Install the local toolchain first:
 
 ```bash
 pnpm install
-pnpm tauri dev
+pnpm tauri dev # Desktop APP
+pnpm site:dev # Offical Website
 ```
 
 ## Choose the right entry point

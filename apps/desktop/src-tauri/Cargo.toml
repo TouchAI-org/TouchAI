@@ -1,0 +1,115 @@
+[package]
+name = "touchai"
+version = "0.1.0"
+description = "TouchAI - 一款桌面 AI 工具，愿景是 AI 一触即达"
+authors = ["QianCheng"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "TouchAI"
+path = "src/main.rs"
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "touchai_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+cc = "1.1"
+tauri-codegen = "2.6"
+quote = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+ureq = { version = "2.12", default-features = false, features = ["tls", "gzip"] }
+flate2 = "1.1"
+tar = "0.4"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "test", "tray-icon"] }
+tauri-plugin-log = { version = "2", features = ["colored"] }
+tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2.3.0"
+tauri-plugin-autostart = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+image = "0.25"
+base64 = "0.22"
+time = { version = "0.3", features = ["macros"] }
+tauri-plugin-fs-pro = "2.4.0"
+tauri-plugin-fs = "2"
+tauri-plugin-process = "2"
+tauri-plugin-http = "2"
+tauri-plugin-shell = "2"
+raw-window-handle = "0.6"
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["sqlite", "runtime-tokio"] }
+rmcp = { version = "1.7.0", features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+] }
+reqwest = { version = "0.13", features = ["json", "stream", "blocking"] }
+futures = "0.3"
+clipboard-rs = "0.3.4"
+html5gum = { version = "0.8.3", default-features = false }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.dev]
+# dev：本地调试用，不生成 debug symbols，最小化磁盘占用
+debug = 0
+opt-level = 0
+incremental = true
+
+[profile.ci-check]
+# CI check：速度优先，debug=1 保留行号信息，codegen-units=256 最大并行
+inherits = "dev"
+debug = 1
+codegen-units = 256
+
+[profile.release]
+# 本地 release：极致体积
+codegen-units = 1
+incremental = false
+lto = "fat"
+opt-level = "z"
+panic = "abort"
+strip = true
+
+[profile.release.package."*"]
+opt-level = "z"
+codegen-units = 1
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Data_Xml_Dom",
+    "Foundation",
+    "Foundation_Collections",
+    "UI_Notifications",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
+webview2-com = "0.38.0"
+windows-core = "0.61.2"

@@ -34,6 +34,7 @@ pnpm test              # Vitest watch mode (development)
 pnpm test:unit         # Single run (CI mode)
 pnpm test:coverage     # Run with frontend coverage report
 pnpm test:e2e          # Desktop E2E smoke (requires tauri-driver)
+pnpm site:build        # Build the Astro Starlight site
 pnpm test:pr           # Full PR gate (quality checks + all tests + frontend coverage)
 pnpm check             # Quality checks only (type, lint, format, Rust)
 ```
@@ -41,9 +42,10 @@ pnpm check             # Quality checks only (type, lint, format, Rust)
 For Rust:
 
 ```bash
+cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 pnpm test:rust                          # Run Rust tests
 pnpm test:coverage:rust                 # Run Rust tests with coverage (requires cargo-tarpaulin)
-cargo check --manifest-path src-tauri/Cargo.toml --all-targets
 ```
 
 CI runs both frontend and Rust coverage. Coverage reports are uploaded as artifacts and summarized in the GitHub step summary.
@@ -51,7 +53,7 @@ CI runs both frontend and Rust coverage. Coverage reports are uploaded as artifa
 ## File Placement
 
 ```
-tests/
+apps/desktop/tests/
 ├── setup/                  # Vitest global setup, Tauri mocks
 ├── utils/                  # Shared test helpers and fixtures
 ├── services/               # Service tests (PopupService/, EventService, NativeService)
@@ -59,17 +61,17 @@ tests/
 │   └── SearchView/         # SearchView composable tests
 └── SearchView/             # SearchView view-level tests (windowSizing, utils)
 
-e2e-tests/                  # Desktop E2E (WebDriverIO)
+apps/desktop/e2e-tests/     # Desktop E2E (WebDriverIO)
 
-src-tauri/tests/            # Rust integration / command tests
+apps/desktop/src-tauri/tests/ # Rust integration / command tests
 ```
 
-- Frontend tests: `tests/**/*.test.ts`
-- Desktop E2E: `e2e-tests/**/*.e2e.js`
+- Frontend tests: `apps/desktop/tests/**/*.test.ts`
+- Desktop E2E: `apps/desktop/e2e-tests/**/*.e2e.js`
 - Rust unit tests: `#[cfg(test)]` within the module
-- Rust integration tests: `src-tauri/tests/**/*.rs`
+- Rust integration tests: `apps/desktop/src-tauri/tests/**/*.rs`
 
-Mirror the `src/` directory structure inside `tests/`. For example, `src/services/PopupService/manager.ts` is tested in `tests/services/PopupService/manager.test.ts`.
+Mirror the `apps/desktop/src/` directory structure inside `apps/desktop/tests/`. For example, `apps/desktop/src/services/PopupService/manager.ts` is tested in `apps/desktop/tests/services/PopupService/manager.test.ts`.
 
 ## Test Layers
 

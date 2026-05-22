@@ -20,6 +20,8 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             docs_only: ${{ steps.classify.outputs.docs_only }}
+            desktop_changed: ${{ steps.classify.outputs.desktop_changed }}
+            site_changed: ${{ steps.classify.outputs.site_changed }}
         steps:
             - id: classify
               name: Detect docs-only pull requests
@@ -28,6 +30,8 @@ jobs:
                   script: |
                       if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
                         core.setOutput('docs_only', 'false');
+                        core.setOutput('desktop_changed', 'true');
+                        core.setOutput('site_changed', 'true');
                         return;
                       }
 
@@ -48,6 +52,27 @@ jobs:
                         /^SECURITY\.md$/,
                         /^SUPPORT\.md$/,
                       ];
+                      const desktopPatterns = [
+                        /^apps\/desktop\//,
+                        /^packages\//,
+                        /^package\.json$/,
+                        /^pnpm-lock\.yaml$/,
+                        /^pnpm-workspace\.yaml$/,
+                        /^eslint\.config\.js$/,
+                        /^\.prettierrc$/,
+                        /^\.prettierignore$/,
+                        /^\.github\/workflows\/ci\.yml$/,
+                      ];
+                      const sitePatterns = [
+                        /^apps\/site\//,
+                        /^packages\//,
+                        /^package\.json$/,
+                        /^pnpm-lock\.yaml$/,
+                        /^pnpm-workspace\.yaml$/,
+                        /^\.prettierrc$/,
+                        /^\.prettierignore$/,
+                        /^\.github\/workflows\/ci\.yml$/,
+                      ];
 
                       let files = [];
 
@@ -63,6 +88,8 @@ jobs:
 
                         if (!before || !after || /^0+$/.test(before)) {
                           core.setOutput('docs_only', 'false');
+                          core.setOutput('desktop_changed', 'true');
+                          core.setOutput('site_changed', 'true');
                           return;
                         }
 
@@ -76,6 +103,8 @@ jobs:
 
                         if (files.length >= 300) {
                           core.setOutput('docs_only', 'false');
+                          core.setOutput('desktop_changed', 'true');
+                          core.setOutput('site_changed', 'true');
                           return;
                         }
                       }
@@ -83,11 +112,23 @@ jobs:
                       const docsOnly =
                         files.length > 0 &&
                         files.every((file) => docsOnlyPatterns.some((pattern) => pattern.test(file.filename)));
+                      const filenames = files.map((file) => file.filename);
+                      const desktopChanged =
+                        filenames.length === 0 ||
+                        filenames.some((filename) => desktopPatterns.some((pattern) => pattern.test(filename)));
+                      const siteChanged =
+                        filenames.length === 0 ||
+                        filenames.some((filename) => sitePatterns.some((pattern) => pattern.test(filename)));
 
                       core.setOutput('docs_only', docsOnly ? 'true' : 'false');
+                      core.setOutput('desktop_changed', desktopChanged ? 'true' : 'false');
+                      core.setOutput('site_changed', siteChanged ? 'true' : 'false');
 
             - name: Report classification
-              run: echo "docs_only=${{ steps.classify.outputs.docs_only }}"
+              run: |
+                  echo "docs_only=${{ steps.classify.outputs.docs_only }}"
+                  echo "desktop_changed=${{ steps.classify.outputs.desktop_changed }}"
+                  echo "site_changed=${{ steps.classify.outputs.site_changed }}"
 
     conventional-commits:
         name: Conventional Commits
@@ -134,10 +175,17 @@ jobs:
             - name: Dependency review
               if: needs.changes.outputs.docs_only != 'true'
               uses: actions/dependency-review-action@v5
+              with:
+                  # Tauri/Wry currently pulls the vulnerable GTK3 glib 0.18 chain on Linux,
+                  # and upstream has no non-vulnerable GTK3 release path yet.
+                  # Tauri's HTML/CSS parsing chain currently pulls rand 0.7.x through
+                  # phf/kuchikiki, which still has no direct non-vulnerable Tauri path.
+                  allow-ghsas: GHSA-wrw7-89jp-8q8g, GHSA-cq8v-f236-94qc
 
     frontend-quality:
         name: Frontend Quality
         needs: changes
+        if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'
         runs-on: ubuntu-latest
         steps:
             - name: Skip frontend quality checks for docs-only PRs
@@ -179,6 +227,7 @@ jobs:
     frontend-tests:
         name: Frontend Tests
         needs: changes
+        if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'
         runs-on: ubuntu-latest
         steps:
             - name: Skip frontend tests for docs-only PRs
@@ -208,19 +257,41 @@ jobs:
             - name: Summarize coverage
               if: needs.changes.outputs.docs_only != 'true'
               run: |
-                  node -e "const fs = require('node:fs'); const summary = JSON.parse(fs.readFileSync('.coverage/unit/coverage-summary.json', 'utf8')).total; fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, ['## Frontend Coverage', '', '| Metric | Percent |', '| --- | ---: |', `| Statements | ${summary.statements.pct}% |`, `| Branches | ${summary.branches.pct}% |`, `| Functions | ${summary.functions.pct}% |`, `| Lines | ${summary.lines.pct}% |`, ''].join('\n'))"
+                  node -e "const fs = require('node:fs'); const summary = JSON.parse(fs.readFileSync('apps/desktop/.coverage/unit/coverage-summary.json', 'utf8')).total; fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, ['## Frontend Coverage', '', '| Metric | Percent |', '| --- | ---: |', `| Statements | ${summary.statements.pct}% |`, `| Branches | ${summary.branches.pct}% |`, `| Functions | ${summary.functions.pct}% |`, `| Lines | ${summary.lines.pct}% |`, ''].join('\n'))"
 
             - name: Upload coverage artifact
               if: needs.changes.outputs.docs_only != 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: frontend-coverage-report
-                  path: .coverage/unit
+                  path: apps/desktop/.coverage/unit
                   if-no-files-found: error
+
+    site-build:
+        name: Site Build
+        needs: changes
+        if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.site_changed == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build site
+              run: pnpm site:build
 
     rust-checks:
         name: Rust Checks
         needs: changes
+        if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'
         runs-on: ubuntu-latest
         steps:
             - name: Skip Rust checks for docs-only PRs
@@ -237,7 +308,7 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               with:
                   node-version: 22
-                  cache: pnpm
+                  package-manager-cache: false
 
             - name: Install Linux system dependencies
               if: needs.changes.outputs.docs_only != 'true'
@@ -264,11 +335,11 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               uses: swatinem/rust-cache@v2
               with:
-                  workspaces: src-tauri -> target
+                  workspaces: apps/desktop/src-tauri -> ../../../rust-target/ci-check
 
             - name: Check Rust formatting
               if: needs.changes.outputs.docs_only != 'true'
-              run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+              run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
 
             - name: Check Rust targets
               if: needs.changes.outputs.docs_only != 'true'
@@ -280,7 +351,7 @@ jobs:
 
     build-windows:
         name: Build (Windows)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs_only != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'
         needs:
             - changes
             - frontend-quality
@@ -303,7 +374,7 @@ jobs:
             - name: Rust cache
               uses: swatinem/rust-cache@v2
               with:
-                  workspaces: src-tauri -> target
+                  workspaces: apps/desktop/src-tauri -> target
 
             - name: Get short commit SHA
               id: sha
@@ -314,6 +385,8 @@ jobs:
 
             - name: Build Tauri app
               uses: tauri-apps/tauri-action@v0.6.2
+              with:
+                  projectPath: apps/desktop
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -322,13 +395,13 @@ jobs:
               with:
                   name: touchai-installers-windows-${{ steps.sha.outputs.short }}
                   path: |
-                      src-tauri/target/release/bundle/nsis/*.exe
-                      src-tauri/target/release/bundle/msi/*.msi
+                      apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+                      apps/desktop/src-tauri/target/release/bundle/msi/*.msi
                   if-no-files-found: warn
 
             - name: Upload portable
               uses: actions/upload-artifact@v7.0.1
               with:
                   name: touchai-portable-windows-${{ steps.sha.outputs.short }}
-                  path: src-tauri/target/release/TouchAI.exe
+                  path: apps/desktop/src-tauri/target/release/TouchAI.exe
                   if-no-files-found: warn
