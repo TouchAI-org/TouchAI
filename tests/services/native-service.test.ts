@@ -70,15 +70,15 @@ describe('NativeService window boundary', () => {
             payload: undefined,
         },
         {
-            name: 'updates the tray badge count',
-            call: () => windowCommands.setTrayBadgeCount(3),
-            cmd: 'set_tray_badge_count',
-            payload: { count: 3 },
+            name: 'updates the tray status indicator',
+            call: () => windowCommands.setTrayStatusIndicator('failed'),
+            cmd: 'set_tray_status_indicator',
+            payload: { status: 'failed' },
         },
         {
-            name: 'clears the tray badge',
-            call: () => windowCommands.clearTrayBadge(),
-            cmd: 'clear_tray_badge',
+            name: 'clears the tray status indicator',
+            call: () => windowCommands.clearTrayStatusIndicator(),
+            cmd: 'clear_tray_status_indicator',
             payload: undefined,
         },
         {
@@ -86,12 +86,20 @@ describe('NativeService window boundary', () => {
             call: () =>
                 windowCommands.showSessionStatusReminderNotification({
                     title: 'TouchAI',
+                    sessionId: 8,
+                    taskId: 'task-1',
+                    kind: 'completed',
+                    approval: null,
                     body: '任务已完成',
                 }),
             cmd: 'show_session_status_reminder_notification',
             payload: {
                 payload: {
                     title: 'TouchAI',
+                    sessionId: 8,
+                    taskId: 'task-1',
+                    kind: 'completed',
+                    approval: null,
                     body: '任务已完成',
                 },
             },

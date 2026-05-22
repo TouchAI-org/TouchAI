@@ -36,22 +36,25 @@ describe('NotificationService', () => {
         notificationPluginMock.requestPermission.mockResolvedValue('granted');
     });
 
-    it('routes tracked status reminders through the native window command', async () => {
+    it('routes session status reminders through the native window command', async () => {
         const service = await importNotificationService();
 
-        service.notify(
-            {
-                title: 'TouchAI',
-                body: '任务已完成',
-            },
-            {
-                trackAsStatusReminder: true,
-            }
-        );
+        service.notifySessionStatusReminder({
+            title: 'TouchAI',
+            body: 'Task completed',
+            sessionId: 3,
+            taskId: 'task-1',
+            kind: 'completed',
+            approval: null,
+        });
 
         expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
             title: 'TouchAI',
-            body: '任务已完成',
+            body: 'Task completed',
+            sessionId: 3,
+            taskId: 'task-1',
+            kind: 'completed',
+            approval: null,
         });
         expect(notificationPluginMock.sendNotification).not.toHaveBeenCalled();
     });
@@ -61,12 +64,12 @@ describe('NotificationService', () => {
 
         service.notify({
             title: 'TouchAI',
-            body: '普通提醒',
+            body: 'Regular reminder',
         });
 
         expect(notificationPluginMock.sendNotification).toHaveBeenCalledWith({
             title: 'TouchAI',
-            body: '普通提醒',
+            body: 'Regular reminder',
         });
         expect(nativeMock.window.showSessionStatusReminderNotification).not.toHaveBeenCalled();
     });

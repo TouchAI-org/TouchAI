@@ -39,7 +39,7 @@ pub fn run() {
         .manage(PopupRegistry::new())
         .manage(core::window::search::surface::SearchSurfaceRuntime::new())
         .manage(core::window::status_reminder::SessionStatusReminderNotificationRuntime::new())
-        .manage(core::window::tray::TrayBadgeRuntime::new())
+        .manage(core::window::tray::TrayStatusRuntime::new())
         .manage(BuiltInProcessExecutionRegistry::new())
         .manage(McpClientManager::new())
         .on_window_event(|window, event| {

@@ -61,32 +61,6 @@
             />
         </div>
 
-        <Transition name="status-reminder-overlay">
-            <div
-                v-if="statusReminderOverlay"
-                class="pointer-events-none absolute top-[4.9rem] right-0 left-0 z-20 flex justify-center px-6"
-            >
-                <div
-                    class="status-reminder-overlay max-w-full"
-                    :class="{
-                        'status-reminder-overlay--completed':
-                            statusReminderOverlay.kind === 'completed',
-                        'status-reminder-overlay--failed': statusReminderOverlay.kind === 'failed',
-                        'status-reminder-overlay--waiting':
-                            statusReminderOverlay.kind === 'waiting_approval',
-                    }"
-                >
-                    <AppIcon
-                        :name="statusReminderOverlayIconName"
-                        class="status-reminder-overlay__icon"
-                    />
-                    <span class="status-reminder-overlay__content">
-                        {{ statusReminderOverlay.content }}
-                    </span>
-                </div>
-            </div>
-        </Transition>
-
         <!-- 跳到底部 -->
         <div
             v-if="showScrollToBottom"
@@ -112,7 +86,6 @@
     import type { SessionMessage } from '@/types/session';
     import { isSessionStatusReminderMessage } from '@/utils/session';
 
-    import type { SessionStatusReminderOverlay } from '../../types';
     import ConversationTimeline from './components/ConversationTimeline.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
@@ -132,7 +105,6 @@
         toolbarDisabled?: boolean;
         maxHeight?: number;
         approvalAttentionToken?: number;
-        statusReminderOverlay?: SessionStatusReminderOverlay | null;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -141,7 +113,6 @@
         approvalAttentionToken: 0,
         isMaximized: false,
         fillAvailableHeight: false,
-        statusReminderOverlay: null,
     });
 
     const emit = defineEmits<{
@@ -192,17 +163,6 @@
     const visibleMessages = computed(() =>
         props.messages.filter((message) => !isSessionStatusReminderMessage(message))
     );
-    const statusReminderOverlayIconName = computed(() => {
-        if (props.statusReminderOverlay?.kind === 'completed') {
-            return 'check-circle';
-        }
-
-        if (props.statusReminderOverlay?.kind === 'failed') {
-            return 'x-circle';
-        }
-
-        return 'exclamation-triangle';
-    });
 
     // 暴露 focus 方法
     function focus() {
@@ -532,66 +492,5 @@
 
     .scroll-fade-overlay {
         background: linear-gradient(to bottom, transparent 0%, var(--color-overlay-fade) 100%);
-    }
-
-    .status-reminder-overlay {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.55rem;
-        border-radius: 999px;
-        border: 1px solid rgb(214, 211, 209);
-        background: rgba(255, 255, 255, 0.96);
-        padding: 0.65rem 1rem;
-        color: rgb(87, 83, 78);
-        box-shadow:
-            0 14px 38px rgba(28, 25, 23, 0.1),
-            0 3px 10px rgba(28, 25, 23, 0.06);
-        backdrop-filter: blur(10px);
-    }
-
-    .status-reminder-overlay--completed {
-        border-color: rgb(134, 239, 172);
-        background: rgba(240, 253, 244, 0.96);
-        color: rgb(21, 128, 61);
-    }
-
-    .status-reminder-overlay--failed {
-        border-color: rgb(254, 202, 202);
-        background: rgba(254, 242, 242, 0.96);
-        color: rgb(185, 28, 28);
-    }
-
-    .status-reminder-overlay--waiting {
-        border-color: rgb(253, 224, 71);
-        background: rgba(254, 249, 195, 0.98);
-        color: rgb(161, 98, 7);
-    }
-
-    .status-reminder-overlay__icon {
-        flex: none;
-        height: 1rem;
-        width: 1rem;
-    }
-
-    .status-reminder-overlay__content {
-        min-width: 0;
-        font-family: Georgia, 'Times New Roman', serif;
-        font-size: 13px;
-        line-height: 1.45;
-        text-align: center;
-        word-break: break-word;
-    }
-
-    .status-reminder-overlay-enter-active,
-    .status-reminder-overlay-leave-active {
-        transition:
-            opacity 180ms ease,
-            transform 180ms ease;
-    }
-
-    .status-reminder-overlay-enter-from,
-    .status-reminder-overlay-leave-to {
-        opacity: 0;
-        transform: translateY(-8px) scale(0.98);
     }
 </style>

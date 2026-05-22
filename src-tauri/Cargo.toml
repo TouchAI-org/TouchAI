@@ -98,6 +98,7 @@ codegen-units = 1
 windows = { version = "0.58", features = [
     "Data_Xml_Dom",
     "Foundation",
+    "Foundation_Collections",
     "UI_Notifications",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",

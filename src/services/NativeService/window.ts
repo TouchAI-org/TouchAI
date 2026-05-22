@@ -9,6 +9,7 @@ import type {
     SearchWindowState,
     SessionStatusReminderNotificationPayload,
     ShowPopupWindowParams,
+    TrayStatusIndicator,
 } from './types';
 
 export const window = {
@@ -20,12 +21,12 @@ export const window = {
         return invoke('show_search_window');
     },
 
-    setTrayBadgeCount(count: number): Promise<void> {
-        return invoke('set_tray_badge_count', { count });
+    setTrayStatusIndicator(status: TrayStatusIndicator): Promise<void> {
+        return invoke('set_tray_status_indicator', { status });
     },
 
-    clearTrayBadge(): Promise<void> {
-        return invoke('clear_tray_badge');
+    clearTrayStatusIndicator(): Promise<void> {
+        return invoke('clear_tray_status_indicator');
     },
 
     showSessionStatusReminderNotification(

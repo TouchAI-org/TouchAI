@@ -30,36 +30,43 @@ fn register_popup_configs_persists_popup_registry_entries() {
 }
 
 #[test]
-fn set_tray_badge_count_updates_runtime_state() {
+fn set_tray_status_indicator_updates_runtime_state() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let response: () = invoke_command_ok(
         &test_app.main_webview,
-        "set_tray_badge_count",
+        "set_tray_status_indicator",
         json!({
-            "count": 3
+            "status": "failed"
         }),
     );
 
     assert_eq!(response, ());
-    assert_eq!(testing::tray_badge_count(&test_app.app), 3);
+    assert_eq!(
+        testing::tray_status_indicator(&test_app.app).as_deref(),
+        Some("failed")
+    );
 }
 
 #[test]
-fn clear_tray_badge_resets_runtime_state() {
+fn clear_tray_status_indicator_resets_runtime_state() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let _: () = invoke_command_ok(
         &test_app.main_webview,
-        "set_tray_badge_count",
+        "set_tray_status_indicator",
         json!({
-            "count": 5
+            "status": "waiting_approval"
         }),
     );
-    let response: () = invoke_command_ok(&test_app.main_webview, "clear_tray_badge", json!({}));
+    let response: () = invoke_command_ok(
+        &test_app.main_webview,
+        "clear_tray_status_indicator",
+        json!({}),
+    );
 
     assert_eq!(response, ());
-    assert_eq!(testing::tray_badge_count(&test_app.app), 0);
+    assert_eq!(testing::tray_status_indicator(&test_app.app), None);
 }
 
 #[test]
@@ -72,7 +79,11 @@ fn show_session_status_reminder_notification_records_test_runtime_entry() {
         json!({
             "payload": {
                 "title": "TouchAI",
-                "body": "Task completed"
+                "body": "Task completed",
+                "sessionId": 5,
+                "taskId": "task-1",
+                "kind": "completed",
+                "approval": null
             }
         }),
     );
@@ -82,6 +93,8 @@ fn show_session_status_reminder_notification_records_test_runtime_entry() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].title, "TouchAI");
     assert_eq!(records[0].body, "Task completed");
+    assert_eq!(records[0].session_id, 5);
+    assert_eq!(records[0].task_id, "task-1");
 }
 
 #[test]
@@ -94,7 +107,11 @@ fn clear_session_status_reminder_notifications_updates_runtime_state() {
         json!({
             "payload": {
                 "title": "TouchAI",
-                "body": "Task failed"
+                "body": "Task failed",
+                "sessionId": 7,
+                "taskId": "task-2",
+                "kind": "failed",
+                "approval": null
             }
         }),
     );

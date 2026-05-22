@@ -1,7 +1,9 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { eventService } from '@/services/EventService';
-import { AppEvent } from '@/services/EventService/types';
+import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
+import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import { getSessionStatusReminderContent } from '@/utils/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import type { ConversationRuntimeEnvironment, TurnEvent } from '../execution';
@@ -34,6 +36,8 @@ interface MutableSessionTask {
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
+const STATUS_REMINDER_MAX_BODY_CHARS = 220;
+const STATUS_REMINDER_MAX_COMMAND_CHARS = 160;
 
 function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
     return cloneTaskValue(snapshot);
@@ -41,6 +45,106 @@ function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
 
 function isTerminalStatus(status: SessionTaskSnapshot['status']): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function normalizeReminderText(value: string): string {
+    return value.replace(/\s+/g, ' ').trim();
+}
+
+function truncateReminderText(value: string, maxChars: number): string {
+    if (value.length <= maxChars) {
+        return value;
+    }
+
+    return `${value.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function summarizeReminderText(
+    value: string | null | undefined,
+    maxChars = STATUS_REMINDER_MAX_BODY_CHARS
+) {
+    const normalized = normalizeReminderText(value ?? '');
+    if (!normalized) {
+        return null;
+    }
+
+    return truncateReminderText(normalized, maxChars);
+}
+
+function summarizeLatestAssistantResponse(history: SessionMessage[]): string | null {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+        const message = history[index];
+        if (message?.role !== 'assistant') {
+            continue;
+        }
+
+        const summary = summarizeReminderText(message.content);
+        if (summary) {
+            return summary;
+        }
+    }
+
+    return null;
+}
+
+function buildWaitingApprovalBody(approval: PendingToolApproval): string {
+    const summary =
+        summarizeReminderText(approval.reason) ??
+        summarizeReminderText(approval.description) ??
+        summarizeReminderText(approval.title) ??
+        getSessionStatusReminderContent('waiting_approval');
+    const commandPreview = summarizeReminderText(
+        approval.command,
+        STATUS_REMINDER_MAX_COMMAND_CHARS
+    );
+
+    if (!commandPreview || commandPreview === summary) {
+        return summary;
+    }
+
+    return `${summary}\n${commandPreview}`;
+}
+
+function buildSessionStatusReminder(
+    snapshot: SessionTaskSnapshot
+): SessionStatusReminderPayload | null {
+    if (snapshot.status === 'completed') {
+        return {
+            kind: 'completed',
+            title: 'TouchAI - 任务已完成',
+            body:
+                summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
+                getSessionStatusReminderContent('completed'),
+            approval: null,
+        };
+    }
+
+    if (snapshot.status === 'failed') {
+        return {
+            kind: 'failed',
+            title: 'TouchAI - 请求失败',
+            body:
+                summarizeReminderText(snapshot.error) ??
+                summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
+                getSessionStatusReminderContent('failed'),
+            approval: null,
+        };
+    }
+
+    if (snapshot.status !== 'waiting_approval' || !snapshot.pendingToolApproval) {
+        return null;
+    }
+
+    return {
+        kind: 'waiting_approval',
+        title: 'TouchAI - 等待批准',
+        body: buildWaitingApprovalBody(snapshot.pendingToolApproval),
+        approval: {
+            callId: snapshot.pendingToolApproval.callId,
+            approveLabel: snapshot.pendingToolApproval.approveLabel,
+            rejectLabel: snapshot.pendingToolApproval.rejectLabel,
+        },
+    };
 }
 
 function relayAbortSignal(source: AbortSignal | undefined, target: AbortController): () => void {
@@ -502,6 +606,7 @@ class SessionTaskCenter {
             taskId: task.taskId,
             status: task.snapshot.status,
             previousStatus,
+            reminder: buildSessionStatusReminder(task.snapshot),
         });
     }
 }

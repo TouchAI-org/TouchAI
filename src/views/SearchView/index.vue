@@ -2,6 +2,7 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { useSessionStatus } from '@composables/useSessionStatus';
+    import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
     import {
@@ -340,7 +341,7 @@
         await refreshModelDropdownData();
     }
 
-    const { hideSearchWindow, statusReminderOverlay } = useSearchPageLifecycle({
+    const { hideSearchWindow } = useSearchPageLifecycle({
         controller,
         viewReady,
         isDragging,
@@ -356,6 +357,7 @@
                 await handleToggleModelDropdownRequest();
             }
         },
+        handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste: tryShortcutAutoPaste,
     });
@@ -813,6 +815,57 @@
         }
     }
 
+    async function submitStatusReminderReply(replyText: string) {
+        const normalizedReply = replyText.trim();
+        if (!normalizedReply) {
+            return;
+        }
+
+        const replySnapshot = createInputHistorySnapshot({
+            text: normalizedReply,
+            attachments: [],
+        });
+        applyInputHistorySnapshot(replySnapshot);
+        await handleSubmit(normalizedReply, replySnapshot);
+    }
+
+    async function handleSessionStatusReminderAction(payload: SessionStatusReminderActionEvent) {
+        controller.closeQuickSearch();
+        await hideAllPopups();
+
+        const requiresSessionOpen =
+            currentSessionId.value !== payload.sessionId ||
+            (payload.callId && pendingToolApproval.value?.callId !== payload.callId);
+
+        if (requiresSessionOpen) {
+            await handleOpenSession(payload.sessionId);
+        }
+
+        if (currentSessionId.value !== payload.sessionId) {
+            return;
+        }
+
+        if (payload.action === 'approve') {
+            approvePendingToolApproval(payload.callId ?? undefined);
+            return;
+        }
+
+        if (payload.action === 'reject') {
+            rejectPendingToolApproval(payload.callId ?? undefined);
+            return;
+        }
+
+        if (payload.action === 'reply') {
+            await submitStatusReminderReply(payload.replyText ?? '');
+            return;
+        }
+
+        conversationPanel.value?.revealLatestContent();
+        if (payload.kind === 'waiting_approval') {
+            promptPendingToolApprovalAttention();
+        }
+    }
+
     async function handleRegenerateMessage(messageId: string) {
         await handleRegenerateMessageRequest(messageId);
     }
@@ -1072,7 +1125,6 @@
                 :fill-available-height="fillConversationAvailableHeight"
                 :history-open="sessionHistoryPopupOpen"
                 :approval-attention-token="approvalAttentionToken"
-                :status-reminder-overlay="statusReminderOverlay"
                 @pin-change="handlePinChange"
                 @maximize-toggle="handleToggleMaximize"
                 @new-session="handleStartNewSession"

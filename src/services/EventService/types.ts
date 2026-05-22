@@ -51,6 +51,7 @@ export enum AppEvent {
     SEARCH_SURFACE_HIDDEN = 'search-surface-hidden',
     SEARCH_SURFACE_COMMAND = 'search-surface-command',
     SESSION_TASK_STATUS_CHANGED = 'session:task:status-changed',
+    SESSION_STATUS_REMINDER_ACTION = 'session-status-reminder:action',
 }
 
 // ==================== MCP 事件 ====================
@@ -111,6 +112,30 @@ export interface SearchSurfaceCommandEvent {
     source: 'webview2-accelerator';
 }
 
+export type SessionStatusReminderKind = 'completed' | 'failed' | 'waiting_approval';
+
+export interface SessionStatusReminderApprovalActionPayload {
+    callId: string;
+    approveLabel: string;
+    rejectLabel: string;
+}
+
+export interface SessionStatusReminderPayload {
+    kind: SessionStatusReminderKind;
+    title: string;
+    body: string;
+    approval?: SessionStatusReminderApprovalActionPayload | null;
+}
+
+export interface SessionStatusReminderActionEvent {
+    sessionId: number;
+    taskId: string;
+    kind: SessionStatusReminderKind;
+    action: 'open' | 'approve' | 'reject' | 'reply';
+    callId?: string | null;
+    replyText?: string | null;
+}
+
 // ==================== 资源事件 ====================
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -123,6 +148,7 @@ export interface SessionTaskStatusChangedEvent {
     taskId: string;
     status: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
     previousStatus: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled' | null;
+    reminder: SessionStatusReminderPayload | null;
 }
 
 // ==================== 事件映射 ====================
@@ -158,6 +184,7 @@ export interface AppEventMap {
     [AppEvent.SEARCH_SURFACE_HIDDEN]: SearchSurfaceHiddenEvent;
     [AppEvent.SEARCH_SURFACE_COMMAND]: SearchSurfaceCommandEvent;
     [AppEvent.SESSION_TASK_STATUS_CHANGED]: SessionTaskStatusChangedEvent;
+    [AppEvent.SESSION_STATUS_REMINDER_ACTION]: SessionStatusReminderActionEvent;
 }
 
 export type AppEventName = keyof AppEventMap;

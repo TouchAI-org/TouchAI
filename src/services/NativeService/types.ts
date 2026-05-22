@@ -68,10 +68,24 @@ export interface SearchWindowState {
     heightMode: SearchWindowHeightMode;
 }
 
+export type SessionStatusReminderNotificationKind = 'completed' | 'failed' | 'waiting_approval';
+
+export interface SessionStatusReminderNotificationApprovalPayload {
+    callId: string;
+    approveLabel: string;
+    rejectLabel: string;
+}
+
 export interface SessionStatusReminderNotificationPayload {
     title: string;
     body: string;
+    sessionId: number;
+    taskId: string;
+    kind: SessionStatusReminderNotificationKind;
+    approval?: SessionStatusReminderNotificationApprovalPayload | null;
 }
+
+export type TrayStatusIndicator = SessionStatusReminderNotificationKind;
 
 export interface RuntimeInfo {
     isE2eTestMode: boolean;

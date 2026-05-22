@@ -20,8 +20,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
     tauri::generate_handler![
         window::hide_search_window,
         window::show_search_window,
-        window::set_tray_badge_count,
-        window::clear_tray_badge,
+        window::set_tray_status_indicator,
+        window::clear_tray_status_indicator,
         window::show_session_status_reminder_notification,
         window::clear_session_status_reminder_notifications,
         window::set_search_surface_hide_on_app_blur,

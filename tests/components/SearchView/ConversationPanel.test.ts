@@ -90,43 +90,4 @@ describe('ConversationPanel', () => {
         expect(wrapper.text()).not.toContain(getSessionStatusReminderContent('completed'));
         wrapper.unmount();
     });
-
-    it('renders the transient overlay content when provided', () => {
-        const wrapper = mount(ConversationPanel, {
-            props: {
-                messages: [],
-                isLoading: false,
-                error: null,
-                isPinned: false,
-                historyOpen: false,
-                statusReminderOverlay: {
-                    id: 1,
-                    kind: 'completed',
-                    content: getSessionStatusReminderContent('completed'),
-                },
-            },
-            global: {
-                stubs: {
-                    AppIcon: {
-                        template: '<span data-testid="icon" />',
-                    },
-                    ConversationToolbar: {
-                        template: '<div data-testid="toolbar" />',
-                    },
-                    ConversationTimeline: {
-                        template: '<div data-testid="timeline" />',
-                    },
-                    MessageItem: {
-                        props: ['message'],
-                        template: '<div class="message-item">{{ message.content }}</div>',
-                    },
-                },
-            },
-        });
-
-        const overlay = wrapper.find('.status-reminder-overlay');
-        expect(overlay.exists()).toBe(true);
-        expect(overlay.text()).toContain(getSessionStatusReminderContent('completed'));
-        wrapper.unmount();
-    });
 });

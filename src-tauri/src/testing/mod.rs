@@ -15,7 +15,7 @@ use crate::{
             status_reminder::{
                 SessionStatusReminderNotificationRecord, SessionStatusReminderNotificationRuntime,
             },
-            tray::TrayBadgeRuntime,
+            tray::TrayStatusRuntime,
         },
     },
 };
@@ -32,7 +32,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .manage(PopupRegistry::new())
         .manage(SearchSurfaceRuntime::new())
         .manage(SessionStatusReminderNotificationRuntime::for_tests())
-        .manage(TrayBadgeRuntime::new())
+        .manage(TrayStatusRuntime::new())
 }
 
 pub fn attach_test_database_runtime(
@@ -56,8 +56,15 @@ pub fn search_surface_policies<R: Runtime>(app: &App<R>) -> SearchSurfacePolicyS
     }
 }
 
-pub fn tray_badge_count<R: Runtime>(app: &App<R>) -> u32 {
-    app.state::<TrayBadgeRuntime>().count()
+pub fn tray_status_indicator<R: Runtime>(app: &App<R>) -> Option<String> {
+    app.state::<TrayStatusRuntime>()
+        .status()
+        .map(|status| match status {
+            crate::core::window::tray::TrayStatusIndicator::Completed => "completed",
+            crate::core::window::tray::TrayStatusIndicator::Failed => "failed",
+            crate::core::window::tray::TrayStatusIndicator::WaitingApproval => "waiting_approval",
+        })
+        .map(str::to_string)
 }
 
 pub fn session_status_reminder_notifications<R: Runtime>(

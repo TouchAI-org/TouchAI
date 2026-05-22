@@ -1,15 +1,91 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+
+const STATUS_REMINDER_NOTIFICATION_GROUP: &str = "session-status-reminders";
+const SESSION_STATUS_REMINDER_ACTION_EVENT: &str = "session-status-reminder:action";
+const REPLY_INPUT_ID: &str = "touchai-reply";
+const REPLY_PLACEHOLDER: &str = "Reply to TouchAI";
+const REPLY_ACTION_LABEL: &str = "Reply";
+
+#[cfg(target_os = "windows")]
+const POWERSHELL_APP_ID: &str =
+    "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStatusReminderKind {
+    Completed,
+    Failed,
+    WaitingApproval,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionStatusReminderAction {
+    Open,
+    Reply,
+    Approve,
+    Reject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStatusReminderNotificationApprovalPayload {
+    pub call_id: String,
+    pub approve_label: String,
+    pub reject_label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStatusReminderNotificationPayload {
+    pub title: String,
+    pub body: String,
+    pub session_id: i64,
+    pub task_id: String,
+    pub kind: SessionStatusReminderKind,
+    pub approval: Option<SessionStatusReminderNotificationApprovalPayload>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatusReminderNotificationRecord {
     pub title: String,
     pub body: String,
+    pub session_id: i64,
+    pub task_id: String,
+    pub kind: SessionStatusReminderKind,
+    pub approval: Option<SessionStatusReminderNotificationApprovalPayload>,
+}
+
+impl From<&SessionStatusReminderNotificationPayload> for SessionStatusReminderNotificationRecord {
+    fn from(value: &SessionStatusReminderNotificationPayload) -> Self {
+        Self {
+            title: value.title.clone(),
+            body: value.body.clone(),
+            session_id: value.session_id,
+            task_id: value.task_id.clone(),
+            kind: value.kind,
+            approval: value.approval.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStatusReminderActionPayload {
+    action: SessionStatusReminderAction,
+    session_id: i64,
+    task_id: String,
+    kind: SessionStatusReminderKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply_text: Option<String>,
 }
 
 pub struct SessionStatusReminderNotificationRuntime {
@@ -48,14 +124,11 @@ impl SessionStatusReminderNotificationRuntime {
         format!("touchai-session-status-reminder-{next}")
     }
 
-    pub fn record_notification(&self, title: impl Into<String>, body: impl Into<String>) {
+    pub fn record_notification(&self, payload: &SessionStatusReminderNotificationPayload) {
         self.records
             .lock()
             .expect("session status reminder runtime poisoned")
-            .push(SessionStatusReminderNotificationRecord {
-                title: title.into(),
-                body: body.into(),
-            });
+            .push(SessionStatusReminderNotificationRecord::from(payload));
     }
 
     pub fn records(&self) -> Vec<SessionStatusReminderNotificationRecord> {
@@ -96,35 +169,29 @@ impl Default for SessionStatusReminderNotificationRuntime {
     }
 }
 
-const STATUS_REMINDER_NOTIFICATION_GROUP: &str = "session-status-reminders";
-#[cfg(target_os = "windows")]
-const POWERSHELL_APP_ID: &str =
-    "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
-
 pub fn show_session_status_reminder_notification<R: Runtime>(
     app: &AppHandle<R>,
-    title: &str,
-    body: &str,
+    payload: &SessionStatusReminderNotificationPayload,
 ) -> Result<(), String> {
     let runtime = app
         .try_state::<SessionStatusReminderNotificationRuntime>()
         .ok_or_else(|| "Session status reminder runtime is not initialized".to_string())?;
 
     if runtime.is_test_mode() {
-        runtime.record_notification(title, body);
+        runtime.record_notification(payload);
         return Ok(());
     }
 
     #[cfg(target_os = "windows")]
     {
-        show_windows_status_reminder_notification(app, runtime.inner(), title, body)?;
-        runtime.record_notification(title, body);
+        show_windows_status_reminder_notification(app, runtime.inner(), payload)?;
+        runtime.record_notification(payload);
         return Ok(());
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (title, body);
+        let _ = payload;
         Err("Session status reminder notifications are only supported on Windows".to_string())
     }
 }
@@ -157,18 +224,19 @@ pub fn clear_session_status_reminder_notifications<R: Runtime>(
 fn show_windows_status_reminder_notification<R: Runtime>(
     app: &AppHandle<R>,
     runtime: &SessionStatusReminderNotificationRuntime,
-    title: &str,
-    body: &str,
+    payload: &SessionStatusReminderNotificationPayload,
 ) -> Result<(), String> {
     use log::warn;
-    use windows::core::HSTRING;
+    use windows::core::{Interface, HSTRING};
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::Foundation::TypedEventHandler;
-    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+    use windows::UI::Notifications::{
+        ToastActivatedEventArgs, ToastNotification, ToastNotificationManager,
+    };
 
     let notification_xml = XmlDocument::new().map_err(|error| error.to_string())?;
     notification_xml
-        .LoadXml(&HSTRING::from(build_toast_xml(title, body)))
+        .LoadXml(&HSTRING::from(build_toast_xml(payload)?))
         .map_err(|error| format!("Failed to load toast xml: {error}"))?;
 
     let toast = ToastNotification::CreateToastNotification(&notification_xml)
@@ -181,17 +249,34 @@ fn show_windows_status_reminder_notification<R: Runtime>(
         .map_err(|error| format!("Failed to set toast group: {error}"))?;
 
     let app_handle = app.clone();
-    let activated_handler =
-        TypedEventHandler::new(move |_toast: &Option<ToastNotification>, _args| {
+    let activated_handler = TypedEventHandler::new(
+        move |_toast: &Option<ToastNotification>, args: &Option<windows::core::IInspectable>| {
             let app_handle = app_handle.clone();
+            let activation_payload = args
+                .as_ref()
+                .and_then(|value| value.cast::<ToastActivatedEventArgs>().ok())
+                .and_then(|activated| parse_activated_payload(&activated).ok());
+
             tauri::async_runtime::spawn(async move {
                 let task_handle = app_handle.clone();
                 if let Err(error) = app_handle.run_on_main_thread(move || {
-                    if let Err(error) = crate::core::window::show_search_window(task_handle) {
+                    if let Err(error) = crate::core::window::show_search_window(task_handle.clone())
+                    {
                         warn!(
                             "Failed to restore search window from session status notification: {}",
                             error
                         );
+                    }
+
+                    if let Some(payload) = activation_payload.as_ref() {
+                        if let Err(error) =
+                            emit_session_status_reminder_action(&task_handle, payload)
+                        {
+                            warn!(
+                                "Failed to emit session status reminder action event: {}",
+                                error
+                            );
+                        }
                     }
                 }) {
                     warn!(
@@ -201,7 +286,8 @@ fn show_windows_status_reminder_notification<R: Runtime>(
                 }
             });
             Ok(())
-        });
+        },
+    );
 
     toast
         .Activated(&activated_handler)
@@ -217,6 +303,18 @@ fn show_windows_status_reminder_notification<R: Runtime>(
 
     runtime.track_active_toast(toast);
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn parse_activated_payload(
+    activated: &windows::UI::Notifications::ToastActivatedEventArgs,
+) -> Result<SessionStatusReminderActionPayload, String> {
+    let arguments = activated.Arguments().map_err(|error| error.to_string())?;
+    let payload = parse_activation_payload(arguments.to_string())?;
+    Ok(finalize_activation_payload(
+        payload,
+        extract_reply_text(activated),
+    ))
 }
 
 #[cfg(target_os = "windows")]
@@ -263,19 +361,155 @@ fn notification_application_id<R: Runtime>(app: &AppHandle<R>) -> String {
     default_id
 }
 
-fn build_toast_xml(title: &str, body: &str) -> String {
-    format!(
-        r#"<toast>
+fn build_toast_xml(payload: &SessionStatusReminderNotificationPayload) -> Result<String, String> {
+    let launch = serialize_activation_payload(&SessionStatusReminderActionPayload {
+        action: SessionStatusReminderAction::Open,
+        session_id: payload.session_id,
+        task_id: payload.task_id.clone(),
+        kind: payload.kind,
+        call_id: payload
+            .approval
+            .as_ref()
+            .map(|approval| approval.call_id.clone()),
+        reply_text: None,
+    })?;
+
+    let actions = if payload.kind == SessionStatusReminderKind::WaitingApproval {
+        build_approval_actions_xml(payload)?
+    } else {
+        build_reply_actions_xml(payload)?
+    };
+
+    Ok(format!(
+        r#"<toast launch="{}">
             <visual>
                 <binding template="ToastGeneric">
                     <text>{}</text>
                     <text>{}</text>
                 </binding>
             </visual>
+            {}
         </toast>"#,
-        escape_xml(title),
-        escape_xml(body)
-    )
+        escape_xml(&launch),
+        escape_xml(&payload.title),
+        escape_xml(&payload.body),
+        actions
+    ))
+}
+
+fn build_approval_actions_xml(
+    payload: &SessionStatusReminderNotificationPayload,
+) -> Result<String, String> {
+    let Some(approval) = payload.approval.as_ref() else {
+        return Ok(String::new());
+    };
+
+    let approve_arguments = serialize_activation_payload(&SessionStatusReminderActionPayload {
+        action: SessionStatusReminderAction::Approve,
+        session_id: payload.session_id,
+        task_id: payload.task_id.clone(),
+        kind: payload.kind,
+        call_id: Some(approval.call_id.clone()),
+        reply_text: None,
+    })?;
+    let reject_arguments = serialize_activation_payload(&SessionStatusReminderActionPayload {
+        action: SessionStatusReminderAction::Reject,
+        session_id: payload.session_id,
+        task_id: payload.task_id.clone(),
+        kind: payload.kind,
+        call_id: Some(approval.call_id.clone()),
+        reply_text: None,
+    })?;
+
+    Ok(format!(
+        r#"<actions>
+            <action content="{}" arguments="{}" activationType="foreground" />
+            <action content="{}" arguments="{}" activationType="foreground" />
+        </actions>"#,
+        escape_xml(&approval.approve_label),
+        escape_xml(&approve_arguments),
+        escape_xml(&approval.reject_label),
+        escape_xml(&reject_arguments)
+    ))
+}
+
+fn build_reply_actions_xml(
+    payload: &SessionStatusReminderNotificationPayload,
+) -> Result<String, String> {
+    let reply_arguments = serialize_activation_payload(&SessionStatusReminderActionPayload {
+        action: SessionStatusReminderAction::Reply,
+        session_id: payload.session_id,
+        task_id: payload.task_id.clone(),
+        kind: payload.kind,
+        call_id: None,
+        reply_text: None,
+    })?;
+
+    Ok(format!(
+        r#"<actions>
+            <input id="{}" type="text" placeHolderContent="{}" />
+            <action content="{}" arguments="{}" activationType="foreground" hint-inputId="{}" />
+        </actions>"#,
+        escape_xml(REPLY_INPUT_ID),
+        escape_xml(REPLY_PLACEHOLDER),
+        escape_xml(REPLY_ACTION_LABEL),
+        escape_xml(&reply_arguments),
+        escape_xml(REPLY_INPUT_ID)
+    ))
+}
+
+fn serialize_activation_payload(
+    payload: &SessionStatusReminderActionPayload,
+) -> Result<String, String> {
+    serde_json::to_string(payload).map_err(|error| error.to_string())
+}
+
+fn parse_activation_payload(value: String) -> Result<SessionStatusReminderActionPayload, String> {
+    serde_json::from_str(&value).map_err(|error| error.to_string())
+}
+
+fn emit_session_status_reminder_action<R: Runtime>(
+    app: &AppHandle<R>,
+    payload: &SessionStatusReminderActionPayload,
+) -> Result<(), String> {
+    app.emit(SESSION_STATUS_REMINDER_ACTION_EVENT, payload)
+        .map_err(|error| error.to_string())
+}
+
+fn finalize_activation_payload(
+    mut payload: SessionStatusReminderActionPayload,
+    reply_text: Option<String>,
+) -> SessionStatusReminderActionPayload {
+    if payload.action != SessionStatusReminderAction::Reply {
+        payload.reply_text = None;
+        return payload;
+    }
+
+    let normalized = reply_text
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(value) = normalized {
+        payload.reply_text = Some(value);
+        return payload;
+    }
+
+    payload.action = SessionStatusReminderAction::Open;
+    payload.reply_text = None;
+    payload
+}
+
+#[cfg(target_os = "windows")]
+fn extract_reply_text(
+    activated: &windows::UI::Notifications::ToastActivatedEventArgs,
+) -> Option<String> {
+    use windows::core::{Interface, HSTRING};
+    use windows::Foundation::IPropertyValue;
+
+    let inputs = activated.UserInput().ok()?;
+    let value = inputs.Lookup(&HSTRING::from(REPLY_INPUT_ID)).ok()?;
+    let property = value.cast::<IPropertyValue>().ok()?;
+    property.GetString().ok().map(|value| value.to_string())
 }
 
 fn escape_xml(value: &str) -> String {
@@ -295,7 +529,12 @@ fn escape_xml(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_toast_xml, escape_xml};
+    use super::{
+        build_toast_xml, escape_xml, finalize_activation_payload, SessionStatusReminderAction,
+        SessionStatusReminderActionPayload, SessionStatusReminderKind,
+        SessionStatusReminderNotificationApprovalPayload, SessionStatusReminderNotificationPayload,
+        REPLY_PLACEHOLDER,
+    };
 
     #[test]
     fn escape_xml_escapes_reserved_characters() {
@@ -306,10 +545,81 @@ mod tests {
     }
 
     #[test]
-    fn build_toast_xml_embeds_escaped_title_and_body() {
-        let xml = build_toast_xml("Done & ready", "<approved>");
+    fn build_toast_xml_embeds_reply_input_for_non_approval_notifications() {
+        let xml = build_toast_xml(&SessionStatusReminderNotificationPayload {
+            title: "Done & ready".to_string(),
+            body: "<approved>".to_string(),
+            session_id: 7,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::Completed,
+            approval: None,
+        })
+        .expect("toast xml");
 
         assert!(xml.contains("Done &amp; ready"));
         assert!(xml.contains("&lt;approved&gt;"));
+        assert!(xml.contains("&quot;action&quot;:&quot;open&quot;"));
+        assert!(xml.contains(REPLY_PLACEHOLDER));
+        assert!(xml.contains("&quot;action&quot;:&quot;reply&quot;"));
+    }
+
+    #[test]
+    fn build_toast_xml_includes_approval_actions_when_requested() {
+        let xml = build_toast_xml(&SessionStatusReminderNotificationPayload {
+            title: "TouchAI - Waiting approval".to_string(),
+            body: "User approval is required".to_string(),
+            session_id: 9,
+            task_id: "task-approve".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            approval: Some(SessionStatusReminderNotificationApprovalPayload {
+                call_id: "call-1".to_string(),
+                approve_label: "Approve".to_string(),
+                reject_label: "Reject".to_string(),
+            }),
+        })
+        .expect("toast xml");
+
+        assert!(xml.contains("<actions>"));
+        assert!(xml.contains("Approve"));
+        assert!(xml.contains("Reject"));
+        assert!(xml.contains("&quot;action&quot;:&quot;approve&quot;"));
+        assert!(xml.contains("&quot;action&quot;:&quot;reject&quot;"));
+        assert!(!xml.contains(REPLY_PLACEHOLDER));
+    }
+
+    #[test]
+    fn finalize_activation_payload_promotes_blank_reply_to_open() {
+        let payload = finalize_activation_payload(
+            SessionStatusReminderActionPayload {
+                action: SessionStatusReminderAction::Reply,
+                session_id: 1,
+                task_id: "task-1".to_string(),
+                kind: SessionStatusReminderKind::Completed,
+                call_id: None,
+                reply_text: None,
+            },
+            Some("   ".to_string()),
+        );
+
+        assert_eq!(payload.action, SessionStatusReminderAction::Open);
+        assert_eq!(payload.reply_text, None);
+    }
+
+    #[test]
+    fn finalize_activation_payload_preserves_reply_text() {
+        let payload = finalize_activation_payload(
+            SessionStatusReminderActionPayload {
+                action: SessionStatusReminderAction::Reply,
+                session_id: 1,
+                task_id: "task-1".to_string(),
+                kind: SessionStatusReminderKind::Failed,
+                call_id: None,
+                reply_text: None,
+            },
+            Some(" follow up ".to_string()),
+        );
+
+        assert_eq!(payload.action, SessionStatusReminderAction::Reply);
+        assert_eq!(payload.reply_text.as_deref(), Some("follow up"));
     }
 }

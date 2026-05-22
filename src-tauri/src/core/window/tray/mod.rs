@@ -1,6 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
-
-//! 系统托盘模块。
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 use image::{Rgba, RgbaImage};
 use log::warn;
@@ -13,52 +11,57 @@ use tauri::{
 
 const TRAY_ID: &str = "touchai-tray";
 const TRAY_TOOLTIP: &str = "TouchAI";
-const MAX_BADGE_COUNT: u32 = 99;
-const BADGE_MARGIN: u32 = 1;
-const BADGE_DIAMETER: u32 = 19;
-const GLYPH_WIDTH: u32 = 3;
-const GLYPH_HEIGHT: u32 = 5;
-const GLYPH_SCALE: u32 = 3;
-const GLYPH_SPACING: u32 = 0;
-const BADGE_FILL_COLOR: Rgba<u8> = Rgba([229, 115, 115, 176]);
-const BADGE_TEXT_COLOR: Rgba<u8> = Rgba([255, 255, 255, 255]);
+const INDICATOR_MARGIN: u32 = 2;
+const INDICATOR_OUTER_DIAMETER: u32 = 12;
+const INDICATOR_INNER_DIAMETER: u32 = 8;
+const INDICATOR_RING_COLOR: Rgba<u8> = Rgba([255, 255, 255, 232]);
+const COMPLETED_INDICATOR_COLOR: Rgba<u8> = Rgba([22, 163, 74, 255]);
+const FAILED_INDICATOR_COLOR: Rgba<u8> = Rgba([220, 38, 38, 255]);
+const WAITING_INDICATOR_COLOR: Rgba<u8> = Rgba([234, 179, 8, 255]);
 
-pub struct TrayBadgeRuntime {
-    count: Mutex<u32>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrayStatusIndicator {
+    Completed,
+    Failed,
+    WaitingApproval,
 }
 
-impl TrayBadgeRuntime {
+pub struct TrayStatusRuntime {
+    status: Mutex<Option<TrayStatusIndicator>>,
+}
+
+impl TrayStatusRuntime {
     pub fn new() -> Self {
         Self {
-            count: Mutex::new(0),
+            status: Mutex::new(None),
         }
     }
 
-    pub fn set_count(&self, count: u32) {
-        *self.count.lock().expect("tray badge runtime poisoned") = count;
+    pub fn set_status(&self, status: Option<TrayStatusIndicator>) {
+        *self.status.lock().expect("tray status runtime poisoned") = status;
     }
 
-    pub fn count(&self) -> u32 {
-        *self.count.lock().expect("tray badge runtime poisoned")
+    pub fn status(&self) -> Option<TrayStatusIndicator> {
+        *self.status.lock().expect("tray status runtime poisoned")
     }
 }
 
-impl Default for TrayBadgeRuntime {
+impl Default for TrayStatusRuntime {
     fn default() -> Self {
         Self::new()
     }
 }
 
 pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
-    let count = app
-        .try_state::<TrayBadgeRuntime>()
-        .map(|runtime| runtime.count())
-        .unwrap_or(0);
-    let icon = load_tray_icon_with_badge(count)?;
+    let status = app
+        .try_state::<TrayStatusRuntime>()
+        .and_then(|runtime| runtime.status());
+    let icon = load_tray_icon_with_indicator(status)?;
 
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip(tray_tooltip(count))
+        .tooltip(tray_tooltip(status))
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::Click {
                 button: MouseButton::Right,
@@ -67,8 +70,8 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::er
                 ..
             } => {
                 let app = tray.app_handle();
-                if let Err(e) = show_tray_menu(app, position) {
-                    warn!("Failed to show tray menu: {}", e);
+                if let Err(error) = show_tray_menu(app, position) {
+                    warn!("Failed to show tray menu: {}", error);
                 }
             }
             TrayIconEvent::Click {
@@ -76,10 +79,9 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::er
                 button_state: MouseButtonState::Up,
                 ..
             } => {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                let app = tray.app_handle().clone();
+                if let Err(error) = crate::core::window::show_search_window(app) {
+                    warn!("Failed to restore search window from tray icon: {}", error);
                 }
             }
             _ => {}
@@ -89,26 +91,32 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-pub fn set_tray_badge_count<R: Runtime>(app: AppHandle<R>, count: u32) -> Result<(), String> {
+pub fn set_tray_status_indicator<R: Runtime>(
+    app: AppHandle<R>,
+    status: TrayStatusIndicator,
+) -> Result<(), String> {
     let runtime = app
-        .try_state::<TrayBadgeRuntime>()
-        .ok_or_else(|| "Tray badge runtime is not initialized".to_string())?;
-    runtime.set_count(count);
-    apply_tray_badge(&app, count)
+        .try_state::<TrayStatusRuntime>()
+        .ok_or_else(|| "Tray status runtime is not initialized".to_string())?;
+    runtime.set_status(Some(status));
+    apply_tray_status(&app, Some(status))
 }
 
-pub fn clear_tray_badge<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    set_tray_badge_count(app, 0)
+pub fn clear_tray_status_indicator<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let runtime = app
+        .try_state::<TrayStatusRuntime>()
+        .ok_or_else(|| "Tray status runtime is not initialized".to_string())?;
+    runtime.set_status(None);
+    apply_tray_status(&app, None)
 }
 
 pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("tray-menu") {
-        window.hide().map_err(|e| e.to_string())?;
+        window.hide().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
 
-/// 预加载托盘菜单窗口（隐藏状态），加速首次右键响应
 pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
     if app.get_webview_window("tray-menu").is_some() {
         return Ok(());
@@ -137,85 +145,96 @@ pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn s
 
 fn load_tray_icon_rgba() -> Result<RgbaImage, Box<dyn std::error::Error>> {
     let icon_bytes = include_bytes!("../../../../icons/32x32.png");
-
     let image = image::load_from_memory(icon_bytes)?;
     Ok(image.to_rgba8())
 }
 
-fn load_tray_icon_with_badge(count: u32) -> Result<Image<'static>, Box<dyn std::error::Error>> {
+fn load_tray_icon_with_indicator(
+    status: Option<TrayStatusIndicator>,
+) -> Result<Image<'static>, Box<dyn std::error::Error>> {
     let mut rgba = load_tray_icon_rgba()?;
-    if count > 0 {
-        render_badge_overlay(&mut rgba, count);
+    if let Some(status) = status {
+        render_status_indicator(&mut rgba, status);
     }
 
     let (width, height) = rgba.dimensions();
     Ok(Image::new_owned(rgba.into_raw(), width, height))
 }
 
-fn tray_tooltip(count: u32) -> String {
-    if count == 0 {
-        return TRAY_TOOLTIP.to_string();
+fn tray_tooltip(status: Option<TrayStatusIndicator>) -> String {
+    match status {
+        Some(TrayStatusIndicator::Completed) => format!("{TRAY_TOOLTIP} (completed)"),
+        Some(TrayStatusIndicator::Failed) => format!("{TRAY_TOOLTIP} (failed)"),
+        Some(TrayStatusIndicator::WaitingApproval) => {
+            format!("{TRAY_TOOLTIP} (waiting approval)")
+        }
+        None => TRAY_TOOLTIP.to_string(),
     }
-
-    format!("{TRAY_TOOLTIP} ({count} pending status updates)")
 }
 
-fn apply_tray_badge<R: Runtime>(app: &AppHandle<R>, count: u32) -> Result<(), String> {
+fn apply_tray_status<R: Runtime>(
+    app: &AppHandle<R>,
+    status: Option<TrayStatusIndicator>,
+) -> Result<(), String> {
     let app_handle = app.clone();
     app.run_on_main_thread(move || {
         let Some(tray) = app_handle.tray_by_id(TRAY_ID) else {
             return;
         };
 
-        let icon = match load_tray_icon_with_badge(count) {
+        let icon = match load_tray_icon_with_indicator(status) {
             Ok(icon) => icon,
             Err(error) => {
-                warn!("Failed to load tray icon with badge: {}", error);
+                warn!("Failed to load tray icon with status indicator: {}", error);
                 return;
             }
         };
 
         if let Err(error) = tray.set_icon(Some(icon)) {
-            warn!("Failed to update tray icon badge: {}", error);
+            warn!("Failed to update tray icon status indicator: {}", error);
         }
 
-        if let Err(error) = tray.set_tooltip(Some(tray_tooltip(count))) {
+        if let Err(error) = tray.set_tooltip(Some(tray_tooltip(status))) {
             warn!("Failed to update tray tooltip: {}", error);
         }
     })
     .map_err(|error| error.to_string())
 }
 
-fn render_badge_overlay(image: &mut RgbaImage, count: u32) {
-    let badge_text = badge_text(count);
-    let text_width = badge_text_width(&badge_text);
-    let left = image
+fn render_status_indicator(image: &mut RgbaImage, status: TrayStatusIndicator) {
+    let outer_left = image
         .width()
-        .saturating_sub(BADGE_DIAMETER + BADGE_MARGIN)
-        .min(image.width().saturating_sub(BADGE_DIAMETER));
-    let top = BADGE_MARGIN.min(image.height().saturating_sub(BADGE_DIAMETER));
+        .saturating_sub(INDICATOR_OUTER_DIAMETER + INDICATOR_MARGIN);
+    let outer_top = INDICATOR_MARGIN.min(image.height().saturating_sub(INDICATOR_OUTER_DIAMETER));
+    let inner_offset = (INDICATOR_OUTER_DIAMETER - INDICATOR_INNER_DIAMETER) / 2;
+    let inner_left = outer_left + inner_offset;
+    let inner_top = outer_top + inner_offset;
 
-    draw_badge_circle(image, left, top, BADGE_DIAMETER, BADGE_FILL_COLOR);
-
-    let text_x = left + (BADGE_DIAMETER.saturating_sub(text_width)) / 2;
-    let text_y = top + (BADGE_DIAMETER.saturating_sub(GLYPH_HEIGHT * GLYPH_SCALE)) / 2;
-    draw_badge_text(image, text_x, text_y, &badge_text, BADGE_TEXT_COLOR);
+    draw_filled_circle(
+        image,
+        outer_left,
+        outer_top,
+        INDICATOR_OUTER_DIAMETER,
+        INDICATOR_RING_COLOR,
+    );
+    draw_filled_circle(
+        image,
+        inner_left,
+        inner_top,
+        INDICATOR_INNER_DIAMETER,
+        indicator_color(status),
+    );
 }
 
-fn badge_text(count: u32) -> String {
-    count.min(MAX_BADGE_COUNT).to_string()
-}
-
-fn badge_text_width(text: &str) -> u32 {
-    let glyphs = text.chars().count() as u32;
-    if glyphs == 0 {
-        return 0;
+fn indicator_color(status: TrayStatusIndicator) -> Rgba<u8> {
+    match status {
+        TrayStatusIndicator::Completed => COMPLETED_INDICATOR_COLOR,
+        TrayStatusIndicator::Failed => FAILED_INDICATOR_COLOR,
+        TrayStatusIndicator::WaitingApproval => WAITING_INDICATOR_COLOR,
     }
-
-    glyphs * GLYPH_WIDTH * GLYPH_SCALE + (glyphs - 1) * GLYPH_SPACING
 }
 
-fn draw_badge_circle(image: &mut RgbaImage, left: u32, top: u32, diameter: u32, color: Rgba<u8>) {
+fn draw_filled_circle(image: &mut RgbaImage, left: u32, top: u32, diameter: u32, color: Rgba<u8>) {
     if diameter == 0 {
         return;
     }
@@ -231,56 +250,10 @@ fn draw_badge_circle(image: &mut RgbaImage, left: u32, top: u32, diameter: u32, 
             let py = y as f32 + 0.5;
             let dx = px - center_x;
             let dy = py - center_y;
-            let inside = dx * dx + dy * dy <= radius_squared;
-
-            if inside {
+            if dx * dx + dy * dy <= radius_squared {
                 image.put_pixel(x, y, color);
             }
         }
-    }
-}
-
-fn draw_badge_text(image: &mut RgbaImage, x: u32, y: u32, text: &str, color: Rgba<u8>) {
-    let mut cursor_x = x;
-    for ch in text.chars() {
-        if let Some(pattern) = glyph_pattern(ch) {
-            for (row_index, row) in pattern.iter().enumerate() {
-                for (col_index, pixel) in row.chars().enumerate() {
-                    if pixel != '1' {
-                        continue;
-                    }
-
-                    for dy in 0..GLYPH_SCALE {
-                        for dx in 0..GLYPH_SCALE {
-                            image.put_pixel(
-                                cursor_x + col_index as u32 * GLYPH_SCALE + dx,
-                                y + row_index as u32 * GLYPH_SCALE + dy,
-                                color,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        cursor_x += GLYPH_WIDTH * GLYPH_SCALE + GLYPH_SPACING;
-    }
-}
-
-fn glyph_pattern(ch: char) -> Option<[&'static str; GLYPH_HEIGHT as usize]> {
-    match ch {
-        '0' => Some(["111", "101", "101", "101", "111"]),
-        '1' => Some(["010", "110", "010", "010", "111"]),
-        '2' => Some(["111", "001", "111", "100", "111"]),
-        '3' => Some(["111", "001", "111", "001", "111"]),
-        '4' => Some(["101", "101", "111", "001", "001"]),
-        '5' => Some(["111", "100", "111", "001", "111"]),
-        '6' => Some(["111", "100", "111", "101", "111"]),
-        '7' => Some(["111", "001", "001", "001", "001"]),
-        '8' => Some(["111", "101", "111", "101", "111"]),
-        '9' => Some(["111", "101", "111", "001", "111"]),
-        '+' => Some(["000", "010", "111", "010", "000"]),
-        _ => None,
     }
 }
 
@@ -291,9 +264,8 @@ fn show_tray_menu<R: Runtime>(
     let menu_width = 140.0;
     let menu_height = 134.0;
 
-    // 确保窗口存在（预加载或首次创建）
     let window = match app.get_webview_window("tray-menu") {
-        Some(w) => w,
+        Some(window) => window,
         None => {
             preload_tray_menu(app)?;
             app.get_webview_window("tray-menu")
@@ -333,46 +305,44 @@ fn show_tray_menu<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::{badge_text, badge_text_width, render_badge_overlay, BADGE_FILL_COLOR};
+    use super::{
+        indicator_color, render_status_indicator, TrayStatusIndicator, COMPLETED_INDICATOR_COLOR,
+    };
 
     #[test]
-    fn badge_text_caps_large_counts() {
-        assert_eq!(badge_text(7), "7");
-        assert_eq!(badge_text(42), "42");
-        assert_eq!(badge_text(120), "99");
+    fn indicator_color_matches_completed_status() {
+        assert_eq!(
+            indicator_color(TrayStatusIndicator::Completed),
+            COMPLETED_INDICATOR_COLOR
+        );
     }
 
     #[test]
-    fn badge_text_width_expands_for_multiple_glyphs() {
-        assert!(badge_text_width("8") < badge_text_width("18"));
-        assert_eq!(badge_text_width("18"), badge_text_width("99"));
-    }
-
-    #[test]
-    fn render_badge_overlay_draws_badge_pixels() {
+    fn render_status_indicator_draws_status_pixels() {
         let mut image = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
 
-        render_badge_overlay(&mut image, 5);
+        render_status_indicator(&mut image, TrayStatusIndicator::Failed);
 
         let changed_pixels = image
             .pixels()
-            .filter(|pixel| **pixel == BADGE_FILL_COLOR)
+            .filter(|pixel| **pixel == indicator_color(TrayStatusIndicator::Failed))
             .count();
         assert!(changed_pixels > 0);
     }
 
     #[test]
-    fn render_badge_overlay_places_badge_in_top_right_corner() {
+    fn render_status_indicator_places_dot_in_top_right_corner() {
         let mut image = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
 
-        render_badge_overlay(&mut image, 8);
+        render_status_indicator(&mut image, TrayStatusIndicator::WaitingApproval);
 
+        let target_color = indicator_color(TrayStatusIndicator::WaitingApproval);
         let mut top_right_pixels = 0;
         let mut bottom_right_pixels = 0;
 
         for x in 16..32 {
             for y in 0..16 {
-                if *image.get_pixel(x, y) == BADGE_FILL_COLOR {
+                if *image.get_pixel(x, y) == target_color {
                     top_right_pixels += 1;
                 }
             }
@@ -380,7 +350,7 @@ mod tests {
 
         for x in 16..32 {
             for y in 16..32 {
-                if *image.get_pixel(x, y) == BADGE_FILL_COLOR {
+                if *image.get_pixel(x, y) == target_color {
                     bottom_right_pixels += 1;
                 }
             }

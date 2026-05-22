@@ -1,6 +1,8 @@
 //! 窗口命令。
 
 use crate::core::window::popup::{self, PopupConfig, PopupRegistry};
+use crate::core::window::status_reminder::SessionStatusReminderNotificationPayload;
+use crate::core::window::tray::TrayStatusIndicator;
 use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 
 #[derive(serde::Deserialize)]
@@ -62,13 +64,6 @@ pub struct HidePopupWindowParams {
     pub popup_session_version: u64,
 }
 
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionStatusReminderNotificationPayload {
-    pub title: String,
-    pub body: String,
-}
-
 #[tauri::command]
 pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::core::window::hide_search_window(app)
@@ -90,13 +85,16 @@ pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_tray_badge_count<R: Runtime>(app: AppHandle<R>, count: u32) -> Result<(), String> {
-    crate::core::window::tray::set_tray_badge_count(app, count)
+pub fn set_tray_status_indicator<R: Runtime>(
+    app: AppHandle<R>,
+    status: TrayStatusIndicator,
+) -> Result<(), String> {
+    crate::core::window::tray::set_tray_status_indicator(app, status)
 }
 
 #[tauri::command]
-pub fn clear_tray_badge<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    crate::core::window::tray::clear_tray_badge(app)
+pub fn clear_tray_status_indicator<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::core::window::tray::clear_tray_status_indicator(app)
 }
 
 #[tauri::command]
@@ -104,11 +102,7 @@ pub fn show_session_status_reminder_notification<R: Runtime>(
     app: AppHandle<R>,
     payload: SessionStatusReminderNotificationPayload,
 ) -> Result<(), String> {
-    crate::core::window::status_reminder::show_session_status_reminder_notification(
-        &app,
-        &payload.title,
-        &payload.body,
-    )
+    crate::core::window::status_reminder::show_session_status_reminder_notification(&app, &payload)
 }
 
 #[tauri::command]

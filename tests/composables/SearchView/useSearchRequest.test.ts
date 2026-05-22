@@ -270,7 +270,10 @@ describe('useSearchRequestFlow', () => {
 
         await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
             sessionId: 42,
+            taskId: 'task-1',
             status: 'completed',
+            previousStatus: 'running',
+            reminder: null,
         });
         await flushAsyncWork();
 
