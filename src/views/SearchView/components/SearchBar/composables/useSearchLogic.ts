@@ -192,6 +192,10 @@ export function useSearchInput(
             editorProps: {
                 attributes: {
                     class: 'tiptap',
+                    spellcheck: 'false',
+                    autocorrect: 'off',
+                    autocapitalize: 'off',
+                    autocomplete: 'off',
                 },
             },
             onUpdate: ({ editor: updatedEditor }) => {
