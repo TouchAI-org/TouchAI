@@ -13,7 +13,7 @@ use tauri::async_runtime;
 mod types;
 pub use types::{QuickSearchFileItem, QuickSearchResult, QuickSearchStatus};
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod assets;
 #[cfg(target_os = "windows")]
 mod manager;
@@ -30,9 +30,9 @@ const MAX_PAGE_SIZE: usize = 200;
 const DEFAULT_LIMIT: usize = 60;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const MAX_LIMIT: usize = 200;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const DEFAULT_ICON_SIZE: u32 = 48;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const MAX_ICON_SIZE: u32 = 256;
 
 /// 搜索快捷项列表（Windows）。
@@ -93,11 +93,15 @@ pub async fn quick_search_search_shortcuts(
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, MAX_PAGE_SIZE);
     let normalized_offset = offset.unwrap_or(0);
-    async_runtime::spawn_blocking(move || {
+    let result = async_runtime::spawn_blocking(move || {
         provider_spotlight::search_shortcuts(&query, normalized_page_size, normalized_offset)
     })
     .await
-    .map_err(|err| format!("quick_search_search_shortcuts task join failed: {}", err))?
+    .map_err(|err| format!("quick_search_search_shortcuts task join failed: {}", err))??;
+
+    // 记住返回路径，缩略图请求按白名单校验。
+    assets::remember_search_paths(&result.files);
+    Ok(result)
 }
 
 /// 搜索快捷项列表（未支持平台降级实现）。
@@ -143,8 +147,8 @@ pub async fn quick_search_search_files(
     Err("Quick search file search is only available on Windows".to_string())
 }
 
-/// 获取单个快捷项图标（Windows）。
-#[cfg(target_os = "windows")]
+/// 获取单个快捷项图标（Windows / macOS）。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub async fn quick_search_get_shortcut_icon(
     path: String,
     size: Option<u32>,
@@ -155,8 +159,8 @@ pub async fn quick_search_get_shortcut_icon(
         .map_err(|err| format!("quick_search_get_shortcut_icon task join failed: {}", err))?
 }
 
-/// 获取单个快捷项图标（非 Windows 平台降级实现）。
-#[cfg(not(target_os = "windows"))]
+/// 获取单个快捷项图标（未支持平台降级实现）。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub async fn quick_search_get_shortcut_icon(
     path: String,
     _size: Option<u32>,
@@ -165,8 +169,8 @@ pub async fn quick_search_get_shortcut_icon(
     Ok(None)
 }
 
-/// 批量获取快捷项图标（Windows）。
-#[cfg(target_os = "windows")]
+/// 批量获取快捷项图标（Windows / macOS）。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub async fn quick_search_get_shortcut_icons(
     paths: Vec<String>,
     size: Option<u32>,
@@ -177,8 +181,8 @@ pub async fn quick_search_get_shortcut_icons(
         .map_err(|err| format!("quick_search_get_shortcut_icons task join failed: {}", err))?
 }
 
-/// 批量获取快捷项图标（非 Windows 平台降级实现）。
-#[cfg(not(target_os = "windows"))]
+/// 批量获取快捷项图标（未支持平台降级实现）。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub async fn quick_search_get_shortcut_icons(
     paths: Vec<String>,
     _size: Option<u32>,
@@ -187,8 +191,8 @@ pub async fn quick_search_get_shortcut_icons(
     Ok(HashMap::new())
 }
 
-/// 批量获取图片缩略图（Windows）。
-#[cfg(target_os = "windows")]
+/// 批量获取图片缩略图（Windows / macOS）。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub async fn quick_search_get_image_thumbnails(
     paths: Vec<String>,
     size: Option<u32>,
@@ -204,8 +208,8 @@ pub async fn quick_search_get_image_thumbnails(
         })?
 }
 
-/// 批量获取图片缩略图（非 Windows 平台降级实现）。
-#[cfg(not(target_os = "windows"))]
+/// 批量获取图片缩略图（未支持平台降级实现）。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub async fn quick_search_get_image_thumbnails(
     paths: Vec<String>,
     _size: Option<u32>,
