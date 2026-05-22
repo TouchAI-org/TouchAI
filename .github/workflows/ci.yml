@@ -175,6 +175,10 @@ jobs:
             - name: Dependency review
               if: needs.changes.outputs.docs_only != 'true'
               uses: actions/dependency-review-action@v5
+              with:
+                  # Tauri/Wry currently pulls the vulnerable GTK3 glib 0.18 chain on Linux,
+                  # and upstream has no non-vulnerable GTK3 release path yet.
+                  allow-ghsas: GHSA-wrw7-89jp-8q8g
 
     frontend-quality:
         name: Frontend Quality
