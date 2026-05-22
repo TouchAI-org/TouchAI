@@ -15,11 +15,11 @@ const TRAY_ID: &str = "touchai-tray";
 const TRAY_TOOLTIP: &str = "TouchAI";
 const MAX_BADGE_COUNT: u32 = 99;
 const BADGE_MARGIN: u32 = 1;
-const BADGE_DIAMETER: u32 = 16;
+const BADGE_DIAMETER: u32 = 19;
 const GLYPH_WIDTH: u32 = 3;
 const GLYPH_HEIGHT: u32 = 5;
-const GLYPH_SCALE: u32 = 2;
-const GLYPH_SPACING: u32 = 1;
+const GLYPH_SCALE: u32 = 3;
+const GLYPH_SPACING: u32 = 0;
 const BADGE_FILL_COLOR: Rgba<u8> = Rgba([229, 115, 115, 176]);
 const BADGE_TEXT_COLOR: Rgba<u8> = Rgba([255, 255, 255, 255]);
 

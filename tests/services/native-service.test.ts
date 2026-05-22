@@ -64,6 +64,12 @@ describe('NativeService window boundary', () => {
             payload: undefined,
         },
         {
+            name: 'shows the search window',
+            call: () => windowCommands.showSearchWindow(),
+            cmd: 'show_search_window',
+            payload: undefined,
+        },
+        {
             name: 'updates the tray badge count',
             call: () => windowCommands.setTrayBadgeCount(3),
             cmd: 'set_tray_badge_count',
@@ -73,6 +79,27 @@ describe('NativeService window boundary', () => {
             name: 'clears the tray badge',
             call: () => windowCommands.clearTrayBadge(),
             cmd: 'clear_tray_badge',
+            payload: undefined,
+        },
+        {
+            name: 'shows a session status reminder notification',
+            call: () =>
+                windowCommands.showSessionStatusReminderNotification({
+                    title: 'TouchAI',
+                    body: '任务已完成',
+                }),
+            cmd: 'show_session_status_reminder_notification',
+            payload: {
+                payload: {
+                    title: 'TouchAI',
+                    body: '任务已完成',
+                },
+            },
+        },
+        {
+            name: 'clears session status reminder notifications',
+            call: () => windowCommands.clearSessionStatusReminderNotifications(),
+            cmd: 'clear_session_status_reminder_notifications',
             payload: undefined,
         },
         {

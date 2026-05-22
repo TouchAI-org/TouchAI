@@ -10,7 +10,12 @@ use crate::{
     core::{
         database::DatabaseRuntime,
         window::{
-            popup::PopupRegistry, search::surface::SearchSurfaceRuntime, tray::TrayBadgeRuntime,
+            popup::PopupRegistry,
+            search::surface::SearchSurfaceRuntime,
+            status_reminder::{
+                SessionStatusReminderNotificationRecord, SessionStatusReminderNotificationRuntime,
+            },
+            tray::TrayBadgeRuntime,
         },
     },
 };
@@ -26,6 +31,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .invoke_handler(commands::invoke_handler::<MockRuntime>())
         .manage(PopupRegistry::new())
         .manage(SearchSurfaceRuntime::new())
+        .manage(SessionStatusReminderNotificationRuntime::for_tests())
         .manage(TrayBadgeRuntime::new())
 }
 
@@ -52,4 +58,16 @@ pub fn search_surface_policies<R: Runtime>(app: &App<R>) -> SearchSurfacePolicyS
 
 pub fn tray_badge_count<R: Runtime>(app: &App<R>) -> u32 {
     app.state::<TrayBadgeRuntime>().count()
+}
+
+pub fn session_status_reminder_notifications<R: Runtime>(
+    app: &App<R>,
+) -> Vec<SessionStatusReminderNotificationRecord> {
+    app.state::<SessionStatusReminderNotificationRuntime>()
+        .records()
+}
+
+pub fn session_status_reminder_clear_count<R: Runtime>(app: &App<R>) -> usize {
+    app.state::<SessionStatusReminderNotificationRuntime>()
+        .clear_count()
 }

@@ -1,24 +1,13 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+import { native } from '@services/NativeService';
 import {
     isPermissionGranted,
-    removeActive,
     requestPermission,
     sendNotification,
 } from '@tauri-apps/plugin-notification';
 
 let permissionGranted = false;
-let nextStatusReminderNotificationId = 1;
-const activeStatusReminderNotificationIds = new Set<number>();
-
-function allocateStatusReminderNotificationId() {
-    const notificationId = nextStatusReminderNotificationId;
-    nextStatusReminderNotificationId =
-        nextStatusReminderNotificationId >= 2_147_483_647
-            ? 1
-            : nextStatusReminderNotificationId + 1;
-    return notificationId;
-}
 
 export async function initNotificationPermission(): Promise<void> {
     try {
@@ -44,36 +33,26 @@ export function notify(
         );
     }
 
-    const notificationId = metadata.trackAsStatusReminder
-        ? allocateStatusReminderNotificationId()
-        : null;
-
     try {
-        sendNotification({
-            ...options,
-            ...(notificationId !== null ? { id: notificationId } : {}),
-        });
-        if (notificationId !== null) {
-            activeStatusReminderNotificationIds.add(notificationId);
+        if (metadata.trackAsStatusReminder) {
+            void native.window.showSessionStatusReminderNotification(options).catch((error) => {
+                console.error(
+                    '[NotificationService] Failed to send session status reminder notification:',
+                    error
+                );
+            });
+            return;
         }
+
+        sendNotification(options);
     } catch (error) {
-        if (notificationId !== null) {
-            activeStatusReminderNotificationIds.delete(notificationId);
-        }
         console.error('[NotificationService] Failed to send notification:', error);
     }
 }
 
 export async function clearStatusReminderNotifications(): Promise<void> {
-    if (activeStatusReminderNotificationIds.size === 0) {
-        return;
-    }
-
-    const notifications = [...activeStatusReminderNotificationIds].map((id) => ({ id }));
-    activeStatusReminderNotificationIds.clear();
-
     try {
-        await removeActive(notifications);
+        await native.window.clearSessionStatusReminderNotifications();
     } catch (error) {
         console.error(
             '[NotificationService] Failed to clear status reminder notifications:',

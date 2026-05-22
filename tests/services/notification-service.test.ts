@@ -1,13 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const notificationPluginMock = vi.hoisted(() => ({
-    isPermissionGranted: vi.fn(),
-    removeActive: vi.fn(),
-    requestPermission: vi.fn(),
-    sendNotification: vi.fn(),
-}));
+const { nativeMock, notificationPluginMock } = vi.hoisted(() => {
+    const pluginMock = {
+        isPermissionGranted: vi.fn(),
+        requestPermission: vi.fn(),
+        sendNotification: vi.fn(),
+    };
+
+    return {
+        nativeMock: {
+            window: {
+                showSessionStatusReminderNotification: vi.fn().mockResolvedValue(undefined),
+                clearSessionStatusReminderNotifications: vi.fn().mockResolvedValue(undefined),
+            },
+        },
+        notificationPluginMock: pluginMock,
+    };
+});
 
 vi.mock('@tauri-apps/plugin-notification', () => notificationPluginMock);
+vi.mock('@services/NativeService', () => ({
+    native: nativeMock,
+}));
 
 async function importNotificationService() {
     return import('@/services/NotificationService');
@@ -20,10 +34,9 @@ describe('NotificationService', () => {
 
         notificationPluginMock.isPermissionGranted.mockResolvedValue(true);
         notificationPluginMock.requestPermission.mockResolvedValue('granted');
-        notificationPluginMock.removeActive.mockResolvedValue(undefined);
     });
 
-    it('tracks background status reminder notifications and clears them by id', async () => {
+    it('routes tracked status reminders through the native window command', async () => {
         const service = await importNotificationService();
 
         service.notify(
@@ -36,18 +49,14 @@ describe('NotificationService', () => {
             }
         );
 
-        expect(notificationPluginMock.sendNotification).toHaveBeenCalledWith({
-            id: 1,
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
             title: 'TouchAI',
             body: '任务已完成',
         });
-
-        await service.clearStatusReminderNotifications();
-
-        expect(notificationPluginMock.removeActive).toHaveBeenCalledWith([{ id: 1 }]);
+        expect(notificationPluginMock.sendNotification).not.toHaveBeenCalled();
     });
 
-    it('does not clear unrelated notifications when no tracked reminders exist', async () => {
+    it('keeps ordinary notifications on the plugin notification path', async () => {
         const service = await importNotificationService();
 
         service.notify({
@@ -55,12 +64,27 @@ describe('NotificationService', () => {
             body: '普通提醒',
         });
 
-        await service.clearStatusReminderNotifications();
-
         expect(notificationPluginMock.sendNotification).toHaveBeenCalledWith({
             title: 'TouchAI',
             body: '普通提醒',
         });
-        expect(notificationPluginMock.removeActive).not.toHaveBeenCalled();
+        expect(nativeMock.window.showSessionStatusReminderNotification).not.toHaveBeenCalled();
+    });
+
+    it('clears tracked status reminders through the native window command', async () => {
+        const service = await importNotificationService();
+
+        await service.clearStatusReminderNotifications();
+
+        expect(nativeMock.window.clearSessionStatusReminderNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks permission without registering a plugin action listener', async () => {
+        const service = await importNotificationService();
+
+        await service.initNotificationPermission();
+
+        expect(notificationPluginMock.isPermissionGranted).toHaveBeenCalledTimes(1);
+        expect(notificationPluginMock.requestPermission).not.toHaveBeenCalled();
     });
 });

@@ -96,6 +96,9 @@ codegen-units = 1
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
+    "Data_Xml_Dom",
+    "Foundation",
+    "UI_Notifications",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Foundation",

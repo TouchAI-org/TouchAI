@@ -13,6 +13,7 @@ use super::bounds::{SearchWindowDefaults, SearchWindowState};
 /// 搜索窗口组显示来源。
 pub enum SearchSurfaceShowSource {
     Shortcut,
+    Notification,
 }
 
 impl SearchSurfaceShowSource {
@@ -20,6 +21,7 @@ impl SearchSurfaceShowSource {
     fn as_str(&self) -> &'static str {
         match self {
             Self::Shortcut => "shortcut",
+            Self::Notification => "notification",
         }
     }
 }

@@ -62,9 +62,21 @@ pub struct HidePopupWindowParams {
     pub popup_session_version: u64,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStatusReminderNotificationPayload {
+    pub title: String,
+    pub body: String,
+}
+
 #[tauri::command]
 pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::core::window::hide_search_window(app)
+}
+
+#[tauri::command]
+pub fn show_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::core::window::show_search_window(app)
 }
 
 #[tauri::command]
@@ -85,6 +97,25 @@ pub fn set_tray_badge_count<R: Runtime>(app: AppHandle<R>, count: u32) -> Result
 #[tauri::command]
 pub fn clear_tray_badge<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::core::window::tray::clear_tray_badge(app)
+}
+
+#[tauri::command]
+pub fn show_session_status_reminder_notification<R: Runtime>(
+    app: AppHandle<R>,
+    payload: SessionStatusReminderNotificationPayload,
+) -> Result<(), String> {
+    crate::core::window::status_reminder::show_session_status_reminder_notification(
+        &app,
+        &payload.title,
+        &payload.body,
+    )
+}
+
+#[tauri::command]
+pub fn clear_session_status_reminder_notifications<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<(), String> {
+    crate::core::window::status_reminder::clear_session_status_reminder_notifications(&app)
 }
 
 #[tauri::command]

@@ -448,19 +448,15 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let stopReadyWatch: (() => void) | null = null;
     let stopPinnedWatch: (() => void) | null = null;
     let lifecycleInitialized = false;
-    let restoredShortcutActivationEpoch: number | null = null;
+    let restoredActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
     let backgroundStatusReminderCount = 0;
     let nextStatusReminderOverlayId = 0;
-    let statusReminderOverlayTimer: ReturnType<typeof window.setTimeout> | null = null;
+    let statusReminderOverlayTimer: number | null = null;
     const statusReminderOverlay = ref<SessionStatusReminderOverlay | null>(null);
 
     function isSearchSurfaceForeground() {
-        return (
-            interactionContext.state.windowVisible &&
-            interactionContext.state.windowFocused &&
-            interactionContext.state.appFocused
-        );
+        return interactionContext.state.windowVisible;
     }
 
     function syncTrayBadgeCount() {
@@ -594,12 +590,16 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await reconcilePopupSurfaces?.();
     }
 
-    async function restoreSearchWindowAfterActivation() {
+    async function restoreSearchWindowAfterActivation(surfaceSource: 'shortcut' | 'notification') {
         await nextTick();
         await reconcilePopupSurfacesAfterActivation();
         await controller.focusSearchInput();
         await controller.loadActiveModel();
         await syncWindowPinStateSafely('focus');
+
+        if (surfaceSource !== 'shortcut') {
+            return;
+        }
 
         try {
             await handleShortcutAutoPaste?.();
@@ -608,10 +608,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
     }
 
-    async function handleSearchWindowActivated() {
-        interactionContext.recordActivation('shortcut');
+    async function handleSearchWindowActivated(surfaceSource: 'shortcut' | 'notification') {
+        interactionContext.recordActivation(surfaceSource === 'shortcut' ? 'shortcut' : 'manual');
         if (hasActivePopupWindowFocus()) {
-            restoredShortcutActivationEpoch = interactionContext.state.activationEpoch;
+            restoredActivationEpoch = interactionContext.state.activationEpoch;
             return;
         }
 
@@ -628,13 +628,13 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
 
         const activationEpoch = interactionContext.state.activationEpoch;
-        if (restoredShortcutActivationEpoch === activationEpoch) {
+        if (restoredActivationEpoch === activationEpoch) {
             await reconcilePopupSurfacesAfterActivation();
             return;
         }
-        restoredShortcutActivationEpoch = activationEpoch;
+        restoredActivationEpoch = activationEpoch;
 
-        await restoreSearchWindowAfterActivation();
+        await restoreSearchWindowAfterActivation(surfaceSource);
     }
 
     async function initializeGlobalShortcut() {
@@ -728,7 +728,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
                 interactionContext.markWindowVisible();
                 clearBackgroundStatusReminders();
-                await handleSearchWindowActivated();
+                await handleSearchWindowActivated(payload.source ?? 'shortcut');
             }
         );
 

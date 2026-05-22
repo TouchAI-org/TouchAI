@@ -433,7 +433,7 @@ describe('useSearchPageLifecycle', () => {
         mounted.unmount();
     });
 
-    it('treats a visible but unfocused search surface as background for OS reminders', async () => {
+    it('keeps status reminders in-app when the search surface is visible but unfocused', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();
 
@@ -464,16 +464,55 @@ describe('useSearchPageLifecycle', () => {
         });
         await flushLifecycle();
 
-        expect(notifyMock).toHaveBeenCalledWith(
-            {
-                title: 'TouchAI',
-                body: getSessionStatusReminderContent('completed'),
-            },
-            {
-                trackAsStatusReminder: true,
-            }
+        expect(mounted.result.statusReminderOverlay.value).toEqual({
+            id: 1,
+            kind: 'completed',
+            content: getSessionStatusReminderContent('completed'),
+        });
+        expect(notifyMock).not.toHaveBeenCalled();
+        expect(nativeMock.window.setTrayBadgeCount).not.toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('restores the search surface from a notification without running shortcut auto-paste', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession: vi.fn(),
+                reconcilePopupSurfaces: vi.fn().mockResolvedValue(undefined),
+                handleShortcutAutoPaste,
+            })
         );
-        expect(nativeMock.window.setTrayBadgeCount).toHaveBeenCalledWith(1);
+
+        await flushLifecycle();
+
+        interactionContext.markWindowHidden({
+            hideReason: 'manual-dismiss',
+            hiddenAt: Date.now(),
+        });
+
+        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+            source: 'notification',
+            sequence: 1,
+        });
+        await flushLifecycle();
+
+        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
+        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
+        expect(syncWindowPinState).toHaveBeenCalledTimes(2);
+        expect(handleShortcutAutoPaste).not.toHaveBeenCalled();
+        expect(interactionContext.state.activationSource).toBe('manual');
 
         mounted.unmount();
     });

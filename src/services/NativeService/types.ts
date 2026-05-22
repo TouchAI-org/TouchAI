@@ -68,6 +68,11 @@ export interface SearchWindowState {
     heightMode: SearchWindowHeightMode;
 }
 
+export interface SessionStatusReminderNotificationPayload {
+    title: string;
+    body: string;
+}
+
 export interface RuntimeInfo {
     isE2eTestMode: boolean;
 }

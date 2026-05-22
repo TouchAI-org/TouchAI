@@ -11,13 +11,16 @@ const WAITING_APPROVAL_TEXT = '\u4efb\u52a1\u6b63\u5728\u7b49\u5f85\u6279\u51c6'
 const REQUEST_FAILED_STATUS_TEXT = '\u8bf7\u6c42\u5931\u8d25: network error';
 
 function createMessageRow(
-    overrides: Partial<MessageRow> & Pick<MessageRow, 'id' | 'role' | 'content'>
+    overrides: Omit<Partial<MessageRow>, 'id' | 'role' | 'content'> &
+        Pick<MessageRow, 'id' | 'role' | 'content'>
 ): MessageRow {
+    const { id, role, content, ...rest } = overrides;
+
     return {
-        id: overrides.id,
+        id,
         session_id: 1,
-        role: overrides.role,
-        content: overrides.content,
+        role,
+        content,
         reasoning: null,
         tool_log_id: null,
         tool_log_kind: null,
@@ -31,20 +34,23 @@ function createMessageRow(
         tool_status: null,
         tool_duration_ms: null,
         server_id: null,
-        ...overrides,
+        ...rest,
     };
 }
 
 function createTurn(
-    overrides: Partial<SessionTurnHistoryRow> & Pick<SessionTurnHistoryRow, 'id' | 'status'>
+    overrides: Omit<Partial<SessionTurnHistoryRow>, 'id' | 'status'> &
+        Pick<SessionTurnHistoryRow, 'id' | 'status'>
 ): SessionTurnHistoryRow {
+    const { id, status, ...rest } = overrides;
+
     return {
-        id: overrides.id,
+        id,
         session_id: 1,
-        task_id: `task-${overrides.id}`,
+        task_id: `task-${id}`,
         execution_mode: 'foreground',
         prompt_snapshot_json: JSON.stringify({
-            id: `snapshot-${overrides.id}`,
+            id: `snapshot-${id}`,
             createdAt: '2026-05-21T10:00:00.000Z',
             executionMode: 'foreground',
             fragments: [],
@@ -54,11 +60,11 @@ function createTurn(
         }),
         prompt_message_id: null,
         response_message_id: null,
-        status: overrides.status,
+        status,
         error_message: null,
         created_at: '2026-05-21 10:00:00',
         updated_at: '2026-05-21 10:00:01',
-        ...overrides,
+        ...rest,
     };
 }
 

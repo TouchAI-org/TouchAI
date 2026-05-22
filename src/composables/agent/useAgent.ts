@@ -250,13 +250,15 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             const isEmptyResponse =
                 requestError instanceof AiError && requestError.is(AiErrorCode.EMPTY_RESPONSE);
 
-            try {
-                notify({
-                    title: isEmptyResponse ? 'TouchAI - 空回复' : 'TouchAI - 请求失败',
-                    body: requestError.message || '未知错误',
-                });
-            } catch (notificationError) {
-                console.error('[useAgent] Failed to send notification:', notificationError);
+            if (!startedTaskId) {
+                try {
+                    notify({
+                        title: isEmptyResponse ? 'TouchAI - 空回复' : 'TouchAI - 请求失败',
+                        body: requestError.message || '未知错误',
+                    });
+                } catch (notificationError) {
+                    console.error('[useAgent] Failed to send notification:', notificationError);
+                }
             }
 
             options.onError?.(requestError);

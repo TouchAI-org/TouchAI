@@ -1,6 +1,6 @@
 mod common;
 
-use common::{build_test_app, invoke_command_ok, TestAppOptions};
+use common::{build_test_app, invoke_command_ok, invoke_command_result, TestAppOptions};
 use serde_json::json;
 use touchai_lib::testing;
 
@@ -60,6 +60,76 @@ fn clear_tray_badge_resets_runtime_state() {
 
     assert_eq!(response, ());
     assert_eq!(testing::tray_badge_count(&test_app.app), 0);
+}
+
+#[test]
+fn show_session_status_reminder_notification_records_test_runtime_entry() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let response: () = invoke_command_ok(
+        &test_app.main_webview,
+        "show_session_status_reminder_notification",
+        json!({
+            "payload": {
+                "title": "TouchAI",
+                "body": "Task completed"
+            }
+        }),
+    );
+
+    assert_eq!(response, ());
+    let records = testing::session_status_reminder_notifications(&test_app.app);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].title, "TouchAI");
+    assert_eq!(records[0].body, "Task completed");
+}
+
+#[test]
+fn clear_session_status_reminder_notifications_updates_runtime_state() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let _: () = invoke_command_ok(
+        &test_app.main_webview,
+        "show_session_status_reminder_notification",
+        json!({
+            "payload": {
+                "title": "TouchAI",
+                "body": "Task failed"
+            }
+        }),
+    );
+
+    let response: () = invoke_command_ok(
+        &test_app.main_webview,
+        "clear_session_status_reminder_notifications",
+        json!({}),
+    );
+
+    assert_eq!(response, ());
+    assert_eq!(
+        testing::session_status_reminder_clear_count(&test_app.app),
+        1
+    );
+}
+
+#[test]
+fn show_search_window_command_is_registered() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let response = invoke_command_result(&test_app.main_webview, "show_search_window", json!({}));
+
+    if cfg!(target_os = "windows") {
+        let error =
+            response.expect_err("windows mock runtime should not complete real webview focus");
+        assert!(
+            error
+                .as_str()
+                .is_some_and(|message| message.contains("focus result")),
+            "unexpected show_search_window error: {error}"
+        );
+    } else {
+        assert!(response.is_ok());
+    }
 }
 
 #[test]

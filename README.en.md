@@ -45,6 +45,8 @@ If you want to contribute to TouchAI, read the [contributing docs](./CONTRIBUTIN
 
 For more details, browse the project docs and source code.
 
+- [Session status reminders](./docs/session-status-reminders.md)
+
 ---
 
 ### Contributors

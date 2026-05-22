@@ -7,6 +7,7 @@ import type {
     SearchWindowDefaultSize,
     SearchWindowMinimumSize,
     SearchWindowState,
+    SessionStatusReminderNotificationPayload,
     ShowPopupWindowParams,
 } from './types';
 
@@ -15,12 +16,26 @@ export const window = {
         return invoke('hide_search_window');
     },
 
+    showSearchWindow(): Promise<void> {
+        return invoke('show_search_window');
+    },
+
     setTrayBadgeCount(count: number): Promise<void> {
         return invoke('set_tray_badge_count', { count });
     },
 
     clearTrayBadge(): Promise<void> {
         return invoke('clear_tray_badge');
+    },
+
+    showSessionStatusReminderNotification(
+        payload: SessionStatusReminderNotificationPayload
+    ): Promise<void> {
+        return invoke('show_session_status_reminder_notification', { payload });
+    },
+
+    clearSessionStatusReminderNotifications(): Promise<void> {
+        return invoke('clear_session_status_reminder_notifications');
     },
 
     openSettingsWindow(): Promise<void> {

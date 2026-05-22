@@ -97,7 +97,7 @@ export interface WindowResizeEvent {
 }
 
 export interface SearchSurfaceShownEvent {
-    source: 'shortcut';
+    source: 'shortcut' | 'notification';
     sequence?: number;
 }
 

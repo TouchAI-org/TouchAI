@@ -63,7 +63,7 @@ describe('SessionTaskProjection status reminders', () => {
         });
 
         expect(snapshot.status).toBe('waiting_approval');
-        expect(snapshot.sessionHistory.at(-1)).toMatchObject({
+        expect(snapshot.sessionHistory[snapshot.sessionHistory.length - 1]).toMatchObject({
             role: 'system',
             content: WAITING_APPROVAL_TEXT,
         });
@@ -85,7 +85,7 @@ describe('SessionTaskProjection status reminders', () => {
         projection.markCompleted();
 
         expect(snapshot.status).toBe('completed');
-        expect(snapshot.sessionHistory.at(-1)).toMatchObject({
+        expect(snapshot.sessionHistory[snapshot.sessionHistory.length - 1]).toMatchObject({
             role: 'system',
             content: COMPLETED_TEXT,
         });
