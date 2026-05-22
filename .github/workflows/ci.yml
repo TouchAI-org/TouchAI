@@ -302,7 +302,7 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               with:
                   node-version: 22
-                  cache: pnpm
+                  package-manager-cache: false
 
             - name: Install Linux system dependencies
               if: needs.changes.outputs.docs_only != 'true'
