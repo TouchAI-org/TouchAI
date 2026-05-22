@@ -178,7 +178,9 @@ jobs:
               with:
                   # Tauri/Wry currently pulls the vulnerable GTK3 glib 0.18 chain on Linux,
                   # and upstream has no non-vulnerable GTK3 release path yet.
-                  allow-ghsas: GHSA-wrw7-89jp-8q8g
+                  # Tauri's HTML/CSS parsing chain currently pulls rand 0.7.x through
+                  # phf/kuchikiki, which still has no direct non-vulnerable Tauri path.
+                  allow-ghsas: GHSA-wrw7-89jp-8q8g, GHSA-cq8v-f236-94qc
 
     frontend-quality:
         name: Frontend Quality
