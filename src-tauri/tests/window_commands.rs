@@ -30,6 +30,39 @@ fn register_popup_configs_persists_popup_registry_entries() {
 }
 
 #[test]
+fn set_tray_badge_count_updates_runtime_state() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let response: () = invoke_command_ok(
+        &test_app.main_webview,
+        "set_tray_badge_count",
+        json!({
+            "count": 3
+        }),
+    );
+
+    assert_eq!(response, ());
+    assert_eq!(testing::tray_badge_count(&test_app.app), 3);
+}
+
+#[test]
+fn clear_tray_badge_resets_runtime_state() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let _: () = invoke_command_ok(
+        &test_app.main_webview,
+        "set_tray_badge_count",
+        json!({
+            "count": 5
+        }),
+    );
+    let response: () = invoke_command_ok(&test_app.main_webview, "clear_tray_badge", json!({}));
+
+    assert_eq!(response, ());
+    assert_eq!(testing::tray_badge_count(&test_app.app), 0);
+}
+
+#[test]
 fn get_search_window_state_returns_default_snapshot() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 

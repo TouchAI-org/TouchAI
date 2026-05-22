@@ -340,7 +340,7 @@
         await refreshModelDropdownData();
     }
 
-    const { hideSearchWindow } = useSearchPageLifecycle({
+    const { hideSearchWindow, statusReminderOverlay } = useSearchPageLifecycle({
         controller,
         viewReady,
         isDragging,
@@ -1072,6 +1072,7 @@
                 :fill-available-height="fillConversationAvailableHeight"
                 :history-open="sessionHistoryPopupOpen"
                 :approval-attention-token="approvalAttentionToken"
+                :status-reminder-overlay="statusReminderOverlay"
                 @pin-change="handlePinChange"
                 @maximize-toggle="handleToggleMaximize"
                 @new-session="handleStartNewSession"

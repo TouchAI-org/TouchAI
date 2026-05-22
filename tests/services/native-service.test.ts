@@ -64,6 +64,18 @@ describe('NativeService window boundary', () => {
             payload: undefined,
         },
         {
+            name: 'updates the tray badge count',
+            call: () => windowCommands.setTrayBadgeCount(3),
+            cmd: 'set_tray_badge_count',
+            payload: { count: 3 },
+        },
+        {
+            name: 'clears the tray badge',
+            call: () => windowCommands.clearTrayBadge(),
+            cmd: 'clear_tray_badge',
+            payload: undefined,
+        },
+        {
             name: 'opens the settings window',
             call: () => windowCommands.openSettingsWindow(),
             cmd: 'open_settings_window',

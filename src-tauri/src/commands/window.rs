@@ -78,6 +78,16 @@ pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn set_tray_badge_count<R: Runtime>(app: AppHandle<R>, count: u32) -> Result<(), String> {
+    crate::core::window::tray::set_tray_badge_count(app, count)
+}
+
+#[tauri::command]
+pub fn clear_tray_badge<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::core::window::tray::clear_tray_badge(app)
+}
+
+#[tauri::command]
 pub fn register_popup_configs(
     registry: State<PopupRegistry>,
     configs: Vec<PopupConfig>,

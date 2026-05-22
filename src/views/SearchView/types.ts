@@ -2,6 +2,7 @@
 
 import type { Index } from '@/services/AgentService/infrastructure/attachments';
 import type { InputHistorySnapshot, SessionMessage } from '@/types/session';
+import type { SessionStatusReminderKind } from '@/utils/session';
 
 import type {
     SearchCursorContext,
@@ -64,6 +65,12 @@ export interface ConversationPanelHandle {
     revealLatestContent: () => void;
     scrollByDelta: (deltaY: number) => void;
     getHistoryAnchor: () => HTMLElement | null;
+}
+
+export interface SessionStatusReminderOverlay {
+    id: number;
+    kind: SessionStatusReminderKind;
+    content: string;
 }
 
 export interface SearchPageController {

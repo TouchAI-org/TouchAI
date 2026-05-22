@@ -5,7 +5,11 @@
 import { useAlert } from '@composables/useAlert';
 import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
-import { initNotificationPermission, notify } from '@services/NotificationService';
+import {
+    clearStatusReminderNotifications,
+    initNotificationPermission,
+    notify,
+} from '@services/NotificationService';
 import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
 import { popupManager } from '@services/PopupService';
 import { runStartupTasks } from '@services/StartupService';
@@ -14,6 +18,8 @@ import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import { useSettingsStore } from '@/stores/settings';
 import { isE2eTestMode } from '@/utils/runtimeMode';
+import type { SessionStatusReminderKind } from '@/utils/session';
+import { getSessionStatusReminderContent } from '@/utils/session';
 
 import type {
     ConversationPanelHandle,
@@ -22,6 +28,7 @@ import type {
     SearchModelDropdownState,
     SearchModelOverride,
     SearchPageController,
+    SessionStatusReminderOverlay,
 } from '../types';
 import type { SearchOverlayCommand, SearchPopupSessionIdentity } from './searchInteraction';
 import type { createSearchInteractionContext, UseSearchKeyboardOptions } from './searchInteraction';
@@ -29,6 +36,20 @@ import { createSearchKeydownHandler } from './searchInteraction';
 import { useModelDropdownPopup } from './useModelDropdownPopup';
 
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
+const FOREGROUND_STATUS_REMINDER_DURATION_MS = 3_200;
+
+function resolveBackgroundStatusReminderKind(
+    status: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled'
+): SessionStatusReminderKind | null {
+    switch (status) {
+        case 'waiting_approval':
+        case 'completed':
+        case 'failed':
+            return status;
+        default:
+            return null;
+    }
+}
 
 export function useSearchWindowPin() {
     const currentWindow = getCurrentWindow();
@@ -423,11 +444,107 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let unlistenSearchSurfaceShown: (() => void) | null = null;
     let unlistenSearchSurfaceHidden: (() => void) | null = null;
     let unlistenSearchSurfaceCommand: (() => void) | null = null;
+    let unlistenSessionTaskStatusChanged: (() => void) | null = null;
     let stopReadyWatch: (() => void) | null = null;
     let stopPinnedWatch: (() => void) | null = null;
     let lifecycleInitialized = false;
     let restoredShortcutActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
+    let backgroundStatusReminderCount = 0;
+    let nextStatusReminderOverlayId = 0;
+    let statusReminderOverlayTimer: ReturnType<typeof window.setTimeout> | null = null;
+    const statusReminderOverlay = ref<SessionStatusReminderOverlay | null>(null);
+
+    function isSearchSurfaceForeground() {
+        return (
+            interactionContext.state.windowVisible &&
+            interactionContext.state.windowFocused &&
+            interactionContext.state.appFocused
+        );
+    }
+
+    function syncTrayBadgeCount() {
+        if (backgroundStatusReminderCount <= 0) {
+            void native.window.clearTrayBadge().catch((error) => {
+                console.error('[SearchView] Failed to clear tray status reminder badge:', error);
+            });
+            return;
+        }
+
+        void native.window.setTrayBadgeCount(backgroundStatusReminderCount).catch((error) => {
+            console.error('[SearchView] Failed to update tray status reminder badge:', error);
+        });
+    }
+
+    function clearBackgroundStatusReminders() {
+        backgroundStatusReminderCount = 0;
+        syncTrayBadgeCount();
+        void clearStatusReminderNotifications().catch((error) => {
+            console.error('[SearchView] Failed to clear status reminder notifications:', error);
+        });
+    }
+
+    function clearBackgroundStatusRemindersIfForeground() {
+        if (!isSearchSurfaceForeground()) {
+            return;
+        }
+
+        clearBackgroundStatusReminders();
+    }
+
+    function clearForegroundStatusReminder() {
+        if (statusReminderOverlayTimer !== null) {
+            window.clearTimeout(statusReminderOverlayTimer);
+            statusReminderOverlayTimer = null;
+        }
+
+        statusReminderOverlay.value = null;
+    }
+
+    function showForegroundSessionStatusReminder(reminderKind: SessionStatusReminderKind) {
+        clearForegroundStatusReminder();
+
+        const overlayId = nextStatusReminderOverlayId + 1;
+        nextStatusReminderOverlayId = overlayId;
+        statusReminderOverlay.value = {
+            id: overlayId,
+            kind: reminderKind,
+            content: getSessionStatusReminderContent(reminderKind),
+        };
+
+        statusReminderOverlayTimer = window.setTimeout(() => {
+            if (statusReminderOverlay.value?.id === overlayId) {
+                statusReminderOverlay.value = null;
+            }
+            statusReminderOverlayTimer = null;
+        }, FOREGROUND_STATUS_REMINDER_DURATION_MS);
+    }
+
+    function notifyBackgroundSessionStatus(
+        status: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled'
+    ) {
+        const reminderKind = resolveBackgroundStatusReminderKind(status);
+        if (!reminderKind) {
+            return;
+        }
+
+        if (isSearchSurfaceForeground()) {
+            showForegroundSessionStatusReminder(reminderKind);
+            return;
+        }
+
+        notify(
+            {
+                title: 'TouchAI',
+                body: getSessionStatusReminderContent(reminderKind),
+            },
+            {
+                trackAsStatusReminder: true,
+            }
+        );
+        backgroundStatusReminderCount += 1;
+        syncTrayBadgeCount();
+    }
 
     async function hideSearchWindow() {
         await native.window.hideSearchWindow();
@@ -577,6 +694,11 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext.state.windowVisible = await getCurrentWindow()
             .isVisible()
             .catch(() => true);
+        interactionContext.setWindowFocused(interactionContext.state.windowVisible);
+        interactionContext.setAppFocused(interactionContext.state.windowVisible);
+        if (interactionContext.state.windowVisible) {
+            clearBackgroundStatusRemindersIfForeground();
+        }
         await syncWindowPinStateSafely('initialize');
         await initFocusListener();
         if (!(await isE2eTestMode())) {
@@ -604,6 +726,8 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             AppEvent.SEARCH_SURFACE_SHOWN,
             async (payload) => {
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
+                interactionContext.markWindowVisible();
+                clearBackgroundStatusReminders();
                 await handleSearchWindowActivated();
             }
         );
@@ -617,6 +741,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 }
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
                 interactionContext.clearActivePopupSession();
+                clearForegroundStatusReminder();
                 interactionContext.markWindowHidden({
                     hideReason: payload.reason,
                     hiddenAt: Date.now(),
@@ -624,6 +749,13 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 await Promise.resolve(onSurfaceHidden?.()).catch((error) => {
                     console.error('[SearchView] Failed to clear UI after surface hidden:', error);
                 });
+            }
+        );
+
+        unlistenSessionTaskStatusChanged = await eventService.on(
+            AppEvent.SESSION_TASK_STATUS_CHANGED,
+            (payload) => {
+                notifyBackgroundSessionStatus(payload.status);
             }
         );
 
@@ -637,7 +769,36 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         );
     }
 
+    const handleWindowFocus = () => {
+        interactionContext.markWindowVisible();
+        interactionContext.setWindowFocused(true);
+        interactionContext.setAppFocused(true);
+        clearBackgroundStatusRemindersIfForeground();
+    };
+    const handleWindowBlur = () => {
+        interactionContext.setWindowFocused(false);
+        clearForegroundStatusReminder();
+    };
+    const handleVisibilityChange = () => {
+        const isVisible = document.visibilityState !== 'hidden';
+        if (isVisible) {
+            interactionContext.markWindowVisible();
+        }
+        interactionContext.setAppFocused(isVisible);
+        if (!isVisible) {
+            interactionContext.setWindowFocused(false);
+            clearForegroundStatusReminder();
+            return;
+        }
+
+        clearBackgroundStatusRemindersIfForeground();
+    };
+
     onMounted(() => {
+        window.addEventListener('focus', handleWindowFocus);
+        window.addEventListener('blur', handleWindowBlur);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         stopPinnedWatch = watch(
             [isPinned, isDragging, () => Boolean(isMaximized?.value)],
             ([nextPinned, dragging, maximized]) => {
@@ -675,6 +836,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     });
 
     onUnmounted(() => {
+        window.removeEventListener('focus', handleWindowFocus);
+        window.removeEventListener('blur', handleWindowBlur);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         stopReadyWatch?.();
         stopReadyWatch = null;
         stopPinnedWatch?.();
@@ -685,12 +849,16 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         unlistenSearchSurfaceShown = null;
         unlistenSearchSurfaceHidden?.();
         unlistenSearchSurfaceHidden = null;
+        unlistenSessionTaskStatusChanged?.();
+        unlistenSessionTaskStatusChanged = null;
         unlistenSearchSurfaceCommand?.();
         unlistenSearchSurfaceCommand = null;
+        clearForegroundStatusReminder();
     });
 
     return {
         hideSearchWindow,
+        statusReminderOverlay,
     };
 }
 

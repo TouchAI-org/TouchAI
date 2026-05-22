@@ -15,6 +15,14 @@ export const window = {
         return invoke('hide_search_window');
     },
 
+    setTrayBadgeCount(count: number): Promise<void> {
+        return invoke('set_tray_badge_count', { count });
+    },
+
+    clearTrayBadge(): Promise<void> {
+        return invoke('clear_tray_badge');
+    },
+
     openSettingsWindow(): Promise<void> {
         return invoke('open_settings_window');
     },

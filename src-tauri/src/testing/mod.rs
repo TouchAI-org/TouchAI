@@ -9,7 +9,9 @@ use crate::{
     commands,
     core::{
         database::DatabaseRuntime,
-        window::{popup::PopupRegistry, search::surface::SearchSurfaceRuntime},
+        window::{
+            popup::PopupRegistry, search::surface::SearchSurfaceRuntime, tray::TrayBadgeRuntime,
+        },
     },
 };
 
@@ -24,6 +26,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .invoke_handler(commands::invoke_handler::<MockRuntime>())
         .manage(PopupRegistry::new())
         .manage(SearchSurfaceRuntime::new())
+        .manage(TrayBadgeRuntime::new())
 }
 
 pub fn attach_test_database_runtime(
@@ -45,4 +48,8 @@ pub fn search_surface_policies<R: Runtime>(app: &App<R>) -> SearchSurfacePolicyS
         hide_on_app_blur: runtime.should_hide_on_app_blur(),
         allow_height_override: runtime.should_allow_height_override(),
     }
+}
+
+pub fn tray_badge_count<R: Runtime>(app: &App<R>) -> u32 {
+    app.state::<TrayBadgeRuntime>().count()
 }

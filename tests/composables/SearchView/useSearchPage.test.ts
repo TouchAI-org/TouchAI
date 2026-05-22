@@ -3,6 +3,7 @@ import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import { getSessionStatusReminderContent } from '@/utils/session';
 import { createSearchInteractionContext } from '@/views/SearchView/composables/searchInteraction';
 import { useSearchPageLifecycle } from '@/views/SearchView/composables/useSearchPage';
 
@@ -10,8 +11,10 @@ const {
     currentWindowMock,
     eventHandlers,
     eventServiceMock,
+    clearStatusReminderNotificationsMock,
     initNotificationPermissionMock,
     nativeMock,
+    notifyMock,
     popupManagerMock,
     popupManagerState,
     runStartupTasksMock,
@@ -35,7 +38,9 @@ const {
                 };
             }),
         },
+        clearStatusReminderNotificationsMock: vi.fn(),
         initNotificationPermissionMock: vi.fn(),
+        notifyMock: vi.fn(),
         nativeMock: {
             runtime: {
                 getRuntimeInfo: vi.fn(),
@@ -45,6 +50,8 @@ const {
             },
             window: {
                 hideSearchWindow: vi.fn(),
+                setTrayBadgeCount: vi.fn(),
+                clearTrayBadge: vi.fn(),
                 setSearchSurfaceHideOnAppBlur: vi.fn(),
             },
         },
@@ -85,8 +92,9 @@ vi.mock('@services/NativeService', () => ({
 }));
 
 vi.mock('@services/NotificationService', () => ({
+    clearStatusReminderNotifications: clearStatusReminderNotificationsMock,
     initNotificationPermission: initNotificationPermissionMock,
-    notify: vi.fn(),
+    notify: notifyMock,
 }));
 
 vi.mock('@services/PopupService', () => ({
@@ -109,7 +117,7 @@ vi.mock('@/stores/settings', () => ({
 }));
 
 async function flushLifecycle() {
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
         await Promise.resolve();
         await nextTick();
     }
@@ -126,6 +134,7 @@ function createController() {
 describe('useSearchPageLifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.useFakeTimers();
         eventHandlers.clear();
 
         currentWindowMock.isVisible.mockResolvedValue(true);
@@ -135,6 +144,8 @@ describe('useSearchPageLifecycle', () => {
         nativeMock.shortcut.registerGlobalShortcut.mockResolvedValue(undefined);
         nativeMock.runtime.getRuntimeInfo.mockResolvedValue({ isE2eTestMode: false });
         nativeMock.window.hideSearchWindow.mockResolvedValue(undefined);
+        nativeMock.window.setTrayBadgeCount.mockResolvedValue(undefined);
+        nativeMock.window.clearTrayBadge.mockResolvedValue(undefined);
         nativeMock.window.setSearchSurfaceHideOnAppBlur.mockResolvedValue(undefined);
 
         popupManagerMock.initialize.mockResolvedValue(undefined);
@@ -148,11 +159,14 @@ describe('useSearchPageLifecycle', () => {
 
         settingsStoreMock.initialize.mockResolvedValue(undefined);
         settingsStoreMock.globalShortcut = 'Alt+Space';
+        clearStatusReminderNotificationsMock.mockResolvedValue(undefined);
         initNotificationPermissionMock.mockResolvedValue(undefined);
         runStartupTasksMock.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
+        vi.runOnlyPendingTimers();
+        vi.useRealTimers();
         document.body.innerHTML = '';
     });
 
@@ -313,6 +327,283 @@ describe('useSearchPageLifecycle', () => {
         expect(handleShortcutAutoPaste).toHaveBeenCalledTimes(1);
         expect(interactionContext.state.activationSource).toBe('shortcut');
         expect(interactionContext.state.windowFocused).toBe(true);
+
+        mounted.unmount();
+    });
+
+    it('shows a foreground status overlay, auto-dismisses it, and skips OS reminders', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        notifyMock.mockClear();
+        nativeMock.window.setTrayBadgeCount.mockClear();
+
+        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
+            sessionId: 1,
+            taskId: 'task-1',
+            status: 'completed',
+            previousStatus: 'running',
+        });
+        await flushLifecycle();
+
+        expect(mounted.result.statusReminderOverlay.value).toEqual({
+            id: 1,
+            kind: 'completed',
+            content: getSessionStatusReminderContent('completed'),
+        });
+        expect(notifyMock).not.toHaveBeenCalled();
+        expect(nativeMock.window.setTrayBadgeCount).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(3_200);
+        await flushLifecycle();
+
+        expect(mounted.result.statusReminderOverlay.value).toBeNull();
+
+        mounted.unmount();
+    });
+
+    it('clears the foreground status overlay when the window loses focus or becomes hidden', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+
+        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
+            sessionId: 1,
+            taskId: 'task-1',
+            status: 'waiting_approval',
+            previousStatus: 'running',
+        });
+        await flushLifecycle();
+
+        expect(mounted.result.statusReminderOverlay.value?.kind).toBe('waiting_approval');
+
+        window.dispatchEvent(new Event('blur'));
+        await flushLifecycle();
+
+        expect(mounted.result.statusReminderOverlay.value).toBeNull();
+
+        window.dispatchEvent(new Event('focus'));
+        await flushLifecycle();
+
+        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
+            sessionId: 1,
+            taskId: 'task-1',
+            status: 'failed',
+            previousStatus: 'running',
+        });
+        await flushLifecycle();
+
+        expect(mounted.result.statusReminderOverlay.value?.kind).toBe('failed');
+
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'hidden',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+        await flushLifecycle();
+
+        expect(mounted.result.statusReminderOverlay.value).toBeNull();
+
+        mounted.unmount();
+    });
+
+    it('treats a visible but unfocused search surface as background for OS reminders', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        notifyMock.mockClear();
+        nativeMock.window.setTrayBadgeCount.mockClear();
+
+        window.dispatchEvent(new Event('blur'));
+        await flushLifecycle();
+
+        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
+            sessionId: 1,
+            taskId: 'task-1',
+            status: 'completed',
+            previousStatus: 'running',
+        });
+        await flushLifecycle();
+
+        expect(notifyMock).toHaveBeenCalledWith(
+            {
+                title: 'TouchAI',
+                body: getSessionStatusReminderContent('completed'),
+            },
+            {
+                trackAsStatusReminder: true,
+            }
+        );
+        expect(nativeMock.window.setTrayBadgeCount).toHaveBeenCalledWith(1);
+
+        mounted.unmount();
+    });
+
+    it('sends one OS notification per hidden status change and clears the tray badge when shown again', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        notifyMock.mockClear();
+        nativeMock.window.clearTrayBadge.mockClear();
+        nativeMock.window.setTrayBadgeCount.mockClear();
+
+        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)?.({
+            sequence: 1,
+            reason: 'manual-dismiss',
+        });
+        await flushLifecycle();
+        expect(interactionContext.state.windowVisible).toBe(false);
+
+        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
+            sessionId: 1,
+            taskId: 'task-1',
+            status: 'waiting_approval',
+            previousStatus: 'running',
+        });
+        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
+            sessionId: 1,
+            taskId: 'task-1',
+            status: 'failed',
+            previousStatus: 'waiting_approval',
+        });
+        await flushLifecycle();
+
+        expect(notifyMock).toHaveBeenNthCalledWith(
+            1,
+            {
+                title: 'TouchAI',
+                body: getSessionStatusReminderContent('waiting_approval'),
+            },
+            {
+                trackAsStatusReminder: true,
+            }
+        );
+        expect(notifyMock).toHaveBeenNthCalledWith(
+            2,
+            {
+                title: 'TouchAI',
+                body: getSessionStatusReminderContent('failed'),
+            },
+            {
+                trackAsStatusReminder: true,
+            }
+        );
+        expect(nativeMock.window.setTrayBadgeCount).toHaveBeenNthCalledWith(1, 1);
+        expect(nativeMock.window.setTrayBadgeCount).toHaveBeenNthCalledWith(2, 2);
+
+        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({ sequence: 2 });
+        await flushLifecycle();
+
+        expect(nativeMock.window.clearTrayBadge).toHaveBeenCalled();
+        expect(clearStatusReminderNotificationsMock).toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('clears reminder badges and tracked notifications when the window regains focus', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        notifyMock.mockClear();
+        nativeMock.window.setTrayBadgeCount.mockClear();
+        nativeMock.window.clearTrayBadge.mockClear();
+        clearStatusReminderNotificationsMock.mockClear();
+
+        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)?.({
+            sequence: 1,
+            reason: 'manual-dismiss',
+        });
+        await flushLifecycle();
+
+        window.dispatchEvent(new Event('blur'));
+        await flushLifecycle();
+
+        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
+            sessionId: 1,
+            taskId: 'task-1',
+            status: 'completed',
+            previousStatus: 'running',
+        });
+        await flushLifecycle();
+
+        expect(nativeMock.window.setTrayBadgeCount).toHaveBeenCalledWith(1);
+        expect(clearStatusReminderNotificationsMock).not.toHaveBeenCalled();
+
+        const callsBeforeFocus = clearStatusReminderNotificationsMock.mock.calls.length;
+
+        window.dispatchEvent(new Event('focus'));
+        await flushLifecycle();
+
+        expect(interactionContext.state.windowVisible).toBe(true);
+        expect(nativeMock.window.clearTrayBadge).toHaveBeenCalled();
+        expect(clearStatusReminderNotificationsMock.mock.calls.length).toBeGreaterThan(
+            callsBeforeFocus
+        );
 
         mounted.unmount();
     });
