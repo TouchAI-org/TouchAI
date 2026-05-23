@@ -266,6 +266,11 @@ export function useSearchPageController(options: {
     }
 
     function closeQuickSearch() {
+        if (quickSearchPanel.value) {
+            quickSearchPanel.value.close();
+            return;
+        }
+
         quickSearchOpen.value = false;
     }
 

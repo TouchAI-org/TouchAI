@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
 import { createSearchInteractionContext } from '@/views/SearchView/composables/searchInteraction';
-import { useSearchPageLifecycle } from '@/views/SearchView/composables/useSearchPage';
+import {
+    useSearchPageController,
+    useSearchPageLifecycle,
+} from '@/views/SearchView/composables/useSearchPage';
 
 const {
     currentWindowMock,
@@ -122,6 +125,60 @@ function createController() {
         invalidateModelDropdownData: vi.fn(),
     };
 }
+
+describe('useSearchPageController', () => {
+    it('closes quick search through the panel so internal search state is cleared', () => {
+        const quickSearchOpen = ref(true);
+        const closeQuickSearchPanel = vi.fn(() => {
+            quickSearchOpen.value = false;
+        });
+        const quickSearchPanel = ref({
+            open: vi.fn(),
+            close: closeQuickSearchPanel,
+            syncClosedState: vi.fn(),
+            moveSelection: vi.fn(),
+            getHighlightedItem: vi.fn(() => null),
+            openHighlightedItem: vi.fn().mockResolvedValue(undefined),
+            triggerSearch: vi.fn(),
+            goToPage: vi.fn(),
+            goToNextPage: vi.fn(),
+            goToPreviousPage: vi.fn(),
+            openContextMenuForItem: vi.fn(),
+            openContextMenuForHighlightedItem: vi.fn(),
+            toggleViewMode: vi.fn(),
+            collapseToDefault: vi.fn(),
+            isContextMenuOpen: false,
+            closeContextMenu: vi.fn(),
+        });
+
+        const controller = useSearchPageController({
+            searchBar: ref(),
+            quickSearchOpen,
+            quickSearchPanel: quickSearchPanel as never,
+            conversationPanel: ref(),
+        });
+
+        controller.closeQuickSearch();
+
+        expect(closeQuickSearchPanel).toHaveBeenCalledTimes(1);
+        expect(quickSearchOpen.value).toBe(false);
+    });
+
+    it('falls back to closing the quick search flag when the panel is not mounted', () => {
+        const quickSearchOpen = ref(true);
+
+        const controller = useSearchPageController({
+            searchBar: ref(),
+            quickSearchOpen,
+            quickSearchPanel: ref(),
+            conversationPanel: ref(),
+        });
+
+        controller.closeQuickSearch();
+
+        expect(quickSearchOpen.value).toBe(false);
+    });
+});
 
 describe('useSearchPageLifecycle', () => {
     beforeEach(() => {
