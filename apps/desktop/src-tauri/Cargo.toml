@@ -64,6 +64,7 @@ futures = "0.3"
 clipboard-rs = "0.3.4"
 html5gum = { version = "0.8.3", default-features = false }
 sha2 = "0.10"
+velopack = "=0.0.1589-ga2c5a97"
 
 [dev-dependencies]
 tempfile = "3"
