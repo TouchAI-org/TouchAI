@@ -191,6 +191,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         await native.window.resizeWindowHeight({
             targetHeight: newHeight,
             center: true,
+            animate: false,
             respectManualOverride: searchWindowHeightPolicy.value.respectManualOverride,
         });
         currentHeight.value = newHeight;

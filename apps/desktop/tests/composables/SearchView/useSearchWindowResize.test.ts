@@ -182,6 +182,7 @@ describe('useSearchWindowResize', () => {
         expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
             targetHeight: 180,
             center: true,
+            animate: false,
             respectManualOverride: true,
         });
         expect(nativeMock.window.setSearchWindowMinSize).toHaveBeenLastCalledWith({
