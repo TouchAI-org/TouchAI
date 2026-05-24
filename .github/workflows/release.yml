@@ -1,62 +1,66 @@
-name: Release
+name: Prerelease
 
 on:
     workflow_dispatch:
-    push:
-        tags:
-            - 'v*'
+        inputs:
+            channel:
+                description: Prerelease channel
+                required: true
+                default: beta
+                type: choice
+                options:
+                    - beta
+                    - nightly
+            version:
+                description: Exact semantic prerelease version. Required for beta; optional for nightly.
+                required: false
+                type: string
+    schedule:
+        - cron: '0 18 * * *'
 
 permissions:
     contents: write
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
+    group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
     cancel-in-progress: true
 
 jobs:
-    build-windows:
-        name: Build Windows artifacts
-        runs-on: windows-latest
+    resolve:
+        name: Resolve prerelease metadata
+        runs-on: ubuntu-latest
+        outputs:
+            channel: ${{ steps.release.outputs.channel }}
+            version: ${{ steps.release.outputs.version }}
+            tag: ${{ steps.release.outputs.tag }}
+            prerelease: ${{ steps.release.outputs.prerelease }}
+            release_name: ${{ steps.release.outputs.release_name }}
         steps:
             - uses: actions/checkout@v6
-
-            - uses: pnpm/action-setup@v6
+              with:
+                  fetch-depth: 0
 
             - uses: actions/setup-node@v6
               with:
                   node-version: 22
-                  cache: pnpm
 
-            - name: Install Rust stable
-              uses: dtolnay/rust-toolchain@stable
-
-            - name: Rust cache
-              uses: swatinem/rust-cache@v2
-              with:
-                  workspaces: apps/desktop/src-tauri -> target
-
-            - name: Install frontend dependencies
-              run: pnpm install --frozen-lockfile
-
-            - name: Build Tauri app
-              uses: tauri-apps/tauri-action@v0.6.2
-              with:
-                  projectPath: apps/desktop
+            - name: Resolve prerelease metadata
+              id: release
+              working-directory: apps/desktop
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_CHANNEL: ${{ github.event.inputs.channel }}
+                  RELEASE_VERSION: ${{ github.event.inputs.version }}
+              run: node scripts/ci/resolve-release-metadata.mjs
 
-            - name: Upload installers
-              uses: actions/upload-artifact@v7.0.1
-              with:
-                  name: touchai-installers-windows
-                  path: |
-                      apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
-                      apps/desktop/src-tauri/target/release/bundle/msi/*.msi
-                  if-no-files-found: warn
-
-            - name: Upload portable
-              uses: actions/upload-artifact@v7.0.1
-              with:
-                  name: touchai-portable-windows
-                  path: apps/desktop/src-tauri/target/release/TouchAI.exe
-                  if-no-files-found: warn
+    publish-windows:
+        name: Publish Windows prerelease
+        needs: resolve
+        uses: ./.github/workflows/velopack-build.yml
+        with:
+            channel: ${{ needs.resolve.outputs.channel }}
+            version: ${{ needs.resolve.outputs.version }}
+            tag: ${{ needs.resolve.outputs.tag }}
+            release-name: ${{ needs.resolve.outputs.release_name }}
+            prerelease: ${{ needs.resolve.outputs.prerelease }}
+            target-commitish: ${{ github.sha }}
+        secrets: inherit

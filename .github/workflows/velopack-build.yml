@@ -1,0 +1,206 @@
+name: Velopack Build
+
+on:
+    workflow_call:
+        inputs:
+            channel:
+                required: true
+                type: string
+            version:
+                required: true
+                type: string
+            tag:
+                required: true
+                type: string
+            release-name:
+                required: true
+                type: string
+            prerelease:
+                required: true
+                type: string
+            target-commitish:
+                required: true
+                type: string
+
+permissions:
+    contents: write
+
+jobs:
+    build-windows:
+        name: Build Windows Velopack release
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ inputs.target-commitish }}
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Install .NET SDK
+              uses: actions/setup-dotnet@v5
+              with:
+                  dotnet-version: 8.0.x
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Install frontend dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Validate checked-in version policy
+              working-directory: apps/desktop
+              run: node scripts/ci/version-policy-check.mjs --skip-tag
+
+            - name: Set release version
+              working-directory: apps/desktop
+              run: node scripts/ci/set-release-version.mjs "${{ inputs.version }}"
+
+            - name: Validate release version policy
+              working-directory: apps/desktop
+              env:
+                  GITHUB_REF_TYPE: tag
+                  GITHUB_REF_NAME: ${{ inputs.tag }}
+              run: node scripts/ci/version-policy-check.mjs
+
+            - name: Install Velopack CLI
+              run: dotnet tool install --global vpk
+
+            - name: Build Tauri executable
+              working-directory: apps/desktop
+              run: pnpm tauri build --no-bundle --ci
+
+            - name: Stage Velopack input directory
+              shell: pwsh
+              run: |
+                  $stage = Join-Path $env:RUNNER_TEMP 'touchai-velopack-stage'
+                  if (Test-Path $stage) {
+                      Remove-Item -LiteralPath $stage -Recurse -Force
+                  }
+                  New-Item -ItemType Directory -Force -Path $stage | Out-Null
+                  Copy-Item -LiteralPath 'apps/desktop/src-tauri/target/release/TouchAI.exe' -Destination $stage
+                  "VELOPACK_STAGE=$stage" >> $env:GITHUB_ENV
+
+            - name: Prepare Velopack release directory
+              shell: pwsh
+              run: |
+                  $release = Join-Path $env:RUNNER_TEMP 'touchai-velopack-release'
+                  if (Test-Path $release) {
+                      Remove-Item -LiteralPath $release -Recurse -Force
+                  }
+                  New-Item -ItemType Directory -Force -Path $release | Out-Null
+                  "VELOPACK_RELEASE=$release" >> $env:GITHUB_ENV
+
+            - name: Prepare release notes
+              shell: pwsh
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+                  RELEASE_NAME: ${{ inputs.release-name }}
+                  RELEASE_CHANNEL: ${{ inputs.channel }}
+                  RELEASE_VERSION: ${{ inputs.version }}
+                  TARGET_COMMITISH: ${{ inputs.target-commitish }}
+              run: |
+                  $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+                  $body = ''
+
+                  try {
+                      $body = gh release view "$env:RELEASE_TAG" --json body -q ".body" 2>$null
+                      if ($LASTEXITCODE -ne 0) {
+                          $body = ''
+                      }
+                  } catch {
+                      $body = ''
+                  }
+
+                  if ([string]::IsNullOrWhiteSpace($body)) {
+                      try {
+                          $body = gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" `
+                            -f "tag_name=$env:RELEASE_TAG" `
+                            -f "target_commitish=$env:TARGET_COMMITISH" `
+                            --jq ".body" 2>$null
+                          if ($LASTEXITCODE -ne 0) {
+                              $body = ''
+                          }
+                      } catch {
+                          $body = ''
+                      }
+                  }
+
+                  if ([string]::IsNullOrWhiteSpace($body)) {
+                      $body = "## $env:RELEASE_NAME`n`nChannel: $env:RELEASE_CHANNEL`nVersion: $env:RELEASE_VERSION"
+                  }
+
+                  Set-Content -LiteralPath $notesPath -Value $body -Encoding UTF8
+                  "RELEASE_NOTES_PATH=$notesPath" >> $env:GITHUB_ENV
+
+            - name: Download previous Velopack release assets
+              continue-on-error: true
+              shell: pwsh
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  vpk download github `
+                    --repoUrl "https://github.com/${{ github.repository }}" `
+                    --token "$env:GITHUB_TOKEN" `
+                    --channel "${{ inputs.channel }}" `
+                    --pre "${{ inputs.prerelease }}" `
+                    --outputDir "$env:VELOPACK_RELEASE"
+
+            - name: Pack Velopack release
+              shell: pwsh
+              run: |
+                  vpk pack `
+                    --packId org.touch-ai.app `
+                    --packTitle TouchAI `
+                    --packVersion "${{ inputs.version }}" `
+                    --packDir "$env:VELOPACK_STAGE" `
+                    --mainExe TouchAI.exe `
+                    --channel "${{ inputs.channel }}" `
+                    --releaseNotes "$env:RELEASE_NOTES_PATH" `
+                    --outputDir "$env:VELOPACK_RELEASE"
+
+            - name: Publish Velopack release assets
+              shell: pwsh
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  vpk upload github `
+                    --repoUrl "https://github.com/${{ github.repository }}" `
+                    --token "$env:GITHUB_TOKEN" `
+                    --releaseName "${{ inputs.release-name }}" `
+                    --tag "${{ inputs.tag }}" `
+                    --targetCommitish "${{ inputs.target-commitish }}" `
+                    --channel "${{ inputs.channel }}" `
+                    --pre "${{ inputs.prerelease }}" `
+                    --outputDir "$env:VELOPACK_RELEASE" `
+                    --merge True `
+                    --publish True
+
+            - name: Sync GitHub release notes
+              shell: pwsh
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+                  RELEASE_NAME: ${{ inputs.release-name }}
+              run: |
+                  gh release edit "$env:RELEASE_TAG" `
+                    --title "$env:RELEASE_NAME" `
+                    --notes-file "$env:RELEASE_NOTES_PATH"
+
+            - name: Upload Velopack diagnostics artifact
+              uses: actions/upload-artifact@v7.0.1
+              with:
+                  name: touchai-velopack-windows-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ env.VELOPACK_RELEASE }}
+                  if-no-files-found: error

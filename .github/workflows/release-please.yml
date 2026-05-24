@@ -1,0 +1,45 @@
+name: Stable Release
+
+on:
+    push:
+        branches:
+            - main
+
+permissions:
+    contents: write
+    issues: write
+    pull-requests: write
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    release-please:
+        name: Release Please
+        runs-on: ubuntu-latest
+        outputs:
+            release_created: ${{ steps.release.outputs['apps/desktop--release_created'] }}
+            version: ${{ steps.release.outputs['apps/desktop--version'] }}
+            tag_name: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
+            sha: ${{ steps.release.outputs['apps/desktop--sha'] }}
+        steps:
+            - uses: googleapis/release-please-action@v4
+              id: release
+              with:
+                  config-file: release-please-config.json
+                  manifest-file: .release-please-manifest.json
+
+    publish-windows:
+        name: Publish Windows stable release
+        needs: release-please
+        if: ${{ needs.release-please.outputs.release_created == 'true' }}
+        uses: ./.github/workflows/velopack-build.yml
+        with:
+            channel: stable
+            version: ${{ needs.release-please.outputs.version }}
+            tag: ${{ needs.release-please.outputs.tag_name }}
+            release-name: TouchAI ${{ needs.release-please.outputs.version }}
+            prerelease: 'False'
+            target-commitish: ${{ needs.release-please.outputs.sha }}
+        secrets: inherit
