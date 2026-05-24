@@ -27,29 +27,30 @@ jobs:
     build-windows:
         name: Build Windows Velopack release
         runs-on: windows-latest
+        environment: release
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
 
-            - uses: pnpm/action-setup@v6
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
 
-            - uses: actions/setup-node@v6
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
               with:
                   node-version: 22
                   cache: pnpm
 
             - name: Install Rust stable
-              uses: dtolnay/rust-toolchain@stable
+              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
             - name: Install .NET SDK
-              uses: actions/setup-dotnet@v5
+              uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5
               with:
                   dotnet-version: 8.0.x
 
             - name: Rust cache
-              uses: swatinem/rust-cache@v2
+              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> target
 
@@ -247,7 +248,7 @@ jobs:
                     --notes-file "$env:RELEASE_NOTES_PATH"
 
             - name: Upload update channel JSON artifact
-              uses: actions/upload-artifact@v7.0.1
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: touchai-update-channels
                   path: ${{ runner.temp }}/touchai-update-dist
@@ -267,7 +268,7 @@ jobs:
                     --branch="$env:CLOUDFLARE_PAGES_BRANCH"
 
             - name: Upload Velopack diagnostics artifact
-              uses: actions/upload-artifact@v7.0.1
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: touchai-velopack-windows-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ env.VELOPACK_RELEASE }}

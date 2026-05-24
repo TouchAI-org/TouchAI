@@ -1,0 +1,14 @@
+# Repository automation and release controls require explicit maintainer review.
+/.github/CODEOWNERS @hiqiancheng
+/.github/workflows/ @hiqiancheng
+/.github/actions/ @hiqiancheng
+/.github/dependabot.yml @hiqiancheng
+/.github/labeler.yml @hiqiancheng
+/.github/labels.yml @hiqiancheng
+/.github/pull_request_template.md @hiqiancheng
+
+# Release automation and update metadata can publish artifacts or change channels.
+/release-please-config.json @hiqiancheng
+/.release-please-manifest.json @hiqiancheng
+/apps/desktop/product.json @hiqiancheng
+/apps/desktop/scripts/ci/ @hiqiancheng

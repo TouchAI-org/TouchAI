@@ -8,10 +8,7 @@ on:
             - main
 
 permissions:
-    contents: write
-    deployments: write
-    issues: write
-    pull-requests: write
+    contents: read
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,13 +18,17 @@ jobs:
     release-please:
         name: Release Please
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            issues: write
+            pull-requests: write
         outputs:
             release_created: ${{ steps.release.outputs['apps/desktop--release_created'] }}
             version: ${{ steps.release.outputs['apps/desktop--version'] }}
             tag_name: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
             sha: ${{ steps.release.outputs['apps/desktop--sha'] }}
         steps:
-            - uses: googleapis/release-please-action@v4
+            - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
               id: release
               with:
                   token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
@@ -38,6 +39,9 @@ jobs:
         name: Publish Windows stable release
         needs: release-please
         if: ${{ needs.release-please.outputs.release_created == 'true' }}
+        permissions:
+            contents: write
+            deployments: write
         uses: ./.github/workflows/velopack-build.yml
         with:
             channel: stable

@@ -25,7 +25,7 @@ jobs:
         steps:
             - id: classify
               name: Detect docs-only pull requests
-              uses: actions/github-script@v9
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
                       if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
@@ -118,20 +118,20 @@ jobs:
             TOUCHAI_CARGO_TARGET_DIR: apps/desktop/src-tauri/target/e2e
             TOUCHAI_E2E_CARGO_PROFILE: ci-check
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-            - uses: pnpm/action-setup@v6
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
 
-            - uses: actions/setup-node@v6
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
               with:
                   node-version: 22
                   cache: pnpm
 
             - name: Install Rust stable
-              uses: dtolnay/rust-toolchain@stable
+              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
             - name: Rust cache
-              uses: swatinem/rust-cache@v2
+              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> target/e2e
 

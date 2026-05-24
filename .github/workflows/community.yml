@@ -40,8 +40,8 @@ jobs:
         permissions:
             issues: write
         steps:
-            - uses: actions/checkout@v6
-            - uses: EndBug/label-sync@v2
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: EndBug/label-sync@52074158190acb45f3077f9099fea818aa43f97a # v2
               with:
                   config-file: .github/labels.yml
                   delete-other-labels: false
@@ -54,7 +54,7 @@ jobs:
             issues: write
         steps:
             - name: Add triage label
-              uses: actions/github-script@v9
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
                       const issue_number = context.payload.issue.number;
@@ -75,7 +75,7 @@ jobs:
             contents: read
             pull-requests: write
         steps:
-            - uses: actions/labeler@v6
+            - uses: actions/labeler@f27b608878404679385c85cfa523b85ccb86e213 # v6
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   configuration-path: .github/labeler.yml
@@ -88,7 +88,7 @@ jobs:
             issues: write
         steps:
             - name: Process /assign and /unassign
-              uses: actions/github-script@v9
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
                       const body = context.payload.comment.body.trim();
@@ -204,7 +204,7 @@ jobs:
             issues: write
         steps:
             - name: Remind or release stale claims
-              uses: actions/github-script@v9
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
                       const owner = context.repo.owner;
@@ -306,7 +306,7 @@ jobs:
             issues: write
             pull-requests: write
         steps:
-            - uses: actions/stale@v10
+            - uses: actions/stale@eb5cf3af3ac0a1aa4c9c45633dd1ae542a27a899 # v10
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   days-before-stale: 14
@@ -324,7 +324,7 @@ jobs:
             issues: write
             pull-requests: write
         steps:
-            - uses: actions/stale@v10
+            - uses: actions/stale@eb5cf3af3ac0a1aa4c9c45633dd1ae542a27a899 # v10
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   days-before-pr-stale: 21
