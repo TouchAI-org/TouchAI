@@ -186,7 +186,7 @@ describe('resolveReleaseMetadata', () => {
                     packageVersion: '1.2.3',
                 })
             )
-        ).toThrow('beta releases must use a beta prerelease version.');
+        ).toThrow('Beta releases must use a beta prerelease version.');
     });
 
     it('rejects manual stable releases because release-please owns stable', async () => {
