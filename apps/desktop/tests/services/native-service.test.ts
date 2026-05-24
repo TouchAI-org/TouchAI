@@ -64,12 +64,6 @@ describe('NativeService window boundary', () => {
             payload: undefined,
         },
         {
-            name: 'shows the search window',
-            call: () => windowCommands.showSearchWindow(),
-            cmd: 'show_search_window',
-            payload: undefined,
-        },
-        {
             name: 'updates the tray status indicator',
             call: () => windowCommands.setTrayStatusIndicator('failed'),
             cmd: 'set_tray_status_indicator',

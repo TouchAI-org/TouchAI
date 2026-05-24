@@ -22,13 +22,7 @@ import {
     type WidgetInfo,
 } from '@/types/session';
 import { parseDbDateTimestamp } from '@/utils/date';
-import {
-    createSystemMessage,
-    createTextPart,
-    getSessionStatusReminderContent,
-    getSessionStatusReminderKindFromContent,
-    type SessionStatusReminderKind,
-} from '@/utils/session';
+import { createTextPart } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
 import { getRetryStatusMessage } from '../execution/retry';
@@ -497,19 +491,6 @@ function convertEntriesToSessionHistory(
             continue;
         }
 
-        if (entry.role === 'system') {
-            flushAssistantMessage();
-            const historyIndex = history.length;
-            history.push(
-                createSystemMessage(entry.content, {
-                    id: `system-${entry.id}`,
-                    timestamp: parseDbDateTimestamp(entry.created_at),
-                })
-            );
-            historyIndexByPersistedMessageId.set(entry.id, historyIndex);
-            continue;
-        }
-
         const assistantMessage = ensureAssistantMessage(entry);
 
         if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.reasoning?.trim()) {
@@ -600,42 +581,6 @@ function createDerivedCancelledMessage(turn: SessionTurnHistoryRow): SessionMess
     };
 }
 
-function createDerivedCompletedReminderMessage(turn: SessionTurnHistoryRow): SessionMessage {
-    return createSystemMessage(getSessionStatusReminderContent('completed'), {
-        id: `turn-completed-reminder-${turn.id}`,
-        timestamp: parseDbDateTimestamp(turn.updated_at || turn.created_at),
-    });
-}
-
-function createDerivedFailedReminderMessage(turn: SessionTurnHistoryRow): SessionMessage {
-    return createSystemMessage(
-        getSessionStatusReminderContent('failed', {
-            errorMessage: turn.error_message,
-        }),
-        {
-            id: `turn-failed-reminder-${turn.id}`,
-            timestamp: parseDbDateTimestamp(turn.updated_at || turn.created_at),
-        }
-    );
-}
-
-function createDerivedWaitingApprovalReminderMessage(message: SessionMessage): SessionMessage {
-    return createSystemMessage(getSessionStatusReminderContent('waiting_approval'), {
-        id: `message-waiting-approval-reminder-${message.id}`,
-        timestamp: message.timestamp,
-    });
-}
-
-function isSessionStatusReminderMessage(
-    message: SessionMessage | undefined,
-    status: SessionStatusReminderKind
-): boolean {
-    return (
-        message?.role === 'system' &&
-        getSessionStatusReminderKindFromContent(message.content) === status
-    );
-}
-
 function hasVisibleAssistantContent(message: SessionMessage): boolean {
     if (message.role !== 'assistant') {
         return false;
@@ -712,7 +657,7 @@ function resolvePromptAnchorIndex(
     return null;
 }
 
-function resolveTurnStatusAnchorIndex(
+function resolveFailedRequestAnchorIndex(
     turn: SessionTurnHistoryRow,
     history: SessionMessage[],
     historyIndexByPersistedMessageId: Map<number, number>
@@ -812,8 +757,7 @@ function injectDerivedRequestStatuses(
         const turnAttempts = attemptsByTurnId.get(turn.id) ?? [];
         return (
             turnAttempts.length > 1 ||
-            turn.status === 'completed' ||
-            turn.status === 'failed' ||
+            (turn.status === 'failed' && !!turn.error_message?.trim()) ||
             turn.status === 'cancelled'
         );
     });
@@ -844,26 +788,8 @@ function injectDerivedRequestStatuses(
             );
         });
 
-        if (turn.status === 'completed') {
-            const anchorIndex = resolveTurnStatusAnchorIndex(
-                turn,
-                buildResult.history,
-                buildResult.historyIndexByPersistedMessageId
-            );
-            if (isSessionStatusReminderMessage(buildResult.history[anchorIndex + 1], 'completed')) {
-                continue;
-            }
-            pushAnchoredMessage(
-                collections,
-                createDerivedCompletedReminderMessage(turn),
-                'after',
-                anchorIndex
-            );
-            continue;
-        }
-
-        if (turn.status === 'failed') {
-            const anchorIndex = resolveTurnStatusAnchorIndex(
+        if (turn.status === 'failed' && turn.error_message?.trim()) {
+            const anchorIndex = resolveFailedRequestAnchorIndex(
                 turn,
                 buildResult.history,
                 buildResult.historyIndexByPersistedMessageId
@@ -873,14 +799,6 @@ function injectDerivedRequestStatuses(
                 attachStatusText(anchorMessage, `请求失败: ${turn.error_message}`);
             }
 
-            if (!isSessionStatusReminderMessage(buildResult.history[anchorIndex + 1], 'failed')) {
-                pushAnchoredMessage(
-                    collections,
-                    createDerivedFailedReminderMessage(turn),
-                    'after',
-                    anchorIndex
-                );
-            }
             if (!anchorMessage || !hasVisibleAssistantContent(anchorMessage)) {
                 pushAnchoredMessage(
                     collections,
@@ -892,7 +810,7 @@ function injectDerivedRequestStatuses(
         }
 
         if (turn.status === 'cancelled') {
-            const anchorIndex = resolveTurnStatusAnchorIndex(
+            const anchorIndex = resolveFailedRequestAnchorIndex(
                 turn,
                 buildResult.history,
                 buildResult.historyIndexByPersistedMessageId
@@ -932,31 +850,6 @@ function injectDerivedRequestStatuses(
     return history;
 }
 
-function injectPendingApprovalReminders(history: SessionMessage[]): SessionMessage[] {
-    const nextHistory: SessionMessage[] = [];
-
-    for (let index = 0; index < history.length; index += 1) {
-        const message = history[index]!;
-        nextHistory.push(message);
-
-        if (
-            message.role !== 'assistant' ||
-            !message.toolCalls?.some((toolCall) => toolCall.status === 'awaiting_approval')
-        ) {
-            continue;
-        }
-
-        const nextMessage = history[index + 1];
-        if (isSessionStatusReminderMessage(nextMessage, 'waiting_approval')) {
-            continue;
-        }
-
-        nextHistory.push(createDerivedWaitingApprovalReminderMessage(message));
-    }
-
-    return nextHistory;
-}
-
 /**
  * 将持久化消息行恢复成 SearchView 可直接消费的对话历史。
  *
@@ -985,15 +878,13 @@ export async function buildSessionHistory(
         }
     }
 
-    return injectPendingApprovalReminders(
-        injectDerivedRequestStatuses(
-            convertEntriesToSessionHistory(
-                await buildPersistedEntries(messages, resolveServerName),
-                promptSnapshotsByMessageId
-            ),
-            turns,
-            attempts
-        )
+    return injectDerivedRequestStatuses(
+        convertEntriesToSessionHistory(
+            await buildPersistedEntries(messages, resolveServerName),
+            promptSnapshotsByMessageId
+        ),
+        turns,
+        attempts
     );
 }
 

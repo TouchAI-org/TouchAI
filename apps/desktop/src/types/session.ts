@@ -223,7 +223,7 @@ export function getInputHistorySnapshotKey(snapshot: InputHistorySnapshot): stri
 
 export interface SessionMessage {
     id: string;
-    role: 'user' | 'assistant' | 'system';
+    role: 'user' | 'assistant';
     content: string;
     reasoning?: string;
     /**

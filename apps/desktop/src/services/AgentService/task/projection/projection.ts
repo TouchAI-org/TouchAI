@@ -15,12 +15,7 @@ import {
     type SessionMessage,
     type ToolApprovalInfo,
 } from '@/types/session';
-import {
-    createSystemMessage,
-    createTextPart,
-    getSessionStatusReminderContent,
-    type SessionStatusReminderKind,
-} from '@/utils/session';
+import { createTextPart } from '@/utils/session';
 
 import type { AiStreamChunk } from '../../contracts/protocol';
 import type { ToolApprovalDecisionRequest, ToolEvent } from '../../contracts/tooling';
@@ -104,7 +99,7 @@ export class SessionTaskProjection {
 
         this.createStreamingAssistantMessage();
         this.snapshot.status = 'running';
-        this.syncPendingApprovalState({ emitReminder: false });
+        this.syncPendingApprovalState();
         this.touch();
         this.publish();
     }
@@ -242,7 +237,7 @@ export class SessionTaskProjection {
             assistantMessage.isStreaming = false;
         }
 
-        this.setTaskStatus('completed');
+        this.snapshot.status = 'completed';
         this.syncPendingApprovalState();
         this.touch();
         this.publish();
@@ -270,7 +265,7 @@ export class SessionTaskProjection {
                 })
             );
         }
-        this.setTaskStatus('failed', { errorMessage });
+        this.snapshot.status = 'failed';
         this.snapshot.error = errorMessage;
         this.syncPendingApprovalState();
         this.touch();
@@ -301,7 +296,7 @@ export class SessionTaskProjection {
             );
         }
 
-        this.setTaskStatus('cancelled');
+        this.snapshot.status = 'cancelled';
         this.syncPendingApprovalState();
         this.touch();
         this.publish();
@@ -313,9 +308,7 @@ export class SessionTaskProjection {
             this.snapshot.turnId = event.turnId;
             this.snapshot.currentModel = event.model;
             this.snapshot.error = null;
-            this.setTaskStatus(this.approvals.hasPending ? 'waiting_approval' : 'running', {
-                emitReminder: false,
-            });
+            this.snapshot.status = this.approvals.hasPending ? 'waiting_approval' : 'running';
             this.touch();
             this.publish();
             return;
@@ -338,9 +331,7 @@ export class SessionTaskProjection {
 
         if (event.type === 'retry_scheduled') {
             this.snapshot.lastCheckpoint = cloneValue(event.checkpoint);
-            this.setTaskStatus(this.approvals.hasPending ? 'waiting_approval' : 'running', {
-                emitReminder: false,
-            });
+            this.snapshot.status = this.approvals.hasPending ? 'waiting_approval' : 'running';
             this.touch();
             this.publish();
             return;
@@ -478,52 +469,6 @@ export class SessionTaskProjection {
         });
     }
 
-    private setTaskStatus(
-        status: SessionTaskSnapshot['status'],
-        options: {
-            emitReminder?: boolean;
-            errorMessage?: string;
-        } = {}
-    ): void {
-        const previousStatus = this.snapshot.status;
-        this.snapshot.status = status;
-
-        if (options.emitReminder === false || previousStatus === status) {
-            return;
-        }
-
-        if (status === 'waiting_approval') {
-            this.appendSystemStatusReminder('waiting_approval');
-            return;
-        }
-
-        if (status === 'completed') {
-            this.appendSystemStatusReminder('completed');
-            return;
-        }
-
-        if (status === 'failed') {
-            this.appendSystemStatusReminder('failed', {
-                errorMessage: options.errorMessage,
-            });
-        }
-    }
-
-    private appendSystemStatusReminder(
-        status: SessionStatusReminderKind,
-        options: {
-            errorMessage?: string;
-        } = {}
-    ): void {
-        this.snapshot.sessionHistory.push(
-            createSystemMessage(
-                getSessionStatusReminderContent(status, {
-                    errorMessage: options.errorMessage,
-                })
-            )
-        );
-    }
-
     // ────────────────────── 状态同步 ──────────────────────
 
     private touch(): void {
@@ -532,14 +477,12 @@ export class SessionTaskProjection {
         this.snapshot.updatedAt = Date.now();
     }
 
-    private syncPendingApprovalState(options: { emitReminder?: boolean } = {}): void {
+    private syncPendingApprovalState(): void {
         if (isTerminalStatus(this.snapshot.status)) {
             return;
         }
 
-        this.setTaskStatus(this.approvals.hasPending ? 'waiting_approval' : 'running', {
-            emitReminder: options.emitReminder,
-        });
+        this.snapshot.status = this.approvals.hasPending ? 'waiting_approval' : 'running';
     }
 
     // ────────────────────── 跨关注点编排 ──────────────────────

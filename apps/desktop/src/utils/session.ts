@@ -1,4 +1,4 @@
-import type { SessionMessage, TextMessagePart } from '@/types/session';
+import type { TextMessagePart } from '@/types/session';
 
 export type SessionStatusReminderKind = 'completed' | 'failed' | 'waiting_approval';
 
@@ -10,22 +10,6 @@ export function createTextPart(content: string): TextMessagePart {
         id: crypto.randomUUID(),
         type: 'text',
         content,
-    };
-}
-
-export function createSystemMessage(
-    content: string,
-    options: {
-        id?: string;
-        timestamp?: number;
-    } = {}
-): SessionMessage {
-    return {
-        id: options.id ?? crypto.randomUUID(),
-        role: 'system',
-        content,
-        parts: [createTextPart(content)],
-        timestamp: options.timestamp ?? Date.now(),
     };
 }
 
@@ -43,36 +27,4 @@ export function getSessionStatusReminderContent(
         case 'waiting_approval':
             return '任务正在等待批准';
     }
-}
-
-export function getSessionStatusReminderKindFromContent(
-    content: string
-): SessionStatusReminderKind | null {
-    const normalized = content.trim();
-
-    if (normalized === getSessionStatusReminderContent('completed')) {
-        return 'completed';
-    }
-
-    if (normalized === getSessionStatusReminderContent('waiting_approval')) {
-        return 'waiting_approval';
-    }
-
-    if (
-        normalized === getSessionStatusReminderContent('failed') ||
-        normalized.startsWith(`${getSessionStatusReminderContent('failed')}：`)
-    ) {
-        return 'failed';
-    }
-
-    return null;
-}
-
-export function isSessionStatusReminderMessage(
-    message: Pick<SessionMessage, 'role' | 'content'>
-): boolean {
-    return (
-        message.role === 'system' &&
-        getSessionStatusReminderKindFromContent(message.content) !== null
-    );
 }

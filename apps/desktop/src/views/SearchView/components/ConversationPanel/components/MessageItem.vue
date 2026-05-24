@@ -2,7 +2,6 @@
 
 <template>
     <UserMessage v-if="message.role === 'user'" :message="message" />
-    <SystemMessage v-else-if="message.role === 'system'" :message="message" />
     <AssistantMessage
         v-else
         :message="message"
@@ -17,7 +16,6 @@
     import type { SessionMessage } from '@/types/session';
 
     import AssistantMessage from './AssistantMessage.vue';
-    import SystemMessage from './SystemMessage.vue';
     import UserMessage from './UserMessage.vue';
 
     interface Props {

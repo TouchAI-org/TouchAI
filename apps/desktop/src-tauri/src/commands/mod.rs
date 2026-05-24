@@ -19,7 +19,6 @@ pub fn invoke_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         window::hide_search_window,
-        window::show_search_window,
         window::set_tray_status_indicator,
         window::clear_tray_status_indicator,
         window::show_session_status_reminder_notification,

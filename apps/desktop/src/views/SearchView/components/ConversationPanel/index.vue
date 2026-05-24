@@ -8,7 +8,7 @@
             ref="conversationToolbar"
             :is-pinned="isPinned"
             :is-maximized="isMaximized"
-            :can-pin="visibleMessages.length > 0"
+            :can-pin="messages.length > 0"
             :disabled="toolbarDisabled"
             :history-open="historyOpen"
             @pin-change="emit('pinChange', $event)"
@@ -35,7 +35,7 @@
             <!-- 消息列表 -->
             <div ref="messageListRef" class="mt-4">
                 <div
-                    v-for="message in visibleMessages"
+                    v-for="message in messages"
                     :key="message.id"
                     :data-message-id="message.id"
                     :data-message-role="message.role"
@@ -52,7 +52,7 @@
 
             <!-- 对话时间轴 -->
             <ConversationTimeline
-                :messages="visibleMessages"
+                :messages="messages"
                 :container-height="maxHeight"
                 :scroll-top="scrollTop"
                 :scroll-height="scrollHeight"
@@ -84,7 +84,6 @@
 
     import { useSettingsStore } from '@/stores/settings';
     import type { SessionMessage } from '@/types/session';
-    import { isSessionStatusReminderMessage } from '@/utils/session';
 
     import ConversationTimeline from './components/ConversationTimeline.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
@@ -159,9 +158,6 @@
                   height: 'auto',
                   maxHeight: `${props.maxHeight}px`,
               }
-    );
-    const visibleMessages = computed(() =>
-        props.messages.filter((message) => !isSessionStatusReminderMessage(message))
     );
 
     // 暴露 focus 方法
@@ -371,7 +367,7 @@
 
     // 当消息变化时自动滚动到底部（仅在启用自动滚动时）
     watch(
-        visibleMessages,
+        () => props.messages,
         async () => {
             if (!shouldAutoScrollOnOutput()) return;
 
@@ -383,7 +379,7 @@
 
     // 重置自动滚动状态
     watch(
-        () => visibleMessages.value.length,
+        () => props.messages.length,
         (newLength, oldLength) => {
             // 消息被清空（新请求开始）
             if (newLength === 0 && oldLength > 0) {
@@ -394,7 +390,7 @@
 
             // 新消息添加（用户提交了新请求）
             if (newLength > oldLength) {
-                const appendedMessages = visibleMessages.value.slice(oldLength, newLength);
+                const appendedMessages = props.messages.slice(oldLength, newLength);
                 const latestAppendedUserMessage = [...appendedMessages]
                     .reverse()
                     .find((message) => message.role === 'user');

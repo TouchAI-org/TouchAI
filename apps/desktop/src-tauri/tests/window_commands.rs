@@ -1,6 +1,6 @@
 mod common;
 
-use common::{build_test_app, invoke_command_ok, invoke_command_result, TestAppOptions};
+use common::{build_test_app, invoke_command_ok, TestAppOptions};
 use serde_json::json;
 use touchai_lib::testing;
 
@@ -127,26 +127,6 @@ fn clear_session_status_reminder_notifications_updates_runtime_state() {
         testing::session_status_reminder_clear_count(&test_app.app),
         1
     );
-}
-
-#[test]
-fn show_search_window_command_is_registered() {
-    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
-
-    let response = invoke_command_result(&test_app.main_webview, "show_search_window", json!({}));
-
-    if cfg!(target_os = "windows") {
-        let error =
-            response.expect_err("windows mock runtime should not complete real webview focus");
-        assert!(
-            error
-                .as_str()
-                .is_some_and(|message| message.contains("focus result")),
-            "unexpected show_search_window error: {error}"
-        );
-    } else {
-        assert!(response.is_ok());
-    }
 }
 
 #[test]
