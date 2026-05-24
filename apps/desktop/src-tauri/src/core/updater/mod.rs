@@ -102,6 +102,19 @@ pub struct AppUpdateChannelLatest {
     pub release_url: String,
     pub published_at: Option<String>,
     pub prerelease: bool,
+    #[serde(default)]
+    pub release_notes: Option<String>,
+    #[serde(default)]
+    pub downloads: Vec<AppUpdateDownload>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateDownload {
+    pub kind: String,
+    pub name: String,
+    pub url: String,
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -685,6 +698,13 @@ mod tests {
                 .to_string(),
             published_at: Some("2026-05-24T00:00:00.000Z".to_string()),
             prerelease: true,
+            release_notes: Some("Security fixes".to_string()),
+            downloads: vec![AppUpdateDownload {
+                kind: "installer".to_string(),
+                name: "TouchAI-beta-0.2.1-beta.1-Setup.exe".to_string(),
+                url: "https://github.com/TouchAI-org/TouchAI/releases/download/v0.2.1-beta.1/TouchAI-beta-0.2.1-beta.1-Setup.exe".to_string(),
+                size_bytes: Some(12_000_000),
+            }],
         });
         let result = map_manager_init_error(
             AppUpdateChannel::Beta,
@@ -756,7 +776,16 @@ mod tests {
             "tag": "v0.2.1",
             "releaseUrl": format!("{}/releases/tag/v0.2.1", config.repository.url),
             "publishedAt": "2026-05-24T00:00:00.000Z",
-            "prerelease": false
+            "prerelease": false,
+            "releaseNotes": "Bug fixes",
+            "downloads": [
+                {
+                    "kind": "installer",
+                    "name": "TouchAI-0.2.1-Setup.exe",
+                    "url": format!("{}/releases/download/v0.2.1/TouchAI-0.2.1-Setup.exe", config.repository.url),
+                    "sizeBytes": 12000000
+                }
+            ]
         });
         let body = serde_json::json!({
             "schemaVersion": 1,
@@ -786,6 +815,16 @@ mod tests {
                 release_url: format!("{}/releases/tag/v0.2.1", config.repository.url),
                 published_at: Some("2026-05-24T00:00:00.000Z".to_string()),
                 prerelease: false,
+                release_notes: Some("Bug fixes".to_string()),
+                downloads: vec![AppUpdateDownload {
+                    kind: "installer".to_string(),
+                    name: "TouchAI-0.2.1-Setup.exe".to_string(),
+                    url: format!(
+                        "{}/releases/download/v0.2.1/TouchAI-0.2.1-Setup.exe",
+                        config.repository.url
+                    ),
+                    size_bytes: Some(12_000_000),
+                }],
             })
         );
         assert_eq!(policy.minimum_supported_version.as_deref(), Some("0.2.1"));

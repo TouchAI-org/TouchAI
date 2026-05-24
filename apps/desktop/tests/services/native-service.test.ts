@@ -656,6 +656,15 @@ describe('NativeService supporting boundaries', () => {
                 releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.0`,
                 publishedAt: '2026-05-22T09:00:00.000Z',
                 prerelease: false,
+                releaseNotes: 'Release notes from GitHub',
+                downloads: [
+                    {
+                        kind: 'installer',
+                        name: 'TouchAI-0.2.0-Setup.exe',
+                        url: `${APP_PRODUCT_CONFIG.repository.url}/releases/download/v0.2.0/TouchAI-0.2.0-Setup.exe`,
+                        sizeBytes: 12_000_000,
+                    },
+                ],
             },
             update,
             requirement: {

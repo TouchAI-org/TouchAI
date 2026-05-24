@@ -30,9 +30,22 @@
             (requirement.value?.targetSatisfiesRequirement ?? false)
     );
     const canInstall = computed(() => updateState.value.status === 'downloaded');
-    const releaseNotes = computed(() => visibleUpdate.value?.notes?.trim() ?? '');
-    const releasePageUrl = computed(
-        () => latestUpdate.value?.releaseUrl ?? APP_PRODUCT_CONFIG.repository.releasesUrl
+    const releaseNotes = computed(
+        () => visibleUpdate.value?.notes?.trim() || latestUpdate.value?.releaseNotes?.trim() || ''
+    );
+    const directDownloadUrl = computed(() => {
+        const downloads = latestUpdate.value?.downloads ?? [];
+        return (
+            downloads.find((download) => download.kind === 'installer')?.url ??
+            downloads.find((download) => download.kind === 'portable')?.url ??
+            null
+        );
+    });
+    const releaseDownloadUrl = computed(
+        () =>
+            directDownloadUrl.value ??
+            latestUpdate.value?.releaseUrl ??
+            APP_PRODUCT_CONFIG.repository.releasesUrl
     );
     const targetVersionText = computed(() => {
         if (visibleUpdate.value?.version) {
@@ -80,7 +93,7 @@
             return '下载更新';
         }
 
-        return '打开下载页';
+        return directDownloadUrl.value ? '下载安装包' : '打开下载页';
     });
 
     onMounted(async () => {
@@ -115,7 +128,7 @@
             return;
         }
 
-        await openUrl(releasePageUrl.value);
+        await openUrl(releaseDownloadUrl.value);
     }
 
     async function checkAgain() {
@@ -217,7 +230,9 @@
                                 ? 'check-circle'
                                 : canUseInAppUpdate
                                   ? 'arrow-down'
-                                  : 'folder-open'
+                                  : directDownloadUrl
+                                    ? 'arrow-down'
+                                    : 'folder-open'
                         "
                         class="h-4 w-4"
                     />

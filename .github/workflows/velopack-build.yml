@@ -248,7 +248,9 @@ jobs:
                     --channel "${{ inputs.channel }}" `
                     --version "${{ inputs.version }}" `
                     --tag "${{ inputs.tag }}" `
-                    --prerelease "${{ inputs.prerelease }}"
+                    --prerelease "${{ inputs.prerelease }}" `
+                    --release-notes-file "$env:RELEASE_NOTES_PATH" `
+                    --release-dir "$env:VELOPACK_RELEASE"
 
             - name: Upload update channel JSON artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

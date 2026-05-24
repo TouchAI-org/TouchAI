@@ -90,12 +90,21 @@ export interface AppUpdateRequirement {
     targetSatisfiesRequirement: boolean;
 }
 
+export interface AppUpdateDownload {
+    kind: 'installer' | 'portable' | 'fullPackage' | 'deltaPackage' | 'asset' | string;
+    name: string;
+    url: string;
+    sizeBytes: number | null;
+}
+
 export interface AppUpdateChannelLatest {
     version: string;
     tag: string;
     releaseUrl: string;
     publishedAt: string | null;
     prerelease: boolean;
+    releaseNotes: string | null;
+    downloads: AppUpdateDownload[];
 }
 
 export type AppUpdateCheckResult =

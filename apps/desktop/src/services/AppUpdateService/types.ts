@@ -2,6 +2,7 @@ import type {
     AppUpdateChannel,
     AppUpdateChannelLatest,
     AppUpdateCheckResult,
+    AppUpdateDownload,
     AppUpdateInfo,
     AppUpdateRequirement,
 } from '@services/NativeService/types';
@@ -10,6 +11,7 @@ export type {
     AppUpdateChannel,
     AppUpdateChannelLatest,
     AppUpdateCheckResult,
+    AppUpdateDownload,
     AppUpdateInfo,
     AppUpdateRequirement,
 };
