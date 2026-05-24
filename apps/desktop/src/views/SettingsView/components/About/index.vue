@@ -43,6 +43,17 @@
     );
     const latestUpdate = computed(() => updateState.value.latestUpdate);
     const updateRequirement = computed(() => updateState.value.updateRequirement);
+    const directDownloadUrl = computed(() => {
+        const downloads = latestUpdate.value?.downloads ?? [];
+        return (
+            downloads.find((download) => download.kind === 'installer')?.url ??
+            downloads.find((download) => download.kind === 'portable')?.url ??
+            null
+        );
+    });
+    const updateDownloadUrl = computed(
+        () => directDownloadUrl.value ?? latestUpdate.value?.releaseUrl ?? links.releasesUrl
+    );
     const currentChannelLabel = computed(
         () =>
             updateChannelOptions.find((option) => option.value === updateState.value.channel)
@@ -144,6 +155,10 @@
 
         if (visibleUpdate.value?.notes) {
             return visibleUpdate.value.notes;
+        }
+
+        if (latestUpdate.value?.releaseNotes) {
+            return latestUpdate.value.releaseNotes;
         }
 
         if (latestUpdate.value?.version) {
@@ -280,7 +295,7 @@
     };
 
     const openUpdateDownloadPage = async () => {
-        await openLink(latestUpdate.value?.releaseUrl ?? links.releasesUrl);
+        await openLink(updateDownloadUrl.value);
     };
 
     const toggleAutoCheck = async () => {
@@ -459,7 +474,7 @@
                             @click="openUpdateDownloadPage"
                         >
                             <AppIcon name="arrow-down" class="h-4 w-4" />
-                            下载页
+                            {{ directDownloadUrl ? '安装包' : '下载页' }}
                         </button>
                         <button
                             v-if="updateState.status === 'downloaded'"

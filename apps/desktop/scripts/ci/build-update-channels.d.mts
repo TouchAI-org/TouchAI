@@ -4,6 +4,13 @@ export type BuildUpdateChannelsLatest = {
     releaseUrl: string;
     publishedAt: string | null;
     prerelease: boolean;
+    releaseNotes?: string | null;
+    downloads?: Array<{
+        kind: 'installer' | 'portable' | 'fullPackage' | 'deltaPackage' | 'asset';
+        name: string;
+        url: string;
+        sizeBytes: number | null;
+    }>;
 };
 
 export type BuildUpdateChannelsOptions = {
@@ -15,6 +22,10 @@ export type BuildUpdateChannelsOptions = {
         tag: string;
         publishedAt?: string | null;
         prerelease: boolean;
+        releaseNotes?: string | null;
+        releaseNotesFile?: string | null;
+        releaseDir?: string | null;
+        downloads?: BuildUpdateChannelsLatest['downloads'];
     } | null;
     latestByChannel?: Record<string, BuildUpdateChannelsLatest | null>;
 };

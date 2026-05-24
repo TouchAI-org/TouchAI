@@ -24,6 +24,7 @@ export type {
     AppUpdateChannel,
     AppUpdateChannelLatest,
     AppUpdateCheckResult,
+    AppUpdateDownload,
     AppUpdateInfo,
     AppUpdateRequirement,
     BuiltInBashExecutionRequest,

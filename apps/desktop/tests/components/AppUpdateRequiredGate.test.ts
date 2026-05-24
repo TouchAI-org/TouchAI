@@ -28,6 +28,15 @@ const latestUpdate = {
     releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.1`,
     publishedAt: '2026-05-22T09:00:00.000Z',
     prerelease: false,
+    releaseNotes: 'Release notes from GitHub',
+    downloads: [
+        {
+            kind: 'installer',
+            name: 'TouchAI-0.2.1-Setup.exe',
+            url: `${APP_PRODUCT_CONFIG.repository.url}/releases/download/v0.2.1/TouchAI-0.2.1-Setup.exe`,
+            sizeBytes: 12_000_000,
+        },
+    ],
 };
 
 const baseState: AppUpdateState = {
@@ -118,7 +127,7 @@ describe('AppUpdateRequiredGate', () => {
         expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
     });
 
-    it('opens the release page when the channel has no satisfying update', async () => {
+    it('opens the direct installer when the channel has no satisfying update', async () => {
         appUpdateServiceMock.state = {
             ...baseState,
             status: 'not_available',
@@ -133,8 +142,9 @@ describe('AppUpdateRequiredGate', () => {
         const wrapper = mount(AppUpdateRequiredGate);
         await nextTick();
         expect(wrapper.text()).toContain('可更新到 0.2.1');
+        expect(wrapper.text()).toContain('Release notes from GitHub');
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
 
-        expect(openUrl).toHaveBeenCalledWith(latestUpdate.releaseUrl);
+        expect(openUrl).toHaveBeenCalledWith(latestUpdate.downloads[0]!.url);
     });
 });

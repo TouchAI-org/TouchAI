@@ -1,8 +1,9 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const REQUIRED_SEVERITIES = ['critical', 'security', 'recommended'];
+const DOWNLOAD_KINDS = ['installer', 'portable', 'fullPackage', 'deltaPackage', 'asset'];
 const SEMVER_PATTERN =
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const SEMVER_CAPTURE_PATTERN =
@@ -38,6 +39,12 @@ function assertAbsoluteHttpsUrl(value, label) {
 
     if (url.protocol !== 'https:') {
         throw new Error(`${label} must use https.`);
+    }
+}
+
+function assertNullableNonNegativeInteger(value, label) {
+    if (value !== null && (!Number.isInteger(value) || value < 0)) {
+        throw new Error(`${label} must be a non-negative integer or null.`);
     }
 }
 
@@ -81,6 +88,47 @@ function normalizePolicy(policy, channel) {
     };
 }
 
+function normalizeReleaseNotes(value, label) {
+    assertNullableString(value, label);
+    if (value === null) {
+        return null;
+    }
+
+    const notes = value.trim();
+    return notes ? notes : null;
+}
+
+function normalizeDownload(value, label) {
+    assertObject(value, label);
+    assertNonEmptyString(value.kind, `${label}.kind`);
+    if (!DOWNLOAD_KINDS.includes(value.kind)) {
+        throw new Error(`${label}.kind must be one of ${DOWNLOAD_KINDS.join(', ')}.`);
+    }
+    assertNonEmptyString(value.name, `${label}.name`);
+    assertAbsoluteHttpsUrl(value.url, `${label}.url`);
+
+    const sizeBytes = value.sizeBytes ?? null;
+    assertNullableNonNegativeInteger(sizeBytes, `${label}.sizeBytes`);
+
+    return {
+        kind: value.kind,
+        name: value.name,
+        url: value.url,
+        sizeBytes,
+    };
+}
+
+function normalizeDownloads(value, channel) {
+    const downloads = value ?? [];
+    if (!Array.isArray(downloads)) {
+        throw new Error(`${channel}.latest.downloads must be an array.`);
+    }
+
+    return downloads.map((download, index) =>
+        normalizeDownload(download, `${channel}.latest.downloads[${index}]`)
+    );
+}
+
 function normalizeLatestRelease(value, channel) {
     if (value === undefined || value === null) {
         return null;
@@ -104,6 +152,11 @@ function normalizeLatestRelease(value, channel) {
         releaseUrl: value.releaseUrl,
         publishedAt,
         prerelease: value.prerelease,
+        releaseNotes: normalizeReleaseNotes(
+            value.releaseNotes ?? null,
+            `${channel}.latest.releaseNotes`
+        ),
+        downloads: normalizeDownloads(value.downloads, channel),
     };
 }
 
@@ -205,6 +258,118 @@ async function readProduct(projectRoot) {
 
 function releaseUrl(product, tag) {
     return `${product.repository.releasesUrl.replace(/\/+$/g, '')}/tag/${tag}`;
+}
+
+function releaseDownloadUrl(product, tag, fileName) {
+    return `${product.repository.url.replace(/\/+$/g, '')}/releases/download/${encodeURIComponent(
+        tag
+    )}/${encodeURIComponent(fileName)}`;
+}
+
+function downloadKindFromFileName(fileName) {
+    const lowerName = fileName.toLowerCase();
+    if (lowerName.endsWith('-setup.exe')) {
+        return 'installer';
+    }
+    if (lowerName.endsWith('-portable.zip')) {
+        return 'portable';
+    }
+    if (lowerName.endsWith('-full.nupkg')) {
+        return 'fullPackage';
+    }
+    if (lowerName.endsWith('-delta.nupkg')) {
+        return 'deltaPackage';
+    }
+    return null;
+}
+
+function sortDownloads(downloads) {
+    const order = new Map(DOWNLOAD_KINDS.map((kind, index) => [kind, index]));
+    return [...downloads].sort(
+        (left, right) =>
+            (order.get(left.kind) ?? DOWNLOAD_KINDS.length) -
+                (order.get(right.kind) ?? DOWNLOAD_KINDS.length) ||
+            left.name.localeCompare(right.name)
+    );
+}
+
+function mergeDownloads(...downloadLists) {
+    const merged = new Map();
+    for (const downloads of downloadLists) {
+        for (const download of downloads ?? []) {
+            const key = `${download.kind}:${download.name}`;
+            if (!merged.has(key)) {
+                merged.set(key, download);
+            }
+        }
+    }
+    return sortDownloads([...merged.values()]);
+}
+
+function releaseDownloadsFromGithubAssets(assets, version) {
+    if (!Array.isArray(assets)) {
+        return [];
+    }
+
+    const downloads = [];
+    for (const asset of assets) {
+        const name = asset?.name;
+        const url = asset?.browser_download_url;
+        if (typeof name !== 'string' || typeof url !== 'string') {
+            continue;
+        }
+
+        if (version && !name.includes(version)) {
+            continue;
+        }
+
+        const kind = downloadKindFromFileName(name);
+        if (!kind) {
+            continue;
+        }
+
+        downloads.push({
+            kind,
+            name,
+            url,
+            sizeBytes: Number.isInteger(asset.size) && asset.size >= 0 ? asset.size : null,
+        });
+    }
+
+    return sortDownloads(downloads);
+}
+
+async function releaseDownloadsFromDirectory(product, tag, releaseDir, version) {
+    if (!releaseDir) {
+        return [];
+    }
+
+    const entries = await readdir(releaseDir, { withFileTypes: true });
+    const downloads = [];
+    for (const entry of entries) {
+        if (!entry.isFile()) {
+            continue;
+        }
+
+        if (version && !entry.name.includes(version)) {
+            continue;
+        }
+
+        const kind = downloadKindFromFileName(entry.name);
+        if (!kind) {
+            continue;
+        }
+
+        const fileStat = await stat(join(releaseDir, entry.name));
+        downloads.push({
+            kind,
+            name: entry.name,
+            url: releaseDownloadUrl(product, tag, entry.name),
+            sizeBytes: fileStat.size,
+        });
+    }
+
+    return sortDownloads(downloads);
 }
 
 function parseVersion(value) {
@@ -319,6 +484,8 @@ function releaseCandidateFromGithubRelease(product, release) {
             releaseUrl: release.html_url ?? releaseUrl(product, tag),
             publishedAt: release.published_at ?? null,
             prerelease: Boolean(release.prerelease),
+            releaseNotes: normalizeReleaseNotes(release.body ?? null, `${tag}.releaseNotes`),
+            downloads: releaseDownloadsFromGithubAssets(release.assets, parsedVersion.version),
         },
         parsedVersion,
     };
@@ -349,7 +516,11 @@ function latestByChannelFromGithubReleases(product, releases) {
     );
 }
 
-function latestByChannelFromRelease(product, release, fallbackPublishedAt) {
+function releaseByTag(releases, tag) {
+    return releases.find((release) => release?.tag_name === tag) ?? null;
+}
+
+function latestByChannelFromRelease(product, release, fallbackPublishedAt, releases) {
     if (!release) {
         return {};
     }
@@ -363,13 +534,23 @@ function latestByChannelFromRelease(product, release, fallbackPublishedAt) {
         throw new Error('release prerelease must be a boolean.');
     }
 
+    const githubRelease = releaseByTag(releases, tag);
+    const githubLatest = githubRelease
+        ? releaseCandidateFromGithubRelease(product, githubRelease)?.latest
+        : null;
+
     return {
         [channel]: {
             version,
             tag,
-            releaseUrl: releaseUrl(product, tag),
-            publishedAt: publishedAt ?? fallbackPublishedAt,
+            releaseUrl: githubLatest?.releaseUrl ?? releaseUrl(product, tag),
+            publishedAt: publishedAt ?? githubLatest?.publishedAt ?? fallbackPublishedAt,
             prerelease,
+            releaseNotes: normalizeReleaseNotes(
+                release.releaseNotes ?? githubLatest?.releaseNotes ?? null,
+                `${channel}.latest.releaseNotes`
+            ),
+            downloads: mergeDownloads(release.downloads, githubLatest?.downloads),
         },
     };
 }
@@ -406,9 +587,28 @@ export async function buildUpdateChannels(projectRoot, outputRoot, now = new Dat
     const updates = product.services.updates;
     const outputDir = join(outputRoot, relativeUpdatePath(updates.baseUrl), 'channels');
     const releases = await githubReleases(options.githubRepository, options.githubToken);
+    const release = options.release
+        ? {
+              ...options.release,
+              releaseNotes:
+                  options.release.releaseNotes ??
+                  (options.release.releaseNotesFile
+                      ? await readFile(options.release.releaseNotesFile, 'utf8')
+                      : null),
+              downloads: mergeDownloads(
+                  await releaseDownloadsFromDirectory(
+                      product,
+                      options.release.tag,
+                      options.release.releaseDir,
+                      options.release.version
+                  ),
+                  options.release.downloads
+              ),
+          }
+        : null;
     const latestByChannel = {
         ...latestByChannelFromGithubReleases(product, releases),
-        ...latestByChannelFromRelease(product, options.release, generatedAt),
+        ...latestByChannelFromRelease(product, release, generatedAt, releases),
         ...(options.latestByChannel ?? {}),
     };
 
@@ -470,6 +670,8 @@ function parseCliOptions(argv) {
             tag: options.tag,
             prerelease: booleanArg(options.prerelease, '--prerelease'),
             publishedAt: options['published-at'] ?? null,
+            releaseNotesFile: options['release-notes-file'] ?? null,
+            releaseDir: options['release-dir'] ?? null,
         };
     }
 

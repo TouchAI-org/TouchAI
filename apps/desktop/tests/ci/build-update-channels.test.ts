@@ -12,12 +12,31 @@ type ChannelLatestFixture = {
     releaseUrl: string;
     publishedAt: string | null;
     prerelease: boolean;
+    releaseNotes?: string | null;
+    downloads?: ChannelDownloadFixture[];
+};
+type ChannelDownloadFixture = {
+    kind: 'installer' | 'portable' | 'fullPackage' | 'deltaPackage' | 'asset';
+    name: string;
+    url: string;
+    sizeBytes: number | null;
 };
 type BuildUpdateChannels = (
     projectRoot: string,
     outputRoot: string,
     now?: Date,
-    options?: { latestByChannel?: Record<string, ChannelLatestFixture | null> }
+    options?: {
+        release?: {
+            channel: string;
+            version: string;
+            tag: string;
+            publishedAt?: string | null;
+            prerelease: boolean;
+            releaseNotesFile?: string | null;
+            releaseDir?: string | null;
+        } | null;
+        latestByChannel?: Record<string, ChannelLatestFixture | null>;
+    }
 ) => Promise<void>;
 type ProductConfigFixture = {
     schemaVersion: number;
@@ -208,19 +227,29 @@ describe('buildUpdateChannels', () => {
         const productFixture = cloneProductConfig();
         const root = await createFixture(productFixture);
         const outputRoot = join(root, 'dist');
+        const releaseDir = join(root, 'release');
+        const releaseNotesPath = join(root, 'release-notes.md');
+        const installerName = 'TouchAI-beta-0.1.1-beta.1-Setup.exe';
+        const portableName = 'TouchAI-beta-0.1.1-beta.1-Portable.zip';
+        const releaseTag = 'v0.1.1-beta.1';
+        const expectedReleaseUrl = `${productFixture.repository.releasesUrl}/tag/${releaseTag}`;
+        const expectedDownloadBaseUrl = `${productFixture.repository.url}/releases/download/${releaseTag}`;
+        await mkdir(releaseDir, { recursive: true });
+        await writeFile(releaseNotesPath, '## Changes\n\n- Beta fixes\n', 'utf8');
+        await writeFile(join(releaseDir, installerName), 'installer');
+        await writeFile(join(releaseDir, portableName), 'portable');
 
         try {
             expect(buildUpdateChannels).toBeTypeOf('function');
             await buildUpdateChannels?.(root, outputRoot, new Date('2026-05-24T00:00:00Z'), {
-                latestByChannel: {
-                    beta: {
-                        version: '0.1.1-beta.1',
-                        tag: 'v0.1.1-beta.1',
-                        releaseUrl:
-                            'https://github.com/TouchAI-org/TouchAI/releases/tag/v0.1.1-beta.1',
-                        publishedAt: '2026-05-24T16:37:32.103Z',
-                        prerelease: true,
-                    },
+                release: {
+                    channel: 'beta',
+                    version: '0.1.1-beta.1',
+                    tag: releaseTag,
+                    publishedAt: '2026-05-24T16:37:32.103Z',
+                    prerelease: true,
+                    releaseNotesFile: releaseNotesPath,
+                    releaseDir,
                 },
             });
 
@@ -233,10 +262,25 @@ describe('buildUpdateChannels', () => {
 
             expect(beta.latest).toEqual({
                 version: '0.1.1-beta.1',
-                tag: 'v0.1.1-beta.1',
-                releaseUrl: 'https://github.com/TouchAI-org/TouchAI/releases/tag/v0.1.1-beta.1',
+                tag: releaseTag,
+                releaseUrl: expectedReleaseUrl,
                 publishedAt: '2026-05-24T16:37:32.103Z',
                 prerelease: true,
+                releaseNotes: '## Changes\n\n- Beta fixes',
+                downloads: [
+                    {
+                        kind: 'installer',
+                        name: installerName,
+                        url: `${expectedDownloadBaseUrl}/${installerName}`,
+                        sizeBytes: 9,
+                    },
+                    {
+                        kind: 'portable',
+                        name: portableName,
+                        url: `${expectedDownloadBaseUrl}/${portableName}`,
+                        sizeBytes: 8,
+                    },
+                ],
             });
             expect(stable.latest).toBeNull();
         } finally {
