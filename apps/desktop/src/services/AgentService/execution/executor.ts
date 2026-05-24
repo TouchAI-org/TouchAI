@@ -4,6 +4,7 @@ import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ProviderDriver, ToolLogKind } from '@database/schema';
 
+import { tt } from '@/i18n';
 import {
     type BuiltInToolControlSignal,
     type BuiltInToolId,
@@ -39,12 +40,13 @@ const toolArgumentsSchema = z.record(z.string(), z.unknown());
  * console 日志仍保留英文，便于对齐 SDK、provider 和协议层排障信息。
  */
 const formatToolArgumentJsonError = (toolName: string): string =>
-    `工具参数协议错误：${toolName} 返回了无效的 JSON 参数。`;
+    tt('工具参数协议错误：{toolName} 返回了无效的 JSON 参数。', { toolName });
 const formatToolArgumentShapeError = (toolName: string, issues: string): string =>
-    `工具参数协议错误：${toolName} 必须接收 JSON 对象。\n${issues}`;
-const formatToolNotFoundError = (toolName: string): string => `未找到工具：${toolName}`;
+    `${tt('工具参数协议错误：{toolName} 必须接收 JSON 对象。', { toolName })}\n${issues}`;
+const formatToolNotFoundError = (toolName: string): string =>
+    tt('未找到工具：{toolName}', { toolName });
 const formatToolExecutionFailedError = (errorMessage: string): string =>
-    `工具执行失败：${errorMessage}`;
+    tt('工具执行失败：{error}', { error: errorMessage });
 
 interface ProviderErrorDetails {
     statusCode?: number;

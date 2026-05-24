@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import { computed } from 'vue';
 
+    import { t, type MessageKey } from '@/i18n';
     import { parseModelModalities, supportsImageModality } from '@/utils/modelSchemas';
 
     interface ModelCapabilitySource {
@@ -22,30 +23,32 @@
         size: 'md',
     });
 
+    type CapabilityLabelKey = Extract<MessageKey, `model.capability.${string}`>;
+
     const tags = computed(() => {
-        const result: Array<{ label: string; color: string }> = [];
+        const result: Array<{ labelKey: CapabilityLabelKey; color: string }> = [];
 
         if (props.model.reasoning === 1) {
-            result.push({ label: '推理', color: 'blue' });
+            result.push({ labelKey: 'model.capability.reasoning', color: 'blue' });
         }
         if (props.model.tool_call === 1) {
-            result.push({ label: '工具', color: 'green' });
+            result.push({ labelKey: 'model.capability.tools', color: 'green' });
         }
         if (props.model.modalities) {
             const modalities = parseModelModalities(props.model.modalities);
             if (supportsImageModality(modalities)) {
-                result.push({ label: '多模态', color: 'purple' });
+                result.push({ labelKey: 'model.capability.multimodal', color: 'purple' });
             }
         }
         if (props.model.attachment === 1) {
-            result.push({ label: '文件', color: 'orange' });
+            result.push({ labelKey: 'model.capability.files', color: 'orange' });
         }
         if (props.model.open_weights === 1) {
-            result.push({ label: '开源', color: 'indigo' });
+            result.push({ labelKey: 'model.capability.openWeights', color: 'indigo' });
         }
 
         if (result.length === 0) {
-            result.push({ label: '文本', color: 'gray' });
+            result.push({ labelKey: 'model.capability.text', color: 'gray' });
         }
 
         return result;
@@ -53,18 +56,18 @@
 
     const sizeClass = computed(() => {
         return props.size === 'sm'
-            ? 'px-1 py-0.5 text-[10px] leading-none'
-            : 'px-1.5 py-0.5 text-xs';
+            ? 'max-w-[5.75rem] px-1 py-0.5 text-[10px] leading-tight'
+            : 'max-w-[7.5rem] px-1.5 py-0.5 text-xs leading-tight';
     });
 </script>
 
 <template>
-    <div class="flex flex-wrap items-center gap-1">
+    <div class="flex min-w-0 flex-wrap items-center gap-1">
         <span
             v-for="tag in tags"
-            :key="tag.label"
+            :key="`${tag.color}-${tag.labelKey}`"
             :class="[
-                'rounded font-medium',
+                'inline-flex min-w-0 items-center rounded text-center font-medium break-words whitespace-normal',
                 sizeClass,
                 {
                     'bg-blue-50 text-blue-600': tag.color === 'blue',
@@ -76,7 +79,7 @@
                 },
             ]"
         >
-            {{ tag.label }}
+            {{ t(tag.labelKey) }}
         </span>
     </div>
 </template>

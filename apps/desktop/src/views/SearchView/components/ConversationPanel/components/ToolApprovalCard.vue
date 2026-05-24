@@ -7,8 +7,12 @@
                 <span class="tool-approval-card__icon">
                     <AppIcon name="exclamation-triangle" class="h-4 w-4" />
                 </span>
-                <span class="tool-approval-card__title">
-                    {{ approval.title || '需要确认' }}
+                <span
+                    class="tool-approval-card__title"
+                    :data-no-i18n="isApprovalTitlePayload ? 'true' : undefined"
+                    :translate="isApprovalTitlePayload ? 'no' : undefined"
+                >
+                    {{ approvalTitleText }}
                 </span>
             </div>
 
@@ -22,15 +26,22 @@
                     ]"
                     @click="emit('approve', approval.callId)"
                 >
-                    <span>{{ approval.approveLabel }}</span>
+                    <span
+                        :data-no-i18n="isApproveLabelPayload ? 'true' : undefined"
+                        :translate="isApproveLabelPayload ? 'no' : undefined"
+                    >
+                        {{ approveLabelText }}
+                    </span>
                     <span
                         :class="
                             isKeyboardArmed
                                 ? 'tool-approval-card__keycap'
                                 : 'tool-approval-card__keycap tool-approval-card__keycap--locked'
                         "
+                        :data-no-i18n="isEnterHintPayload ? 'true' : undefined"
+                        :translate="isEnterHintPayload ? 'no' : undefined"
                     >
-                        {{ approval.enterHint || 'Enter' }}
+                        {{ enterHintText }}
                     </span>
                 </button>
                 <button
@@ -38,9 +49,18 @@
                     class="tool-approval-card__button tool-approval-card__button--reject"
                     @click="emit('reject', approval.callId)"
                 >
-                    <span>{{ approval.rejectLabel }}</span>
-                    <span class="tool-approval-card__keycap">
-                        {{ approval.escHint || 'Esc' }}
+                    <span
+                        :data-no-i18n="isRejectLabelPayload ? 'true' : undefined"
+                        :translate="isRejectLabelPayload ? 'no' : undefined"
+                    >
+                        {{ rejectLabelText }}
+                    </span>
+                    <span
+                        class="tool-approval-card__keycap"
+                        :data-no-i18n="isEscHintPayload ? 'true' : undefined"
+                        :translate="isEscHintPayload ? 'no' : undefined"
+                    >
+                        {{ escHintText }}
                     </span>
                 </button>
             </div>
@@ -54,18 +74,36 @@
                             : 'tool-approval-card__resolution-badge--rejected',
                     ]"
                 >
-                    {{ approval.status === 'cancelled' ? '已取消' : '已拒绝' }}
+                    {{
+                        approval.status === 'cancelled'
+                            ? t('common.cancelled')
+                            : t('common.rejected')
+                    }}
                 </span>
-                <span class="tool-approval-card__resolution-text">
-                    {{ approval.resolutionText || defaultResolutionText }}
+                <span
+                    class="tool-approval-card__resolution-text"
+                    :data-no-i18n="isResolutionTextPayload ? 'true' : undefined"
+                    :translate="isResolutionTextPayload ? 'no' : undefined"
+                >
+                    {{ resolutionText }}
                 </span>
             </div>
         </div>
 
-        <p v-if="approvalReasonText" class="tool-approval-card__description">
+        <p
+            v-if="approvalReasonText"
+            class="tool-approval-card__description"
+            :data-no-i18n="isApprovalReasonPayload ? 'true' : undefined"
+            :translate="isApprovalReasonPayload ? 'no' : undefined"
+        >
             {{ approvalReasonText }}
         </p>
-        <pre class="tool-approval-card__command custom-scrollbar-thin">{{ approval.command }}</pre>
+        <pre
+            class="tool-approval-card__command custom-scrollbar-thin"
+            data-no-i18n="true"
+            translate="no"
+            v-text="approval.command"
+        ></pre>
     </div>
 </template>
 
@@ -73,6 +111,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
+    import { t, type MessageKey } from '@/i18n';
     import type { ToolApprovalInfo } from '@/types/session';
 
     interface Props {
@@ -94,11 +133,148 @@
     let keyboardArmTimer: ReturnType<typeof setTimeout> | null = null;
     let attentionTimer: ReturnType<typeof setTimeout> | null = null;
     let attentionFrame: number | null = null;
+
+    const APP_OWNED_APPROVAL_TEXT_KEYS: Record<string, MessageKey> = {
+        需要确认: 'conversation.approval.defaultTitle',
+        命令执行确认: 'conversation.approval.commandExecutionTitle',
+        读取本地内容确认: 'conversation.approval.readLocalContentTitle',
+        模型切换确认: 'conversation.approval.modelSwitchTitle',
+        设置修改确认: 'conversation.approval.settingChangeTitle',
+        命令执行需要确认: 'conversation.approval.commandExecutionNeedsConfirmation',
+        '这是一个高风险命令，请确认后再继续执行。':
+            'conversation.approval.highRiskCommandDescription',
+        高风险: 'conversation.approval.highRiskLabel',
+        '命令可能修改文件或系统状态。': 'conversation.approval.modifiesFilesOrSystemState',
+        命令预览: 'conversation.approval.commandPreview',
+        批准执行: 'conversation.approval.approveExecute',
+        拒绝执行: 'conversation.approval.rejectExecute',
+        'Enter 批准': 'conversation.approval.enterApprove',
+        'Esc 拒绝': 'conversation.approval.escReject',
+        批准: 'conversation.approval.approve',
+        拒绝: 'conversation.approval.reject',
+        已批准执行此命令: 'conversation.approval.approvedCommand',
+        已拒绝执行此命令: 'conversation.approval.rejectedCommand',
+        用户已拒绝执行此命令: 'conversation.approval.userRejectedCommand',
+        本次命令已取消: 'conversation.approval.commandCancelled',
+        本次命令未被执行: 'conversation.approval.commandNotExecuted',
+        请求已取消: 'common.requestCancelled',
+        '当前配置要求所有 Bash 命令都必须先批准。':
+            'conversation.approval.bashApprovalRequired',
+        '命令可能删除文件或目录。': 'conversation.approval.mayDeleteFiles',
+        '命令可能重置或清理 Git 工作区。': 'conversation.approval.mayResetGitWorktree',
+        '命令可能修改或覆盖文件内容。': 'conversation.approval.mayModifyFiles',
+        '命令包含输出重定向，可能覆写文件。':
+            'conversation.approval.mayOverwriteViaRedirection',
+        '命令可能修改系统配置或影响设备状态。': 'conversation.approval.mayModifySystem',
+        '此操作会读取本地文件或目录内容，并将结果发送给模型。':
+            'conversation.approval.readLocalContentDescription',
+        '这会修改当前问答后续使用的模型，并同步影响后续默认模型。':
+            'conversation.approval.modelSwitchSettingDescription',
+        '此操作会修改 TouchAI 的应用设置，并立即影响后续行为。':
+            'conversation.approval.appSettingsChangeDescription',
+    };
+    const MODEL_SWITCH_TEXT_PATTERN = /^允许从 (.+) 切换到 (.+)$/;
+
+    function normalizeInlineText(value?: string | null): string {
+        return value?.trim() || '';
+    }
+
+    function isAppOwnedApprovalText(value: string): boolean {
+        return Boolean(APP_OWNED_APPROVAL_TEXT_KEYS[value.trim()]);
+    }
+
+    function getModelSwitchParams(
+        value: string
+    ): { currentModel: string; targetModel: string } | null {
+        const match = MODEL_SWITCH_TEXT_PATTERN.exec(value.trim());
+        if (!match?.[1] || !match[2]) {
+            return null;
+        }
+
+        return {
+            currentModel: match[1],
+            targetModel: match[2],
+        };
+    }
+
+    function translateAppOwnedText(value: string): string {
+        const modelSwitchParams = getModelSwitchParams(value);
+        if (modelSwitchParams) {
+            return t('conversation.approval.modelSwitchDescription', modelSwitchParams);
+        }
+
+        const key = APP_OWNED_APPROVAL_TEXT_KEYS[value.trim()];
+        return key ? t(key) : value;
+    }
+
     const defaultResolutionText = computed(() => {
-        return props.approval.status === 'cancelled' ? '本次命令已取消' : '本次命令未被执行';
+        return props.approval.status === 'cancelled'
+            ? t('conversation.approval.commandCancelled')
+            : t('conversation.approval.commandNotExecuted');
     });
+    const approvalTitleSourceText = computed(
+        () => normalizeInlineText(props.approval.title) || '需要确认'
+    );
+    const isApprovalTitlePayload = computed(
+        () => !isAppOwnedApprovalText(approvalTitleSourceText.value)
+    );
+    const approvalTitleText = computed(() => translateAppOwnedText(approvalTitleSourceText.value));
+    const approvalReasonSourceText = computed(() => {
+        return (
+            normalizeInlineText(props.approval.description) ||
+            normalizeInlineText(props.approval.reason)
+        );
+    });
+    const isApprovalReasonPayload = computed(
+        () =>
+            Boolean(approvalReasonSourceText.value) &&
+            !isAppOwnedApprovalText(approvalReasonSourceText.value) &&
+            !getModelSwitchParams(approvalReasonSourceText.value)
+    );
     const approvalReasonText = computed(() => {
-        return props.approval.description?.trim() || props.approval.reason?.trim() || '';
+        return translateAppOwnedText(approvalReasonSourceText.value);
+    });
+    const approveLabelSourceText = computed(
+        () => normalizeInlineText(props.approval.approveLabel) || '批准执行'
+    );
+    const isApproveLabelPayload = computed(
+        () => !isAppOwnedApprovalText(approveLabelSourceText.value)
+    );
+    const approveLabelText = computed(() => translateAppOwnedText(approveLabelSourceText.value));
+    const rejectLabelSourceText = computed(
+        () => normalizeInlineText(props.approval.rejectLabel) || '拒绝执行'
+    );
+    const isRejectLabelPayload = computed(
+        () => !isAppOwnedApprovalText(rejectLabelSourceText.value)
+    );
+    const rejectLabelText = computed(() => translateAppOwnedText(rejectLabelSourceText.value));
+    const enterHintSourceText = computed(
+        () => normalizeInlineText(props.approval.enterHint) || 'Enter'
+    );
+    const isEnterHintPayload = computed(
+        () =>
+            !['Enter', 'Esc'].includes(enterHintSourceText.value) &&
+            !isAppOwnedApprovalText(enterHintSourceText.value)
+    );
+    const enterHintText = computed(() => translateAppOwnedText(enterHintSourceText.value));
+    const escHintSourceText = computed(() => normalizeInlineText(props.approval.escHint) || 'Esc');
+    const isEscHintPayload = computed(
+        () =>
+            !['Enter', 'Esc'].includes(escHintSourceText.value) &&
+            !isAppOwnedApprovalText(escHintSourceText.value)
+    );
+    const escHintText = computed(() => translateAppOwnedText(escHintSourceText.value));
+    const resolutionSourceText = computed(() => normalizeInlineText(props.approval.resolutionText));
+    const isResolutionTextPayload = computed(
+        () =>
+            Boolean(resolutionSourceText.value) &&
+            !isAppOwnedApprovalText(resolutionSourceText.value) &&
+            !getModelSwitchParams(resolutionSourceText.value)
+    );
+    const resolutionText = computed(() => {
+        return resolutionSourceText.value
+            ? translateAppOwnedText(resolutionSourceText.value)
+            : defaultResolutionText.value;
     });
 
     /**

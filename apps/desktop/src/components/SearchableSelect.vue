@@ -15,13 +15,19 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
+    import { t, tt, type MessageKey } from '@/i18n';
+
     interface Props {
         modelValue: T['value'] | null;
         options: T[];
         placeholder?: string;
+        placeholderKey?: MessageKey;
         searchPlaceholder?: string;
+        searchPlaceholderKey?: MessageKey;
         emptyText?: string;
+        emptyTextKey?: MessageKey;
         disabled?: boolean;
+        protectOptionText?: boolean;
     }
 
     interface Emits {
@@ -34,10 +40,11 @@
     }>();
 
     const props = withDefaults(defineProps<Props>(), {
-        placeholder: '请选择',
-        searchPlaceholder: '搜索',
-        emptyText: '暂无可选项',
+        placeholder: '',
+        searchPlaceholder: '',
+        emptyText: '',
         disabled: false,
+        protectOptionText: false,
     });
 
     const emit = defineEmits<Emits>();
@@ -51,6 +58,27 @@
 
     const selectedOption = computed(() => {
         return props.options.find((option) => option.value === props.modelValue) ?? null;
+    });
+
+    const resolvedPlaceholder = computed(() => {
+        if (props.placeholderKey) {
+            return t(props.placeholderKey);
+        }
+        return props.placeholder ? tt(props.placeholder) : t('common.selectPlaceholder');
+    });
+
+    const resolvedSearchPlaceholder = computed(() => {
+        if (props.searchPlaceholderKey) {
+            return t(props.searchPlaceholderKey);
+        }
+        return props.searchPlaceholder ? tt(props.searchPlaceholder) : t('common.searchPlaceholder');
+    });
+
+    const resolvedEmptyText = computed(() => {
+        if (props.emptyTextKey) {
+            return t(props.emptyTextKey);
+        }
+        return props.emptyText ? tt(props.emptyText) : t('common.emptyOptions');
     });
 
     /**
@@ -286,8 +314,16 @@
         >
             <div class="min-w-0 flex-1">
                 <slot name="selected" :option="selectedOption">
-                    <span class="block truncate">
-                        {{ selectedOption?.label || placeholder }}
+                    <span
+                        v-if="selectedOption"
+                        class="block truncate"
+                        :data-no-i18n="protectOptionText ? 'true' : undefined"
+                        :translate="protectOptionText ? 'no' : undefined"
+                    >
+                        {{ selectedOption.label }}
+                    </span>
+                    <span v-else class="block truncate">
+                        {{ resolvedPlaceholder }}
                     </span>
                 </slot>
             </div>
@@ -314,7 +350,7 @@
                         v-model="searchQuery"
                         type="text"
                         class="focus:border-primary-400 h-9 w-full rounded-lg border border-gray-200 bg-white pr-3 pl-9 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
-                        :placeholder="searchPlaceholder"
+                        :placeholder="resolvedSearchPlaceholder"
                         @keydown="handleSearchKeydown"
                     />
                 </div>
@@ -350,12 +386,18 @@
                         :highlighted="index === highlightedIndex"
                         :selected="option.value === modelValue"
                     >
-                        <span class="truncate font-serif text-sm font-medium">
+                        <span
+                            class="truncate font-serif text-sm font-medium"
+                            :data-no-i18n="protectOptionText ? 'true' : undefined"
+                            :translate="protectOptionText ? 'no' : undefined"
+                        >
                             {{ option.label }}
                         </span>
                         <span
                             v-if="option.description"
                             class="mt-0.5 truncate text-xs text-gray-500"
+                            :data-no-i18n="protectOptionText ? 'true' : undefined"
+                            :translate="protectOptionText ? 'no' : undefined"
                         >
                             {{ option.description }}
                         </span>
@@ -366,7 +408,7 @@
                     v-if="filteredOptions.length === 0"
                     class="px-3 py-6 text-center font-serif text-sm text-gray-500"
                 >
-                    {{ emptyText }}
+                    {{ resolvedEmptyText }}
                 </div>
             </div>
         </div>

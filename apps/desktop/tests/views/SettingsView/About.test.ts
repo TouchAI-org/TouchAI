@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
 import { APP_PRODUCT_CONFIG } from '@/config/product';
+import { setLocale } from '@/i18n';
 import AboutView from '@/views/SettingsView/components/About/index.vue';
 
 const neutralRequirement = {
@@ -31,7 +32,7 @@ const latestUpdate = {
     ],
 };
 
-const updateState: AppUpdateState = {
+const baseUpdateState: AppUpdateState = {
     status: 'available',
     channel: 'stable',
     autoCheckEnabled: true,
@@ -52,9 +53,10 @@ const updateState: AppUpdateState = {
 };
 
 const appUpdateServiceMock = vi.hoisted(() => ({
-    getState: vi.fn(() => updateState),
+    state: null as AppUpdateState | null,
+    getState: vi.fn(() => appUpdateServiceMock.state),
     subscribe: vi.fn((listener: (state: AppUpdateState) => void) => {
-        listener(updateState);
+        listener(appUpdateServiceMock.state as AppUpdateState);
         return () => undefined;
     }),
     initialize: vi.fn().mockResolvedValue(undefined),
@@ -88,6 +90,14 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 describe('Settings About update section', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setLocale('zh-CN');
+        appUpdateServiceMock.state = {
+            ...baseUpdateState,
+            availableUpdate: baseUpdateState.availableUpdate
+                ? { ...baseUpdateState.availableUpdate }
+                : null,
+            updateRequirement: { ...neutralRequirement },
+        };
     });
 
     afterEach(() => {
@@ -112,5 +122,42 @@ describe('Settings About update section', () => {
 
         await wrapper.get('[data-testid="settings-update-channel-beta"]').trigger('click');
         expect(appUpdateServiceMock.setChannel).toHaveBeenCalledWith('beta');
+    });
+
+    it('shows localized required update reasons instead of remote policy text', async () => {
+        appUpdateServiceMock.state = {
+            ...baseUpdateState,
+            updateRequirement: {
+                required: true,
+                minimumSupportedVersion: '0.2.1',
+                requiredSeverity: 'critical',
+                requiredReason: 'Security update required',
+                targetSatisfiesRequirement: true,
+            },
+        };
+
+        const wrapper = mount(AboutView);
+
+        await nextTick();
+        await nextTick();
+
+        expect(wrapper.text()).toContain('此版本存在关键问题，需要更新');
+        expect(wrapper.text()).not.toContain('Security update required');
+    });
+
+    it('keeps raw update errors out of the primary failed status copy', async () => {
+        appUpdateServiceMock.state = {
+            ...baseUpdateState,
+            status: 'failed',
+            error: 'download failed: 504',
+        };
+
+        const wrapper = mount(AboutView);
+
+        await nextTick();
+        await nextTick();
+
+        expect(wrapper.text()).toContain('更新检查失败');
+        expect(wrapper.text()).toContain('原因：download failed: 504');
     });
 });

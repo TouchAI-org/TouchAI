@@ -17,6 +17,8 @@
     import McpServerHeader from './McpServerHeader.vue';
     import McpStdioFields from './McpStdioFields.vue';
 
+
+    import { t } from '@/i18n';
     interface Props {
         server: McpServerEntity;
     }
@@ -24,7 +26,7 @@
     interface Emits {
         (e: 'updated', wasNewServer: boolean): void;
         (e: 'deleted'): void;
-        (e: 'showAlert', message: string, type: 'error'): void;
+        (e: 'showAlert', message: string, type: 'error' | 'success'): void;
         (e: 'cancelled'): void;
     }
 
@@ -61,11 +63,11 @@
     });
 
     const transportOptions = [
-        { label: 'Stdio', value: 'stdio' as DbTransportType, description: '标准输入输出' },
+        { label: 'Stdio', value: 'stdio' as DbTransportType, description: t('settings.mcp.config.stdioDescription') },
         {
             label: 'SSE(Streamable HTTP)',
             value: 'sse' as DbTransportType,
-            description: '兼容Streamable HTTP与SSE',
+            description: t('settings.mcp.config.sseDescription'),
         },
         { label: 'HTTP', value: 'http' as DbTransportType, description: 'HTTP POST' },
     ];
@@ -138,18 +140,18 @@
 
         // 验证必填字段
         if (!editableConfig.value.name.trim()) {
-            emit('showAlert', '请输入服务器名称', 'error');
+            emit('showAlert', t('settings.mcp.messages.nameRequired'), 'error');
             return;
         }
 
         if (editableConfig.value.transportType === 'stdio') {
             if (!editableConfig.value.command.trim()) {
-                emit('showAlert', '请输入命令', 'error');
+                emit('showAlert', t('settings.mcp.messages.commandRequired'), 'error');
                 return;
             }
         } else {
             if (!editableConfig.value.url.trim()) {
-                emit('showAlert', '请输入 URL', 'error');
+                emit('showAlert', t('settings.mcp.messages.urlRequired'), 'error');
                 return;
             }
         }
@@ -199,6 +201,7 @@
             if (wasNewServer) {
                 // 创建新服务器 - 不包含 id 字段
                 await createMcpServer(serverData);
+                emit('showAlert', t('settings.mcp.messages.created'), 'success');
             } else {
                 // 更新现有服务器
                 await updateMcpServer(props.server.id, serverData);
@@ -208,7 +211,7 @@
             emit('updated', wasNewServer);
         } catch (error) {
             console.error('Failed to save server config:', error);
-            emit('showAlert', '保存配置失败', 'error');
+            emit('showAlert', t('settings.mcp.messages.saveFailed'), 'error');
         } finally {
             isSaving.value = false;
         }
@@ -227,7 +230,7 @@
         <!-- 配置详情 -->
         <div class="space-y-4">
             <div class="flex items-center justify-between">
-                <h2 class="text-[15px] font-medium text-neutral-950">服务器配置</h2>
+                <h2 class="text-[15px] font-medium text-neutral-950">{{ t('settings.mcp.config.title') }}</h2>
             </div>
 
             <div class="settings-card">
@@ -235,14 +238,14 @@
                     <!-- 名称 -->
                     <div>
                         <label class="block text-sm font-medium text-neutral-700">
-                            名称
+                            {{ t('settings.mcp.config.name') }}
                             <span class="text-red-500">*</span>
                         </label>
                         <input
                             v-model="editableConfig.name"
                             type="text"
                             class="settings-input mt-1.5 w-full"
-                            placeholder="服务器名称"
+                            :placeholder="t('settings.mcp.config.namePlaceholder')"
                             @blur="onBlur"
                         />
                     </div>
@@ -250,7 +253,7 @@
                     <!-- 传输类型 -->
                     <div>
                         <label class="block text-sm font-medium text-neutral-700">
-                            传输类型
+                            {{ t('settings.mcp.config.transportType') }}
                             <span class="text-red-500">*</span>
                         </label>
                         <CustomSelect
@@ -282,7 +285,7 @@
                     <!-- 工具超时 -->
                     <div>
                         <label class="block text-sm font-medium text-neutral-700">
-                            工具超时 (毫秒)
+                            {{ t('settings.mcp.config.toolTimeoutMs') }}
                         </label>
                         <input
                             v-model.number="editableConfig.toolTimeout"

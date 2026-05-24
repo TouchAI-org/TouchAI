@@ -8,13 +8,15 @@
 
     import { useMcpStore } from '@/stores/mcp';
 
+
+    import { t } from '@/i18n';
     interface Props {
         server: McpServerEntity;
         isNewServer: boolean;
     }
 
     interface Emits {
-        (e: 'showAlert', message: string, type: 'error'): void;
+        (e: 'showAlert', message: string, type: 'error' | 'success'): void;
     }
 
     const props = defineProps<Props>();
@@ -41,13 +43,13 @@
     const statusText = computed(() => {
         switch (status.value) {
             case 'connected':
-                return '已连接';
+                return t('settings.mcp.status.connected');
             case 'connecting':
-                return '连接中';
+                return t('settings.mcp.status.connecting');
             case 'error':
-                return '连接错误';
+                return t('settings.mcp.status.connectionError');
             default:
-                return '未连接';
+                return t('settings.mcp.status.disconnected');
         }
     });
 
@@ -57,22 +59,46 @@
 
     const onConnect = async () => {
         const result = await handleConnect();
-        if (!result.success && result.error) {
-            emit('showAlert', `连接失败: ${result.error}`, 'error');
+        if (result.success) {
+            emit(
+                'showAlert',
+                t('settings.mcp.messages.serverConnectSuccess', {
+                    serverName: props.server.name,
+                }),
+                'success'
+            );
+        } else if (result.error) {
+            emit('showAlert', t('settings.mcp.messages.connectError', { error: result.error }), 'error');
         }
     };
 
     const onDisconnect = async () => {
         const result = await handleDisconnect();
-        if (!result.success && result.error) {
-            emit('showAlert', `断开失败: ${result.error}`, 'error');
+        if (result.success) {
+            emit(
+                'showAlert',
+                t('settings.mcp.messages.serverDisconnectSuccess', {
+                    serverName: props.server.name,
+                }),
+                'success'
+            );
+        } else if (result.error) {
+            emit('showAlert', t('settings.mcp.messages.disconnectError', { error: result.error }), 'error');
         }
     };
 
     const onReconnect = async () => {
         const result = await handleReconnect();
-        if (!result.success && result.error) {
-            emit('showAlert', `重新连接失败: ${result.error}`, 'error');
+        if (result.success) {
+            emit(
+                'showAlert',
+                t('settings.mcp.messages.serverReconnectSuccess', {
+                    serverName: props.server.name,
+                }),
+                'success'
+            );
+        } else if (result.error) {
+            emit('showAlert', t('settings.mcp.messages.reconnectError', { error: result.error }), 'error');
         }
     };
 </script>
@@ -83,7 +109,7 @@
             <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-2">
                     <h2 class="truncate text-[16px] leading-6 font-semibold text-neutral-950">
-                        {{ isNewServer ? '新建服务器' : server.name }}
+                        {{ isNewServer ? t('settings.mcp.servers.new') : server.name }}
                     </h2>
                     <span
                         v-if="!isNewServer"
@@ -136,7 +162,7 @@
                         name="play"
                         :class="isConnecting ? 'h-4 w-4 animate-spin' : 'h-4 w-4'"
                     />
-                    {{ isConnecting ? '连接中...' : '连接' }}
+                    {{ isConnecting ? t('settings.mcp.actions.connecting') : t('settings.mcp.actions.connect') }}
                 </button>
                 <button
                     v-else-if="status === 'connected'"
@@ -156,7 +182,7 @@
                                 : 'h-4 w-4 text-red-600'
                         "
                     />
-                    {{ isDisconnecting ? '断开中...' : '断开' }}
+                    {{ isDisconnecting ? t('settings.mcp.actions.disconnecting') : t('settings.mcp.actions.disconnect') }}
                 </button>
                 <button
                     v-if="status === 'connected'"
@@ -173,7 +199,7 @@
                         name="refresh"
                         :class="isReconnecting ? 'h-4 w-4 animate-spin' : 'h-4 w-4'"
                     />
-                    {{ isReconnecting ? '重新连接中...' : '重新连接' }}
+                    {{ isReconnecting ? t('settings.mcp.actions.reconnecting') : t('settings.mcp.actions.reconnect') }}
                 </button>
                 <button
                     v-else-if="status === 'connecting'"
@@ -181,7 +207,7 @@
                     class="flex cursor-not-allowed items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 text-sm text-white opacity-75"
                 >
                     <AppIcon name="play" class="h-4 w-4 animate-spin" />
-                    连接中...
+                    {{ t('settings.mcp.actions.connecting') }}
                 </button>
             </div>
         </div>

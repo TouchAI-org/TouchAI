@@ -3,6 +3,7 @@
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 
+import { t, tt } from '@/i18n';
 import { normalizeOptionalString } from '@/utils/text';
 
 import { parseToolArguments } from '../../utils/toolSchema';
@@ -121,21 +122,19 @@ export function parseWebFetchRequest(args: Record<string, unknown>): WebFetchReq
     try {
         parsedUrl = new URL(rawUrl);
     } catch {
-        throw new Error(`WebFetch tool received an invalid URL: ${rawUrl}`);
+        throw new Error(t('builtInTools.webFetch.error.invalidUrl', { url: rawUrl }));
     }
 
     if (!SUPPORTED_PROTOCOLS.has(parsedUrl.protocol)) {
-        throw new Error('WebFetch tool only supports http:// and https:// URLs.');
+        throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
     }
 
     if (parsedUrl.username || parsedUrl.password) {
-        throw new Error('WebFetch tool does not allow embedded credentials in URLs.');
+        throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
     }
 
     if (isDisallowedHostname(parsedUrl.hostname)) {
-        throw new Error(
-            'WebFetch tool blocks localhost, private-network and single-label hostnames.'
-        );
+        throw new Error(t('builtInTools.webFetch.error.blockedHost'));
     }
 
     return {
@@ -161,7 +160,10 @@ export function createRequestSignal(
 
     const timer = globalThis.setTimeout(() => {
         controller.abort(
-            new DOMException(`WebFetch timed out after ${timeoutMs}ms`, 'TimeoutError')
+            new DOMException(
+                t('builtInTools.webFetch.error.timeout', { timeoutMs }),
+                'TimeoutError'
+            )
         );
     }, timeoutMs);
 
@@ -423,7 +425,7 @@ function createTurndownService(): TurndownService {
             }
 
             if (altText) {
-                return `[图片: ${altText}]`;
+                return t('builtInTools.webFetch.imageAltFallback', { altText });
             }
 
             return '';
@@ -496,7 +498,9 @@ export function truncateContent(
     }
 
     return {
-        content: `${content.slice(0, maxChars)}\n\n[正文已截断，共 ${content.length} 个字符]`,
+        content: `${content.slice(0, maxChars)}\n\n${tt('[正文已截断，共 {count} 个字符]', {
+            count: content.length,
+        })}`,
         bodyTruncated: true,
     };
 }
@@ -508,28 +512,34 @@ export function formatFetchResult(
     payload: FormattedFetchPayload
 ): string {
     const headerLines = [
-        '网页抓取',
-        `请求 URL: ${request.url.toString()}`,
-        `最终 URL: ${response.url || request.url.toString()}`,
-        `HTTP 状态: ${response.status} ${response.statusText}`.trim(),
-        `内容类型: ${contentType}`,
-        `请求模式: ${request.mode}`,
-        `实际输出: ${payload.actualMode}`,
+        tt('网页抓取'),
+        `${tt('请求 URL')}: ${request.url.toString()}`,
+        `${tt('最终 URL')}: ${response.url || request.url.toString()}`,
+        `${tt('HTTP 状态')}: ${response.status} ${response.statusText}`.trim(),
+        `${tt('内容类型')}: ${contentType}`,
+        `${tt('请求模式')}: ${request.mode}`,
+        `${tt('实际输出')}: ${payload.actualMode}`,
     ];
 
     const metadataLines = [
-        payload.title ? `标题: ${payload.title}` : '',
-        payload.byline ? `作者: ${payload.byline}` : '',
-        payload.siteName ? `站点: ${payload.siteName}` : '',
-        payload.publishedTime ? `发布时间: ${payload.publishedTime}` : '',
-        payload.excerpt ? `摘要: ${payload.excerpt}` : '',
+        payload.title ? `${tt('标题')}: ${payload.title}` : '',
+        payload.byline ? `${tt('作者')}: ${payload.byline}` : '',
+        payload.siteName ? `${tt('站点')}: ${payload.siteName}` : '',
+        payload.publishedTime ? `${tt('发布时间')}: ${payload.publishedTime}` : '',
+        payload.excerpt ? `${tt('摘要')}: ${payload.excerpt}` : '',
         payload.sourceTruncated
-            ? `源内容: 已在 ${DEFAULT_SOURCE_CHAR_LIMIT} 字符处截断后再转换`
+            ? tt('源内容: 已在 {limit} 字符处截断后再转换', {
+                  limit: DEFAULT_SOURCE_CHAR_LIMIT,
+              })
             : '',
-        payload.bodyTruncated ? `正文输出: 已限制为 ${request.maxChars} 字符` : '',
+        payload.bodyTruncated
+            ? tt('正文输出: 已限制为 {maxChars} 字符', { maxChars: request.maxChars })
+            : '',
     ].filter(Boolean);
 
-    return [...headerLines, ...metadataLines, '', payload.content || '[页面无可读内容]'].join('\n');
+    return [...headerLines, ...metadataLines, '', payload.content || tt('[页面无可读内容]')].join(
+        '\n'
+    );
 }
 
 export function formatUnsupportedResponse(
@@ -538,11 +548,11 @@ export function formatUnsupportedResponse(
     contentType: string
 ): string {
     return [
-        '网页抓取失败',
-        `请求 URL: ${request.url.toString()}`,
-        `最终 URL: ${response.url || request.url.toString()}`,
-        `HTTP 状态: ${response.status} ${response.statusText}`.trim(),
-        `内容类型: ${contentType}`,
-        '原因: 当前仅支持 HTML、JSON、Markdown、XML 和普通文本响应。',
+        tt('网页抓取失败'),
+        `${tt('请求 URL')}: ${request.url.toString()}`,
+        `${tt('最终 URL')}: ${response.url || request.url.toString()}`,
+        `${tt('HTTP 状态')}: ${response.status} ${response.statusText}`.trim(),
+        `${tt('内容类型')}: ${contentType}`,
+        `${tt('原因')}: ${tt('当前仅支持 HTML、JSON、Markdown、XML 和普通文本响应。')}`,
     ].join('\n');
 }

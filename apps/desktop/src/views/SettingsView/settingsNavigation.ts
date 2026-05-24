@@ -1,5 +1,7 @@
 import type { AppIconName } from '@components/appIconMap';
 
+import { type MessageKey, t } from '@/i18n';
+
 export type NavigationSection =
     | 'general'
     | 'ai-services'
@@ -19,53 +21,87 @@ export interface SettingsNavigationGroup {
     items: SettingsNavigationItem[];
 }
 
-export const settingsNavigationGroups: SettingsNavigationGroup[] = [
+interface SettingsNavigationItemDefinition {
+    id: NavigationSection;
+    icon: AppIconName;
+    labelKey: MessageKey;
+    descriptionKey: MessageKey;
+}
+
+interface SettingsNavigationGroupDefinition {
+    labelKey: MessageKey;
+    items: SettingsNavigationItemDefinition[];
+}
+
+const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
     {
-        label: '基础体验',
+        labelKey: 'settings.nav.group.basicExperience',
         items: [
             {
                 id: 'general',
                 icon: 'settings',
-                label: '通用',
-                description: '快捷键、启动、对话和窗口偏好',
+                labelKey: 'settings.nav.general.short',
+                descriptionKey: 'settings.nav.general.description',
             },
         ],
     },
     {
-        label: 'AI 能力',
+        labelKey: 'settings.nav.group.aiCapability',
         items: [
             {
                 id: 'ai-services',
                 icon: 'llm',
-                label: '服务商与模型',
-                description: 'Provider、模型、默认模型和密钥',
+                labelKey: 'settings.nav.aiServices.short',
+                descriptionKey: 'settings.nav.aiServices.description',
             },
             {
                 id: 'built-in-tools',
                 icon: 'tool',
-                label: '内置工具',
-                description: '应用自带工具的启用、配置和日志',
+                labelKey: 'settings.nav.builtInTools',
+                descriptionKey: 'settings.nav.builtInTools.description',
             },
             {
                 id: 'mcp-tools',
                 icon: 'mcp',
-                label: 'MCP 工具',
-                description: '外部 MCP 服务器与工具调用日志',
+                labelKey: 'settings.nav.mcpTools',
+                descriptionKey: 'settings.nav.mcpTools.description',
             },
         ],
     },
     {
-        label: '系统',
+        labelKey: 'settings.nav.group.system',
         items: [
             {
                 id: 'data-management',
                 icon: 'database',
-                label: '数据管理',
-                description: '统计、备份、导入和模型元数据',
+                labelKey: 'settings.nav.dataManagement',
+                descriptionKey: 'settings.nav.dataManagement.description',
             },
         ],
     },
 ];
+
+function createNavigationItem(definition: SettingsNavigationItemDefinition): SettingsNavigationItem {
+    return {
+        id: definition.id,
+        icon: definition.icon,
+        get label() {
+            return t(definition.labelKey);
+        },
+        get description() {
+            return t(definition.descriptionKey);
+        },
+    };
+}
+
+export const settingsNavigationGroups: SettingsNavigationGroup[] = settingsNavigationDefinitions.map(
+    (group) => ({
+        get label() {
+            return t(group.labelKey);
+        },
+        items: group.items.map(createNavigationItem),
+    })
+);
 
 export function flattenSettingsNavigation(): SettingsNavigationItem[] {
     return settingsNavigationGroups.flatMap((group) => group.items);

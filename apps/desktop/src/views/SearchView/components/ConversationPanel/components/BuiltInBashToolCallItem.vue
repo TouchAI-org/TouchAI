@@ -10,10 +10,20 @@
         >
             <span class="tool-call-log-line">
                 <span class="tool-call-log-verb">{{ verbText }}</span>
-                <span v-if="summaryText" class="tool-call-log-content">
+                <span
+                    v-if="summaryText"
+                    class="tool-call-log-content"
+                    data-no-i18n="true"
+                    translate="no"
+                >
                     {{ ` ${summaryText}` }}
                 </span>
-                <span v-if="durationText" class="tool-call-log-duration">
+                <span
+                    v-if="durationText"
+                    class="tool-call-log-duration"
+                    data-no-i18n="true"
+                    translate="no"
+                >
                     {{ ` (${durationText})` }}
                 </span>
             </span>
@@ -23,14 +33,18 @@
             <div v-if="isExpanded" class="tool-call-bash-detail">
                 <div class="tool-call-bash-panel">
                     <div class="tool-call-bash-panel-header">
-                        <span class="tool-call-bash-shell-text">
+                        <span
+                            class="tool-call-bash-shell-text"
+                            :data-no-i18n="isBashShellPayload ? 'true' : undefined"
+                            :translate="isBashShellPayload ? 'no' : undefined"
+                        >
                             {{ bashShellText }}
                         </span>
                         <div class="tool-call-bash-panel-header-meta">
                             <span
                                 v-if="bashCompressed"
                                 class="tool-call-compressed-icon"
-                                title="Tokens节省已启用"
+                                :title="t('conversation.toolCall.compressedOutputEnabled')"
                             >
                                 <AppIcon name="leaf" class="tool-call-compressed-icon-svg" />
                             </span>
@@ -40,6 +54,8 @@
                             <span
                                 v-if="bashDurationText"
                                 class="tool-call-bash-panel-header-duration"
+                                data-no-i18n="true"
+                                translate="no"
                             >
                                 {{ bashDurationText }}
                             </span>
@@ -66,6 +82,8 @@
                                         'tool-call-bash-token',
                                         `tool-call-bash-token--${token.kind}`,
                                     ]"
+                                    :data-no-i18n="isBashCommandPayload ? 'true' : undefined"
+                                    :translate="isBashCommandPayload ? 'no' : undefined"
                                 >
                                     {{ token.text }}
                                 </span>
@@ -80,6 +98,8 @@
                                     ? 'tool-call-bash-output custom-scrollbar-thin'
                                     : 'tool-call-bash-output tool-call-bash-output--empty custom-scrollbar-thin'
                             "
+                            :data-no-i18n="hasBashOutput ? 'true' : undefined"
+                            :translate="hasBashOutput ? 'no' : undefined"
                             v-text="bashOutputText"
                         ></pre>
                     </div>
@@ -93,7 +113,11 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed, ref } from 'vue';
 
-    import { parseBashToolResult } from '@/services/BuiltInToolService/tools/bash/helper';
+    import { t } from '@/i18n';
+    import {
+        isEmptyBashOutputText,
+        parseBashToolResult,
+    } from '@/services/BuiltInToolService/tools/bash/helper';
     import type { ToolCallInfo } from '@/types/session';
 
     const ROOT_CLASS =
@@ -154,53 +178,57 @@
     const bashCompressed = computed(() => bashResultMeta.value.compressed);
     const bashCommandText = computed(() => {
         return (
-            normalizeInlineText(props.toolCall.arguments?.command) || props.summaryText || '命令'
+            normalizeInlineText(props.toolCall.arguments?.command) ||
+            props.summaryText ||
+            t('conversation.toolCall.commandFallback')
         );
+    });
+    const isBashCommandPayload = computed(() => {
+        return Boolean(normalizeInlineText(props.toolCall.arguments?.command) || props.summaryText);
     });
     const bashDurationText = computed(
         () => props.durationText || bashResultMeta.value.duration || null
     );
     const bashShellText = computed(() => bashResultMeta.value.shell || 'PowerShell');
+    const isBashShellPayload = computed(() => Boolean(bashResultMeta.value.shell));
     const bashOutputText = computed(() => {
         if (props.toolCall.status === 'awaiting_approval') {
-            return '等待用户批准后继续执行...';
+            return t('conversation.toolCall.waitingUserApproval');
         }
 
         if (props.toolCall.status === 'executing') {
-            return '命令执行中...';
+            return t('conversation.toolCall.commandRunning');
         }
 
         if (props.toolCall.status === 'rejected') {
-            return '用户已拒绝此次执行';
+            return t('conversation.toolCall.userRejected');
         }
 
         if (props.toolCall.status === 'cancelled') {
-            return '命令已取消';
+            return t('conversation.toolCall.commandCancelled');
         }
 
         const output = bashResultMeta.value.output?.trim();
-        if (output && output !== '[命令无输出]') {
+        if (!isEmptyBashOutputText(output)) {
             return output;
         }
 
         if (props.toolCall.status === 'error') {
-            return '无错误输出';
+            return t('conversation.toolCall.noErrorOutput');
         }
 
-        return '无输出';
+        return t('conversation.toolCall.noOutput');
     });
     const hasBashOutput = computed(() => {
         const output = bashResultMeta.value.output?.trim();
-        return Boolean(output && output !== '[命令无输出]');
+        return !isEmptyBashOutputText(output);
     });
     const bashCommandTokens = computed(() => tokenizeBashCommand(bashCommandText.value));
     const bashStatusClass = computed(() => {
         return getStatusClassName('tool-call-bash-status--', statusType.value);
     });
     const bashStatusText = computed(() => {
-        return getToolStatusText(props.toolCall.status, statusType.value, {
-            completedText: '成功',
-        });
+        return getToolStatusText(props.toolCall.status, statusType.value);
     });
 
     function normalizeInlineText(value: unknown): string | null {
@@ -215,31 +243,28 @@
     function getToolStatusText(
         status: ToolCallInfo['status'],
         statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled',
-        options?: {
-            completedText?: string;
-        }
     ): string {
         if (status === 'awaiting_approval') {
-            return '等待批准';
+            return t('conversation.toolCall.waitingApproval');
         }
 
         if (statusTypeValue === 'running') {
-            return '运行中';
+            return t('common.running');
         }
 
         if (statusTypeValue === 'error') {
-            return '失败';
+            return t('common.failed');
         }
 
         if (statusTypeValue === 'rejected') {
-            return '已拒绝';
+            return t('common.rejected');
         }
 
         if (statusTypeValue === 'cancelled') {
-            return '已取消';
+            return t('common.cancelled');
         }
 
-        return options?.completedText || '完成';
+        return t('common.success');
     }
 
     function getStatusClassName(

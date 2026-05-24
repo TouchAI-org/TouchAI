@@ -9,6 +9,8 @@
     import { exit } from '@tauri-apps/plugin-process';
     import { onMounted } from 'vue';
 
+    import { t, type MessageKey } from '@/i18n';
+
     defineOptions({
         name: 'TrayMenuView',
     });
@@ -16,7 +18,7 @@
     interface MenuItem {
         id: string;
         icon: AppIconName;
-        label: string;
+        labelKey: MessageKey;
         action: () => void;
     }
 
@@ -24,19 +26,19 @@
         {
             id: 'show-window',
             icon: 'search',
-            label: '显示窗口',
+            labelKey: 'tray.show',
             action: showMainWindow,
         },
         {
             id: 'settings',
             icon: 'settings',
-            label: '设置',
+            labelKey: 'tray.settings',
             action: openSettings,
         },
         {
             id: 'quit',
             icon: 'x-circle',
-            label: '退出',
+            labelKey: 'tray.exit',
             action: quitApp,
         },
     ];
@@ -114,7 +116,7 @@
             @click="item.action()"
         >
             <AppIcon :name="item.icon" class="h-4 w-4" />
-            <span>{{ item.label }}</span>
+            <span>{{ t(item.labelKey) }}</span>
         </div>
     </div>
 </template>

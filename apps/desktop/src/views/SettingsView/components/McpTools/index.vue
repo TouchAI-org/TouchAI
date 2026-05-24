@@ -23,6 +23,8 @@
     import McpToolList from './components/McpToolList.vue';
     import McpToolLogViewer from './components/McpToolLogViewer.vue';
 
+
+    import { t } from '@/i18n';
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const {
         handleResizeKeyDown,
@@ -40,9 +42,9 @@
     const togglingServers = ref<Set<number>>(new Set());
     const activeCleanups = new Set<() => void>();
     const tabs: SectionTabItem<'config' | 'tools' | 'logs'>[] = [
-        { value: 'config', label: '配置' },
-        { value: 'tools', label: '工具' },
-        { value: 'logs', label: '日志' },
+        { value: 'config', label: t('settings.builtInTools.tabs.config') },
+        { value: 'tools', label: t('settings.mcp.tabs.tools') },
+        { value: 'logs', label: t('settings.mcp.tabs.logs') },
     ];
 
     // 组件卸载时清理所有活跃的侦听器，避免内存泄漏。
@@ -56,7 +58,7 @@
     const mcpStore = useMcpStore();
     const { getServerStatus } = mcpStore;
 
-    const getErrorMessage = (error: unknown, fallback = '未知错误'): string => {
+    const getErrorMessage = (error: unknown, fallback = t('common.unknownError')): string => {
         const message = error instanceof Error ? error.message : String(error);
         return message && message !== '[object Object]' ? message : fallback;
     };
@@ -73,12 +75,12 @@
             await mcpStore.initialize();
         } catch (error) {
             console.error('[McpToolsView] Failed to initialize MCP store:', error);
-            alertMessage.value?.error(getErrorMessage(error, '加载 MCP 数据失败'), 6000);
+            alertMessage.value?.error(getErrorMessage(error, t('settings.mcp.messages.loadFailed')), 6000);
         }
     };
 
     const { open: openServerMenu } = useContextMenu<number>(
-        [{ key: 'delete', label: '删除', icon: 'trash', danger: true }],
+        [{ key: 'delete', label: t('common.delete'), icon: 'trash', danger: true }],
         (key, serverId) => {
             if (key === 'delete') {
                 handleDeleteServer(serverId);
@@ -182,12 +184,16 @@
                 } catch (error) {
                     console.error('Failed to auto-connect new server:', error);
                     alertMessage.value?.error(
-                        `自动连接服务器失败: ${getErrorMessage(error)}`,
+                        t('settings.mcp.messages.autoConnectFailed', {
+                            error: getErrorMessage(error),
+                        }),
                         6000
                     );
                     togglingServers.value.delete(newServer.id);
                 }
             }
+        } else {
+            alertMessage.value?.success(t('settings.mcp.messages.configUpdated'), 3000);
         }
     };
 
@@ -197,12 +203,15 @@
 
     const handleServerDeleted = () => {
         selectedServer.value = null;
+        alertMessage.value?.success(t('settings.mcp.messages.serverDeleted'), 3000);
         serverListRef.value?.loadServers();
     };
 
-    const handleShowAlert = (message: string, type: 'error') => {
+    const handleShowAlert = (message: string, type: 'error' | 'success') => {
         if (type === 'error') {
             alertMessage.value?.error(message, 6000);
+        } else {
+            alertMessage.value?.success(message, 3000);
         }
     };
 
@@ -228,7 +237,12 @@
                     await mcpManager.connectServer(server);
                 } catch (error) {
                     console.error('Failed to connect server:', error);
-                    alertMessage.value?.error(`连接服务器失败: ${getErrorMessage(error)}`, 6000);
+                    alertMessage.value?.error(
+                        t('settings.mcp.messages.connectFailed', {
+                            error: getErrorMessage(error),
+                        }),
+                        6000
+                    );
                     togglingServers.value.delete(serverId);
                 }
             } else {
@@ -238,7 +252,7 @@
                         await mcpManager.disconnectServer(serverId);
                     } catch (error) {
                         console.error('Failed to disconnect server:', error);
-                        alertMessage.value?.error('断开服务器失败', 3000);
+                        alertMessage.value?.error(t('settings.mcp.messages.disconnectFailed'), 3000);
                         togglingServers.value.delete(serverId);
                     }
                 } else {
@@ -254,14 +268,14 @@
                         }
                     } catch (error) {
                         console.error('Failed to update server:', error);
-                        alertMessage.value?.error('更新服务器状态失败', 3000);
+                        alertMessage.value?.error(t('settings.mcp.messages.updateStatusFailed'), 3000);
                     }
                     togglingServers.value.delete(serverId);
                 }
             }
         } catch (error) {
             console.error('Failed to toggle server:', error);
-            alertMessage.value?.error('切换服务器状态失败', 3000);
+            alertMessage.value?.error(t('settings.mcp.messages.toggleStatusFailed'), 3000);
             togglingServers.value.delete(serverId);
         }
     };
@@ -288,7 +302,7 @@
 
             const timeoutId = setTimeout(() => {
                 cleanup();
-                reject(new Error('等待服务器断开超时'));
+                reject(new Error(t('settings.mcp.messages.disconnectTimeout')));
             }, timeoutMs);
 
             const unwatch = watch(
@@ -321,11 +335,12 @@
                 selectedServer.value = null;
             }
 
+            alertMessage.value?.success(t('settings.mcp.messages.serverDeleted'), 3000);
             await mcpStore.loadServers();
             serverListRef.value?.loadServers();
         } catch (error) {
             console.error('Failed to delete server:', error);
-            alertMessage.value?.error('删除服务器失败', 3000);
+            alertMessage.value?.error(t('settings.mcp.messages.deleteFailed'), 3000);
         }
     };
 
@@ -361,7 +376,7 @@
 
             <div class="settings-side-panel-footer">
                 <button class="settings-button-primary w-full" @click="handleAddServer">
-                    添加 MCP 服务器
+                    {{ t('settings.mcp.servers.add') }}
                 </button>
             </div>
 
@@ -374,7 +389,7 @@
                 :aria-valuenow="panelWidth"
                 tabindex="0"
                 class="settings-side-panel-resizer"
-                title="调整 MCP 服务器列表宽度"
+                :title="t('settings.mcp.resizeServerList')"
                 @keydown="handleResizeKeyDown"
                 @pointerdown="handleResizePointerDown"
             />
@@ -385,7 +400,7 @@
             <div v-if="!selectedServer" class="flex h-full items-center justify-center">
                 <div class="text-center">
                     <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
-                    <p class="mt-4 text-sm text-neutral-500">选择一个服务器查看详情</p>
+                    <p class="mt-4 text-sm text-neutral-500">{{ t('settings.mcp.servers.selectPrompt') }}</p>
                 </div>
             </div>
 

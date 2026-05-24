@@ -1,6 +1,8 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { SearchWindowSizePreset as SearchWindowSizePresets } from '@/config/searchWindow';
+import { SUPPORTED_LOCALES } from '@/i18n/locales';
+import type { SourceText } from '@/i18n/textMap';
 import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 
 import { arrayFromScalarSchema, nonEmptyTrimmedStringSchema, z } from '../../utils/toolSchema';
@@ -12,6 +14,7 @@ export const SUPPORTED_SETTING_KEYS = [
     'start_minimized',
     'output_scroll_behavior',
     'search_window_size_preset',
+    'language',
 ] as const;
 export const OUTPUT_SCROLL_BEHAVIORS = ['follow_output', 'stay_position', 'jump_to_top'] as const;
 export const SEARCH_WINDOW_SIZE_PRESETS = Object.keys(SearchWindowSizePresets) as [
@@ -25,6 +28,7 @@ export const TOOL_KEY_TO_STORE_KEY = {
     start_minimized: 'startMinimized',
     output_scroll_behavior: 'outputScrollBehavior',
     search_window_size_preset: 'searchWindowSizePreset',
+    language: 'language',
 } as const;
 
 export type SettingToolAction = (typeof SETTING_TOOL_ACTIONS)[number];
@@ -34,26 +38,26 @@ export type StoreSettingKey = (typeof TOOL_KEY_TO_STORE_KEY)[SupportedSettingKey
 
 export interface SettingToolItem {
     key: SupportedSettingKey;
-    title: string;
-    description: string;
+    title: SourceText;
+    description: SourceText;
     kind: 'string' | 'boolean' | 'number' | 'enum' | 'list';
     value: SupportedSettingValue;
     allowedValues?: string[];
     minimum?: number;
     maximum?: number;
-    sideEffect?: string;
+    sideEffect?: SourceText;
 }
 
 interface SettingDefinition {
     key: SupportedSettingKey;
-    label: string;
-    description: string;
+    label: SourceText;
+    description: SourceText;
     type: 'string' | 'boolean' | 'number' | 'enum' | 'list';
     allowedValues?: readonly string[];
     examples: string[];
     minimum?: number;
     maximum?: number;
-    sideEffect?: string;
+    sideEffect?: SourceText;
 }
 
 export const SETTING_TOOL_NAME = 'Setting';
@@ -99,10 +103,19 @@ export const SETTING_DEFINITIONS: Record<SupportedSettingKey, SettingDefinition>
         examples: [...SEARCH_WINDOW_SIZE_PRESETS],
         sideEffect: '修改后会立即同步搜索窗口默认尺寸。',
     },
+    language: {
+        key: 'language',
+        label: '语言',
+        description: '控制 TouchAI 界面使用的显示语言。',
+        type: 'enum',
+        allowedValues: SUPPORTED_LOCALES,
+        examples: [...SUPPORTED_LOCALES],
+    },
 };
 
 export const outputScrollBehaviorSchema = z.enum(OUTPUT_SCROLL_BEHAVIORS);
 export const searchWindowSizePresetSchema = z.enum(SEARCH_WINDOW_SIZE_PRESETS);
+export const languageSchema = z.enum(SUPPORTED_LOCALES);
 const supportedSettingKeySchema = z.enum(SUPPORTED_SETTING_KEYS);
 const rawSettingValueSchema = z.union([z.string(), z.boolean(), z.number()]);
 
@@ -127,12 +140,13 @@ export const settingValueSchemaByKey = {
     start_minimized: z.boolean(),
     output_scroll_behavior: outputScrollBehaviorSchema,
     search_window_size_preset: searchWindowSizePresetSchema,
+    language: languageSchema,
 };
 
 /**
  * 暴露给模型的 Setting 工具说明。
  */
-export const SETTING_TOOL_DESCRIPTION = '读取和修改应用设置';
+export const SETTING_TOOL_DESCRIPTION = 'Read and modify TouchAI application settings.';
 
 function withExamples(description: string, ...examples: string[]): string {
     return `${description} Examples: ${examples.join(' | ')}.`;

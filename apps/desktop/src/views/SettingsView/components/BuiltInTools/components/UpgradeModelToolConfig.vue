@@ -16,6 +16,8 @@
 
     import type { UpgradeModelToolConfig } from '../types';
 
+
+    import { t } from '@/i18n';
     interface Props {
         modelValue: UpgradeModelToolConfig;
     }
@@ -196,7 +198,7 @@
             value: row.providerId,
             label: model?.provider_name ?? `Provider #${row.providerId}`,
             description:
-                model?.provider_enabled === 0 ? '当前已选服务商未启用' : '当前已选服务商不可用',
+                model?.provider_enabled === 0 ? t('settings.builtInTools.upgradeModel.selectedProviderDisabled') : t('settings.builtInTools.upgradeModel.selectedProviderUnavailable'),
             searchText: `${model?.provider_name ?? ''} ${model?.provider_driver ?? ''}`,
             providerLogo: model?.provider_logo,
             providerName: model?.provider_name,
@@ -210,7 +212,7 @@
             value: row.modelId,
             label: model?.name ?? row.modelId,
             description:
-                model?.provider_enabled === 0 ? '当前已选模型所属服务商未启用' : row.modelId,
+                model?.provider_enabled === 0 ? t('settings.builtInTools.upgradeModel.selectedModelProviderDisabled') : row.modelId,
             searchText: `${model?.provider_name ?? ''} ${row.modelId}`,
             modelIdForLogo: row.modelId,
             modelName: model?.name ?? row.modelId,
@@ -415,7 +417,7 @@
     <div class="space-y-5">
         <div class="space-y-4">
             <div class="flex items-center justify-between gap-4">
-                <h4 class="text-sm font-semibold text-neutral-950">模型升级链</h4>
+                <h4 class="text-sm font-semibold text-neutral-950">{{ t('settings.builtInTools.upgradeModel.title') }}</h4>
 
                 <button
                     type="button"
@@ -431,7 +433,7 @@
                 <div
                     class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-10 text-center text-sm text-neutral-500"
                 >
-                    {{ loading ? '正在加载模型...' : '暂未配置升级链' }}
+                    {{ loading ? t('settings.builtInTools.upgradeModel.loadingModels') : t('settings.builtInTools.upgradeModel.emptyChain') }}
                 </div>
             </div>
 
@@ -489,9 +491,9 @@
                                 :model-value="row.providerId"
                                 :options="getProviderOptions(row.uid)"
                                 :disabled="loading"
-                                placeholder="服务商"
-                                search-placeholder="搜索服务商"
-                                empty-text="没有可选服务商"
+                                :placeholder="t('settings.builtInTools.upgradeModel.provider')"
+                                search-placeholder=t('settings.builtInTools.upgradeModel.searchProvider')
+                                empty-text=t('settings.builtInTools.upgradeModel.emptyProviders')
                                 @update:model-value="updateProvider(row.uid, $event)"
                             >
                                 <template #selected="{ option }">
@@ -511,7 +513,7 @@
                                             {{ getProviderFallbackText(option) }}
                                         </div>
                                         <span class="truncate">
-                                            {{ option?.label || '服务商' }}
+                                            {{ option?.label || t('settings.builtInTools.upgradeModel.provider') }}
                                         </span>
                                     </div>
                                 </template>
@@ -551,9 +553,9 @@
                                 :model-value="row.modelId"
                                 :options="getModelOptions(row.uid)"
                                 :disabled="loading"
-                                placeholder="模型"
-                                search-placeholder="搜索模型"
-                                empty-text="没有可选模型"
+                                :placeholder="t('settings.builtInTools.upgradeModel.model')"
+                                search-placeholder=t('settings.builtInTools.upgradeModel.searchModel')
+                                empty-text=t('settings.builtInTools.upgradeModel.emptyModels')
                                 @update:model-value="updateModel(row.uid, $event)"
                             >
                                 <template #selected="{ option }">
@@ -565,7 +567,7 @@
                                             size="sm"
                                         />
                                         <span class="truncate">
-                                            {{ option?.label || '模型' }}
+                                            {{ option?.label || t('settings.builtInTools.upgradeModel.model') }}
                                         </span>
                                     </div>
                                 </template>

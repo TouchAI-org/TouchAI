@@ -5,6 +5,7 @@ import { nextTick } from 'vue';
 
 import AppUpdateRequiredGate from '@/components/AppUpdateRequiredGate.vue';
 import { APP_PRODUCT_CONFIG } from '@/config/product';
+import { setLocale } from '@/i18n';
 
 const neutralRequirement = {
     required: false,
@@ -85,6 +86,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 describe('AppUpdateRequiredGate', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setLocale('zh-CN');
         appUpdateServiceMock.state = { ...baseState };
     });
 
@@ -120,6 +122,8 @@ describe('AppUpdateRequiredGate', () => {
             '当前版本已不再受支持'
         );
         expect(wrapper.text()).toContain('可更新到 0.2.1');
+        expect(wrapper.text()).toContain('此版本存在关键问题，需要更新');
+        expect(wrapper.text()).not.toContain('Security update required');
         expect(wrapper.text()).toContain('Security fixes');
 
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
@@ -146,5 +150,19 @@ describe('AppUpdateRequiredGate', () => {
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
 
         expect(openUrl).toHaveBeenCalledWith(latestUpdate.downloads[0]!.url);
+    });
+
+    it('renders raw update errors only as localized details', async () => {
+        appUpdateServiceMock.state = {
+            ...baseState,
+            status: 'failed',
+            error: 'download failed: 504',
+            updateRequirement: requiredRequirement,
+        };
+
+        const wrapper = mount(AppUpdateRequiredGate);
+        await nextTick();
+
+        expect(wrapper.text()).toContain('原因：download failed: 504');
     });
 });

@@ -18,7 +18,7 @@
                     :value="localSearchQuery"
                     type="text"
                     autofocus
-                    placeholder="搜索标题或消息内容"
+                    :placeholder="t('popup.sessionHistory.searchPlaceholder')"
                     class="w-full border-0 bg-transparent text-xs text-stone-700 outline-none placeholder:text-stone-400"
                     @input="handleSearchInput"
                 />
@@ -33,7 +33,13 @@
                 v-if="isWaitingForSearchResults"
                 class="flex min-h-24 items-center justify-center text-xs text-stone-500"
             >
-                {{ localSearchQuery.trim() ? '正在搜索会话...' : '正在加载会话历史...' }}
+                {{
+                    t(
+                        localSearchQuery.trim()
+                            ? 'popup.sessionHistory.loading.searching'
+                            : 'popup.sessionHistory.loading.history'
+                    )
+                }}
             </div>
             <div
                 v-else-if="groupedSessions.length === 0"
@@ -41,13 +47,21 @@
             >
                 <AppIcon name="history" class="h-7 w-7 text-stone-300" />
                 <p class="font-serif text-xs text-stone-700">
-                    {{ searchQuery.trim() ? '没有匹配的历史会话' : '还没有历史会话' }}
+                    {{
+                        t(
+                            searchQuery.trim()
+                                ? 'popup.sessionHistory.empty.noMatches'
+                                : 'popup.sessionHistory.empty.noSessions'
+                        )
+                    }}
                 </p>
                 <p class="text-[11px] leading-4 text-stone-500">
                     {{
-                        searchQuery.trim()
-                            ? '可以尝试更短的关键词重新搜索'
-                            : '发送一条消息后，会话会自动进入历史列表'
+                        t(
+                            searchQuery.trim()
+                                ? 'popup.sessionHistory.empty.tryShorter'
+                                : 'popup.sessionHistory.empty.afterMessage'
+                        )
                     }}
                 </p>
             </div>
@@ -85,6 +99,8 @@
                                 <div class="flex min-w-0 items-center gap-2">
                                     <p
                                         class="history-session-title min-w-0 flex-1 font-serif text-xs font-semibold text-stone-900"
+                                        data-no-i18n="true"
+                                        translate="no"
                                     >
                                         <span
                                             v-for="(segment, index) in getSessionTitleSegments(
@@ -116,6 +132,8 @@
                                 <p
                                     v-if="session.last_message_preview"
                                     class="history-session-preview mt-1 text-[11px] text-stone-500"
+                                    data-no-i18n="true"
+                                    translate="no"
                                 >
                                     <span
                                         v-for="(segment, index) in getSessionPreviewSegments(
@@ -138,8 +156,12 @@
                                         }}
                                     </span>
                                     <span class="h-1 w-1 rounded-full bg-stone-300"></span>
-                                    <span class="truncate">
-                                        {{ session.model || '默认模型' }}
+                                    <span
+                                        class="truncate"
+                                        :data-no-i18n="session.model ? 'true' : undefined"
+                                        :translate="session.model ? 'no' : undefined"
+                                    >
+                                        {{ session.model || t('popup.sessionHistory.defaultModel') }}
                                     </span>
                                 </div>
                             </div>
@@ -161,6 +183,9 @@
     } from '@services/PopupService';
     import type { ComponentPublicInstance } from 'vue';
     import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+
+    import { t, type MessageKey } from '@/i18n';
+    import { formatMonthDay, formatTime } from '@/i18n/format';
 
     defineOptions({
         name: 'SessionHistoryPopover',
@@ -193,6 +218,12 @@
         showSpinner?: boolean;
     }
 
+    interface SessionStatusMetaDefinition {
+        titleKey: MessageKey;
+        className: string;
+        showSpinner?: boolean;
+    }
+
     interface ScrollAnchor {
         sessionId: number;
         offset: number;
@@ -213,22 +244,22 @@
     const activeSessionId = computed(() => props.data?.activeSessionId ?? null);
     const searchQuery = computed(() => props.data?.searchQuery ?? '');
     const isLoading = computed(() => props.data?.isLoading ?? false);
-    const sessionStatusMetaMap: Record<string, SessionStatusMeta> = {
+    const sessionStatusMetaMap: Record<string, SessionStatusMetaDefinition> = {
         running: {
-            title: '会话正在生成内容',
+            titleKey: 'popup.sessionHistory.status.running',
             showSpinner: true,
             className: '',
         },
         waiting_approval: {
-            title: '会话正在等待工具批准',
+            titleKey: 'popup.sessionHistory.status.waitingApproval',
             className: 'history-session-status-dot--waiting',
         },
         completed: {
-            title: '会话已完成，点击后会隐藏该状态',
+            titleKey: 'popup.sessionHistory.status.completed',
             className: 'history-session-status-dot--completed',
         },
         failed: {
-            title: '会话执行失败，点击后会隐藏该状态',
+            titleKey: 'popup.sessionHistory.status.failed',
             className: 'history-session-status-dot--failed',
         },
     };
@@ -264,15 +295,15 @@
         previousWeek.setDate(today.getDate() - 7);
 
         if (isSameDay(sessionDate, today)) {
-            return '今日';
+            return t('popup.sessionHistory.group.today');
         }
         if (isSameDay(sessionDate, yesterday)) {
-            return '昨天';
+            return t('popup.sessionHistory.group.yesterday');
         }
         if (sessionDate >= previousWeek) {
-            return '近 7 天';
+            return t('popup.sessionHistory.group.last7Days');
         }
-        return '更早';
+        return t('popup.sessionHistory.group.older');
     }
 
     const orderedSessions = computed(() => sessions.value);
@@ -298,7 +329,12 @@
             groups.set(groupLabel, bucket);
         }
 
-        return ['今日', '昨天', '近 7 天', '更早']
+        return [
+            t('popup.sessionHistory.group.today'),
+            t('popup.sessionHistory.group.yesterday'),
+            t('popup.sessionHistory.group.last7Days'),
+            t('popup.sessionHistory.group.older'),
+        ]
             .map((label) => ({
                 label,
                 sessions: groups.get(label) ?? [],
@@ -311,17 +347,10 @@
         const now = new Date();
 
         if (isSameDay(date, now)) {
-            return new Intl.DateTimeFormat('zh-CN', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false,
-            }).format(date);
+            return formatTime(date);
         }
 
-        return new Intl.DateTimeFormat('zh-CN', {
-            month: 'numeric',
-            day: 'numeric',
-        }).format(date);
+        return formatMonthDay(date);
     }
 
     function handleSearchInput(event: Event) {
@@ -342,7 +371,15 @@
             return null;
         }
 
-        return sessionStatusMetaMap[status] ?? null;
+        const meta = sessionStatusMetaMap[status];
+        if (!meta) {
+            return null;
+        }
+
+        return {
+            ...meta,
+            title: t(meta.titleKey),
+        };
     }
 
     async function handleOpenSession(sessionId: number) {
@@ -429,7 +466,7 @@
     }
 
     function getSessionTitleSegments(session: SessionHistorySessionItem): HighlightSegment[] {
-        return getHighlightedSegments(session.title || '未命名会话');
+        return getHighlightedSegments(session.title || t('popup.sessionHistory.untitled'));
     }
 
     function getSessionPreviewSegments(session: SessionHistorySessionItem): HighlightSegment[] {

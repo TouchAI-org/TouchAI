@@ -3,6 +3,8 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
 
+
+    import { t } from '@/i18n';
     interface Props {
         command: string;
         args: string[];
@@ -66,14 +68,14 @@
     <div class="space-y-4">
         <div>
             <label class="block text-sm font-medium text-neutral-700">
-                命令
+                {{ t('settings.mcp.config.command') }}
                 <span class="text-red-500">*</span>
             </label>
             <input
                 :value="command"
                 type="text"
                 class="settings-input mt-1.5 w-full font-mono"
-                placeholder="例如: npx"
+                :placeholder="t('settings.mcp.config.commandPlaceholder')"
                 @input="emit('update:command', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
             />
@@ -81,7 +83,7 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-neutral-700">参数</label>
+                <label class="block text-sm font-medium text-neutral-700">{{ t('common.parameters') }}</label>
                 <button
                     class="text-neutral-400 transition-colors hover:text-neutral-700"
                     @click="addArg"
@@ -95,7 +97,7 @@
                         :value="arg"
                         type="text"
                         class="settings-input flex-1 px-4 py-2.5 font-mono"
-                        placeholder="参数值"
+                        :placeholder="t('settings.mcp.config.argPlaceholder')"
                         @input="updateArg(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
@@ -110,12 +112,12 @@
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-neutral-700">工作目录</label>
+            <label class="block text-sm font-medium text-neutral-700">{{ t('settings.mcp.config.cwd') }}</label>
             <input
                 :value="cwd"
                 type="text"
                 class="settings-input mt-1.5 w-full font-mono"
-                placeholder="例如: /path/to/directory"
+                :placeholder="t('settings.mcp.config.cwdPlaceholder')"
                 @input="emit('update:cwd', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
             />
@@ -123,7 +125,7 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-neutral-700">环境变量</label>
+                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.mcp.config.env') }}</label>
                 <button
                     class="text-neutral-400 transition-colors hover:text-neutral-700"
                     @click="addEnv"
@@ -137,7 +139,7 @@
                         :value="envItem.key"
                         type="text"
                         class="settings-input w-1/3 px-4 py-2.5 font-mono"
-                        placeholder="变量名"
+                        :placeholder="t('settings.mcp.config.envKeyPlaceholder')"
                         @input="updateEnvKey(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
@@ -145,7 +147,7 @@
                         :value="envItem.value"
                         type="text"
                         class="settings-input flex-1 px-4 py-2.5 font-mono"
-                        placeholder="变量值"
+                        :placeholder="t('settings.mcp.config.envValuePlaceholder')"
                         @input="updateEnvValue(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />

@@ -8,6 +8,8 @@
                 <div
                     v-if="message.content"
                     class="user-text whitespace-pre-wrap text-gray-900 select-text"
+                    data-no-i18n="true"
+                    translate="no"
                 >
                     {{ message.content }}
                 </div>
@@ -22,8 +24,10 @@
                         <div v-if="attachment.type === 'image'" class="image-attachment">
                             <img
                                 :src="attachment.preview"
-                                :alt="attachment.name || 'Image'"
+                                :alt="attachment.name || t('conversation.attachment.unnamedImage')"
                                 class="block max-h-[200px] max-w-xs rounded-lg border border-gray-200 object-contain"
+                                data-no-i18n="true"
+                                translate="no"
                             />
                         </div>
 
@@ -33,8 +37,8 @@
                             class="inline-flex max-w-fit items-center gap-2 rounded border border-gray-200 bg-white p-2"
                         >
                             <AppIcon name="file" class="h-4 w-4 text-gray-500" />
-                            <span class="text-sm text-gray-700">
-                                {{ attachment.name || 'File' }}
+                            <span class="text-sm text-gray-700" data-no-i18n="true" translate="no">
+                                {{ attachment.name || t('conversation.attachment.unnamedFile') }}
                             </span>
                         </div>
                     </div>
@@ -44,7 +48,7 @@
 
         <!-- 复制按钮 - 气泡外部右下角 -->
         <div v-if="message.content" class="mt-1">
-            <ActionButton icon="copy" :handler="handleCopy" aria-label="Copy message" />
+            <ActionButton icon="copy" :handler="handleCopy" :aria-label="t('assistant.action.copyMessage')" />
         </div>
     </div>
 </template>
@@ -54,6 +58,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { notify } from '@services/NotificationService';
 
+    import { t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
     import type { SessionMessage } from '@/types/session';
 
@@ -66,10 +71,10 @@
     async function handleCopy() {
         try {
             await clipboardService.writeText(props.message.content);
-            notify({ title: 'TouchAI', body: '已复制到剪贴板' });
+            notify({ title: 'TouchAI', body: t('notification.copy.copiedToClipboard') });
         } catch (error) {
             console.error('[UserMessage] Failed to copy:', error);
-            notify({ title: 'TouchAI', body: '复制失败' });
+            notify({ title: 'TouchAI', body: t('common.copyFailed') });
         }
     }
 </script>

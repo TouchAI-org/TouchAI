@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { appUpdateService } from '@services/AppUpdateService';
+    import { getAppUpdateRequirementReasonText } from '@services/AppUpdateService/requirementText';
     import type { AppUpdateChannel, AppUpdateState } from '@services/AppUpdateService/types';
     import { getTauriVersion, getVersion } from '@tauri-apps/api/app';
     import { openUrl } from '@tauri-apps/plugin-opener';
@@ -9,7 +10,10 @@
     import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
     import { APP_PRODUCT_CONFIG } from '@/config/product';
     import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
+    import { formatDateTime } from '@/i18n/format';
 
+
+    import { t } from '@/i18n';
     defineOptions({
         name: 'SettingsAboutSection',
     });
@@ -65,11 +69,16 @@
     );
     const updateSummaryText = computed(() => {
         if (latestUpdate.value?.version) {
-            return `最新版本 ${latestUpdate.value.version} · ${currentChannelLabel.value}`;
+            return t('settings.about.update.summary.latestWithChannel', {
+                version: latestUpdate.value.version,
+                channel: currentChannelLabel.value,
+            });
         }
 
         if (updateRequirement.value?.minimumSupportedVersion) {
-            return `最低支持版本 ${updateRequirement.value.minimumSupportedVersion} · ${currentChannelLabel.value}`;
+            return `${t('settings.about.update.required.minimumSupportedVersion', {
+                version: updateRequirement.value.minimumSupportedVersion,
+            })} · ${currentChannelLabel.value}`;
         }
 
         return `GitHub Releases · ${currentChannelLabel.value}`;
@@ -86,68 +95,89 @@
         }
 
         const parts: string[] = [];
-        if (requirement.requiredReason) {
-            parts.push(requirement.requiredReason);
+        const reasonText = getAppUpdateRequirementReasonText(requirement);
+        if (reasonText) {
+            parts.push(reasonText);
         }
         if (requirement.minimumSupportedVersion) {
-            parts.push(`最低支持版本 ${requirement.minimumSupportedVersion}`);
+            parts.push(
+                t('settings.about.update.required.minimumSupportedVersion', {
+                    version: requirement.minimumSupportedVersion,
+                })
+            );
         }
         if (targetUpdateVersion.value) {
-            parts.push(`可更新到 ${targetUpdateVersion.value}`);
+            parts.push(
+                t('settings.about.update.required.availableVersion', {
+                    version: targetUpdateVersion.value,
+                })
+            );
         }
         if (!requirement.targetSatisfiesRequirement) {
-            parts.push('当前通道暂未提供满足要求的更新');
+            parts.push(t('settings.about.update.required.noMatchingUpdate'));
         }
 
-        return parts.join(' · ') || '当前版本已不再受支持';
+        return parts.join(' · ') || t('settings.about.update.required.unsupported');
     });
 
     const updateStatusText = computed(() => {
         switch (updateState.value.status) {
             case 'checking':
-                return '正在检查更新...';
+                return t('settings.about.update.status.checking');
             case 'available':
                 if (isRequiredUpdate.value) {
                     return targetUpdateVersion.value
-                        ? `请更新到 ${targetUpdateVersion.value} 以继续使用`
-                        : '当前版本已不再受支持';
+                        ? t('settings.about.update.status.requiredVersion', {
+                              version: targetUpdateVersion.value,
+                          })
+                        : t('settings.about.update.required.unsupported');
                 }
                 return visibleUpdate.value
-                    ? `发现新版本 ${visibleUpdate.value.version}`
-                    : '发现新版本';
+                    ? t('settings.about.update.status.availableVersion', {
+                          version: visibleUpdate.value.version,
+                      })
+                    : t('settings.about.update.status.available');
             case 'not_available':
                 if (isRequiredUpdate.value) {
                     const minimumVersion = updateRequirement.value?.minimumSupportedVersion;
                     return minimumVersion
-                        ? `请更新到 ${minimumVersion} 或更高版本`
-                        : '当前版本已不再受支持';
+                        ? t('settings.about.update.status.minimumVersion', {
+                              version: minimumVersion,
+                          })
+                        : t('settings.about.update.required.unsupported');
                 }
-                return '当前已是最新版本';
+                return t('settings.about.update.status.latest');
             case 'downloading':
-                return `正在下载更新 ${updateState.value.downloadProgress ?? 0}%`;
+                return t('settings.about.update.status.downloading', {
+                    progress: updateState.value.downloadProgress ?? 0,
+                });
             case 'downloaded':
                 return visibleUpdate.value
-                    ? `版本 ${visibleUpdate.value.version} 已下载`
-                    : '更新已下载';
+                    ? t('settings.about.update.status.downloadedVersion', {
+                          version: visibleUpdate.value.version,
+                      })
+                    : t('settings.about.update.status.downloaded');
             case 'installing':
-                return '正在安装并重启...';
+                return t('settings.about.update.status.installing');
             case 'failed':
-                return updateState.value.error ?? '更新检查失败';
+                return t('settings.about.update.status.failed');
             case 'unsupported':
-                return '当前运行方式暂不支持应用内更新';
+                return t('settings.about.update.status.unsupported');
             case 'idle':
             default:
-                return '可检查 GitHub Releases 上的新版本';
+                return t('settings.about.update.status.idle');
         }
     });
 
     const updateHintText = computed(() => {
         if (updateState.value.status === 'unsupported') {
-            return `通过正式安装包安装 ${appDisplayName} 后即可使用自动更新。`;
+            return t('settings.about.update.hint.unsupported', {
+                appName: appDisplayName,
+            });
         }
 
         if (updateState.value.status === 'failed') {
-            return '请稍后重试，或到 GitHub Releases 手动下载安装包。';
+            return t('settings.about.update.hint.failed');
         }
 
         if (visibleUpdate.value?.notes) {
@@ -159,14 +189,18 @@
         }
 
         if (latestUpdate.value?.version) {
-            return `当前通道最新版本：${latestUpdate.value.version}`;
+            return t('settings.about.update.hint.channelLatest', {
+                version: latestUpdate.value.version,
+            });
         }
 
         if (updateState.value.lastCheckedAt) {
-            return `上次检查：${new Date(updateState.value.lastCheckedAt).toLocaleString()}`;
+            return t('settings.about.update.hint.lastChecked', {
+                time: formatDateTime(updateState.value.lastCheckedAt),
+            });
         }
 
-        return '自动检查默认每天最多运行一次，下载和安装前会等待确认。';
+        return t('settings.about.update.hint.autoCheck');
     });
 
     const updateSizeText = computed(() => {
@@ -329,32 +363,32 @@
 
                     <div class="flex-1">
                         <h2 class="font-serif text-xl font-semibold text-gray-900">
-                            关于 {{ appDisplayName }}
+                            {{ t('settings.about.title', { appName: appDisplayName }) }}
                         </h2>
-                        <p class="mt-1 font-serif text-sm text-gray-600">全局AI助手</p>
+                        <p class="mt-1 font-serif text-sm text-gray-600">{{ t('settings.about.tagline') }}</p>
                     </div>
                 </div>
             </div>
 
             <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">应用信息</h2>
+                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">{{ t('settings.about.appInfo') }}</h2>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <div class="font-serif text-sm text-gray-500">应用名称</div>
+                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.appName') }}</div>
                         <div class="font-serif text-base text-gray-900">
                             {{ appDisplayName }}
                         </div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">版本</div>
+                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.version') }}</div>
                         <div class="font-serif text-base text-gray-900">{{ appVersion }}</div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">开发者</div>
+                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.developer') }}</div>
                         <div class="font-serif text-base text-gray-900">千诚</div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">许可证</div>
+                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.license') }}</div>
                         <div class="font-serif text-base text-gray-900">GPL v3</div>
                     </div>
                 </div>
@@ -363,7 +397,7 @@
             <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
                 <div class="flex items-start justify-between gap-4">
                     <div>
-                        <h2 class="font-serif text-lg font-semibold text-gray-900">应用更新</h2>
+                        <h2 class="font-serif text-lg font-semibold text-gray-900">{{ t('settings.about.update.title') }}</h2>
                         <p class="mt-1 font-serif text-sm text-gray-600">
                             {{ updateStatusText }}
                         </p>
@@ -375,7 +409,7 @@
                         ]"
                         data-testid="settings-update-auto-check"
                         :aria-pressed="updateState.autoCheckEnabled"
-                        title="自动检查更新"
+                        :title="t('settings.about.update.autoCheck')"
                         @click="toggleAutoCheck"
                     >
                         <span
@@ -390,7 +424,7 @@
                 <div
                     v-if="isDownloading"
                     class="h-2 overflow-hidden rounded-full bg-gray-100"
-                    aria-label="下载进度"
+                    :aria-label="t('settings.about.update.downloadProgress')"
                 >
                     <div
                         class="bg-primary-600 h-full rounded-full transition-all"
@@ -422,7 +456,7 @@
                     <div class="flex shrink-0 items-center gap-2">
                         <div
                             class="flex h-9 items-center rounded-lg border border-gray-200 bg-white p-1"
-                            aria-label="更新通道"
+                            :aria-label="t('settings.about.update.channelLabel')"
                         >
                             <button
                                 v-for="option in updateChannelOptions"
@@ -446,7 +480,7 @@
                             @click="checkForUpdates"
                         >
                             <AppIcon name="refresh" class="h-4 w-4" />
-                            检查
+                            {{ t('settings.about.update.action.check') }}
                         </button>
                         <button
                             v-if="
@@ -459,7 +493,7 @@
                             @click="downloadUpdate"
                         >
                             <AppIcon name="arrow-down" class="h-4 w-4" />
-                            下载
+                            {{ t('settings.about.update.action.download') }}
                         </button>
                         <button
                             v-if="
@@ -471,7 +505,11 @@
                             @click="openUpdateDownloadPage"
                         >
                             <AppIcon name="arrow-down" class="h-4 w-4" />
-                            {{ directDownloadUrl ? '安装包' : '下载页' }}
+                            {{
+                                directDownloadUrl
+                                    ? t('settings.about.update.action.downloadInstaller')
+                                    : t('settings.about.update.action.downloadPage')
+                            }}
                         </button>
                         <button
                             v-if="updateState.status === 'downloaded'"
@@ -480,31 +518,31 @@
                             @click="installUpdate"
                         >
                             <AppIcon name="check-circle" class="h-4 w-4" />
-                            安装并重启
+                            {{ t('settings.about.update.action.installRestart') }}
                         </button>
                     </div>
                 </div>
             </div>
 
             <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">系统信息</h2>
+                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">{{ t('settings.about.systemInfo') }}</h2>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <div class="font-serif text-sm text-gray-500">操作系统</div>
+                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.operatingSystem') }}</div>
                         <div class="font-serif text-base text-gray-900">{{ systemInfo.os }}</div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">系统版本</div>
+                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.systemVersion') }}</div>
                         <div class="font-serif text-base text-gray-900">
                             {{ systemInfo.osVersion }}
                         </div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">架构</div>
+                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.architecture') }}</div>
                         <div class="font-serif text-base text-gray-900">{{ systemInfo.arch }}</div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">Tauri版本</div>
+                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.tauriVersion') }}</div>
                         <div class="font-serif text-base text-gray-900">
                             {{ systemInfo.tauriVersion }}
                         </div>
@@ -513,13 +551,13 @@
             </div>
 
             <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">外部链接</h2>
+                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">{{ t('settings.about.externalLinks') }}</h2>
                 <div class="space-y-3">
                     <button
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
                         @click="openLink(links.url)"
                     >
-                        <span class="font-serif text-gray-900">GitHub仓库</span>
+                        <span class="font-serif text-gray-900">{{ t('settings.about.githubRepository') }}</span>
                         <svg
                             class="h-5 w-5 text-gray-400"
                             fill="none"
@@ -538,7 +576,7 @@
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
                         @click="openLink(links.docsUrl)"
                     >
-                        <span class="font-serif text-gray-900">文档</span>
+                        <span class="font-serif text-gray-900">{{ t('settings.about.documentation') }}</span>
                         <svg
                             class="h-5 w-5 text-gray-400"
                             fill="none"
@@ -557,7 +595,7 @@
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
                         @click="openLink(links.issuesUrl)"
                     >
-                        <span class="font-serif text-gray-900">问题反馈</span>
+                        <span class="font-serif text-gray-900">{{ t('settings.about.feedback') }}</span>
                         <svg
                             class="h-5 w-5 text-gray-400"
                             fill="none"

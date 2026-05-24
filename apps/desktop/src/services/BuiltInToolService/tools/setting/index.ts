@@ -3,6 +3,7 @@
 import { native } from '@services/NativeService';
 
 import { resolveSearchWindowDefaultSize } from '@/config/searchWindow';
+import { tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import type { GeneralSettingsData } from '@/stores/settings';
 import { truncateText } from '@/utils/text';
@@ -40,10 +41,10 @@ interface AppliedSettingSnapshot {
 
 function joinSettingLabels(keys: SupportedSettingKey[]): string {
     if (keys.length === 0) {
-        return '应用设置';
+        return tt('应用设置');
     }
 
-    return truncateText(keys.map((key) => SETTING_DEFINITIONS[key].label).join('、'), 80);
+    return truncateText(keys.map((key) => tt(SETTING_DEFINITIONS[key].label)).join(', '), 80);
 }
 
 function buildSettingConversationSemantic(
@@ -55,15 +56,15 @@ function buildSettingConversationSemantic(
             action: request.action === 'set' ? 'update' : 'read',
             target:
                 request.action === 'list'
-                    ? '可用设置'
+                    ? tt('可用设置')
                     : request.action === 'get'
                       ? joinSettingLabels(request.keys)
-                      : SETTING_DEFINITIONS[request.key].label,
+                      : tt(SETTING_DEFINITIONS[request.key].label),
         };
     } catch {
         return {
             action: 'process',
-            target: '应用设置',
+            target: tt('应用设置'),
         };
     }
 }
@@ -135,8 +136,11 @@ async function persistSettingValue(
                 value as GeneralSettingsData['searchWindowSizePreset']
             );
             return;
+        case 'language':
+            await settingsStore.updateLanguage(value as GeneralSettingsData['language']);
+            return;
         default:
-            throw new Error(`不支持的设置键：${key}`);
+            throw new Error(tt('不支持的设置键：{key}', { key }));
     }
 }
 
@@ -169,14 +173,14 @@ export function buildSettingApprovalRequest(
     }
 
     return {
-        title: '设置修改确认',
+        title: tt('设置修改确认'),
         description: request.reason,
         command: formatSingleUpdate(request.key, request.value),
         riskLabel: '',
-        reason: '此操作会修改 TouchAI 的应用设置，并立即影响后续行为。',
+        reason: tt('此操作会修改 TouchAI 的应用设置，并立即影响后续行为。'),
         commandLabel: '',
-        approveLabel: '批准',
-        rejectLabel: '拒绝',
+        approveLabel: tt('批准'),
+        rejectLabel: tt('拒绝'),
         enterHint: 'Enter',
         escHint: 'Esc',
         keyboardApproveDelayMs: 450,
@@ -234,14 +238,14 @@ export async function executeSettingTool(
                 appliedSnapshot.key,
                 appliedSnapshot.previousValue
             );
-            rollbackSummary = '\n已尝试恢复到执行前的设置值。';
+            rollbackSummary = `\n${tt('已尝试恢复到执行前的设置值。')}`;
         } catch (rollbackError) {
-            rollbackSummary = `\n恢复失败: ${
+            rollbackSummary = `\n${tt('恢复失败')}: ${
                 rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
             }`;
         }
         return {
-            result: `设置修改失败\n${formatSingleUpdate(request.key, request.value)}\n原因: ${errorMessage}${rollbackSummary}`,
+            result: `${tt('设置修改失败')}\n${formatSingleUpdate(request.key, request.value)}\n${tt('原因')}: ${errorMessage}${rollbackSummary}`,
             isError: true,
             status: 'error',
             errorMessage,
@@ -249,7 +253,7 @@ export async function executeSettingTool(
     }
 
     return {
-        result: ['设置已更新', formatSingleUpdate(request.key, request.value)].join('\n'),
+        result: [tt('设置已更新'), formatSingleUpdate(request.key, request.value)].join('\n'),
         isError: false,
         status: 'success',
     };

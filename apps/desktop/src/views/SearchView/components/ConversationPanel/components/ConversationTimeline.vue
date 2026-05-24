@@ -12,9 +12,11 @@
             v-for="marker in markers"
             :key="marker.messageId"
             role="button"
-            :aria-label="`跳转到消息: ${marker.preview}`"
+            :aria-label="formatMarkerAriaLabel(marker.preview)"
             tabindex="0"
             class="timeline-marker"
+            data-no-i18n="true"
+            translate="no"
             :class="{
                 active: marker.messageId === activeMarkerId,
             }"
@@ -25,7 +27,7 @@
             @keydown.space.prevent="handleMarkerClick(marker.messageId)"
         >
             <!-- 悬停提示框 -->
-            <div class="marker-tooltip">
+            <div class="marker-tooltip" data-no-i18n="true" translate="no">
                 {{ marker.preview }}
             </div>
         </div>
@@ -36,6 +38,7 @@
     import { truncateText } from '@utils/text';
     import { computed, onUnmounted, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import type { SessionMessage } from '@/types/session';
 
     const TIMELINE_TOP_OFFSET = 48;
@@ -139,6 +142,10 @@
 
     function handleMarkerClick(messageId: string) {
         emit('jumpToMessage', messageId);
+    }
+
+    function formatMarkerAriaLabel(preview: string) {
+        return t('conversation.timeline.jumpToMessage', { preview });
     }
 
     watch(

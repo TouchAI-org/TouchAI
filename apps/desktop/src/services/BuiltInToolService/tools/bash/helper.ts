@@ -3,6 +3,8 @@
 import type { BuiltInBashExecutionResponse } from '@services/NativeService';
 import { desktopDir } from '@tauri-apps/api/path';
 
+import { t, tt } from '@/i18n';
+
 import { parseToolArguments, parseToolConfigJson } from '../../utils/toolSchema';
 import {
     BASH_TOOL_NAME,
@@ -49,7 +51,7 @@ async function resolveDefaultWorkingDirectory(config: BashToolConfig): Promise<s
 
     const desktopPath = (await desktopDir()).trim().replace(/[\\/]+$/, '');
     if (!desktopPath) {
-        throw new Error('Bash tool requires a default working directory.');
+        throw new Error(t('builtInTools.bash.error.defaultWorkingDirectoryRequired'));
     }
 
     return desktopPath;
@@ -69,7 +71,11 @@ export async function resolveCommandContext(args: Record<string, unknown>, confi
     const workingDirectory = requestedDirectory || (await resolveDefaultWorkingDirectory(config));
 
     if (!isWithinAllowedDirectory(workingDirectory, config.allowedWorkingDirectories)) {
-        throw new Error(`Working directory is outside the allowed scope: ${workingDirectory}`);
+        throw new Error(
+            t('builtInTools.bash.error.workingDirectoryOutsideAllowlist', {
+                workingDirectory,
+            })
+        );
     }
 
     return { command, workingDirectory, rawOutput: parsedArgs.rawOutput ?? false };
@@ -79,7 +85,9 @@ export function truncateOutput(output: string, maxLength: number): string {
     if (output.length <= maxLength) {
         return output;
     }
-    return `${output.slice(0, maxLength)}\n\n[输出已截断，共 ${output.length} 个字符]`;
+    return `${output.slice(0, maxLength)}\n\n${tt('[正文已截断，共 {count} 个字符]', {
+        count: output.length,
+    })}`;
 }
 
 export interface ParsedBashToolResult {
@@ -87,6 +95,18 @@ export interface ParsedBashToolResult {
     duration: string | null;
     output: string | null;
     compressed: boolean;
+}
+
+const EMPTY_BASH_OUTPUT_MARKERS = new Set([
+    '[命令无输出]',
+    '[No command output]',
+    'No output',
+    '[No output]',
+]);
+
+export function isEmptyBashOutputText(output: string | null | undefined): boolean {
+    const normalizedOutput = output?.trim();
+    return !normalizedOutput || EMPTY_BASH_OUTPUT_MARKERS.has(normalizedOutput);
 }
 
 export function formatBashToolResult(
@@ -106,7 +126,7 @@ export function formatBashToolResult(
     const header = headerLines.join('\n');
     const output = truncateOutput(response.combinedOutput.trim(), maxOutputChars);
 
-    return [header, '', output || '[命令无输出]'].join('\n');
+    return [header, '', isEmptyBashOutputText(output) ? tt('[命令无输出]') : output].join('\n');
 }
 
 export function parseBashToolResult(result?: string): ParsedBashToolResult {

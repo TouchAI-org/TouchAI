@@ -16,6 +16,8 @@
         providerDriverDefinitions,
     } from '@/services/AgentService/infrastructure/providers';
 
+
+    import { t } from '@/i18n';
     interface Emits {
         (e: 'create', data: NewProvider): void;
         (e: 'cancel'): void;
@@ -83,7 +85,7 @@
 
     const handleSave = () => {
         if (!trimmedProviderName.value || !trimmedApiEndpoint.value) {
-            alert.error('请填写服务商名称和请求地址');
+            alert.error(t('settings.ai.enterProviderNameAndEndpoint'));
             return;
         }
 
@@ -102,16 +104,16 @@
 
 <template>
     <DialogShell>
-        <h2 class="mb-5 text-base font-bold text-neutral-950">添加自定义服务商</h2>
+        <h2 class="mb-5 text-base font-bold text-neutral-950">{{ t('settings.ai.addProvider.title') }}</h2>
 
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-neutral-700">服务商名称 *</label>
-                <Input v-model="form.name" class="mt-1.5" placeholder="我的自定义服务商" />
+                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.providerNameRequired') }}</label>
+                <Input v-model="form.name" class="mt-1.5" :placeholder="t('settings.ai.providerNamePlaceholder')" />
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-neutral-700">服务商类型 *</label>
+                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.providerTypeRequired') }}</label>
                 <CustomSelect
                     v-model="form.driver!"
                     :options="driverOptions"
@@ -121,7 +123,9 @@
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-neutral-700">请求地址 *</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.apiEndpointRequired') }}
+                </label>
                 <Input
                     v-model="form.api_endpoint"
                     class="mt-1.5"
@@ -131,7 +135,7 @@
                     v-if="shouldShowGenerationApiPreview"
                     class="mt-1 text-xs break-all text-neutral-400"
                 >
-                    根地址预览：
+                    {{ t('settings.ai.providerBaseUrlPreview') }}
                     <span class="font-mono">
                         {{ generationApiPreview }}
                     </span>
@@ -152,7 +156,7 @@
                     :false-value="0"
                     class="h-4 w-4 rounded border-neutral-300 text-neutral-950"
                 />
-                <label for="enabled" class="ml-2 text-sm text-neutral-600">创建后立即启用</label>
+                <label for="enabled" class="ml-2 text-sm text-neutral-600">{{ t('settings.ai.enableAfterCreate') }}</label>
             </div>
         </div>
 
@@ -161,14 +165,14 @@
                 class="bg-primary-700 hover:bg-primary-600 flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors"
                 @click="handleSave"
             >
-                创建
+                {{ t('common.create') }}
             </Button>
             <Button
                 variant="outline"
                 class="flex-1 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 transition-colors hover:border-neutral-300"
                 @click="emit('cancel')"
             >
-                取消
+                {{ t('common.cancel') }}
             </Button>
         </div>
     </DialogShell>

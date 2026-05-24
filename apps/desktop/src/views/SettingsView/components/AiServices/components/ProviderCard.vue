@@ -6,6 +6,8 @@
 
     import BadgedLogo from './BadgedLogo.vue';
 
+
+    import { t } from '@/i18n';
     interface Props {
         provider: Provider;
         isSelected: boolean;
@@ -32,7 +34,7 @@
         if (props.provider.enabled === 0) {
             // 检查 API 地址
             if (!props.provider.api_endpoint || props.provider.api_endpoint.trim() === '') {
-                emit('validation-error', '请先配置 API 地址后再启用服务商');
+                emit('validation-error', t('settings.ai.configureApiUrlBeforeEnable'));
                 return;
             }
         }
@@ -73,7 +75,7 @@
                     v-if="hasDefaultModel"
                     class="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs whitespace-nowrap text-neutral-600 ring-1 ring-neutral-200"
                 >
-                    默认
+                    {{ t('common.default') }}
                 </span>
             </div>
         </div>

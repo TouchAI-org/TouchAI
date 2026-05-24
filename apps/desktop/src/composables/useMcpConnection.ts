@@ -3,6 +3,7 @@
 import type { Ref } from 'vue';
 import { computed, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
 import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
 import { useMcpStore } from '@/stores/mcp';
 
@@ -37,7 +38,7 @@ export function useMcpConnection(serverId: Ref<number>) {
             const server = mcpStore.serverById(serverId.value);
             if (!server) {
                 isConnecting.value = false;
-                return { success: false, error: '服务器不存在' };
+                return { success: false, error: t('settings.mcp.connection.serverMissing') };
             }
             // 发起连接请求但不等待结果，实际结果通过状态事件返回
             mcpManager.connectServer(server).catch(() => {});
@@ -50,7 +51,7 @@ export function useMcpConnection(serverId: Ref<number>) {
                     unwatch();
                     activeUnwatchers.delete(unwatch);
                     isConnecting.value = false;
-                    resolve({ success: false, error: '连接超时' });
+                    resolve({ success: false, error: t('settings.mcp.connection.connectTimeout') });
                 }, 15000);
 
                 const unwatch = watch(status, (newStatus) => {
@@ -65,7 +66,10 @@ export function useMcpConnection(serverId: Ref<number>) {
                         unwatch();
                         activeUnwatchers.delete(unwatch);
                         isConnecting.value = false;
-                        resolve({ success: false, error: lastError.value || '连接失败' });
+                        resolve({
+                            success: false,
+                            error: lastError.value || t('settings.mcp.connection.connectFailed'),
+                        });
                     }
                 });
                 activeUnwatchers.add(unwatch);
@@ -92,7 +96,10 @@ export function useMcpConnection(serverId: Ref<number>) {
                     unwatch();
                     activeUnwatchers.delete(unwatch);
                     isDisconnecting.value = false;
-                    resolve({ success: false, error: '断开超时' });
+                    resolve({
+                        success: false,
+                        error: t('settings.mcp.connection.disconnectTimeout'),
+                    });
                 }, 5000);
 
                 const unwatch = watch(status, (newStatus) => {
@@ -125,7 +132,12 @@ export function useMcpConnection(serverId: Ref<number>) {
         try {
             const disconnectResult = await handleDisconnect();
             if (!disconnectResult.success) {
-                return { success: false, error: `断开失败: ${disconnectResult.error}` };
+                return {
+                    success: false,
+                    error: t('settings.mcp.connection.disconnectFailedWithError', {
+                        error: disconnectResult.error ?? '',
+                    }),
+                };
             }
 
             // 等待状态稳定后再重新连接
@@ -134,7 +146,12 @@ export function useMcpConnection(serverId: Ref<number>) {
 
             const connectResult = await handleConnect();
             if (!connectResult.success) {
-                return { success: false, error: `重连失败: ${connectResult.error}` };
+                return {
+                    success: false,
+                    error: t('settings.mcp.connection.reconnectFailedWithError', {
+                        error: connectResult.error ?? '',
+                    }),
+                };
             }
 
             return { success: true };

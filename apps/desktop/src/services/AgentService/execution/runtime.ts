@@ -5,6 +5,7 @@ import type { SessionTurnEntity } from '@database/types';
 
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import { t } from '@/i18n';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
@@ -150,10 +151,17 @@ interface RuntimeContext {
 }
 
 /**
- * 这里的持久化异常标题/正文会直接展示给用户，因此统一使用中文。
- * executor.ts 中的 console 日志继续保留英文，便于对齐 provider / SDK 调试信息。
+ * executor.ts 中的 console 日志保留英文，便于对齐 provider / SDK 调试信息。
  */
-const PERSISTENCE_ISSUE_TITLE = '数据库错误';
+function buildPersistenceIssue(bodyKey: Parameters<typeof t>[0]): Pick<
+    RuntimePersistenceIssue,
+    'title' | 'body'
+> {
+    return {
+        title: t('agent.persistenceIssue.title'),
+        body: t(bodyKey),
+    };
+}
 
 /**
  * 管理一次请求的运行时状态与生命周期：
@@ -201,8 +209,7 @@ export class AiConversationRuntime {
             );
             await this.reportPersistenceIssue({
                 phase: 'attachment_prepare',
-                title: PERSISTENCE_ISSUE_TITLE,
-                body: '保存附件缓存失败，本轮仍会继续发送，但附件可能无法持久化或复用远端引用。',
+                ...buildPersistenceIssue('agent.persistenceIssue.attachmentPrepare'),
                 error: result.reason,
             });
         }
@@ -278,8 +285,7 @@ export class AiConversationRuntime {
                 console.error('[AiConversationRuntime] Failed to record request start:', error);
                 await this.reportPersistenceIssue({
                     phase: 'turn_start',
-                    title: PERSISTENCE_ISSUE_TITLE,
-                    body: '保存会话轮次失败，对话将继续但可能无法保存。',
+                    ...buildPersistenceIssue('agent.persistenceIssue.turnStart'),
                     error,
                 });
             });
@@ -340,8 +346,7 @@ export class AiConversationRuntime {
             console.error('[AiConversationRuntime] Failed to persist completion:', persistError);
             await this.reportPersistenceIssue({
                 phase: 'turn_completed',
-                title: PERSISTENCE_ISSUE_TITLE,
-                body: '保存会话完成状态失败，对话将继续但可能无法保存。',
+                ...buildPersistenceIssue('agent.persistenceIssue.turnCompleted'),
                 error: persistError,
             });
         }
@@ -411,8 +416,7 @@ export class AiConversationRuntime {
                         );
                         await this.reportPersistenceIssue({
                             phase: 'turn_cancelled',
-                            title: PERSISTENCE_ISSUE_TITLE,
-                            body: '保存会话取消状态失败，对话记录可能不完整。',
+                            ...buildPersistenceIssue('agent.persistenceIssue.turnCancelled'),
                             error: persistError,
                         });
                     }
@@ -443,8 +447,7 @@ export class AiConversationRuntime {
                         );
                         await this.reportPersistenceIssue({
                             phase: 'retry_started',
-                            title: PERSISTENCE_ISSUE_TITLE,
-                            body: '保存重试检查点失败，但本轮仍会继续重试。',
+                            ...buildPersistenceIssue('agent.persistenceIssue.retryStarted'),
                             error: persistError,
                         });
                     }
@@ -481,8 +484,7 @@ export class AiConversationRuntime {
                     );
                     await this.reportPersistenceIssue({
                         phase: 'turn_failed',
-                        title: PERSISTENCE_ISSUE_TITLE,
-                        body: '保存会话失败状态失败，对话记录可能不完整。',
+                        ...buildPersistenceIssue('agent.persistenceIssue.turnFailed'),
                         error: persistError,
                     });
                 }
@@ -514,8 +516,7 @@ export class AiConversationRuntime {
                         );
                         await this.reportPersistenceIssue({
                             phase: 'turn_cancelled',
-                            title: PERSISTENCE_ISSUE_TITLE,
-                            body: '保存会话取消状态失败，对话记录可能不完整。',
+                            ...buildPersistenceIssue('agent.persistenceIssue.turnCancelled'),
                             error: persistError,
                         });
                     }
@@ -536,8 +537,7 @@ export class AiConversationRuntime {
                         );
                         await this.reportPersistenceIssue({
                             phase: 'turn_failed',
-                            title: PERSISTENCE_ISSUE_TITLE,
-                            body: '保存会话失败状态失败，对话记录可能不完整。',
+                            ...buildPersistenceIssue('agent.persistenceIssue.turnFailed'),
                             error: persistError,
                         });
                     }

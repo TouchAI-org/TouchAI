@@ -2,6 +2,7 @@
 
 import { native } from '@services/NativeService';
 
+import { tt } from '@/i18n';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import {
@@ -20,7 +21,7 @@ function buildFileSearchConversationSemantic(
     const query = normalizeOptionalString(args.query, { collapseWhitespace: true });
     return {
         action: 'search',
-        target: query && query !== '*' ? truncateText(query, 80) : '本机文件',
+        target: query && query !== '*' ? truncateText(query, 80) : tt('本机文件'),
     };
 }
 
@@ -67,10 +68,10 @@ export async function executeFileSearchTool(
 
         return {
             result: [
-                '本机文件搜索失败',
-                `原始查询: ${queryContext.query}`,
-                `Everything 查询: ${queryContext.everythingQuery}`,
-                `原因: ${errorMessage}`,
+                tt('本机文件搜索失败'),
+                `${tt('原始查询')}: ${queryContext.query}`,
+                `${tt('Everything 查询')}: ${queryContext.everythingQuery}`,
+                `${tt('原因')}: ${errorMessage}`,
             ].join('\n'),
             isError: true,
             status: 'error',

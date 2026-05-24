@@ -3,6 +3,8 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
 
+
+    import { t } from '@/i18n';
     interface Props {
         url: string;
         headers: { key: string; value: string }[];
@@ -52,7 +54,7 @@
                 :value="url"
                 type="text"
                 class="settings-input mt-1.5 w-full font-mono"
-                placeholder="例如: https://example.com/mcp"
+                :placeholder="t('settings.mcp.config.urlPlaceholder')"
                 @input="emit('update:url', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
             />
@@ -60,7 +62,7 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-neutral-700">请求头</label>
+                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.mcp.config.headers') }}</label>
                 <button
                     class="text-neutral-400 transition-colors hover:text-neutral-700"
                     @click="addHeader"
@@ -74,7 +76,7 @@
                         :value="header.key"
                         type="text"
                         class="settings-input w-1/3 px-4 py-2.5 font-mono"
-                        placeholder="请求头名称"
+                        :placeholder="t('settings.mcp.config.headerNamePlaceholder')"
                         @input="updateHeaderKey(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
@@ -82,7 +84,7 @@
                         :value="header.value"
                         type="text"
                         class="settings-input flex-1 px-4 py-2.5 font-mono"
-                        placeholder="请求头值"
+                        :placeholder="t('settings.mcp.config.headerValuePlaceholder')"
                         @input="updateHeaderValue(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />

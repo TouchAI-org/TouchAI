@@ -1,5 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent } from '@/services/EventService/types';
 
@@ -225,7 +226,7 @@ class SessionTaskCenter {
         }
 
         task.abortController.abort();
-        task.projection.clearPendingApprovals('任务已取消');
+        task.projection.clearPendingApprovals(tt('请求已取消'));
         return true;
     }
 
@@ -333,7 +334,7 @@ class SessionTaskCenter {
                 if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
                     task.projection.markCancelled();
                 } else {
-                    task.projection.markFailed(aiError.message);
+                    task.projection.markFailed(aiError.message, aiError.getDisplayMessage());
                 }
                 this.finalizeTaskLifecycle(taskId);
             }
@@ -362,11 +363,10 @@ class SessionTaskCenter {
             return;
         }
 
-        throw new AiError(
-            AiErrorCode.SESSION_ACTIVE_TASK_EXISTS,
-            { sessionId, activeTaskId: existingTaskId },
-            '当前会话已有正在运行的任务，请等待完成、先取消，或切换到其他会话'
-        );
+        throw new AiError(AiErrorCode.SESSION_ACTIVE_TASK_EXISTS, {
+            sessionId,
+            activeTaskId: existingTaskId,
+        });
     }
 
     private handleTaskEvent(taskId: string, event: TurnEvent): void {

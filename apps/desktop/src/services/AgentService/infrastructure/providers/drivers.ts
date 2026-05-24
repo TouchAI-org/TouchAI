@@ -2,6 +2,8 @@
 
 import type { ProviderDriver } from '@database/schema';
 
+import { tt } from '@/i18n';
+
 import { AlibabaProviderAdapter } from './adapters/alibaba';
 import { AnthropicProviderAdapter } from './adapters/anthropic';
 import { AnthropicCompatibleProviderAdapter } from './adapters/anthropic-compatible';
@@ -123,13 +125,31 @@ const providerDriverSet = new Set<string>(providerDrivers.map((entry) => entry.d
 /**
  * 所有 driver 的展示定义列表。
  */
-export const providerDriverDefinitions: ProviderDriverDefinition[] = providerDrivers.map(
-    (entry) => ({
+function toProviderDriverDefinition(entry: ProviderDriverEntry): ProviderDriverDefinition {
+    return {
         driver: entry.driver,
-        label: entry.label,
+        label: tt(entry.label),
         logo: entry.logo,
         placeholder: entry.placeholder,
-    })
+    };
+}
+
+export function getProviderDriverDefinitions(): ProviderDriverDefinition[] {
+    return providerDrivers.map(toProviderDriverDefinition);
+}
+
+export const providerDriverDefinitions: ProviderDriverDefinition[] = new Proxy(
+    [] as ProviderDriverDefinition[],
+    {
+        get(_target, property) {
+            const definitions = getProviderDriverDefinitions();
+            const value = Reflect.get(definitions, property);
+            return typeof value === 'function' ? value.bind(definitions) : value;
+        },
+        has(_target, property) {
+            return property in getProviderDriverDefinitions();
+        },
+    }
 );
 
 export function isProviderDriver(value: unknown): value is ProviderDriver {
@@ -157,12 +177,7 @@ function getProviderDriverEntry(driver: ProviderDriver): ProviderDriverEntry {
  */
 export function getProviderDriverDefinition(driver: ProviderDriver): ProviderDriverDefinition {
     const entry = getProviderDriverEntry(driver);
-    return {
-        driver: entry.driver,
-        label: entry.label,
-        logo: entry.logo,
-        placeholder: entry.placeholder,
-    };
+    return toProviderDriverDefinition(entry);
 }
 
 /**

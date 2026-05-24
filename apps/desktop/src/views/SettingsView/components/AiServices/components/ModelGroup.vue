@@ -8,6 +8,8 @@
 
     import ModelCard from './ModelCard.vue';
 
+
+    import { t } from '@/i18n';
     interface ModelGroup {
         groupKey: string;
         groupName: string;
@@ -47,16 +49,16 @@
             // 如果分组内有默认模型，不允许删除
             const { useAlert } = await import('@composables/useAlert');
             const { warning } = useAlert();
-            warning('该分组包含默认模型，无法批量删除');
+            warning(t('settings.ai.groupContainsDefaultModel'));
             return;
         }
 
         const confirmed = await confirm({
-            title: '确认删除',
-            message: '确定要删除该分组下的所有模型吗？',
+            title: t('settings.ai.confirmDeleteTitle'),
+            message: t('settings.ai.confirmDeleteGroup'),
             type: 'danger',
-            confirmText: '删除',
-            cancelText: '取消',
+            confirmText: t('common.delete'),
+            cancelText: t('common.cancel'),
         });
 
         if (confirmed) {
@@ -90,7 +92,7 @@
 
             <button
                 class="flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-50 hover:text-neutral-700"
-                title="删除分组"
+                :title="t('settings.ai.deleteGroup')"
                 @click="handleDeleteGroup(group.groupKey, group.models)"
             >
                 <AppIcon name="trash" class="h-4 w-4" />

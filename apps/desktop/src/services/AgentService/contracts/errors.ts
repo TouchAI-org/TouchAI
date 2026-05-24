@@ -1,5 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { type SourceText, tt } from '@/i18n';
+
 /**
  * AI 服务错误码
  */
@@ -45,7 +47,7 @@ export enum AiErrorCode {
 /**
  * 错误消息映射表
  */
-const ERROR_MESSAGES: Record<AiErrorCode, string> = {
+const ERROR_MESSAGES: Record<AiErrorCode, SourceText> = {
     // 模型相关
     [AiErrorCode.NO_ACTIVE_MODEL]: '未配置可用的 AI 模型，请前往设置页面添加模型',
     [AiErrorCode.MODEL_NOT_FOUND]: '指定的模型不存在',
@@ -92,6 +94,7 @@ export class AiError extends Error {
     public readonly code: AiErrorCode;
     public readonly details?: unknown;
     public readonly cause?: unknown;
+    private readonly usesDefaultMessage: boolean;
 
     constructor(
         code: AiErrorCode,
@@ -99,13 +102,15 @@ export class AiError extends Error {
         message?: string,
         options: { cause?: unknown } = {}
     ) {
-        const finalMessage = message || ERROR_MESSAGES[code];
+        const usesDefaultMessage = message === undefined || message === '';
+        const finalMessage = usesDefaultMessage ? ERROR_MESSAGES[code] : message;
         super(finalMessage);
 
         this.name = 'AiError';
         this.code = code;
         this.details = details;
         this.cause = options.cause;
+        this.usesDefaultMessage = usesDefaultMessage;
 
         // 保持正确的原型链
         Object.setPrototypeOf(this, AiError.prototype);
@@ -116,6 +121,39 @@ export class AiError extends Error {
      */
     static getMessage(code: AiErrorCode): string {
         return ERROR_MESSAGES[code];
+    }
+
+    /**
+     * Localize known default AiError messages after they have crossed a string-only boundary.
+     */
+    static getKnownDefaultDisplayMessage(message: string): string {
+        const source = Object.values(ERROR_MESSAGES).find((candidate) => candidate === message);
+        return source ? tt(source) : message;
+    }
+
+    /**
+     * 获取适合 UI 展示的本地化消息。
+     *
+     * 只有应用生成的默认错误文案会被本地化；provider/API 返回的自定义消息保持原样，
+     * 避免破坏远端 payload 的诊断价值。
+     */
+    getDisplayMessage(): string {
+        return this.usesDefaultMessage ? tt(ERROR_MESSAGES[this.code]) : this.message;
+    }
+
+    /**
+     * 获取任意错误对象适合 UI 展示的消息。
+     */
+    static getDisplayMessage(error: unknown): string {
+        if (error instanceof AiError) {
+            return error.getDisplayMessage();
+        }
+
+        if (error instanceof Error) {
+            return error.message;
+        }
+
+        return String(error);
     }
 
     /**

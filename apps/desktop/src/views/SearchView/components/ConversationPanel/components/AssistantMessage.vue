@@ -28,8 +28,10 @@
                                         : 'h-4 w-4 transition-transform'
                                 "
                             />
-                            <span v-if="message.isStreaming && !message.content">思考中</span>
-                            <span v-else>推理过程</span>
+                            <span v-if="message.isStreaming && !message.content">
+                                {{ t('assistant.reasoning.thinking') }}
+                            </span>
+                            <span v-else>{{ t('assistant.reasoning.title') }}</span>
                             <span
                                 v-if="message.isStreaming && !message.content"
                                 class="ml-2 flex items-center gap-1 text-xs text-gray-500"
@@ -102,11 +104,15 @@
                 </template>
 
                 <div v-if="showMessageActions" class="mt-3 flex items-center gap-1">
-                    <ActionButton icon="copy" :handler="handleCopy" aria-label="Copy message" />
+                    <ActionButton
+                        icon="copy"
+                        :handler="handleCopy"
+                        :aria-label="t('assistant.action.copyMessage')"
+                    />
                     <ActionButton
                         icon="refresh"
                         :handler="handleRegenerate"
-                        aria-label="Regenerate response"
+                        :aria-label="t('assistant.action.regenerateResponse')"
                     />
                 </div>
             </div>
@@ -121,6 +127,7 @@
     import { notify } from '@services/NotificationService';
     import { computed, onUnmounted, ref, watch } from 'vue';
 
+    import { t, type MessageKey } from '@/i18n';
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
     import type {
@@ -171,23 +178,26 @@
               approval: ToolApprovalInfo;
           };
 
-    const TIPS = [
-        'Shift+Enter 换行，适合分段表述',
-        'Ctrl+M 或点击模型图标切换模型',
-        'Ctrl+H 快速打开历史会话',
-        'Ctrl+P 切换窗口置顶',
-        'Ctrl+N 开启新会话',
-        '右上角历史按钮可查看和切换历史会话',
-        '消息下方按钮可复制内容',
-        '消息下方按钮可重新生成回复',
+    type LoadingTipKey = Extract<MessageKey, `assistant.loadingTip.${string}`>;
+
+    const TIPS: LoadingTipKey[] = [
+        'assistant.loadingTip.newLine',
+        'assistant.loadingTip.switchModel',
+        'assistant.loadingTip.history',
+        'assistant.loadingTip.alwaysOnTop',
+        'assistant.loadingTip.newSession',
+        'assistant.loadingTip.historyButton',
+        'assistant.loadingTip.copy',
+        'assistant.loadingTip.regenerate',
     ];
+    const DEFAULT_LOADING_TIP_KEY = 'assistant.loadingTip.newLine' satisfies LoadingTipKey;
 
     // UI 层记忆：跨流式会话保持轮播进度，确保提示均等曝光
     const lastTipIndex = ref(0);
 
     const currentTipIndex = ref(0);
     const tipVisible = ref(false);
-    const currentTip = computed(() => TIPS[currentTipIndex.value]);
+    const currentTip = computed(() => t(TIPS[currentTipIndex.value] ?? DEFAULT_LOADING_TIP_KEY));
 
     let tipTimer: ReturnType<typeof setInterval> | null = null;
     let tipDelayTimer: ReturnType<typeof setTimeout> | null = null;
@@ -332,10 +342,10 @@
     async function handleCopy() {
         try {
             await clipboardService.writeText(props.message.content);
-            notify({ title: 'TouchAI', body: '已复制到剪贴板' });
+            notify({ title: 'TouchAI', body: t('notification.copy.copiedToClipboard') });
         } catch (error) {
             console.error('[AssistantMessage] Failed to copy:', error);
-            notify({ title: 'TouchAI', body: '复制失败' });
+            notify({ title: 'TouchAI', body: t('common.copyFailed') });
         }
     }
 
@@ -415,8 +425,8 @@
     }
 
     .streaming-indicator {
-        position: relative;
         min-height: 1.2em;
+        min-width: 0;
     }
 
     .dot {
@@ -449,15 +459,15 @@
     }
 
     .loading-tip {
-        position: absolute;
-        left: 28px;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 12px;
         font-weight: 600;
         font-family: var(--font-serif);
         color: var(--color-gray-500);
-        white-space: nowrap;
+        min-width: 0;
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.45;
         opacity: 0.7;
         transition: opacity 0.3s ease;
     }

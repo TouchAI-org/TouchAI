@@ -14,6 +14,8 @@
         loadBuiltInToolQueries,
     } from '../types';
 
+
+    import { t } from '@/i18n';
     interface Props {
         tool: BuiltInToolEntity;
     }
@@ -124,7 +126,7 @@
                         ]"
                         @click="filterStatus = status"
                     >
-                        {{ status === 'all' ? '全部' : getToolLogStatusText(status) }}
+                        {{ status === 'all' ? t('common.all') : getToolLogStatusText(status) }}
                     </button>
                 </div>
 
@@ -132,7 +134,7 @@
                     <input
                         v-model="searchQuery"
                         type="text"
-                        placeholder="搜索日志..."
+                        :placeholder="t('toolLog.searchPlaceholder')"
                         class="settings-input w-full py-1.5 pr-3 pl-9"
                     />
                     <AppIcon
@@ -149,9 +151,9 @@
             <div v-else-if="filteredLogs.length === 0" class="py-12 text-center">
                 <AppIcon name="document-text" class="mx-auto h-16 w-16 text-neutral-300" />
                 <p class="mt-4 text-sm text-neutral-500">
-                    {{ searchQuery ? '未找到匹配的日志' : '暂无日志' }}
+                    {{ searchQuery ? t('toolLog.noMatches') : t('toolLog.empty') }}
                 </p>
-                <p v-if="searchQuery" class="mt-1 text-xs text-neutral-400">尝试其他搜索关键词</p>
+                <p v-if="searchQuery" class="mt-1 text-xs text-neutral-400">{{ t('toolLog.tryAnotherKeyword') }}</p>
             </div>
 
             <div v-else class="space-y-2">
@@ -226,7 +228,7 @@
                         class="settings-button-secondary"
                         @click="loadMore"
                     >
-                        {{ loadingMore ? '加载中...' : '加载更多' }}
+                        {{ loadingMore ? t('common.loading') : t('common.loadMore') }}
                     </button>
                 </div>
             </div>

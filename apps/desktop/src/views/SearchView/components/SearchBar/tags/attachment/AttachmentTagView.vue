@@ -15,6 +15,8 @@
         data-search-tag
         data-search-tag-kind="attachment"
         data-attachment-tag
+        data-no-i18n="true"
+        translate="no"
         :data-attachment-id="node.attrs.attachmentId"
         :title="tooltipText"
         contenteditable="false"
@@ -25,8 +27,15 @@
                 :src="node.attrs.preview"
                 :alt="fileName"
                 class="attachment-tag-preview"
+                data-no-i18n="true"
+                translate="no"
             />
-            <span v-if="!isImage" class="search-tag-label search-tag-label--attachment">
+            <span
+                v-if="!isImage"
+                class="search-tag-label search-tag-label--attachment"
+                data-no-i18n="true"
+                translate="no"
+            >
                 {{ truncatedName }}
             </span>
             <button
@@ -46,6 +55,8 @@
     import type { NodeViewProps } from '@tiptap/core';
     import { NodeViewWrapper } from '@tiptap/vue-3';
     import { computed } from 'vue';
+
+    import { t } from '@/i18n';
 
     import { hasRangeSelectedDecoration } from '../utils';
 
@@ -75,10 +86,10 @@
     /** 悬停提示：置灰时显示不支持原因，正常时显示文件名。 */
     const tooltipText = computed(() => {
         if (props.node.attrs.supportStatus === 'unsupported-image') {
-            return `${fileName.value}（当前模型不支持图片）`;
+            return `${fileName.value}${t('conversation.attachment.unsupportedImageSuffix')}`;
         }
         if (props.node.attrs.supportStatus === 'unsupported-file') {
-            return `${fileName.value}（当前模型不支持文件）`;
+            return `${fileName.value}${t('conversation.attachment.unsupportedFileSuffix')}`;
         }
         return fileName.value;
     });

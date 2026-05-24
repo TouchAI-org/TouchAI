@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
@@ -20,6 +20,8 @@
         usesBuiltInToolEmptyConfig,
     } from './types';
 
+
+    import { t } from '@/i18n';
     defineOptions({
         name: 'SettingsBuiltInToolsSection',
     });
@@ -41,8 +43,8 @@
     const queuedPatch = ref<BuiltInToolUpdateData | null>(null);
     const activeTab = ref<'config' | 'logs'>('config');
     const baseTabs: SectionTabItem<'config' | 'logs'>[] = [
-        { value: 'config', label: '配置' },
-        { value: 'logs', label: '调用日志' },
+        { value: 'config', label: t('settings.builtInTools.tabs.config') },
+        { value: 'logs', label: t('settings.builtInTools.tabs.logs') },
     ];
     const tabs = computed<SectionTabItem<'config' | 'logs'>[]>(() => {
         if (selectedTool.value && usesBuiltInToolEmptyConfig(selectedTool.value.tool_id)) {
@@ -89,7 +91,7 @@
             }
         } catch (error) {
             console.error('[BuiltInToolsView] Failed to load tools:', error);
-            alertMessage.value?.error('加载内置工具失败', 6000);
+            alertMessage.value?.error(t('settings.builtInTools.loadFailed'), 6000);
             tools.value = [];
             selectedTool.value = null;
         } finally {
@@ -128,7 +130,7 @@
             applyToolUpdate(updatedTool);
         } catch (error) {
             console.error('[BuiltInToolsView] Failed to toggle tool enabled:', error);
-            alertMessage.value?.error('更新工具启用状态失败', 6000);
+            alertMessage.value?.error(t('settings.builtInTools.updateEnabledFailed'), 6000);
         } finally {
             togglingToolIds.value.delete(toolId);
         }
@@ -158,7 +160,7 @@
             applyToolUpdate(nextTool);
         } catch (error) {
             console.error('[BuiltInToolsView] Failed to update tool:', error);
-            alertMessage.value?.error('保存内置工具配置失败', 6000);
+            alertMessage.value?.error(t('settings.builtInTools.saveConfigFailed'), 6000);
         } finally {
             saving.value = false;
 
@@ -202,7 +204,7 @@
                 :aria-valuenow="panelWidth"
                 tabindex="0"
                 class="settings-side-panel-resizer"
-                title="调整内置工具列表宽度"
+                :title="t('settings.builtInTools.resizeList')"
                 @keydown="handleResizeKeyDown"
                 @pointerdown="handleResizePointerDown"
             />
@@ -218,10 +220,10 @@
                 <div class="max-w-md">
                     <AppIcon name="tool" class="mx-auto h-12 w-12 text-neutral-300" />
                     <h3 class="mt-4 text-[15px] font-medium text-neutral-950">
-                        尚未发现可配置的内置工具
+                        {{ t('settings.builtInTools.emptyConfigurable') }}
                     </h3>
                     <p class="mt-2 text-sm leading-6 text-neutral-500">
-                        等待网关注册完成后，工具会自动显示在左侧列表中。
+                        {{ t('settings.builtInTools.emptyConfigurableDescription') }}
                     </p>
                 </div>
             </div>

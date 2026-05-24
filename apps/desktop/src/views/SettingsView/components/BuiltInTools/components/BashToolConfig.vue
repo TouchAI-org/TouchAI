@@ -6,6 +6,8 @@
 
     import type { BashApprovalMode, BashToolConfig } from '../types';
 
+
+    import { t } from '@/i18n';
     interface Props {
         modelValue: BashToolConfig;
         disabled?: boolean;
@@ -24,15 +26,15 @@
     }> = [
         {
             value: 'high_risk',
-            title: '自动',
+            title: t('settings.builtInTools.bash.approvalMode.auto'),
         },
         {
             value: 'always',
-            title: '每次询问',
+            title: t('settings.builtInTools.bash.approvalMode.askEachTime'),
         },
         {
             value: 'never',
-            title: '完全访问',
+            title: t('settings.builtInTools.bash.approvalMode.fullAccess'),
         },
     ];
 
@@ -49,7 +51,7 @@
                 directory: true,
                 multiple: false,
                 defaultPath: defaultPath?.trim() || undefined,
-                title: '选择目录',
+                title: t('settings.builtInTools.bash.chooseDirectory'),
             });
             return typeof picked === 'string' ? picked : null;
         } catch (error) {
@@ -115,7 +117,7 @@
         <div class="space-y-5">
             <div class="flex items-start justify-between gap-4">
                 <div>
-                    <h4 class="text-sm font-semibold text-neutral-950">执行与审批</h4>
+                    <h4 class="text-sm font-semibold text-neutral-950">{{ t('settings.builtInTools.bash.executionAndApproval') }}</h4>
                 </div>
             </div>
 
@@ -141,7 +143,7 @@
 
             <div class="mt-5 space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-neutral-700">默认工作目录</label>
+                    <label class="block text-sm font-medium text-neutral-700">{{ t('settings.builtInTools.bash.defaultWorkingDirectory') }}</label>
                     <div class="mt-1.5 flex gap-2">
                         <input
                             :value="modelValue.defaultWorkingDirectory"
@@ -150,14 +152,14 @@
                             type="text"
                             spellcheck="false"
                             class="settings-input flex-1 font-mono disabled:bg-neutral-50"
-                            placeholder="未设置时运行时默认桌面"
+                            :placeholder="t('settings.builtInTools.bash.defaultWorkingDirectoryPlaceholder')"
                         />
                         <button
                             type="button"
                             :disabled="disabled"
                             class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
-                            title="选择目录"
-                            aria-label="选择目录"
+                            :title="t('settings.builtInTools.bash.chooseDirectory')"
+                            :aria-label="t('settings.builtInTools.bash.chooseDirectory')"
                             @click="pickDefaultWorkingDirectory"
                         >
                             <AppIcon name="folder-open" class="h-5 w-5" />
@@ -168,7 +170,7 @@
                 <div>
                     <div class="flex items-center justify-between">
                         <label class="block text-sm font-medium text-neutral-700">
-                            允许工作目录
+                            {{ t('settings.builtInTools.bash.allowedWorkingDirectories') }}
                         </label>
                         <button
                             type="button"
@@ -202,8 +204,8 @@
                                 type="button"
                                 :disabled="disabled"
                                 class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                title="选择目录"
-                                aria-label="选择目录"
+                                :title="t('settings.builtInTools.bash.chooseDirectory')"
+                                :aria-label="t('settings.builtInTools.bash.chooseDirectory')"
                                 @click="pickAllowedWorkingDirectory(index)"
                             >
                                 <AppIcon name="folder-open" class="h-5 w-5" />
@@ -222,13 +224,13 @@
                         v-else
                         class="mt-2 rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-500"
                     >
-                        未设置时运行时允许全部路径
+                        {{ t('settings.builtInTools.bash.allowAllDirectoriesWhenEmpty') }}
                     </div>
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-neutral-700">
-                        超时上限（毫秒）
+                        {{ t('settings.builtInTools.bash.timeoutMs') }}
                     </label>
                     <input
                         :value="modelValue.timeoutMs"
@@ -247,7 +249,7 @@
 
                 <div>
                     <label class="block text-sm font-medium text-neutral-700">
-                        输出上限（字符）
+                        {{ t('settings.builtInTools.bash.outputLimitChars') }}
                     </label>
                     <input
                         :value="modelValue.maxOutputChars"
@@ -268,10 +270,10 @@
 
                 <div>
                     <label class="block font-serif text-sm font-medium text-gray-600">
-                        压缩命令输出
+                        {{ t('settings.builtInTools.bash.compactOutput') }}
                     </label>
                     <p class="mt-0.5 font-serif text-xs text-gray-400">
-                        开启后命令输出会自动压缩，大幅降低 Token 消耗。
+                        {{ t('settings.builtInTools.bash.compactOutputDescription') }}
                     </p>
                     <label class="relative mt-1.5 inline-flex shrink-0 cursor-pointer items-center">
                         <input

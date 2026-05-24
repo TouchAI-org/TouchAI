@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import type { McpServerEntity } from '@database/types';
@@ -8,6 +8,8 @@
 
     import McpServerCard from './McpServerCard.vue';
 
+
+    import { t } from '@/i18n';
     interface Props {
         selectedServer: McpServerEntity | null;
         togglingServers: Set<number>;
@@ -122,15 +124,15 @@
         </div>
 
         <div v-else-if="servers.length === 0 && !newServer" class="py-8 text-center">
-            <p class="text-sm text-neutral-500">暂无服务器</p>
-            <p class="mt-1 text-xs text-neutral-400">点击下方按钮添加服务器</p>
+            <p class="text-sm text-neutral-500">{{ t('settings.mcp.servers.empty') }}</p>
+            <p class="mt-1 text-xs text-neutral-400">{{ t('settings.mcp.servers.addHint') }}</p>
         </div>
 
         <div v-else class="space-y-2">
             <!-- 新服务器编辑卡片 -->
             <div v-if="newServer" class="settings-item-selected rounded-lg border p-4">
-                <p class="text-[15px] font-normal text-neutral-950">新建服务器</p>
-                <p class="mt-1 text-xs text-neutral-500">请在右侧填写服务器配置</p>
+                <p class="text-[15px] font-normal text-neutral-950">{{ t('settings.mcp.servers.new') }}</p>
+                <p class="mt-1 text-xs text-neutral-500">{{ t('settings.mcp.servers.fillConfigOnRight') }}</p>
             </div>
 
             <!-- 现有服务器列表 -->

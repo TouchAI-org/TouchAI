@@ -7,6 +7,7 @@ import {
     base64ToUint8Array,
     createPersistedAttachmentFromData,
 } from '@/services/AgentService/infrastructure/attachments';
+import { t } from '@/i18n';
 import { parseMcpServerArgsJson, parseMcpServerRecordJson } from '@/utils/mcpSchemas';
 
 export function readOptionalMcpArgs(argsJson?: string | null): string[] | undefined {
@@ -38,9 +39,9 @@ export function formatMcpToolResponse(response: McpToolCallResponse): string {
             if (item.type === 'text') {
                 return item.text || '';
             } else if (item.type === 'image') {
-                return `[Image: ${item.mime_type}]`;
+                return t('agent.mcp.imageResult', { mimeType: item.mime_type ?? 'unknown' });
             } else if (item.type === 'resource') {
-                return item.text || `[Resource: ${item.uri}]`;
+                return item.text || t('agent.mcp.resourceResult', { uri: item.uri ?? 'unknown' });
             }
             return '';
         })
@@ -214,7 +215,7 @@ export function raceWithTimeoutAndSignal<T>(
     signal?: AbortSignal
 ): Promise<T> {
     if (signal?.aborted) {
-        return Promise.reject(new Error('Request cancelled'));
+        return Promise.reject(new Error(t('agent.mcp.requestCancelled')));
     }
 
     // 快速路径：没有超时且没有有效信号，直接返回原始 promise
@@ -234,7 +235,7 @@ export function raceWithTimeoutAndSignal<T>(
         };
 
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const onAbort = () => settle(reject, new Error('Request cancelled'));
+        const onAbort = () => settle(reject, new Error(t('agent.mcp.requestCancelled')));
 
         // 清理所有竞争资源：定时器和中止监听器
         const cleanup = () => {
@@ -251,7 +252,7 @@ export function raceWithTimeoutAndSignal<T>(
         // 超时竞争者：如果工具执行时间过长则拒绝
         if (timeoutMs > 0) {
             timer = setTimeout(
-                () => settle(reject, new Error(`Tool execution timed out after ${timeoutMs}ms`)),
+                () => settle(reject, new Error(t('agent.mcp.toolTimeout', { timeoutMs }))),
                 timeoutMs
             );
         }
@@ -260,7 +261,7 @@ export function raceWithTimeoutAndSignal<T>(
         if (signal && !signal.aborted) {
             signal.addEventListener('abort', onAbort, { once: true });
         } else if (signal?.aborted) {
-            settle(reject, new Error('Request cancelled'));
+            settle(reject, new Error(t('agent.mcp.requestCancelled')));
         }
     });
 }

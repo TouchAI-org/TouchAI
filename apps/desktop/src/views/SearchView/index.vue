@@ -13,6 +13,7 @@
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
@@ -511,8 +512,8 @@
         } catch (error) {
             console.error('[SearchView] Failed to update window pin state:', error);
             await notify({
-                title: 'TouchAI - 置顶切换失败',
-                body: '窗口置顶状态更新失败，请稍后重试',
+                title: t('notification.pinToggleFailed.title'),
+                body: t('notification.pinToggleFailed.body'),
             });
         }
     }
@@ -563,7 +564,12 @@
                 attachments.value.push(attachment);
                 searchBar.value?.insertAttachmentAtCursor(
                     attachment.id,
-                    attachment.name || (type === 'image' ? 'Image' : 'File'),
+                    attachment.name ||
+                        t(
+                            type === 'image'
+                                ? 'conversation.attachment.unnamedImage'
+                                : 'conversation.attachment.unnamedFile'
+                        ),
                     type,
                     attachment.preview
                 );
@@ -754,8 +760,8 @@
         } catch (error) {
             console.error('[SearchView] Failed to toggle window pin state:', error);
             await notify({
-                title: 'TouchAI - 置顶切换失败',
-                body: '窗口置顶状态更新失败，请稍后重试',
+                title: t('notification.pinToggleFailed.title'),
+                body: t('notification.pinToggleFailed.body'),
             });
         }
     }
@@ -805,10 +811,12 @@
             }
 
             await notify({
-                title: 'TouchAI - 打开会话失败',
-                body: isMissingSession
-                    ? '该会话不存在，历史列表已刷新'
-                    : '打开会话失败，请稍后重试',
+                title: t('notification.openSessionFailed.title'),
+                body: t(
+                    isMissingSession
+                        ? 'notification.openSessionFailed.missing'
+                        : 'notification.openSessionFailed.generic'
+                ),
             });
 
             await controller.focusSearchInput();

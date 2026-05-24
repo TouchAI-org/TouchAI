@@ -2,6 +2,8 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
+import { tt } from '@/i18n';
+
 import type { AttachmentIndex, AttachmentSupportStatus } from './types';
 
 /**
@@ -29,10 +31,10 @@ export function isAttachmentSupported(attachment: AttachmentIndex): boolean {
 
 export function getAttachmentSupportMessage(attachment: AttachmentIndex): string | null {
     if (attachment.supportStatus === 'unsupported-image') {
-        return '该模型不支持图片';
+        return tt('该模型不支持图片');
     }
     if (attachment.supportStatus === 'unsupported-file') {
-        return '该模型不支持文件';
+        return tt('该模型不支持文件');
     }
     return null;
 }

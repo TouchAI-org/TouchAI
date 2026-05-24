@@ -103,6 +103,8 @@
         :src="logoSrc"
         :alt="name || modelId"
         :class="[sizeClass, 'rounded-full object-cover']"
+        data-no-i18n="true"
+        translate="no"
     />
     <div
         v-else
@@ -111,6 +113,8 @@
             fallbackTextClass,
             'flex items-center justify-center rounded-full bg-gray-100 font-semibold text-gray-500',
         ]"
+        data-no-i18n="true"
+        translate="no"
     >
         {{ fallbackChar }}
     </div>

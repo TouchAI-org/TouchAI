@@ -1,26 +1,43 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { t, type MessageKey } from '@/i18n';
+
+const statusTextKeyByStatus: Record<string, MessageKey> = {
+    success: 'toolLog.status.success',
+    error: 'toolLog.status.error',
+    timeout: 'toolLog.status.timeout',
+    awaiting_approval: 'toolLog.status.awaitingApproval',
+    approved: 'toolLog.status.approved',
+    rejected: 'toolLog.status.rejected',
+    cancelled: 'toolLog.status.cancelled',
+    pending: 'toolLog.status.pending',
+};
+
+const approvalStateTextKeyByStatus: Record<string, MessageKey> = {
+    pending: 'builtInTools.logs.approvalState.pending',
+    approved: 'builtInTools.logs.approvalState.approved',
+    rejected: 'builtInTools.logs.approvalState.rejected',
+};
+
 /**
- * 把 MCP 工具和内置工具的执行状态统一映射成中文文案。
+ * 把 MCP 工具和内置工具的执行状态统一映射成当前界面语言的文案。
  */
 export function getToolLogStatusText(status: string): string {
+    const key = statusTextKeyByStatus[status];
+    return key ? t(key) : status;
+}
+
+export function getBuiltInToolApprovalStateText(status: string | null | undefined): string | null {
     switch (status) {
-        case 'success':
-            return '成功';
-        case 'error':
-            return '错误';
-        case 'timeout':
-            return '超时';
-        case 'awaiting_approval':
-            return '待审批';
-        case 'approved':
-            return '已批准';
-        case 'rejected':
-            return '已拒绝';
-        case 'pending':
-            return '进行中';
+        case null:
+        case undefined:
+        case '':
+        case 'none':
+            return null;
         default:
-            return status;
+            return approvalStateTextKeyByStatus[status]
+                ? t(approvalStateTextKeyByStatus[status])
+                : status;
     }
 }
 
@@ -40,6 +57,8 @@ export function getToolLogStatusClass(status: string): string {
         case 'approved':
             return 'bg-sky-100 text-sky-700';
         case 'rejected':
+            return 'bg-gray-100 text-gray-700';
+        case 'cancelled':
             return 'bg-gray-100 text-gray-700';
         case 'pending':
             return 'bg-gray-100 text-gray-700';
