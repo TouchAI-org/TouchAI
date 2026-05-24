@@ -70,13 +70,16 @@ export type GeneralSettingKey =
     | 'start_on_boot'
     | 'start_minimized'
     | 'output_scroll_behavior'
-    | 'search_window_size_preset';
+    | 'search_window_size_preset'
+    | 'app_update_channel'
+    | 'app_update_auto_check'
+    | 'app_update_last_checked_at';
 
 export interface SettingsGeneralUpdatedEvent {
     sourceId: string;
     windowLabel: string;
     key: GeneralSettingKey;
-    value: string | number | boolean;
+    value: string | number | boolean | null;
 }
 
 export interface AiModelsUpdatedEvent {

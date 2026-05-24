@@ -8,6 +8,7 @@ import { paths } from './paths';
 import { quickSearch } from './quickSearch';
 import { runtime } from './runtime';
 import { shortcut } from './shortcut';
+import { updater } from './updater';
 import { window } from './window';
 
 export type {
@@ -20,6 +21,9 @@ export type {
     McpTransportType,
 } from './mcp';
 export type {
+    AppUpdateChannel,
+    AppUpdateCheckResult,
+    AppUpdateInfo,
     BuiltInBashExecutionRequest,
     BuiltInBashExecutionResponse,
     ClipboardPayload,
@@ -44,6 +48,7 @@ export {
     quickSearch,
     runtime,
     shortcut,
+    updater,
     window,
 };
 
@@ -59,4 +64,5 @@ export const native = {
     mcp,
     quickSearch,
     runtime,
+    updater,
 } as const;

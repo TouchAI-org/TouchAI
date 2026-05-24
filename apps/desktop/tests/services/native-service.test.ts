@@ -1,4 +1,6 @@
 import {
+    type AppUpdateCheckResult,
+    type AppUpdateInfo,
     autostart,
     type BuiltInBashExecutionResponse,
     builtInTools,
@@ -18,6 +20,7 @@ import {
     type QuickSearchResult,
     type QuickSearchStatus,
     shortcut,
+    updater,
     window as windowCommands,
 } from '@services/NativeService';
 import type { DatabaseQueryResponse } from '@services/NativeService/database';
@@ -52,6 +55,7 @@ describe('NativeService barrel', () => {
         expect(native.paths).toBe(paths);
         expect(native.mcp).toBe(mcp);
         expect(native.quickSearch).toBe(quickSearch);
+        expect(native.updater).toBe(updater);
     });
 });
 
@@ -633,6 +637,43 @@ describe('NativeService quick search boundary', () => {
 });
 
 describe('NativeService supporting boundaries', () => {
+    it('checks, downloads, and installs app updates through updater commands', async () => {
+        const update: AppUpdateInfo = {
+            version: '0.2.0',
+            fileName: 'org.touch-ai.app-0.2.0-full.nupkg',
+            notes: 'Bug fixes',
+            sizeBytes: 12_000_000,
+        };
+        const response: AppUpdateCheckResult = {
+            status: 'available',
+            channel: 'beta',
+            currentVersion: '0.1.0',
+            update,
+        };
+
+        mockTauriCommand('updater_check_for_updates', response);
+        mockTauriCommand('updater_download_update', update);
+        mockTauriCommand('updater_install_update', true);
+
+        await expect(
+            callAndExpectInvoke(
+                () => updater.checkForUpdates('beta'),
+                'updater_check_for_updates',
+                {
+                    channel: 'beta',
+                }
+            )
+        ).resolves.toEqual(response);
+
+        await expect(
+            callAndExpectInvoke(() => updater.downloadUpdate(), 'updater_download_update')
+        ).resolves.toEqual(update);
+
+        await expect(
+            callAndExpectInvoke(() => updater.installUpdate(), 'updater_install_update')
+        ).resolves.toBe(true);
+    });
+
     it('reads clipboard payloads and consumes shortcut snapshots', async () => {
         const payload: ClipboardPayload = {
             snapshotId: 'snapshot-1',

@@ -8,6 +8,11 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
 import {
+    type AppUpdateChannel,
+    DEFAULT_APP_UPDATE_CHANNEL,
+    normalizeAppUpdateChannel,
+} from '@/config/appUpdate';
+import {
     DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
     resolveSearchWindowDefaultSize,
     type SearchWindowDefaultSize,
@@ -25,6 +30,9 @@ export interface GeneralSettingsData {
     outputScrollBehavior: OutputScrollBehavior;
     searchWindowSizePreset: SearchWindowSizePreset;
     searchWindowDefaultSize: SearchWindowDefaultSize;
+    appUpdateChannel: AppUpdateChannel;
+    appUpdateAutoCheck: boolean;
+    appUpdateLastCheckedAt: string | null;
 }
 
 const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
@@ -34,6 +42,9 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     outputScrollBehavior: 'follow_output',
     searchWindowSizePreset: DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
     searchWindowDefaultSize: resolveSearchWindowDefaultSize(DEFAULT_SEARCH_WINDOW_SIZE_PRESET),
+    appUpdateChannel: DEFAULT_APP_UPDATE_CHANNEL,
+    appUpdateAutoCheck: true,
+    appUpdateLastCheckedAt: null,
 };
 
 function createDefaultGeneralSettings(): GeneralSettingsData {
@@ -106,6 +117,16 @@ export const useSettingsStore = defineStore('settings', () => {
             case 'search_window_size_preset':
                 applySearchWindowSizePreset(normalizeSearchWindowSizePreset(String(value)));
                 break;
+            case 'app_update_channel':
+                settings.value.appUpdateChannel = normalizeAppUpdateChannel(value);
+                break;
+            case 'app_update_auto_check':
+                settings.value.appUpdateAutoCheck =
+                    typeof value === 'boolean' ? value : String(value) !== 'false';
+                break;
+            case 'app_update_last_checked_at':
+                settings.value.appUpdateLastCheckedAt = value === null ? null : String(value);
+                break;
             default:
                 break;
         }
@@ -123,6 +144,12 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.outputScrollBehavior;
             case 'search_window_size_preset':
                 return settings.value.searchWindowSizePreset;
+            case 'app_update_channel':
+                return settings.value.appUpdateChannel;
+            case 'app_update_auto_check':
+                return String(settings.value.appUpdateAutoCheck);
+            case 'app_update_last_checked_at':
+                return settings.value.appUpdateLastCheckedAt ?? '';
             default:
                 return '';
         }
@@ -140,6 +167,12 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.outputScrollBehavior;
             case 'search_window_size_preset':
                 return settings.value.searchWindowSizePreset;
+            case 'app_update_channel':
+                return settings.value.appUpdateChannel;
+            case 'app_update_auto_check':
+                return settings.value.appUpdateAutoCheck;
+            case 'app_update_last_checked_at':
+                return settings.value.appUpdateLastCheckedAt;
             default:
                 return '';
         }
@@ -161,12 +194,18 @@ export const useSettingsStore = defineStore('settings', () => {
                 startMinimized,
                 outputScroll,
                 searchWindowSizePreset,
+                appUpdateChannel,
+                appUpdateAutoCheck,
+                appUpdateLastCheckedAt,
             ] = await Promise.all([
                 getSettingValue({ key: 'global_shortcut' }),
                 getSettingValue({ key: 'start_on_boot' }),
                 getSettingValue({ key: 'start_minimized' }),
                 getSettingValue({ key: 'output_scroll_behavior' }),
                 getSettingValue({ key: 'search_window_size_preset' }),
+                getSettingValue({ key: 'app_update_channel' }),
+                getSettingValue({ key: 'app_update_auto_check' }),
+                getSettingValue({ key: 'app_update_last_checked_at' }),
             ]);
 
             settings.value.globalShortcut =
@@ -181,6 +220,12 @@ export const useSettingsStore = defineStore('settings', () => {
                     : startMinimized === 'true';
             settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(outputScroll);
             applySearchWindowSizePreset(normalizeSearchWindowSizePreset(searchWindowSizePreset));
+            settings.value.appUpdateChannel = normalizeAppUpdateChannel(appUpdateChannel);
+            settings.value.appUpdateAutoCheck =
+                appUpdateAutoCheck === null
+                    ? DEFAULT_GENERAL_SETTINGS.appUpdateAutoCheck
+                    : appUpdateAutoCheck !== 'false';
+            settings.value.appUpdateLastCheckedAt = appUpdateLastCheckedAt || null;
 
             await Promise.allSettled([
                 persistDefaultIfMissing('global_shortcut', globalShortcut),
@@ -188,6 +233,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 persistDefaultIfMissing('start_minimized', startMinimized),
                 persistDefaultIfMissing('output_scroll_behavior', outputScroll),
                 persistDefaultIfMissing('search_window_size_preset', searchWindowSizePreset),
+                persistDefaultIfMissing('app_update_channel', appUpdateChannel),
+                persistDefaultIfMissing('app_update_auto_check', appUpdateAutoCheck),
             ]);
         } finally {
             loading.value = false;
@@ -289,10 +336,25 @@ export const useSettingsStore = defineStore('settings', () => {
         await updateSetting('search_window_size_preset', normalizeSearchWindowSizePreset(preset));
     }
 
+    async function updateAppUpdateChannel(channel: AppUpdateChannel) {
+        await updateSetting('app_update_channel', normalizeAppUpdateChannel(channel));
+    }
+
+    async function updateAppUpdateAutoCheck(enabled: boolean) {
+        await updateSetting('app_update_auto_check', enabled);
+    }
+
+    async function updateAppUpdateLastCheckedAt(checkedAt: string | null) {
+        await updateSetting('app_update_last_checked_at', checkedAt);
+    }
+
     const outputScrollBehavior = computed(() => settings.value.outputScrollBehavior);
     const globalShortcut = computed(() => settings.value.globalShortcut);
     const searchWindowSizePreset = computed(() => settings.value.searchWindowSizePreset);
     const searchWindowDefaultSize = computed(() => settings.value.searchWindowDefaultSize);
+    const appUpdateChannel = computed(() => settings.value.appUpdateChannel);
+    const appUpdateAutoCheck = computed(() => settings.value.appUpdateAutoCheck);
+    const appUpdateLastCheckedAt = computed(() => settings.value.appUpdateLastCheckedAt);
 
     return {
         settings,
@@ -302,6 +364,9 @@ export const useSettingsStore = defineStore('settings', () => {
         globalShortcut,
         searchWindowSizePreset,
         searchWindowDefaultSize,
+        appUpdateChannel,
+        appUpdateAutoCheck,
+        appUpdateLastCheckedAt,
         initialize,
         dispose,
         refresh,
@@ -310,5 +375,8 @@ export const useSettingsStore = defineStore('settings', () => {
         updateStartMinimized,
         updateOutputScrollBehavior,
         updateSearchWindowSizePreset,
+        updateAppUpdateChannel,
+        updateAppUpdateAutoCheck,
+        updateAppUpdateLastCheckedAt,
     };
 });
