@@ -5,12 +5,19 @@ import { nextTick } from 'vue';
 import { clipboardService } from '@/services/ClipboardService';
 
 const { languageMapMock, notifyMock, parseMarkdownToStructureMock, setDefaultI18nMapMock } =
-    vi.hoisted(() => ({
-    languageMapMock: {} as Record<string, string>,
-    notifyMock: vi.fn(),
-    parseMarkdownToStructureMock: vi.fn(() => []),
-    setDefaultI18nMapMock: vi.fn(),
-}));
+    vi.hoisted(() => {
+        type MarkdownNodeFixture = {
+            type: string;
+            label?: string;
+        };
+
+        return {
+            languageMapMock: {} as Record<string, string>,
+            notifyMock: vi.fn(),
+            parseMarkdownToStructureMock: vi.fn<() => MarkdownNodeFixture[]>(() => []),
+            setDefaultI18nMapMock: vi.fn(),
+        };
+    });
 
 vi.mock('markdown-it-emoji', () => ({
     full: {},

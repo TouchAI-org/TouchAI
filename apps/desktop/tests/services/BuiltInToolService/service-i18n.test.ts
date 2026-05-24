@@ -60,7 +60,7 @@ function createExecutionOptions(signal?: AbortSignal) {
         toolCall: {
             id: 'tool-call-1',
             name: 'builtin__setting',
-            args: {},
+            arguments: '{}',
         },
         toolArgs: {},
         iteration: 1,

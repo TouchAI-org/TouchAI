@@ -21,6 +21,7 @@ describe('MCP infrastructure i18n', () => {
         setLocale('en-US');
 
         const result = formatMcpToolResponse({
+            success: true,
             content: [
                 { type: 'image', mime_type: 'image/png' },
                 { type: 'resource', uri: 'file:///tmp/report.pdf' },

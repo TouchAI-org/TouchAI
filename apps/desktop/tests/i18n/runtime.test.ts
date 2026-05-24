@@ -107,7 +107,7 @@ describe('i18n runtime', () => {
             use: vi.fn(),
         };
 
-        installI18n(app as Parameters<typeof installI18n>[0]);
+        installI18n(app as unknown as Parameters<typeof installI18n>[0]);
 
         expect(app.use).toHaveBeenCalledWith(i18n);
         expect(app.config.globalProperties).toMatchObject({

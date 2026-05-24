@@ -56,6 +56,7 @@ describe('Bash approval i18n', () => {
             {
                 command: 'Write-Output ""',
                 workingDirectory: 'E:\\codex-worktrees\\TouchAI',
+                rawOutput: false,
             },
             1000
         );

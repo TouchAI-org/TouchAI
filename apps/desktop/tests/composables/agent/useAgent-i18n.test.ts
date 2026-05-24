@@ -50,7 +50,7 @@ function mountAgent() {
         throw new Error('useAgent did not initialize');
     }
 
-    return { agent, wrapper };
+    return { agent: agent as ReturnType<typeof useAgent>, wrapper };
 }
 
 describe('useAgent i18n', () => {

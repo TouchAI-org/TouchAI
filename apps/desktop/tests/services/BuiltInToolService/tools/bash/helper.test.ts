@@ -1,6 +1,7 @@
 import type { BuiltInBashExecutionResponse } from '@services/NativeService';
 import { describe, expect, it, vi } from 'vitest';
 
+import { setLocale } from '@/i18n';
 import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
 import {
     formatBashToolResult,
@@ -83,6 +84,7 @@ describe('resolveCommandContext', () => {
     });
 
     it('rejects command outside allowed directories', async () => {
+        setLocale('en-US');
         const config = {
             ...baseConfig,
             allowedWorkingDirectories: ['D:/allowed'],

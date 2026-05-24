@@ -15,7 +15,7 @@ function schemaSnapshot() {
                     description: tool.description,
                     schema: tool.inputSchema,
                 },
-            ])
+            ] as const)
             .sort(([left], [right]) => left.localeCompare(right))
     );
 }

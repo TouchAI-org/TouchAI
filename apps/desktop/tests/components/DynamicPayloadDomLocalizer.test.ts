@@ -153,6 +153,10 @@ describe('dynamic payload DOM localizer boundaries', () => {
                 'C:/Users/Public/Desktop/settings.lnk': 'icon.png',
             }),
             imagePreviewMap: ref({}),
+            totalResults: ref(1),
+            currentPage: ref(0),
+            isLoadingMore: ref(false),
+            viewMode: ref('grid'),
             isImageItem: vi.fn(() => false),
             getItemHoverTitle: vi.fn(() => '设置'),
             handleScroll: vi.fn(),
@@ -164,6 +168,7 @@ describe('dynamic payload DOM localizer boundaries', () => {
             getHighlightedItem: vi.fn(),
             openHighlightedItem: vi.fn(),
             triggerSearch: vi.fn(),
+            toggleViewMode: vi.fn(),
         });
 
         const wrapper = mount(QuickSearchPanel, {

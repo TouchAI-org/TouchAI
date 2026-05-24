@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { setLocale } from '@/i18n';
 import {
     buildPageMarkdown,
     parseWebFetchRequest,
@@ -7,13 +8,14 @@ import {
 
 describe('parseWebFetchRequest', () => {
     it('rejects non-http URL schemes before fetching', () => {
+        setLocale('en-US');
         expect(() =>
             parseWebFetchRequest({
                 url: 'vbscript:alert(1)',
                 mode: 'page_markdown',
                 maxChars: 1000,
             })
-        ).toThrow('only supports http:// and https:// URLs');
+        ).toThrow('WebFetch tool only supports http:// and https:// URLs.');
     });
 });
 

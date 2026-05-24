@@ -343,6 +343,7 @@ describe('built-in tools settings i18n', () => {
                     allowedWorkingDirectories: [],
                     timeoutMs: 30000,
                     maxOutputChars: 20000,
+                    compactOutput: false,
                 },
             },
         });
