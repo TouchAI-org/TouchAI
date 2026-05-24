@@ -1,12 +1,13 @@
 ﻿<script setup lang="ts">
-    import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
-    import { APP_PRODUCT_CONFIG } from '@/config/product';
     import AppIcon from '@components/AppIcon.vue';
     import { appUpdateService } from '@services/AppUpdateService';
     import type { AppUpdateChannel, AppUpdateState } from '@services/AppUpdateService/types';
     import { getTauriVersion, getVersion } from '@tauri-apps/api/app';
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
+
+    import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
+    import { APP_PRODUCT_CONFIG } from '@/config/product';
 
     defineOptions({
         name: 'SettingsAboutSection',

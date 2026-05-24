@@ -3,8 +3,8 @@ import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
-import { APP_PRODUCT_CONFIG } from '@/config/product';
 import AppUpdateRequiredGate from '@/components/AppUpdateRequiredGate.vue';
+import { APP_PRODUCT_CONFIG } from '@/config/product';
 
 const neutralRequirement = {
     required: false,

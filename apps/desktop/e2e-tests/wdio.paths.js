@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
-import path from 'path';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const productConfig = JSON.parse(readFileSync(new URL('../product.json', import.meta.url), 'utf8'));
+const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+const productConfig = JSON.parse(
+    readFileSync(path.resolve(currentDirectory, '../product.json'), 'utf8')
+);
 const windowsMainExe = productConfig.packaging.mainExe;
 const unixMainExe = windowsMainExe.replace(/\.exe$/i, '');
 

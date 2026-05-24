@@ -3,8 +3,8 @@
 export {
     APP_PRODUCT_CONFIG,
     APP_UPDATE_CHANNELS,
-    DEFAULT_APP_UPDATE_CHANNEL,
     appUpdateChannelLabel,
+    DEFAULT_APP_UPDATE_CHANNEL,
     normalizeAppUpdateChannel,
 } from './product';
 export type { AppUpdateChannel } from './product';

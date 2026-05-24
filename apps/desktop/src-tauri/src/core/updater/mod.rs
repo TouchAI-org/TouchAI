@@ -2,9 +2,10 @@
 
 //! Velopack-backed application update support.
 
-use semver::Version;
+use semver::{Prerelease, Version};
 use serde::{Deserialize, Serialize};
 use std::{
+    cmp::Ordering,
     collections::BTreeMap,
     sync::{Mutex, OnceLock},
     time::Duration,
@@ -327,16 +328,52 @@ fn fetch_remote_channel_policy(channel: AppUpdateChannel) -> Result<ProductUpdat
 #[cfg(test)]
 fn version_is_less_than(value: &str, minimum: &str) -> bool {
     match (Version::parse(value), Version::parse(minimum)) {
-        (Ok(value), Ok(minimum)) => value < minimum,
+        (Ok(value), Ok(minimum)) => compare_app_versions(&value, &minimum) == Ordering::Less,
         _ => false,
     }
 }
 
-#[cfg(test)]
 fn version_is_at_least(value: &str, minimum: &str) -> bool {
     match (Version::parse(value), Version::parse(minimum)) {
-        (Ok(value), Ok(minimum)) => value >= minimum,
+        (Ok(value), Ok(minimum)) => compare_app_versions(&value, &minimum) != Ordering::Less,
         _ => false,
+    }
+}
+
+fn compare_app_versions(value: &Version, minimum: &Version) -> Ordering {
+    value
+        .major
+        .cmp(&minimum.major)
+        .then_with(|| value.minor.cmp(&minimum.minor))
+        .then_with(|| value.patch.cmp(&minimum.patch))
+        .then_with(|| compare_app_prerelease(&value.pre, &minimum.pre))
+}
+
+fn compare_app_prerelease(value: &Prerelease, minimum: &Prerelease) -> Ordering {
+    match (value.is_empty(), minimum.is_empty()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => {
+            let value_rank = prerelease_channel_rank(value);
+            let minimum_rank = prerelease_channel_rank(minimum);
+            match (value_rank, minimum_rank) {
+                (Some(value_rank), Some(minimum_rank)) if value_rank != minimum_rank => {
+                    value_rank.cmp(&minimum_rank)
+                }
+                _ => value.cmp(minimum),
+            }
+        }
+    }
+}
+
+fn prerelease_channel_rank(value: &Prerelease) -> Option<u8> {
+    match value.as_str().split('.').next() {
+        Some("nightly") => Some(0),
+        Some("alpha") => Some(1),
+        Some("beta") => Some(2),
+        Some("rc") => Some(3),
+        _ => None,
     }
 }
 
@@ -367,10 +404,10 @@ fn update_requirement_from_policy(
 
     let current_is_supported = current_version
         .and_then(|version| Version::parse(version).ok())
-        .is_some_and(|version| version >= minimum_supported_version);
+        .is_some_and(|version| compare_app_versions(&version, &minimum_supported_version).is_ge());
     let target_satisfies_requirement = target_version
         .and_then(|version| Version::parse(version).ok())
-        .is_some_and(|version| version >= minimum_supported_version);
+        .is_some_and(|version| compare_app_versions(&version, &minimum_supported_version).is_ge());
     let required = !current_is_supported;
 
     AppUpdateRequirement {

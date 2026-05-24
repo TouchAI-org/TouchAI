@@ -181,12 +181,12 @@ describe('resolveReleaseMetadata', () => {
             resolveReleaseMetadata?.(
                 releaseInput({
                     eventName: 'workflow_dispatch',
-                    inputChannel: 'stable',
-                    inputVersion: '1.2.3-beta.1',
+                    inputChannel: 'beta',
+                    inputVersion: '1.2.3-nightly.1',
                     packageVersion: '1.2.3',
                 })
             )
-        ).toThrow('Stable releases must use a final semantic version.');
+        ).toThrow('beta releases must use a beta prerelease version.');
     });
 
     it('rejects manual stable releases because release-please owns stable', async () => {

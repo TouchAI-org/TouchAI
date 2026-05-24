@@ -1,10 +1,11 @@
 <script setup lang="ts">
-    import { APP_PRODUCT_CONFIG } from '@/config/product';
     import AppIcon from '@components/AppIcon.vue';
     import { appUpdateService } from '@services/AppUpdateService';
     import type { AppUpdateState } from '@services/AppUpdateService/types';
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
+
+    import { APP_PRODUCT_CONFIG } from '@/config/product';
 
     defineOptions({
         name: 'AppUpdateRequiredGate',
@@ -173,7 +174,7 @@
                     class="max-h-44 overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-4"
                 >
                     <div class="mb-2 font-serif text-sm font-medium text-gray-900">更新内容</div>
-                    <pre class="whitespace-pre-wrap font-serif text-xs leading-5 text-gray-600">{{
+                    <pre class="font-serif text-xs leading-5 whitespace-pre-wrap text-gray-600">{{
                         releaseNotes
                     }}</pre>
                 </div>
