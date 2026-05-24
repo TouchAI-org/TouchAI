@@ -254,12 +254,17 @@ jobs:
                   if-no-files-found: error
 
             - name: Deploy update channel JSON to Cloudflare Pages
-              uses: cloudflare/wrangler-action@v3
-              with:
-                  apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-                  accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-                  command: pages deploy "${{ runner.temp }}/touchai-update-dist" --project-name="${{ steps.product.outputs.cloudflare_pages_project_name }}" --branch="${{ steps.product.outputs.cloudflare_pages_branch }}"
-                  gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+              shell: pwsh
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_PAGES_PROJECT_NAME: ${{ steps.product.outputs.cloudflare_pages_project_name }}
+                  CLOUDFLARE_PAGES_BRANCH: ${{ steps.product.outputs.cloudflare_pages_branch }}
+              run: |
+                  $updateDist = Join-Path $env:RUNNER_TEMP 'touchai-update-dist'
+                  pnpm dlx wrangler@3.90.0 pages deploy "$updateDist" `
+                    --project-name="$env:CLOUDFLARE_PAGES_PROJECT_NAME" `
+                    --branch="$env:CLOUDFLARE_PAGES_BRANCH"
 
             - name: Upload Velopack diagnostics artifact
               uses: actions/upload-artifact@v7.0.1
