@@ -11,7 +11,7 @@
     import ModelGroup from './ModelGroup.vue';
 
 
-    import { t } from '@/i18n';
+    import { t, tp } from '@/i18n';
     interface Props {
         providerId: number;
         models: Model[];
@@ -156,7 +156,7 @@
     // 计算 placeholder 文本
     const searchPlaceholder = computed(() => {
         if (props.models.length > 0) {
-            return t('settings.ai.modelSearchPlaceholder', { count: props.models.length });
+            return tp('settings.ai.modelSearchPlaceholder', props.models.length);
         }
         return t('settings.ai.modelSearchGenericPlaceholder');
     });

@@ -170,7 +170,7 @@ describe('formatBashToolResult', () => {
             },
             12000
         );
-        expect(result).toContain('命令无输出');
+        expect(result).toContain('[No command output]');
     });
 
     it('uses none when exitCode is null', () => {

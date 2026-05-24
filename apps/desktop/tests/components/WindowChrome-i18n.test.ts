@@ -1,9 +1,9 @@
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setLocale } from '@/i18n';
 import PasswordInput from '@/components/PasswordInput.vue';
 import TitleBar from '@/components/TitleBar.vue';
+import { setLocale } from '@/i18n';
 
 vi.mock('@components/AppIcon.vue', () => ({
     default: {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import type { ProviderDriver } from '@/database/schema';
 import { setLocale } from '@/i18n';
 import {
     createProviderFromRegistry,
@@ -9,7 +10,6 @@ import {
     parseProviderDriver,
     providerDriverDefinitions,
 } from '@/services/AgentService/infrastructure/providers';
-import type { ProviderDriver } from '@/database/schema';
 
 describe('provider driver labels i18n', () => {
     beforeEach(() => {
@@ -43,15 +43,15 @@ describe('provider driver labels i18n', () => {
     });
 
     it('keeps the legacy exported definition list localized after a runtime locale switch', () => {
-        expect(providerDriverDefinitions.find((definition) => definition.driver === 'alibaba')?.label).toBe(
-            '阿里云百炼'
-        );
+        expect(
+            providerDriverDefinitions.find((definition) => definition.driver === 'alibaba')?.label
+        ).toBe('阿里云百炼');
 
         setLocale('en-US');
 
-        expect(providerDriverDefinitions.find((definition) => definition.driver === 'alibaba')?.label).toBe(
-            'Alibaba Cloud Bailian'
-        );
+        expect(
+            providerDriverDefinitions.find((definition) => definition.driver === 'alibaba')?.label
+        ).toBe('Alibaba Cloud Bailian');
     });
 
     it('validates provider driver values and rejects unknown drivers', () => {

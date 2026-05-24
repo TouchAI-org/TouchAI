@@ -9,13 +9,16 @@ function schemaSnapshot() {
     return Object.fromEntries(
         builtInToolRegistry
             .list()
-            .map((tool) => [
-                tool.id,
-                {
-                    description: tool.description,
-                    schema: tool.inputSchema,
-                },
-            ] as const)
+            .map(
+                (tool) =>
+                    [
+                        tool.id,
+                        {
+                            description: tool.description,
+                            schema: tool.inputSchema,
+                        },
+                    ] as const
+            )
             .sort(([left], [right]) => left.localeCompare(right))
     );
 }

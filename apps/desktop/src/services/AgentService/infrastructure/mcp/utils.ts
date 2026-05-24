@@ -2,12 +2,12 @@
 
 import type { McpToolCallResponse } from '@services/NativeService';
 
+import { t } from '@/i18n';
 import {
     type AttachmentIndex,
     base64ToUint8Array,
     createPersistedAttachmentFromData,
 } from '@/services/AgentService/infrastructure/attachments';
-import { t } from '@/i18n';
 import { parseMcpServerArgsJson, parseMcpServerRecordJson } from '@/utils/mcpSchemas';
 
 export function readOptionalMcpArgs(argsJson?: string | null): string[] | undefined {

@@ -6,7 +6,10 @@
     import { useListFilter } from '@composables/useListFilter';
     import { onMounted, ref, watch } from 'vue';
 
-    import { getToolLogStatusText } from '../../common/toolLogStatus';
+    import {
+        getBuiltInToolApprovalStateText,
+        getToolLogStatusText,
+    } from '../../common/toolLogStatus';
     import ToolLogStatusBadge from '../../common/ToolLogStatusBadge.vue';
     import {
         type BuiltInToolEntity,
@@ -175,14 +178,18 @@
                                     </span>
                                     <ToolLogStatusBadge :status="log.status" />
                                     <span class="text-xs text-neutral-500">
-                                        迭代 {{ log.iteration }}
+                                        {{ t('toolLog.iteration') }} {{ log.iteration }}
                                     </span>
                                 </div>
                                 <div
                                     class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500"
                                 >
-                                    <span>{{ formatDate(log.created_at) }}</span>
-                                    <span v-if="log.duration_ms">{{ log.duration_ms }}ms</span>
+                                    <span data-no-i18n="true" translate="no">
+                                        {{ formatDate(log.created_at) }}
+                                    </span>
+                                    <span v-if="log.duration_ms" data-no-i18n="true" translate="no">
+                                        {{ log.duration_ms }}ms
+                                    </span>
                                 </div>
                             </div>
 
@@ -211,11 +218,18 @@
                         <div
                             class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-200 pt-3 font-mono text-xs text-neutral-500"
                         >
-                            <span>Call ID: {{ log.tool_call_id }}</span>
-                            <span v-if="log.session_id">Session: {{ log.session_id }}</span>
-                            <span v-if="log.message_id">Message: {{ log.message_id }}</span>
+                            <span data-no-i18n="true" translate="no">
+                                {{ t('toolLog.callIdLabel') }} {{ log.tool_call_id }}
+                            </span>
+                            <span v-if="log.session_id" data-no-i18n="true" translate="no">
+                                {{ t('toolLog.sessionLabel') }} {{ log.session_id }}
+                            </span>
+                            <span v-if="log.message_id" data-no-i18n="true" translate="no">
+                                {{ t('toolLog.messageLabel') }} {{ log.message_id }}
+                            </span>
                             <span v-if="log.approval_state">
-                                Approval: {{ log.approval_state }}
+                                {{ t('toolLog.approvalLabel') }}
+                                {{ getBuiltInToolApprovalStateText(log.approval_state) }}
                             </span>
                         </div>
                     </div>

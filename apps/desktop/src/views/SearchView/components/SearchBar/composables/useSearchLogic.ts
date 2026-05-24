@@ -235,11 +235,9 @@ export function useSearchInput(
         ed.view.dispatch(ed.state.tr.setMeta('search-placeholder-locale', nextLocale));
 
         const placeholderText = t(DEFAULT_PLACEHOLDER_KEY);
-        ed.view.dom
-            .querySelectorAll<HTMLElement>('[data-placeholder]')
-            .forEach((element) => {
-                element.setAttribute('data-placeholder', placeholderText);
-            });
+        ed.view.dom.querySelectorAll<HTMLElement>('[data-placeholder]').forEach((element) => {
+            element.setAttribute('data-placeholder', placeholderText);
+        });
     }
 
     // 4. 状态同步监听

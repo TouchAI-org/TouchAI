@@ -5,12 +5,12 @@ import type { SessionTurn } from '@database/schema';
 import { notify } from '@services/NotificationService';
 import { computed, onUnmounted, ref } from 'vue';
 
+import { t } from '@/i18n';
 import { sessionTaskCenter } from '@/services/AgentService';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { type Index } from '@/services/AgentService/infrastructure/attachments';
 import { buildSessionHistoryFromData } from '@/services/AgentService/session';
 import { getSessionData } from '@/services/AgentService/session';
-import { t } from '@/i18n';
 import type { InputHistorySnapshot, LoadedSessionInfo } from '@/types/session';
 
 import { useAgentState } from './useAgentState';

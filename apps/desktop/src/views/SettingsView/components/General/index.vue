@@ -34,10 +34,23 @@
         (): Array<{
             value: OutputScrollBehavior;
             label: string;
+            description: string;
         }> => [
-            { value: 'follow_output', label: t('settings.general.outputScroll.follow') },
-            { value: 'stay_position', label: t('settings.general.outputScroll.stay') },
-            { value: 'jump_to_top', label: t('settings.general.outputScroll.jumpToTop') },
+            {
+                value: 'follow_output',
+                label: t('settings.general.outputScroll.follow'),
+                description: t('settings.general.outputScroll.followDescription'),
+            },
+            {
+                value: 'stay_position',
+                label: t('settings.general.outputScroll.stay'),
+                description: t('settings.general.outputScroll.stayDescription'),
+            },
+            {
+                value: 'jump_to_top',
+                label: t('settings.general.outputScroll.jumpToTop'),
+                description: t('settings.general.outputScroll.jumpToTopDescription'),
+            },
         ]
     );
 

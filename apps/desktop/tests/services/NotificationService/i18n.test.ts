@@ -123,9 +123,8 @@ describe('NotificationService i18n', () => {
         isPermissionGrantedMock.mockResolvedValueOnce(false);
         requestPermissionMock.mockResolvedValueOnce('denied');
         const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const { initNotificationPermission, notify } = await import(
-            '@services/NotificationService'
-        );
+        const { initNotificationPermission, notify } =
+            await import('@services/NotificationService');
 
         await initNotificationPermission();
         notify({
@@ -149,7 +148,8 @@ describe('NotificationService i18n', () => {
         });
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         isPermissionGrantedMock.mockResolvedValueOnce(true);
-        const { initNotificationPermission, notify } = await import('@services/NotificationService');
+        const { initNotificationPermission, notify } =
+            await import('@services/NotificationService');
 
         await initNotificationPermission();
         expect(() =>

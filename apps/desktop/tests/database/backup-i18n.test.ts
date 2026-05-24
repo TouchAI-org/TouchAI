@@ -72,9 +72,8 @@ describe('database backup native dialog i18n', () => {
     it('throws an English cancellation error when export is cancelled in English', async () => {
         setLocale('en-US');
         saveMock.mockResolvedValueOnce(null);
-        const { databaseBackup, isDatabaseBackupCancelledError } = await import(
-            '@/database/backup'
-        );
+        const { databaseBackup, isDatabaseBackupCancelledError } =
+            await import('@/database/backup');
 
         let caughtError: unknown;
         await databaseBackup.exportDatabase().catch((error: unknown) => {

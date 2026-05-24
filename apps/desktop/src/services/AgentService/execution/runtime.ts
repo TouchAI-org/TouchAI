@@ -3,9 +3,9 @@
 import { updateModelLastUsed } from '@database/queries';
 import type { SessionTurnEntity } from '@database/types';
 
+import { t } from '@/i18n';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
-import { t } from '@/i18n';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
@@ -153,10 +153,9 @@ interface RuntimeContext {
 /**
  * executor.ts 中的 console 日志保留英文，便于对齐 provider / SDK 调试信息。
  */
-function buildPersistenceIssue(bodyKey: Parameters<typeof t>[0]): Pick<
-    RuntimePersistenceIssue,
-    'title' | 'body'
-> {
+function buildPersistenceIssue(
+    bodyKey: Parameters<typeof t>[0]
+): Pick<RuntimePersistenceIssue, 'title' | 'body'> {
     return {
         title: t('agent.persistenceIssue.title'),
         body: t(bodyKey),

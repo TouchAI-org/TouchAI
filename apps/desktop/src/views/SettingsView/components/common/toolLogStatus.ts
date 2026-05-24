@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { t, type MessageKey } from '@/i18n';
+import { type MessageKey, t } from '@/i18n';
 
 const statusTextKeyByStatus: Record<string, MessageKey> = {
     success: 'toolLog.status.success',

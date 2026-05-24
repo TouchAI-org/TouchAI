@@ -1,6 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
 import type { ModelWithProvider } from '@database/queries/models';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import { builtInToolService } from '@/services/BuiltInToolService/service';

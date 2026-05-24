@@ -11,7 +11,7 @@
     import type { AcceptableValue } from 'reka-ui';
     import { computed, ref } from 'vue';
 
-    import { t, tt, type MessageKey } from '@/i18n';
+    import { type MessageKey, t, tt } from '@/i18n';
 
     interface Option {
         label: string;

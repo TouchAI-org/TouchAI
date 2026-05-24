@@ -68,7 +68,11 @@
                 'success'
             );
         } else if (result.error) {
-            emit('showAlert', t('settings.mcp.messages.connectError', { error: result.error }), 'error');
+            emit(
+                'showAlert',
+                t('settings.mcp.messages.connectError', { error: result.error }),
+                'error'
+            );
         }
     };
 
@@ -83,7 +87,11 @@
                 'success'
             );
         } else if (result.error) {
-            emit('showAlert', t('settings.mcp.messages.disconnectError', { error: result.error }), 'error');
+            emit(
+                'showAlert',
+                t('settings.mcp.messages.disconnectError', { error: result.error }),
+                'error'
+            );
         }
     };
 
@@ -98,7 +106,11 @@
                 'success'
             );
         } else if (result.error) {
-            emit('showAlert', t('settings.mcp.messages.reconnectError', { error: result.error }), 'error');
+            emit(
+                'showAlert',
+                t('settings.mcp.messages.reconnectError', { error: result.error }),
+                'error'
+            );
         }
     };
 </script>
@@ -162,7 +174,11 @@
                         name="play"
                         :class="isConnecting ? 'h-4 w-4 animate-spin' : 'h-4 w-4'"
                     />
-                    {{ isConnecting ? t('settings.mcp.actions.connecting') : t('settings.mcp.actions.connect') }}
+                    {{
+                        isConnecting
+                            ? t('settings.mcp.actions.connecting')
+                            : t('settings.mcp.actions.connect')
+                    }}
                 </button>
                 <button
                     v-else-if="status === 'connected'"
@@ -182,7 +198,11 @@
                                 : 'h-4 w-4 text-red-600'
                         "
                     />
-                    {{ isDisconnecting ? t('settings.mcp.actions.disconnecting') : t('settings.mcp.actions.disconnect') }}
+                    {{
+                        isDisconnecting
+                            ? t('settings.mcp.actions.disconnecting')
+                            : t('settings.mcp.actions.disconnect')
+                    }}
                 </button>
                 <button
                     v-if="status === 'connected'"
@@ -199,7 +219,11 @@
                         name="refresh"
                         :class="isReconnecting ? 'h-4 w-4 animate-spin' : 'h-4 w-4'"
                     />
-                    {{ isReconnecting ? t('settings.mcp.actions.reconnecting') : t('settings.mcp.actions.reconnect') }}
+                    {{
+                        isReconnecting
+                            ? t('settings.mcp.actions.reconnecting')
+                            : t('settings.mcp.actions.reconnect')
+                    }}
                 </button>
                 <button
                     v-else-if="status === 'connecting'"

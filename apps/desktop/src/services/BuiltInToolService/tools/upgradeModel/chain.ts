@@ -1,8 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { parseJsonWithSchema } from '@/utils/zod';
-
 import { tt } from '@/i18n';
+import { parseJsonWithSchema } from '@/utils/zod';
 
 import { nonEmptyTrimmedStringSchema, z } from '../../utils/toolSchema';
 

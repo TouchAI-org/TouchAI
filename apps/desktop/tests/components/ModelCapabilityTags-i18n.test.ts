@@ -1,8 +1,8 @@
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { setLocale } from '@/i18n';
 import ModelCapabilityTags from '@/components/ModelCapabilityTags.vue';
+import { setLocale } from '@/i18n';
 
 describe('ModelCapabilityTags i18n', () => {
     beforeEach(() => {
@@ -40,9 +40,7 @@ describe('ModelCapabilityTags i18n', () => {
         for (const badge of badges) {
             expect(badge.classes()).toContain('whitespace-normal');
             expect(badge.classes()).toContain('break-words');
-            expect(badge.classes().some((className) => className.startsWith('max-w-'))).toBe(
-                true
-            );
+            expect(badge.classes().some((className) => className.startsWith('max-w-'))).toBe(true);
         }
     });
 

@@ -3,7 +3,7 @@
 <script setup lang="ts">
     import { computed } from 'vue';
 
-    import { t, type MessageKey } from '@/i18n';
+    import { type MessageKey, t } from '@/i18n';
     import { parseModelModalities, supportsImageModality } from '@/utils/modelSchemas';
 
     interface ModelCapabilitySource {

@@ -7,7 +7,7 @@ import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tip
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
 
-import { t, type MessageKey } from '@/i18n';
+import { type MessageKey, t } from '@/i18n';
 
 import { MODEL_TAG_NODE } from '../tags/model';
 import {

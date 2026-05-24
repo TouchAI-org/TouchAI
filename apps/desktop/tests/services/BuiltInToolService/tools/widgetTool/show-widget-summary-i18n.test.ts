@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import type { ShowWidgetEventPayload } from '@/services/AgentService/contracts/tooling';
+import { showWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
 import { buildShowWidgetSummary } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/helper';
 import { buildShowWidgetDraftFromArgumentsBuffer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
-import { showWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
 import { visualizeReadMeTool } from '@/services/BuiltInToolService/tools/widgetTool/visualizeReadMe';
 
 function createPayload(overrides: Partial<ShowWidgetEventPayload> = {}): ShowWidgetEventPayload {

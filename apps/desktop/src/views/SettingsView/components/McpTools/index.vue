@@ -58,7 +58,10 @@
     const mcpStore = useMcpStore();
     const { getServerStatus } = mcpStore;
 
-    const getErrorMessage = (error: unknown, fallback = t('common.unknownError')): string => {
+    const getErrorMessage = (
+        error: unknown,
+        fallback = t('settings.mcp.status.unknown')
+    ): string => {
         const message = error instanceof Error ? error.message : String(error);
         return message && message !== '[object Object]' ? message : fallback;
     };
@@ -252,7 +255,10 @@
                         await mcpManager.disconnectServer(serverId);
                     } catch (error) {
                         console.error('Failed to disconnect server:', error);
-                        alertMessage.value?.error(t('settings.mcp.messages.disconnectFailed'), 3000);
+                        alertMessage.value?.error(
+                            t('settings.mcp.messages.disconnectFailed'),
+                            3000
+                        );
                         togglingServers.value.delete(serverId);
                     }
                 } else {

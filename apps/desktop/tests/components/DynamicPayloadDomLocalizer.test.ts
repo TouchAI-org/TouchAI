@@ -2,13 +2,13 @@ import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
-import { setLocale } from '@/i18n';
-import { createDomLocalizer } from '@/i18n/domLocalizer';
 import CustomSelect from '@/components/CustomSelect.vue';
 import SearchableSelect from '@/components/SearchableSelect.vue';
 import ToolLogContent from '@/components/ToolLogContent.vue';
-import QuickSearchPanel from '@/views/SearchView/components/QuickSearchPanel/index.vue';
+import { setLocale } from '@/i18n';
+import { createDomLocalizer } from '@/i18n/domLocalizer';
 import ToolCallSection from '@/views/SearchView/components/ConversationPanel/components/ToolCallSection.vue';
+import QuickSearchPanel from '@/views/SearchView/components/QuickSearchPanel/index.vue';
 
 const { useQuickSearchLogicMock } = vi.hoisted(() => ({
     useQuickSearchLogicMock: vi.fn(),
@@ -41,7 +41,8 @@ vi.mock('@components/ui/select', () => ({
     SelectTrigger: {
         name: 'SelectTrigger',
         props: ['disabled', 'iconClass'],
-        template: '<button type="button" data-testid="select-trigger" :disabled="disabled"><slot /></button>',
+        template:
+            '<button type="button" data-testid="select-trigger" :disabled="disabled"><slot /></button>',
     },
     SelectValue: {
         name: 'SelectValue',
@@ -50,23 +51,17 @@ vi.mock('@components/ui/select', () => ({
     },
 }));
 
-vi.mock(
-    '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic',
-    () => ({
-        useQuickSearchLogic: useQuickSearchLogicMock,
-    })
-);
+vi.mock('@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic', () => ({
+    useQuickSearchLogic: useQuickSearchLogicMock,
+}));
 
-vi.mock(
-    '@/views/SearchView/components/ConversationPanel/components/ToolCallItem.vue',
-    () => ({
-        default: {
-            name: 'ToolCallItem',
-            props: ['toolCall'],
-            template: '<div data-testid="tool-call-item" />',
-        },
-    })
-);
+vi.mock('@/views/SearchView/components/ConversationPanel/components/ToolCallItem.vue', () => ({
+    default: {
+        name: 'ToolCallItem',
+        props: ['toolCall'],
+        template: '<div data-testid="tool-call-item" />',
+    },
+}));
 
 describe('dynamic payload DOM localizer boundaries', () => {
     let localizer: ReturnType<typeof createDomLocalizer> | null = null;

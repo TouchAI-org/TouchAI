@@ -15,7 +15,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
-    import { t, tt, type MessageKey } from '@/i18n';
+    import { type MessageKey, t, tt } from '@/i18n';
 
     interface Props {
         modelValue: T['value'] | null;
@@ -71,7 +71,9 @@
         if (props.searchPlaceholderKey) {
             return t(props.searchPlaceholderKey);
         }
-        return props.searchPlaceholder ? tt(props.searchPlaceholder) : t('common.searchPlaceholder');
+        return props.searchPlaceholder
+            ? tt(props.searchPlaceholder)
+            : t('common.searchPlaceholder');
     });
 
     const resolvedEmptyText = computed(() => {

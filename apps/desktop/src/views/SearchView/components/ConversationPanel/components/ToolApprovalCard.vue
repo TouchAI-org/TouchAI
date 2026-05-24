@@ -111,7 +111,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
-    import { t, type MessageKey } from '@/i18n';
+    import { type MessageKey, t } from '@/i18n';
     import type { ToolApprovalInfo } from '@/types/session';
 
     interface Props {
@@ -158,13 +158,11 @@
         本次命令已取消: 'conversation.approval.commandCancelled',
         本次命令未被执行: 'conversation.approval.commandNotExecuted',
         请求已取消: 'common.requestCancelled',
-        '当前配置要求所有 Bash 命令都必须先批准。':
-            'conversation.approval.bashApprovalRequired',
+        '当前配置要求所有 Bash 命令都必须先批准。': 'conversation.approval.bashApprovalRequired',
         '命令可能删除文件或目录。': 'conversation.approval.mayDeleteFiles',
         '命令可能重置或清理 Git 工作区。': 'conversation.approval.mayResetGitWorktree',
         '命令可能修改或覆盖文件内容。': 'conversation.approval.mayModifyFiles',
-        '命令包含输出重定向，可能覆写文件。':
-            'conversation.approval.mayOverwriteViaRedirection',
+        '命令包含输出重定向，可能覆写文件。': 'conversation.approval.mayOverwriteViaRedirection',
         '命令可能修改系统配置或影响设备状态。': 'conversation.approval.mayModifySystem',
         '此操作会读取本地文件或目录内容，并将结果发送给模型。':
             'conversation.approval.readLocalContentDescription',

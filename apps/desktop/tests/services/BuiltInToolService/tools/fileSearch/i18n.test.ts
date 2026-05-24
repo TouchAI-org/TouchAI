@@ -30,9 +30,8 @@ describe('FileSearch i18n', () => {
             },
         ]);
 
-        const { executeFileSearchTool } = await import(
-            '@/services/BuiltInToolService/tools/fileSearch'
-        );
+        const { executeFileSearchTool } =
+            await import('@/services/BuiltInToolService/tools/fileSearch');
         const result = await executeFileSearchTool(
             { includeShortcutFiles: false, query: '设置', limit: 5 },
             {},
@@ -55,9 +54,8 @@ describe('FileSearch i18n', () => {
     it('formats empty and error file search payloads in the active locale', async () => {
         setLocale('en-US');
 
-        const { executeFileSearchTool } = await import(
-            '@/services/BuiltInToolService/tools/fileSearch'
-        );
+        const { executeFileSearchTool } =
+            await import('@/services/BuiltInToolService/tools/fileSearch');
 
         nativeMock.quickSearch.searchFiles.mockResolvedValueOnce([]);
         const emptyResult = await executeFileSearchTool(

@@ -3,7 +3,7 @@
 import type { Ref } from 'vue';
 import { computed, ref, watch } from 'vue';
 
-    import { t } from '@/i18n';
+import { t } from '@/i18n';
 import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
 import { useMcpStore } from '@/stores/mcp';
 

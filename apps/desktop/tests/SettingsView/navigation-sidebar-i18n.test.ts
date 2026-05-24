@@ -35,8 +35,6 @@ describe('Settings navigation sidebar i18n', () => {
         expect(wrapper.get('[data-testid="settings-nav-built-in-tools"]').attributes('title')).toBe(
             'Built-in tools'
         );
-        expect(wrapper.get('[data-testid="settings-nav-about"]').attributes('title')).toBe(
-            'About'
-        );
+        expect(wrapper.get('[data-testid="settings-nav-about"]').attributes('title')).toBe('About');
     });
 });

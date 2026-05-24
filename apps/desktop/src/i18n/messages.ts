@@ -65,8 +65,7 @@ const zhCNMessages = {
         '快捷键已被其他应用占用，请在设置中更换',
     'notification.shortcutRegistrationFailed.invalidInSettings':
         '快捷键格式无效，请在设置中重新配置',
-    'notification.shortcutRegistrationFailed.unsupportedInSettings':
-        '不支持的按键，请在设置中更换',
+    'notification.shortcutRegistrationFailed.unsupportedInSettings': '不支持的按键，请在设置中更换',
     'notification.shortcutRegistrationFailed.generic': '注册快捷键失败：{error}',
     'window.minimize': '最小化',
     'window.maximize': '最大化',
@@ -192,7 +191,8 @@ const zhCNMessages = {
     'settings.about.update.hint.failed': '请稍后重试，或到 GitHub Releases 手动下载安装包。',
     'settings.about.update.hint.channelLatest': '当前通道最新版本：{version}',
     'settings.about.update.hint.lastChecked': '上次检查：{time}',
-    'settings.about.update.hint.autoCheck': '自动检查默认每天最多运行一次，下载和安装前会等待确认。',
+    'settings.about.update.hint.autoCheck':
+        '自动检查默认每天最多运行一次，下载和安装前会等待确认。',
     'settings.about.update.action.check': '检查',
     'settings.about.update.action.download': '下载',
     'settings.about.update.action.downloadInstaller': '下载安装包',
@@ -205,8 +205,7 @@ const zhCNMessages = {
     'settings.about.update.releaseNotes': '更新内容',
     'appUpdate.requiredGate.minimumVersion': '需要 {version} 或更高版本',
     'appUpdate.requiredGate.supportedVersionRequired': '需要安装受支持的版本',
-    'appUpdate.requiredGate.continueAfterUpdate':
-        '{target}，安装更新后才能继续使用 {appName}。',
+    'appUpdate.requiredGate.continueAfterUpdate': '{target}，安装更新后才能继续使用 {appName}。',
     'appUpdate.requiredGate.currentVersion': '当前版本 {version}',
     'appUpdate.requiredGate.reason.critical': '此版本存在关键问题，需要更新',
     'appUpdate.requiredGate.reason.security': '此版本需要安全更新',
@@ -282,11 +281,9 @@ const zhCNMessages = {
     'settings.ai.refreshing': '刷新中...',
     'settings.ai.refresh': '刷新',
     'settings.ai.noMatchingModels': '未找到匹配的模型',
-    'settings.ai.noMatchingModelsDescription':
-        '没有找到与 "{query}" 匹配的模型，请尝试其他关键词',
+    'settings.ai.noMatchingModelsDescription': '没有找到与 "{query}" 匹配的模型，请尝试其他关键词',
     'settings.ai.noModels': '暂无模型',
-    'settings.ai.emptyModelsConfigureApi':
-        '请先在上方配置 API 地址，然后点击下方按钮获取模型列表',
+    'settings.ai.emptyModelsConfigureApi': '请先在上方配置 API 地址，然后点击下方按钮获取模型列表',
     'settings.ai.emptyModelsFetchOrAdd': '点击下方按钮从服务商获取模型列表，或手动添加模型',
     'settings.ai.fetchingModels': '获取中...',
     'settings.ai.fetchModels': '获取模型列表',
@@ -318,7 +315,8 @@ const zhCNMessages = {
     'settings.dataManagement.exportSettings': '导出设置',
     'settings.dataManagement.exportSettingsDescription': '将当前数据导出为 .db 数据库备份文件',
     'settings.dataManagement.importSettings': '导入设置',
-    'settings.dataManagement.importSettingsDescription': '从 .db 备份文件恢复数据（将先询问导入模式）',
+    'settings.dataManagement.importSettingsDescription':
+        '从 .db 备份文件恢复数据（将先询问导入模式）',
     'settings.dataManagement.exporting': '正在导出',
     'settings.dataManagement.importing': '正在导入',
     'settings.dataManagement.importSuccess': '导入成功',
@@ -548,10 +546,8 @@ const zhCNMessages = {
     'conversation.toolCall.completed': '已完成',
     'conversation.attachment.unsupportedImageAndFile':
         '当前模型不支持图片和文件，请移除不支持的附件或切换模型',
-    'conversation.attachment.unsupportedImage':
-        '当前模型不支持图片，请移除不支持的附件或切换模型',
-    'conversation.attachment.unsupportedFile':
-        '当前模型不支持文件，请移除不支持的附件或切换模型',
+    'conversation.attachment.unsupportedImage': '当前模型不支持图片，请移除不支持的附件或切换模型',
+    'conversation.attachment.unsupportedFile': '当前模型不支持文件，请移除不支持的附件或切换模型',
     'conversation.attachment.unsupportedImageSuffix': '（当前模型不支持图片）',
     'conversation.attachment.unsupportedFileSuffix': '（当前模型不支持文件）',
     'conversation.attachment.unnamedImage': '未命名图片',
@@ -585,8 +581,7 @@ const zhCNMessages = {
     'conversation.approval.mayModifySystem': '命令可能修改系统配置或影响设备状态。',
     'conversation.approval.readLocalContentDescription':
         '此操作会读取本地文件或目录内容，并将结果发送给模型。',
-    'conversation.approval.modelSwitchDescription':
-        '允许从 {currentModel} 切换到 {targetModel}',
+    'conversation.approval.modelSwitchDescription': '允许从 {currentModel} 切换到 {targetModel}',
     'conversation.approval.modelSwitchSettingDescription':
         '这会修改当前问答后续使用的模型，并同步影响后续默认模型。',
     'conversation.approval.appSettingsChangeDescription':
@@ -778,8 +773,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'notification.openSessionFailed.missing':
         'This session no longer exists. The history list has been refreshed.',
     'notification.openSessionFailed.generic': 'Failed to open session. Try again later.',
-    'notification.shortcutRegistrationFailed.title':
-        'TouchAI - Shortcut registration failed',
+    'notification.shortcutRegistrationFailed.title': 'TouchAI - Shortcut registration failed',
     'notification.shortcutRegistrationFailed.alreadyRegistered':
         'Shortcut {shortcut} is already used by another app. Try another combination.',
     'notification.shortcutRegistrationFailed.alreadyRegisteredBody':
@@ -830,8 +824,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.startupAndWindowDescription':
         'Control startup behavior and the default search window size',
     'settings.general.startOnBoot': 'Start on boot',
-    'settings.general.startOnBootDescription':
-        'Run TouchAI automatically when the system starts',
+    'settings.general.startOnBootDescription': 'Run TouchAI automatically when the system starts',
     'settings.general.startMinimized': 'Start minimized',
     'settings.general.startMinimizedDescription': 'Hide to the system tray after startup',
     'settings.general.conversationSettings': 'Conversation settings',
@@ -907,8 +900,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.about.update.source.githubReleases': 'GitHub Releases · {channel}',
     'settings.about.update.summary.fileWithLatest': '{fileName} · Latest version {version}',
     'settings.about.update.summary.latestWithChannel': 'Latest version {version} · {channel}',
-    'settings.about.update.required.minimumSupportedVersion':
-        'Minimum supported version {version}',
+    'settings.about.update.required.minimumSupportedVersion': 'Minimum supported version {version}',
     'settings.about.update.required.availableVersion': 'Can update to {version}',
     'settings.about.update.required.noMatchingUpdate':
         'The current channel does not have a matching update yet',
@@ -954,8 +946,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'appUpdate.requiredGate.reason.critical':
         'This version has a critical issue and must be updated',
     'appUpdate.requiredGate.reason.security': 'This version requires a security update',
-    'appUpdate.requiredGate.reason.recommended':
-        'This version should be updated before continuing',
+    'appUpdate.requiredGate.reason.recommended': 'This version should be updated before continuing',
     'appUpdate.requiredGate.reason.required': 'This version must be updated before continuing',
     'settings.ai.modelListTitle': 'Model list',
     'settings.ai.modelSearchGenericPlaceholder': 'Search models...',
@@ -1003,7 +994,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.ai.noModelsFetched': 'No models were fetched',
     'settings.ai.refreshModelsSucceeded': 'Refresh complete, added {count} models',
     'settings.ai.refreshModelsFailed': 'Failed to fetch model list: {error}',
-    'settings.ai.configureApiUrlBeforeEnable': 'Configure the API URL before enabling this provider',
+    'settings.ai.configureApiUrlBeforeEnable':
+        'Configure the API URL before enabling this provider',
     'settings.ai.configureApiUrlFirst': 'Configure the API URL first',
     'settings.ai.providerInfoMissing': 'Provider information is missing',
     'settings.ai.addModelButton': '+ Add model',
@@ -1015,25 +1007,27 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.ai.modelIdHelp': 'Model identifier used for API calls',
     'settings.ai.modelCapabilities': 'Model capabilities',
     'settings.ai.enterModelNameAndId': 'Enter model name and model ID',
-    'settings.ai.cannotDeleteDefaultModel': 'Cannot delete the default model. Set another model as default first.',
+    'settings.ai.cannotDeleteDefaultModel':
+        'Cannot delete the default model. Set another model as default first.',
     'settings.ai.confirmDeleteTitle': 'Confirm deletion',
     'settings.ai.confirmDeleteModel': 'Delete model "{modelName}"?',
     'settings.ai.enableProviderFirst': 'Enable this provider first',
     'settings.ai.setDefaultModel': 'Set as default model',
     'settings.ai.lastUsed': 'Last used:',
     'settings.ai.deleteGroup': 'Delete group',
-    'settings.ai.groupContainsDefaultModel': 'This group contains the default model and cannot be deleted in bulk',
+    'settings.ai.groupContainsDefaultModel':
+        'This group contains the default model and cannot be deleted in bulk',
     'settings.ai.confirmDeleteGroup': 'Delete all models in this group?',
     'settings.ai.refreshModelsTitle': 'Refresh model list from provider',
     'settings.ai.refreshing': 'Refreshing...',
     'settings.ai.refresh': 'Refresh',
     'settings.ai.noMatchingModels': 'No matching models',
-    'settings.ai.noMatchingModelsDescription':
-        'No models matched "{query}". Try another keyword.',
+    'settings.ai.noMatchingModelsDescription': 'No models matched "{query}". Try another keyword.',
     'settings.ai.noModels': 'No models yet',
     'settings.ai.emptyModelsConfigureApi':
         'Configure the API URL above, then fetch the model list below',
-    'settings.ai.emptyModelsFetchOrAdd': 'Fetch models from the provider below, or add one manually',
+    'settings.ai.emptyModelsFetchOrAdd':
+        'Fetch models from the provider below, or add one manually',
     'settings.ai.fetchingModels': 'Fetching...',
     'settings.ai.fetchModels': 'Fetch model list',
     'settings.ai.addManually': 'Add manually',
@@ -1094,8 +1088,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.dataManagement.importMode.chatOnly.title': 'Import conversation data only',
     'settings.dataManagement.importMode.chatOnly.description':
         'Merge sessions, messages, and request records without overwriting current settings',
-    'settings.dataManagement.importMode.full.title':
-        'Overwrite settings and import conversations',
+    'settings.dataManagement.importMode.full.title': 'Overwrite settings and import conversations',
     'settings.dataManagement.importMode.full.description':
         'Overwrite settings and merge models, providers, sessions, messages, and related data',
     'settings.builtInTools.tabs.config': 'Configuration',
@@ -1250,7 +1243,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.mcp.config.stdioDescription': 'Standard input/output',
     'settings.mcp.config.sseDescription': 'Compatible with Streamable HTTP and SSE',
     'settings.mcp.config.fillInfo': 'Fill in server configuration',
-    'settings.mcp.config.description': 'Configure MCP server connection parameters and tool settings',
+    'settings.mcp.config.description':
+        'Configure MCP server connection parameters and tool settings',
     'settings.mcp.config.toolTimeoutMs': 'Tool timeout (ms)',
     'settings.mcp.config.command': 'Command',
     'settings.mcp.config.commandPlaceholder': 'Example: npx',
@@ -1311,10 +1305,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'The current model does not support images. Remove unsupported attachments or switch models.',
     'conversation.attachment.unsupportedFile':
         'The current model does not support files. Remove unsupported attachments or switch models.',
-    'conversation.attachment.unsupportedImageSuffix':
-        ' (current model does not support images)',
-    'conversation.attachment.unsupportedFileSuffix':
-        ' (current model does not support files)',
+    'conversation.attachment.unsupportedImageSuffix': ' (current model does not support images)',
+    'conversation.attachment.unsupportedFileSuffix': ' (current model does not support files)',
     'conversation.attachment.unnamedImage': 'Image',
     'conversation.attachment.unnamedFile': 'File',
     'conversation.approval.defaultTitle': 'Confirmation required',
@@ -1344,10 +1336,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'conversation.approval.bashApprovalRequired':
         'Current configuration requires approval before every Bash command.',
     'conversation.approval.mayDeleteFiles': 'The command may delete files or directories.',
-    'conversation.approval.mayResetGitWorktree':
-        'The command may reset or clean the Git worktree.',
-    'conversation.approval.mayModifyFiles':
-        'The command may modify or overwrite file contents.',
+    'conversation.approval.mayResetGitWorktree': 'The command may reset or clean the Git worktree.',
+    'conversation.approval.mayModifyFiles': 'The command may modify or overwrite file contents.',
     'conversation.approval.mayOverwriteViaRedirection':
         'The command contains output redirection and may overwrite files.',
     'conversation.approval.mayModifySystem':

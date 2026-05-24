@@ -28,8 +28,9 @@
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
     import { AppEvent, eventService } from '@services/EventService';
-    import { computed, onMounted, ref } from 'vue';
+    import { computed, onMounted, ref, watch } from 'vue';
 
+    import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
@@ -45,18 +46,22 @@
     import ProviderConfig from './components/ProviderConfig.vue';
     import ProviderList from './components/ProviderList.vue';
 
-
-    import { t } from '@/i18n';
     const alert = useAlert();
 
     const contentScrollRef = ref<HTMLElement | null>(null);
     useScrollbarStabilizer(contentScrollRef);
 
+    const providerMenuItems = [
+        { key: 'edit', label: t('common.edit'), icon: 'edit' as const },
+        { key: 'delete', label: t('common.delete'), icon: 'trash' as const, danger: true },
+    ];
+    watch(locale, () => {
+        providerMenuItems[0]!.label = t('common.edit');
+        providerMenuItems[1]!.label = t('common.delete');
+    });
+
     const { open: openProviderMenu } = useContextMenu<number>(
-        [
-            { key: 'edit', label: t('common.edit'), icon: 'edit' },
-            { key: 'delete', label: t('common.delete'), icon: 'trash', danger: true },
-        ],
+        providerMenuItems,
         (key, providerId) => {
             if (key === 'edit') {
                 selectedProviderId.value = providerId;

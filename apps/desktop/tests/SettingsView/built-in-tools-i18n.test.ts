@@ -172,27 +172,27 @@ vi.mock('@components/SearchableSelect.vue', async () => {
     const { t } = await import('@/i18n');
 
     return {
-    default: {
-        name: 'SearchableSelect',
-        props: [
-            'modelValue',
-            'options',
-            'disabled',
-            'placeholder',
-            'placeholderKey',
-            'searchPlaceholder',
-            'searchPlaceholderKey',
-            'emptyText',
-            'emptyTextKey',
-        ],
-        methods: {
-            resolveText(key?: string, fallback?: string) {
-                return key ? t(key as never) : (fallback ?? '');
+        default: {
+            name: 'SearchableSelect',
+            props: [
+                'modelValue',
+                'options',
+                'disabled',
+                'placeholder',
+                'placeholderKey',
+                'searchPlaceholder',
+                'searchPlaceholderKey',
+                'emptyText',
+                'emptyTextKey',
+            ],
+            methods: {
+                resolveText(key?: string, fallback?: string) {
+                    return key ? t(key as never) : (fallback ?? '');
+                },
             },
+            template:
+                '<div data-testid="searchable-select"><span>{{ resolveText(placeholderKey, placeholder) }}</span><span>{{ resolveText(searchPlaceholderKey, searchPlaceholder) }}</span><span>{{ resolveText(emptyTextKey, emptyText) }}</span><slot name="selected" :option="options?.[0] ?? null" /><slot name="option" v-for="option in options" :option="option" /></div>',
         },
-        template:
-            '<div data-testid="searchable-select"><span>{{ resolveText(placeholderKey, placeholder) }}</span><span>{{ resolveText(searchPlaceholderKey, searchPlaceholder) }}</span><span>{{ resolveText(emptyTextKey, emptyText) }}</span><slot name="selected" :option="options?.[0] ?? null" /><slot name="option" v-for="option in options" :option="option" /></div>',
-    },
     };
 });
 

@@ -48,7 +48,11 @@
 
         <!-- 复制按钮 - 气泡外部右下角 -->
         <div v-if="message.content" class="mt-1">
-            <ActionButton icon="copy" :handler="handleCopy" :aria-label="t('assistant.action.copyMessage')" />
+            <ActionButton
+                icon="copy"
+                :handler="handleCopy"
+                :aria-label="t('assistant.action.copyMessage')"
+            />
         </div>
     </div>
 </template>

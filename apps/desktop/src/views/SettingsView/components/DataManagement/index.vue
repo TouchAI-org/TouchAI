@@ -32,7 +32,6 @@
     import ImportModeDialog from './components/ImportModeDialog.vue';
     import ProgressDialog from './components/ProgressDialog.vue';
 
-
     interface DataStats {
         sessions: number;
         messages: number;
@@ -62,7 +61,6 @@
 
     const alert = useAlert();
     const { confirm } = useConfirm();
-    const translateDataManagementMessage = (text: string) => tt(text);
 
     const modelMetadataUpdatedText = computed(() => {
         if (!modelMetadataLastUpdatedAt.value) {
@@ -80,6 +78,8 @@
             time: formatDateTime(date),
         });
     });
+
+    const translateDataManagementMessage = (text: string) => tt(text);
 
     const loadMetadataUpdatedAt = async () => {
         const value = await getStatistic({
@@ -209,10 +209,10 @@
             console.error('Failed to export settings:', error);
             showProgressDialog.value = false;
 
+            const message =
+                error instanceof Error ? error.message : t('settings.dataManagement.exportFailed');
             if (!isDatabaseBackupCancelledError(error)) {
-                const message =
-                    error instanceof Error ? error.message : t('settings.dataManagement.exportFailed');
-                alert.error(message);
+                alert.error(translateDataManagementMessage(message));
             }
         } finally {
             isLoading.value = false;
@@ -268,7 +268,7 @@
                 return;
             }
 
-            // 保存成功消息到元数据，以便重启后显示
+            // 保存源数据而不是当前语言文案；重启后按导入后的语言显示通知。
             await setMeta({
                 key: MetaKey.IMPORT_SUCCESS,
                 value: serializeImportSuccessStartupPayload(result.importMode),
@@ -281,10 +281,10 @@
 
             showProgressDialog.value = false;
 
+            const message =
+                error instanceof Error ? error.message : t('settings.dataManagement.importFailed');
             if (!isDatabaseBackupCancelledError(error)) {
-                const message =
-                    error instanceof Error ? error.message : t('settings.dataManagement.importFailed');
-                alert.error(message);
+                alert.error(translateDataManagementMessage(message));
             }
         } finally {
             isLoading.value = false;

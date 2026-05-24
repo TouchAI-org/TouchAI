@@ -2,9 +2,9 @@ import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
 
+import { useAgent } from '@/composables/agent/useAgent';
 import { setLocale } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import { useAgent } from '@/composables/agent/useAgent';
 
 const { notifyMock, startTaskMock } = vi.hoisted(() => ({
     notifyMock: vi.fn(),

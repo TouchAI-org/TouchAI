@@ -127,7 +127,7 @@
     import { notify } from '@services/NotificationService';
     import { computed, onUnmounted, ref, watch } from 'vue';
 
-    import { t, type MessageKey } from '@/i18n';
+    import { type MessageKey, t } from '@/i18n';
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
     import type {

@@ -28,7 +28,7 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
                         buildConversationSemantic: () => null,
                         buildConversationSemanticFromResult: () => null,
                     }
-                : null,
+                  : null,
         list: () => [
             {
                 id: 'bash',
@@ -101,17 +101,13 @@ describe('BuiltInToolService presentation i18n', () => {
         });
         expect(buildBuiltInToolConversationPresentation('not-a-tool', {}, 'completed')).toBeNull();
         expect(buildBuiltInToolConversationPresentation('   ', {}, 'completed')).toBeNull();
-        expect(
-            buildBuiltInToolConversationPresentation('Ghost', {}, 'completed')
-        ).toBeNull();
+        expect(buildBuiltInToolConversationPresentation('Ghost', {}, 'completed')).toBeNull();
     });
 
     it('uses semantic hints restored from tool results before default tool semantics', async () => {
         setLocale('en-US');
-        const {
-            buildBuiltInToolConversationPresentation,
-            resolveBuiltInToolConversationSemantic,
-        } = await import('@/services/BuiltInToolService/presentation');
+        const { buildBuiltInToolConversationPresentation, resolveBuiltInToolConversationSemantic } =
+            await import('@/services/BuiltInToolService/presentation');
 
         expect(
             resolveBuiltInToolConversationSemantic('bash', {}, { result: 'semantic-result' })
@@ -130,10 +126,8 @@ describe('BuiltInToolService presentation i18n', () => {
     });
 
     it('returns null when a resolved tool has no semantic presentation', async () => {
-        const {
-            buildBuiltInToolConversationPresentation,
-            resolveBuiltInToolConversationSemantic,
-        } = await import('@/services/BuiltInToolService/presentation');
+        const { buildBuiltInToolConversationPresentation, resolveBuiltInToolConversationSemantic } =
+            await import('@/services/BuiltInToolService/presentation');
 
         expect(resolveBuiltInToolConversationSemantic('   ', {})).toBeNull();
         expect(resolveBuiltInToolConversationSemantic('Ghost', {})).toBeNull();

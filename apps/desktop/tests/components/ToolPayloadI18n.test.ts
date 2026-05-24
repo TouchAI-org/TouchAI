@@ -537,7 +537,9 @@ describe('tool payload i18n boundaries', () => {
 
             expect(wrapper.get('.tool-call-bash-status-text').text()).toBe('Success');
             expect(wrapper.get('.tool-call-bash-output').text()).toBe('No output');
-            expect(wrapper.get('.tool-call-bash-output').attributes('data-no-i18n')).toBeUndefined();
+            expect(
+                wrapper.get('.tool-call-bash-output').attributes('data-no-i18n')
+            ).toBeUndefined();
             expect(wrapper.get('.tool-call-bash-output').attributes('translate')).toBeUndefined();
         }
     });
@@ -577,11 +579,7 @@ describe('tool payload i18n boundaries', () => {
         setLocale('en-US');
 
         const cases = [
-            [
-                'awaiting_approval',
-                'Pending',
-                'Waiting for user approval before continuing...',
-            ],
+            ['awaiting_approval', 'Pending', 'Waiting for user approval before continuing...'],
             ['executing', 'Running', 'Command running...'],
             ['error', 'Failed', 'No error output'],
             ['rejected', 'Rejected', 'The user rejected this execution'],

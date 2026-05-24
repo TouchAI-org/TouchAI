@@ -1,8 +1,8 @@
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setLocale } from '@/i18n';
 import { MetaKey } from '@/database/schema';
+import { setLocale } from '@/i18n';
 import BadgedLogo from '@/views/SettingsView/components/AiServices/components/BadgedLogo.vue';
 import ImportModeDialog from '@/views/SettingsView/components/DataManagement/components/ImportModeDialog.vue';
 import ProgressDialog from '@/views/SettingsView/components/DataManagement/components/ProgressDialog.vue';

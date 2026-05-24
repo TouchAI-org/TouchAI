@@ -12,7 +12,7 @@ import { runStartupTasks } from '@services/StartupService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
-import { t, type MessageKey, type MessageParams } from '@/i18n';
+import { type MessageKey, type MessageParams, t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { isE2eTestMode } from '@/utils/runtimeMode';
 

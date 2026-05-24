@@ -200,8 +200,8 @@
 
         return Boolean(
             props.toolCall.sourceLabel &&
-                props.toolCall.sourceLabel !== '内置工具' &&
-                props.toolCall.sourceLabel !== 'MCP 工具'
+            props.toolCall.sourceLabel !== '内置工具' &&
+            props.toolCall.sourceLabel !== 'MCP 工具'
         );
     });
     const argumentsText = computed(() => {
@@ -324,7 +324,7 @@
 
     function getToolStatusText(
         status: ToolCallInfo['status'],
-        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled',
+        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled'
     ): string {
         if (status === 'awaiting_approval') {
             return t('conversation.toolCall.waitingApproval');

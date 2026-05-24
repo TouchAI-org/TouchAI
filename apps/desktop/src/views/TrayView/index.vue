@@ -9,7 +9,7 @@
     import { exit } from '@tauri-apps/plugin-process';
     import { onMounted } from 'vue';
 
-    import { t, type MessageKey } from '@/i18n';
+    import { type MessageKey, t } from '@/i18n';
 
     defineOptions({
         name: 'TrayMenuView',

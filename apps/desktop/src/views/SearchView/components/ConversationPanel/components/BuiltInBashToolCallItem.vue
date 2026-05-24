@@ -242,7 +242,7 @@
 
     function getToolStatusText(
         status: ToolCallInfo['status'],
-        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled',
+        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled'
     ): string {
         if (status === 'awaiting_approval') {
             return t('conversation.toolCall.waitingApproval');

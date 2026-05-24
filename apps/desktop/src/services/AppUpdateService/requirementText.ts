@@ -1,6 +1,6 @@
-import type { AppUpdateRequirement } from './types';
-
 import { t } from '@/i18n';
+
+import type { AppUpdateRequirement } from './types';
 
 export function getAppUpdateRequirementReasonText(
     requirement: AppUpdateRequirement | null

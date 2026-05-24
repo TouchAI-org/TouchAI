@@ -202,11 +202,7 @@ describe('app bootstrap i18n', () => {
 
         openUrlMock.mockClear();
         expect(window.open('/settings', '_self', 'noopener')).toEqual({ name: 'window' });
-        expect(originalWindowOpenMock).toHaveBeenCalledWith(
-            '/settings',
-            '_self',
-            'noopener'
-        );
+        expect(originalWindowOpenMock).toHaveBeenCalledWith('/settings', '_self', 'noopener');
         expect(openUrlMock).not.toHaveBeenCalled();
     });
 

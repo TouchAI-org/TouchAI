@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { t, type MessageKey } from '@/i18n';
+import { type MessageKey, t } from '@/i18n';
 import { messages } from '@/i18n/messages';
 
 const repoRoot = resolve(__dirname, '../..');

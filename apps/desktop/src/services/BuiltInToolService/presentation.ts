@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { t, type MessageKey } from '@/i18n';
+import { type MessageKey, t } from '@/i18n';
 
 import { builtInToolRegistry } from './registry';
 import type {
@@ -106,9 +106,9 @@ function getBuiltInToolConversationVerb(
     }
 
     const key =
-        BUILTIN_TOOL_VERB_KEYS[action][status === 'executing' || status === 'error'
-            ? status
-            : 'completed'];
+        BUILTIN_TOOL_VERB_KEYS[action][
+            status === 'executing' || status === 'error' ? status : 'completed'
+        ];
     return t(key);
 }
 

@@ -2,9 +2,9 @@ import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-import { setLocale } from '@/i18n';
 import { useMcpConnection } from '@/composables/useMcpConnection';
 import type { McpServerEntity } from '@/database/types';
+import { setLocale } from '@/i18n';
 import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
 import { useMcpStore } from '@/stores/mcp';
 

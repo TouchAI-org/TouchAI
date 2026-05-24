@@ -161,7 +161,9 @@
                                         :data-no-i18n="session.model ? 'true' : undefined"
                                         :translate="session.model ? 'no' : undefined"
                                     >
-                                        {{ session.model || t('popup.sessionHistory.defaultModel') }}
+                                        {{
+                                            session.model || t('popup.sessionHistory.defaultModel')
+                                        }}
                                     </span>
                                 </div>
                             </div>
@@ -184,7 +186,7 @@
     import type { ComponentPublicInstance } from 'vue';
     import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
-    import { t, type MessageKey } from '@/i18n';
+    import { type MessageKey, t } from '@/i18n';
     import { formatMonthDay, formatTime } from '@/i18n/format';
 
     defineOptions({

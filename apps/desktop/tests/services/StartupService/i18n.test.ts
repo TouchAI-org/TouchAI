@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setLocale } from '@/i18n';
 import { MetaKey } from '@/database/schema';
+import { setLocale } from '@/i18n';
 
 const { deleteMetaMock, getMetaMock, notifyMock } = vi.hoisted(() => ({
     deleteMetaMock: vi.fn(),
