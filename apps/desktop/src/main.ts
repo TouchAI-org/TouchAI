@@ -2,6 +2,7 @@
 
 import '@styles/tailwind.css';
 
+import { appUpdateService } from '@services/AppUpdateService';
 import { initializeLogger } from '@services/LoggerService';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { createPinia } from 'pinia';
@@ -77,6 +78,17 @@ function setupLinkInterceptor(): void {
     document.addEventListener('click', handleLinkClick, true);
 }
 
+function scheduleAppUpdateChecks(): void {
+    const runAutomaticCheck = () => {
+        appUpdateService.checkNow('automatic').catch((error) => {
+            console.warn('[AppUpdateService] Automatic update check failed:', error);
+        });
+    };
+
+    window.setTimeout(runAutomaticCheck, 30_000);
+    window.setInterval(runAutomaticCheck, 60 * 60 * 1000);
+}
+
 /**
  * 初始化应用
  */
@@ -99,6 +111,8 @@ async function initializeApp() {
     app.use(pinia);
     app.use(router);
     app.mount('#app');
+
+    scheduleAppUpdateChecks();
 }
 
 // 运行应用初始化
