@@ -1,0 +1,51 @@
+{
+    "schemaVersion": 1,
+    "product": "touchai-app",
+    "displayName": "TouchAI",
+    "identifier": "org.touch-ai.app",
+    "repository": {
+        "url": "https://github.com/TouchAI-org/TouchAI",
+        "releasesUrl": "https://github.com/TouchAI-org/TouchAI/releases",
+        "docsUrl": "https://github.com/TouchAI-org/TouchAI/tree/main/docs",
+        "issuesUrl": "https://github.com/TouchAI-org/TouchAI/issues"
+    },
+    "packaging": {
+        "mainExe": "TouchAI.exe"
+    },
+    "services": {
+        "updates": {
+            "baseUrl": "https://updates.touch-ai.org/touchai-app/v1",
+            "deployment": {
+                "provider": "cloudflare-pages",
+                "projectName": "touchai-updates",
+                "branch": "main"
+            },
+            "channels": {
+                "stable": {
+                    "displayName": "Stable",
+                    "policy": {
+                        "minimumSupportedVersion": null,
+                        "requiredSeverity": null,
+                        "requiredReason": null
+                    }
+                },
+                "beta": {
+                    "displayName": "Beta",
+                    "policy": {
+                        "minimumSupportedVersion": null,
+                        "requiredSeverity": null,
+                        "requiredReason": null
+                    }
+                },
+                "nightly": {
+                    "displayName": "Nightly",
+                    "policy": {
+                        "minimumSupportedVersion": null,
+                        "requiredSeverity": null,
+                        "requiredReason": null
+                    }
+                }
+            }
+        }
+    }
+}

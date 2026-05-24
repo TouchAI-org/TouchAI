@@ -20,6 +20,7 @@
         "noUncheckedIndexedAccess": true,
         "paths": {
             "@/*": ["./src/*"],
+            "@product-config": ["./product.json"],
             "@components/*": ["./src/components/*"],
             "@assets/*": ["./src/assets/*"],
             "@utils/*": ["./src/utils/*"],

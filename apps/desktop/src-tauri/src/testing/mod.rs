@@ -9,6 +9,7 @@ use crate::{
     commands,
     core::{
         database::DatabaseRuntime,
+        updater::AppUpdaterState,
         window::{popup::PopupRegistry, search::surface::SearchSurfaceRuntime},
     },
 };
@@ -24,6 +25,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .invoke_handler(commands::invoke_handler::<MockRuntime>())
         .manage(PopupRegistry::new())
         .manage(SearchSurfaceRuntime::new())
+        .manage(AppUpdaterState::default())
 }
 
 pub fn attach_test_database_runtime(

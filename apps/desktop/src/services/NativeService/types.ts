@@ -1,4 +1,7 @@
+import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
+
+export type { AppUpdateChannel } from '@/config/appUpdate';
 export type { SearchWindowDefaultSize, SearchWindowHeightMode };
 
 export interface PopupConfig {
@@ -71,6 +74,44 @@ export interface SearchWindowState {
 export interface RuntimeInfo {
     isE2eTestMode: boolean;
 }
+
+export interface AppUpdateInfo {
+    version: string;
+    fileName: string;
+    notes: string | null;
+    sizeBytes: number | null;
+}
+
+export interface AppUpdateRequirement {
+    required: boolean;
+    minimumSupportedVersion: string | null;
+    requiredSeverity: 'critical' | 'security' | 'recommended' | string | null;
+    requiredReason: string | null;
+    targetSatisfiesRequirement: boolean;
+}
+
+export type AppUpdateCheckResult =
+    | {
+          status: 'available';
+          channel: AppUpdateChannel;
+          currentVersion: string;
+          update: AppUpdateInfo;
+          requirement: AppUpdateRequirement;
+      }
+    | {
+          status: 'not_available';
+          channel: AppUpdateChannel;
+          currentVersion: string;
+          requirement: AppUpdateRequirement;
+      }
+    | {
+          status: 'unsupported';
+          channel: AppUpdateChannel;
+          currentVersion: string | null;
+          reason: 'not_installed' | 'platform_unsupported' | 'updater_unavailable';
+          message: string;
+          requirement: AppUpdateRequirement;
+      };
 
 export interface TauriLogPayload {
     level: number;

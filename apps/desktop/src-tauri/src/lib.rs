@@ -15,6 +15,8 @@ use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    velopack::VelopackApp::build().run();
+
     let builder = tauri::Builder::default()
         .plugin(core::system::logging::build_plugin())
         .plugin(tauri_plugin_notification::init())
@@ -40,6 +42,7 @@ pub fn run() {
         .manage(core::window::search::surface::SearchSurfaceRuntime::new())
         .manage(BuiltInProcessExecutionRegistry::new())
         .manage(McpClientManager::new())
+        .manage(core::updater::AppUpdaterState::default())
         .on_window_event(|window, event| {
             // 主窗口尺寸/位置变化时，记录到状态机用于区分程序化 resize 和用户操作。
             if window.label() == "main" {

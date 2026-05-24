@@ -9,6 +9,7 @@
         "src/**/*.tsx",
         "src/**/*.vue",
         "scripts/**/*.d.ts",
+        "scripts/**/*.d.mts",
         "tests/**/*.ts",
         "tests/**/*.d.ts"
     ]

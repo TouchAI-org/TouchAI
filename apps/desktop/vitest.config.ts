@@ -90,6 +90,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@product-config': resolve(__dirname, './product.json'),
       '@': resolve(__dirname, './src'),
       '@components': resolve(__dirname, './src/components'),
       '@assets': resolve(__dirname, './src/assets'),
