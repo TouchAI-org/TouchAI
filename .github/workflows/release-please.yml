@@ -1,6 +1,8 @@
-name: Stable Release
+name: Release Please
 
 on:
+    # Keep the release PR current after main changes. The stable Velopack build below
+    # only runs when release-please actually creates a GitHub release.
     push:
         branches:
             - main
@@ -28,6 +30,7 @@ jobs:
             - uses: googleapis/release-please-action@v4
               id: release
               with:
+                  token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
                   config-file: release-please-config.json
                   manifest-file: .release-please-manifest.json
 
