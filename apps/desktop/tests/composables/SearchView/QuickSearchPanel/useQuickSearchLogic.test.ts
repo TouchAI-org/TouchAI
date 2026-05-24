@@ -97,10 +97,12 @@ describe('useQuickSearchLogic', () => {
         vi.clearAllMocks();
         vi.useFakeTimers();
         clickStatsMock.rankResults.mockImplementation(async (_query, items) => items);
+        delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
     });
 
     afterEach(() => {
         vi.useRealTimers();
+        delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
         document.body.innerHTML = '';
     });
 
@@ -274,6 +276,70 @@ describe('useQuickSearchLogic', () => {
         expect(open.value).toBe(false);
         expect(mounted.result.results.value).toEqual([]);
         expect(assetLoaderMock.resetLoadingState).toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('uses E2E fallback results when native quick search returns nothing', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const fallbackResult: QuickShortcutItem = {
+            name: 'TouchAI E2E Smoke Result',
+            path: 'C:/Windows/explorer.exe',
+            source: 'file',
+        };
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi.fn().mockResolvedValue(createSearchResult()),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        (
+            window as Window & {
+                __TOUCHAI_E2E__?: {
+                    getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
+                };
+            }
+        ).__TOUCHAI_E2E__ = {
+            getQuickSearchFallbackResults: vi.fn((query: string) =>
+                query === 'touchai' ? [fallbackResult] : []
+            ),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'touchai';
+        mounted.result.triggerSearch('touchai');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(open.value).toBe(true);
+        expect(mounted.result.results.value).toEqual([fallbackResult]);
+        expect(mounted.result.totalResults.value).toBe(1);
 
         mounted.unmount();
     });
