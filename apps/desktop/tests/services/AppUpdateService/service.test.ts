@@ -15,6 +15,14 @@ const availableUpdate: AppUpdateInfo = {
     sizeBytes: 12_000_000,
 };
 
+const latestUpdate = {
+    version: '0.2.0',
+    tag: 'v0.2.0',
+    releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.0`,
+    publishedAt: '2026-05-22T09:00:00.000Z',
+    prerelease: false,
+};
+
 const neutralRequirement = {
     required: false,
     minimumSupportedVersion: null,
@@ -41,6 +49,7 @@ function createController(
                       status: 'available',
                       channel,
                       currentVersion: '0.1.0',
+                      latest: latestUpdate,
                       update: availableUpdate,
                       requirement: neutralRequirement,
                   }
@@ -94,6 +103,7 @@ describe('AppUpdateController', () => {
             status: 'available',
             channel: 'stable',
             availableUpdate,
+            latestUpdate,
             lastCheckedAt: '2026-05-22T10:00:00.000Z',
             error: null,
         });

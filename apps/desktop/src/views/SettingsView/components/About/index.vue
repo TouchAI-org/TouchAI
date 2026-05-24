@@ -41,11 +41,35 @@
     const visibleUpdate = computed(
         () => updateState.value.downloadedUpdate ?? updateState.value.availableUpdate
     );
+    const latestUpdate = computed(() => updateState.value.latestUpdate);
+    const updateRequirement = computed(() => updateState.value.updateRequirement);
+    const currentChannelLabel = computed(
+        () =>
+            updateChannelOptions.find((option) => option.value === updateState.value.channel)
+                ?.label ?? 'Stable'
+    );
+    const targetUpdateVersion = computed(
+        () =>
+            visibleUpdate.value?.version ??
+            latestUpdate.value?.version ??
+            updateRequirement.value?.minimumSupportedVersion ??
+            ''
+    );
+    const updateSummaryText = computed(() => {
+        if (visibleUpdate.value?.fileName) {
+            return latestUpdate.value?.version
+                ? `${visibleUpdate.value.fileName} · 最新版本 ${latestUpdate.value.version}`
+                : visibleUpdate.value.fileName;
+        }
+
+        return latestUpdate.value?.version
+            ? `最新版本 ${latestUpdate.value.version} · ${currentChannelLabel.value}`
+            : `GitHub Releases · ${currentChannelLabel.value}`;
+    });
     const isChecking = computed(() => updateState.value.status === 'checking');
     const isDownloading = computed(() => updateState.value.status === 'downloading');
     const isInstalling = computed(() => updateState.value.status === 'installing');
     const isBusy = computed(() => isChecking.value || isDownloading.value || isInstalling.value);
-    const updateRequirement = computed(() => updateState.value.updateRequirement);
     const isRequiredUpdate = computed(() => updateRequirement.value?.required ?? false);
     const requiredUpdateText = computed(() => {
         const requirement = updateRequirement.value;
@@ -60,8 +84,8 @@
         if (requirement.minimumSupportedVersion) {
             parts.push(`最低支持版本 ${requirement.minimumSupportedVersion}`);
         }
-        if (visibleUpdate.value) {
-            parts.push(`可更新到 ${visibleUpdate.value.version}`);
+        if (targetUpdateVersion.value) {
+            parts.push(`可更新到 ${targetUpdateVersion.value}`);
         }
         if (!requirement.targetSatisfiesRequirement) {
             parts.push('当前通道暂未提供满足要求的更新');
@@ -76,8 +100,8 @@
                 return '正在检查更新...';
             case 'available':
                 if (isRequiredUpdate.value) {
-                    return visibleUpdate.value
-                        ? `请更新到 ${visibleUpdate.value.version} 以继续使用`
+                    return targetUpdateVersion.value
+                        ? `请更新到 ${targetUpdateVersion.value} 以继续使用`
                         : '当前版本已不再受支持';
                 }
                 return visibleUpdate.value
@@ -109,12 +133,6 @@
         }
     });
 
-    const currentChannelLabel = computed(
-        () =>
-            updateChannelOptions.find((option) => option.value === updateState.value.channel)
-                ?.label ?? 'Stable'
-    );
-
     const updateHintText = computed(() => {
         if (updateState.value.status === 'unsupported') {
             return `通过正式安装包安装 ${appDisplayName} 后即可使用自动更新。`;
@@ -126,6 +144,10 @@
 
         if (visibleUpdate.value?.notes) {
             return visibleUpdate.value.notes;
+        }
+
+        if (latestUpdate.value?.version) {
+            return `当前通道最新版本：${latestUpdate.value.version}`;
         }
 
         if (updateState.value.lastCheckedAt) {
@@ -257,6 +279,10 @@
         await appUpdateService.install();
     };
 
+    const openUpdateDownloadPage = async () => {
+        await openLink(latestUpdate.value?.releaseUrl ?? links.releasesUrl);
+    };
+
     const toggleAutoCheck = async () => {
         await appUpdateService.setAutoCheckEnabled(!updateState.value.autoCheckEnabled);
     };
@@ -365,10 +391,7 @@
                 >
                     <div class="min-w-0">
                         <div class="font-serif text-sm font-medium text-gray-900">
-                            {{
-                                visibleUpdate?.fileName ??
-                                `GitHub Releases · ${currentChannelLabel}`
-                            }}
+                            {{ updateSummaryText }}
                         </div>
                         <div class="mt-1 line-clamp-2 font-serif text-xs text-gray-500">
                             {{ updateHintText }}
@@ -433,7 +456,7 @@
                             "
                             class="hover:border-primary-300 hover:text-primary-700 flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 font-serif text-xs text-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                             :disabled="isBusy"
-                            @click="openLink(links.releasesUrl)"
+                            @click="openUpdateDownloadPage"
                         >
                             <AppIcon name="arrow-down" class="h-4 w-4" />
                             下载页

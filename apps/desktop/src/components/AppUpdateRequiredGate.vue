@@ -17,6 +17,7 @@
     const visibleUpdate = computed(
         () => updateState.value.downloadedUpdate ?? updateState.value.availableUpdate
     );
+    const latestUpdate = computed(() => updateState.value.latestUpdate);
     const requirement = computed(() => updateState.value.updateRequirement);
     const shouldBlock = computed(() => requirement.value?.required ?? false);
     const isChecking = computed(() => updateState.value.status === 'checking');
@@ -30,9 +31,16 @@
     );
     const canInstall = computed(() => updateState.value.status === 'downloaded');
     const releaseNotes = computed(() => visibleUpdate.value?.notes?.trim() ?? '');
+    const releasePageUrl = computed(
+        () => latestUpdate.value?.releaseUrl ?? APP_PRODUCT_CONFIG.repository.releasesUrl
+    );
     const targetVersionText = computed(() => {
         if (visibleUpdate.value?.version) {
             return `可更新到 ${visibleUpdate.value.version}`;
+        }
+
+        if (latestUpdate.value?.version) {
+            return `可更新到 ${latestUpdate.value.version}`;
         }
 
         const minimumVersion = requirement.value?.minimumSupportedVersion;
@@ -107,7 +115,7 @@
             return;
         }
 
-        await openUrl(APP_PRODUCT_CONFIG.repository.releasesUrl);
+        await openUrl(releasePageUrl.value);
     }
 
     async function checkAgain() {

@@ -179,11 +179,6 @@ function validateChannelVersion(channel, parsedVersion) {
     }
 }
 
-function channelDisplayName(productConfig, channel) {
-    const displayName = productConfig?.services?.updates?.channels?.[channel]?.displayName;
-    return normalizeOptionalString(displayName) ?? channel;
-}
-
 function productDisplayName(productConfig) {
     const displayName = normalizeOptionalString(productConfig?.displayName);
     if (!displayName) {
@@ -193,14 +188,9 @@ function productDisplayName(productConfig) {
     return displayName;
 }
 
-function releaseName(channel, version, productConfig) {
+function releaseName(version, productConfig) {
     const displayName = productDisplayName(productConfig);
-
-    if (channel === 'stable') {
-        return `${displayName} ${version}`;
-    }
-
-    return `${displayName} ${channelDisplayName(productConfig, channel)} ${version}`;
+    return `${displayName} v${version}`;
 }
 
 export function resolveReleaseMetadata(input) {
@@ -238,7 +228,7 @@ export function resolveReleaseMetadata(input) {
         version: parsedVersion.version,
         tag: `v${parsedVersion.version}`,
         prerelease: channel === 'stable' ? 'False' : 'True',
-        releaseName: releaseName(channel, parsedVersion.version, input.productConfig),
+        releaseName: releaseName(parsedVersion.version, input.productConfig),
     };
 }
 
