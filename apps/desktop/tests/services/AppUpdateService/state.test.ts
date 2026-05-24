@@ -15,10 +15,19 @@ const neutralRequirement = {
     targetSatisfiesRequirement: true,
 };
 
+const latestUpdate = {
+    version: '0.2.0',
+    tag: 'v0.2.0',
+    releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.0`,
+    publishedAt: '2026-05-22T09:00:00.000Z',
+    prerelease: false,
+};
+
 const availableUpdate: AppUpdateCheckResult = {
     status: 'available',
     channel: 'stable',
     currentVersion: '0.1.0',
+    latest: latestUpdate,
     update: {
         version: '0.2.0',
         fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.0-full.nupkg`,
@@ -37,6 +46,7 @@ describe('AppUpdateService state reducer', () => {
             currentVersion: null,
             availableUpdate: null,
             downloadedUpdate: null,
+            latestUpdate: null,
             updateRequirement: null,
             downloadProgress: null,
             lastCheckedAt: null,
@@ -54,6 +64,7 @@ describe('AppUpdateService state reducer', () => {
                 status: 'unsupported',
                 channel: 'stable',
                 currentVersion: '0.1.0',
+                latest: latestUpdate,
                 reason: 'not_installed',
                 message: 'Updates are available after installing TouchAI.',
                 requirement: neutralRequirement,
@@ -63,6 +74,7 @@ describe('AppUpdateService state reducer', () => {
         expect(state).toMatchObject({
             status: 'unsupported',
             currentVersion: '0.1.0',
+            latestUpdate,
             lastCheckedAt: '2026-05-22T10:00:00.000Z',
             unsupportedReason: 'not_installed',
             error: null,
@@ -88,8 +100,31 @@ describe('AppUpdateService state reducer', () => {
             status: 'available',
             currentVersion: '0.1.0',
             availableUpdate: availableUpdate.update,
+            latestUpdate,
             updateRequirement: neutralRequirement,
             error: null,
+        });
+    });
+
+    it('records channel latest metadata when no Velopack update is available', () => {
+        const state = reduceAppUpdateState(createInitialAppUpdateState(), {
+            type: 'check-completed',
+            channel: 'stable',
+            checkedAt: '2026-05-22T10:00:00.000Z',
+            result: {
+                status: 'not_available',
+                channel: 'stable',
+                currentVersion: '0.2.0',
+                latest: latestUpdate,
+                requirement: neutralRequirement,
+            },
+        });
+
+        expect(state).toMatchObject({
+            status: 'not_available',
+            currentVersion: '0.2.0',
+            latestUpdate,
+            availableUpdate: null,
         });
     });
 
@@ -182,6 +217,7 @@ describe('AppUpdateService state reducer', () => {
             channel: 'beta',
             availableUpdate: null,
             downloadedUpdate: null,
+            latestUpdate: null,
             updateRequirement: null,
             downloadProgress: null,
             lastCheckedAt: null,

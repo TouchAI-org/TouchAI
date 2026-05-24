@@ -6,7 +6,19 @@ import { describe, expect, it } from 'vitest';
 
 import { APP_PRODUCT_CONFIG } from '@/config/product';
 
-type BuildUpdateChannels = (projectRoot: string, outputRoot: string, now?: Date) => Promise<void>;
+type ChannelLatestFixture = {
+    version: string;
+    tag: string;
+    releaseUrl: string;
+    publishedAt: string | null;
+    prerelease: boolean;
+};
+type BuildUpdateChannels = (
+    projectRoot: string,
+    outputRoot: string,
+    now?: Date,
+    options?: { latestByChannel?: Record<string, ChannelLatestFixture | null> }
+) => Promise<void>;
 type ProductConfigFixture = {
     schemaVersion: number;
     product: string;
@@ -113,6 +125,7 @@ describe('buildUpdateChannels', () => {
                 displayName: productFixture.displayName,
                 channel: 'stable',
                 generatedAt: '2026-05-24T00:00:00.000Z',
+                latest: null,
                 policy: {
                     minimumSupportedVersion: '0.2.1',
                     requiredSeverity: 'critical',
@@ -185,6 +198,47 @@ describe('buildUpdateChannels', () => {
 
             expect(stable.product).toBe(derivedProductName);
             expect(stable.channel).toBe('stable');
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
+    it('includes latest release metadata when provided by the release workflow', async () => {
+        const buildUpdateChannels = await loadBuilder();
+        const productFixture = cloneProductConfig();
+        const root = await createFixture(productFixture);
+        const outputRoot = join(root, 'dist');
+
+        try {
+            expect(buildUpdateChannels).toBeTypeOf('function');
+            await buildUpdateChannels?.(root, outputRoot, new Date('2026-05-24T00:00:00Z'), {
+                latestByChannel: {
+                    beta: {
+                        version: '0.1.1-beta.1',
+                        tag: 'v0.1.1-beta.1',
+                        releaseUrl:
+                            'https://github.com/TouchAI-org/TouchAI/releases/tag/v0.1.1-beta.1',
+                        publishedAt: '2026-05-24T16:37:32.103Z',
+                        prerelease: true,
+                    },
+                },
+            });
+
+            const beta = JSON.parse(
+                await readFile(channelOutputPath(productFixture, outputRoot, 'beta'), 'utf8')
+            );
+            const stable = JSON.parse(
+                await readFile(channelOutputPath(productFixture, outputRoot, 'stable'), 'utf8')
+            );
+
+            expect(beta.latest).toEqual({
+                version: '0.1.1-beta.1',
+                tag: 'v0.1.1-beta.1',
+                releaseUrl: 'https://github.com/TouchAI-org/TouchAI/releases/tag/v0.1.1-beta.1',
+                publishedAt: '2026-05-24T16:37:32.103Z',
+                prerelease: true,
+            });
+            expect(stable.latest).toBeNull();
         } finally {
             await rm(root, { recursive: true, force: true });
         }

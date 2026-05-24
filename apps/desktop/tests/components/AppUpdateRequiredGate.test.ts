@@ -22,6 +22,14 @@ const requiredRequirement = {
     targetSatisfiesRequirement: true,
 };
 
+const latestUpdate = {
+    version: '0.2.1',
+    tag: 'v0.2.1',
+    releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.1`,
+    publishedAt: '2026-05-22T09:00:00.000Z',
+    prerelease: false,
+};
+
 const baseState: AppUpdateState = {
     status: 'idle',
     channel: 'stable',
@@ -29,6 +37,7 @@ const baseState: AppUpdateState = {
     currentVersion: '0.2.0',
     availableUpdate: null,
     downloadedUpdate: null,
+    latestUpdate: null,
     updateRequirement: neutralRequirement,
     downloadProgress: null,
     lastCheckedAt: null,
@@ -85,6 +94,7 @@ describe('AppUpdateRequiredGate', () => {
         appUpdateServiceMock.state = {
             ...baseState,
             status: 'available',
+            latestUpdate,
             availableUpdate: {
                 version: '0.2.1',
                 fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.1-full.nupkg`,
@@ -112,6 +122,7 @@ describe('AppUpdateRequiredGate', () => {
         appUpdateServiceMock.state = {
             ...baseState,
             status: 'not_available',
+            latestUpdate,
             updateRequirement: {
                 ...requiredRequirement,
                 targetSatisfiesRequirement: false,
@@ -121,8 +132,9 @@ describe('AppUpdateRequiredGate', () => {
 
         const wrapper = mount(AppUpdateRequiredGate);
         await nextTick();
+        expect(wrapper.text()).toContain('可更新到 0.2.1');
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
 
-        expect(openUrl).toHaveBeenCalledWith(APP_PRODUCT_CONFIG.repository.releasesUrl);
+        expect(openUrl).toHaveBeenCalledWith(latestUpdate.releaseUrl);
     });
 });

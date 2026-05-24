@@ -72,10 +72,6 @@ jobs:
                   GITHUB_REF_NAME: ${{ inputs.tag }}
               run: node scripts/ci/version-policy-check.mjs
 
-            - name: Build update channel JSON
-              working-directory: apps/desktop
-              run: node scripts/ci/build-update-channels.mjs "$env:RUNNER_TEMP/touchai-update-dist"
-
             - name: Resolve product release config
               id: product
               shell: pwsh
@@ -106,19 +102,10 @@ jobs:
                   Add-GitHubOutput 'cloudflare_pages_project_name' $product.services.updates.deployment.projectName
                   Add-GitHubOutput 'cloudflare_pages_branch' $product.services.updates.deployment.branch
 
-                  $channelConfig = $product.services.updates.channels.PSObject.Properties[$env:INPUT_CHANNEL].Value
-                  if ($null -eq $channelConfig) {
+                  if ($null -eq $product.services.updates.channels.PSObject.Properties[$env:INPUT_CHANNEL]) {
                       throw "Update channel $env:INPUT_CHANNEL is missing from apps/desktop/product.json"
                   }
-                  $channelDisplayName = $channelConfig.displayName
-                  if ([string]::IsNullOrWhiteSpace($channelDisplayName)) {
-                      $channelDisplayName = $env:INPUT_CHANNEL
-                  }
-                  if ($env:INPUT_CHANNEL -eq 'stable') {
-                      Add-GitHubEnv 'RELEASE_NAME' "$($product.displayName) $env:INPUT_VERSION"
-                  } else {
-                      Add-GitHubEnv 'RELEASE_NAME' "$($product.displayName) $channelDisplayName $env:INPUT_VERSION"
-                  }
+                  Add-GitHubEnv 'RELEASE_NAME' "$($product.displayName) v$env:INPUT_VERSION"
               env:
                   INPUT_CHANNEL: ${{ inputs.channel }}
                   INPUT_VERSION: ${{ inputs.version }}
@@ -220,6 +207,10 @@ jobs:
                     --releaseNotes "$env:RELEASE_NOTES_PATH" `
                     --outputDir "$env:VELOPACK_RELEASE"
 
+            - name: Normalize Velopack release asset names
+              working-directory: apps/desktop
+              run: node scripts/ci/normalize-velopack-release-assets.mjs "$env:VELOPACK_RELEASE" "${{ inputs.channel }}" "${{ inputs.version }}"
+
             - name: Publish Velopack release assets
               shell: pwsh
               env:
@@ -246,6 +237,18 @@ jobs:
                   gh release edit "$env:RELEASE_TAG" `
                     --title "$env:RELEASE_NAME" `
                     --notes-file "$env:RELEASE_NOTES_PATH"
+
+            - name: Build update channel JSON
+              working-directory: apps/desktop
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  node scripts/ci/build-update-channels.mjs "$env:RUNNER_TEMP/touchai-update-dist" `
+                    --github-repository "$env:GITHUB_REPOSITORY" `
+                    --channel "${{ inputs.channel }}" `
+                    --version "${{ inputs.version }}" `
+                    --tag "${{ inputs.tag }}" `
+                    --prerelease "${{ inputs.prerelease }}"
 
             - name: Upload update channel JSON artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -60,7 +60,7 @@ describe('resolveReleaseMetadata', () => {
             version: '1.2.3',
             tag: 'v1.2.3',
             prerelease: 'False',
-            releaseName: 'TouchAI 1.2.3',
+            releaseName: 'TouchAI v1.2.3',
         });
     });
 
@@ -104,7 +104,7 @@ describe('resolveReleaseMetadata', () => {
             version: '1.2.4-nightly.20260522.42.3',
             tag: 'v1.2.4-nightly.20260522.42.3',
             prerelease: 'True',
-            releaseName: 'TouchAI Nightly 1.2.4-nightly.20260522.42.3',
+            releaseName: 'TouchAI v1.2.4-nightly.20260522.42.3',
         });
     });
 
@@ -128,7 +128,7 @@ describe('resolveReleaseMetadata', () => {
             version: '2.0.1-nightly.20260522.42.1',
             tag: 'v2.0.1-nightly.20260522.42.1',
             prerelease: 'True',
-            releaseName: 'TouchAI Nightly 2.0.1-nightly.20260522.42.1',
+            releaseName: 'TouchAI v2.0.1-nightly.20260522.42.1',
         });
     });
 
@@ -169,7 +169,7 @@ describe('resolveReleaseMetadata', () => {
             version: '1.3.0-beta.1',
             tag: 'v1.3.0-beta.1',
             prerelease: 'True',
-            releaseName: 'TouchAI Beta 1.3.0-beta.1',
+            releaseName: 'TouchAI v1.3.0-beta.1',
         });
     });
 

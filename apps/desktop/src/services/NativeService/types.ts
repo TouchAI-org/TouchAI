@@ -90,11 +90,20 @@ export interface AppUpdateRequirement {
     targetSatisfiesRequirement: boolean;
 }
 
+export interface AppUpdateChannelLatest {
+    version: string;
+    tag: string;
+    releaseUrl: string;
+    publishedAt: string | null;
+    prerelease: boolean;
+}
+
 export type AppUpdateCheckResult =
     | {
           status: 'available';
           channel: AppUpdateChannel;
           currentVersion: string;
+          latest: AppUpdateChannelLatest | null;
           update: AppUpdateInfo;
           requirement: AppUpdateRequirement;
       }
@@ -102,12 +111,14 @@ export type AppUpdateCheckResult =
           status: 'not_available';
           channel: AppUpdateChannel;
           currentVersion: string;
+          latest: AppUpdateChannelLatest | null;
           requirement: AppUpdateRequirement;
       }
     | {
           status: 'unsupported';
           channel: AppUpdateChannel;
           currentVersion: string | null;
+          latest: AppUpdateChannelLatest | null;
           reason: 'not_installed' | 'platform_unsupported' | 'updater_unavailable';
           message: string;
           requirement: AppUpdateRequirement;

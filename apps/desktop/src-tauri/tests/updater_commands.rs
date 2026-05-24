@@ -19,6 +19,7 @@ fn updater_check_reports_unsupported_when_app_is_not_velopack_installed() {
             "status": "unsupported",
             "channel": "beta",
             "currentVersion": null,
+            "latest": null,
             "reason": "not_installed",
             "message": "应用通过正式安装包安装后才能使用自动更新。",
             "requirement": {

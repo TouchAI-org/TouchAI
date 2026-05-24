@@ -94,6 +94,16 @@ impl AppUpdateRequirement {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateChannelLatest {
+    pub version: String,
+    pub tag: String,
+    pub release_url: String,
+    pub published_at: Option<String>,
+    pub prerelease: bool,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum AppUpdateCheckResult {
@@ -101,6 +111,7 @@ pub enum AppUpdateCheckResult {
     Available {
         channel: AppUpdateChannel,
         current_version: String,
+        latest: Option<AppUpdateChannelLatest>,
         update: AppUpdateInfo,
         requirement: AppUpdateRequirement,
     },
@@ -108,12 +119,14 @@ pub enum AppUpdateCheckResult {
     NotAvailable {
         channel: AppUpdateChannel,
         current_version: String,
+        latest: Option<AppUpdateChannelLatest>,
         requirement: AppUpdateRequirement,
     },
     #[serde(rename_all = "camelCase")]
     Unsupported {
         channel: AppUpdateChannel,
         current_version: Option<String>,
+        latest: Option<AppUpdateChannelLatest>,
         reason: AppUpdateUnsupportedReason,
         message: String,
         requirement: AppUpdateRequirement,
@@ -177,14 +190,21 @@ struct ProductUpdatePolicy {
     required_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ProductUpdateChannelManifest {
+    latest: Option<AppUpdateChannelLatest>,
+    policy: ProductUpdatePolicy,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct RemoteChannelPolicyDocument {
+struct RemoteChannelManifestDocument {
     schema_version: u32,
     product: String,
     display_name: String,
     channel: String,
     generated_at: String,
+    latest: Option<AppUpdateChannelLatest>,
     policy: ProductUpdatePolicy,
 }
 
@@ -257,7 +277,7 @@ fn product_config_from_json(json: &str) -> Result<ProductConfig, String> {
     Ok(config)
 }
 
-fn channel_policy_url_from_config(
+fn channel_manifest_url_from_config(
     config: &ProductConfig,
     channel: AppUpdateChannel,
 ) -> Result<String, String> {
@@ -272,57 +292,62 @@ fn channel_policy_url_from_config(
     Ok(format!("{base_url}/channels/{channel_name}.json"))
 }
 
-fn parse_remote_channel_policy(
+fn parse_remote_channel_manifest(
     json: &str,
     expected_product: &str,
     expected_channel: AppUpdateChannel,
-) -> Result<ProductUpdatePolicy, String> {
-    let document: RemoteChannelPolicyDocument =
-        serde_json::from_str(json).map_err(|error| format!("解析更新通道策略失败：{error}"))?;
+) -> Result<ProductUpdateChannelManifest, String> {
+    let document: RemoteChannelManifestDocument =
+        serde_json::from_str(json).map_err(|error| format!("解析更新通道清单失败：{error}"))?;
 
     if document.schema_version != 1 {
-        return Err("更新通道策略 schemaVersion must be 1.".to_string());
+        return Err("更新通道清单 schemaVersion must be 1.".to_string());
     }
 
     if document.product != expected_product {
         return Err(format!(
-            "更新通道策略 product 不匹配：期望 {expected_product}，实际 {}。",
+            "更新通道清单 product 不匹配：期望 {expected_product}，实际 {}。",
             document.product
         ));
     }
 
     if document.channel != expected_channel.as_str() {
         return Err(format!(
-            "更新通道策略 channel 不匹配：期望 {}，实际 {}。",
+            "更新通道清单 channel 不匹配：期望 {}，实际 {}。",
             expected_channel.as_str(),
             document.channel
         ));
     }
 
     let _ = (document.display_name, document.generated_at);
-    Ok(document.policy)
+    Ok(ProductUpdateChannelManifest {
+        latest: document.latest,
+        policy: document.policy,
+    })
 }
 
-fn fetch_remote_channel_policy(channel: AppUpdateChannel) -> Result<ProductUpdatePolicy, String> {
+fn fetch_remote_channel_manifest(
+    channel: AppUpdateChannel,
+) -> Result<ProductUpdateChannelManifest, String> {
     let config = product_config()?;
-    let url = channel_policy_url_from_config(config, channel)?;
+    let url = channel_manifest_url_from_config(config, channel)?;
 
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(UPDATE_POLICY_TIMEOUT_SECONDS))
         .build()
-        .map_err(|error| format!("创建更新策略客户端失败：{error}"))?;
+        .map_err(|error| format!("创建更新通道清单客户端失败：{error}"))?;
 
     let response = client
         .get(&url)
         .send()
-        .map_err(|error| format!("拉取更新策略失败：{error}"))?
+        .map_err(|error| format!("拉取更新通道清单失败：{error}"))?
         .error_for_status()
-        .map_err(|error| format!("拉取更新策略失败：{error}"))?;
+        .map_err(|error| format!("拉取更新通道清单失败：{error}"))?;
     let body = response
         .text()
-        .map_err(|error| format!("读取更新策略失败：{error}"))?;
+        .map_err(|error| format!("读取更新通道清单失败：{error}"))?;
 
-    parse_remote_channel_policy(&body, &config.product, channel)
+    parse_remote_channel_manifest(&body, &config.product, channel)
 }
 
 #[cfg(test)]
@@ -479,10 +504,14 @@ fn update_info_from_target(update: &UpdateInfo) -> AppUpdateInfo {
     }
 }
 
-fn unsupported_not_installed(channel: AppUpdateChannel) -> AppUpdateCheckResult {
+fn unsupported_not_installed(
+    channel: AppUpdateChannel,
+    latest: Option<AppUpdateChannelLatest>,
+) -> AppUpdateCheckResult {
     AppUpdateCheckResult::Unsupported {
         channel,
         current_version: None,
+        latest,
         reason: AppUpdateUnsupportedReason::NotInstalled,
         message: "应用通过正式安装包安装后才能使用自动更新。".to_string(),
         requirement: neutral_update_requirement(),
@@ -491,10 +520,11 @@ fn unsupported_not_installed(channel: AppUpdateChannel) -> AppUpdateCheckResult 
 
 fn map_manager_init_error(
     channel: AppUpdateChannel,
+    latest: Option<AppUpdateChannelLatest>,
     error: VelopackError,
 ) -> Result<AppUpdateCheckResult, String> {
     match error {
-        VelopackError::NotInstalled(_) => Ok(unsupported_not_installed(channel)),
+        VelopackError::NotInstalled(_) => Ok(unsupported_not_installed(channel, latest)),
         other => Err(format!("初始化更新器失败：{other}")),
     }
 }
@@ -503,19 +533,22 @@ pub fn check_for_updates(
     state: &AppUpdaterState,
     channel: AppUpdateChannel,
 ) -> Result<AppUpdateCheckResult, String> {
+    let manifest = match fetch_remote_channel_manifest(channel) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            log::warn!("拉取更新通道清单失败，继续使用默认非强制策略：{error}");
+            ProductUpdateChannelManifest::default()
+        }
+    };
+    let latest = manifest.latest.clone();
+    let policy = manifest.policy;
+
     let manager = match manager(channel) {
         Ok(manager) => manager,
-        Err(error) => return map_manager_init_error(channel, error),
+        Err(error) => return map_manager_init_error(channel, latest, error),
     };
 
     let current_version = manager.get_current_version_as_string();
-    let policy = match fetch_remote_channel_policy(channel) {
-        Ok(policy) => policy,
-        Err(error) => {
-            log::warn!("拉取更新通道策略失败，继续使用默认非强制策略：{error}");
-            ProductUpdatePolicy::default()
-        }
-    };
 
     match manager.check_for_updates() {
         Ok(UpdateCheck::UpdateAvailable(update)) => {
@@ -527,6 +560,7 @@ pub fn check_for_updates(
             let response = AppUpdateCheckResult::Available {
                 channel,
                 current_version,
+                latest,
                 update: update_info_from_target(&update),
                 requirement,
             };
@@ -547,6 +581,7 @@ pub fn check_for_updates(
             Ok(AppUpdateCheckResult::NotAvailable {
                 channel,
                 current_version,
+                latest,
                 requirement,
             })
         }
@@ -643,13 +678,25 @@ mod tests {
 
     #[test]
     fn maps_not_installed_to_unsupported_result() {
+        let latest = Some(AppUpdateChannelLatest {
+            version: "0.2.1-beta.1".to_string(),
+            tag: "v0.2.1-beta.1".to_string(),
+            release_url: "https://github.com/TouchAI-org/TouchAI/releases/tag/v0.2.1-beta.1"
+                .to_string(),
+            published_at: Some("2026-05-24T00:00:00.000Z".to_string()),
+            prerelease: true,
+        });
         let result = map_manager_init_error(
             AppUpdateChannel::Beta,
+            latest.clone(),
             VelopackError::NotInstalled("missing manifest".to_string()),
         )
         .expect("unsupported result");
 
-        assert_eq!(result, unsupported_not_installed(AppUpdateChannel::Beta));
+        assert_eq!(
+            result,
+            unsupported_not_installed(AppUpdateChannel::Beta, latest)
+        );
     }
 
     #[test]
@@ -687,11 +734,11 @@ mod tests {
     }
 
     #[test]
-    fn builds_channel_policy_url_from_product_config() {
+    fn builds_channel_manifest_url_from_product_config() {
         let config = product_config_from_json(PRODUCT_CONFIG_JSON).expect("product config");
 
-        let url =
-            channel_policy_url_from_config(&config, AppUpdateChannel::Beta).expect("policy url");
+        let url = channel_manifest_url_from_config(&config, AppUpdateChannel::Beta)
+            .expect("manifest url");
         let expected_url = format!(
             "{}/channels/{}.json",
             config.services.updates.base_url.trim_end_matches('/'),
@@ -702,14 +749,22 @@ mod tests {
     }
 
     #[test]
-    fn parses_remote_channel_policy_for_expected_product_and_channel() {
+    fn parses_remote_channel_manifest_for_expected_product_and_channel() {
         let config = product_config_from_json(PRODUCT_CONFIG_JSON).expect("product config");
+        let latest = serde_json::json!({
+            "version": "0.2.1",
+            "tag": "v0.2.1",
+            "releaseUrl": format!("{}/releases/tag/v0.2.1", config.repository.url),
+            "publishedAt": "2026-05-24T00:00:00.000Z",
+            "prerelease": false
+        });
         let body = serde_json::json!({
             "schemaVersion": 1,
             "product": config.product,
             "displayName": config.display_name,
             "channel": AppUpdateChannel::Stable.as_str(),
             "generatedAt": "2026-05-24T00:00:00.000Z",
+            "latest": latest,
             "policy": {
                 "minimumSupportedVersion": "0.2.1",
                 "requiredSeverity": "critical",
@@ -718,9 +773,21 @@ mod tests {
         })
         .to_string();
 
-        let policy = parse_remote_channel_policy(&body, &config.product, AppUpdateChannel::Stable)
-            .expect("remote policy");
+        let manifest =
+            parse_remote_channel_manifest(&body, &config.product, AppUpdateChannel::Stable)
+                .expect("remote manifest");
+        let policy = manifest.policy;
 
+        assert_eq!(
+            manifest.latest,
+            Some(AppUpdateChannelLatest {
+                version: "0.2.1".to_string(),
+                tag: "v0.2.1".to_string(),
+                release_url: format!("{}/releases/tag/v0.2.1", config.repository.url),
+                published_at: Some("2026-05-24T00:00:00.000Z".to_string()),
+                prerelease: false,
+            })
+        );
         assert_eq!(policy.minimum_supported_version.as_deref(), Some("0.2.1"));
         assert_eq!(policy.required_severity.as_deref(), Some("critical"));
         assert_eq!(
@@ -730,7 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_remote_channel_policy_for_wrong_channel() {
+    fn rejects_remote_channel_manifest_for_wrong_channel() {
         let config = product_config_from_json(PRODUCT_CONFIG_JSON).expect("product config");
         let body = serde_json::json!({
             "schemaVersion": 1,
@@ -738,6 +805,7 @@ mod tests {
             "displayName": config.display_name,
             "channel": AppUpdateChannel::Nightly.as_str(),
             "generatedAt": "2026-05-24T00:00:00.000Z",
+            "latest": null,
             "policy": {
                 "minimumSupportedVersion": null,
                 "requiredSeverity": null,
@@ -746,7 +814,7 @@ mod tests {
         })
         .to_string();
 
-        let error = parse_remote_channel_policy(&body, &config.product, AppUpdateChannel::Stable)
+        let error = parse_remote_channel_manifest(&body, &config.product, AppUpdateChannel::Stable)
             .expect_err("wrong channel must be rejected");
 
         assert!(error.contains("channel"));

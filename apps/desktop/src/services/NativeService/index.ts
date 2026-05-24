@@ -22,6 +22,7 @@ export type {
 } from './mcp';
 export type {
     AppUpdateChannel,
+    AppUpdateChannelLatest,
     AppUpdateCheckResult,
     AppUpdateInfo,
     AppUpdateRequirement,

@@ -650,6 +650,13 @@ describe('NativeService supporting boundaries', () => {
             status: 'available',
             channel: 'beta',
             currentVersion: '0.1.0',
+            latest: {
+                version: '0.2.0',
+                tag: 'v0.2.0',
+                releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.0`,
+                publishedAt: '2026-05-22T09:00:00.000Z',
+                prerelease: false,
+            },
             update,
             requirement: {
                 required: false,

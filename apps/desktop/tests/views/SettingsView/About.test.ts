@@ -14,6 +14,14 @@ const neutralRequirement = {
     targetSatisfiesRequirement: true,
 };
 
+const latestUpdate = {
+    version: '0.2.0',
+    tag: 'v0.2.0',
+    releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.0`,
+    publishedAt: '2026-05-22T09:00:00.000Z',
+    prerelease: false,
+};
+
 const updateState: AppUpdateState = {
     status: 'available',
     channel: 'stable',
@@ -26,6 +34,7 @@ const updateState: AppUpdateState = {
         sizeBytes: 12_000_000,
     },
     downloadedUpdate: null,
+    latestUpdate,
     updateRequirement: neutralRequirement,
     downloadProgress: null,
     lastCheckedAt: '2026-05-22T10:00:00.000Z',
@@ -83,6 +92,7 @@ describe('Settings About update section', () => {
         await nextTick();
 
         expect(wrapper.text()).toContain('发现新版本 0.2.0');
+        expect(wrapper.text()).toContain('最新版本 0.2.0');
 
         await wrapper.get('[data-testid="settings-update-download"]').trigger('click');
         expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
