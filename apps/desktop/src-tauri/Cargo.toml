@@ -54,7 +54,7 @@ tauri-plugin-http = "2"
 tauri-plugin-shell = "2"
 raw-window-handle = "0.6"
 tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["sqlite", "runtime-tokio"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["sqlite", "runtime-tokio"] }
 rmcp = { version = "1.7.0", features = [
     "client",
     "transport-child-process",
