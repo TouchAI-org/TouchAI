@@ -432,7 +432,7 @@
                             "
                             class="hover:border-primary-300 hover:text-primary-700 flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 font-serif text-xs text-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                             :disabled="isBusy"
-                            @click="openLink(links.releases)"
+                            @click="openLink(links.releasesUrl)"
                         >
                             <AppIcon name="arrow-down" class="h-4 w-4" />
                             下载页
@@ -500,7 +500,7 @@
                     </button>
                     <button
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
-                        @click="openLink(links.docs)"
+                        @click="openLink(links.docsUrl)"
                     >
                         <span class="font-serif text-gray-900">文档</span>
                         <svg
@@ -519,7 +519,7 @@
                     </button>
                     <button
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
-                        @click="openLink(links.issues)"
+                        @click="openLink(links.issuesUrl)"
                     >
                         <span class="font-serif text-gray-900">问题反馈</span>
                         <svg
