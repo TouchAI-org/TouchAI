@@ -7,6 +7,7 @@ on:
 
 permissions:
     contents: write
+    deployments: write
     issues: write
     pull-requests: write
 
@@ -39,7 +40,6 @@ jobs:
             channel: stable
             version: ${{ needs.release-please.outputs.version }}
             tag: ${{ needs.release-please.outputs.tag_name }}
-            release-name: TouchAI ${{ needs.release-please.outputs.version }}
             prerelease: 'False'
             target-commitish: ${{ needs.release-please.outputs.sha }}
         secrets: inherit

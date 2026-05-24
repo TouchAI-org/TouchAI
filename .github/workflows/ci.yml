@@ -380,6 +380,16 @@ jobs:
               id: sha
               run: echo "short=$(git rev-parse --short HEAD)" >> $env:GITHUB_OUTPUT
 
+            - name: Resolve desktop product config
+              id: product
+              shell: pwsh
+              run: |
+                  $product = Get-Content -LiteralPath 'apps/desktop/product.json' -Raw | ConvertFrom-Json
+                  if ([string]::IsNullOrWhiteSpace($product.packaging.mainExe)) {
+                      throw 'packaging.mainExe is missing from apps/desktop/product.json'
+                  }
+                  Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "main_exe=$($product.packaging.mainExe)" -Encoding UTF8
+
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
@@ -403,5 +413,5 @@ jobs:
               uses: actions/upload-artifact@v7.0.1
               with:
                   name: touchai-portable-windows-${{ steps.sha.outputs.short }}
-                  path: apps/desktop/src-tauri/target/release/TouchAI.exe
+                  path: apps/desktop/src-tauri/target/release/${{ steps.product.outputs.main_exe }}
                   if-no-files-found: warn

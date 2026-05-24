@@ -12,6 +12,14 @@ export function resolveReleaseMetadata(input: {
     runNumber?: string | number;
     runAttempt?: string | number;
     date?: Date;
+    productConfig: {
+        displayName: string;
+        services?: {
+            updates?: {
+                channels?: Record<string, { displayName?: string }>;
+            };
+        };
+    };
 }): {
     channel: ReleaseChannel;
     version: string;

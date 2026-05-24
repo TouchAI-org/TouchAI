@@ -12,9 +12,6 @@ on:
             tag:
                 required: true
                 type: string
-            release-name:
-                required: true
-                type: string
             prerelease:
                 required: true
                 type: string
@@ -24,6 +21,7 @@ on:
 
 permissions:
     contents: write
+    deployments: write
 
 jobs:
     build-windows:
@@ -73,6 +71,57 @@ jobs:
                   GITHUB_REF_NAME: ${{ inputs.tag }}
               run: node scripts/ci/version-policy-check.mjs
 
+            - name: Build update channel JSON
+              working-directory: apps/desktop
+              run: node scripts/ci/build-update-channels.mjs "$env:RUNNER_TEMP/touchai-update-dist"
+
+            - name: Resolve product release config
+              id: product
+              shell: pwsh
+              run: |
+                  $product = Get-Content -LiteralPath 'apps/desktop/product.json' -Raw | ConvertFrom-Json
+
+                  function Add-GitHubEnv([string] $Name, [string] $Value) {
+                      if ([string]::IsNullOrWhiteSpace($Value)) {
+                          throw "$Name is missing from apps/desktop/product.json"
+                      }
+                      Add-Content -LiteralPath $env:GITHUB_ENV -Value "$Name=$Value" -Encoding UTF8
+                  }
+
+                  function Add-GitHubOutput([string] $Name, [string] $Value) {
+                      if ([string]::IsNullOrWhiteSpace($Value)) {
+                          throw "$Name is missing from apps/desktop/product.json"
+                      }
+                      Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "$Name=$Value" -Encoding UTF8
+                  }
+
+                  Add-GitHubEnv 'PRODUCT_DISPLAY_NAME' $product.displayName
+                  Add-GitHubEnv 'PRODUCT_REPOSITORY_URL' $product.repository.url
+                  Add-GitHubEnv 'VELOPACK_PACK_ID' $product.identifier
+                  Add-GitHubEnv 'VELOPACK_PACK_TITLE' $product.displayName
+                  Add-GitHubEnv 'VELOPACK_MAIN_EXE' $product.packaging.mainExe
+                  Add-GitHubEnv 'CLOUDFLARE_PAGES_PROJECT_NAME' $product.services.updates.deployment.projectName
+                  Add-GitHubEnv 'CLOUDFLARE_PAGES_BRANCH' $product.services.updates.deployment.branch
+                  Add-GitHubOutput 'cloudflare_pages_project_name' $product.services.updates.deployment.projectName
+                  Add-GitHubOutput 'cloudflare_pages_branch' $product.services.updates.deployment.branch
+
+                  $channelConfig = $product.services.updates.channels.PSObject.Properties[$env:INPUT_CHANNEL].Value
+                  if ($null -eq $channelConfig) {
+                      throw "Update channel $env:INPUT_CHANNEL is missing from apps/desktop/product.json"
+                  }
+                  $channelDisplayName = $channelConfig.displayName
+                  if ([string]::IsNullOrWhiteSpace($channelDisplayName)) {
+                      $channelDisplayName = $env:INPUT_CHANNEL
+                  }
+                  if ($env:INPUT_CHANNEL -eq 'stable') {
+                      Add-GitHubEnv 'RELEASE_NAME' "$($product.displayName) $env:INPUT_VERSION"
+                  } else {
+                      Add-GitHubEnv 'RELEASE_NAME' "$($product.displayName) $channelDisplayName $env:INPUT_VERSION"
+                  }
+              env:
+                  INPUT_CHANNEL: ${{ inputs.channel }}
+                  INPUT_VERSION: ${{ inputs.version }}
+
             - name: Install Velopack CLI
               run: dotnet tool install --global vpk
 
@@ -88,7 +137,8 @@ jobs:
                       Remove-Item -LiteralPath $stage -Recurse -Force
                   }
                   New-Item -ItemType Directory -Force -Path $stage | Out-Null
-                  Copy-Item -LiteralPath 'apps/desktop/src-tauri/target/release/TouchAI.exe' -Destination $stage
+                  $mainExePath = Join-Path 'apps/desktop/src-tauri/target/release' $env:VELOPACK_MAIN_EXE
+                  Copy-Item -LiteralPath $mainExePath -Destination $stage
                   "VELOPACK_STAGE=$stage" >> $env:GITHUB_ENV
 
             - name: Prepare Velopack release directory
@@ -106,7 +156,6 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RELEASE_TAG: ${{ inputs.tag }}
-                  RELEASE_NAME: ${{ inputs.release-name }}
                   RELEASE_CHANNEL: ${{ inputs.channel }}
                   RELEASE_VERSION: ${{ inputs.version }}
                   TARGET_COMMITISH: ${{ inputs.target-commitish }}
@@ -151,7 +200,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   vpk download github `
-                    --repoUrl "https://github.com/${{ github.repository }}" `
+                    --repoUrl "$env:PRODUCT_REPOSITORY_URL" `
                     --token "$env:GITHUB_TOKEN" `
                     --channel "${{ inputs.channel }}" `
                     --pre "${{ inputs.prerelease }}" `
@@ -161,11 +210,11 @@ jobs:
               shell: pwsh
               run: |
                   vpk pack `
-                    --packId org.touch-ai.app `
-                    --packTitle TouchAI `
+                    --packId "$env:VELOPACK_PACK_ID" `
+                    --packTitle "$env:VELOPACK_PACK_TITLE" `
                     --packVersion "${{ inputs.version }}" `
                     --packDir "$env:VELOPACK_STAGE" `
-                    --mainExe TouchAI.exe `
+                    --mainExe "$env:VELOPACK_MAIN_EXE" `
                     --channel "${{ inputs.channel }}" `
                     --releaseNotes "$env:RELEASE_NOTES_PATH" `
                     --outputDir "$env:VELOPACK_RELEASE"
@@ -176,9 +225,9 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   vpk upload github `
-                    --repoUrl "https://github.com/${{ github.repository }}" `
+                    --repoUrl "$env:PRODUCT_REPOSITORY_URL" `
                     --token "$env:GITHUB_TOKEN" `
-                    --releaseName "${{ inputs.release-name }}" `
+                    --releaseName "$env:RELEASE_NAME" `
                     --tag "${{ inputs.tag }}" `
                     --targetCommitish "${{ inputs.target-commitish }}" `
                     --channel "${{ inputs.channel }}" `
@@ -192,11 +241,25 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RELEASE_TAG: ${{ inputs.tag }}
-                  RELEASE_NAME: ${{ inputs.release-name }}
               run: |
                   gh release edit "$env:RELEASE_TAG" `
                     --title "$env:RELEASE_NAME" `
                     --notes-file "$env:RELEASE_NOTES_PATH"
+
+            - name: Upload update channel JSON artifact
+              uses: actions/upload-artifact@v7.0.1
+              with:
+                  name: touchai-update-channels
+                  path: ${{ runner.temp }}/touchai-update-dist
+                  if-no-files-found: error
+
+            - name: Deploy update channel JSON to Cloudflare Pages
+              uses: cloudflare/wrangler-action@v3
+              with:
+                  apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  command: pages deploy "${{ runner.temp }}/touchai-update-dist" --project-name="${{ steps.product.outputs.cloudflare_pages_project_name }}" --branch="${{ steps.product.outputs.cloudflare_pages_branch }}"
+                  gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Upload Velopack diagnostics artifact
               uses: actions/upload-artifact@v7.0.1

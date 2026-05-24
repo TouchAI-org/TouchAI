@@ -1,4 +1,6 @@
 ﻿<script setup lang="ts">
+    import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
+    import { APP_PRODUCT_CONFIG } from '@/config/product';
     import AppIcon from '@components/AppIcon.vue';
     import { appUpdateService } from '@services/AppUpdateService';
     import type { AppUpdateChannel, AppUpdateState } from '@services/AppUpdateService/types';
@@ -27,11 +29,13 @@
     });
     let unsubscribeUpdateState: (() => void) | null = null;
 
-    const updateChannelOptions: { value: AppUpdateChannel; label: string }[] = [
-        { value: 'stable', label: 'Stable' },
-        { value: 'beta', label: 'Beta' },
-        { value: 'nightly', label: 'Nightly' },
-    ];
+    const updateChannelOptions: { value: AppUpdateChannel; label: string }[] =
+        APP_UPDATE_CHANNELS.map((value) => ({
+            value,
+            label: appUpdateChannelLabel(value),
+        }));
+    const appDisplayName = APP_PRODUCT_CONFIG.displayName;
+    const links = APP_PRODUCT_CONFIG.repository;
 
     const visibleUpdate = computed(
         () => updateState.value.downloadedUpdate ?? updateState.value.availableUpdate
@@ -40,16 +44,51 @@
     const isDownloading = computed(() => updateState.value.status === 'downloading');
     const isInstalling = computed(() => updateState.value.status === 'installing');
     const isBusy = computed(() => isChecking.value || isDownloading.value || isInstalling.value);
+    const updateRequirement = computed(() => updateState.value.updateRequirement);
+    const isRequiredUpdate = computed(() => updateRequirement.value?.required ?? false);
+    const requiredUpdateText = computed(() => {
+        const requirement = updateRequirement.value;
+        if (!requirement?.required) {
+            return '';
+        }
+
+        const parts: string[] = [];
+        if (requirement.requiredReason) {
+            parts.push(requirement.requiredReason);
+        }
+        if (requirement.minimumSupportedVersion) {
+            parts.push(`最低支持版本 ${requirement.minimumSupportedVersion}`);
+        }
+        if (visibleUpdate.value) {
+            parts.push(`可更新到 ${visibleUpdate.value.version}`);
+        }
+        if (!requirement.targetSatisfiesRequirement) {
+            parts.push('当前通道暂未提供满足要求的更新');
+        }
+
+        return parts.join(' · ') || '当前版本已不再受支持';
+    });
 
     const updateStatusText = computed(() => {
         switch (updateState.value.status) {
             case 'checking':
                 return '正在检查更新...';
             case 'available':
+                if (isRequiredUpdate.value) {
+                    return visibleUpdate.value
+                        ? `请更新到 ${visibleUpdate.value.version} 以继续使用`
+                        : '当前版本已不再受支持';
+                }
                 return visibleUpdate.value
                     ? `发现新版本 ${visibleUpdate.value.version}`
                     : '发现新版本';
             case 'not_available':
+                if (isRequiredUpdate.value) {
+                    const minimumVersion = updateRequirement.value?.minimumSupportedVersion;
+                    return minimumVersion
+                        ? `请更新到 ${minimumVersion} 或更高版本`
+                        : '当前版本已不再受支持';
+                }
                 return '当前已是最新版本';
             case 'downloading':
                 return `正在下载更新 ${updateState.value.downloadProgress ?? 0}%`;
@@ -77,7 +116,7 @@
 
     const updateHintText = computed(() => {
         if (updateState.value.status === 'unsupported') {
-            return '通过正式安装包安装 TouchAI 后即可使用自动更新。';
+            return `通过正式安装包安装 ${appDisplayName} 后即可使用自动更新。`;
         }
 
         if (updateState.value.status === 'failed') {
@@ -236,12 +275,6 @@
             console.error('Failed to open link:', error);
         }
     };
-
-    const links = {
-        github: 'https://github.com/TouchAI-org/TouchAI',
-        docs: 'https://github.com/TouchAI-org/TouchAI/tree/main/docs',
-        issues: 'https://github.com/TouchAI-org/TouchAI/issues',
-    };
 </script>
 
 <template>
@@ -256,7 +289,9 @@
                     </div>
 
                     <div class="flex-1">
-                        <h2 class="font-serif text-xl font-semibold text-gray-900">关于 TouchAI</h2>
+                        <h2 class="font-serif text-xl font-semibold text-gray-900">
+                            关于 {{ appDisplayName }}
+                        </h2>
                         <p class="mt-1 font-serif text-sm text-gray-600">全局AI助手</p>
                     </div>
                 </div>
@@ -267,7 +302,9 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <div class="font-serif text-sm text-gray-500">应用名称</div>
-                        <div class="font-serif text-base text-gray-900">TouchAI</div>
+                        <div class="font-serif text-base text-gray-900">
+                            {{ appDisplayName }}
+                        </div>
                     </div>
                     <div>
                         <div class="font-serif text-sm text-gray-500">版本</div>
@@ -335,6 +372,12 @@
                         <div class="mt-1 line-clamp-2 font-serif text-xs text-gray-500">
                             {{ updateHintText }}
                         </div>
+                        <div
+                            v-if="requiredUpdateText"
+                            class="mt-1 font-serif text-xs font-medium text-red-600"
+                        >
+                            {{ requiredUpdateText }}
+                        </div>
                         <div v-if="updateSizeText" class="mt-1 font-serif text-xs text-gray-400">
                             {{ updateSizeText }}
                         </div>
@@ -370,7 +413,10 @@
                             检查
                         </button>
                         <button
-                            v-if="updateState.status === 'available'"
+                            v-if="
+                                updateState.status === 'available' &&
+                                (!isRequiredUpdate || updateRequirement?.targetSatisfiesRequirement)
+                            "
                             class="bg-primary-600 hover:bg-primary-700 flex items-center gap-1 rounded-lg px-3 py-2 font-serif text-xs text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                             data-testid="settings-update-download"
                             :disabled="isBusy"
@@ -378,6 +424,18 @@
                         >
                             <AppIcon name="arrow-down" class="h-4 w-4" />
                             下载
+                        </button>
+                        <button
+                            v-if="
+                                isRequiredUpdate &&
+                                (!visibleUpdate || !updateRequirement?.targetSatisfiesRequirement)
+                            "
+                            class="hover:border-primary-300 hover:text-primary-700 flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 font-serif text-xs text-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            :disabled="isBusy"
+                            @click="openLink(links.releases)"
+                        >
+                            <AppIcon name="arrow-down" class="h-4 w-4" />
+                            下载页
                         </button>
                         <button
                             v-if="updateState.status === 'downloaded'"
@@ -423,7 +481,7 @@
                 <div class="space-y-3">
                     <button
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
-                        @click="openLink(links.github)"
+                        @click="openLink(links.url)"
                     >
                         <span class="font-serif text-gray-900">GitHub仓库</span>
                         <svg

@@ -6,11 +6,21 @@ import type {
 } from '@services/AppUpdateService/types';
 import { describe, expect, it, vi } from 'vitest';
 
+import { APP_PRODUCT_CONFIG } from '@/config/product';
+
 const availableUpdate: AppUpdateInfo = {
     version: '0.2.0',
-    fileName: 'org.touch-ai.app-0.2.0-full.nupkg',
+    fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.0-full.nupkg`,
     notes: 'Bug fixes',
     sizeBytes: 12_000_000,
+};
+
+const neutralRequirement = {
+    required: false,
+    minimumSupportedVersion: null,
+    requiredSeverity: null,
+    requiredReason: null,
+    targetSatisfiesRequirement: true,
 };
 
 function createController(
@@ -32,6 +42,7 @@ function createController(
                       channel,
                       currentVersion: '0.1.0',
                       update: availableUpdate,
+                      requirement: neutralRequirement,
                   }
               )
           );
@@ -165,6 +176,23 @@ describe('AppUpdateController', () => {
 
         expect(updateAppUpdateAutoCheck).toHaveBeenCalledWith(false);
         expect(controller.getState().autoCheckEnabled).toBe(false);
+    });
+
+    it('runs an immediate update check when auto-check is enabled', async () => {
+        const { controller, checkForUpdates, updateAppUpdateAutoCheck } = createController({
+            autoCheckEnabled: false,
+            lastCheckedAt: '2026-05-22T09:00:00.000Z',
+        });
+
+        await controller.initialize();
+        await controller.setAutoCheckEnabled(true);
+
+        expect(updateAppUpdateAutoCheck).toHaveBeenCalledWith(true);
+        expect(checkForUpdates).toHaveBeenCalledWith('stable');
+        expect(controller.getState()).toMatchObject({
+            autoCheckEnabled: true,
+            status: 'available',
+        });
     });
 
     it('checks the selected update channel and persists channel changes', async () => {

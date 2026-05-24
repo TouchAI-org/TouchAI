@@ -5,16 +5,27 @@ import {
 import type { AppUpdateCheckResult, AppUpdateState } from '@services/AppUpdateService/types';
 import { describe, expect, it } from 'vitest';
 
+import { APP_PRODUCT_CONFIG } from '@/config/product';
+
+const neutralRequirement = {
+    required: false,
+    minimumSupportedVersion: null,
+    requiredSeverity: null,
+    requiredReason: null,
+    targetSatisfiesRequirement: true,
+};
+
 const availableUpdate: AppUpdateCheckResult = {
     status: 'available',
     channel: 'stable',
     currentVersion: '0.1.0',
     update: {
         version: '0.2.0',
-        fileName: 'org.touch-ai.app-0.2.0-full.nupkg',
+        fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.0-full.nupkg`,
         notes: 'Bug fixes',
         sizeBytes: 12_000_000,
     },
+    requirement: neutralRequirement,
 };
 
 describe('AppUpdateService state reducer', () => {
@@ -26,6 +37,7 @@ describe('AppUpdateService state reducer', () => {
             currentVersion: null,
             availableUpdate: null,
             downloadedUpdate: null,
+            updateRequirement: null,
             downloadProgress: null,
             lastCheckedAt: null,
             error: null,
@@ -44,6 +56,7 @@ describe('AppUpdateService state reducer', () => {
                 currentVersion: '0.1.0',
                 reason: 'not_installed',
                 message: 'Updates are available after installing TouchAI.',
+                requirement: neutralRequirement,
             },
         });
 
@@ -75,8 +88,31 @@ describe('AppUpdateService state reducer', () => {
             status: 'available',
             currentVersion: '0.1.0',
             availableUpdate: availableUpdate.update,
+            updateRequirement: neutralRequirement,
             error: null,
         });
+    });
+
+    it('records forced update requirements from check results', () => {
+        const requirement = {
+            required: true,
+            minimumSupportedVersion: '0.2.1',
+            requiredSeverity: 'critical',
+            requiredReason: 'Security update required',
+            targetSatisfiesRequirement: true,
+        };
+
+        const state = reduceAppUpdateState(createInitialAppUpdateState(), {
+            type: 'check-completed',
+            channel: 'stable',
+            checkedAt: '2026-05-22T10:00:00.000Z',
+            result: {
+                ...availableUpdate,
+                requirement,
+            },
+        });
+
+        expect(state.updateRequirement).toEqual(requirement);
     });
 
     it('tracks download progress and the downloaded update', () => {
@@ -146,6 +182,7 @@ describe('AppUpdateService state reducer', () => {
             channel: 'beta',
             availableUpdate: null,
             downloadedUpdate: null,
+            updateRequirement: null,
             downloadProgress: null,
             lastCheckedAt: null,
             error: null,

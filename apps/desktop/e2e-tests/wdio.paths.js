@@ -1,4 +1,9 @@
+import { readFileSync } from 'node:fs';
 import path from 'path';
+
+const productConfig = JSON.parse(readFileSync(new URL('../product.json', import.meta.url), 'utf8'));
+const windowsMainExe = productConfig.packaging.mainExe;
+const unixMainExe = windowsMainExe.replace(/\.exe$/i, '');
 
 export function resolveE2eCargoProfile(env = process.env) {
     const profile = env.TOUCHAI_E2E_CARGO_PROFILE?.trim();
@@ -17,7 +22,7 @@ export function resolveE2eAppBinaryPath(
     return path.resolve(
         targetDirectory,
         resolveE2eAppBinaryDirectory(env),
-        platform === 'win32' ? 'TouchAI.exe' : 'TouchAI'
+        platform === 'win32' ? windowsMainExe : unixMainExe
     );
 }
 

@@ -100,8 +100,13 @@ export class AppUpdateController {
     }
 
     async setAutoCheckEnabled(enabled: boolean): Promise<void> {
+        await this.initialize();
         await this.settings.updateAppUpdateAutoCheck(enabled);
         this.commit({ type: 'auto-check-updated', enabled });
+
+        if (enabled) {
+            await this.checkNow('manual');
+        }
     }
 
     async setChannel(channel: AppUpdateChannel): Promise<void> {

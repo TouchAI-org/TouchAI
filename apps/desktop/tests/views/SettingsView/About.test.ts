@@ -3,7 +3,16 @@ import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
+import { APP_PRODUCT_CONFIG } from '@/config/product';
 import AboutView from '@/views/SettingsView/components/About/index.vue';
+
+const neutralRequirement = {
+    required: false,
+    minimumSupportedVersion: null,
+    requiredSeverity: null,
+    requiredReason: null,
+    targetSatisfiesRequirement: true,
+};
 
 const updateState: AppUpdateState = {
     status: 'available',
@@ -12,11 +21,12 @@ const updateState: AppUpdateState = {
     currentVersion: '0.1.0',
     availableUpdate: {
         version: '0.2.0',
-        fileName: 'org.touch-ai.app-0.2.0-full.nupkg',
+        fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.0-full.nupkg`,
         notes: 'Bug fixes',
         sizeBytes: 12_000_000,
     },
     downloadedUpdate: null,
+    updateRequirement: neutralRequirement,
     downloadProgress: null,
     lastCheckedAt: '2026-05-22T10:00:00.000Z',
     error: null,

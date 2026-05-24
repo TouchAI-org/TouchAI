@@ -28,6 +28,8 @@ import type { SearchWindowState } from '@services/NativeService/types';
 import { getLastTauriInvokeCall, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
 import { describe, expect, it } from 'vitest';
 
+import { APP_PRODUCT_CONFIG } from '@/config/product';
+
 async function callAndExpectInvoke<T>(
     call: () => Promise<T>,
     expectedCmd: string,
@@ -640,7 +642,7 @@ describe('NativeService supporting boundaries', () => {
     it('checks, downloads, and installs app updates through updater commands', async () => {
         const update: AppUpdateInfo = {
             version: '0.2.0',
-            fileName: 'org.touch-ai.app-0.2.0-full.nupkg',
+            fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.0-full.nupkg`,
             notes: 'Bug fixes',
             sizeBytes: 12_000_000,
         };
@@ -649,6 +651,13 @@ describe('NativeService supporting boundaries', () => {
             channel: 'beta',
             currentVersion: '0.1.0',
             update,
+            requirement: {
+                required: false,
+                minimumSupportedVersion: null,
+                requiredSeverity: null,
+                requiredReason: null,
+                targetSatisfiesRequirement: true,
+            },
         };
 
         mockTauriCommand('updater_check_for_updates', response);

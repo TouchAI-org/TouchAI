@@ -2,9 +2,10 @@ import type {
     AppUpdateChannel,
     AppUpdateCheckResult,
     AppUpdateInfo,
+    AppUpdateRequirement,
 } from '@services/NativeService/types';
 
-export type { AppUpdateChannel, AppUpdateCheckResult, AppUpdateInfo };
+export type { AppUpdateChannel, AppUpdateCheckResult, AppUpdateInfo, AppUpdateRequirement };
 export type AppUpdateUnsupportedReason = Extract<
     AppUpdateCheckResult,
     { status: 'unsupported' }
@@ -28,6 +29,7 @@ export interface AppUpdateState {
     currentVersion: string | null;
     availableUpdate: AppUpdateInfo | null;
     downloadedUpdate: AppUpdateInfo | null;
+    updateRequirement: AppUpdateRequirement | null;
     downloadProgress: number | null;
     lastCheckedAt: string | null;
     error: string | null;

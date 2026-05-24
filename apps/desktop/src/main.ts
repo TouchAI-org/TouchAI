@@ -85,7 +85,7 @@ function scheduleAppUpdateChecks(): void {
         });
     };
 
-    window.setTimeout(runAutomaticCheck, 30_000);
+    runAutomaticCheck();
     window.setInterval(runAutomaticCheck, 60 * 60 * 1000);
 }
 

@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { APP_PRODUCT_CONFIG } from '@/config/product';
+
 async function loadValidator(): Promise<
     | ((
           projectRoot: string,
@@ -36,6 +38,10 @@ async function createFixture(files: {
         JSON.stringify({ version: files.packageVersion }, null, 2)
     );
     await writeFile(
+        join(root, 'product.json'),
+        JSON.stringify({ identifier: APP_PRODUCT_CONFIG.identifier }, null, 2)
+    );
+    await writeFile(
         join(tauriRoot, 'Cargo.toml'),
         `[package]\nname = "touchai"\nversion = "${files.cargoVersion}"\n`
     );
@@ -44,7 +50,7 @@ async function createFixture(files: {
         JSON.stringify(
             {
                 version: files.tauriVersion,
-                identifier: files.identifier ?? 'org.touch-ai.app',
+                identifier: files.identifier ?? APP_PRODUCT_CONFIG.identifier,
             },
             null,
             2
@@ -83,7 +89,7 @@ describe('validateVersionPolicy', () => {
             expect(validateVersionPolicy).toBeTypeOf('function');
             await expect(validateVersionPolicy?.(root, { tagName: 'v0.2.0' })).resolves.toEqual([
                 'src-tauri/Cargo.toml version 0.2.1 does not match package.json version 0.2.0.',
-                'src-tauri/tauri.conf.json identifier com.qiancheng.touchai does not match org.touch-ai.app.',
+                `src-tauri/tauri.conf.json identifier com.qiancheng.touchai does not match ${APP_PRODUCT_CONFIG.identifier}.`,
             ]);
         } finally {
             await rm(root, { recursive: true, force: true });

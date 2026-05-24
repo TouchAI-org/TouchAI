@@ -20,6 +20,7 @@ on:
 
 permissions:
     contents: write
+    deployments: write
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -60,7 +61,6 @@ jobs:
             channel: ${{ needs.resolve.outputs.channel }}
             version: ${{ needs.resolve.outputs.version }}
             tag: ${{ needs.resolve.outputs.tag }}
-            release-name: ${{ needs.resolve.outputs.release_name }}
             prerelease: ${{ needs.resolve.outputs.prerelease }}
             target-commitish: ${{ github.sha }}
         secrets: inherit

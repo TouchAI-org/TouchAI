@@ -179,16 +179,28 @@ function validateChannelVersion(channel, parsedVersion) {
     }
 }
 
-function releaseName(channel, version) {
-    if (channel === 'beta') {
-        return `TouchAI Beta ${version}`;
+function channelDisplayName(productConfig, channel) {
+    const displayName = productConfig?.services?.updates?.channels?.[channel]?.displayName;
+    return normalizeOptionalString(displayName) ?? channel;
+}
+
+function productDisplayName(productConfig) {
+    const displayName = normalizeOptionalString(productConfig?.displayName);
+    if (!displayName) {
+        throw new Error('product.json displayName is required.');
     }
 
-    if (channel === 'nightly') {
-        return `TouchAI Nightly ${version}`;
+    return displayName;
+}
+
+function releaseName(channel, version, productConfig) {
+    const displayName = productDisplayName(productConfig);
+
+    if (channel === 'stable') {
+        return `${displayName} ${version}`;
     }
 
-    return `TouchAI ${version}`;
+    return `${displayName} ${channelDisplayName(productConfig, channel)} ${version}`;
 }
 
 export function resolveReleaseMetadata(input) {
@@ -226,13 +238,17 @@ export function resolveReleaseMetadata(input) {
         version: parsedVersion.version,
         tag: `v${parsedVersion.version}`,
         prerelease: channel === 'stable' ? 'False' : 'True',
-        releaseName: releaseName(channel, parsedVersion.version),
+        releaseName: releaseName(channel, parsedVersion.version, input.productConfig),
     };
 }
 
 async function readPackageVersion(projectRoot) {
     const packageJson = JSON.parse(await readFile(join(projectRoot, 'package.json'), 'utf8'));
     return packageJson.version;
+}
+
+async function readProductConfig(projectRoot) {
+    return JSON.parse(await readFile(join(projectRoot, 'product.json'), 'utf8'));
 }
 
 async function writeGithubOutput(metadata) {
@@ -256,7 +272,11 @@ async function writeGithubOutput(metadata) {
 }
 
 async function main() {
-    const packageVersion = await readPackageVersion(process.cwd());
+    const projectRoot = process.cwd();
+    const [packageVersion, productConfig] = await Promise.all([
+        readPackageVersion(projectRoot),
+        readProductConfig(projectRoot),
+    ]);
     const metadata = resolveReleaseMetadata({
         eventName: process.env.GITHUB_EVENT_NAME,
         refType: process.env.GITHUB_REF_TYPE,
@@ -266,7 +286,8 @@ async function main() {
         packageVersion,
         runNumber: process.env.GITHUB_RUN_NUMBER,
         runAttempt: process.env.GITHUB_RUN_ATTEMPT,
-        projectRoot: process.cwd(),
+        projectRoot,
+        productConfig,
     });
 
     await writeGithubOutput(metadata);

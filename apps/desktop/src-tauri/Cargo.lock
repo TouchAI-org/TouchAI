@@ -6869,6 +6869,7 @@ dependencies = [
  "raw-window-handle",
  "reqwest 0.13.3",
  "rmcp",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",

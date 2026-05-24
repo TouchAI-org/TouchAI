@@ -2,10 +2,16 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const DEFAULT_IDENTIFIER = 'org.touch-ai.app';
-
 async function readJson(path) {
     return JSON.parse(await readFile(path, 'utf8'));
+}
+
+function readNonEmptyString(value, label) {
+    if (typeof value !== 'string' || !value.trim()) {
+        throw new Error(`${label} must be a non-empty string.`);
+    }
+
+    return value;
 }
 
 async function readCargoPackageVersion(path) {
@@ -40,12 +46,15 @@ function validateSemver(version, label) {
 }
 
 export async function validateVersionPolicy(projectRoot, options = {}) {
-    const expectedIdentifier = options.expectedIdentifier ?? DEFAULT_IDENTIFIER;
     const skipTag = options.skipTag ?? false;
     const errors = [];
 
     const packageJson = await readJson(join(projectRoot, 'package.json'));
+    const productConfig = await readJson(join(projectRoot, 'product.json'));
     const tauriConfig = await readJson(join(projectRoot, 'src-tauri', 'tauri.conf.json'));
+    const expectedIdentifier =
+        options.expectedIdentifier ??
+        readNonEmptyString(productConfig.identifier, 'product.json identifier');
     const packageVersion = packageJson.version;
     const cargoVersion = await readCargoPackageVersion(
         join(projectRoot, 'src-tauri', 'Cargo.toml')

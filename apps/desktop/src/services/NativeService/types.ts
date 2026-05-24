@@ -82,17 +82,27 @@ export interface AppUpdateInfo {
     sizeBytes: number | null;
 }
 
+export interface AppUpdateRequirement {
+    required: boolean;
+    minimumSupportedVersion: string | null;
+    requiredSeverity: 'critical' | 'security' | 'recommended' | string | null;
+    requiredReason: string | null;
+    targetSatisfiesRequirement: boolean;
+}
+
 export type AppUpdateCheckResult =
     | {
           status: 'available';
           channel: AppUpdateChannel;
           currentVersion: string;
           update: AppUpdateInfo;
+          requirement: AppUpdateRequirement;
       }
     | {
           status: 'not_available';
           channel: AppUpdateChannel;
           currentVersion: string;
+          requirement: AppUpdateRequirement;
       }
     | {
           status: 'unsupported';
@@ -100,6 +110,7 @@ export type AppUpdateCheckResult =
           currentVersion: string | null;
           reason: 'not_installed' | 'platform_unsupported' | 'updater_unavailable';
           message: string;
+          requirement: AppUpdateRequirement;
       };
 
 export interface TauriLogPayload {
