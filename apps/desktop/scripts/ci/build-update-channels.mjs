@@ -337,7 +337,8 @@ function latestByChannelFromGithubReleases(product, releases) {
             !existing ||
             compareVersions(candidate.parsedVersion, existing.parsedVersion) > 0 ||
             (compareVersions(candidate.parsedVersion, existing.parsedVersion) === 0 &&
-                String(candidate.latest.publishedAt ?? '') > String(existing.latest.publishedAt ?? ''))
+                String(candidate.latest.publishedAt ?? '') >
+                    String(existing.latest.publishedAt ?? ''))
         ) {
             latest[candidate.channel] = candidate;
         }

@@ -11,7 +11,10 @@ function assertNonEmptyString(value, label) {
 function publicNameSegment(value, label) {
     assertNonEmptyString(value, label);
 
-    const segment = value.trim().replace(/[^0-9A-Za-z._-]+/g, '-').replace(/^-+|-+$/g, '');
+    const segment = value
+        .trim()
+        .replace(/[^0-9A-Za-z._-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
     if (!segment) {
         throw new Error(`${label} must contain at least one file-name safe character.`);
     }

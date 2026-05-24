@@ -97,12 +97,9 @@ describe('normalizeVelopackReleaseAssets', () => {
         );
         await writeFile(
             join(releaseDir, 'RELEASES-beta'),
-            [
-                `123 ${currentFull} 100`,
-                `456 ${currentDelta} 50`,
-                `789 ${previousFull} 90`,
-                '',
-            ].join('\n')
+            [`123 ${currentFull} 100`, `456 ${currentDelta} 50`, `789 ${previousFull} 90`, ''].join(
+                '\n'
+            )
         );
 
         try {
