@@ -20,7 +20,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Welcome first-time issue author
-              uses: actions/github-script@v9
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
                       const association = context.payload.issue.author_association;
@@ -95,7 +95,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Welcome first-time PR author
-              uses: actions/github-script@v9
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
                       const association = context.payload.pull_request.author_association;
