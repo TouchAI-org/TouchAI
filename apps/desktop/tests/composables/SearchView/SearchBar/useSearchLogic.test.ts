@@ -309,6 +309,16 @@ describe('useSearchInput', () => {
             supportsFiles: false,
         });
         expect(setEditorTextMock).toHaveBeenCalledWith(editorInstances[0], 'hello world');
+        expect(editorInstances[0]?.options).toMatchObject({
+            editorProps: {
+                attributes: {
+                    spellcheck: 'false',
+                    autocorrect: 'off',
+                    autocapitalize: 'off',
+                    autocomplete: 'off',
+                },
+            },
+        });
         expect(insertModelTagMock).toHaveBeenCalledWith(editorInstances[0], {
             modelId: 'model-1',
             modelName: 'GPT-4.1',

@@ -16,6 +16,7 @@
 //! 会被自动淘汰，防止任意路径探测。
 
 use super::types::QuickShortcutItem;
+#[cfg(target_os = "windows")]
 use log::warn;
 use std::{
     collections::{HashMap, HashSet},
@@ -28,6 +29,7 @@ use cache::{
     icon_cache, lock_mutex, normalize_icon_cache_key, normalize_thumbnail_cache_key,
     read_icon_from_disk_cache, write_icon_to_disk_cache,
 };
+#[cfg(target_os = "windows")]
 use win::{
     image_thumbnail_data_url_shell_item, is_shortcut_file, shortcut_icon_data_url_by_extension,
     shortcut_icon_data_url_fallback, shortcut_icon_data_url_shell_item,
@@ -188,6 +190,7 @@ pub(super) fn remember_search_paths(items: &[QuickShortcutItem]) {
 /// - 普通文件：先按扩展名查系统图标，失败再用 SHGetFileInfo 兜底。
 ///
 /// size 会被 clamp 到 [16, 128]。
+#[cfg(target_os = "windows")]
 pub(super) fn shortcut_icon_data_url(path: &str, size: u32) -> Result<Option<String>, String> {
     if path.trim().is_empty() {
         return Ok(None);
@@ -253,10 +256,41 @@ pub(super) fn shortcut_icon_data_url(path: &str, size: u32) -> Result<Option<Str
     Ok(icon)
 }
 
+/// 获取单个路径的 macOS 系统图标 Data URL。
+///
+/// 通过 NSWorkspace 提取应用、文件和文件夹图标，并经由内存 / 磁盘双层缓存
+/// 加速后续请求。size 会被 clamp 到 [16, 128]。
+#[cfg(target_os = "macos")]
+pub(super) fn shortcut_icon_data_url(path: &str, size: u32) -> Result<Option<String>, String> {
+    if path.trim().is_empty() {
+        return Ok(None);
+    }
+    let size = size.clamp(16, 128);
+
+    let cache_key = normalize_icon_cache_key(path, size);
+    if let Some(cached_icon) = lock_mutex(icon_cache()).get(&cache_key) {
+        return Ok(Some(cached_icon));
+    }
+    if let Some(disk_cached_icon) = read_icon_from_disk_cache(&cache_key) {
+        lock_mutex(icon_cache()).insert(cache_key.clone(), disk_cached_icon.clone());
+        return Ok(Some(disk_cached_icon));
+    }
+
+    let icon = mac::file_icon_data_url(path, size).unwrap_or(None);
+    if let Some(data_url) = icon.as_ref() {
+        lock_mutex(icon_cache()).insert(cache_key.clone(), data_url.clone());
+        write_icon_to_disk_cache(&cache_key, data_url);
+    }
+
+    Ok(icon)
+}
+
 /// 获取单个图片的缩略图 Data URL。
 ///
-/// 通过 IShellItemImageFactory 提取 Windows Shell 缓存中的缩略图，
-/// 并经由内存 / 磁盘双层缓存加速后续请求。size 会被 clamp 到 [24, 128]。
+/// 通过 IShellItemImageFactory 提取 Windows Shell 缓存中的缩略图，或在 macOS
+/// 使用 image crate 直接生成缩略图，并经由内存 / 磁盘双层缓存加速后续请求。
+/// size 会被 clamp 到 [24, 128]。
+#[cfg(target_os = "windows")]
 pub(super) fn image_thumbnail_data_url(path: &str, size: u32) -> Result<Option<String>, String> {
     if path.trim().is_empty() {
         return Ok(None);
@@ -284,6 +318,31 @@ pub(super) fn image_thumbnail_data_url(path: &str, size: u32) -> Result<Option<S
         }
     };
 
+    if let Some(data_url) = thumbnail.as_ref() {
+        lock_mutex(icon_cache()).insert(cache_key.clone(), data_url.clone());
+        write_icon_to_disk_cache(&cache_key, data_url);
+    }
+
+    Ok(thumbnail)
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn image_thumbnail_data_url(path: &str, size: u32) -> Result<Option<String>, String> {
+    if path.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let size = size.clamp(24, 128);
+    let cache_key = normalize_thumbnail_cache_key(path, size);
+    if let Some(cached_thumbnail) = lock_mutex(icon_cache()).get(&cache_key) {
+        return Ok(Some(cached_thumbnail));
+    }
+    if let Some(disk_cached_thumbnail) = read_icon_from_disk_cache(&cache_key) {
+        lock_mutex(icon_cache()).insert(cache_key.clone(), disk_cached_thumbnail.clone());
+        return Ok(Some(disk_cached_thumbnail));
+    }
+
+    let thumbnail = mac::image_thumbnail_data_url(path, size).unwrap_or(None);
     if let Some(data_url) = thumbnail.as_ref() {
         lock_mutex(icon_cache()).insert(cache_key.clone(), data_url.clone());
         write_icon_to_disk_cache(&cache_key, data_url);
@@ -364,5 +423,9 @@ pub(super) fn get_image_thumbnails(
 mod cache;
 /// RGBA / BGRA 色彩转换与 Data URL 编码。
 mod codec;
+/// macOS NSWorkspace 图标 / 图片缩略图提取。
+#[cfg(target_os = "macos")]
+mod mac;
 /// Windows Shell API 图标 / 缩略图提取。
+#[cfg(target_os = "windows")]
 mod win;

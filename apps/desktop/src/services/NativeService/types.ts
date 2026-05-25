@@ -189,7 +189,7 @@ export interface QuickSearchFileItem {
 }
 
 export interface QuickSearchStatus {
-    provider: 'everything' | 'unavailable';
+    provider: 'everything' | 'spotlight' | 'unavailable';
     db_loaded: boolean;
     index_warmed: boolean;
     last_refresh_ms: number | null;

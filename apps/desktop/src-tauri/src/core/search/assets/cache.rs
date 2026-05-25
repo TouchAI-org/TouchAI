@@ -41,10 +41,10 @@ const CACHE_KEY_PREFIX_SHORTCUT: &str = "shortcut";
 const CACHE_KEY_PREFIX_IMAGE: &str = "image";
 /// 缓存键前缀：按扩展名共享图标。
 const CACHE_KEY_PREFIX_EXT: &str = "ext";
+/// 缓存键前缀：按完整路径缓存图标。
+const CACHE_KEY_PREFIX_PATH: &str = "path";
 /// 缓存键前缀：缩略图。
 const CACHE_KEY_PREFIX_THUMB: &str = "thumb";
-/// 无扩展名占位符。
-const CACHE_KEY_EXT_NONE_TOKEN: &str = "<none>";
 /// 快捷方式扩展名。
 const SHORTCUT_EXTENSION: &str = "lnk";
 /// Data URL 图片前缀。
@@ -136,6 +136,7 @@ pub(super) fn thumbnail_jpeg_quality() -> u8 {
 /// 键格式根据文件类型不同：
 /// - .lnk 快捷方式：shortcut|{path}|{size} — 每个快捷方式有独立图标
 /// - 图片文件：image|{path}|{size} — 每个图片有独立图标
+/// - .app 包 / 无扩展路径：path|{path}|{size} — 避免应用和文件夹串图标
 /// - 其他文件：ext|{ext}|{size} — 同扩展名共享系统图标
 pub(super) fn normalize_icon_cache_key(path: &str, size: u32) -> String {
     let normalized_path = path.replace('/', "\\").to_lowercase();
@@ -159,11 +160,11 @@ pub(super) fn normalize_icon_cache_key(path: &str, size: u32) -> String {
     }
 
     match extension {
+        Some(ext) if ext.eq_ignore_ascii_case("app") => {
+            format!("{}|{}|{}", CACHE_KEY_PREFIX_PATH, normalized_path, size)
+        }
         Some(ext) if !ext.is_empty() => format!("{}|{}|{}", CACHE_KEY_PREFIX_EXT, ext, size),
-        _ => format!(
-            "{}|{}|{}",
-            CACHE_KEY_PREFIX_EXT, CACHE_KEY_EXT_NONE_TOKEN, size
-        ),
+        _ => format!("{}|{}|{}", CACHE_KEY_PREFIX_PATH, normalized_path, size),
     }
 }
 
@@ -332,4 +333,33 @@ fn reencode_image_bytes_to_jpeg(bytes: &[u8], quality: u8) -> Result<Vec<u8>, St
         .encode(&rgb_bytes, width, height, ColorType::Rgb8.into())
         .map_err(|err| format!("Failed to encode cache image to JPEG: {}", err))?;
     Ok(jpeg_bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_icon_cache_key;
+
+    #[test]
+    fn extension_icons_share_cache_key() {
+        assert_eq!(
+            normalize_icon_cache_key("/Users/qian/a.txt", 48),
+            normalize_icon_cache_key("/Users/qian/b.txt", 48)
+        );
+    }
+
+    #[test]
+    fn app_bundle_icons_are_cached_by_path() {
+        assert_ne!(
+            normalize_icon_cache_key("/Applications/Safari.app", 48),
+            normalize_icon_cache_key("/Applications/Notes.app", 48)
+        );
+    }
+
+    #[test]
+    fn extensionless_icons_are_cached_by_path() {
+        assert_ne!(
+            normalize_icon_cache_key("/Users/qian/README", 48),
+            normalize_icon_cache_key("/Users/qian/Documents", 48)
+        );
+    }
 }

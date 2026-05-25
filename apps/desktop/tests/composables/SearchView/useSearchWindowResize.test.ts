@@ -193,6 +193,36 @@ describe('useSearchWindowResize', () => {
         mounted.unmount();
     });
 
+    it('keeps the window top stable when quick search expands without a conversation', async () => {
+        const target = createMeasuredElement(180);
+        const ready = ref(false);
+        const quickSearchOpen = ref(true);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount: ref(0),
+                quickSearchOpen,
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready,
+            })
+        );
+
+        ready.value = true;
+        await flushResizeLifecycle();
+        vi.clearAllMocks();
+
+        await mounted.result.remeasureTargetHeight();
+
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
+            targetHeight: 180,
+            center: false,
+            respectManualOverride: false,
+        });
+
+        mounted.unmount();
+    });
+
     it('repairs the search window back to idle defaults when a manual-override conversation view returns to idle', async () => {
         nativeMock.window.getSearchWindowState.mockResolvedValue(
             createWindowState({
