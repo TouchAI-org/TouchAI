@@ -58,22 +58,25 @@ describe('normalizeTauriBundleAssets', () => {
             });
 
             await expect(
-                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1.dmg'), 'utf8')
+                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-macos.dmg'), 'utf8')
             ).resolves.toBe('dmg');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1.app.tar.gz'), 'utf8')
+                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-macos.app.tar.gz'), 'utf8')
             ).resolves.toBe('mac-updater');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1.AppImage'), 'utf8')
+                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-linux.AppImage'), 'utf8')
             ).resolves.toBe('appimage');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1.AppImage.tar.gz'), 'utf8')
+                readFile(
+                    join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-linux.AppImage.tar.gz'),
+                    'utf8'
+                )
             ).resolves.toBe('linux-updater');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-amd64.deb'), 'utf8')
+                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-linux-amd64.deb'), 'utf8')
             ).resolves.toBe('deb');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-x86_64.rpm'), 'utf8')
+                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-linux-x86_64.rpm'), 'utf8')
             ).resolves.toBe('rpm');
         } finally {
             await rm(root, { recursive: true, force: true });

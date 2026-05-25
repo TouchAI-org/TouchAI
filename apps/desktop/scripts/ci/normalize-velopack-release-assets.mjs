@@ -38,58 +38,64 @@ function publicArtifactPrefix(product, channel) {
     return `${productName}-${publicNameSegment(channel, 'release channel')}`;
 }
 
+function platformArtifactPrefix(product, channel, version, platform) {
+    return `${publicArtifactPrefix(product, channel)}-${version}-${platform}`;
+}
+
 function publicArtifactName(fileName, product, options) {
     const { channel, version } = options;
-    const prefix = publicArtifactPrefix(product, channel);
     const lowerName = fileName.toLowerCase();
     const hasTargetVersion = fileName.includes(version);
+    const windowsPrefix = platformArtifactPrefix(product, channel, version, 'windows');
+    const macosPrefix = platformArtifactPrefix(product, channel, version, 'macos');
+    const linuxPrefix = platformArtifactPrefix(product, channel, version, 'linux');
 
     // Velopack nupkg
     if (lowerName.endsWith('-full.nupkg') && hasTargetVersion) {
-        return `${prefix}-${version}-full.nupkg`;
+        return `${windowsPrefix}-full.nupkg`;
     }
 
     if (lowerName.endsWith('-delta.nupkg') && hasTargetVersion) {
-        return `${prefix}-${version}-delta.nupkg`;
+        return `${windowsPrefix}-delta.nupkg`;
     }
 
     // Windows
     if (lowerName.endsWith('-setup.exe')) {
-        return `${prefix}-${version}-Setup.exe`;
+        return `${windowsPrefix}-Setup.exe`;
     }
 
     if (lowerName.endsWith('-portable.zip') && !lowerName.endsWith('.app.tar.gz')) {
-        return `${prefix}-${version}-Portable.zip`;
+        return `${windowsPrefix}-Portable.zip`;
     }
 
     if (lowerName.endsWith('.msi')) {
-        return `${prefix}-${version}.msi`;
+        return `${windowsPrefix}.msi`;
     }
 
     // macOS
     if (lowerName.endsWith('.dmg')) {
-        return `${prefix}-${version}.dmg`;
+        return `${macosPrefix}.dmg`;
     }
 
     if (lowerName.endsWith('.app.tar.gz')) {
-        return `${prefix}-${version}.app.tar.gz`;
+        return `${macosPrefix}.app.tar.gz`;
     }
 
     // Linux
     if (lowerName.endsWith('.appimage') && !lowerName.endsWith('.appimage.tar.gz')) {
-        return `${prefix}-${version}.AppImage`;
+        return `${linuxPrefix}.AppImage`;
     }
 
     if (lowerName.endsWith('.appimage.tar.gz')) {
-        return `${prefix}-${version}.AppImage.tar.gz`;
+        return `${linuxPrefix}.AppImage.tar.gz`;
     }
 
     if (lowerName.endsWith('.deb')) {
-        return `${prefix}-${version}-amd64.deb`;
+        return `${linuxPrefix}-amd64.deb`;
     }
 
     if (lowerName.endsWith('.rpm')) {
-        return `${prefix}-${version}-x86_64.rpm`;
+        return `${linuxPrefix}-x86_64.rpm`;
     }
 
     return null;

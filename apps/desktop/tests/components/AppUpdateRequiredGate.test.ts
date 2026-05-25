@@ -32,8 +32,8 @@ const latestUpdate = {
     downloads: [
         {
             kind: 'installer',
-            name: 'TouchAI-0.2.1-Setup.exe',
-            url: `${APP_PRODUCT_CONFIG.repository.url}/releases/download/v0.2.1/TouchAI-0.2.1-Setup.exe`,
+            name: 'TouchAI-0.2.1-windows-Setup.exe',
+            url: `${APP_PRODUCT_CONFIG.repository.url}/releases/download/v0.2.1/TouchAI-0.2.1-windows-Setup.exe`,
             sizeBytes: 12_000_000,
         },
     ],

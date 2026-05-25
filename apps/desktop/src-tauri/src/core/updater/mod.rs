@@ -710,8 +710,8 @@ mod tests {
             release_notes: Some("Security fixes".to_string()),
             downloads: vec![AppUpdateDownload {
                 kind: "installer".to_string(),
-                name: "TouchAI-beta-0.2.1-beta.1-Setup.exe".to_string(),
-                url: "https://github.com/TouchAI-org/TouchAI/releases/download/v0.2.1-beta.1/TouchAI-beta-0.2.1-beta.1-Setup.exe".to_string(),
+                name: "TouchAI-beta-0.2.1-beta.1-windows-Setup.exe".to_string(),
+                url: "https://github.com/TouchAI-org/TouchAI/releases/download/v0.2.1-beta.1/TouchAI-beta-0.2.1-beta.1-windows-Setup.exe".to_string(),
                 size_bytes: Some(12_000_000),
             }],
         });
@@ -790,8 +790,8 @@ mod tests {
             "downloads": [
                 {
                     "kind": "installer",
-                    "name": "TouchAI-0.2.1-Setup.exe",
-                    "url": format!("{}/releases/download/v0.2.1/TouchAI-0.2.1-Setup.exe", config.repository.url),
+                    "name": "TouchAI-0.2.1-windows-Setup.exe",
+                    "url": format!("{}/releases/download/v0.2.1/TouchAI-0.2.1-windows-Setup.exe", config.repository.url),
                     "sizeBytes": 12000000
                 }
             ]
@@ -827,9 +827,9 @@ mod tests {
                 release_notes: Some("Bug fixes".to_string()),
                 downloads: vec![AppUpdateDownload {
                     kind: "installer".to_string(),
-                    name: "TouchAI-0.2.1-Setup.exe".to_string(),
+                    name: "TouchAI-0.2.1-windows-Setup.exe".to_string(),
                     url: format!(
-                        "{}/releases/download/v0.2.1/TouchAI-0.2.1-Setup.exe",
+                        "{}/releases/download/v0.2.1/TouchAI-0.2.1-windows-Setup.exe",
                         config.repository.url
                     ),
                     size_bytes: Some(12_000_000),

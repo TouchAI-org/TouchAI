@@ -660,8 +660,8 @@ describe('NativeService supporting boundaries', () => {
                 downloads: [
                     {
                         kind: 'installer',
-                        name: 'TouchAI-0.2.0-Setup.exe',
-                        url: `${APP_PRODUCT_CONFIG.repository.url}/releases/download/v0.2.0/TouchAI-0.2.0-Setup.exe`,
+                        name: 'TouchAI-0.2.0-windows-Setup.exe',
+                        url: `${APP_PRODUCT_CONFIG.repository.url}/releases/download/v0.2.0/TouchAI-0.2.0-windows-Setup.exe`,
                         sizeBytes: 12_000_000,
                     },
                 ],

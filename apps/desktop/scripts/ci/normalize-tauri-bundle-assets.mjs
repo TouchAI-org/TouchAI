@@ -38,33 +38,38 @@ function publicArtifactPrefix(product, channel) {
     return `${productName}-${publicNameSegment(channel, 'release channel')}`;
 }
 
+function platformArtifactPrefix(product, channel, version, platform) {
+    return `${publicArtifactPrefix(product, channel)}-${version}-${platform}`;
+}
+
 function publicArtifactName(fileName, product, options) {
     const { channel, version } = options;
-    const prefix = publicArtifactPrefix(product, channel);
     const lowerName = fileName.toLowerCase();
+    const macosPrefix = platformArtifactPrefix(product, channel, version, 'macos');
+    const linuxPrefix = platformArtifactPrefix(product, channel, version, 'linux');
 
     if (lowerName.endsWith('.dmg')) {
-        return `${prefix}-${version}.dmg`;
+        return `${macosPrefix}.dmg`;
     }
 
     if (lowerName.endsWith('.app.tar.gz')) {
-        return `${prefix}-${version}.app.tar.gz`;
+        return `${macosPrefix}.app.tar.gz`;
     }
 
     if (lowerName.endsWith('.appimage')) {
-        return `${prefix}-${version}.AppImage`;
+        return `${linuxPrefix}.AppImage`;
     }
 
     if (lowerName.endsWith('.appimage.tar.gz')) {
-        return `${prefix}-${version}.AppImage.tar.gz`;
+        return `${linuxPrefix}.AppImage.tar.gz`;
     }
 
     if (lowerName.endsWith('.deb')) {
-        return `${prefix}-${version}-amd64.deb`;
+        return `${linuxPrefix}-amd64.deb`;
     }
 
     if (lowerName.endsWith('.rpm')) {
-        return `${prefix}-${version}-x86_64.rpm`;
+        return `${linuxPrefix}-x86_64.rpm`;
     }
 
     return null;

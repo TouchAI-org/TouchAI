@@ -109,10 +109,10 @@ describe('normalizeVelopackReleaseAssets', () => {
                 version: '0.1.1-beta.1',
             });
 
-            const renamedFull = 'TouchAI-beta-0.1.1-beta.1-full.nupkg';
-            const renamedDelta = 'TouchAI-beta-0.1.1-beta.1-delta.nupkg';
-            const renamedSetup = 'TouchAI-beta-0.1.1-beta.1-Setup.exe';
-            const renamedPortable = 'TouchAI-beta-0.1.1-beta.1-Portable.zip';
+            const renamedFull = 'TouchAI-beta-0.1.1-beta.1-windows-full.nupkg';
+            const renamedDelta = 'TouchAI-beta-0.1.1-beta.1-windows-delta.nupkg';
+            const renamedSetup = 'TouchAI-beta-0.1.1-beta.1-windows-Setup.exe';
+            const renamedPortable = 'TouchAI-beta-0.1.1-beta.1-windows-Portable.zip';
             const releases = JSON.parse(
                 await readFile(join(releaseDir, 'releases.beta.json'), 'utf8')
             );
@@ -167,13 +167,13 @@ describe('normalizeVelopackReleaseAssets', () => {
             });
 
             await expect(
-                readFile(join(releaseDir, 'TouchAI-0.2.0-full.nupkg'), 'utf8')
+                readFile(join(releaseDir, 'TouchAI-0.2.0-windows-full.nupkg'), 'utf8')
             ).resolves.toBe('full');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-0.2.0-Setup.exe'), 'utf8')
+                readFile(join(releaseDir, 'TouchAI-0.2.0-windows-Setup.exe'), 'utf8')
             ).resolves.toBe('setup');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-0.2.0-Portable.zip'), 'utf8')
+                readFile(join(releaseDir, 'TouchAI-0.2.0-windows-Portable.zip'), 'utf8')
             ).resolves.toBe('portable');
         } finally {
             await rm(root, { recursive: true, force: true });
