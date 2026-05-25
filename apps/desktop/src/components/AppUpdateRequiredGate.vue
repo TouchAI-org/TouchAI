@@ -5,8 +5,8 @@
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
-    import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
     import { APP_PRODUCT_CONFIG } from '@/config/product';
+    import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
 
     defineOptions({
         name: 'AppUpdateRequiredGate',

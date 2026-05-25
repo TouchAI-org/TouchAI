@@ -1,4 +1,4 @@
-import { readdir, rename, stat, readFile } from 'node:fs/promises';
+import { readFile, readdir, rename, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -108,7 +108,9 @@ export async function normalizeTauriBundleAssets(projectRoot, releaseDir, option
         const fromPath = join(releaseDir, entry.name);
         const toPath = join(releaseDir, nextName);
         if (await fileExists(toPath)) {
-            throw new Error(`Cannot rename ${entry.name} to ${nextName} because the target already exists.`);
+            throw new Error(
+                `Cannot rename ${entry.name} to ${nextName} because the target already exists.`
+            );
         }
 
         await rename(fromPath, toPath);
