@@ -24,6 +24,9 @@ pub fn updater_download_update<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn updater_install_update(state: State<'_, AppUpdaterState>) -> Result<bool, String> {
-    updater::install_update(state.inner())
+pub fn updater_install_update<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppUpdaterState>,
+) -> Result<bool, String> {
+    updater::install_update(app, state.inner())
 }

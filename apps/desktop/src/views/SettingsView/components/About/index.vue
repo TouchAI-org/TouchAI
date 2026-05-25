@@ -8,6 +8,7 @@
 
     import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
     import { APP_PRODUCT_CONFIG } from '@/config/product';
+    import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
 
     defineOptions({
         name: 'SettingsAboutSection',
@@ -43,14 +44,10 @@
     );
     const latestUpdate = computed(() => updateState.value.latestUpdate);
     const updateRequirement = computed(() => updateState.value.updateRequirement);
-    const directDownloadUrl = computed(() => {
-        const downloads = latestUpdate.value?.downloads ?? [];
-        return (
-            downloads.find((download) => download.kind === 'installer')?.url ??
-            downloads.find((download) => download.kind === 'portable')?.url ??
-            null
-        );
-    });
+    const directDownload = computed(() =>
+        preferredAppUpdateDownload(latestUpdate.value?.downloads ?? [])
+    );
+    const directDownloadUrl = computed(() => directDownload.value?.url ?? null);
     const updateDownloadUrl = computed(
         () => directDownloadUrl.value ?? latestUpdate.value?.releaseUrl ?? links.releasesUrl
     );

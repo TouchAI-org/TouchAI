@@ -1,10 +1,13 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3.
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
-//! 应用目录与路径解析能力。
+//! Application directory layout and path resolution.
 
+use serde::Deserialize;
 use std::{path::PathBuf, sync::OnceLock};
 
-/// 应用运行期目录枚举。
+const TAURI_CONFIG_JSON: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"));
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppDirectory {
     Data,
@@ -16,9 +19,11 @@ pub enum AppDirectory {
     AssetsBin,
 }
 
-/// 应用基础目录布局统一声明。
-///
-/// 后续新增目录仅需在此处追加，初始化流程会自动处理。
+#[derive(Debug, Deserialize)]
+struct TauriIdentifierConfig {
+    identifier: String,
+}
+
 pub(crate) const APP_DIRECTORY_LAYOUT: &[(AppDirectory, &str, &str)] = &[
     (AppDirectory::Data, "DATA", "data"),
     (AppDirectory::Logs, "LOGS", "logs"),
@@ -29,11 +34,7 @@ pub(crate) const APP_DIRECTORY_LAYOUT: &[(AppDirectory, &str, &str)] = &[
     (AppDirectory::AssetsBin, "ASSETS_BIN", "assets/bin"),
 ];
 
-/// 解析应用根目录。
-///
-/// - Debug: 回溯到项目根目录
-/// - Release: 取可执行文件同级目录
-fn resolve_app_root_directory() -> Result<PathBuf, String> {
+fn resolve_program_root_directory() -> Result<PathBuf, String> {
     if let Some(path) = crate::core::system::runtime::resolve_app_root_override() {
         return Ok(path);
     }
@@ -56,13 +57,69 @@ fn resolve_app_root_directory() -> Result<PathBuf, String> {
     }
 }
 
-/// 获取应用根目录（缓存）。
-fn app_root_directory() -> Result<PathBuf, String> {
-    static APP_ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
-    APP_ROOT.get_or_init(resolve_app_root_directory).clone()
+fn bundled_app_identifier() -> Result<&'static str, String> {
+    static IDENTIFIER: OnceLock<Result<String, String>> = OnceLock::new();
+    IDENTIFIER
+        .get_or_init(|| {
+            let config: TauriIdentifierConfig = serde_json::from_str(TAURI_CONFIG_JSON)
+                .map_err(|error| format!("Failed to parse tauri.conf.json: {error}"))?;
+            let identifier = config.identifier.trim().to_string();
+            if identifier.is_empty() {
+                return Err("tauri.conf.json identifier must not be empty.".to_string());
+            }
+            Ok(identifier)
+        })
+        .as_ref()
+        .map(|value| value.as_str())
+        .map_err(Clone::clone)
 }
 
-/// 从统一目录布局中取相对路径。
+fn resolve_user_data_root_directory() -> Result<PathBuf, String> {
+    if let Some(path) = crate::core::system::runtime::resolve_app_root_override() {
+        return Ok(path);
+    }
+
+    if cfg!(debug_assertions) {
+        return resolve_program_root_directory();
+    }
+
+    let base_dir = if cfg!(target_os = "windows") {
+        std::env::var_os("LOCALAPPDATA")
+            .or_else(|| std::env::var_os("APPDATA"))
+            .map(PathBuf::from)
+            .ok_or_else(|| "Failed to resolve LOCALAPPDATA or APPDATA.".to_string())?
+    } else if cfg!(target_os = "macos") {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| "Failed to resolve HOME.".to_string())?;
+        home.join("Library").join("Application Support")
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|home| PathBuf::from(home).join(".local").join("share"))
+            })
+            .ok_or_else(|| "Failed to resolve XDG_DATA_HOME or HOME.".to_string())?
+    };
+
+    Ok(base_dir.join(bundled_app_identifier()?))
+}
+
+fn program_root_directory() -> Result<PathBuf, String> {
+    static PROGRAM_ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    PROGRAM_ROOT
+        .get_or_init(resolve_program_root_directory)
+        .clone()
+}
+
+fn user_data_root_directory() -> Result<PathBuf, String> {
+    static USER_DATA_ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    USER_DATA_ROOT
+        .get_or_init(resolve_user_data_root_directory)
+        .clone()
+}
+
 fn directory_relative_path(directory: AppDirectory) -> Result<&'static str, String> {
     APP_DIRECTORY_LAYOUT
         .iter()
@@ -70,15 +127,21 @@ fn directory_relative_path(directory: AppDirectory) -> Result<&'static str, Stri
         .ok_or_else(|| format!("Directory mapping is missing for {directory:?}"))
 }
 
-/// 获取指定目录的绝对路径。
 pub fn app_directory_path(directory: AppDirectory) -> Result<PathBuf, String> {
-    let root = app_root_directory()?;
-    Ok(root.join(directory_relative_path(directory)?))
+    let _ = directory_relative_path(directory)?;
+    Ok(user_data_root_directory()?.join(directory_relative_path(directory)?))
 }
 
-/// 从前端传入的目录键解析目录枚举。
-///
-/// 内部统一要求 UPPER_SNAKE_CASE（下划线）格式。
+pub fn legacy_app_directory_path(directory: AppDirectory) -> Result<PathBuf, String> {
+    Ok(program_root_directory()?.join(directory_relative_path(directory)?))
+}
+
+pub fn is_user_data_directory(directory: AppDirectory) -> bool {
+    APP_DIRECTORY_LAYOUT
+        .iter()
+        .any(|(kind, _, _)| *kind == directory)
+}
+
 pub fn parse_app_directory_key(value: &str) -> Result<AppDirectory, String> {
     let normalized_key = value.trim().to_ascii_uppercase();
 
