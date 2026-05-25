@@ -64,15 +64,15 @@
             ''
     );
     const updateSummaryText = computed(() => {
-        if (visibleUpdate.value?.fileName) {
-            return latestUpdate.value?.version
-                ? `${visibleUpdate.value.fileName} · 最新版本 ${latestUpdate.value.version}`
-                : visibleUpdate.value.fileName;
+        if (latestUpdate.value?.version) {
+            return `最新版本 ${latestUpdate.value.version} · ${currentChannelLabel.value}`;
         }
 
-        return latestUpdate.value?.version
-            ? `最新版本 ${latestUpdate.value.version} · ${currentChannelLabel.value}`
-            : `GitHub Releases · ${currentChannelLabel.value}`;
+        if (updateRequirement.value?.minimumSupportedVersion) {
+            return `最低支持版本 ${updateRequirement.value.minimumSupportedVersion} · ${currentChannelLabel.value}`;
+        }
+
+        return `GitHub Releases · ${currentChannelLabel.value}`;
     });
     const isChecking = computed(() => updateState.value.status === 'checking');
     const isDownloading = computed(() => updateState.value.status === 'downloading');
