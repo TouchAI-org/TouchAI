@@ -648,7 +648,10 @@ fn run_on_velopack_worker(
         .map_err(|_| "更新下载任务异常退出".to_string())?
 }
 
-pub fn install_update(state: &AppUpdaterState) -> Result<bool, String> {
+pub fn install_update<R: Runtime>(
+    app: AppHandle<R>,
+    state: &AppUpdaterState,
+) -> Result<bool, String> {
     let pending_update = state
         .pending_update
         .lock()
@@ -665,8 +668,14 @@ pub fn install_update(state: &AppUpdaterState) -> Result<bool, String> {
     };
 
     manager
-        .apply_updates_and_restart(pending_update.update)
+        .wait_exit_then_apply_updates(
+            pending_update.update,
+            true,
+            true,
+            Vec::<String>::new(),
+        )
         .map_err(|error| format!("安装更新失败：{error}"))?;
+    app.exit(0);
     Ok(true)
 }
 
