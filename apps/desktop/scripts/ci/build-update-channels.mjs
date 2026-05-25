@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const REQUIRED_SEVERITIES = ['critical', 'security', 'recommended'];
-const DOWNLOAD_KINDS = ['installer', 'portable', 'fullPackage', 'deltaPackage', 'asset'];
+const DOWNLOAD_KINDS = ['installer', 'portable', 'fullPackage', 'deltaPackage', 'updatePackage', 'asset'];
 const SEMVER_PATTERN =
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const SEMVER_CAPTURE_PATTERN =
@@ -268,18 +268,48 @@ function releaseDownloadUrl(product, tag, fileName) {
 
 function downloadKindFromFileName(fileName) {
     const lowerName = fileName.toLowerCase();
+
+    // Windows
     if (lowerName.endsWith('-setup.exe')) {
         return 'installer';
     }
-    if (lowerName.endsWith('-portable.zip')) {
+    if (lowerName.endsWith('-portable.zip') && !lowerName.endsWith('.app.tar.gz')) {
         return 'portable';
     }
+    if (lowerName.endsWith('.msi')) {
+        return 'installer';
+    }
+
+    // macOS
+    if (lowerName.endsWith('.dmg')) {
+        return 'installer';
+    }
+    if (lowerName.endsWith('.app.tar.gz')) {
+        return 'updatePackage';
+    }
+
+    // Linux
+    if (lowerName.endsWith('.deb')) {
+        return 'installer';
+    }
+    if (lowerName.endsWith('.rpm')) {
+        return 'installer';
+    }
+    if (lowerName.endsWith('.appimage')) {
+        return 'portable';
+    }
+    if (lowerName.endsWith('.appimage.tar.gz')) {
+        return 'updatePackage';
+    }
+
+    // Velopack
     if (lowerName.endsWith('-full.nupkg')) {
         return 'fullPackage';
     }
     if (lowerName.endsWith('-delta.nupkg')) {
         return 'deltaPackage';
     }
+
     return null;
 }
 

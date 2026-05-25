@@ -35,8 +35,8 @@ jobs:
                   config-file: release-please-config.json
                   manifest-file: .release-please-manifest.json
 
-    publish-windows:
-        name: Publish Windows stable release
+    publish-release:
+        name: Publish stable release
         needs: release-please
         if: ${{ needs.release-please.outputs.release_created == 'true' }}
         permissions:

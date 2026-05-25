@@ -1,4 +1,4 @@
-import { readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { readdir, rename, stat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -42,31 +42,7 @@ function publicArtifactName(fileName, product, options) {
     const { channel, version } = options;
     const prefix = publicArtifactPrefix(product, channel);
     const lowerName = fileName.toLowerCase();
-    const hasTargetVersion = fileName.includes(version);
 
-    // Velopack nupkg
-    if (lowerName.endsWith('-full.nupkg') && hasTargetVersion) {
-        return `${prefix}-${version}-full.nupkg`;
-    }
-
-    if (lowerName.endsWith('-delta.nupkg') && hasTargetVersion) {
-        return `${prefix}-${version}-delta.nupkg`;
-    }
-
-    // Windows
-    if (lowerName.endsWith('-setup.exe')) {
-        return `${prefix}-${version}-Setup.exe`;
-    }
-
-    if (lowerName.endsWith('-portable.zip') && !lowerName.endsWith('.app.tar.gz')) {
-        return `${prefix}-${version}-Portable.zip`;
-    }
-
-    if (lowerName.endsWith('.msi')) {
-        return `${prefix}-${version}.msi`;
-    }
-
-    // macOS
     if (lowerName.endsWith('.dmg')) {
         return `${prefix}-${version}.dmg`;
     }
@@ -75,8 +51,7 @@ function publicArtifactName(fileName, product, options) {
         return `${prefix}-${version}.app.tar.gz`;
     }
 
-    // Linux
-    if (lowerName.endsWith('.appimage') && !lowerName.endsWith('.appimage.tar.gz')) {
+    if (lowerName.endsWith('.appimage')) {
         return `${prefix}-${version}.AppImage`;
     }
 
@@ -107,62 +82,13 @@ async function fileExists(path) {
     }
 }
 
-function rewriteJsonStrings(value, renameMap) {
-    if (typeof value === 'string') {
-        return renameMap.get(value) ?? value;
-    }
-
-    if (Array.isArray(value)) {
-        return value.map((item) => rewriteJsonStrings(item, renameMap));
-    }
-
-    if (value && typeof value === 'object') {
-        return Object.fromEntries(
-            Object.entries(value).map(([key, item]) => [key, rewriteJsonStrings(item, renameMap)])
-        );
-    }
-
-    return value;
-}
-
-function replaceAllFileNames(text, renameMap) {
-    let next = text;
-    for (const [from, to] of renameMap) {
-        next = next.split(from).join(to);
-    }
-    return next;
-}
-
-async function rewriteReleaseIndexes(releaseDir, renameMap) {
-    const entries = await readdir(releaseDir, { withFileTypes: true });
-    for (const entry of entries) {
-        if (!entry.isFile()) {
-            continue;
-        }
-
-        const path = join(releaseDir, entry.name);
-        if (entry.name.endsWith('.json')) {
-            const text = await readFile(path, 'utf8');
-            const rewritten = rewriteJsonStrings(JSON.parse(text), renameMap);
-            await writeFile(path, `${JSON.stringify(rewritten, null, 4)}\n`, 'utf8');
-            continue;
-        }
-
-        if (entry.name.startsWith('RELEASES')) {
-            const text = await readFile(path, 'utf8');
-            await writeFile(path, replaceAllFileNames(text, renameMap), 'utf8');
-        }
-    }
-}
-
-export async function normalizeVelopackReleaseAssets(projectRoot, releaseDir, options) {
+export async function normalizeTauriBundleAssets(projectRoot, releaseDir, options) {
     assertNonEmptyString(releaseDir, 'release directory');
     assertNonEmptyString(options?.channel, 'release channel');
     assertNonEmptyString(options?.version, 'release version');
 
     const product = await readProduct(projectRoot);
     const entries = await readdir(releaseDir, { withFileTypes: true });
-    const renameMap = new Map();
 
     for (const entry of entries) {
         if (!entry.isFile()) {
@@ -174,34 +100,21 @@ export async function normalizeVelopackReleaseAssets(projectRoot, releaseDir, op
             continue;
         }
 
-        if (renameMap.has(entry.name)) {
-            throw new Error(`Duplicate release asset rename source: ${entry.name}`);
-        }
-
-        if ([...renameMap.values()].includes(nextName)) {
-            throw new Error(`Duplicate release asset rename target: ${nextName}`);
-        }
-
-        renameMap.set(entry.name, nextName);
-    }
-
-    for (const [from, to] of renameMap) {
-        const fromPath = join(releaseDir, from);
-        const toPath = join(releaseDir, to);
+        const fromPath = join(releaseDir, entry.name);
+        const toPath = join(releaseDir, nextName);
         if (await fileExists(toPath)) {
-            throw new Error(`Cannot rename ${from} to ${to} because the target already exists.`);
+            throw new Error(`Cannot rename ${entry.name} to ${nextName} because the target already exists.`);
         }
+
         await rename(fromPath, toPath);
     }
-
-    await rewriteReleaseIndexes(releaseDir, renameMap);
 }
 
 function parseArgs(argv) {
     const [releaseDir, channel, version] = argv;
     if (!releaseDir || !channel || !version) {
         throw new Error(
-            'Usage: node scripts/ci/normalize-velopack-release-assets.mjs <release-dir> <channel> <version>'
+            'Usage: node scripts/ci/normalize-tauri-bundle-assets.mjs <release-dir> <channel> <version>'
         );
     }
 
@@ -210,8 +123,8 @@ function parseArgs(argv) {
 
 async function main() {
     const { releaseDir, channel, version } = parseArgs(process.argv.slice(2));
-    await normalizeVelopackReleaseAssets(process.cwd(), releaseDir, { channel, version });
-    console.log(`Velopack release asset names normalized for ${channel} ${version}.`);
+    await normalizeTauriBundleAssets(process.cwd(), releaseDir, { channel, version });
+    console.log(`Tauri bundle asset names normalized for ${channel} ${version}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
