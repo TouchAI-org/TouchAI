@@ -668,12 +668,7 @@ pub fn install_update<R: Runtime>(
     };
 
     manager
-        .wait_exit_then_apply_updates(
-            pending_update.update,
-            true,
-            true,
-            Vec::<String>::new(),
-        )
+        .wait_exit_then_apply_updates(pending_update.update, true, true, Vec::<String>::new())
         .map_err(|error| format!("安装更新失败：{error}"))?;
     app.exit(0);
     Ok(true)

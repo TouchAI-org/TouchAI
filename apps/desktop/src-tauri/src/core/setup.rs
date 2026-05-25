@@ -11,15 +11,22 @@ use crate::core::system::paths::{
     app_directory_path, is_user_data_directory, legacy_app_directory_path, APP_DIRECTORY_LAYOUT,
 };
 
-fn copy_directory_recursive(source: &std::path::Path, target: &std::path::Path) -> Result<(), String> {
+fn copy_directory_recursive(
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<(), String> {
     fs::create_dir_all(target)
         .map_err(|error| format!("Failed to create directory '{}': {error}", target.display()))?;
 
     for entry in fs::read_dir(source)
         .map_err(|error| format!("Failed to read directory '{}': {error}", source.display()))?
     {
-        let entry = entry
-            .map_err(|error| format!("Failed to read directory entry '{}': {error}", source.display()))?;
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to read directory entry '{}': {error}",
+                source.display()
+            )
+        })?;
         let source_path = entry.path();
         let target_path = target.join(entry.file_name());
 
