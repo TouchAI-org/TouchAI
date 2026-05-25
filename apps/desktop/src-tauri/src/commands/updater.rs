@@ -16,17 +16,17 @@ pub fn updater_check_for_updates(
 }
 
 #[tauri::command]
-pub fn updater_download_update<R: Runtime>(
+pub async fn updater_download_update<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppUpdaterState>,
 ) -> Result<AppUpdateInfo, String> {
-    updater::download_update(app, state.inner())
+    updater::download_update(app, state.inner()).await
 }
 
 #[tauri::command]
-pub fn updater_install_update<R: Runtime>(
+pub async fn updater_install_update<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppUpdaterState>,
 ) -> Result<bool, String> {
-    updater::install_update(app, state.inner())
+    updater::install_update(app, state.inner()).await
 }

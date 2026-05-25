@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     collections::BTreeMap,
+    sync::mpsc,
     sync::{Mutex, OnceLock},
     time::Duration,
 };
@@ -602,7 +603,7 @@ pub fn check_for_updates(
     }
 }
 
-pub fn download_update<R: Runtime>(
+pub async fn download_update<R: Runtime>(
     app: AppHandle<R>,
     state: &AppUpdaterState,
 ) -> Result<AppUpdateInfo, String> {
@@ -614,14 +615,31 @@ pub fn download_update<R: Runtime>(
         .ok_or_else(|| "没有可下载的更新，请先检查更新".to_string())?;
 
     let update_info = update_info_from_target(&pending_update.update);
-    download_updates_on_velopack_worker(pending_update)?;
+    download_updates_on_velopack_worker(app.clone(), pending_update).await?;
     let _ = app.emit(DOWNLOAD_PROGRESS_EVENT, 100_i16);
 
     Ok(update_info)
 }
 
-fn download_updates_on_velopack_worker(pending_update: PendingUpdate) -> Result<(), String> {
-    run_on_velopack_worker(move || {
+async fn download_updates_on_velopack_worker<R: Runtime>(
+    app: AppHandle<R>,
+    pending_update: PendingUpdate,
+) -> Result<(), String> {
+    let (progress_tx, progress_rx) = mpsc::channel::<i16>();
+    let progress_app = app.clone();
+    let progress_worker = std::thread::Builder::new()
+        .name("touchai-velopack-progress".to_string())
+        .spawn(move || {
+            forward_download_progress(progress_rx, move |progress| {
+                let _ = progress_app.emit(DOWNLOAD_PROGRESS_EVENT, progress);
+            });
+        });
+
+    if let Err(error) = &progress_worker {
+        log::warn!("启动更新进度转发任务失败，继续下载但不会显示实时进度：{error}");
+    }
+
+    let result = run_on_velopack_worker_async(move || {
         let manager = match manager(pending_update.channel) {
             Ok(manager) => manager,
             Err(VelopackError::NotInstalled(_)) => {
@@ -631,24 +649,48 @@ fn download_updates_on_velopack_worker(pending_update: PendingUpdate) -> Result<
         };
 
         manager
-            .download_updates(&pending_update.update, None)
+            .download_updates(&pending_update.update, Some(progress_tx))
             .map_err(|error| format!("下载更新失败：{error}"))
     })
+    .await;
+
+    if let Ok(handle) = progress_worker {
+        let _ = tauri::async_runtime::spawn_blocking(move || handle.join()).await;
+    }
+
+    result
 }
 
-fn run_on_velopack_worker(
+async fn run_on_velopack_worker_async(
     task: impl FnOnce() -> Result<(), String> + Send + 'static,
 ) -> Result<(), String> {
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+
     std::thread::Builder::new()
         .name("touchai-velopack-download".to_string())
         .stack_size(VELOPACK_WORKER_STACK_SIZE)
-        .spawn(task)
-        .map_err(|error| format!("启动更新下载任务失败：{error}"))?
-        .join()
+        .spawn(move || {
+            let result = task();
+            let _ = result_tx.send(result);
+        })
+        .map_err(|error| format!("启动更新下载任务失败：{error}"))?;
+
+    result_rx
+        .await
         .map_err(|_| "更新下载任务异常退出".to_string())?
 }
 
-pub fn install_update<R: Runtime>(
+fn clamp_download_progress(progress: i16) -> i16 {
+    progress.clamp(0, 100)
+}
+
+fn forward_download_progress(progress_rx: mpsc::Receiver<i16>, mut emit_progress: impl FnMut(i16)) {
+    while let Ok(progress) = progress_rx.recv() {
+        emit_progress(clamp_download_progress(progress));
+    }
+}
+
+pub async fn install_update<R: Runtime>(
     app: AppHandle<R>,
     state: &AppUpdaterState,
 ) -> Result<bool, String> {
@@ -659,22 +701,21 @@ pub fn install_update<R: Runtime>(
         .clone()
         .ok_or_else(|| "没有已下载的更新，请先下载更新".to_string())?;
 
-    let manager = match manager(pending_update.channel) {
-        Ok(manager) => manager,
-        Err(VelopackError::NotInstalled(_)) => {
-            return Err("当前运行方式暂不支持应用内更新".to_string())
-        }
-        Err(error) => return Err(format!("初始化更新器失败：{error}")),
-    };
+    run_on_velopack_worker_async(move || {
+        let manager = match manager(pending_update.channel) {
+            Ok(manager) => manager,
+            Err(VelopackError::NotInstalled(_)) => {
+                return Err("当前运行方式暂不支持应用内更新".to_string())
+            }
+            Err(error) => return Err(format!("初始化更新器失败：{error}")),
+        };
 
-    manager
-        .wait_exit_then_apply_updates(
-            pending_update.update,
-            true,
-            true,
-            Vec::<String>::new(),
-        )
-        .map_err(|error| format!("安装更新失败：{error}"))?;
+        manager
+            .wait_exit_then_apply_updates(pending_update.update, true, true, Vec::<String>::new())
+            .map_err(|error| format!("安装更新失败：{error}"))
+    })
+    .await?;
+
     app.exit(0);
     Ok(true)
 }
@@ -710,8 +751,8 @@ mod tests {
             release_notes: Some("Security fixes".to_string()),
             downloads: vec![AppUpdateDownload {
                 kind: "installer".to_string(),
-                name: "TouchAI-beta-0.2.1-beta.1-Setup.exe".to_string(),
-                url: "https://github.com/TouchAI-org/TouchAI/releases/download/v0.2.1-beta.1/TouchAI-beta-0.2.1-beta.1-Setup.exe".to_string(),
+                name: "TouchAI-beta-0.2.1-beta.1-windows-Setup.exe".to_string(),
+                url: "https://github.com/TouchAI-org/TouchAI/releases/download/v0.2.1-beta.1/TouchAI-beta-0.2.1-beta.1-windows-Setup.exe".to_string(),
                 size_bytes: Some(12_000_000),
             }],
         });
@@ -790,8 +831,8 @@ mod tests {
             "downloads": [
                 {
                     "kind": "installer",
-                    "name": "TouchAI-0.2.1-Setup.exe",
-                    "url": format!("{}/releases/download/v0.2.1/TouchAI-0.2.1-Setup.exe", config.repository.url),
+                    "name": "TouchAI-0.2.1-windows-Setup.exe",
+                    "url": format!("{}/releases/download/v0.2.1/TouchAI-0.2.1-windows-Setup.exe", config.repository.url),
                     "sizeBytes": 12000000
                 }
             ]
@@ -827,9 +868,9 @@ mod tests {
                 release_notes: Some("Bug fixes".to_string()),
                 downloads: vec![AppUpdateDownload {
                     kind: "installer".to_string(),
-                    name: "TouchAI-0.2.1-Setup.exe".to_string(),
+                    name: "TouchAI-0.2.1-windows-Setup.exe".to_string(),
                     url: format!(
-                        "{}/releases/download/v0.2.1/TouchAI-0.2.1-Setup.exe",
+                        "{}/releases/download/v0.2.1/TouchAI-0.2.1-windows-Setup.exe",
                         config.repository.url
                     ),
                     size_bytes: Some(12_000_000),
@@ -930,8 +971,8 @@ mod tests {
     }
 
     #[test]
-    fn velopack_worker_uses_large_stack() {
-        let result = run_on_velopack_worker(|| {
+    fn velopack_async_worker_uses_large_stack() {
+        let result = tauri::async_runtime::block_on(run_on_velopack_worker_async(|| {
             const BUFFER_SIZE: usize = 2 * 1024 * 1024;
             let mut buffer = [0_u8; BUFFER_SIZE];
             buffer[0] = 1;
@@ -939,8 +980,34 @@ mod tests {
             std::hint::black_box(&mut buffer);
             assert_eq!(buffer[0] + buffer[BUFFER_SIZE - 1], 3);
             Ok(())
-        });
+        }));
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn forwards_download_progress_updates_in_order() {
+        use std::sync::{mpsc, Arc, Mutex};
+
+        let (progress_tx, progress_rx) = mpsc::channel();
+        let forwarded = Arc::new(Mutex::new(Vec::new()));
+        let forwarded_clone = Arc::clone(&forwarded);
+        let handle = std::thread::spawn(move || {
+            forward_download_progress(progress_rx, move |progress| {
+                forwarded_clone
+                    .lock()
+                    .expect("forwarded lock")
+                    .push(progress);
+            });
+        });
+
+        progress_tx.send(-5).expect("send progress");
+        progress_tx.send(42).expect("send progress");
+        progress_tx.send(120).expect("send progress");
+        drop(progress_tx);
+
+        handle.join().expect("progress forwarder joins");
+
+        assert_eq!(*forwarded.lock().expect("forwarded lock"), vec![0, 42, 100]);
     }
 }
