@@ -65,4 +65,5 @@ jobs:
             tag: ${{ needs.resolve.outputs.tag }}
             prerelease: ${{ needs.resolve.outputs.prerelease }}
             target-commitish: ${{ github.sha }}
+            deploy-production: ${{ github.ref_name == 'main' }}
         secrets: inherit

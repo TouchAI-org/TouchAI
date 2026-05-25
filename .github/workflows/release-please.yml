@@ -49,4 +49,5 @@ jobs:
             tag: ${{ needs.release-please.outputs.tag_name }}
             prerelease: 'False'
             target-commitish: ${{ needs.release-please.outputs.sha }}
+            deploy-production: true
         secrets: inherit

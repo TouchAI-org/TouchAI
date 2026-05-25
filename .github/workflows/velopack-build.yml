@@ -18,6 +18,10 @@ on:
             target-commitish:
                 required: true
                 type: string
+            deploy-production:
+                required: false
+                type: boolean
+                default: false
 
 permissions:
     contents: write
@@ -151,7 +155,6 @@ jobs:
         name: Build Windows Velopack release
         needs: prepare-release
         runs-on: windows-latest
-        environment: release
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -321,7 +324,6 @@ jobs:
         name: Build macOS release assets
         needs: prepare-release
         runs-on: macos-latest
-        environment: release
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -432,7 +434,6 @@ jobs:
         name: Build Linux release assets
         needs: prepare-release
         runs-on: ubuntu-latest
-        environment: release
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -559,15 +560,14 @@ jobs:
                   path: ${{ runner.temp }}/touchai-linux-release
                   if-no-files-found: error
 
-    publish-update-channels:
-        name: Publish update channel JSON
+    build-update-channels:
+        name: Build update channel JSON
         needs:
             - prepare-release
             - build-windows
             - build-macos
             - build-linux
         runs-on: ubuntu-latest
-        environment: release
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -606,6 +606,33 @@ jobs:
                   name: touchai-update-channels
                   path: ${{ runner.temp }}/touchai-update-dist
                   if-no-files-found: error
+
+    deploy-update-channels:
+        name: Deploy update channel JSON
+        if: ${{ inputs.deploy-production }}
+        needs:
+            - prepare-release
+            - build-update-channels
+        runs-on: ubuntu-latest
+        environment: release
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.target-commitish }}
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Download update channel JSON artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: touchai-update-channels
+                  path: ${{ runner.temp }}/touchai-update-dist
 
             - name: Deploy update channel JSON to Cloudflare Pages
               env:
