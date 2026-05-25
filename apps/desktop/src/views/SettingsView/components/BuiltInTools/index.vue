@@ -3,9 +3,11 @@
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
+    import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { computed, onMounted, ref, watch } from 'vue';
 
+    import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';
     import SectionTabs, { type SectionTabItem } from '../SectionTabs.vue';
     import BuiltInToolConfig from './components/BuiltInToolConfig.vue';
     import BuiltInToolList from './components/BuiltInToolList.vue';
@@ -23,6 +25,14 @@
     });
 
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
+    const {
+        handleResizeKeyDown,
+        handleResizePointerDown,
+        panelMaxWidth,
+        panelMinWidth,
+        panelStyle,
+        panelWidth,
+    } = useSettingsResizablePanel();
     const tools = ref<BuiltInToolEntity[]>([]);
     const selectedTool = ref<BuiltInToolEntity | null>(null);
     const loading = ref(true);
@@ -168,12 +178,13 @@
 <template>
     <AlertMessage ref="alertMessage" />
 
-    <div class="flex h-full">
-        <div class="flex h-full w-72 flex-col border-r border-gray-200 bg-white/60">
-            <div class="border-b border-gray-200 bg-white/80 p-4">
-                <h2 class="font-serif text-base font-semibold text-gray-900">内置工具</h2>
-            </div>
-
+    <div class="flex h-full bg-white">
+        <div
+            class="settings-side-panel"
+            :style="panelStyle"
+            data-settings-secondary-panel="true"
+            data-testid="settings-built-in-tools-panel"
+        >
             <BuiltInToolList
                 :tools="tools"
                 :selected-tool-id="selectedTool?.tool_id ?? null"
@@ -181,28 +192,35 @@
                 @select="handleSelect"
                 @toggle-enabled="handleToggleEnabled"
             />
+
+            <div
+                data-testid="settings-built-in-tools-panel-resizer"
+                role="separator"
+                aria-orientation="vertical"
+                :aria-valuemin="panelMinWidth"
+                :aria-valuemax="panelMaxWidth"
+                :aria-valuenow="panelWidth"
+                tabindex="0"
+                class="settings-side-panel-resizer"
+                title="调整内置工具列表宽度"
+                @keydown="handleResizeKeyDown"
+                @pointerdown="handleResizePointerDown"
+            />
         </div>
 
         <div class="flex min-w-0 flex-1 flex-col">
-            <div v-if="loading" class="flex flex-1 items-center justify-center">
-                <div class="space-y-3 text-center">
-                    <div
-                        class="border-t-primary-500 mx-auto h-10 w-10 animate-spin rounded-full border-2 border-gray-200"
-                    />
-                    <p class="font-serif text-sm text-gray-500">正在加载内置工具配置...</p>
-                </div>
-            </div>
+            <LoadingState v-if="loading" variant="brand" fill="min" />
 
             <div
                 v-else-if="!selectedTool"
                 class="flex flex-1 items-center justify-center px-6 text-center"
             >
                 <div class="max-w-md">
-                    <AppIcon name="tool" class="mx-auto h-12 w-12 text-gray-300" />
-                    <h3 class="mt-4 font-serif text-base font-semibold text-gray-900">
+                    <AppIcon name="tool" class="mx-auto h-12 w-12 text-neutral-300" />
+                    <h3 class="mt-4 text-[15px] font-medium text-neutral-950">
                         尚未发现可配置的内置工具
                     </h3>
-                    <p class="mt-2 font-serif text-sm leading-6 text-gray-500">
+                    <p class="mt-2 text-sm leading-6 text-neutral-500">
                         等待网关注册完成后，工具会自动显示在左侧列表中。
                     </p>
                 </div>
@@ -213,7 +231,7 @@
 
                 <div
                     ref="tabContentRef"
-                    class="custom-scrollbar min-h-0 flex-1 overflow-y-auto bg-gray-50/50"
+                    class="settings-scrollbar min-h-0 flex-1 overflow-y-auto bg-white"
                 >
                     <BuiltInToolConfig
                         v-if="activeTab === 'config'"

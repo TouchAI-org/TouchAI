@@ -30,7 +30,7 @@
                     text: 'text-yellow-600',
                 };
             default:
-                return { name: 'refresh', bg: 'bg-primary-50', text: 'text-primary-600' };
+                return { name: 'refresh', bg: 'bg-neutral-100', text: 'text-neutral-700' };
         }
     });
 
@@ -44,7 +44,7 @@
                 v-if="props.dismissible"
                 variant="ghost"
                 size="icon"
-                class="absolute top-3 right-3 h-7 w-7 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                class="absolute top-3 right-3 h-7 w-7 rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
                 @click="emit('dismiss')"
             >
                 <AppIcon name="x" class="h-4 w-4" />
@@ -59,17 +59,17 @@
                 />
             </div>
 
-            <h3 class="font-serif text-lg font-semibold text-gray-900">{{ title }}</h3>
-            <p class="mt-2 text-sm text-gray-600">{{ message }}</p>
+            <h3 class="text-[15px] font-medium text-neutral-950">{{ title }}</h3>
+            <p class="mt-2 text-sm text-neutral-600">{{ message }}</p>
 
             <div v-if="progress !== undefined" class="mt-6 w-full">
-                <div class="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-100">
                     <div
-                        class="bg-primary-600 h-full rounded-full transition-all duration-300 ease-out"
+                        class="bg-primary-700 h-full rounded-full transition-all duration-300 ease-out"
                         :style="{ width: `${progress}%` }"
                     ></div>
                 </div>
-                <div class="mt-2 text-right text-xs font-medium text-gray-500">
+                <div class="mt-2 text-right text-xs font-medium text-neutral-500">
                     {{ Math.round(progress) }}%
                 </div>
             </div>

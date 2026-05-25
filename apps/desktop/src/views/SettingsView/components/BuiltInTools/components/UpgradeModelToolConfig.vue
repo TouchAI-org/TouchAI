@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -413,13 +413,13 @@
 
 <template>
     <div class="space-y-5">
-        <section class="rounded-xl border border-gray-200 bg-white p-5">
+        <div class="space-y-4">
             <div class="flex items-center justify-between gap-4">
-                <h4 class="font-serif text-sm font-semibold text-gray-900">模型升级链</h4>
+                <h4 class="text-sm font-semibold text-neutral-950">模型升级链</h4>
 
                 <button
                     type="button"
-                    class="text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
                     :disabled="loading || !nextAppendEntry"
                     @click="addModel"
                 >
@@ -429,7 +429,7 @@
 
             <div v-if="chainRows.length === 0" class="mt-4">
                 <div
-                    class="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-10 text-center font-serif text-sm text-gray-500"
+                    class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-10 text-center text-sm text-neutral-500"
                 >
                     {{ loading ? '正在加载模型...' : '暂未配置升级链' }}
                 </div>
@@ -458,7 +458,7 @@
                     v-for="row in chainRows"
                     :key="row.uid"
                     :data-row-uid="row.uid"
-                    class="upgrade-model-chain-card rounded-xl border border-gray-200 bg-gray-50/70 p-3 transition-colors"
+                    class="upgrade-model-chain-card rounded-lg border border-neutral-200 bg-neutral-50/70 p-3 transition-colors"
                     :class="
                         draggingRowUid === row.uid
                             ? 'upgrade-model-chain-card--source-dragging'
@@ -468,7 +468,7 @@
                     <div class="flex items-center gap-3">
                         <button
                             type="button"
-                            class="upgrade-model-drag-handle inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-400 transition-colors hover:border-gray-300 hover:text-gray-600"
+                            class="upgrade-model-drag-handle inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-400 transition-colors hover:border-neutral-300 hover:text-neutral-700"
                             :class="
                                 loading || chainRows.length < 2
                                     ? 'cursor-default opacity-50'
@@ -506,7 +506,7 @@
                                         />
                                         <div
                                             v-else
-                                            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-gray-100 text-[10px] font-semibold text-gray-500"
+                                            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
                                         >
                                             {{ getProviderFallbackText(option) }}
                                         </div>
@@ -526,17 +526,17 @@
                                         />
                                         <div
                                             v-else
-                                            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-gray-100 text-[10px] font-semibold text-gray-500"
+                                            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
                                         >
                                             {{ getProviderFallbackText(option) }}
                                         </div>
                                         <div class="min-w-0 flex-1">
-                                            <div class="truncate font-serif text-sm font-medium">
+                                            <div class="truncate text-sm font-medium">
                                                 {{ option.label }}
                                             </div>
                                             <div
                                                 v-if="option.description"
-                                                class="mt-0.5 truncate text-xs text-gray-500"
+                                                class="mt-0.5 truncate text-xs text-neutral-500"
                                             >
                                                 {{ option.description }}
                                             </div>
@@ -579,7 +579,7 @@
                                             size="sm"
                                         />
                                         <div class="min-w-0 flex-1">
-                                            <div class="truncate font-serif text-sm font-medium">
+                                            <div class="truncate text-sm font-medium">
                                                 {{ option.label }}
                                             </div>
                                             <div class="mt-1">
@@ -596,7 +596,7 @@
                                                 />
                                                 <div
                                                     v-else-if="option.description"
-                                                    class="truncate text-xs text-gray-500"
+                                                    class="truncate text-xs text-neutral-500"
                                                 >
                                                     {{ option.description }}
                                                 </div>
@@ -609,7 +609,7 @@
 
                         <button
                             type="button"
-                            class="flex-shrink-0 text-gray-400 transition-colors hover:text-red-600"
+                            class="flex-shrink-0 text-neutral-400 transition-colors hover:text-red-600"
                             @click="removeModel(row.uid)"
                         >
                             <AppIcon name="x" class="h-5 w-5" />
@@ -617,7 +617,7 @@
                     </div>
                 </div>
             </VueDraggable>
-        </section>
+        </div>
     </div>
 </template>
 
@@ -627,8 +627,8 @@
     }
 
     .upgrade-model-chain-card--source-dragging {
-        background: var(--color-primary-50) !important;
-        border-color: var(--color-primary-200) !important;
+        background: rgb(245 245 244) !important;
+        border-color: rgb(214 211 209) !important;
         box-shadow: none !important;
     }
 
@@ -638,26 +638,26 @@
 
     .upgrade-model-sortable-fallback {
         background: #fff !important;
-        border-color: var(--color-primary-300) !important;
+        border-color: rgb(168 162 158) !important;
         box-shadow: 0 18px 42px rgb(107 95 84 / 14%);
     }
 
     .upgrade-model-sortable-ghost {
         opacity: 1;
-        background: var(--color-primary-50) !important;
-        border-color: var(--color-primary-200) !important;
+        background: rgb(245 245 244) !important;
+        border-color: rgb(214 211 209) !important;
         box-shadow: none !important;
     }
 
     .upgrade-model-sortable-chosen {
-        background: var(--color-primary-50) !important;
-        border-color: var(--color-primary-300) !important;
+        background: rgb(245 245 244) !important;
+        border-color: rgb(168 162 158) !important;
         box-shadow: 0 10px 24px rgb(107 95 84 / 10%);
     }
 
     .upgrade-model-sortable-drag {
         background: #fff !important;
-        border-color: var(--color-primary-300) !important;
+        border-color: rgb(168 162 158) !important;
         box-shadow: 0 18px 42px rgb(107 95 84 / 14%);
     }
 </style>

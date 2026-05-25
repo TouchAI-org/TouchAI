@@ -17,13 +17,21 @@
     defineOptions({
         name: 'SettingsMcpToolsSection',
     });
-
+    import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';
     import McpServerConfig from './components/McpServerConfig.vue';
     import McpServerList from './components/McpServerList.vue';
     import McpToolList from './components/McpToolList.vue';
     import McpToolLogViewer from './components/McpToolLogViewer.vue';
 
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
+    const {
+        handleResizeKeyDown,
+        handleResizePointerDown,
+        panelMaxWidth,
+        panelMinWidth,
+        panelStyle,
+        panelWidth,
+    } = useSettingsResizablePanel();
     const selectedServer = ref<McpServerEntity | null>(null);
     const activeTab = ref<'config' | 'tools' | 'logs'>('config');
     const serverListRef = ref<InstanceType<typeof McpServerList> | null>(null);
@@ -339,13 +347,14 @@
 <template>
     <AlertMessage ref="alertMessage" />
 
-    <div class="flex h-full">
+    <div class="flex h-full bg-white">
         <!-- 左侧面板：服务器列表 -->
-        <div class="flex h-full w-72 flex-col border-r border-gray-200 bg-white/60">
-            <div class="border-b border-gray-200 bg-white/80 p-4">
-                <h2 class="font-serif text-base font-semibold text-gray-900">MCP 服务器</h2>
-            </div>
-
+        <div
+            class="settings-side-panel"
+            :style="panelStyle"
+            data-settings-secondary-panel="true"
+            data-testid="settings-mcp-tools-panel"
+        >
             <McpServerList
                 ref="serverListRef"
                 :selected-server="selectedServer"
@@ -356,22 +365,33 @@
                 @context-menu="handleServerContextMenu"
             />
 
-            <div class="border-t border-gray-200 bg-white/80 p-3">
-                <button
-                    class="bg-primary-500 hover:bg-primary-600 w-full rounded-lg px-4 py-2 font-serif text-sm font-medium text-white transition-colors"
-                    @click="handleAddServer"
-                >
-                    + 添加 MCP 服务器
+            <div class="settings-side-panel-footer">
+                <button class="settings-button-primary w-full" @click="handleAddServer">
+                    添加 MCP 服务器
                 </button>
             </div>
+
+            <div
+                data-testid="settings-mcp-tools-panel-resizer"
+                role="separator"
+                aria-orientation="vertical"
+                :aria-valuemin="panelMinWidth"
+                :aria-valuemax="panelMaxWidth"
+                :aria-valuenow="panelWidth"
+                tabindex="0"
+                class="settings-side-panel-resizer"
+                title="调整 MCP 服务器列表宽度"
+                @keydown="handleResizeKeyDown"
+                @pointerdown="handleResizePointerDown"
+            />
         </div>
 
         <!-- 右侧面板：服务器详情 -->
-        <div class="flex flex-1 flex-col overflow-hidden">
+        <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div v-if="!selectedServer" class="flex h-full items-center justify-center">
                 <div class="text-center">
-                    <AppIcon name="mcp" class="mx-auto h-16 w-16 text-gray-300" />
-                    <p class="mt-4 font-serif text-sm text-gray-500">选择一个服务器查看详情</p>
+                    <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
+                    <p class="mt-4 text-sm text-neutral-500">选择一个服务器查看详情</p>
                 </div>
             </div>
 
@@ -379,7 +399,7 @@
                 <SectionTabs v-model="activeTab" :tabs="tabs" />
 
                 <!-- 标签页内容 -->
-                <div ref="tabContentRef" class="custom-scrollbar flex-1 overflow-y-auto">
+                <div ref="tabContentRef" class="settings-scrollbar flex-1 overflow-y-auto">
                     <McpServerConfig
                         v-if="activeTab === 'config'"
                         :server="selectedServer"

@@ -13,6 +13,10 @@ use windows::Win32::{
     UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, IsChild, GA_ROOT, GA_ROOTOWNER},
 };
 
+fn popup_route(popup_type: &str) -> String {
+    format!("#/popup?type={}", popup_type)
+}
+
 /// 判断窗口 label 是否属于搜索主窗口或其 popup surface。
 fn is_app_surface_label(label: &str) -> bool {
     label == "main" || label.starts_with("popup-")
@@ -122,7 +126,7 @@ pub async fn preload_popup_windows<R: Runtime>(
             continue;
         }
 
-        let url = format!("/popup?type={}", config.id);
+        let url = popup_route(&config.id);
         match build_popup_window(
             &app,
             &window_label,
@@ -186,7 +190,7 @@ pub async fn show_popup_window<R: Runtime>(
             .map_err(|e| e.to_string())?;
         popup.show().map_err(|e| e.to_string())
     } else {
-        let url = format!("/popup?type={}", popup_type);
+        let url = popup_route(&popup_type);
         let popup = build_popup_window(&app, &window_label, &popup_type, url, width, height, x, y)?;
         let _ = popup.set_focusable(true);
         popup.show().map_err(|e| e.to_string())
@@ -249,4 +253,21 @@ pub fn is_app_focused<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
     }
 
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::popup_route;
+
+    #[test]
+    fn popup_route_uses_hash_navigation_with_type_query() {
+        assert_eq!(
+            popup_route("model-dropdown-popup"),
+            "#/popup?type=model-dropdown-popup"
+        );
+        assert_eq!(
+            popup_route("session-history-popup"),
+            "#/popup?type=session-history-popup"
+        );
+    }
 }

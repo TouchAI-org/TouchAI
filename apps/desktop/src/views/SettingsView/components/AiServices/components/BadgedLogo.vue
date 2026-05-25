@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import { computed } from 'vue';
@@ -30,11 +30,11 @@
     });
 
     const sizeClasses = computed(() => {
-        return props.size === 'large' ? 'h-14 w-14' : 'h-10 w-10';
+        return props.size === 'large' ? 'h-12 w-12' : 'h-8 w-8';
     });
 
     const textSizeClass = computed(() => {
-        return props.size === 'large' ? 'text-xl' : 'text-base';
+        return props.size === 'large' ? 'text-lg' : 'text-sm';
     });
 </script>
 
@@ -57,7 +57,7 @@
 
         <span
             v-if="showBadge"
-            class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 rounded border border-gray-300 bg-white px-1 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm"
+            class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 rounded border border-neutral-300 bg-white px-1 py-0.5 text-[9px] leading-none text-neutral-600 shadow-sm"
         >
             内置
         </span>

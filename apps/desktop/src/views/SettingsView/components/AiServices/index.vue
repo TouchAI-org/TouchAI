@@ -4,6 +4,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import LoadingState from '@components/LoadingState.vue';
     import { useAlert } from '@composables/useAlert.ts';
     import { useContextMenu } from '@composables/useContextMenu.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
@@ -220,7 +221,7 @@
                 ? {
                       api_endpoint: requireNonEmptyProviderField(
                           providerPatch.api_endpoint,
-                          'Base URL'
+                          '请求地址'
                       ),
                   }
                 : {}),
@@ -276,7 +277,7 @@
             await createProvider({
                 ...data,
                 name: requireNonEmptyProviderField(data.name, '服务商名称'),
-                api_endpoint: requireNonEmptyProviderField(data.api_endpoint, 'Base URL'),
+                api_endpoint: requireNonEmptyProviderField(data.api_endpoint, '请求地址'),
             });
             await loadProviders();
             showAddDialog.value = false;
@@ -523,7 +524,7 @@
 </script>
 
 <template>
-    <div class="flex h-full">
+    <div class="flex h-full bg-white">
         <ProviderList
             :providers="providers"
             :selected-provider-id="selectedProviderId"
@@ -535,30 +536,29 @@
             @context-menu="handleProviderContextMenu"
         />
 
-        <div ref="contentScrollRef" class="custom-scrollbar flex-1 overflow-y-auto">
-            <div v-if="loading" class="flex h-full items-center justify-center">
-                <div
-                    class="border-primary-100 border-t-primary-500 h-10 w-10 animate-spin rounded-full border-3"
-                ></div>
-            </div>
+        <div ref="contentScrollRef" class="settings-scrollbar min-w-0 flex-1 overflow-y-auto">
+            <LoadingState v-if="loading" variant="brand" fill="min" />
 
             <div v-else-if="error" class="flex h-full items-center justify-center">
-                <div class="rounded-lg border border-gray-200 bg-white p-6 text-gray-600">
-                    <p class="font-medium text-gray-900">加载失败</p>
+                <div class="settings-card text-neutral-600">
+                    <p class="font-medium text-neutral-950">加载失败</p>
                     <p class="mt-1 text-sm">{{ error }}</p>
-                    <button
-                        class="bg-primary-500 hover:bg-primary-600 mt-4 rounded-lg px-4 py-2 text-sm text-white transition-colors"
-                        @click="() => loadProviders()"
-                    >
+                    <button class="settings-button-primary mt-4" @click="() => loadProviders()">
                         重试
                     </button>
                 </div>
             </div>
 
-            <div v-else-if="selectedProvider" class="p-6">
-                <div class="mx-auto max-w-4xl space-y-6">
-                    <div class="rounded-lg border border-gray-200 bg-white p-6">
-                        <div class="flex items-center gap-4">
+            <div v-else-if="selectedProvider" class="settings-page-wide">
+                <div class="space-y-8">
+                    <div
+                        data-testid="settings-provider-header"
+                        class="flex min-h-[64px] items-center justify-between gap-6"
+                    >
+                        <div
+                            data-testid="settings-provider-identity"
+                            class="flex min-w-0 items-center gap-4"
+                        >
                             <BadgedLogo
                                 :logo="selectedProvider.logo"
                                 :name="selectedProvider.name"
@@ -566,27 +566,34 @@
                                 :show-badge="selectedProvider.is_builtin === 1"
                             />
 
-                            <div class="flex-1">
-                                <div class="flex items-center gap-2">
-                                    <h2 class="font-serif text-xl font-semibold text-gray-900">
+                            <div data-testid="settings-provider-copy" class="min-w-0 self-center">
+                                <div
+                                    data-testid="settings-provider-title-row"
+                                    class="flex flex-wrap items-center gap-2"
+                                >
+                                    <h1 class="settings-page-title">
                                         {{ selectedProvider.name }}
-                                    </h2>
+                                    </h1>
                                     <span
-                                        class="bg-primary-50 text-primary-600 rounded-full px-2 py-0.5 text-xs font-medium"
+                                        v-if="selectedProvider.is_builtin !== 1"
+                                        data-testid="settings-provider-driver-badge"
+                                        class="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-600 ring-1 ring-neutral-200"
                                     >
                                         {{ selectedProviderDriverLabel }}
                                     </span>
                                 </div>
                             </div>
-                            <button
-                                v-if="!selectedProvider.is_builtin"
-                                class="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                                title="编辑服务商"
-                                @click="handleEditProvider"
-                            >
-                                <AppIcon name="edit" class="h-5 w-5" />
-                            </button>
                         </div>
+
+                        <button
+                            v-if="!selectedProvider.is_builtin"
+                            data-testid="settings-provider-edit-button"
+                            class="settings-icon-button"
+                            title="编辑服务商"
+                            @click="handleEditProvider"
+                        >
+                            <AppIcon name="edit" class="h-5 w-5" />
+                        </button>
                     </div>
 
                     <ProviderConfig :provider="selectedProvider" @update="handleUpdateProvider" />

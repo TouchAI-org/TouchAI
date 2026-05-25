@@ -2,10 +2,13 @@
 
 import productConfig from '@product-config';
 
+import packageJson from '../../package.json';
+
 export type ProductConfig = typeof productConfig;
 export type AppUpdateChannel = keyof ProductConfig['services']['updates']['channels'];
 
 export const APP_PRODUCT_CONFIG = productConfig;
+export const APP_VERSION = packageJson.version;
 export const APP_UPDATE_CHANNELS = Object.freeze(
     Object.keys(APP_PRODUCT_CONFIG.services.updates.channels) as AppUpdateChannel[]
 );

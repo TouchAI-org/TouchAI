@@ -84,40 +84,33 @@
 </script>
 
 <template>
-    <div class="rounded-lg border border-gray-200 bg-white p-6">
-        <div class="flex items-center gap-6">
-            <div class="text-primary-600 flex items-center justify-center">
-                <AppIcon name="mcp" class="h-10 w-10" />
-            </div>
-
-            <div class="flex-1">
-                <div class="flex items-center gap-3">
-                    <h2 class="font-serif text-xl font-semibold text-gray-900">
+    <div class="space-y-4">
+        <div class="flex items-start justify-between gap-5">
+            <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                    <h2 class="truncate text-[16px] leading-6 font-semibold text-neutral-950">
                         {{ isNewServer ? '新建服务器' : server.name }}
                     </h2>
                     <span
                         v-if="!isNewServer"
-                        class="rounded bg-blue-100 px-2 py-0.5 font-mono text-xs font-medium text-blue-700"
+                        class="rounded bg-neutral-100 px-2 py-0.5 font-mono text-xs font-normal text-neutral-600"
                     >
                         {{ server.transport_type }}
                     </span>
                     <span
                         v-if="server.version"
-                        class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs font-medium text-gray-600"
+                        class="rounded bg-neutral-100 px-2 py-0.5 font-mono text-xs font-normal text-neutral-600"
                     >
                         {{ server.version }}
                     </span>
                 </div>
-                <p class="mt-1 font-serif text-sm text-gray-600">
-                    {{ isNewServer ? '填写服务器配置信息' : '配置 MCP 服务器连接参数和工具设置' }}
-                </p>
             </div>
         </div>
 
         <!-- Status & Actions (仅现有服务器显示) -->
         <div
             v-if="!isNewServer"
-            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-4"
+            class="flex items-center justify-between gap-4 rounded-[13px] border border-neutral-200/70 bg-white px-5 py-4"
         >
             <div class="flex items-center gap-2">
                 <div
@@ -129,7 +122,7 @@
                         status === 'error' && 'bg-red-500',
                     ]"
                 />
-                <span class="font-serif text-sm text-gray-700">
+                <span class="text-sm font-normal text-neutral-700">
                     {{ statusText }}
                 </span>
             </div>
@@ -139,7 +132,8 @@
                     v-if="status === 'disconnected' || status === 'error'"
                     :disabled="isConnecting"
                     :class="[
-                        'bg-primary-600 hover:bg-primary-700 flex items-center gap-2 rounded-lg px-4 py-2 font-serif text-sm text-white transition-colors',
+                        'settings-button-primary',
+                        'flex items-center gap-2',
                         isConnecting && 'cursor-not-allowed opacity-50',
                     ]"
                     @click="onConnect"
@@ -154,7 +148,8 @@
                     v-else-if="status === 'connected'"
                     :disabled="isDisconnecting"
                     :class="[
-                        'flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 font-serif text-sm text-gray-600 transition-colors hover:bg-gray-200',
+                        'settings-button-secondary',
+                        'flex items-center gap-2',
                         isDisconnecting && 'cursor-not-allowed opacity-50',
                     ]"
                     @click="onDisconnect"
@@ -173,7 +168,8 @@
                     v-if="status === 'connected'"
                     :disabled="isConnecting || isDisconnecting || isReconnecting"
                     :class="[
-                        'bg-primary-600 hover:bg-primary-700 flex items-center gap-2 rounded-lg px-4 py-2 font-serif text-sm text-white transition-colors',
+                        'settings-button-primary',
+                        'flex items-center gap-2',
                         (isConnecting || isDisconnecting || isReconnecting) &&
                             'cursor-not-allowed opacity-50',
                     ]"
@@ -188,7 +184,7 @@
                 <button
                     v-else-if="status === 'connecting'"
                     disabled
-                    class="flex cursor-not-allowed items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 font-serif text-sm text-white opacity-75"
+                    class="flex cursor-not-allowed items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 text-sm text-white opacity-75"
                 >
                     <AppIcon name="play" class="h-4 w-4 animate-spin" />
                     连接中...
@@ -200,7 +196,7 @@
         <div v-if="serverError && status === 'error'" class="mt-4 rounded-lg bg-red-50 p-3">
             <div class="flex items-start gap-2">
                 <AppIcon name="exclamation-triangle" class="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                <div class="custom-scrollbar max-h-[7.5rem] min-w-0 flex-1 overflow-y-auto pr-1">
+                <div class="settings-scrollbar max-h-[7.5rem] min-w-0 flex-1 overflow-y-auto pr-1">
                     <p
                         class="font-mono text-xs leading-5 break-all whitespace-pre-wrap text-red-600"
                     >
