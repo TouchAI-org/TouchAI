@@ -62,6 +62,11 @@ export interface SearchWindowMinimumSizeInput {
     autoHeightFloor: number;
 }
 
+export interface SearchWindowResizeCenterInput {
+    sessionCount: number;
+    quickSearchOpen: boolean;
+}
+
 export interface SearchWindowResizeConstraints {
     minWidth: number;
     minHeight: number;
@@ -133,6 +138,21 @@ export function resolveSearchWindowMinimumSize(
         minHeight: height,
         maxHeight: input.hasManagedPanel ? null : input.defaultHeight,
     };
+}
+
+/**
+ * 计算内容驱动 resize 是否需要围绕窗口中心伸缩。
+ *
+ * QuickSearch 处于无会话输入态时，面板位于输入框下方；如果居中伸缩，
+ * 首次检索会把窗口顶部往上抬，产生“弹窗把窗口顶上去”的感觉。
+ * 对话态保留居中伸缩，延续阅读区域的原有视觉稳定性。
+ */
+export function shouldCenterSearchWindowResize(input: SearchWindowResizeCenterInput) {
+    if (input.sessionCount > 0) {
+        return true;
+    }
+
+    return !input.quickSearchOpen;
 }
 
 /**
