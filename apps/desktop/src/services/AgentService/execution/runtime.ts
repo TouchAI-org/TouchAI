@@ -9,6 +9,7 @@ import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastr
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
+import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
 import { buildPromptTransportMessages } from '../prompt/transport';
@@ -233,6 +234,8 @@ export class AiConversationRuntime {
                 executionMode: this.options.executionMode ?? 'foreground',
                 inputSnapshot: this.options.inputSnapshot,
             }));
+        const modelLanguageContext =
+            promptSnapshot.modelLanguageContext ?? getCurrentModelLanguageContext();
         const baseMessages = await buildPromptTransportMessages({
             sessionId: this.options.sessionId,
             snapshot: promptSnapshot,
@@ -242,6 +245,7 @@ export class AiConversationRuntime {
         const initialCheckpoint = this.executor.createInitialCheckpoint({
             initialModel,
             baseMessages,
+            modelLanguageContext,
         });
 
         if (this.options.taskId) {

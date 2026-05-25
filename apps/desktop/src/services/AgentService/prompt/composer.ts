@@ -6,6 +6,10 @@ import {
 } from '@/services/AgentService/infrastructure/attachments';
 import type { InputHistorySnapshot } from '@/types/session';
 
+import {
+    buildCurrentLanguageSystemPrompt,
+    getCurrentModelLanguageContext,
+} from '../languageContext';
 import type { TaskExecutionMode } from '../task/types';
 import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from './builtin';
 import type { PromptAssembly, PromptFragment, PromptFragmentSource, PromptSnapshot } from './types';
@@ -82,9 +86,14 @@ async function summarizeAttachments(
 
 async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promise<PromptAssembly> {
     const executionMode = options.executionMode ?? 'foreground';
+    const modelLanguageContext = getCurrentModelLanguageContext();
+    const platformFragments = [
+        ...(options.platform ?? [TOUCHAI_BUILTIN_SYSTEM_PROMPT]),
+        buildCurrentLanguageSystemPrompt(modelLanguageContext),
+    ];
     const fragmentsBySource: Record<PromptFragmentSource, PromptFragment[]> = {
         override: buildFragments('override', options.override ?? []),
-        platform: buildFragments('platform', options.platform ?? [TOUCHAI_BUILTIN_SYSTEM_PROMPT]),
+        platform: buildFragments('platform', platformFragments),
         policy: buildFragments('policy', options.policy ?? [TOOL_DISCIPLINE_SYSTEM_PROMPT]),
         agent_profile: buildFragments('agent_profile', options.agentProfile ?? []),
         session_memory: buildFragments('session_memory', options.sessionMemory ?? []),
@@ -98,6 +107,7 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
 
     return {
         executionMode,
+        modelLanguageContext,
         fragments: PROMPT_SOURCE_ORDER.flatMap((source) => fragmentsBySource[source]),
         userPrompt: options.prompt,
         attachments: await summarizeAttachments(options.attachments ?? []),
@@ -116,6 +126,7 @@ export async function composePromptSnapshot(
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         executionMode: assembly.executionMode,
+        modelLanguageContext: assembly.modelLanguageContext,
         fragments: assembly.fragments,
         userPrompt: assembly.userPrompt,
         attachments: assembly.attachments,

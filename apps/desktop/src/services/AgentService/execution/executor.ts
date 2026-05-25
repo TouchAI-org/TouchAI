@@ -28,6 +28,7 @@ import {
     createProviderFromRegistry,
     parseProviderConfigJson,
 } from '../infrastructure/providers';
+import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import type { TurnEvent } from './runtime';
 
@@ -74,6 +75,7 @@ export interface AttemptCheckpoint {
     reasoning: string;
     iteration: number;
     modelSwitchCount: number;
+    modelLanguageContext: ModelLanguageContext;
     executedBuiltInToolIds: BuiltInToolId[];
 }
 
@@ -86,6 +88,7 @@ interface AttemptRuntime {
     reasoning: string;
     iteration: number;
     modelSwitchCount: number;
+    modelLanguageContext: ModelLanguageContext;
     hasVisibleOutputSinceCheckpoint: boolean;
     hasToolActivitySinceCheckpoint: boolean;
     executedBuiltInTools: Set<BuiltInToolId>;
@@ -368,6 +371,7 @@ export class AiRequestExecutor {
         modelId: string,
         messages: AiMessage[],
         tools?: AiToolDefinition[],
+        modelLanguageContext?: ModelLanguageContext,
         signal?: AbortSignal,
         attachmentRequestIndex?: number,
         onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
@@ -382,6 +386,7 @@ export class AiRequestExecutor {
             messages,
             supportsReasoning,
             tools,
+            modelLanguageContext,
             signal,
             attachmentRequestIndex,
             onAttachmentManifestResolved,
@@ -537,6 +542,7 @@ export class AiRequestExecutor {
     createInitialCheckpoint(options: {
         initialModel: ModelWithProvider;
         baseMessages: AiMessage[];
+        modelLanguageContext: ModelLanguageContext;
     }): AttemptCheckpoint {
         return {
             activeModel: options.initialModel,
@@ -545,6 +551,7 @@ export class AiRequestExecutor {
             reasoning: '',
             iteration: 0,
             modelSwitchCount: 0,
+            modelLanguageContext: options.modelLanguageContext,
             executedBuiltInToolIds: [],
         };
     }
@@ -552,7 +559,7 @@ export class AiRequestExecutor {
     private async createAttemptRuntime(
         startCheckpoint: AttemptCheckpoint
     ): Promise<AttemptRuntime> {
-        const { activeModel, modelSwitchCount } = startCheckpoint;
+        const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
         return {
             activeModel,
@@ -568,6 +575,7 @@ export class AiRequestExecutor {
             reasoning: startCheckpoint.reasoning,
             iteration: startCheckpoint.iteration,
             modelSwitchCount,
+            modelLanguageContext,
             hasVisibleOutputSinceCheckpoint: false,
             hasToolActivitySinceCheckpoint: false,
             executedBuiltInTools: new Set(startCheckpoint.executedBuiltInToolIds),
@@ -582,6 +590,7 @@ export class AiRequestExecutor {
             reasoning: runtime.reasoning,
             iteration: runtime.iteration,
             modelSwitchCount: runtime.modelSwitchCount,
+            modelLanguageContext: runtime.modelLanguageContext,
             executedBuiltInToolIds: [...runtime.executedBuiltInTools],
         };
     }
@@ -606,6 +615,7 @@ export class AiRequestExecutor {
             runtime.activeModel.model_id,
             runtime.messages,
             runtime.tools,
+            runtime.modelLanguageContext,
             options.signal,
             runtime.iteration,
             options.onAttachmentManifestResolved,
