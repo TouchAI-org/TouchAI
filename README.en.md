@@ -28,6 +28,9 @@
 
 ---
 
+> [!WARNING]
+> Many features are still pending merge and may undergo breaking changes. Non-developers are recommended to download and use after the June 1 free token event starts.
+
 ### Features
 
 - **One shortcut away** - `Alt+Space` appears and disappears without interrupting your workflow
