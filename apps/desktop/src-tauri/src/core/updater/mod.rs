@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     collections::BTreeMap,
-    sync::mpsc,
-    sync::{Mutex, OnceLock},
+    sync::{mpsc, Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Runtime};
@@ -25,9 +24,9 @@ const VELOPACK_WORKER_STACK_SIZE: usize = 8 * 1024 * 1024;
 const MAXIMUM_DELTAS_BEFORE_FULL_FALLBACK: i32 = 10;
 const UPDATE_POLICY_TIMEOUT_SECONDS: u64 = 5;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct AppUpdaterState {
-    pending_update: Mutex<Option<PendingUpdate>>,
+    pending_update: Arc<Mutex<Option<PendingUpdate>>>,
 }
 
 #[derive(Debug, Clone)]
