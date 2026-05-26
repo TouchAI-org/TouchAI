@@ -9,6 +9,7 @@ pub mod mcp;
 pub mod paths;
 pub mod quick_search;
 pub mod shortcut;
+pub mod updater;
 pub mod window;
 
 /// 构建应用级 Tauri 调用处理器。
@@ -71,5 +72,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         quick_search::quick_search_get_image_thumbnails,
         quick_search::quick_search_prepare_index,
         quick_search::quick_search_get_status,
+        updater::updater_check_for_updates,
+        updater::updater_download_update,
+        updater::updater_install_update,
     ]
 }

@@ -24,7 +24,7 @@
     interface Emits {
         (e: 'updated', wasNewServer: boolean): void;
         (e: 'deleted'): void;
-        (e: 'showAlert', message: string, type: 'success' | 'error'): void;
+        (e: 'showAlert', message: string, type: 'error'): void;
         (e: 'cancelled'): void;
     }
 
@@ -199,7 +199,6 @@
             if (wasNewServer) {
                 // 创建新服务器 - 不包含 id 字段
                 await createMcpServer(serverData);
-                emit('showAlert', '服务器创建成功', 'success');
             } else {
                 // 更新现有服务器
                 await updateMcpServer(props.server.id, serverData);
@@ -217,7 +216,7 @@
 </script>
 
 <template>
-    <div class="space-y-4 p-6">
+    <div class="settings-page-wide space-y-6">
         <!-- 服务器头部 -->
         <McpServerHeader
             :server="server"
@@ -228,21 +227,21 @@
         <!-- 配置详情 -->
         <div class="space-y-4">
             <div class="flex items-center justify-between">
-                <h3 class="font-serif text-sm font-semibold text-gray-900">服务器配置</h3>
+                <h2 class="text-[15px] font-medium text-neutral-950">服务器配置</h2>
             </div>
 
-            <div class="rounded-lg border border-gray-200 bg-white p-5">
+            <div class="settings-card">
                 <div class="space-y-4">
                     <!-- 名称 -->
                     <div>
-                        <label class="block font-serif text-sm font-medium text-gray-600">
+                        <label class="block text-sm font-medium text-neutral-700">
                             名称
                             <span class="text-red-500">*</span>
                         </label>
                         <input
                             v-model="editableConfig.name"
                             type="text"
-                            class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
+                            class="settings-input mt-1.5 w-full"
                             placeholder="服务器名称"
                             @blur="onBlur"
                         />
@@ -250,7 +249,7 @@
 
                     <!-- 传输类型 -->
                     <div>
-                        <label class="block font-serif text-sm font-medium text-gray-600">
+                        <label class="block text-sm font-medium text-neutral-700">
                             传输类型
                             <span class="text-red-500">*</span>
                         </label>
@@ -282,13 +281,13 @@
 
                     <!-- 工具超时 -->
                     <div>
-                        <label class="block font-serif text-sm font-medium text-gray-600">
+                        <label class="block text-sm font-medium text-neutral-700">
                             工具超时 (毫秒)
                         </label>
                         <input
                             v-model.number="editableConfig.toolTimeout"
                             type="number"
-                            class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
+                            class="settings-input mt-1.5 w-full"
                             placeholder="30000"
                             @blur="onBlur"
                         />

@@ -4,17 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
 import { createSearchInteractionContext } from '@/views/SearchView/composables/searchInteraction';
-import { useSearchPageLifecycle } from '@/views/SearchView/composables/useSearchPage';
+import {
+    useSearchPageController,
+    useSearchPageLifecycle,
+} from '@/views/SearchView/composables/useSearchPage';
 
 const {
     currentWindowMock,
     eventHandlers,
     eventServiceMock,
-    clearStatusReminderNotificationsMock,
     initNotificationPermissionMock,
     nativeMock,
     notifyMock,
-    notifySessionStatusReminderMock,
     popupManagerMock,
     popupManagerState,
     runStartupTasksMock,
@@ -38,10 +39,8 @@ const {
                 };
             }),
         },
-        clearStatusReminderNotificationsMock: vi.fn(),
         initNotificationPermissionMock: vi.fn(),
         notifyMock: vi.fn(),
-        notifySessionStatusReminderMock: vi.fn(),
         nativeMock: {
             runtime: {
                 getRuntimeInfo: vi.fn(),
@@ -53,6 +52,8 @@ const {
                 hideSearchWindow: vi.fn(),
                 setTrayStatusIndicator: vi.fn(),
                 clearTrayStatusIndicator: vi.fn(),
+                showSessionStatusReminderNotification: vi.fn(),
+                clearSessionStatusReminderNotifications: vi.fn(),
                 setSearchSurfaceHideOnAppBlur: vi.fn(),
             },
         },
@@ -93,10 +94,8 @@ vi.mock('@services/NativeService', () => ({
 }));
 
 vi.mock('@services/NotificationService', () => ({
-    clearStatusReminderNotifications: clearStatusReminderNotificationsMock,
     initNotificationPermission: initNotificationPermissionMock,
     notify: notifyMock,
-    notifySessionStatusReminder: notifySessionStatusReminderMock,
 }));
 
 vi.mock('@services/PopupService', () => ({
@@ -132,6 +131,60 @@ function createController() {
         invalidateModelDropdownData: vi.fn(),
     };
 }
+
+describe('useSearchPageController', () => {
+    it('closes quick search through the panel so internal search state is cleared', () => {
+        const quickSearchOpen = ref(true);
+        const closeQuickSearchPanel = vi.fn(() => {
+            quickSearchOpen.value = false;
+        });
+        const quickSearchPanel = ref({
+            open: vi.fn(),
+            close: closeQuickSearchPanel,
+            syncClosedState: vi.fn(),
+            moveSelection: vi.fn(),
+            getHighlightedItem: vi.fn(() => null),
+            openHighlightedItem: vi.fn().mockResolvedValue(undefined),
+            triggerSearch: vi.fn(),
+            goToPage: vi.fn(),
+            goToNextPage: vi.fn(),
+            goToPreviousPage: vi.fn(),
+            openContextMenuForItem: vi.fn(),
+            openContextMenuForHighlightedItem: vi.fn(),
+            toggleViewMode: vi.fn(),
+            collapseToDefault: vi.fn(),
+            isContextMenuOpen: false,
+            closeContextMenu: vi.fn(),
+        });
+
+        const controller = useSearchPageController({
+            searchBar: ref(),
+            quickSearchOpen,
+            quickSearchPanel: quickSearchPanel as never,
+            conversationPanel: ref(),
+        });
+
+        controller.closeQuickSearch();
+
+        expect(closeQuickSearchPanel).toHaveBeenCalledTimes(1);
+        expect(quickSearchOpen.value).toBe(false);
+    });
+
+    it('falls back to closing the quick search flag when the panel is not mounted', () => {
+        const quickSearchOpen = ref(true);
+
+        const controller = useSearchPageController({
+            searchBar: ref(),
+            quickSearchOpen,
+            quickSearchPanel: ref(),
+            conversationPanel: ref(),
+        });
+
+        controller.closeQuickSearch();
+
+        expect(quickSearchOpen.value).toBe(false);
+    });
+});
 
 function createStatusChangedPayload(
     kind: 'completed' | 'failed' | 'waiting_approval',
@@ -180,6 +233,8 @@ describe('useSearchPageLifecycle', () => {
         nativeMock.window.hideSearchWindow.mockResolvedValue(undefined);
         nativeMock.window.setTrayStatusIndicator.mockResolvedValue(undefined);
         nativeMock.window.clearTrayStatusIndicator.mockResolvedValue(undefined);
+        nativeMock.window.showSessionStatusReminderNotification.mockResolvedValue(undefined);
+        nativeMock.window.clearSessionStatusReminderNotifications.mockResolvedValue(undefined);
         nativeMock.window.setSearchSurfaceHideOnAppBlur.mockResolvedValue(undefined);
 
         popupManagerMock.initialize.mockResolvedValue(undefined);
@@ -193,7 +248,6 @@ describe('useSearchPageLifecycle', () => {
 
         settingsStoreMock.initialize.mockResolvedValue(undefined);
         settingsStoreMock.globalShortcut = 'Alt+Space';
-        clearStatusReminderNotificationsMock.mockResolvedValue(undefined);
         initNotificationPermissionMock.mockResolvedValue(undefined);
         runStartupTasksMock.mockResolvedValue(undefined);
     });
@@ -266,7 +320,7 @@ describe('useSearchPageLifecycle', () => {
         );
         await flushLifecycle();
 
-        expect(notifySessionStatusReminderMock).not.toHaveBeenCalled();
+        expect(nativeMock.window.showSessionStatusReminderNotification).not.toHaveBeenCalled();
         expect(nativeMock.window.setTrayStatusIndicator).not.toHaveBeenCalled();
 
         mounted.unmount();
@@ -303,7 +357,7 @@ describe('useSearchPageLifecycle', () => {
         );
         await flushLifecycle();
 
-        expect(notifySessionStatusReminderMock).toHaveBeenCalledWith({
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
             title: '任务失败',
             body: 'network error',
             sessionId: 1,
@@ -346,7 +400,7 @@ describe('useSearchPageLifecycle', () => {
         );
         await flushLifecycle();
 
-        expect(notifySessionStatusReminderMock).toHaveBeenCalledWith({
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
             title: '等待批准',
             body: 'Need approval',
             sessionId: 1,
@@ -367,7 +421,7 @@ describe('useSearchPageLifecycle', () => {
         await flushLifecycle();
 
         expect(nativeMock.window.clearTrayStatusIndicator).toHaveBeenCalled();
-        expect(clearStatusReminderNotificationsMock).toHaveBeenCalled();
+        expect(nativeMock.window.clearSessionStatusReminderNotifications).toHaveBeenCalled();
 
         mounted.unmount();
     });
@@ -402,7 +456,7 @@ describe('useSearchPageLifecycle', () => {
         await flushLifecycle();
 
         expect(nativeMock.window.clearTrayStatusIndicator).toHaveBeenCalled();
-        expect(clearStatusReminderNotificationsMock).toHaveBeenCalled();
+        expect(nativeMock.window.clearSessionStatusReminderNotifications).toHaveBeenCalled();
         expect(handleSessionStatusReminderAction).toHaveBeenCalledWith({
             sessionId: 1,
             taskId: 'task-1',

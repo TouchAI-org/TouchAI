@@ -20,24 +20,31 @@
         showClose: true,
     });
 
-    const currentWindow = getCurrentWindow();
+    const currentWindow = (() => {
+        try {
+            return getCurrentWindow();
+        } catch {
+            return null;
+        }
+    })();
 
     const handleMinimize = async () => {
-        await currentWindow.minimize();
+        await currentWindow?.minimize();
     };
 
     const handleClose = async () => {
-        await currentWindow.close();
+        await currentWindow?.close();
     };
 </script>
 
 <template>
     <div
-        class="flex h-10 w-full items-center justify-between border-b border-gray-200 bg-white px-4 select-none"
+        class="flex h-10 w-full items-center justify-between bg-[#f7f7f6] px-4 select-none"
+        data-testid="app-titlebar"
         data-tauri-drag-region
     >
         <div class="flex items-center gap-2" data-tauri-drag-region>
-            <span class="font-serif text-sm font-medium text-gray-900" data-tauri-drag-region>
+            <span class="text-sm font-medium text-neutral-900" data-tauri-drag-region>
                 {{ title }}
             </span>
         </div>
@@ -46,7 +53,7 @@
             <button
                 v-if="showMinimize"
                 data-tauri-drag-region="false"
-                class="flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
                 title="最小化"
                 @click="handleMinimize"
             >
@@ -56,7 +63,7 @@
             <button
                 v-if="showClose"
                 data-tauri-drag-region="false"
-                class="flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
                 title="关闭"
                 @click="handleClose"
             >

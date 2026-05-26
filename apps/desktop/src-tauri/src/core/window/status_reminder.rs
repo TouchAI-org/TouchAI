@@ -51,30 +51,6 @@ pub struct SessionStatusReminderNotificationPayload {
     pub approval: Option<SessionStatusReminderNotificationApprovalPayload>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionStatusReminderNotificationRecord {
-    pub title: String,
-    pub body: String,
-    pub session_id: i64,
-    pub task_id: String,
-    pub kind: SessionStatusReminderKind,
-    pub approval: Option<SessionStatusReminderNotificationApprovalPayload>,
-}
-
-impl From<&SessionStatusReminderNotificationPayload> for SessionStatusReminderNotificationRecord {
-    fn from(value: &SessionStatusReminderNotificationPayload) -> Self {
-        Self {
-            title: value.title.clone(),
-            body: value.body.clone(),
-            session_id: value.session_id,
-            task_id: value.task_id.clone(),
-            kind: value.kind,
-            approval: value.approval.clone(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionStatusReminderActionPayload {
@@ -91,7 +67,7 @@ struct SessionStatusReminderActionPayload {
 pub struct SessionStatusReminderNotificationRuntime {
     test_mode: AtomicBool,
     next_tag: AtomicU64,
-    records: Mutex<Vec<SessionStatusReminderNotificationRecord>>,
+    records: Mutex<Vec<SessionStatusReminderNotificationPayload>>,
     clear_count: AtomicUsize,
     #[cfg(target_os = "windows")]
     active_toasts: Mutex<Vec<windows::UI::Notifications::ToastNotification>>,
@@ -128,10 +104,10 @@ impl SessionStatusReminderNotificationRuntime {
         self.records
             .lock()
             .expect("session status reminder runtime poisoned")
-            .push(SessionStatusReminderNotificationRecord::from(payload));
+            .push(payload.clone());
     }
 
-    pub fn records(&self) -> Vec<SessionStatusReminderNotificationRecord> {
+    pub fn records(&self) -> Vec<SessionStatusReminderNotificationPayload> {
         self.records
             .lock()
             .expect("session status reminder runtime poisoned")
@@ -269,8 +245,9 @@ fn show_windows_status_reminder_notification<R: Runtime>(
                     }
 
                     if let Some(payload) = activation_payload.as_ref() {
-                        if let Err(error) =
-                            emit_session_status_reminder_action(&task_handle, payload)
+                        if let Err(error) = task_handle
+                            .emit(SESSION_STATUS_REMINDER_ACTION_EVENT, payload)
+                            .map_err(|error| error.to_string())
                         {
                             warn!(
                                 "Failed to emit session status reminder action event: {}",
@@ -310,7 +287,8 @@ fn parse_activated_payload(
     activated: &windows::UI::Notifications::ToastActivatedEventArgs,
 ) -> Result<SessionStatusReminderActionPayload, String> {
     let arguments = activated.Arguments().map_err(|error| error.to_string())?;
-    let payload = parse_activation_payload(arguments.to_string())?;
+    let payload =
+        serde_json::from_str(&arguments.to_string()).map_err(|error| error.to_string())?;
     Ok(finalize_activation_payload(
         payload,
         extract_reply_text(activated),
@@ -362,17 +340,14 @@ fn notification_application_id<R: Runtime>(app: &AppHandle<R>) -> String {
 }
 
 fn build_toast_xml(payload: &SessionStatusReminderNotificationPayload) -> Result<String, String> {
-    let launch = serialize_activation_payload(&SessionStatusReminderActionPayload {
-        action: SessionStatusReminderAction::Open,
-        session_id: payload.session_id,
-        task_id: payload.task_id.clone(),
-        kind: payload.kind,
-        call_id: payload
+    let launch = serialize_activation_payload(
+        payload,
+        SessionStatusReminderAction::Open,
+        payload
             .approval
             .as_ref()
             .map(|approval| approval.call_id.clone()),
-        reply_text: None,
-    })?;
+    )?;
 
     let actions = if payload.kind == SessionStatusReminderKind::WaitingApproval {
         build_approval_actions_xml(payload)?
@@ -404,76 +379,71 @@ fn build_approval_actions_xml(
         return Ok(String::new());
     };
 
-    let approve_arguments = serialize_activation_payload(&SessionStatusReminderActionPayload {
-        action: SessionStatusReminderAction::Approve,
-        session_id: payload.session_id,
-        task_id: payload.task_id.clone(),
-        kind: payload.kind,
-        call_id: Some(approval.call_id.clone()),
-        reply_text: None,
-    })?;
-    let reject_arguments = serialize_activation_payload(&SessionStatusReminderActionPayload {
-        action: SessionStatusReminderAction::Reject,
-        session_id: payload.session_id,
-        task_id: payload.task_id.clone(),
-        kind: payload.kind,
-        call_id: Some(approval.call_id.clone()),
-        reply_text: None,
-    })?;
+    let approve_arguments = serialize_activation_payload(
+        payload,
+        SessionStatusReminderAction::Approve,
+        Some(approval.call_id.clone()),
+    )?;
+    let reject_arguments = serialize_activation_payload(
+        payload,
+        SessionStatusReminderAction::Reject,
+        Some(approval.call_id.clone()),
+    )?;
 
     Ok(format!(
         r#"<actions>
-            <action content="{}" arguments="{}" activationType="foreground" />
-            <action content="{}" arguments="{}" activationType="foreground" />
+            {}
+            {}
         </actions>"#,
-        escape_xml(&approval.approve_label),
-        escape_xml(&approve_arguments),
-        escape_xml(&approval.reject_label),
-        escape_xml(&reject_arguments)
+        build_action_xml(&approval.approve_label, &approve_arguments, None),
+        build_action_xml(&approval.reject_label, &reject_arguments, None)
     ))
 }
 
 fn build_reply_actions_xml(
     payload: &SessionStatusReminderNotificationPayload,
 ) -> Result<String, String> {
-    let reply_arguments = serialize_activation_payload(&SessionStatusReminderActionPayload {
-        action: SessionStatusReminderAction::Reply,
-        session_id: payload.session_id,
-        task_id: payload.task_id.clone(),
-        kind: payload.kind,
-        call_id: None,
-        reply_text: None,
-    })?;
+    let reply_arguments =
+        serialize_activation_payload(payload, SessionStatusReminderAction::Reply, None)?;
 
     Ok(format!(
         r#"<actions>
             <input id="{}" type="text" placeHolderContent="{}" />
-            <action content="{}" arguments="{}" activationType="foreground" hint-inputId="{}" />
+            {}
         </actions>"#,
         escape_xml(REPLY_INPUT_ID),
         escape_xml(REPLY_PLACEHOLDER),
-        escape_xml(REPLY_ACTION_LABEL),
-        escape_xml(&reply_arguments),
-        escape_xml(REPLY_INPUT_ID)
+        build_action_xml(REPLY_ACTION_LABEL, &reply_arguments, Some(REPLY_INPUT_ID))
     ))
 }
 
+fn build_action_xml(content: &str, arguments: &str, input_id: Option<&str>) -> String {
+    let hint_input = input_id
+        .map(|value| format!(r#" hint-inputId="{}""#, escape_xml(value)))
+        .unwrap_or_default();
+
+    format!(
+        r#"<action content="{}" arguments="{}" activationType="foreground"{} />"#,
+        escape_xml(content),
+        escape_xml(arguments),
+        hint_input
+    )
+}
+
 fn serialize_activation_payload(
-    payload: &SessionStatusReminderActionPayload,
+    payload: &SessionStatusReminderNotificationPayload,
+    action: SessionStatusReminderAction,
+    call_id: Option<String>,
 ) -> Result<String, String> {
-    serde_json::to_string(payload).map_err(|error| error.to_string())
-}
-
-fn parse_activation_payload(value: String) -> Result<SessionStatusReminderActionPayload, String> {
-    serde_json::from_str(&value).map_err(|error| error.to_string())
-}
-
-fn emit_session_status_reminder_action<R: Runtime>(
-    app: &AppHandle<R>,
-    payload: &SessionStatusReminderActionPayload,
-) -> Result<(), String> {
-    app.emit(SESSION_STATUS_REMINDER_ACTION_EVENT, payload)
-        .map_err(|error| error.to_string())
+    serde_json::to_string(&SessionStatusReminderActionPayload {
+        action,
+        session_id: payload.session_id,
+        task_id: payload.task_id.clone(),
+        kind: payload.kind,
+        call_id,
+        reply_text: None,
+    })
+    .map_err(|error| error.to_string())
 }
 
 fn finalize_activation_payload(

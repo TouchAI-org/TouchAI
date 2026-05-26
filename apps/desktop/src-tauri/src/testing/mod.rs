@@ -9,13 +9,10 @@ use crate::{
     commands,
     core::{
         database::DatabaseRuntime,
+        updater::AppUpdaterState,
         window::{
-            popup::PopupRegistry,
-            search::surface::SearchSurfaceRuntime,
-            status_reminder::{
-                SessionStatusReminderNotificationRecord, SessionStatusReminderNotificationRuntime,
-            },
-            tray::TrayStatusRuntime,
+            popup::PopupRegistry, search::surface::SearchSurfaceRuntime,
+            status_reminder::SessionStatusReminderNotificationRuntime, tray::TrayStatusRuntime,
         },
     },
 };
@@ -33,6 +30,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .manage(SearchSurfaceRuntime::new())
         .manage(SessionStatusReminderNotificationRuntime::for_tests())
         .manage(TrayStatusRuntime::new())
+        .manage(AppUpdaterState::default())
 }
 
 pub fn attach_test_database_runtime(
@@ -69,7 +67,7 @@ pub fn tray_status_indicator<R: Runtime>(app: &App<R>) -> Option<String> {
 
 pub fn session_status_reminder_notifications<R: Runtime>(
     app: &App<R>,
-) -> Vec<SessionStatusReminderNotificationRecord> {
+) -> Vec<crate::core::window::status_reminder::SessionStatusReminderNotificationRecord> {
     app.state::<SessionStatusReminderNotificationRuntime>()
         .records()
 }

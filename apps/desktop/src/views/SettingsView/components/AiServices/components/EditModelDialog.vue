@@ -110,25 +110,23 @@
 
 <template>
     <DialogShell>
-        <h2 class="mb-5 font-serif text-base font-semibold text-gray-900">编辑模型</h2>
+        <h2 class="mb-5 text-[15px] font-medium text-neutral-950">编辑模型</h2>
 
         <div class="space-y-4">
             <div>
-                <label class="block font-serif text-sm font-medium text-gray-600">模型名称 *</label>
-                <Input v-model="form.name" class="mt-1.5 font-serif" placeholder="GPT-4o" />
-                <p class="mt-1 text-xs text-gray-400">用于显示的模型名称</p>
+                <label class="block text-sm font-medium text-neutral-700">模型名称 *</label>
+                <Input v-model="form.name" class="mt-1.5" placeholder="GPT-4o" />
+                <p class="mt-1 text-xs text-neutral-400">用于显示的模型名称</p>
             </div>
 
             <div>
-                <label class="block font-serif text-sm font-medium text-gray-600">模型 ID *</label>
-                <Input v-model="form.model_id" class="mt-1.5 font-serif" placeholder="gpt-4o" />
-                <p class="mt-1 text-xs text-gray-400">API 调用时使用的模型标识符</p>
+                <label class="block text-sm font-medium text-neutral-700">模型 ID *</label>
+                <Input v-model="form.model_id" class="mt-1.5" placeholder="gpt-4o" />
+                <p class="mt-1 text-xs text-neutral-400">API 调用时使用的模型标识符</p>
             </div>
 
             <div>
-                <label class="mb-2 block font-serif text-sm font-medium text-gray-600">
-                    模型能力
-                </label>
+                <label class="mb-2 block text-sm font-medium text-neutral-700">模型能力</label>
                 <div class="flex flex-wrap gap-2">
                     <button
                         type="button"
@@ -136,7 +134,7 @@
                             'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
                             form.reasoning
                                 ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200',
+                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
                         ]"
                         @click="form.reasoning = !form.reasoning"
                     >
@@ -148,7 +146,7 @@
                             'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
                             form.tool_call
                                 ? 'bg-green-50 text-green-600 hover:bg-green-100'
-                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200',
+                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
                         ]"
                         @click="form.tool_call = !form.tool_call"
                     >
@@ -160,7 +158,7 @@
                             'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
                             form.multimodal
                                 ? 'bg-purple-50 text-purple-600 hover:bg-purple-100'
-                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200',
+                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
                         ]"
                         @click="form.multimodal = !form.multimodal"
                     >
@@ -172,7 +170,7 @@
                             'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
                             form.attachment
                                 ? 'bg-orange-50 text-orange-600 hover:bg-orange-100'
-                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200',
+                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
                         ]"
                         @click="form.attachment = !form.attachment"
                     >
@@ -184,7 +182,7 @@
                             'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
                             form.open_weights
                                 ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
-                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200',
+                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
                         ]"
                         @click="form.open_weights = !form.open_weights"
                     >
@@ -196,14 +194,14 @@
 
         <div class="mt-6 flex gap-3">
             <Button
-                class="bg-primary-500 hover:bg-primary-600 flex-1 rounded-lg px-4 py-2 font-serif text-sm font-medium text-white transition-colors"
+                class="bg-primary-700 hover:bg-primary-600 flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors"
                 @click="handleSave"
             >
                 保存
             </Button>
             <Button
                 variant="outline"
-                class="flex-1 rounded-lg border border-gray-200 px-4 py-2 font-serif text-sm font-medium text-gray-600 transition-colors hover:border-gray-300"
+                class="flex-1 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 transition-colors hover:border-neutral-300"
                 @click="emit('cancel')"
             >
                 取消

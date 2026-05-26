@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-use image::{Rgba, RgbaImage};
+//! 系统托盘模块。
+
 use log::warn;
 use std::sync::Mutex;
 use tauri::{
@@ -10,14 +11,8 @@ use tauri::{
 };
 
 const TRAY_ID: &str = "touchai-tray";
+const TRAY_MENU_ROUTE: &str = "#/tray-menu";
 const TRAY_TOOLTIP: &str = "TouchAI";
-const INDICATOR_MARGIN: u32 = 2;
-const INDICATOR_OUTER_DIAMETER: u32 = 12;
-const INDICATOR_INNER_DIAMETER: u32 = 8;
-const INDICATOR_RING_COLOR: Rgba<u8> = Rgba([255, 255, 255, 232]);
-const COMPLETED_INDICATOR_COLOR: Rgba<u8> = Rgba([22, 163, 74, 255]);
-const FAILED_INDICATOR_COLOR: Rgba<u8> = Rgba([220, 38, 38, 255]);
-const WAITING_INDICATOR_COLOR: Rgba<u8> = Rgba([234, 179, 8, 255]);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,11 +52,11 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::er
     let status = app
         .try_state::<TrayStatusRuntime>()
         .and_then(|runtime| runtime.status());
-    let icon = load_tray_icon_with_indicator(status)?;
+    let icon = load_tray_icon(status)?;
 
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip(tray_tooltip(status))
+        .tooltip(TRAY_TOOLTIP)
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::Click {
                 button: MouseButton::Right,
@@ -79,9 +74,10 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::er
                 button_state: MouseButtonState::Up,
                 ..
             } => {
-                let app = tray.app_handle().clone();
-                if let Err(error) = crate::core::window::show_search_window(app) {
-                    warn!("Failed to restore search window from tray icon: {}", error);
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
             }
             _ => {}
@@ -117,6 +113,7 @@ pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     Ok(())
 }
 
+/// 预加载托盘菜单窗口（隐藏状态），加速首次右键响应
 pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
     if app.get_webview_window("tray-menu").is_some() {
         return Ok(());
@@ -125,7 +122,7 @@ pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn s
     let window = WebviewWindowBuilder::new(
         app,
         "tray-menu",
-        WebviewUrl::App("/tray-menu".parse().unwrap()),
+        WebviewUrl::App(TRAY_MENU_ROUTE.parse().unwrap()),
     )
     .inner_size(140.0, 134.0)
     .resizable(false)
@@ -143,33 +140,27 @@ pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn s
     Ok(())
 }
 
-fn load_tray_icon_rgba() -> Result<RgbaImage, Box<dyn std::error::Error>> {
-    let icon_bytes = include_bytes!("../../../../icons/32x32.png");
-    let image = image::load_from_memory(icon_bytes)?;
-    Ok(image.to_rgba8())
+fn tray_icon_bytes(status: Option<TrayStatusIndicator>) -> &'static [u8] {
+    match status {
+        Some(TrayStatusIndicator::Completed) => {
+            include_bytes!("../../../../icons/32x32-tray-completed.png")
+        }
+        Some(TrayStatusIndicator::Failed) => {
+            include_bytes!("../../../../icons/32x32-tray-failed.png")
+        }
+        Some(TrayStatusIndicator::WaitingApproval) => {
+            include_bytes!("../../../../icons/32x32-tray-waiting_approval.png")
+        }
+        None => include_bytes!("../../../../icons/32x32.png"),
+    }
 }
 
-fn load_tray_icon_with_indicator(
+fn load_tray_icon(
     status: Option<TrayStatusIndicator>,
 ) -> Result<Image<'static>, Box<dyn std::error::Error>> {
-    let mut rgba = load_tray_icon_rgba()?;
-    if let Some(status) = status {
-        render_status_indicator(&mut rgba, status);
-    }
-
+    let rgba = image::load_from_memory(tray_icon_bytes(status))?.to_rgba8();
     let (width, height) = rgba.dimensions();
     Ok(Image::new_owned(rgba.into_raw(), width, height))
-}
-
-fn tray_tooltip(status: Option<TrayStatusIndicator>) -> String {
-    match status {
-        Some(TrayStatusIndicator::Completed) => format!("{TRAY_TOOLTIP} (completed)"),
-        Some(TrayStatusIndicator::Failed) => format!("{TRAY_TOOLTIP} (failed)"),
-        Some(TrayStatusIndicator::WaitingApproval) => {
-            format!("{TRAY_TOOLTIP} (waiting approval)")
-        }
-        None => TRAY_TOOLTIP.to_string(),
-    }
 }
 
 fn apply_tray_status<R: Runtime>(
@@ -182,7 +173,7 @@ fn apply_tray_status<R: Runtime>(
             return;
         };
 
-        let icon = match load_tray_icon_with_indicator(status) {
+        let icon = match load_tray_icon(status) {
             Ok(icon) => icon,
             Err(error) => {
                 warn!("Failed to load tray icon with status indicator: {}", error);
@@ -193,68 +184,8 @@ fn apply_tray_status<R: Runtime>(
         if let Err(error) = tray.set_icon(Some(icon)) {
             warn!("Failed to update tray icon status indicator: {}", error);
         }
-
-        if let Err(error) = tray.set_tooltip(Some(tray_tooltip(status))) {
-            warn!("Failed to update tray tooltip: {}", error);
-        }
     })
     .map_err(|error| error.to_string())
-}
-
-fn render_status_indicator(image: &mut RgbaImage, status: TrayStatusIndicator) {
-    let outer_left = image
-        .width()
-        .saturating_sub(INDICATOR_OUTER_DIAMETER + INDICATOR_MARGIN);
-    let outer_top = INDICATOR_MARGIN.min(image.height().saturating_sub(INDICATOR_OUTER_DIAMETER));
-    let inner_offset = (INDICATOR_OUTER_DIAMETER - INDICATOR_INNER_DIAMETER) / 2;
-    let inner_left = outer_left + inner_offset;
-    let inner_top = outer_top + inner_offset;
-
-    draw_filled_circle(
-        image,
-        outer_left,
-        outer_top,
-        INDICATOR_OUTER_DIAMETER,
-        INDICATOR_RING_COLOR,
-    );
-    draw_filled_circle(
-        image,
-        inner_left,
-        inner_top,
-        INDICATOR_INNER_DIAMETER,
-        indicator_color(status),
-    );
-}
-
-fn indicator_color(status: TrayStatusIndicator) -> Rgba<u8> {
-    match status {
-        TrayStatusIndicator::Completed => COMPLETED_INDICATOR_COLOR,
-        TrayStatusIndicator::Failed => FAILED_INDICATOR_COLOR,
-        TrayStatusIndicator::WaitingApproval => WAITING_INDICATOR_COLOR,
-    }
-}
-
-fn draw_filled_circle(image: &mut RgbaImage, left: u32, top: u32, diameter: u32, color: Rgba<u8>) {
-    if diameter == 0 {
-        return;
-    }
-
-    let radius = diameter as f32 / 2.0;
-    let center_x = left as f32 + radius - 0.5;
-    let center_y = top as f32 + radius - 0.5;
-    let radius_squared = radius * radius;
-
-    for y in top..top + diameter {
-        for x in left..left + diameter {
-            let px = x as f32 + 0.5;
-            let py = y as f32 + 0.5;
-            let dx = px - center_x;
-            let dy = py - center_y;
-            if dx * dx + dy * dy <= radius_squared {
-                image.put_pixel(x, y, color);
-            }
-        }
-    }
 }
 
 fn show_tray_menu<R: Runtime>(
@@ -305,58 +236,46 @@ fn show_tray_menu<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        indicator_color, render_status_indicator, TrayStatusIndicator, COMPLETED_INDICATOR_COLOR,
-    };
+    use super::{load_tray_icon, tray_icon_bytes, TrayStatusIndicator};
 
     #[test]
-    fn indicator_color_matches_completed_status() {
-        assert_eq!(
-            indicator_color(TrayStatusIndicator::Completed),
-            COMPLETED_INDICATOR_COLOR
-        );
+    fn tray_icon_bytes_switch_with_status() {
+        let default_bytes = tray_icon_bytes(None);
+        let completed_bytes = tray_icon_bytes(Some(TrayStatusIndicator::Completed));
+        let failed_bytes = tray_icon_bytes(Some(TrayStatusIndicator::Failed));
+        let waiting_bytes = tray_icon_bytes(Some(TrayStatusIndicator::WaitingApproval));
+
+        assert_ne!(default_bytes.as_ptr(), completed_bytes.as_ptr());
+        assert_ne!(completed_bytes.as_ptr(), failed_bytes.as_ptr());
+        assert_ne!(failed_bytes.as_ptr(), waiting_bytes.as_ptr());
     }
 
     #[test]
-    fn render_status_indicator_draws_status_pixels() {
-        let mut image = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
-
-        render_status_indicator(&mut image, TrayStatusIndicator::Failed);
-
-        let changed_pixels = image
-            .pixels()
-            .filter(|pixel| **pixel == indicator_color(TrayStatusIndicator::Failed))
-            .count();
-        assert!(changed_pixels > 0);
+    fn load_tray_icon_decodes_all_status_icons() {
+        for status in [
+            None,
+            Some(TrayStatusIndicator::Completed),
+            Some(TrayStatusIndicator::Failed),
+            Some(TrayStatusIndicator::WaitingApproval),
+        ] {
+            let icon = load_tray_icon(status).expect("status tray icon should decode");
+            assert_eq!(icon.width(), 32);
+            assert_eq!(icon.height(), 32);
+        }
     }
 
     #[test]
-    fn render_status_indicator_places_dot_in_top_right_corner() {
-        let mut image = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
-
-        render_status_indicator(&mut image, TrayStatusIndicator::WaitingApproval);
-
-        let target_color = indicator_color(TrayStatusIndicator::WaitingApproval);
-        let mut top_right_pixels = 0;
-        let mut bottom_right_pixels = 0;
-
-        for x in 16..32 {
-            for y in 0..16 {
-                if *image.get_pixel(x, y) == target_color {
-                    top_right_pixels += 1;
-                }
-            }
+    fn tray_icon_pngs_are_valid_images() {
+        for status in [
+            None,
+            Some(TrayStatusIndicator::Completed),
+            Some(TrayStatusIndicator::Failed),
+            Some(TrayStatusIndicator::WaitingApproval),
+        ] {
+            let image = image::load_from_memory(tray_icon_bytes(status))
+                .expect("status tray png should load");
+            assert_eq!(image.width(), 32);
+            assert_eq!(image.height(), 32);
         }
-
-        for x in 16..32 {
-            for y in 16..32 {
-                if *image.get_pixel(x, y) == target_color {
-                    bottom_right_pixels += 1;
-                }
-            }
-        }
-
-        assert!(top_right_pixels > 0);
-        assert!(top_right_pixels > bottom_right_pixels);
     }
 }

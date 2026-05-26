@@ -4,18 +4,9 @@
  */
 import { useAlert } from '@composables/useAlert';
 import { AppEvent, eventService } from '@services/EventService';
-import type {
-    SessionStatusReminderActionEvent,
-    SessionStatusReminderPayload,
-} from '@services/EventService/types';
+import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
 import { native } from '@services/NativeService';
-import type { SessionStatusReminderNotificationKind } from '@services/NativeService/types';
-import {
-    clearStatusReminderNotifications,
-    initNotificationPermission,
-    notify,
-    notifySessionStatusReminder,
-} from '@services/NotificationService';
+import { initNotificationPermission, notify } from '@services/NotificationService';
 import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
 import { popupManager } from '@services/PopupService';
 import { runStartupTasks } from '@services/StartupService';
@@ -27,6 +18,7 @@ import { isE2eTestMode } from '@/utils/runtimeMode';
 
 import type {
     ConversationPanelHandle,
+    QuickSearchHandle,
     SearchBarHandle,
     SearchModelDropdownContext,
     SearchModelDropdownState,
@@ -36,6 +28,7 @@ import type {
 import type { SearchOverlayCommand, SearchPopupSessionIdentity } from './searchInteraction';
 import type { createSearchInteractionContext, UseSearchKeyboardOptions } from './searchInteraction';
 import { createSearchKeydownHandler } from './searchInteraction';
+import { createSessionStatusReminderCoordinator } from './sessionStatusReminder';
 import { useModelDropdownPopup } from './useModelDropdownPopup';
 
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -186,26 +179,7 @@ function isModelDropdownSubsequence(needle: string, haystack: string) {
 export function useSearchPageController(options: {
     searchBar: Ref<SearchBarHandle | undefined>;
     quickSearchOpen: Ref<boolean>;
-    quickSearchPanel: Ref<
-        | {
-              open: () => void;
-              syncClosedState: () => void;
-              moveSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
-              getHighlightedItem: () => unknown | null;
-              openHighlightedItem: () => Promise<void>;
-              triggerSearch: (query: string) => void;
-              goToPage: (page: number) => void;
-              goToNextPage: () => void;
-              goToPreviousPage: () => void;
-              openContextMenuForItem: (index: number) => void;
-              openContextMenuForHighlightedItem: () => void;
-              toggleViewMode: () => void;
-              collapseToDefault: () => void;
-              isContextMenuOpen: boolean;
-              closeContextMenu: () => void;
-          }
-        | undefined
-    >;
+    quickSearchPanel: Ref<QuickSearchHandle | undefined>;
     conversationPanel: Ref<ConversationPanelHandle | undefined>;
 }): SearchPageController {
     const { searchBar, quickSearchOpen, quickSearchPanel, conversationPanel } = options;
@@ -276,6 +250,11 @@ export function useSearchPageController(options: {
     }
 
     function closeQuickSearch() {
+        if (quickSearchPanel.value) {
+            quickSearchPanel.value.close();
+            return;
+        }
+
         quickSearchOpen.value = false;
     }
 
@@ -444,62 +423,13 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let lifecycleInitialized = false;
     let restoredActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
-    let trayStatusIndicator: SessionStatusReminderNotificationKind | null = null;
+    const sessionStatusReminderCoordinator = createSessionStatusReminderCoordinator({
+        isSearchSurfaceVisible: () => interactionContext.state.windowVisible,
+        onReminderAction: handleSessionStatusReminderAction,
+    });
 
-    function isSearchSurfaceForeground() {
-        return interactionContext.state.windowVisible;
-    }
-
-    function syncTrayStatusIndicator() {
-        if (!trayStatusIndicator) {
-            void native.window.clearTrayStatusIndicator().catch((error) => {
-                console.error('[SearchView] Failed to clear tray status indicator:', error);
-            });
-            return;
-        }
-
-        void native.window.setTrayStatusIndicator(trayStatusIndicator).catch((error) => {
-            console.error('[SearchView] Failed to update tray status indicator:', error);
-        });
-    }
-
-    function setTrayStatusReminder(kind: SessionStatusReminderNotificationKind | null) {
-        trayStatusIndicator = kind;
-        syncTrayStatusIndicator();
-    }
-
-    function clearStatusReminders() {
-        setTrayStatusReminder(null);
-        void clearStatusReminderNotifications().catch((error) => {
-            console.error('[SearchView] Failed to clear status reminder notifications:', error);
-        });
-    }
-
-    function clearStatusRemindersIfForeground() {
-        if (!isSearchSurfaceForeground()) {
-            return;
-        }
-
-        clearStatusReminders();
-    }
-
-    function showSessionStatusReminder(
-        payload: SessionStatusReminderPayload & { sessionId: number; taskId: string }
-    ) {
-        if (isSearchSurfaceForeground()) {
-            setTrayStatusReminder(null);
-            return;
-        }
-
-        notifySessionStatusReminder({
-            title: payload.title,
-            body: payload.body,
-            sessionId: payload.sessionId,
-            taskId: payload.taskId,
-            kind: payload.kind,
-            approval: payload.approval ?? null,
-        });
-        setTrayStatusReminder(payload.kind);
+    function handleReminderSurfaceVisible() {
+        sessionStatusReminderCoordinator.handleSurfaceVisible();
     }
 
     async function hideSearchWindow() {
@@ -657,7 +587,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext.setWindowFocused(interactionContext.state.windowVisible);
         interactionContext.setAppFocused(interactionContext.state.windowVisible);
         if (interactionContext.state.windowVisible) {
-            clearStatusRemindersIfForeground();
+            handleReminderSurfaceVisible();
         }
         await syncWindowPinStateSafely('initialize');
         await initFocusListener();
@@ -687,7 +617,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             async (payload) => {
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
                 interactionContext.markWindowVisible();
-                clearStatusReminders();
+                handleReminderSurfaceVisible();
                 await handleSearchWindowActivated(payload.source ?? 'shortcut');
             }
         );
@@ -713,39 +643,12 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
         unlistenSessionTaskStatusChanged = await eventService.on(
             AppEvent.SESSION_TASK_STATUS_CHANGED,
-            (payload) => {
-                if (
-                    payload.previousStatus === 'waiting_approval' &&
-                    payload.status !== 'waiting_approval'
-                ) {
-                    clearStatusReminders();
-                }
-
-                if (!payload.reminder) {
-                    return;
-                }
-
-                showSessionStatusReminder({
-                    ...payload.reminder,
-                    sessionId: payload.sessionId,
-                    taskId: payload.taskId,
-                });
-            }
+            sessionStatusReminderCoordinator.handleTaskStatusChanged
         );
 
         unlistenSessionStatusReminderAction = await eventService.on(
             AppEvent.SESSION_STATUS_REMINDER_ACTION,
-            async (payload) => {
-                clearStatusReminders();
-                await Promise.resolve(handleSessionStatusReminderAction?.(payload)).catch(
-                    (error) => {
-                        console.error(
-                            '[SearchView] Failed to handle session status reminder action:',
-                            error
-                        );
-                    }
-                );
-            }
+            sessionStatusReminderCoordinator.handleReminderAction
         );
 
         unlistenSearchSurfaceCommand = await eventService.on(
@@ -762,7 +665,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext.markWindowVisible();
         interactionContext.setWindowFocused(true);
         interactionContext.setAppFocused(true);
-        clearStatusRemindersIfForeground();
+        handleReminderSurfaceVisible();
     };
     const handleWindowBlur = () => {
         interactionContext.setWindowFocused(false);
@@ -778,7 +681,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             return;
         }
 
-        clearStatusRemindersIfForeground();
+        handleReminderSurfaceVisible();
     };
 
     onMounted(() => {

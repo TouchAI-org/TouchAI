@@ -58,6 +58,26 @@ const DEFAULT_DEPS: UseQuickSearchDeps = {
     openPath,
 };
 
+type E2EQuickSearchBridge = Window & {
+    __TOUCHAI_E2E__?: {
+        getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[] | null | undefined;
+    };
+};
+
+function resolveE2eQuickSearchFallbackResults(query: string): QuickShortcutItem[] {
+    const bridgeWindow = window as E2EQuickSearchBridge;
+    const fallbackResults = bridgeWindow.__TOUCHAI_E2E__?.getQuickSearchFallbackResults?.(query);
+
+    if (!Array.isArray(fallbackResults)) {
+        return [];
+    }
+
+    return fallbackResults.filter(
+        (item): item is QuickShortcutItem =>
+            Boolean(item?.name) && Boolean(item?.path) && Boolean(item?.source)
+    );
+}
+
 interface UseQuickSearchLogicOptions {
     open: Ref<boolean>;
     searchQuery: Ref<string>;
@@ -194,18 +214,25 @@ function useQuickSearchFlow(
                 if (reqId !== requestId.value) return;
             }
 
-            const mergedResults = [...rankedShortcuts, ...searchResult.files];
+            let mergedResults = [...rankedShortcuts, ...searchResult.files];
 
             if (mergedResults.length === 0) {
-                close();
-                return;
+                mergedResults = resolveE2eQuickSearchFallbackResults(trimmedQuery);
+                if (mergedResults.length === 0) {
+                    close();
+                    return;
+                }
             }
 
             emitOpenUpdate(true);
             results.value = mergedResults;
             lastSearchedQuery = trimmedQuery;
-            totalFiles.value = searchResult.total_files;
-            totalResults.value = searchResult.total_results;
+            totalFiles.value =
+                searchResult.total_files > 0
+                    ? searchResult.total_files
+                    : mergedResults.filter((item) => item.source === 'file').length;
+            totalResults.value =
+                searchResult.total_results > 0 ? searchResult.total_results : mergedResults.length;
             nextOffset.value = searchResult.next_offset;
             currentPage.value = 0;
             itemRefs.value = [];

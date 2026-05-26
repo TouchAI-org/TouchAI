@@ -2,11 +2,10 @@
 
 import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
 import { MetaKey } from '@database/schema';
-import { notify } from '@services/NotificationService';
 
 interface StartupTask {
     key: MetaKey;
-    handler: (value: string) => void | Promise<void>;
+    handler?: (value: string) => void | Promise<void>;
 }
 
 /**
@@ -17,7 +16,6 @@ interface StartupTask {
 const tasks: StartupTask[] = [
     {
         key: MetaKey.IMPORT_SUCCESS,
-        handler: (message) => notify({ title: 'TouchAI', body: message }),
     },
 ];
 
@@ -27,7 +25,7 @@ export async function runStartupTasks() {
             const value = await getMeta({ key: task.key });
             if (value) {
                 await deleteMeta({ key: task.key });
-                await task.handler(value);
+                await task.handler?.(value);
             }
         } catch (error) {
             console.error(`Startup task [${task.key}] failed:`, error);

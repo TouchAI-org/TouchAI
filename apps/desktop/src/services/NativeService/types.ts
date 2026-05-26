@@ -1,4 +1,7 @@
+import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
+
+export type { AppUpdateChannel } from '@/config/appUpdate';
 export type { SearchWindowDefaultSize, SearchWindowHeightMode };
 
 export interface PopupConfig {
@@ -90,6 +93,71 @@ export type TrayStatusIndicator = SessionStatusReminderNotificationKind;
 export interface RuntimeInfo {
     isE2eTestMode: boolean;
 }
+
+export interface AppUpdateInfo {
+    version: string;
+    fileName: string;
+    notes: string | null;
+    sizeBytes: number | null;
+}
+
+export interface AppUpdateRequirement {
+    required: boolean;
+    minimumSupportedVersion: string | null;
+    requiredSeverity: 'critical' | 'security' | 'recommended' | string | null;
+    requiredReason: string | null;
+    targetSatisfiesRequirement: boolean;
+}
+
+export interface AppUpdateDownload {
+    kind:
+        | 'installer'
+        | 'portable'
+        | 'fullPackage'
+        | 'deltaPackage'
+        | 'updatePackage'
+        | 'asset'
+        | string;
+    name: string;
+    url: string;
+    sizeBytes: number | null;
+}
+
+export interface AppUpdateChannelLatest {
+    version: string;
+    tag: string;
+    releaseUrl: string;
+    publishedAt: string | null;
+    prerelease: boolean;
+    releaseNotes: string | null;
+    downloads: AppUpdateDownload[];
+}
+
+export type AppUpdateCheckResult =
+    | {
+          status: 'available';
+          channel: AppUpdateChannel;
+          currentVersion: string;
+          latest: AppUpdateChannelLatest | null;
+          update: AppUpdateInfo;
+          requirement: AppUpdateRequirement;
+      }
+    | {
+          status: 'not_available';
+          channel: AppUpdateChannel;
+          currentVersion: string;
+          latest: AppUpdateChannelLatest | null;
+          requirement: AppUpdateRequirement;
+      }
+    | {
+          status: 'unsupported';
+          channel: AppUpdateChannel;
+          currentVersion: string | null;
+          latest: AppUpdateChannelLatest | null;
+          reason: 'not_installed' | 'platform_unsupported' | 'updater_unavailable';
+          message: string;
+          requirement: AppUpdateRequirement;
+      };
 
 export interface TauriLogPayload {
     level: number;

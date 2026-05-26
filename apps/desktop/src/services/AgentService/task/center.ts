@@ -47,10 +47,6 @@ function isTerminalStatus(status: SessionTaskSnapshot['status']): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
-function normalizeReminderText(value: string): string {
-    return value.replace(/\s+/g, ' ').trim();
-}
-
 function truncateReminderText(value: string, maxChars: number): string {
     if (value.length <= maxChars) {
         return value;
@@ -63,7 +59,7 @@ function summarizeReminderText(
     value: string | null | undefined,
     maxChars = STATUS_REMINDER_MAX_BODY_CHARS
 ) {
-    const normalized = normalizeReminderText(value ?? '');
+    const normalized = (value ?? '').replace(/\s+/g, ' ').trim();
     if (!normalized) {
         return null;
     }

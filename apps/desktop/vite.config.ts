@@ -92,6 +92,7 @@ export default defineConfig({
         __dirname,
         './node_modules/vue-draggable-plus/dist/vue-draggable-plus.cjs',
       ),
+      '@product-config': resolve(__dirname, './product.json'),
       '@': resolve(__dirname, './src'),
       '@assets': resolve(__dirname, './src/assets'),
       '@components': resolve(__dirname, './src/components'),

@@ -2,6 +2,8 @@ import type { Component } from 'vue';
 
 import IconBrain from '~icons/bx/brain';
 import IconBriefcase from '~icons/bx/briefcase-alt-2';
+import IconBug from '~icons/bx/bug-alt';
+import IconGithub from '~icons/bx/bxl-github';
 import IconCheckCircle from '~icons/bx/check-circle';
 import IconChevronDown from '~icons/bx/chevron-down';
 import IconChevronRight from '~icons/bx/chevron-right';
@@ -56,6 +58,7 @@ export const appIconMap = {
     file: IconFile,
     'folder-open': IconFolderOpen,
     fullscreen: IconFullscreen,
+    github: IconGithub,
     'grid-alt': IconGridAlt,
     history: IconHistory,
     'list-ul': IconMenu,
@@ -73,6 +76,7 @@ export const appIconMap = {
     stop: IconStop,
     tool: IconBriefcase,
     trash: IconTrash,
+    bug: IconBug,
     wrench: IconWrench,
     x: IconX,
     'x-circle': IconXCircle,
