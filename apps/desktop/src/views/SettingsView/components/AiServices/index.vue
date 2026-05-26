@@ -84,6 +84,72 @@
         });
     }
 
+    function setCachedModels(providerId: number, models: ModelWithProvider[]) {
+        const nextCache = new Map(modelsCache.value);
+        nextCache.set(providerId, models);
+        modelsCache.value = nextCache;
+    }
+
+    function removeCachedModels(providerId: number) {
+        const nextCache = new Map(modelsCache.value);
+        nextCache.delete(providerId);
+        modelsCache.value = nextCache;
+    }
+
+    function patchCachedModel(modelId: number, patch: Partial<Model>) {
+        const nextCache = new Map(modelsCache.value);
+        for (const [providerId, providerModels] of nextCache.entries()) {
+            nextCache.set(
+                providerId,
+                providerModels.map((model) =>
+                    model.id === modelId ? { ...model, ...patch } : model
+                )
+            );
+        }
+        modelsCache.value = nextCache;
+    }
+
+    function removeCachedModel(modelId: number) {
+        const nextCache = new Map(modelsCache.value);
+        for (const [providerId, providerModels] of nextCache.entries()) {
+            nextCache.set(
+                providerId,
+                providerModels.filter((model) => model.id !== modelId)
+            );
+        }
+        modelsCache.value = nextCache;
+    }
+
+    function findCachedModel(modelId: number): ModelWithProvider | undefined {
+        for (const providerModels of modelsCache.value.values()) {
+            const model = providerModels.find((item) => item.id === modelId);
+            if (model) {
+                return model;
+            }
+        }
+
+        return undefined;
+    }
+
+    function patchProvider(providerId: number, patch: Partial<Provider>) {
+        providers.value = providers.value.map((provider) =>
+            provider.id === providerId ? { ...provider, ...patch } : provider
+        );
+    }
+
+    function toModelWithProvider(model: Model, provider: Provider): ModelWithProvider {
+        return {
+            ...model,
+            provider_name: provider.name,
+            provider_driver: provider.driver,
+            api_endpoint: provider.api_endpoint,
+            api_key: provider.api_key,
+            provider_config_json: provider.config_json,
+            provider_enabled: provider.enabled,
+            provider_logo: provider.logo,
+        };
+    }
+
     // 计算属性
     const selectedProvider = computed(() =>
         providers.value.find((p) => p.id === selectedProviderId.value)
@@ -146,7 +212,7 @@
         try {
             loadingModels.value = true;
             const models = await findModelsWithProvider({ providerId });
-            modelsCache.value.set(providerId, models);
+            setCachedModels(providerId, models);
         } catch (err) {
             console.error('Failed to load models:', err);
             alert.error('加载模型失败');
@@ -183,15 +249,8 @@
                 providerPatch: { enabled: newEnabled },
             });
 
-            // 重新加载服务商列表
-            await loadProviders();
+            patchProvider(providerId, { enabled: newEnabled });
             await broadcastModelsUpdated();
-
-            if (newEnabled === 1) {
-                alert.success('服务商已启用');
-            } else {
-                alert.info('服务商已禁用');
-            }
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '操作失败');
         }
@@ -257,8 +316,7 @@
                 id: selectedProviderId.value,
                 providerPatch: normalizedProviderPatch,
             });
-            await loadProviders();
-            alert.success('保存成功');
+            patchProvider(selectedProviderId.value, normalizedProviderPatch);
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '保存失败');
         }
@@ -274,14 +332,16 @@
 
     const handleCreateProvider = async (data: NewProvider) => {
         try {
-            await createProvider({
+            const createdProvider = await createProvider({
                 ...data,
                 name: requireNonEmptyProviderField(data.name, '服务商名称'),
                 api_endpoint: requireNonEmptyProviderField(data.api_endpoint, '请求地址'),
             });
-            await loadProviders();
+            providers.value = [...providers.value, createdProvider];
+            if (!selectedProviderId.value) {
+                selectedProviderId.value = createdProvider.id;
+            }
             showAddDialog.value = false;
-            alert.success('创建成功');
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '创建失败');
         }
@@ -296,9 +356,8 @@
                 id: selectedProviderId.value,
                 providerPatch: normalizedProviderPatch,
             });
-            await loadProviders();
+            patchProvider(selectedProviderId.value, normalizedProviderPatch);
             showEditDialog.value = false;
-            alert.success('保存成功');
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '保存失败');
         }
@@ -313,7 +372,8 @@
 
             assertProviderCanBeDeleted(provider);
             await deleteProvider({ id: providerId });
-            await loadProviders();
+            providers.value = providers.value.filter((item) => item.id !== providerId);
+            removeCachedModels(providerId);
             if (selectedProviderId.value === providerId) {
                 selectedProviderId.value = providers.value[0]?.id || null;
                 if (selectedProviderId.value) {
@@ -321,7 +381,6 @@
                 }
             }
             showEditDialog.value = false;
-            alert.success('删除成功');
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '删除失败');
         }
@@ -330,12 +389,18 @@
     // 模型操作
     const handleCreateModel = async (data: NewModel) => {
         try {
-            await createModel(data);
-            if (selectedProviderId.value) {
-                await loadModelsForProvider(selectedProviderId.value, true); // 强制刷新
+            const createdModel = await createModel(data);
+            const provider = providers.value.find((item) => item.id === createdModel.provider_id);
+            if (provider) {
+                const providerModels = modelsCache.value.get(createdModel.provider_id) || [];
+                setCachedModels(createdModel.provider_id, [
+                    ...providerModels,
+                    toModelWithProvider(createdModel, provider),
+                ]);
+            } else if (selectedProviderId.value) {
+                await loadModelsForProvider(selectedProviderId.value, true);
             }
             await broadcastModelsUpdated();
-            alert.success('创建成功');
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '创建失败');
         }
@@ -344,11 +409,8 @@
     const handleUpdateModel = async (id: number, data: Partial<Model>) => {
         try {
             await updateModel({ id, modelPatch: data });
-            if (selectedProviderId.value) {
-                await loadModelsForProvider(selectedProviderId.value, true); // 强制刷新
-            }
+            patchCachedModel(id, data);
             await broadcastModelsUpdated();
-            alert.success('保存成功');
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '保存失败');
         }
@@ -357,12 +419,11 @@
     const handleDeleteModel = async (id: number, silent = false) => {
         try {
             await deleteModel({ id });
-            if (selectedProviderId.value) {
-                await loadModelsForProvider(selectedProviderId.value, true); // 强制刷新
-            }
+            removeCachedModel(id);
             await broadcastModelsUpdated();
-            if (!silent) {
-                alert.success('删除成功');
+            if (!silent && defaultModelId.value === id) {
+                defaultModelId.value = null;
+                defaultModelProviderId.value = null;
             }
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '删除失败');
@@ -371,16 +432,25 @@
 
     const handleSetDefaultModel = async (id: number) => {
         try {
+            const nextDefaultModel = findCachedModel(id);
             await setDefaultModel({ modelId: id });
-            await loadProviders();
+            defaultModelId.value = id;
+            defaultModelProviderId.value =
+                nextDefaultModel?.provider_id ?? selectedProviderId.value ?? null;
 
-            // 强制刷新模型列表以确保排序正确
-            if (selectedProviderId.value) {
-                await loadModelsForProvider(selectedProviderId.value, true);
+            const nextCache = new Map(modelsCache.value);
+            for (const [providerId, providerModels] of nextCache.entries()) {
+                nextCache.set(
+                    providerId,
+                    providerModels.map((model) => ({
+                        ...model,
+                        is_default: model.id === id ? 1 : 0,
+                    }))
+                );
             }
+            modelsCache.value = nextCache;
 
             await broadcastModelsUpdated();
-            alert.success('设置成功');
         } catch (err) {
             alert.error(err instanceof Error ? err.message : '设置失败');
         }
@@ -448,7 +518,6 @@
             }
 
             if (fetchedModels.length === 0) {
-                if (!silent) alert.info('未获取到模型列表');
                 return;
             }
 
@@ -486,9 +555,6 @@
 
             await loadModelsForProvider(currentProviderId, true); // 强制刷新缓存
             await broadcastModelsUpdated();
-            if (!silent) {
-                alert.success(`刷新成功，新增 ${newModels.length} 个模型`);
-            }
         } catch (err) {
             if (refreshingProviderId.value !== currentProviderId) {
                 return;

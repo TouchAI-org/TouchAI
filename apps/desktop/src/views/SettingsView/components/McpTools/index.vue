@@ -188,8 +188,6 @@
                     togglingServers.value.delete(newServer.id);
                 }
             }
-        } else {
-            alertMessage.value?.success('服务器配置已更新', 3000);
         }
     };
 
@@ -199,14 +197,11 @@
 
     const handleServerDeleted = () => {
         selectedServer.value = null;
-        alertMessage.value?.success('服务器已删除', 3000);
         serverListRef.value?.loadServers();
     };
 
-    const handleShowAlert = (message: string, type: 'success' | 'error') => {
-        if (type === 'success') {
-            alertMessage.value?.success(message, 3000);
-        } else {
+    const handleShowAlert = (message: string, type: 'error') => {
+        if (type === 'error') {
             alertMessage.value?.error(message, 6000);
         }
     };
@@ -326,7 +321,6 @@
                 selectedServer.value = null;
             }
 
-            alertMessage.value?.success('服务器已删除', 3000);
             await mcpStore.loadServers();
             serverListRef.value?.loadServers();
         } catch (error) {

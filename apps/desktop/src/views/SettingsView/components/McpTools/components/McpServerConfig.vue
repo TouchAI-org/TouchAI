@@ -24,7 +24,7 @@
     interface Emits {
         (e: 'updated', wasNewServer: boolean): void;
         (e: 'deleted'): void;
-        (e: 'showAlert', message: string, type: 'success' | 'error'): void;
+        (e: 'showAlert', message: string, type: 'error'): void;
         (e: 'cancelled'): void;
     }
 
@@ -199,7 +199,6 @@
             if (wasNewServer) {
                 // 创建新服务器 - 不包含 id 字段
                 await createMcpServer(serverData);
-                emit('showAlert', '服务器创建成功', 'success');
             } else {
                 // 更新现有服务器
                 await updateMcpServer(props.server.id, serverData);

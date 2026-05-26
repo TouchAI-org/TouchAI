@@ -14,7 +14,7 @@
     }
 
     interface Emits {
-        (e: 'showAlert', message: string, type: 'success' | 'error'): void;
+        (e: 'showAlert', message: string, type: 'error'): void;
     }
 
     const props = defineProps<Props>();
@@ -57,27 +57,21 @@
 
     const onConnect = async () => {
         const result = await handleConnect();
-        if (result.success) {
-            emit('showAlert', `服务器 "${props.server.name}" 连接成功`, 'success');
-        } else if (result.error) {
+        if (!result.success && result.error) {
             emit('showAlert', `连接失败: ${result.error}`, 'error');
         }
     };
 
     const onDisconnect = async () => {
         const result = await handleDisconnect();
-        if (result.success) {
-            emit('showAlert', `服务器 "${props.server.name}" 已断开`, 'success');
-        } else if (result.error) {
+        if (!result.success && result.error) {
             emit('showAlert', `断开失败: ${result.error}`, 'error');
         }
     };
 
     const onReconnect = async () => {
         const result = await handleReconnect();
-        if (result.success) {
-            emit('showAlert', `服务器 "${props.server.name}" 重新连接成功`, 'success');
-        } else if (result.error) {
+        if (!result.success && result.error) {
             emit('showAlert', `重新连接失败: ${result.error}`, 'error');
         }
     };

@@ -125,7 +125,7 @@
             if (!updatedTool) {
                 throw new Error(`Built-in tool not found after update: ${toolId}`);
             }
-            await loadTools();
+            applyToolUpdate(updatedTool);
         } catch (error) {
             console.error('[BuiltInToolsView] Failed to toggle tool enabled:', error);
             alertMessage.value?.error('更新工具启用状态失败', 6000);

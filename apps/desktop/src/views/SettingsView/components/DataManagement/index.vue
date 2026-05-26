@@ -11,8 +11,7 @@
         deleteAllSessionTurns,
         getStatistic,
     } from '@database/queries';
-    import { setMeta } from '@database/queries/touchaiMeta';
-    import { MetaKey, StatisticKey } from '@database/schema';
+    import { StatisticKey } from '@database/schema';
     import { relaunch } from '@tauri-apps/plugin-process';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
@@ -118,7 +117,6 @@
             try {
                 isLoading.value = true;
                 await deleteAllSessions();
-                alert.success('已成功删除所有会话');
                 await loadStats();
             } catch (error) {
                 console.error('Failed to clear sessions:', error);
@@ -140,7 +138,6 @@
             try {
                 isLoading.value = true;
                 await deleteAllMessages();
-                alert.success('已成功删除所有消息');
                 await loadStats();
             } catch (error) {
                 console.error('Failed to clear messages:', error);
@@ -162,7 +159,6 @@
             try {
                 isLoading.value = true;
                 await deleteAllSessionTurns();
-                alert.success('已成功删除所有对话记录');
                 await loadStats();
             } catch (error) {
                 console.error('Failed to clear session turns:', error);
@@ -185,7 +181,7 @@
             progressTitle.value = '正在导出';
             progressStatus.value = 'loading';
 
-            const exportedPath = await databaseBackup.exportDatabase((msg, prog) => {
+            await databaseBackup.exportDatabase((msg, prog) => {
                 if (!showProgressDialog.value) {
                     showProgressDialog.value = true;
                 }
@@ -193,7 +189,6 @@
             });
 
             showProgressDialog.value = false;
-            alert.success(`数据库已导出：${exportedPath}`);
         } catch (error) {
             console.error('Failed to export settings:', error);
             showProgressDialog.value = false;
@@ -252,14 +247,6 @@
                 return;
             }
 
-            const modeText =
-                result.importMode === 'chat_only' ? '仅导入对话数据' : '覆盖设置，差量导入对话数据';
-
-            let message = `数据导入成功（${modeText}）`;
-
-            // 保存成功消息到元数据，以便重启后显示
-            await setMeta({ key: MetaKey.IMPORT_SUCCESS, value: message });
-
             // 开始重启倒计时
             await startRestartCountdown();
         } catch (error) {
@@ -282,7 +269,6 @@
 
             await updateModelMetadata();
             await loadMetadataUpdatedAt();
-            alert.success('大模型数据库已更新');
         } catch (error) {
             console.error('Failed to update model metadata:', error);
             alert.error('更新大模型数据库失败');

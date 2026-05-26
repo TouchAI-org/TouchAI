@@ -144,7 +144,6 @@
             // 更新本地状态
             settings.value.globalShortcut = newShortcut;
             displayShortcut.value = newShortcut;
-            alertMessage.value?.success('快捷键保存成功', 3000);
         } catch (error) {
             console.error('Failed to save shortcut:', error);
             alertMessage.value?.error('保存快捷键到数据库失败', 3000);
@@ -292,7 +291,6 @@
     const saveOutputScrollBehavior = async () => {
         try {
             await settingsStore.updateOutputScrollBehavior(settings.value.outputScrollBehavior);
-            alertMessage.value?.success('保存成功', 2000);
         } catch (error) {
             console.error('Failed to save output_scroll_behavior setting:', error);
             alertMessage.value?.error('保存设置失败', 3000);
@@ -305,8 +303,6 @@
 
             await settingsStore.updateSearchWindowSizePreset(preset);
             await native.window.setSearchWindowDefaults(size);
-
-            alertMessage.value?.success('搜索窗口尺寸已更新', 2000);
         } catch (error) {
             console.error('Failed to save search window size preset:', error);
             alertMessage.value?.error('保存搜索窗口尺寸失败', 3000);
