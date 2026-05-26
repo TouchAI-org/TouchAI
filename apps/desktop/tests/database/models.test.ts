@@ -1,12 +1,10 @@
+import { setDefaultModel } from '@database/queries/models';
 import type { InvokeArgs } from '@tauri-apps/api/core';
+import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it } from 'vitest';
 
-import { setDefaultModel } from '@database/queries/models';
-import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
-
 function getRequest(payload: InvokeArgs | undefined) {
-    return (payload as { request?: { sql: string; params?: unknown[]; method: string } })
-        ?.request;
+    return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
 }
 
 describe('model database queries', () => {
