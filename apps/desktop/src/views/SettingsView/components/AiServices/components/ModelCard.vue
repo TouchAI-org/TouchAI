@@ -48,7 +48,7 @@
 </script>
 
 <template>
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-neutral-200 bg-white p-4">
         <div class="flex items-center gap-3">
             <div class="relative">
                 <input
@@ -57,7 +57,7 @@
                     :checked="isDefault"
                     :disabled="!providerEnabled"
                     :class="[
-                        'text-primary-500 mt-1 h-4 w-4',
+                        'mt-1 h-4 w-4 text-neutral-950',
                         !providerEnabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
                     ]"
                     :title="!providerEnabled ? '请先启用本服务商' : '设为默认模型'"
@@ -65,32 +65,32 @@
                 />
             </div>
 
-            <div :class="['relative', isDefault ? 'border-primary-500 rounded-full border-2' : '']">
+            <div :class="['relative', isDefault ? 'rounded-full border-2 border-neutral-950' : '']">
                 <ModelLogo :model-id="model.model_id" :name="model.name" />
             </div>
 
             <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-2">
-                    <h4 class="font-serif text-sm font-medium text-gray-900">{{ model.name }}</h4>
+                    <h4 class="text-sm font-medium text-neutral-950">{{ model.name }}</h4>
 
                     <ModelCapabilityTags :model="model" />
                 </div>
 
-                <p v-if="model.last_used_at" class="mt-1 text-xs text-gray-400">
+                <p v-if="model.last_used_at" class="mt-1 text-xs text-neutral-400">
                     最后使用: {{ new Date(model.last_used_at as string).toLocaleString('zh-CN') }}
                 </p>
             </div>
 
             <div class="flex gap-1">
                 <button
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                    class="settings-icon-button h-7 w-7 rounded-md"
                     title="编辑"
                     @click="emit('edit')"
                 >
                     <AppIcon name="edit" class="h-4 w-4" />
                 </button>
                 <button
-                    class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                    class="settings-icon-button h-7 w-7 rounded-md"
                     title="删除"
                     @click="handleDelete"
                 >

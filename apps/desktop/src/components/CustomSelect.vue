@@ -62,11 +62,11 @@
         @update:open="isOpen = $event"
     >
         <SelectTrigger
-            class="w-full rounded-lg border px-3 py-2 text-left font-serif text-sm transition-colors"
+            class="w-full rounded-[10px] border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors"
             :class="{
-                'border-gray-200 bg-white text-gray-900 hover:border-gray-300': !disabled,
-                'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-400': disabled,
-                'border-primary-400': isOpen,
+                'border-transparent bg-[#f0f0ef] text-gray-900 hover:bg-[#ececea]': !disabled,
+                'cursor-not-allowed border-transparent bg-gray-50 text-gray-400': disabled,
+                'border-primary-300 bg-white': isOpen,
             }"
             :icon-class="isOpen ? 'rotate-180' : ''"
             :disabled="disabled"
@@ -86,7 +86,7 @@
         </SelectTrigger>
 
         <SelectContent
-            class="w-[var(--reka-select-trigger-width)] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+            class="w-[var(--reka-select-trigger-width)] rounded-[10px] border border-gray-200 bg-white py-1 shadow-lg"
         >
             <SelectItem
                 v-for="option in options"

@@ -84,6 +84,25 @@ impl BuiltInProcessExecutionRegistry {
         false
     }
 
+    pub fn cancel_all(&self) -> usize {
+        let senders = {
+            let mut state = self
+                .state
+                .lock()
+                .expect("BuiltInProcessExecutionRegistry poisoned");
+            prune_expired_pending_cancellations(&mut state);
+            state.pending_cancellations.clear();
+            std::mem::take(&mut state.senders)
+        };
+
+        let count = senders.len();
+        for (_, sender) in senders {
+            let _ = sender.send(());
+        }
+
+        count
+    }
+
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub fn complete(&self, execution_id: &str) {
         let mut state = self
@@ -101,4 +120,21 @@ fn prune_expired_pending_cancellations(state: &mut BuiltInProcessRegistryState) 
     state
         .pending_cancellations
         .retain(|_, created_at| now.duration_since(*created_at) <= PENDING_CANCELLATION_TTL);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BuiltInProcessExecutionRegistry;
+
+    #[test]
+    fn cancel_all_signals_every_registered_execution() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+        let mut first = registry.register("first".to_string());
+        let mut second = registry.register("second".to_string());
+
+        assert_eq!(registry.cancel_all(), 2);
+        assert!(first.try_recv().is_ok());
+        assert!(second.try_recv().is_ok());
+        assert_eq!(registry.cancel_all(), 0);
+    }
 }

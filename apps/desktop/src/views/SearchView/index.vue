@@ -2,6 +2,7 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { useSessionStatus } from '@composables/useSessionStatus';
+    import type { QuickShortcutItem } from '@services/NativeService';
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
     import {
@@ -112,6 +113,7 @@
         __TOUCHAI_E2E__?: {
             openSettingsWindow: () => Promise<void>;
             setSearchQuery: (text: string) => void;
+            getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
@@ -829,6 +831,21 @@
         queryText.value = restoredText;
     }
 
+    function getE2eQuickSearchFallbackResults(query: string): QuickShortcutItem[] {
+        const normalizedQuery = query.trim().toLowerCase();
+        if (!normalizedQuery.includes('touchai')) {
+            return [];
+        }
+
+        return [
+            {
+                name: 'TouchAI E2E Smoke Result',
+                path: 'C:/Windows/explorer.exe',
+                source: 'file',
+            },
+        ];
+    }
+
     async function installE2eBridge() {
         if (!(await isE2eTestMode())) {
             return;
@@ -840,6 +857,9 @@
             },
             setSearchQuery(text: string) {
                 applyE2eSearchQuery(text);
+            },
+            getQuickSearchFallbackResults(query: string) {
+                return getE2eQuickSearchFallbackResults(query);
             },
         };
     }

@@ -4,7 +4,7 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
-	site: 'https://touchai-org.github.io/TouchAI/',
+	site: 'https://touch-ai.org/',
 	integrations: [
 		starlight({
 			title: 'TouchAI',

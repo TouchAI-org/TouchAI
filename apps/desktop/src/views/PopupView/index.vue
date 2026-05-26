@@ -9,6 +9,8 @@
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 
+    import { getPopupTypeFromLocation } from './location';
+
     defineOptions({
         name: 'PopupWindowView',
     });
@@ -86,7 +88,7 @@
     initializeBuiltInPopups();
 
     // 从 URL 获取类型，在 setup 阶段同步读取以便 useWindowResize 能拿到配置
-    const type = new URLSearchParams(window.location.search).get('type') as PopupType;
+    const type = getPopupTypeFromLocation(window.location) as PopupType | null;
     popupType.value = type;
 
     const config = type ? popupRegistry.get(type) : null;

@@ -9,6 +9,8 @@ use tauri::{
     AppHandle, Manager, PhysicalPosition, Runtime, WebviewUrl, WebviewWindowBuilder,
 };
 
+const TRAY_MENU_ROUTE: &str = "#/tray-menu";
+
 pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
     let icon = load_tray_icon()?;
 
@@ -61,7 +63,7 @@ pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn s
     let window = WebviewWindowBuilder::new(
         app,
         "tray-menu",
-        WebviewUrl::App("/tray-menu".parse().unwrap()),
+        WebviewUrl::App(TRAY_MENU_ROUTE.parse().unwrap()),
     )
     .inner_size(140.0, 134.0)
     .resizable(false)

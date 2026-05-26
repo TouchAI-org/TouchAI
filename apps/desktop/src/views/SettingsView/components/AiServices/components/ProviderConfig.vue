@@ -86,42 +86,32 @@
 
 <template>
     <div class="space-y-4">
-        <h3 class="font-serif text-sm font-semibold text-gray-900">服务商配置</h3>
+        <h2 class="text-[15px] font-medium text-neutral-950">服务商配置</h2>
 
-        <div class="rounded-lg border border-gray-200 bg-white p-5">
-            <div class="space-y-4">
-                <div>
-                    <label class="block font-serif text-sm font-medium text-gray-600">
-                        Base URL *
-                    </label>
-                    <input
-                        v-model="form.api_endpoint"
-                        type="text"
-                        class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
-                        :placeholder="driverDefinition.placeholder"
-                        @input="handleInput"
-                    />
-                    <p
-                        v-if="shouldShowGenerationApiPreview"
-                        class="mt-1 text-xs break-all text-gray-400"
-                    >
-                        根地址预览：
-                        <span class="font-mono">
-                            {{ generationApiPreview }}
-                        </span>
-                    </p>
-                </div>
+        <div class="settings-row-group divide-y divide-neutral-200/70">
+            <div class="px-5 py-4">
+                <label class="block text-sm font-normal text-neutral-700">请求地址 *</label>
+                <input
+                    v-model="form.api_endpoint"
+                    type="text"
+                    class="settings-input mt-1.5 w-full"
+                    :placeholder="driverDefinition.placeholder"
+                    @input="handleInput"
+                />
+                <p
+                    v-if="shouldShowGenerationApiPreview"
+                    class="mt-2 text-xs break-all text-neutral-400"
+                >
+                    根地址预览：
+                    <span class="font-mono text-neutral-500">
+                        {{ generationApiPreview }}
+                    </span>
+                </p>
+            </div>
 
-                <div>
-                    <label class="block font-serif text-sm font-medium text-gray-600">
-                        API Key
-                    </label>
-                    <PasswordInput
-                        v-model="form.api_key"
-                        placeholder="sk-..."
-                        @input="handleInput"
-                    />
-                </div>
+            <div class="px-5 py-4">
+                <label class="block text-sm font-normal text-neutral-700">API Key</label>
+                <PasswordInput v-model="form.api_key" placeholder="sk-..." @input="handleInput" />
             </div>
         </div>
     </div>

@@ -27,9 +27,9 @@ dist-ssr
 *.sw?
 
 assets/**/*
-data/**/*
+apps/desktop/data/
 nul
-cache/**/*
+apps/desktop/cache/
 .e2e-runtime/
 .e2e-tools/
 coverage/

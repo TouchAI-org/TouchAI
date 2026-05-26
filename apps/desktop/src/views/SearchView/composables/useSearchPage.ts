@@ -17,6 +17,7 @@ import { isE2eTestMode } from '@/utils/runtimeMode';
 
 import type {
     ConversationPanelHandle,
+    QuickSearchHandle,
     SearchBarHandle,
     SearchModelDropdownContext,
     SearchModelDropdownState,
@@ -176,26 +177,7 @@ function isModelDropdownSubsequence(needle: string, haystack: string) {
 export function useSearchPageController(options: {
     searchBar: Ref<SearchBarHandle | undefined>;
     quickSearchOpen: Ref<boolean>;
-    quickSearchPanel: Ref<
-        | {
-              open: () => void;
-              syncClosedState: () => void;
-              moveSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
-              getHighlightedItem: () => unknown | null;
-              openHighlightedItem: () => Promise<void>;
-              triggerSearch: (query: string) => void;
-              goToPage: (page: number) => void;
-              goToNextPage: () => void;
-              goToPreviousPage: () => void;
-              openContextMenuForItem: (index: number) => void;
-              openContextMenuForHighlightedItem: () => void;
-              toggleViewMode: () => void;
-              collapseToDefault: () => void;
-              isContextMenuOpen: boolean;
-              closeContextMenu: () => void;
-          }
-        | undefined
-    >;
+    quickSearchPanel: Ref<QuickSearchHandle | undefined>;
     conversationPanel: Ref<ConversationPanelHandle | undefined>;
 }): SearchPageController {
     const { searchBar, quickSearchOpen, quickSearchPanel, conversationPanel } = options;
@@ -266,6 +248,11 @@ export function useSearchPageController(options: {
     }
 
     function closeQuickSearch() {
+        if (quickSearchPanel.value) {
+            quickSearchPanel.value.close();
+            return;
+        }
+
         quickSearchOpen.value = false;
     }
 

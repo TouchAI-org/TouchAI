@@ -65,14 +65,14 @@
 <template>
     <div class="space-y-4">
         <div>
-            <label class="block font-serif text-sm font-medium text-gray-600">
+            <label class="block text-sm font-medium text-neutral-700">
                 命令
                 <span class="text-red-500">*</span>
             </label>
             <input
                 :value="command"
                 type="text"
-                class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
+                class="settings-input mt-1.5 w-full font-mono"
                 placeholder="例如: npx"
                 @input="emit('update:command', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
@@ -81,8 +81,11 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block font-serif text-sm font-medium text-gray-600">参数</label>
-                <button class="text-gray-400 transition-colors hover:text-gray-600" @click="addArg">
+                <label class="block text-sm font-medium text-neutral-700">参数</label>
+                <button
+                    class="text-neutral-400 transition-colors hover:text-neutral-700"
+                    @click="addArg"
+                >
                     <AppIcon name="plus" class="h-5 w-5" />
                 </button>
             </div>
@@ -91,13 +94,13 @@
                     <input
                         :value="arg"
                         type="text"
-                        class="focus:border-primary-400 flex-1 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
+                        class="settings-input flex-1 px-4 py-2.5 font-mono"
                         placeholder="参数值"
                         @input="updateArg(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
                     <button
-                        class="text-gray-400 transition-colors hover:text-red-600"
+                        class="text-neutral-400 transition-colors hover:text-red-600"
                         @click="removeArg(index)"
                     >
                         <AppIcon name="x" class="h-5 w-5" />
@@ -107,11 +110,11 @@
         </div>
 
         <div>
-            <label class="block font-serif text-sm font-medium text-gray-600">工作目录</label>
+            <label class="block text-sm font-medium text-neutral-700">工作目录</label>
             <input
                 :value="cwd"
                 type="text"
-                class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
+                class="settings-input mt-1.5 w-full font-mono"
                 placeholder="例如: /path/to/directory"
                 @input="emit('update:cwd', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
@@ -120,8 +123,11 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block font-serif text-sm font-medium text-gray-600">环境变量</label>
-                <button class="text-gray-400 transition-colors hover:text-gray-600" @click="addEnv">
+                <label class="block text-sm font-medium text-neutral-700">环境变量</label>
+                <button
+                    class="text-neutral-400 transition-colors hover:text-neutral-700"
+                    @click="addEnv"
+                >
                     <AppIcon name="plus" class="h-5 w-5" />
                 </button>
             </div>
@@ -130,7 +136,7 @@
                     <input
                         :value="envItem.key"
                         type="text"
-                        class="focus:border-primary-400 w-1/3 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
+                        class="settings-input w-1/3 px-4 py-2.5 font-mono"
                         placeholder="变量名"
                         @input="updateEnvKey(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
@@ -138,13 +144,13 @@
                     <input
                         :value="envItem.value"
                         type="text"
-                        class="focus:border-primary-400 flex-1 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
+                        class="settings-input flex-1 px-4 py-2.5 font-mono"
                         placeholder="变量值"
                         @input="updateEnvValue(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
                     <button
-                        class="text-gray-400 transition-colors hover:text-red-600"
+                        class="text-neutral-400 transition-colors hover:text-red-600"
                         @click="removeEnv(index)"
                     >
                         <AppIcon name="x" class="h-5 w-5" />

@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { models, providers } from '../schema';
@@ -167,13 +167,9 @@ export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise
             throw new Error(`无法设置默认模型：服务商 "${modelWithProvider.provider_name}" 未启用`);
         }
 
-        await tx
-            .update(models)
-            .set({
-                is_default: sql<number>`case when ${models.id} = ${modelId} then 1 else 0 end`,
-            })
-            .where(or(eq(models.is_default, 1), eq(models.id, modelId)))
-            .run();
+        await tx.update(models).set({ is_default: 0 }).where(eq(models.is_default, 1)).run();
+
+        await tx.update(models).set({ is_default: 1 }).where(eq(models.id, modelId)).run();
     });
 };
 

@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import { computed } from 'vue';
@@ -16,7 +16,7 @@
 </script>
 
 <template>
-    <span :class="['rounded px-2 py-0.5 font-serif text-xs', statusClass]">
+    <span :class="['rounded px-2 py-0.5 text-xs', statusClass]">
         {{ statusText }}
     </span>
 </template>
