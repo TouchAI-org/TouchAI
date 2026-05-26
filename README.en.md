@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" />
+</p>
+
 <p align="center"><a href="./README.md">中文</a> | English</p>
 
 <p align="center">
@@ -56,3 +60,9 @@ For more details, browse the project docs and source code.
 ### Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=TouchAI-org/TouchAI&type=Date)](https://star-history.com/#TouchAI-org/TouchAI&Date)
+
+### Friendly Links
+
+- [LINUX DO](https://linux.do/)
+- [Xiaomi MIMO](https://mimo.xiaomi.com/)
+- [ExoMind](https://exomind-team.github.io/exomind)
