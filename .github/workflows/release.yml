@@ -66,4 +66,5 @@ jobs:
             prerelease: ${{ needs.resolve.outputs.prerelease }}
             target-commitish: ${{ github.sha }}
             deploy-production: ${{ github.ref_name == 'main' }}
+            deployment-environment: prerelease
         secrets: inherit
