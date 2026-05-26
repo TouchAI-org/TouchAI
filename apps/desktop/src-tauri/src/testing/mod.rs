@@ -67,7 +67,7 @@ pub fn tray_status_indicator<R: Runtime>(app: &App<R>) -> Option<String> {
 
 pub fn session_status_reminder_notifications<R: Runtime>(
     app: &App<R>,
-) -> Vec<crate::core::window::status_reminder::SessionStatusReminderNotificationRecord> {
+) -> Vec<crate::core::window::status_reminder::SessionStatusReminderNotificationPayload> {
     app.state::<SessionStatusReminderNotificationRuntime>()
         .records()
 }
