@@ -56,9 +56,9 @@
   <img src="https://contrib.rocks/image?repo=TouchAI-org/TouchAI" alt="Contributors" />
 </a>
 
-### Star 历史
+### 统计数据
 
-[![Star History Chart](https://api.star-history.com/svg?repos=TouchAI-org/TouchAI&type=Date)](https://star-history.com/#TouchAI-org/TouchAI&Date)
+![Repository Statistics](https://repobeats.axiom.co/api/embed/df11a0b7cf3ec05d667151f6ece595dd7a65e3ff.svg "Repobeats analytics image")
 
 ### 友情链接
 

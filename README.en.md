@@ -57,9 +57,9 @@ For more details, browse the project docs and source code.
   <img src="https://contrib.rocks/image?repo=TouchAI-org/TouchAI" alt="Contributors" />
 </a>
 
-### Star History
+### Repository Statistics
 
-[![Star History Chart](https://api.star-history.com/svg?repos=TouchAI-org/TouchAI&type=Date)](https://star-history.com/#TouchAI-org/TouchAI&Date)
+![Repository Statistics](https://repobeats.axiom.co/api/embed/df11a0b7cf3ec05d667151f6ece595dd7a65e3ff.svg "Repobeats analytics image")
 
 ### Friendly Links
 
