@@ -13,34 +13,48 @@ interface SessionStatusReminderCoordinatorOptions {
     onReminderAction?: (payload: SessionStatusReminderActionEvent) => void | Promise<void>;
 }
 
+function logFailure(message: string) {
+    return (error: unknown) => {
+        console.error(`[SearchView] ${message}:`, error);
+    };
+}
+
 function setTrayStatusIndicator(kind: SessionStatusReminderNotificationKind | null) {
     const request = kind
         ? native.window.setTrayStatusIndicator(kind)
         : native.window.clearTrayStatusIndicator();
     const action = kind ? 'update' : 'clear';
-    void request.catch((error) => {
-        console.error(`[SearchView] Failed to ${action} tray status indicator:`, error);
-    });
+    void request.catch(logFailure(`Failed to ${action} tray status indicator`));
 }
 
 function clearNativeStatusReminderNotifications() {
-    void native.window.clearSessionStatusReminderNotifications().catch((error) => {
-        console.error('[SearchView] Failed to clear session status reminder notifications:', error);
-    });
+    void native.window
+        .clearSessionStatusReminderNotifications()
+        .catch(logFailure('Failed to clear session status reminder notifications'));
 }
 
 function showNativeStatusReminderNotification(payload: SessionStatusReminderNotificationPayload) {
-    void native.window.showSessionStatusReminderNotification(payload).catch((error) => {
-        console.error('[SearchView] Failed to send session status reminder notification:', error);
-    });
+    void native.window
+        .showSessionStatusReminderNotification(payload)
+        .catch(logFailure('Failed to send session status reminder notification'));
 }
 
 export function createSessionStatusReminderCoordinator(
     options: SessionStatusReminderCoordinatorOptions
 ) {
-    function clearReminderState() {
+    let hasActiveReminder = false;
+
+    function clearReminderStateUnconditionally() {
+        hasActiveReminder = false;
         setTrayStatusIndicator(null);
         clearNativeStatusReminderNotifications();
+    }
+
+    function clearReminderState() {
+        if (!hasActiveReminder) {
+            return;
+        }
+        clearReminderStateUnconditionally();
     }
 
     function handleSurfaceVisible() {
@@ -66,13 +80,14 @@ export function createSessionStatusReminderCoordinator(
             approval: payload.reminder.approval ?? null,
         });
         setTrayStatusIndicator(payload.reminder.kind);
+        hasActiveReminder = true;
     }
 
     async function handleReminderAction(payload: SessionStatusReminderActionEvent) {
-        clearReminderState();
-        await Promise.resolve(options.onReminderAction?.(payload)).catch((error) => {
-            console.error('[SearchView] Failed to handle session status reminder action:', error);
-        });
+        clearReminderStateUnconditionally();
+        await Promise.resolve(options.onReminderAction?.(payload)).catch(
+            logFailure('Failed to handle session status reminder action')
+        );
     }
 
     return {

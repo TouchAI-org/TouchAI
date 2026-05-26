@@ -13,17 +13,12 @@ export function createTextPart(content: string): TextMessagePart {
     };
 }
 
-export function getSessionStatusReminderContent(
-    status: SessionStatusReminderKind,
-    options: {
-        errorMessage?: string | null;
-    } = {}
-): string {
+export function getSessionStatusReminderContent(status: SessionStatusReminderKind): string {
     switch (status) {
         case 'completed':
             return '任务已完成';
         case 'failed':
-            return options.errorMessage?.trim() ? `任务失败：${options.errorMessage}` : '任务失败';
+            return '任务失败';
         case 'waiting_approval':
             return '任务正在等待批准';
     }

@@ -94,6 +94,9 @@ pub fn set_tray_status_indicator<R: Runtime>(
     let runtime = app
         .try_state::<TrayStatusRuntime>()
         .ok_or_else(|| "Tray status runtime is not initialized".to_string())?;
+    if runtime.status() == Some(status) {
+        return Ok(());
+    }
     runtime.set_status(Some(status));
     apply_tray_status(&app, Some(status))
 }
@@ -102,6 +105,9 @@ pub fn clear_tray_status_indicator<R: Runtime>(app: AppHandle<R>) -> Result<(), 
     let runtime = app
         .try_state::<TrayStatusRuntime>()
         .ok_or_else(|| "Tray status runtime is not initialized".to_string())?;
+    if runtime.status().is_none() {
+        return Ok(());
+    }
     runtime.set_status(None);
     apply_tray_status(&app, None)
 }
