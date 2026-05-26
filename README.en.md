@@ -59,7 +59,7 @@ For more details, browse the project docs and source code.
 
 ### Repository Statistics
 
-![Repository Statistics](https://repobeats.axiom.co/api/embed/df11a0b7cf3ec05d667151f6ece595dd7a65e3ff.svg "Repobeats analytics image")
+![Repository Statistics](https://repobeats.axiom.co/api/embed/df11a0b7cf3ec05d667151f6ece595dd7a65e3ff.svg)
 
 ### Friendly Links
 

@@ -58,7 +58,7 @@
 
 ### 统计数据
 
-![Repository Statistics](https://repobeats.axiom.co/api/embed/df11a0b7cf3ec05d667151f6ece595dd7a65e3ff.svg "Repobeats analytics image")
+![Repository Statistics](https://repobeats.axiom.co/api/embed/df11a0b7cf3ec05d667151f6ece595dd7a65e3ff.svg)
 
 ### 友情链接
 
