@@ -37,6 +37,9 @@
 - **BYOK** - bring your own provider and model
 - **Featured capabilities** - file search, visual interactive UI, and model auto-upgrades
 
+> [!TIP]
+> Many features are still pending merge and may undergo breaking changes. Non-developers are recommended to download and use after the June 1 free token event starts.
+
 ### Download
 
 Download the latest installer from [Releases](https://github.com/TouchAI-org/TouchAI/releases).
