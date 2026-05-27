@@ -62,15 +62,19 @@
         toolTimeout: props.server.tool_timeout,
     });
 
-    const transportOptions = [
-        { label: 'Stdio', value: 'stdio' as DbTransportType, description: t('settings.mcp.config.stdioDescription') },
+    const transportOptions = computed(() => [
+        {
+            label: 'Stdio',
+            value: 'stdio' as DbTransportType,
+            description: t('settings.mcp.config.stdioDescription'),
+        },
         {
             label: 'SSE(Streamable HTTP)',
             value: 'sse' as DbTransportType,
             description: t('settings.mcp.config.sseDescription'),
         },
         { label: 'HTTP', value: 'http' as DbTransportType, description: 'HTTP POST' },
-    ];
+    ]);
 
     /**
      * 把数据库里的 JSON 配置统一投影到编辑态表单，避免初始化和 props 同步写成两套逻辑。

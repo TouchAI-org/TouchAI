@@ -7,7 +7,7 @@
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { deleteMcpServer, updateMcpServer } from '@database/queries';
     import type { McpServerEntity } from '@database/types';
-    import { onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import { useMcpStore } from '@/stores/mcp';
@@ -41,11 +41,11 @@
     useScrollbarStabilizer(tabContentRef);
     const togglingServers = ref<Set<number>>(new Set());
     const activeCleanups = new Set<() => void>();
-    const tabs: SectionTabItem<'config' | 'tools' | 'logs'>[] = [
+    const tabs = computed<SectionTabItem<'config' | 'tools' | 'logs'>[]>(() => [
         { value: 'config', label: t('settings.builtInTools.tabs.config') },
         { value: 'tools', label: t('settings.mcp.tabs.tools') },
         { value: 'logs', label: t('settings.mcp.tabs.logs') },
-    ];
+    ]);
 
     // 组件卸载时清理所有活跃的侦听器，避免内存泄漏。
     onUnmounted(() => {
@@ -83,7 +83,7 @@
     };
 
     const { open: openServerMenu } = useContextMenu<number>(
-        [{ key: 'delete', label: t('common.delete'), icon: 'trash', danger: true }],
+        () => [{ key: 'delete', label: t('common.delete'), icon: 'trash', danger: true }],
         (key, serverId) => {
             if (key === 'delete') {
                 handleDeleteServer(serverId);
