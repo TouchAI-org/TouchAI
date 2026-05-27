@@ -1,7 +1,10 @@
 <p align="center">中文 | <a href="./README.en.md">English</a></p>
 
 <p align="center">
-  <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-with-text-light.svg" />
+    <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
+  </picture>
 </p>
 
 <p align="center">
