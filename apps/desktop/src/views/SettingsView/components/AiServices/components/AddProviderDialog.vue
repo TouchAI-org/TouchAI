@@ -10,14 +10,12 @@
     import type { NewProvider, ProviderDriver } from '@database/schema';
     import { computed, ref } from 'vue';
 
+    import { t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import {
         getProviderDriverDefinition,
         providerDriverDefinitions,
     } from '@/services/AgentService/infrastructure/providers';
-
-
-    import { t } from '@/i18n';
     interface Emits {
         (e: 'create', data: NewProvider): void;
         (e: 'cancel'): void;
@@ -104,16 +102,26 @@
 
 <template>
     <DialogShell>
-        <h2 class="mb-5 text-base font-bold text-neutral-950">{{ t('settings.ai.addProvider.title') }}</h2>
+        <h2 class="mb-5 text-base font-bold text-neutral-950">
+            {{ t('settings.ai.addProvider.title') }}
+        </h2>
 
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.providerNameRequired') }}</label>
-                <Input v-model="form.name" class="mt-1.5" :placeholder="t('settings.ai.providerNamePlaceholder')" />
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.providerNameRequired') }}
+                </label>
+                <Input
+                    v-model="form.name"
+                    class="mt-1.5"
+                    :placeholder="t('settings.ai.providerNamePlaceholder')"
+                />
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.providerTypeRequired') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.providerTypeRequired') }}
+                </label>
                 <CustomSelect
                     v-model="form.driver!"
                     :options="driverOptions"
@@ -156,7 +164,9 @@
                     :false-value="0"
                     class="h-4 w-4 rounded border-neutral-300 text-neutral-950"
                 />
-                <label for="enabled" class="ml-2 text-sm text-neutral-600">{{ t('settings.ai.enableAfterCreate') }}</label>
+                <label for="enabled" class="ml-2 text-sm text-neutral-600">
+                    {{ t('settings.ai.enableAfterCreate') }}
+                </label>
             </div>
         </div>
 

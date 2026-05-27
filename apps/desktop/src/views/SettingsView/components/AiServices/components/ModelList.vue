@@ -6,12 +6,11 @@
     import type { Model, NewModel, Provider } from '@database/schema';
     import { computed, ref } from 'vue';
 
+    import { t, tp } from '@/i18n';
+
     import AddModelDialog from './AddModelDialog.vue';
     import EditModelDialog from './EditModelDialog.vue';
     import ModelGroup from './ModelGroup.vue';
-
-
-    import { t, tp } from '@/i18n';
     interface Props {
         providerId: number;
         models: Model[];
@@ -239,7 +238,9 @@
     <div class="space-y-4">
         <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-5">
-                <h2 class="flex-shrink-0 text-[15px] font-medium text-neutral-950">{{ t('settings.ai.modelListTitle') }}</h2>
+                <h2 class="flex-shrink-0 text-[15px] font-medium text-neutral-950">
+                    {{ t('settings.ai.modelListTitle') }}
+                </h2>
 
                 <div class="relative flex-1">
                     <AppIcon
@@ -289,7 +290,9 @@
         >
             <div class="mx-auto max-w-sm">
                 <AppIcon name="search" class="mx-auto h-10 w-10 text-neutral-300" />
-                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">{{ t('settings.ai.noMatchingModels') }}</h3>
+                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">
+                    {{ t('settings.ai.noMatchingModels') }}
+                </h3>
                 <p class="mt-1 text-xs text-neutral-500">
                     {{ t('settings.ai.noMatchingModelsDescription', { query: searchQuery }) }}
                 </p>
@@ -303,7 +306,9 @@
         >
             <div class="mx-auto max-w-sm">
                 <AppIcon name="llm" class="mx-auto h-10 w-10 text-neutral-300" />
-                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">{{ t('settings.ai.noModels') }}</h3>
+                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">
+                    {{ t('settings.ai.noModels') }}
+                </h3>
             </div>
         </div>
 

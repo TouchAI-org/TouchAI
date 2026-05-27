@@ -6,10 +6,9 @@
     import type { Model } from '@database/schema';
     import { ref } from 'vue';
 
-    import ModelCard from './ModelCard.vue';
-
-
     import { t } from '@/i18n';
+
+    import ModelCard from './ModelCard.vue';
     interface ModelGroup {
         groupKey: string;
         groupName: string;

@@ -8,7 +8,6 @@
     import { useConfirm } from '@composables/useConfirm';
     import type { Model } from '@database/schema';
 
-
     import { t } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
     interface Props {
@@ -63,7 +62,11 @@
                         'mt-1 h-4 w-4 text-neutral-950',
                         !providerEnabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
                     ]"
-                    :title="!providerEnabled ? t('settings.ai.enableProviderFirst') : t('settings.ai.setDefaultModel')"
+                    :title="
+                        !providerEnabled
+                            ? t('settings.ai.enableProviderFirst')
+                            : t('settings.ai.setDefaultModel')
+                    "
                     @change="emit('set-default')"
                 />
             </div>

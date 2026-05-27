@@ -8,7 +8,6 @@
     import type { NewModel } from '@database/schema';
     import { ref } from 'vue';
 
-
     import { t } from '@/i18n';
     interface Props {
         providerId: number;
@@ -82,23 +81,31 @@
 
 <template>
     <DialogShell>
-        <h2 class="mb-5 text-base font-bold text-neutral-950">{{ t('settings.ai.addModelTitle') }}</h2>
+        <h2 class="mb-5 text-base font-bold text-neutral-950">
+            {{ t('settings.ai.addModelTitle') }}
+        </h2>
 
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.modelNameRequired') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelNameRequired') }}
+                </label>
                 <Input v-model="form.name" class="mt-1.5" placeholder="GPT-4o" />
                 <p class="mt-1 text-xs text-neutral-400">{{ t('settings.ai.modelNameHelp') }}</p>
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.modelIdRequired') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelIdRequired') }}
+                </label>
                 <Input v-model="form.model_id" class="mt-1.5" placeholder="gpt-4o" />
                 <p class="mt-1 text-xs text-neutral-400">{{ t('settings.ai.modelIdHelp') }}</p>
             </div>
 
             <div>
-                <label class="mb-2 block text-sm font-medium text-neutral-700">{{ t('settings.ai.modelCapabilities') }}</label>
+                <label class="mb-2 block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelCapabilities') }}
+                </label>
                 <div class="flex flex-wrap gap-2">
                     <button
                         type="button"

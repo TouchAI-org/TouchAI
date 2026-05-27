@@ -8,10 +8,8 @@
     import type { Model } from '@database/schema';
     import { ref, watch } from 'vue';
 
-    import { parseModelModalities, supportsImageModality } from '@/utils/modelSchemas';
-
-
     import { t } from '@/i18n';
+    import { parseModelModalities, supportsImageModality } from '@/utils/modelSchemas';
     interface Props {
         model: Model;
     }
@@ -112,23 +110,31 @@
 
 <template>
     <DialogShell>
-        <h2 class="mb-5 text-[15px] font-medium text-neutral-950">{{ t('settings.ai.editModel.title') }}</h2>
+        <h2 class="mb-5 text-[15px] font-medium text-neutral-950">
+            {{ t('settings.ai.editModel.title') }}
+        </h2>
 
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.modelNameRequired') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelNameRequired') }}
+                </label>
                 <Input v-model="form.name" class="mt-1.5" placeholder="GPT-4o" />
                 <p class="mt-1 text-xs text-neutral-400">{{ t('settings.ai.modelNameHelp') }}</p>
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.modelIdRequired') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelIdRequired') }}
+                </label>
                 <Input v-model="form.model_id" class="mt-1.5" placeholder="gpt-4o" />
                 <p class="mt-1 text-xs text-neutral-400">{{ t('settings.ai.modelIdHelp') }}</p>
             </div>
 
             <div>
-                <label class="mb-2 block text-sm font-medium text-neutral-700">{{ t('settings.ai.modelCapabilities') }}</label>
+                <label class="mb-2 block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelCapabilities') }}
+                </label>
                 <div class="flex flex-wrap gap-2">
                     <button
                         type="button"

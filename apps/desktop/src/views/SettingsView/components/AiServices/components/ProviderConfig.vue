@@ -5,11 +5,9 @@
     import type { Provider } from '@database/schema';
     import { computed, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
-
-
-    import { t } from '@/i18n';
     interface Props {
         provider: Provider;
     }
@@ -88,7 +86,9 @@
 
 <template>
     <div class="space-y-4">
-        <h2 class="text-[15px] font-medium text-neutral-950">{{ t('settings.ai.providerConfigTitle') }}</h2>
+        <h2 class="text-[15px] font-medium text-neutral-950">
+            {{ t('settings.ai.providerConfigTitle') }}
+        </h2>
 
         <div class="settings-row-group divide-y divide-neutral-200/70">
             <div class="px-5 py-4">

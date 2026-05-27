@@ -286,7 +286,10 @@
             ...providerPatch,
             ...(providerPatch.name !== undefined
                 ? {
-                      name: requireNonEmptyProviderField(providerPatch.name, t('settings.ai.providerName')),
+                      name: requireNonEmptyProviderField(
+                          providerPatch.name,
+                          t('settings.ai.providerName')
+                      ),
                   }
                 : {}),
             ...(providerPatch.api_endpoint !== undefined
@@ -583,9 +586,7 @@
             await loadModelsForProvider(currentProviderId, true); // 强制刷新缓存
             await broadcastModelsUpdated();
             if (!silent) {
-                alert.success(
-                    t('settings.ai.refreshModelsSucceeded', { count: newModels.length })
-                );
+                alert.success(t('settings.ai.refreshModelsSucceeded', { count: newModels.length }));
             }
         } catch (err) {
             if (refreshingProviderId.value !== currentProviderId) {
