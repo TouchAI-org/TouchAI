@@ -1,10 +1,6 @@
 <p align="center">中文 | <a href="./README.en.md">English</a></p>
 
 <p align="center">
-  <img src="docs/images/touchai-mimo.png" alt="TouchAI × 小米 MIMO" />
-</p>
-
-<p align="center">
   <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
 </p>
 
@@ -27,6 +23,10 @@
 </p>
 
 ---
+
+<p align="center">
+  <img src="docs/images/touchai-mimo.png" alt="TouchAI × 小米 MIMO" />
+</p>
 
 > [!WARNING]
 > 当前尚有大量功能未合并，可能会破坏性升级。6.1 限免活动正式启动后将推送 1.0 正式版。
