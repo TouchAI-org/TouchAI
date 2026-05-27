@@ -74,14 +74,50 @@ jobs:
                         /^\.github\/workflows\/ci\.yml$/,
                       ];
 
+                      function setFullCheckOutputs(reason) {
+                        core.warning(`${reason}; running the full CI workflow.`);
+                        core.setOutput('docs_only', 'false');
+                        core.setOutput('desktop_changed', 'true');
+                        core.setOutput('site_changed', 'true');
+                      }
+
+                      async function retryGithubRequest(label, request) {
+                        const maxAttempts = 4;
+
+                        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                          try {
+                            return await request();
+                          } catch (error) {
+                            const status = Number(error?.status ?? 0);
+                            const retryAfter = Number(error?.response?.headers?.['retry-after'] ?? 0);
+                            const retryable = status === 429 || status >= 500;
+
+                            if (!retryable || attempt === maxAttempts) {
+                              throw error;
+                            }
+
+                            const delayMs = retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** (attempt - 1);
+                            core.warning(`${label} failed with status ${status}; retrying in ${delayMs}ms.`);
+                            await new Promise((resolve) => setTimeout(resolve, delayMs));
+                          }
+                        }
+                      }
+
                       let files = [];
 
                       if (context.eventName === 'pull_request') {
-                        files = await github.paginate(github.rest.pulls.listFiles, {
-                          ...context.repo,
-                          pull_number: context.issue.number,
-                          per_page: 100,
-                        });
+                        try {
+                          files = await retryGithubRequest('List pull request files', () =>
+                            github.paginate(github.rest.pulls.listFiles, {
+                              ...context.repo,
+                              pull_number: context.issue.number,
+                              per_page: 100,
+                            })
+                          );
+                        } catch (error) {
+                          setFullCheckOutputs(`Unable to classify pull request files (${error.message})`);
+                          return;
+                        }
                       } else if (context.eventName === 'push') {
                         const before = context.payload.before;
                         const after = context.payload.after;
@@ -93,11 +129,19 @@ jobs:
                           return;
                         }
 
-                        const comparison = await github.rest.repos.compareCommits({
-                          ...context.repo,
-                          base: before,
-                          head: after,
-                        });
+                        let comparison;
+                        try {
+                          comparison = await retryGithubRequest('Compare commits', () =>
+                            github.rest.repos.compareCommits({
+                              ...context.repo,
+                              base: before,
+                              head: after,
+                            })
+                          );
+                        } catch (error) {
+                          setFullCheckOutputs(`Unable to classify pushed files (${error.message})`);
+                          return;
+                        }
 
                         files = comparison.data.files ?? [];
 
