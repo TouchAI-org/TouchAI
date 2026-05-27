@@ -21,6 +21,7 @@ export interface SearchWindowHeightPolicyInput {
     sessionCount: number;
     quickSearchOpen: boolean;
     conversationPending: boolean;
+    inputMultiline?: boolean;
 }
 
 export interface IdleSearchWindowHeightState {
@@ -121,8 +122,12 @@ export function resolveSearchWindowHeightPolicy(
 ): SearchWindowHeightPolicy {
     const hasConversationPanel = input.sessionCount > 0;
     const hasConversationTransition = input.conversationPending;
+    const hasExpandedInput = input.inputMultiline === true;
     const hasManagedPanel =
-        hasConversationPanel || input.quickSearchOpen || hasConversationTransition;
+        hasConversationPanel ||
+        input.quickSearchOpen ||
+        hasConversationTransition ||
+        hasExpandedInput;
 
     return {
         hasManagedPanel,

@@ -252,6 +252,7 @@
         sessionCount: computed(() => sessionHistory.value.length),
         quickSearchOpen,
         conversationPending,
+        inputMultiline: computed(() => cursorContext.value.isMultiLine),
         defaultSize: searchWindowDefaultSize,
         ready: viewReady,
     });

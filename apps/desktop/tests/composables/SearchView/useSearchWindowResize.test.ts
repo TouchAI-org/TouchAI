@@ -13,6 +13,7 @@ const { currentWindowMock, nativeMock } = vi.hoisted(() => ({
         unmaximize: vi.fn(),
         scaleFactor: vi.fn(),
         onResized: vi.fn(),
+        onFocusChanged: vi.fn(),
     },
     nativeMock: {
         window: {
@@ -36,6 +37,13 @@ const windowResizeListenerMock = vi.hoisted(() => ({
               };
           }) => void)
         | null,
+    reset() {
+        this.callback = null;
+    },
+}));
+
+const windowFocusListenerMock = vi.hoisted(() => ({
+    callback: null as ((event: { payload: boolean }) => void) | null,
     reset() {
         this.callback = null;
     },
@@ -178,6 +186,10 @@ function emitWindowResized(height: number, width = 750) {
     });
 }
 
+function emitWindowFocusChanged(focused: boolean) {
+    windowFocusListenerMock.callback?.({ payload: focused });
+}
+
 async function flushResizeLifecycle() {
     await Promise.resolve();
     await nextTick();
@@ -223,6 +235,10 @@ describe('useSearchWindowResize', () => {
         currentWindowMock.scaleFactor.mockResolvedValue(1);
         currentWindowMock.onResized.mockImplementation(async (callback) => {
             windowResizeListenerMock.callback = callback;
+            return () => undefined;
+        });
+        currentWindowMock.onFocusChanged.mockImplementation(async (callback) => {
+            windowFocusListenerMock.callback = callback;
             return () => undefined;
         });
 
@@ -988,6 +1004,91 @@ describe('useSearchWindowResize', () => {
         mounted.unmount();
     });
 
+    it('enables auto-height when the idle search input expands to multiple lines', async () => {
+        const target = createMeasuredElement(56);
+        const ready = ref(false);
+        const inputMultiline = ref(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount: ref(0),
+                quickSearchOpen: ref(false),
+                conversationPending: ref(false),
+                inputMultiline,
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready,
+            })
+        );
+
+        ready.value = true;
+        await flushResizeLifecycle();
+        vi.clearAllMocks();
+
+        target.setHeight(84);
+        inputMultiline.value = true;
+        await waitForCallCount(nativeMock.window.resizeWindowHeight, 1);
+
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
+            targetHeight: 88,
+            center: true,
+            animate: true,
+            respectManualOverride: false,
+        });
+
+        mounted.unmount();
+    });
+    it('remeasures the latest managed-panel height when focus returns after hidden resize attempts', async () => {
+        const target = createMeasuredElement(180);
+        const ready = ref(false);
+        const conversationPending = ref(false);
+        let visible = true;
+
+        currentWindowMock.isVisible.mockImplementation(async () => visible);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount: ref(1),
+                quickSearchOpen: ref(false),
+                conversationPending,
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready,
+            })
+        );
+
+        ready.value = true;
+        await flushResizeLifecycle();
+        await mounted.result.remeasureTargetHeight();
+        await flushResizeCommit();
+        vi.clearAllMocks();
+
+        visible = false;
+        conversationPending.value = true;
+        await flushResizeLifecycle();
+
+        target.setHeight(240);
+        emitObservedHeight(target.element, 240);
+        await flushResizeCommit();
+
+        conversationPending.value = false;
+        await flushResizeCommit();
+
+        expect(nativeMock.window.resizeWindowHeight).not.toHaveBeenCalled();
+
+        visible = true;
+        emitWindowFocusChanged(true);
+        await waitForCallCount(nativeMock.window.resizeWindowHeight, 1);
+
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
+            targetHeight: 244,
+            center: true,
+            animate: true,
+            respectManualOverride: true,
+        });
+
+        mounted.unmount();
+    });
     it('unlistens the resize listener when registration resolves after unmount', async () => {
         let resolveResizeListener!: (unlisten: () => void) => void;
         const unlisten = vi.fn();

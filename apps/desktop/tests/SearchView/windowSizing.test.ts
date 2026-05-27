@@ -111,6 +111,22 @@ describe('resolveSearchWindowHeightPolicy', () => {
         });
     });
 
+    it('keeps the window managed while an idle search input has multiple visual lines', () => {
+        expect(
+            resolveSearchWindowHeightPolicy({
+                sessionCount: 0,
+                quickSearchOpen: false,
+                conversationPending: false,
+                inputMultiline: true,
+            })
+        ).toEqual({
+            hasManagedPanel: true,
+            autoResizeEnabled: true,
+            respectManualOverride: false,
+            allowHeightOverride: false,
+            shouldEnforceIdleDefaultHeight: false,
+        });
+    });
     it('keeps the window in a managed-panel state while the first conversation turn is still attaching', () => {
         expect(
             resolveSearchWindowHeightPolicy({

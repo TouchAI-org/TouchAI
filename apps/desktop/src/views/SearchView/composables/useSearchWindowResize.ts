@@ -31,6 +31,7 @@ interface UseSearchWindowResizeOptions {
     sessionCount: Ref<number>;
     quickSearchOpen: Ref<boolean>;
     conversationPending: Ref<boolean>;
+    inputMultiline?: Ref<boolean>;
     defaultSize: Ref<SearchWindowDefaultSize>;
     ready: Ref<boolean>;
 }
@@ -56,6 +57,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             sessionCount: options.sessionCount.value,
             quickSearchOpen: options.quickSearchOpen.value,
             conversationPending: options.conversationPending.value,
+            inputMultiline: options.inputMultiline?.value ?? false,
         })
     );
     const effectiveWindowMaximized = computed(() =>
@@ -97,6 +99,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     let resizeObserver: ResizeObserver | null = null;
     let unlistenWindowResize: (() => void) | null = null;
+    let unlistenWindowFocusChange: (() => void) | null = null;
     let lastResizeConstraintsKey: string | null = null;
     let lastAllowHeightOverride: boolean | null = null;
     let lastSyncedDefaultSizeKey: string | null = null;
@@ -473,6 +476,19 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         }
     }
 
+    async function remeasureAfterWindowFocusRestored() {
+        if (!options.ready.value || unmounted) {
+            return;
+        }
+
+        await syncWindowState();
+        if (!autoHeightEnabled.value || unmounted) {
+            return;
+        }
+
+        await remeasureTargetHeight();
+    }
+
     async function toggleMaximize() {
         if (isMaximizeTransitioning.value) {
             return;
@@ -722,6 +738,28 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             reportError('listen for window resize', error);
         });
 
+    currentWindow
+        .onFocusChanged(({ payload: focused }) => {
+            if (!focused || !options.ready.value) {
+                return;
+            }
+
+            void remeasureAfterWindowFocusRestored().catch((error) => {
+                reportError('remeasure managed panel after window focus restored', error);
+            });
+        })
+        .then((unlisten) => {
+            if (unmounted) {
+                unlisten();
+                return;
+            }
+
+            unlistenWindowFocusChange = unlisten;
+        })
+        .catch((error) => {
+            reportError('listen for window focus changes', error);
+        });
+
     onUnmounted(() => {
         unmounted = true;
         cleanup();
@@ -729,6 +767,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         heightResizeScheduler.cancel();
         viewportSyncScheduler.cancel();
         unlistenWindowResize?.();
+        unlistenWindowFocusChange?.();
     });
 
     return {

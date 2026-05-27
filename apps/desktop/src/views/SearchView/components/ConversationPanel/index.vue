@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -53,7 +53,7 @@
             <!-- 对话时间轴 -->
             <ConversationTimeline
                 :messages="messages"
-                :container-height="maxHeight"
+                :container-height="timelineContainerHeight"
                 :scroll-top="scrollTop"
                 :scroll-height="scrollHeight"
                 :client-height="clientHeight"
@@ -143,11 +143,13 @@
     const USER_MESSAGE_SCROLL_GAP = 12;
     const TIMELINE_JUMP_OFFSET = 80;
     let messageListObserver: ResizeObserver | null = null;
+    let containerResizeObserver: ResizeObserver | null = null;
 
     // 时间轴相关状态
     const scrollTop = ref(0);
     const scrollHeight = ref(0);
     const clientHeight = ref(0);
+    const timelineContainerHeight = computed(() => clientHeight.value || props.maxHeight);
     const conversationContainerStyle = computed(() =>
         props.fillAvailableHeight
             ? {
@@ -242,16 +244,12 @@
         return scrollHeight > clientHeight;
     }
 
-    // 处理容器滚动事件
-    function handleScroll() {
+    function syncContainerScrollMetrics() {
         if (!conversationContainer.value) return;
 
         const container = conversationContainer.value;
         const currentScrollTop = container.scrollTop;
-        const atBottom = isScrolledToBottom(container);
-        const mode = outputScrollBehavior.value;
 
-        // 更新时间轴状态（仅在值变化时更新）
         if (scrollTop.value !== currentScrollTop) {
             scrollTop.value = currentScrollTop;
         }
@@ -261,6 +259,18 @@
         if (clientHeight.value !== container.clientHeight) {
             clientHeight.value = container.clientHeight;
         }
+    }
+
+    // 处理容器滚动事件
+    function handleScroll() {
+        if (!conversationContainer.value) return;
+
+        const container = conversationContainer.value;
+        const currentScrollTop = container.scrollTop;
+        const atBottom = isScrolledToBottom(container);
+        const mode = outputScrollBehavior.value;
+
+        syncContainerScrollMetrics();
 
         if (mode === 'follow_output') {
             if (atBottom) {
@@ -448,11 +458,14 @@
     onMounted(async () => {
         await settingsStore.initialize();
 
-        // 初始化时间轴滚动状态
+        syncContainerScrollMetrics();
+
         if (conversationContainer.value) {
-            scrollTop.value = conversationContainer.value.scrollTop;
-            scrollHeight.value = conversationContainer.value.scrollHeight;
-            clientHeight.value = conversationContainer.value.clientHeight;
+            containerResizeObserver = new ResizeObserver(() => {
+                syncContainerScrollMetrics();
+                refreshScrollToBottomVisibility();
+            });
+            containerResizeObserver.observe(conversationContainer.value);
         }
 
         if (messageListRef.value) {
@@ -473,6 +486,10 @@
         if (messageListObserver) {
             messageListObserver.disconnect();
             messageListObserver = null;
+        }
+        if (containerResizeObserver) {
+            containerResizeObserver.disconnect();
+            containerResizeObserver = null;
         }
     });
 </script>
