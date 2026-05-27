@@ -1,10 +1,6 @@
 <p align="center"><a href="./README.md">中文</a> | English</p>
 
 <p align="center">
-  <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" />
-</p>
-
-<p align="center">
   <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
 </p>
 
@@ -27,6 +23,10 @@
 </p>
 
 ---
+
+<p align="center">
+  <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" />
+</p>
 
 > [!WARNING]
 > Many features are still pending merge and may undergo breaking changes. Version 1.0 will be released when the June 1 free token event officially launches.
