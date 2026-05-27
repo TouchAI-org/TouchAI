@@ -29,7 +29,7 @@
 ---
 
 > [!WARNING]
-> Many features are still pending merge and may undergo breaking changes. Non-developers are recommended to download and use after the June 1 free token event starts.
+> Many features are still pending merge and may undergo breaking changes. Version 1.0 will be released when the June 1 free token event officially launches.
 
 ### Features
 
