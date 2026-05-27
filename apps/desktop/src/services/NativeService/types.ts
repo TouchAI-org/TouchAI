@@ -146,7 +146,6 @@ export interface TauriLogPayload {
     location?: string;
     file?: string;
     line?: number;
-    keyValues?: Record<string, string>;
 }
 
 export type ClipboardPayloadFragment =

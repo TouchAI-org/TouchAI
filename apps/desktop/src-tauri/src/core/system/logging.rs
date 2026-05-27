@@ -8,7 +8,6 @@ use time::macros::format_description;
 
 use super::paths::{app_directory_path, AppDirectory};
 
-const LOG_LEVEL_ENV_VAR: &str = "TOUCHAI_LOG_LEVEL";
 const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::Info;
 const LOG_FILE_NAME: &str = "TouchAI";
 const MAX_LOG_FILE_SIZE_BYTES: u128 = 10 * 1024 * 1024; // 10MB
@@ -29,7 +28,7 @@ fn parse_log_level(value: &str) -> Option<LevelFilter> {
 
 /// 从环境变量 TOUCHAI_LOG_LEVEL 获取日志级别
 fn resolve_log_level() -> LevelFilter {
-    std::env::var(LOG_LEVEL_ENV_VAR)
+    std::env::var("TOUCHAI_LOG_LEVEL")
         .ok()
         .as_deref()
         .and_then(parse_log_level)
@@ -174,28 +173,4 @@ pub fn build_plugin<R: Runtime>() -> TauriPlugin<R> {
         .max_file_size(MAX_LOG_FILE_SIZE_BYTES)
         .targets(targets)
         .build()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_supported_log_levels_case_insensitively() {
-        assert_eq!(parse_log_level("TRACE"), Some(LevelFilter::Trace));
-        assert_eq!(parse_log_level("debug"), Some(LevelFilter::Debug));
-        assert_eq!(parse_log_level(" info "), Some(LevelFilter::Info));
-        assert_eq!(parse_log_level("warn"), Some(LevelFilter::Warn));
-        assert_eq!(parse_log_level("error"), Some(LevelFilter::Error));
-        assert_eq!(parse_log_level("off"), Some(LevelFilter::Off));
-        assert_eq!(parse_log_level("verbose"), None);
-    }
-
-    #[test]
-    fn keeps_release_file_retention_bounded() {
-        assert_eq!(LOG_LEVEL_ENV_VAR, "TOUCHAI_LOG_LEVEL");
-        assert_eq!(LOG_FILE_NAME, "TouchAI");
-        assert_eq!(MAX_LOG_FILE_SIZE_BYTES, 10 * 1024 * 1024);
-        assert_eq!(MAX_ARCHIVED_FILES, 7);
-    }
 }

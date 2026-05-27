@@ -656,6 +656,7 @@ describe('useSearchWindowResize', () => {
 
         resize.resolve();
         await flushResizeCommit();
+        await flushResizeCommit();
 
         expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledTimes(1);
         expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
@@ -856,6 +857,7 @@ describe('useSearchWindowResize', () => {
 
         resize.resolve();
         await flushResizeCommit();
+        await flushResizeCommit();
 
         expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledTimes(1);
         expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
@@ -917,6 +919,67 @@ describe('useSearchWindowResize', () => {
         });
         expect(nativeMock.window.resizeWindowHeight).toHaveBeenNthCalledWith(2, {
             targetHeight: 154,
+            center: true,
+            animate: true,
+            respectManualOverride: true,
+        });
+
+        mounted.unmount();
+    });
+
+    it('does not let stale resize completion overwrite state after an idle reset', async () => {
+        const resize = createDeferredVoid();
+        const target = createMeasuredElement(180);
+        const ready = ref(false);
+        const sessionCount = ref(1);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount,
+                quickSearchOpen: ref(false),
+                conversationPending: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready,
+            })
+        );
+
+        ready.value = true;
+        await flushResizeLifecycle();
+        await mounted.result.remeasureTargetHeight();
+        await flushResizeCommit();
+        vi.clearAllMocks();
+
+        nativeMock.window.resizeWindowHeight.mockImplementationOnce(() => resize.promise);
+
+        target.setHeight(120);
+        emitObservedHeight(target.element, 120);
+        await flushResizeLifecycle();
+
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
+            targetHeight: 120,
+            center: true,
+            animate: true,
+            respectManualOverride: true,
+        });
+
+        sessionCount.value = 0;
+        await flushResizeLifecycle();
+
+        expect(nativeMock.window.resetSearchWindowBounds).toHaveBeenCalledTimes(1);
+
+        resize.resolve();
+        await flushResizeCommit();
+        vi.clearAllMocks();
+
+        sessionCount.value = 1;
+        await flushResizeLifecycle();
+        await mounted.result.remeasureTargetHeight();
+        await flushResizeCommit();
+
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledTimes(1);
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
+            targetHeight: 124,
             center: true,
             animate: true,
             respectManualOverride: true,

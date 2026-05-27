@@ -103,6 +103,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     let pendingDefaultSizeApplyAfterRestore = false;
     let lastRequestedHeight: number | null = null;
     let resizeTransactionInFlight = false;
+    let resizeCommitEpoch = 0;
     let activeResizeDirection: 'grow' | 'shrink' | null = null;
     let pendingProgrammaticTargetHeight: number | null = null;
     let pendingObserverRemeasure = false;
@@ -248,9 +249,12 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function resetSearchWindowBounds() {
+        resizeCommitEpoch += 1;
         clearViewportHeightLock();
         currentHeight.value = options.defaultSize.value.height;
         lastRequestedHeight = null;
+        resizeTransactionInFlight = false;
+        activeResizeDirection = null;
         pendingProgrammaticTargetHeight = null;
         pendingObserverRemeasure = false;
         shrinkObserverReboundGuard = null;
@@ -260,8 +264,13 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function commitResize(request: SearchHeightResizeRequest) {
+        const commitEpoch = resizeCommitEpoch;
         const newHeight = request.targetHeight;
         if (!autoHeightEnabled.value || !(await isWindowVisible())) {
+            return;
+        }
+
+        if (commitEpoch !== resizeCommitEpoch) {
             return;
         }
 
@@ -281,6 +290,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         try {
             if (newHeight < currentHeight.value) {
                 await syncSearchWindowMinSizeConstraints(newHeight);
+                if (commitEpoch !== resizeCommitEpoch) {
+                    return;
+                }
             }
 
             await native.window.resizeWindowHeight({
@@ -289,6 +301,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 animate: true,
                 respectManualOverride: searchWindowHeightPolicy.value.respectManualOverride,
             });
+            if (commitEpoch !== resizeCommitEpoch) {
+                return;
+            }
+
             currentHeight.value = newHeight;
             lastRequestedHeight = newHeight;
             shrinkObserverReboundGuard = isShrink
@@ -298,11 +314,16 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                   }
                 : null;
             await syncSearchWindowMinSizeConstraints(newHeight);
+            if (commitEpoch !== resizeCommitEpoch) {
+                return;
+            }
         } finally {
-            resizeTransactionInFlight = false;
-            activeResizeDirection = null;
-            pendingProgrammaticTargetHeight = null;
-            clearViewportHeightLock();
+            if (commitEpoch === resizeCommitEpoch) {
+                resizeTransactionInFlight = false;
+                activeResizeDirection = null;
+                pendingProgrammaticTargetHeight = null;
+                clearViewportHeightLock();
+            }
         }
 
         markPerformanceTrace('search.resize.committed', {
@@ -326,10 +347,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         if (reason === 'observer') {
             if (resizeTransactionInFlight) {
                 const shouldRemeasureAfterTransaction =
-                    activeResizeDirection === 'grow' ||
-                    (activeResizeDirection === 'shrink' &&
-                        pendingProgrammaticTargetHeight !== null &&
-                        newHeight > pendingProgrammaticTargetHeight);
+                    pendingProgrammaticTargetHeight !== null &&
+                    newHeight > pendingProgrammaticTargetHeight;
                 pendingObserverRemeasure =
                     pendingObserverRemeasure || shouldRemeasureAfterTransaction;
                 return;

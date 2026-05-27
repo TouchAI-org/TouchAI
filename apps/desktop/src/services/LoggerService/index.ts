@@ -1,35 +1,26 @@
 import { native } from '@services/NativeService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-import {
-    type ConsoleLevel,
-    DEFAULT_LOGGER_CONFIG,
-    inferCategoryFromArgs,
-    LOG_LEVEL_VALUES,
-    type LogCategory,
-    type LoggerConfig,
-    type LogLevel,
-    normalizeLogFields,
-    shouldForwardLog,
-} from './policy';
-
+type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
+type ConsoleLevel = LogLevel | 'log';
 type ConsoleMethod = (...args: unknown[]) => void;
 
 interface Callsite {
-    location?: string;
-    file?: string;
-    line?: number;
+    location?: string; // 格式: "窗口标签|文件:行:列" 或 "文件:行:列"
+    file?: string; // 标准化后的文件路径
+    line?: number; // 源文件行号
 }
 
-interface LogOptions {
-    category?: LogCategory;
-    fields?: Record<string, unknown>;
-}
+/** 日志级别到 Tauri 插件数字级别的映射 */
+const TAURI_LOG_LEVELS: Record<LogLevel, number> = {
+    trace: 1,
+    debug: 2,
+    info: 3,
+    warn: 4,
+    error: 5,
+} as const;
 
-type StructuredLoggerMethod = (...args: unknown[]) => void;
-
-const TAURI_LOG_LEVELS: Record<LogLevel, number> = LOG_LEVEL_VALUES;
-
+/** 保存原始 console 方法（在打补丁之前） */
 const NATIVE_CONSOLE: Record<ConsoleLevel, ConsoleMethod> = {
     trace: console.trace.bind(console),
     debug: console.debug.bind(console),
@@ -41,16 +32,13 @@ const NATIVE_CONSOLE: Record<ConsoleLevel, ConsoleMethod> = {
 
 let initialized = false;
 let cachedWindowLabel: string | null = null;
-let loggerConfig: LoggerConfig = DEFAULT_LOGGER_CONFIG;
 
-export function configureLogger(config: LoggerConfig): void {
-    loggerConfig = config;
-}
-
+/**
+ * 获取当前 Tauri 窗口标签（首次调用后会缓存）
+ * @returns 窗口标签，如果不可用则返回 null
+ */
 const getWindowLabel = (): string | null => {
-    if (cachedWindowLabel) {
-        return cachedWindowLabel;
-    }
+    if (cachedWindowLabel) return cachedWindowLabel;
 
     try {
         cachedWindowLabel = getCurrentWindow().label;
@@ -60,14 +48,16 @@ const getWindowLabel = (): string | null => {
     }
 };
 
+/**
+ * 将任意值转换为字符串用于日志记录
+ * - Error 对象: 返回堆栈跟踪或错误消息
+ * - 字符串: 原样返回
+ * - 对象: JSON 序列化
+ * - 其他: 转换为字符串
+ */
 const stringifyArg = (arg: unknown): string => {
-    if (arg instanceof Error) {
-        return arg.toString();
-    }
-
-    if (typeof arg === 'string') {
-        return arg;
-    }
+    if (arg instanceof Error) return arg.stack ?? arg.message;
+    if (typeof arg === 'string') return arg;
 
     try {
         return JSON.stringify(arg);
@@ -76,11 +66,25 @@ const stringifyArg = (arg: unknown): string => {
     }
 };
 
-const formatMessage = (args: readonly unknown[]): string => args.map(stringifyArg).join(' ');
+/**
+ * 将多个日志参数格式化为单个消息字符串
+ */
+const formatMessage = (args: unknown[]): string => args.map(stringifyArg).join(' ');
 
+// ============================================================================
+// 文件路径标准化
+// ============================================================================
+
+/**
+ * 标准化堆栈跟踪中的文件路径
+ * - 移除括号、查询参数、哈希片段
+ * - 从完整 URL 中提取路径名
+ */
 const normalizeFilePath = (raw: string): string => {
+    // 移除噪音: 括号、查询参数、哈希片段
     const sanitized = raw.replace(/[()]/g, '').split('?')[0]?.split('#')[0] ?? raw;
 
+    // 尝试解析为 URL 并提取路径名
     try {
         return new URL(sanitized).pathname.replace(/^\/+/, '');
     } catch {
@@ -88,34 +92,46 @@ const normalizeFilePath = (raw: string): string => {
     }
 };
 
+/**
+ * 检查文件路径是否是 logger 本身（避免无限递归）
+ */
 const isLoggerFile = (file: string): boolean =>
-    file.replace(/\\/g, '/').endsWith('src/services/LoggerService/index.ts');
+    file.replace(/\\/g, '/').endsWith('src/services/LoggerService/logger.ts');
 
+/**
+ * 解析单行堆栈跟踪以提取调用位置信息
+ * 支持 V8 (Chrome/Node) 和 JSC (Safari) 两种堆栈格式
+ *
+ * @param line - Error.stack 中的单行
+ * @returns 调用位置信息，如果行无效或应跳过则返回 null
+ */
 const parseStackLine = (line: string): Callsite | null => {
-    const stackPatterns = [
-        /at\s+(?:(.+?)\s+\()?(.+):(\d+):(\d+)\)?$/,
-        /^(?:(.*?)@)?(.+):(\d+):(\d+)$/,
+    const STACK_PATTERNS = [
+        /at\s+(?:(.+?)\s+\()?(.+):(\d+):(\d+)\)?$/, // V8 引擎 (Chrome, Node.js)
+        /^(?:(.*?)@)?(.+):(\d+):(\d+)$/, // JavaScriptCore 引擎 (Safari)
     ] as const;
 
-    for (const pattern of stackPatterns) {
+    // 尝试每个正则表达式模式直到匹配
+    for (const pattern of STACK_PATTERNS) {
         const match = line.match(pattern);
-        if (!match) {
-            continue;
-        }
+        if (!match) continue;
 
+        // 提取文件路径并标准化
         const [, , fileRaw, lineRaw, columnRaw] = match;
         const file = normalizeFilePath(fileRaw ?? '');
-        if (!file || isLoggerFile(file)) {
-            return null;
-        }
 
+        // 跳过无效文件或 logger 本身
+        if (!file || isLoggerFile(file)) return null;
+
+        // 解析行号
         const lineNum = Number(lineRaw);
-        if (Number.isNaN(lineNum)) {
-            return null;
-        }
+        if (Number.isNaN(lineNum)) return null;
 
+        // 构建位置字符串: "文件:行:列"
         const column = Number(columnRaw);
         const locationPath = `${file}:${lineNum}:${Number.isNaN(column) ? 0 : column}`;
+
+        // 如果可用，添加窗口标签前缀: "窗口标签|文件:行:列"
         const label = getWindowLabel();
         const location = label ? `${label}|${locationPath}` : locationPath;
 
@@ -125,112 +141,72 @@ const parseStackLine = (line: string): Callsite | null => {
     return null;
 };
 
+/**
+ * 从当前堆栈跟踪中提取调用位置
+ *
+ * @returns 调用位置信息，如果未找到有效调用位置则返回 undefined
+ */
 const extractCallsite = (): Callsite | undefined => {
     const stack = new Error().stack;
-    if (!stack) {
-        return undefined;
-    }
+    if (!stack) return undefined;
 
+    // 跳过第一行（Error 消息）并解析剩余行
     for (const line of stack.split('\n').slice(1)) {
         const callsite = parseStackLine(line.trim());
-        if (callsite) {
-            return callsite;
-        }
+        if (callsite) return callsite;
     }
 
     return undefined;
 };
 
-function isPlainFields(value: unknown): value is Record<string, unknown> {
-    return (
-        typeof value === 'object' &&
-        value !== null &&
-        !(value instanceof Error) &&
-        Object.getPrototypeOf(value) === Object.prototype
-    );
-}
+// ============================================================================
+// Tauri 集成
+// ============================================================================
 
-function consumeTrailingFields(args: readonly unknown[]): {
-    messageArgs: readonly unknown[];
-    fields: Record<string, unknown> | undefined;
-} {
-    const lastArg = args.length > 0 ? args[args.length - 1] : undefined;
-    if (!isPlainFields(lastArg)) {
-        return {
-            messageArgs: args,
-            fields: undefined,
-        };
-    }
-
-    return {
-        messageArgs: args.slice(0, -1),
-        fields: lastArg,
-    };
-}
-
-const forwardToTauri = (
-    level: LogLevel,
-    args: readonly unknown[],
-    category: LogCategory,
-    fields: Record<string, unknown> | undefined,
-    callsite?: Callsite
-): void => {
+/**
+ * 将日志消息转发到 Tauri 后端日志插件
+ *
+ * @param level - 日志级别 (trace/debug/info/warn/error)
+ * @param args - 要记录的参数
+ * @param callsite - 可选的源位置信息
+ */
+const forwardToTauri = (level: LogLevel, args: unknown[], callsite?: Callsite): void => {
     const payload = {
         level: TAURI_LOG_LEVELS[level],
         message: formatMessage(args),
         location: callsite?.location,
         file: callsite?.file,
         line: callsite?.line,
-        keyValues: normalizeLogFields({
-            ...fields,
-            category,
-        }),
     };
 
     void native.log.log(payload).catch((error: unknown) => {
-        NATIVE_CONSOLE.error('[Logger] Failed to forward log to Tauri:', error);
+        NATIVE_CONSOLE.error('[Logger] 转发日志到 Tauri 失败:', error);
     });
 };
 
-const writeLog = (
-    level: LogLevel,
-    fallback: ConsoleLevel,
-    args: readonly unknown[],
-    options: LogOptions = {}
-): void => {
-    NATIVE_CONSOLE[fallback](...args);
-
-    const category = options.category ?? inferCategoryFromArgs(args);
-    if (!shouldForwardLog({ level, category, config: loggerConfig })) {
-        return;
-    }
-
-    const callsite = loggerConfig.includeCallsite ? extractCallsite() : undefined;
-    forwardToTauri(level, args, category, options.fields, callsite);
-};
-
+/**
+ * 创建新console方法，新增日志转发功能
+ *
+ * @param level - Tauri 日志级别
+ * @param fallback - 要调用的原始 console 方法
+ */
 const createLogMethod = (level: LogLevel, fallback: ConsoleLevel): ConsoleMethod => {
     return (...args: unknown[]) => {
-        writeLog(level, fallback, args);
+        NATIVE_CONSOLE[fallback](...args);
+        forwardToTauri(level, args, extractCallsite());
     };
 };
 
-function createStructuredMethod(level: LogLevel, fallback: ConsoleLevel, category: LogCategory) {
-    const method: StructuredLoggerMethod = (...args: unknown[]) => {
-        const { messageArgs, fields } = consumeTrailingFields(args);
-        writeLog(level, fallback, messageArgs, {
-            category,
-            fields,
-        });
-    };
+// ============================================================================
+// 公共 API
+// ============================================================================
 
-    return method;
-}
-
+/**
+ * 替换 console 方法初始化 logger
+ * 应在应用启动时调用一次
+ */
 export const initializeLogger = (): void => {
-    if (initialized) {
-        return;
-    }
+    if (initialized) return;
 
     initialized = true;
 
@@ -242,15 +218,14 @@ export const initializeLogger = (): void => {
     console.log = createLogMethod('info', 'log');
 };
 
-export function createLogger(category: LogCategory) {
-    return {
-        trace: createStructuredMethod('trace', 'trace', category),
-        debug: createStructuredMethod('debug', 'debug', category),
-        info: createStructuredMethod('info', 'info', category),
-        warn: createStructuredMethod('warn', 'warn', category),
-        error: createStructuredMethod('error', 'error', category),
-    } as const;
-}
-
-export const logger = createLogger('unknown');
-export const index = logger;
+/**
+ * 类型化的 logger 接口（可替代直接使用 console.*）
+ * 提供与打补丁的 console 方法相同的功能
+ */
+export const index = {
+    trace: (...args: unknown[]) => console.trace(...args),
+    debug: (...args: unknown[]) => console.debug(...args),
+    info: (...args: unknown[]) => console.info(...args),
+    warn: (...args: unknown[]) => console.warn(...args),
+    error: (...args: unknown[]) => console.error(...args),
+} as const;

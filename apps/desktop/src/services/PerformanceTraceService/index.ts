@@ -31,7 +31,18 @@ const events: PerformanceTraceEvent[] = [];
 
 export function setPerformanceTraceEnabled(nextEnabled: boolean, options: TraceOptions = {}): void {
     enabled = nextEnabled;
-    capacity = options.capacity ?? capacity;
+
+    if (options.capacity !== undefined) {
+        const normalizedCapacity = Number.isFinite(options.capacity)
+            ? Math.max(0, Math.floor(options.capacity))
+            : 0;
+        capacity = normalizedCapacity;
+
+        if (events.length > capacity) {
+            events.splice(0, events.length - capacity);
+        }
+    }
+
     nowProvider = options.now ?? nowProvider;
 }
 
