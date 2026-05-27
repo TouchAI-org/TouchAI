@@ -8,6 +8,7 @@ import {
     isSupportedLocale,
     locale,
     normalizeLocale,
+    resolveFirstLaunchLocale,
     setLocale,
     t,
     tp,
@@ -30,6 +31,25 @@ describe('i18n runtime', () => {
         expect(isSupportedLocale('fr-FR')).toBe(false);
         expect(normalizeLocale('fr-FR')).toBe('zh-CN');
         expect(normalizeLocale(null)).toBe('zh-CN');
+    });
+
+    it('maps first-launch system locales to the supported app locales', () => {
+        Object.defineProperty(window.navigator, 'language', {
+            configurable: true,
+            value: 'en-GB',
+        });
+        Object.defineProperty(window.navigator, 'languages', {
+            configurable: true,
+            value: ['en-GB', 'fr-FR'],
+        });
+
+        expect(resolveFirstLaunchLocale()).toBe('en-US');
+        expect(resolveFirstLaunchLocale({ language: 'zh-CN' })).toBe('zh-CN');
+        expect(resolveFirstLaunchLocale({ language: 'zh-TW' })).toBe('zh-CN');
+        expect(resolveFirstLaunchLocale({ language: 'en-GB' })).toBe('en-US');
+        expect(resolveFirstLaunchLocale({ language: 'fr-FR', languages: ['zh-HK', 'en-US'] })).toBe(
+            'zh-CN'
+        );
     });
 
     it('translates structured messages and interpolates params', () => {

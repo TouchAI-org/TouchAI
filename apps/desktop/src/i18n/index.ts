@@ -5,9 +5,11 @@ import { createI18n } from 'vue-i18n';
 import {
     type AppLocale,
     DEFAULT_LOCALE,
+    FALLBACK_FIRST_LAUNCH_LOCALE,
     isSupportedLocale,
     LOCALE_LABELS,
     normalizeLocale,
+    resolveFirstLaunchLocale,
     SUPPORTED_LOCALES,
 } from './locales';
 import { type MessageKey, type MessageParams, messages } from './messages';
@@ -85,11 +87,13 @@ export function installI18n(app: App): void {
 export {
     type AppLocale,
     DEFAULT_LOCALE,
+    FALLBACK_FIRST_LAUNCH_LOCALE,
     isSupportedLocale,
     LOCALE_LABELS,
     type MessageKey,
     type MessageParams,
     normalizeLocale,
+    resolveFirstLaunchLocale,
     type SourceText,
     SUPPORTED_LOCALES,
 };

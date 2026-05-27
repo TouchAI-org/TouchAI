@@ -41,6 +41,17 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => windowMock,
 }));
 
+function mockSystemLanguage(language: string, languages: string[] = [language]) {
+    Object.defineProperty(window.navigator, 'language', {
+        configurable: true,
+        value: language,
+    });
+    Object.defineProperty(window.navigator, 'languages', {
+        configurable: true,
+        value: languages,
+    });
+}
+
 function mockSettings(values: Record<string, string | null>) {
     getSettingValueMock.mockImplementation(async ({ key }: { key: string }) => values[key] ?? null);
     setSettingMock.mockImplementation(async ({ key, value }: { key: string; value: string }) => ({
@@ -59,6 +70,7 @@ describe('settings language state', () => {
         setActivePinia(createPinia());
         setLocale('zh-CN');
         windowMock.label = 'settings';
+        mockSystemLanguage('zh-CN');
     });
 
     it('loads persisted language and applies it to the i18n runtime', async () => {
@@ -81,10 +93,11 @@ describe('settings language state', () => {
         expect(setSettingMock).not.toHaveBeenCalledWith(
             expect.objectContaining({ key: 'language' })
         );
-    });
+    }, 15000);
 
-    it('persists zh-CN, applies the locale, and exposes it when the language row is missing', async () => {
+    it('persists zh-CN when the language row is missing and the system language is Chinese', async () => {
         mockSettings({});
+        mockSystemLanguage('zh-TW', ['zh-TW', 'en-US']);
 
         const { useSettingsStore } = await import('@/stores/settings');
         const store = useSettingsStore();
@@ -94,6 +107,20 @@ describe('settings language state', () => {
         expect(store.settings.language).toBe('zh-CN');
         expect(getLocale()).toBe('zh-CN');
         expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'zh-CN' });
+    });
+
+    it('persists en-US when the language row is missing and the system language is not Chinese', async () => {
+        mockSettings({});
+        mockSystemLanguage('en-GB', ['en-GB', 'fr-FR']);
+
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+
+        await store.initialize();
+
+        expect(store.settings.language).toBe('en-US');
+        expect(getLocale()).toBe('en-US');
+        expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'en-US' });
     });
 
     it('falls back to zh-CN for invalid language values without overwriting the row', async () => {

@@ -6,10 +6,6 @@ SELECT 'theme', 'light'
 WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'theme');
 
 INSERT INTO settings (key, value)
-SELECT 'language', 'zh-CN'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'language');
-
-INSERT INTO settings (key, value)
 SELECT 'auto_start', 'false'
 WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'auto_start');
 

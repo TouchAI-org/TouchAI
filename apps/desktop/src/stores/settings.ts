@@ -19,7 +19,7 @@ import {
     type SearchWindowSizePreset,
     SearchWindowSizePreset as SearchWindowSizePresets,
 } from '@/config/searchWindow';
-import { type AppLocale, normalizeLocale, setLocale } from '@/i18n';
+import { type AppLocale, normalizeLocale, resolveFirstLaunchLocale, setLocale } from '@/i18n';
 import { z } from '@/utils/zod';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
@@ -95,6 +95,14 @@ export const useSettingsStore = defineStore('settings', () => {
     function applyLanguage(value: unknown): void {
         settings.value.language = normalizeLocale(value);
         setLocale(settings.value.language);
+    }
+
+    function resolvePersistedLanguage(language: string | null): AppLocale {
+        if (language === null) {
+            return resolveFirstLaunchLocale();
+        }
+
+        return normalizeLocale(language);
     }
 
     function applySearchWindowSizePreset(preset: SearchWindowSizePreset): void {
@@ -237,7 +245,7 @@ export const useSettingsStore = defineStore('settings', () => {
                     : startMinimized === 'true';
             settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(outputScroll);
             applySearchWindowSizePreset(normalizeSearchWindowSizePreset(searchWindowSizePreset));
-            applyLanguage(language);
+            applyLanguage(resolvePersistedLanguage(language));
             settings.value.appUpdateChannel = normalizeAppUpdateChannel(appUpdateChannel);
             settings.value.appUpdateAutoCheck =
                 appUpdateAutoCheck === null
