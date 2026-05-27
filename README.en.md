@@ -1,8 +1,8 @@
+<p align="center"><a href="./README.md">中文</a> | English</p>
+
 <p align="center">
   <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" />
 </p>
-
-<p align="center"><a href="./README.md">中文</a> | English</p>
 
 <p align="center">
   <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
