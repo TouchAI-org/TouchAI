@@ -112,7 +112,6 @@ describe('Settings About update section', () => {
 
         expect(wrapper.text()).toContain('发现新版本 0.2.0');
         expect(wrapper.text()).toContain('最新版本 0.2.0');
-        expect(wrapper.text()).toContain('自动检查更新');
         expect(wrapper.text()).not.toContain(baseUpdateState.availableUpdate!.fileName);
 
         await wrapper.get('[data-testid="settings-update-download"]').trigger('click');

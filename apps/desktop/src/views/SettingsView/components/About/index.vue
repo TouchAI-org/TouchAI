@@ -424,31 +424,23 @@
                             {{ updateStatusText }}
                         </p>
                     </div>
-                    <div class="flex shrink-0 items-center gap-2">
-                        <span class="font-serif text-sm text-gray-600">
-                            {{ t('settings.about.update.autoCheck') }}
-                        </span>
-                        <button
+                    <button
+                        :class="[
+                            'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
+                            updateState.autoCheckEnabled ? 'bg-primary-600' : 'bg-gray-200',
+                        ]"
+                        data-testid="settings-update-auto-check"
+                        :aria-pressed="updateState.autoCheckEnabled"
+                        :title="t('settings.about.update.autoCheck')"
+                        @click="toggleAutoCheck"
+                    >
+                        <span
                             :class="[
-                                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
-                                updateState.autoCheckEnabled ? 'bg-primary-600' : 'bg-gray-200',
+                                'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                                updateState.autoCheckEnabled ? 'translate-x-6' : 'translate-x-1',
                             ]"
-                            data-testid="settings-update-auto-check"
-                            :aria-label="t('settings.about.update.autoCheck')"
-                            :aria-pressed="updateState.autoCheckEnabled"
-                            :title="t('settings.about.update.autoCheck')"
-                            @click="toggleAutoCheck"
-                        >
-                            <span
-                                :class="[
-                                    'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                                    updateState.autoCheckEnabled
-                                        ? 'translate-x-6'
-                                        : 'translate-x-1',
-                                ]"
-                            />
-                        </button>
-                    </div>
+                        />
+                    </button>
                 </div>
 
                 <div
