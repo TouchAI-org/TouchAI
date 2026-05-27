@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/search-window.png" alt="TouchAI search window" width="500" />
+  <img src="docs/images/search-window.png" alt="TouchAI search window" width="650" />
 </p>
 
 ---
