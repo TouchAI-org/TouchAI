@@ -770,4 +770,54 @@ describe('useQuickSearchLogic', () => {
 
         mounted.unmount();
     });
+
+    it('keeps quick search closed when the native provider is unavailable', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'unavailable',
+                    db_loaded: false,
+                    index_warmed: false,
+                    last_refresh_ms: null,
+                    last_error: 'Quick search is only available on Windows',
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('App')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        await flushAsyncWork();
+
+        searchQuery.value = 'app';
+        mounted.result.triggerSearch('app');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(open.value).toBe(false);
+        expect(quickSearchDeps.quickSearch.searchShortcuts).not.toHaveBeenCalled();
+
+        mounted.unmount();
+    });
 });

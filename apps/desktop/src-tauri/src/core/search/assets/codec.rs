@@ -20,6 +20,7 @@ use std::io::Cursor;
 ///
 /// Windows GDI 返回的位图数据为 BGRA 排列，需交换 R/B 通道后才能
 /// 传入 image crate 或编码为标准 PNG/JPEG。
+#[cfg(target_os = "windows")]
 pub(super) fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(bgra.len());
     for pixel in bgra.chunks_exact(4) {

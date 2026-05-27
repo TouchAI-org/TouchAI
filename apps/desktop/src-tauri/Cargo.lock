@@ -6860,6 +6860,7 @@ dependencies = [
  "base64 0.22.1",
  "cc",
  "clipboard-rs",
+ "file_icon_provider",
  "flate2",
  "futures",
  "html5gum",

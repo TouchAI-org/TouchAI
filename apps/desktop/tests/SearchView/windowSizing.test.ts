@@ -38,6 +38,7 @@ import {
     resolveSearchWindowDefaultSizeApplyAction,
     resolveSearchWindowHeightPolicy,
     resolveSearchWindowMinimumSize,
+    shouldCenterSearchWindowResize,
     shouldEnforceIdleDefaultBounds,
     shouldFillConversationAvailableHeight,
     shouldRemeasureAfterMaximizedRestore,
@@ -161,6 +162,24 @@ describe('resolveSearchWindowMinimumSize', () => {
             minHeight: 60,
             maxHeight: 60,
         });
+    });
+});
+
+describe('shouldCenterSearchWindowResize', () => {
+    it('keeps conversation resize centered but lets quick search expand downward', () => {
+        expect(
+            shouldCenterSearchWindowResize({
+                sessionCount: 1,
+                quickSearchOpen: false,
+            })
+        ).toBe(true);
+
+        expect(
+            shouldCenterSearchWindowResize({
+                sessionCount: 0,
+                quickSearchOpen: true,
+            })
+        ).toBe(false);
     });
 });
 

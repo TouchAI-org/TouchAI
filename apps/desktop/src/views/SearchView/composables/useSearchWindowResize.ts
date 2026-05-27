@@ -13,6 +13,7 @@ import {
     resolveSearchWindowDefaultSizeApplyAction,
     resolveSearchWindowHeightPolicy,
     resolveSearchWindowMinimumSize,
+    shouldCenterSearchWindowResize,
     shouldEnforceIdleDefaultBounds,
     shouldFillConversationAvailableHeight,
     shouldRemeasureAfterMaximizedRestore,
@@ -190,7 +191,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
         await native.window.resizeWindowHeight({
             targetHeight: newHeight,
-            center: true,
+            center: shouldCenterSearchWindowResize({
+                sessionCount: options.sessionCount.value,
+                quickSearchOpen: options.quickSearchOpen.value,
+            }),
             respectManualOverride: searchWindowHeightPolicy.value.respectManualOverride,
         });
         currentHeight.value = newHeight;
