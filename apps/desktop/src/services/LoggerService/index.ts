@@ -182,8 +182,8 @@ const forwardToTauri = (
         file: callsite?.file,
         line: callsite?.line,
         keyValues: normalizeLogFields({
-            category,
             ...fields,
+            category,
         }),
     };
 

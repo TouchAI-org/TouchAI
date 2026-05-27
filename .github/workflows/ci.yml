@@ -114,6 +114,21 @@ jobs:
                               per_page: 100,
                             })
                           );
+
+                          const pull = await retryGithubRequest('Get pull request metadata', () =>
+                            github.rest.pulls.get({
+                              ...context.repo,
+                              pull_number: context.issue.number,
+                            })
+                          );
+                          const changedFiles = Number(pull.data.changed_files ?? files.length);
+
+                          if (files.length >= 3000 || files.length < changedFiles) {
+                            setFullCheckOutputs(
+                              `Pull request file list may be truncated (${files.length}/${changedFiles})`
+                            );
+                            return;
+                          }
                         } catch (error) {
                           setFullCheckOutputs(`Unable to classify pull request files (${error.message})`);
                           return;

@@ -818,7 +818,57 @@ describe('useSearchWindowResize', () => {
         mounted.unmount();
     });
 
-    it('does not queue follow-up resizes from observer heights emitted during an animated shrink transaction', async () => {
+    it('does not queue follow-up resizes from lower observer heights emitted during an animated shrink transaction', async () => {
+        const resize = createDeferredVoid();
+        const target = createMeasuredElement(180);
+        const ready = ref(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount: ref(1),
+                quickSearchOpen: ref(false),
+                conversationPending: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready,
+            })
+        );
+
+        ready.value = true;
+        await flushResizeLifecycle();
+        await mounted.result.remeasureTargetHeight();
+        await flushResizeCommit();
+        vi.clearAllMocks();
+
+        nativeMock.window.resizeWindowHeight.mockImplementationOnce(() => resize.promise);
+
+        target.setHeight(120);
+        emitObservedHeight(target.element, 120);
+        await flushResizeLifecycle();
+
+        target.setHeight(118);
+        emitObservedHeight(target.element, 118);
+        await flushResizeLifecycle();
+
+        target.setHeight(116);
+        emitObservedHeight(target.element, 116);
+        await flushResizeLifecycle();
+
+        resize.resolve();
+        await flushResizeCommit();
+
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledTimes(1);
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
+            targetHeight: 120,
+            center: true,
+            animate: true,
+            respectManualOverride: true,
+        });
+
+        mounted.unmount();
+    });
+
+    it('queues a follow-up remeasure when content grows during an animated shrink transaction', async () => {
         const resize = createDeferredVoid();
         const target = createMeasuredElement(180);
         const ready = ref(false);
@@ -850,22 +900,58 @@ describe('useSearchWindowResize', () => {
         emitObservedHeight(target.element, 150);
         await flushResizeLifecycle();
 
-        target.setHeight(136);
-        emitObservedHeight(target.element, 136);
+        target.setHeight(116);
+        emitObservedHeight(target.element, 116);
         await flushResizeLifecycle();
+        target.setHeight(150);
 
         resize.resolve();
         await flushResizeCommit();
 
-        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledTimes(1);
-        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
+        await waitForCallCount(nativeMock.window.resizeWindowHeight, 2);
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenNthCalledWith(1, {
             targetHeight: 120,
+            center: true,
+            animate: true,
+            respectManualOverride: true,
+        });
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenNthCalledWith(2, {
+            targetHeight: 154,
             center: true,
             animate: true,
             respectManualOverride: true,
         });
 
         mounted.unmount();
+    });
+
+    it('unlistens the resize listener when registration resolves after unmount', async () => {
+        let resolveResizeListener!: (unlisten: () => void) => void;
+        const unlisten = vi.fn();
+
+        currentWindowMock.onResized.mockImplementationOnce(
+            () =>
+                new Promise<() => void>((resolve) => {
+                    resolveResizeListener = resolve;
+                })
+        );
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref<HTMLElement | null>(null),
+                sessionCount: ref(0),
+                quickSearchOpen: ref(false),
+                conversationPending: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready: ref(false),
+            })
+        );
+
+        mounted.unmount();
+        resolveResizeListener(unlisten);
+        await Promise.resolve();
+
+        expect(unlisten).toHaveBeenCalledTimes(1);
     });
 
     it('does not adopt the native target height mid-animation and then bounce back toward intermediate observer heights', async () => {

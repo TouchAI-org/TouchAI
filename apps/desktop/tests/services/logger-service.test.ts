@@ -91,6 +91,7 @@ describe('LoggerService', () => {
 
         initializeLogger();
         createLogger('resize').warn('resize commit failed', new Error('native failed'), {
+            category: 'mcp',
             targetHeight: 420,
         });
         await Promise.resolve();

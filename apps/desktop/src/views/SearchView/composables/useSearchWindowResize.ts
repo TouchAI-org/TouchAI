@@ -106,6 +106,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     let activeResizeDirection: 'grow' | 'shrink' | null = null;
     let pendingProgrammaticTargetHeight: number | null = null;
     let pendingObserverRemeasure = false;
+    let unmounted = false;
     let shrinkObserverReboundGuard: {
         targetHeight: number;
         upperBoundHeight: number;
@@ -324,7 +325,13 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
         if (reason === 'observer') {
             if (resizeTransactionInFlight) {
-                pendingObserverRemeasure = activeResizeDirection === 'grow';
+                const shouldRemeasureAfterTransaction =
+                    activeResizeDirection === 'grow' ||
+                    (activeResizeDirection === 'shrink' &&
+                        pendingProgrammaticTargetHeight !== null &&
+                        newHeight > pendingProgrammaticTargetHeight);
+                pendingObserverRemeasure =
+                    pendingObserverRemeasure || shouldRemeasureAfterTransaction;
                 return;
             }
 
@@ -685,6 +692,11 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             viewportSyncScheduler.schedule();
         })
         .then((unlisten) => {
+            if (unmounted) {
+                unlisten();
+                return;
+            }
+
             unlistenWindowResize = unlisten;
         })
         .catch((error) => {
@@ -692,6 +704,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         });
 
     onUnmounted(() => {
+        unmounted = true;
         cleanup();
         clearViewportHeightLock();
         heightResizeScheduler.cancel();
