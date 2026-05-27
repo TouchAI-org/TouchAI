@@ -67,4 +67,4 @@
 
 - [LINUX DO](https://linux.do/)
 - [Xiaomi MIMO](https://mimo.xiaomi.com/)
-- [ExoMind](https://exomind-team.github.io/exomind)
+- [ExoMind](https://exo-mind.ai/)
