@@ -40,7 +40,7 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
             {
                 id: 'general',
                 icon: 'settings',
-                labelKey: 'settings.nav.general.short',
+                labelKey: 'settings.nav.general.label',
                 descriptionKey: 'settings.nav.general.description',
             },
         ],
@@ -51,19 +51,19 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
             {
                 id: 'ai-services',
                 icon: 'llm',
-                labelKey: 'settings.nav.aiServices.short',
+                labelKey: 'settings.nav.aiServices.label',
                 descriptionKey: 'settings.nav.aiServices.description',
             },
             {
                 id: 'built-in-tools',
                 icon: 'tool',
-                labelKey: 'settings.nav.builtInTools',
+                labelKey: 'settings.nav.builtInTools.label',
                 descriptionKey: 'settings.nav.builtInTools.description',
             },
             {
                 id: 'mcp-tools',
                 icon: 'mcp',
-                labelKey: 'settings.nav.mcpTools',
+                labelKey: 'settings.nav.mcpTools.label',
                 descriptionKey: 'settings.nav.mcpTools.description',
             },
         ],
@@ -74,14 +74,16 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
             {
                 id: 'data-management',
                 icon: 'database',
-                labelKey: 'settings.nav.dataManagement',
+                labelKey: 'settings.nav.dataManagement.label',
                 descriptionKey: 'settings.nav.dataManagement.description',
             },
         ],
     },
 ];
 
-function createNavigationItem(definition: SettingsNavigationItemDefinition): SettingsNavigationItem {
+function createNavigationItem(
+    definition: SettingsNavigationItemDefinition
+): SettingsNavigationItem {
     return {
         id: definition.id,
         icon: definition.icon,
@@ -94,14 +96,13 @@ function createNavigationItem(definition: SettingsNavigationItemDefinition): Set
     };
 }
 
-export const settingsNavigationGroups: SettingsNavigationGroup[] = settingsNavigationDefinitions.map(
-    (group) => ({
+export const settingsNavigationGroups: SettingsNavigationGroup[] =
+    settingsNavigationDefinitions.map((group) => ({
         get label() {
             return t(group.labelKey);
         },
         items: group.items.map(createNavigationItem),
-    })
-);
+    }));
 
 export function flattenSettingsNavigation(): SettingsNavigationItem[] {
     return settingsNavigationGroups.flatMap((group) => group.items);

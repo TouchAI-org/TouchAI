@@ -3,10 +3,9 @@
 <script setup lang="ts">
     import { computed } from 'vue';
 
-    import { type BuiltInToolEntity, getBuiltInToolSummary } from '../types';
-
-
     import { t } from '@/i18n';
+
+    import { type BuiltInToolEntity, getBuiltInToolSummary } from '../types';
     interface Props {
         tools: BuiltInToolEntity[];
         selectedToolId: string | null;
@@ -30,7 +29,9 @@
     <div class="settings-scrollbar flex-1 space-y-1 overflow-y-auto p-4 pt-5">
         <div v-if="sortedTools.length === 0" class="px-4 py-10 text-center">
             <p class="mt-3 text-sm text-neutral-500">{{ t('settings.builtInTools.list.empty') }}</p>
-            <p class="mt-1 text-xs text-neutral-400">{{ t('settings.builtInTools.list.emptyDescription') }}</p>
+            <p class="mt-1 text-xs text-neutral-400">
+                {{ t('settings.builtInTools.list.emptyDescription') }}
+            </p>
         </div>
 
         <div
@@ -46,10 +47,14 @@
         >
             <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0 flex-1">
-                    <h3 class="truncate text-[13px] font-normal text-neutral-950">
+                    <h3
+                        class="truncate text-[13px] font-normal text-neutral-950"
+                        data-no-i18n="true"
+                        translate="no"
+                    >
                         {{ tool.display_name }}
                     </h3>
-                    <p class="mt-1 text-xs leading-5 text-neutral-500">
+                    <p class="mt-1 text-xs leading-5 break-words text-neutral-500">
                         {{ getBuiltInToolSummary(tool.tool_id, tool.description) }}
                     </p>
                 </div>

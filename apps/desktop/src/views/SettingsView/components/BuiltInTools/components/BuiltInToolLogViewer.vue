@@ -6,6 +6,9 @@
     import { useListFilter } from '@composables/useListFilter';
     import { onMounted, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
+    import { formatDateTime } from '@/i18n/format';
+
     import {
         getBuiltInToolApprovalStateText,
         getToolLogStatusText,
@@ -17,8 +20,6 @@
         loadBuiltInToolQueries,
     } from '../types';
 
-
-    import { t } from '@/i18n';
     interface Props {
         tool: BuiltInToolEntity;
     }
@@ -43,7 +44,7 @@
     });
 
     function formatDate(value: string) {
-        return new Date(value).toLocaleString('zh-CN');
+        return formatDateTime(value);
     }
 
     async function loadLogs() {
@@ -156,7 +157,9 @@
                 <p class="mt-4 text-sm text-neutral-500">
                     {{ searchQuery ? t('toolLog.noMatches') : t('toolLog.empty') }}
                 </p>
-                <p v-if="searchQuery" class="mt-1 text-xs text-neutral-400">{{ t('toolLog.tryAnotherKeyword') }}</p>
+                <p v-if="searchQuery" class="mt-1 text-xs text-neutral-400">
+                    {{ t('toolLog.tryAnotherKeyword') }}
+                </p>
             </div>
 
             <div v-else class="space-y-2">
@@ -173,7 +176,11 @@
                         <div class="flex items-start justify-between">
                             <div class="min-w-0 flex-1">
                                 <div class="flex flex-wrap items-center gap-2">
-                                    <span class="text-[15px] font-normal text-neutral-950">
+                                    <span
+                                        class="text-[15px] font-normal text-neutral-950"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
                                         {{ props.tool.display_name }}
                                     </span>
                                     <ToolLogStatusBadge :status="log.status" />
@@ -216,7 +223,8 @@
                         />
 
                         <div
-                            class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-200 pt-3 font-mono text-xs text-neutral-500"
+                            class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-200 pt-3 font-mono text-xs break-words text-neutral-500"
+                            data-testid="built-in-tool-log-detail-metadata"
                         >
                             <span data-no-i18n="true" translate="no">
                                 {{ t('toolLog.callIdLabel') }} {{ log.tool_call_id }}
@@ -227,7 +235,7 @@
                             <span v-if="log.message_id" data-no-i18n="true" translate="no">
                                 {{ t('toolLog.messageLabel') }} {{ log.message_id }}
                             </span>
-                            <span v-if="log.approval_state">
+                            <span v-if="getBuiltInToolApprovalStateText(log.approval_state)">
                                 {{ t('toolLog.approvalLabel') }}
                                 {{ getBuiltInToolApprovalStateText(log.approval_state) }}
                             </span>

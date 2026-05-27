@@ -60,7 +60,12 @@
             </div>
 
             <h3 class="text-[15px] font-medium text-neutral-950">{{ title }}</h3>
-            <p class="mt-2 text-sm text-neutral-600">{{ message }}</p>
+            <p
+                data-testid="progress-message"
+                class="mt-2 text-sm [overflow-wrap:anywhere] break-words whitespace-normal text-neutral-600"
+            >
+                {{ message }}
+            </p>
 
             <div v-if="progress !== undefined" class="mt-6 w-full">
                 <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-100">

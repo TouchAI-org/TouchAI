@@ -9,14 +9,12 @@
     import type { Provider, ProviderDriver } from '@database/schema';
     import { computed, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import {
         getProviderDriverDefinition,
         providerDriverDefinitions,
     } from '@/services/AgentService/infrastructure/providers';
-
-
-    import { t } from '@/i18n';
     interface Props {
         provider: Provider;
     }
@@ -107,16 +105,26 @@
 
 <template>
     <DialogShell>
-        <h2 class="mb-5 text-[15px] font-medium text-neutral-950">{{ t('settings.ai.editProvider.title') }}</h2>
+        <h2 class="mb-5 text-[15px] font-medium text-neutral-950">
+            {{ t('settings.ai.editProvider.title') }}
+        </h2>
 
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.providerNameRequired') }}</label>
-                <Input v-model="form.name" class="mt-1.5" placeholder="My Custom Provider" />
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.providerNameRequired') }}
+                </label>
+                <Input
+                    v-model="form.name"
+                    class="mt-1.5"
+                    :placeholder="t('settings.ai.providerNamePlaceholder')"
+                />
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.ai.providerTypeRequired') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.providerTypeRequired') }}
+                </label>
                 <CustomSelect
                     v-model="form.driver"
                     :options="driverOptions"

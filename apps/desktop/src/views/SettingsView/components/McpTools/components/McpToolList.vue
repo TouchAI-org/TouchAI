@@ -7,15 +7,13 @@
     import type { McpServerEntity, McpToolEntity } from '@database/types';
     import { computed, onMounted, ref } from 'vue';
 
+    import { t } from '@/i18n';
     import { useMcpStore } from '@/stores/mcp';
     import {
         type McpToolProperty,
         type McpToolSchema,
         parseMcpToolSchemaJson,
     } from '@/utils/mcpSchemas';
-
-
-    import { t } from '@/i18n';
     interface Props {
         server: McpServerEntity;
     }
@@ -172,10 +170,18 @@
             <div v-else-if="filteredTools.length === 0" class="py-12 text-center">
                 <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
                 <p class="mt-4 text-sm text-neutral-500">
-                    {{ searchQuery ? t('settings.mcp.tools.noMatches') : t('settings.mcp.tools.empty') }}
+                    {{
+                        searchQuery
+                            ? t('settings.mcp.tools.noMatches')
+                            : t('settings.mcp.tools.empty')
+                    }}
                 </p>
                 <p class="mt-1 text-xs text-neutral-400">
-                    {{ searchQuery ? t('toolLog.tryAnotherKeyword') : t('settings.mcp.tools.discoverAfterConnect') }}
+                    {{
+                        searchQuery
+                            ? t('toolLog.tryAnotherKeyword')
+                            : t('settings.mcp.tools.discoverAfterConnect')
+                    }}
                 </p>
             </div>
 
@@ -192,7 +198,11 @@
                         <div class="flex items-start justify-between">
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center gap-2">
-                                    <h3 class="text-[15px] font-medium text-neutral-950">
+                                    <h3
+                                        class="text-[15px] font-medium break-words text-neutral-950"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
                                         {{ tool.name }}
                                     </h3>
                                     <button
@@ -213,9 +223,11 @@
                                 <p
                                     v-if="tool.description"
                                     :class="[
-                                        'mt-1 text-xs text-gray-500',
+                                        'mt-1 text-xs break-words text-gray-500',
                                         !expandedTools.has(tool.id) && 'line-clamp-2',
                                     ]"
+                                    data-no-i18n="true"
+                                    translate="no"
                                 >
                                     {{ tool.description }}
                                 </p>
@@ -236,7 +248,9 @@
                         v-if="expandedTools.has(tool.id)"
                         class="border-t border-neutral-200/70 bg-neutral-50/70 p-4"
                     >
-                        <h4 class="mb-2 text-xs font-medium text-neutral-700">{{ t('settings.mcp.tools.inputParameters') }}</h4>
+                        <h4 class="mb-2 text-xs font-medium text-neutral-700">
+                            {{ t('settings.mcp.tools.inputParameters') }}
+                        </h4>
 
                         <template v-if="getToolSchema(tool.id)">
                             <template v-if="getSchemaProperties(getToolSchema(tool.id))">
@@ -251,9 +265,9 @@
                                 </div>
                                 <div
                                     v-else
-                                    class="overflow-hidden rounded-lg border border-neutral-200 bg-white"
+                                    class="overflow-x-auto rounded-lg border border-neutral-200 bg-white"
                                 >
-                                    <table class="w-full">
+                                    <table class="min-w-full">
                                         <thead class="bg-neutral-50">
                                             <tr>
                                                 <th
@@ -287,12 +301,16 @@
                                                 class="border-b border-neutral-100 last:border-0"
                                             >
                                                 <td
-                                                    class="px-3 py-2 font-mono text-xs text-neutral-950"
+                                                    class="px-3 py-2 font-mono text-xs break-all text-neutral-950"
+                                                    data-no-i18n="true"
+                                                    translate="no"
                                                 >
                                                     {{ propName }}
                                                 </td>
                                                 <td
-                                                    class="px-3 py-2 font-mono text-xs text-neutral-600"
+                                                    class="px-3 py-2 font-mono text-xs break-all text-neutral-600"
+                                                    data-no-i18n="true"
+                                                    translate="no"
                                                 >
                                                     {{ getPropertyType(prop) }}
                                                 </td>
@@ -308,9 +326,15 @@
                                                     >
                                                         {{ t('common.yes') }}
                                                     </span>
-                                                    <span v-else class="text-gray-400">{{ t('common.no') }}</span>
+                                                    <span v-else class="text-gray-400">
+                                                        {{ t('common.no') }}
+                                                    </span>
                                                 </td>
-                                                <td class="px-3 py-2 text-xs text-neutral-600">
+                                                <td
+                                                    class="px-3 py-2 text-xs break-words text-neutral-600"
+                                                    data-no-i18n="true"
+                                                    translate="no"
+                                                >
                                                     {{ prop.description || '-' }}
                                                 </td>
                                             </tr>

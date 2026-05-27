@@ -77,6 +77,39 @@ describe('DOM localizer', () => {
         expect(root.querySelector('button')?.getAttribute('title')).toBe('Minimize');
     });
 
+    it('tracks updated original attributes on reused elements', async () => {
+        const root = document.createElement('div');
+        root.innerHTML = '<input placeholder="搜索标题或消息内容" />';
+        document.body.appendChild(root);
+
+        setLocale('en-US');
+        localizer = createDomLocalizer(root);
+        localizer.start();
+
+        const input = root.querySelector('input')!;
+        expect(input.getAttribute('placeholder')).toBe('Search titles or messages');
+
+        input.setAttribute('placeholder', '搜索模型名称、ID 或供应商');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(input.getAttribute('placeholder')).toBe('Search model name, ID, or provider');
+
+        setLocale('zh-CN');
+        localizer.translateNow();
+        expect(input.getAttribute('placeholder')).toBe('搜索模型名称、ID 或供应商');
+    });
+
+    it('keeps whitespace-only text nodes unchanged when localizing the document', () => {
+        document.body.innerHTML = '<main>   <span>设置</span>   </main>';
+
+        setLocale('en-US');
+        localizer = createDomLocalizer(document);
+        localizer.translateNow();
+
+        expect(document.querySelector('main')?.childNodes[0]?.nodeValue).toBe('   ');
+        expect(document.querySelector('span')?.textContent).toBe('Settings');
+    });
+
     it('tracks updated original text on reused text nodes', async () => {
         const root = document.createElement('div');
         root.textContent = '设置';

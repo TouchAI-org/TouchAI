@@ -136,7 +136,6 @@ describe('Settings data management i18n and layout', () => {
         await flushMountedPromises();
 
         expect(wrapper.text()).toContain('Data management');
-        expect(wrapper.text()).toContain('Manage application data and settings backups');
         expect(wrapper.text()).toContain('Data statistics');
         expect(wrapper.text()).toContain('Conversation sessions');
         expect(wrapper.text()).toContain('Clear all conversation history');
@@ -210,7 +209,7 @@ describe('Settings data management i18n and layout', () => {
 
         expect(message.classes()).toContain('break-words');
         expect(message.classes()).toContain('whitespace-normal');
-        expect(message.classes()).toContain('overflow-wrap-anywhere');
+        expect(message.classes()).toContain('[overflow-wrap:anywhere]');
         expect(wrapper.text()).toContain('42%');
     });
 

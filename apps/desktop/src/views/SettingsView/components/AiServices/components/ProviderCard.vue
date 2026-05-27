@@ -4,10 +4,9 @@
     import type { Provider } from '@database/schema';
     import { computed } from 'vue';
 
-    import BadgedLogo from './BadgedLogo.vue';
-
-
     import { t } from '@/i18n';
+
+    import BadgedLogo from './BadgedLogo.vue';
     interface Props {
         provider: Provider;
         isSelected: boolean;
@@ -68,7 +67,11 @@
 
         <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2">
-                <h3 class="min-w-0 flex-1 truncate text-[13px] font-normal text-neutral-950">
+                <h3
+                    class="min-w-0 flex-1 truncate text-[13px] font-normal text-neutral-950"
+                    data-no-i18n="true"
+                    translate="no"
+                >
                     {{ provider.name }}
                 </h3>
                 <span

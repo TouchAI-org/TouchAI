@@ -311,7 +311,7 @@
     <div class="settings-page">
         <div class="settings-section-stack">
             <header class="settings-page-header">
-                <h1 class="settings-page-title">{{ t('settings.nav.dataManagement') }}</h1>
+                <h1 class="settings-page-title">{{ t('settings.nav.dataManagement.label') }}</h1>
             </header>
 
             <section class="space-y-4">
@@ -323,19 +323,25 @@
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.sessions }}
                             </div>
-                            <div class="mt-1.5 text-xs text-neutral-500">{{ t('settings.dataManagement.sessions') }}</div>
+                            <div class="mt-1.5 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.sessions') }}
+                            </div>
                         </div>
                         <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.messages }}
                             </div>
-                            <div class="mt-1.5 text-xs text-neutral-500">{{ t('settings.dataManagement.messages') }}</div>
+                            <div class="mt-1.5 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.messages') }}
+                            </div>
                         </div>
                         <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.sessionTurns }}
                             </div>
-                            <div class="mt-1.5 text-xs text-neutral-500">{{ t('settings.dataManagement.sessionTurns') }}</div>
+                            <div class="mt-1.5 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.sessionTurns') }}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -352,7 +358,9 @@
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
-                            <div class="text-sm font-medium text-neutral-950">{{ t('settings.dataManagement.clearAllSessions') }}</div>
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.clearAllSessions') }}
+                            </div>
                             <div class="mt-1 text-xs text-neutral-500">
                                 {{ t('settings.dataManagement.clearAllSessionsDescription') }}
                             </div>
@@ -371,7 +379,9 @@
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
-                            <div class="text-sm font-medium text-neutral-950">{{ t('settings.dataManagement.clearAllMessages') }}</div>
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.clearAllMessages') }}
+                            </div>
                             <div class="mt-1 text-xs text-neutral-500">
                                 {{ t('settings.dataManagement.clearAllMessagesDescription') }}
                             </div>
@@ -390,8 +400,12 @@
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
-                            <div class="text-sm font-medium text-neutral-950">{{ t('settings.dataManagement.clearSessionTurns') }}</div>
-                            <div class="mt-1 text-xs text-neutral-500">{{ t('settings.dataManagement.clearSessionTurnsDescription') }}</div>
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.clearSessionTurns') }}
+                            </div>
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.clearSessionTurnsDescription') }}
+                            </div>
                         </div>
                         <button
                             class="settings-button-danger"
@@ -405,14 +419,18 @@
             </section>
 
             <section class="space-y-4">
-                <h2 class="settings-section-title">{{ t('settings.dataManagement.dataUpdates') }}</h2>
+                <h2 class="settings-section-title">
+                    {{ t('settings.dataManagement.dataUpdates') }}
+                </h2>
                 <div class="settings-row-group">
                     <div
                         data-testid="settings-data-plain-row"
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
-                            <div class="text-sm font-medium text-neutral-950">{{ t('settings.dataManagement.modelDatabase') }}</div>
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.modelDatabase') }}
+                            </div>
                             <div class="mt-1 text-xs text-neutral-500">
                                 {{ t('settings.dataManagement.modelDatabaseDescription') }}
                             </div>
@@ -432,14 +450,18 @@
             </section>
 
             <section class="space-y-4">
-                <h2 class="settings-section-title">{{ t('settings.dataManagement.settingsBackup') }}</h2>
+                <h2 class="settings-section-title">
+                    {{ t('settings.dataManagement.settingsBackup') }}
+                </h2>
                 <div class="settings-row-group divide-y divide-neutral-200/70">
                     <div
                         data-testid="settings-data-plain-row"
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
-                            <div class="text-sm font-medium text-neutral-950">{{ t('settings.dataManagement.exportSettings') }}</div>
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.exportSettings') }}
+                            </div>
                             <div class="mt-1 text-xs text-neutral-500">
                                 {{ t('settings.dataManagement.exportSettingsDescription') }}
                             </div>
@@ -458,7 +480,9 @@
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
-                            <div class="text-sm font-medium text-neutral-950">{{ t('settings.dataManagement.importSettings') }}</div>
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.importSettings') }}
+                            </div>
                             <div class="mt-1 text-xs text-neutral-500">
                                 {{ t('settings.dataManagement.importSettingsDescription') }}
                             </div>

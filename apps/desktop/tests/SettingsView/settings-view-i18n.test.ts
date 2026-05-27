@@ -1,13 +1,29 @@
 import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h } from 'vue';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import SettingsView from '@/views/SettingsView/index.vue';
 
-const { setTitleMock } = vi.hoisted(() => ({
-    setTitleMock: vi.fn(async () => undefined),
-}));
+const { asyncViewControls, setTitleMock } = vi.hoisted(() => {
+    const pendingResolvers = new Set<() => void>();
+
+    return {
+        asyncViewControls: {
+            waitForResolve() {
+                return new Promise<void>((resolve) => {
+                    pendingResolvers.add(resolve);
+                });
+            },
+            resolveAll() {
+                for (const resolve of pendingResolvers) {
+                    resolve();
+                }
+                pendingResolvers.clear();
+            },
+        },
+        setTitleMock: vi.fn(async () => undefined),
+    };
+});
 
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({
@@ -29,36 +45,55 @@ vi.mock('@components/AppIcon.vue', () => ({
     },
 }));
 
-const AsyncNever = defineComponent({
-    async setup() {
-        await new Promise(() => undefined);
-        return () => h('div');
-    },
-});
-
 vi.mock('@/views/SettingsView/components/General/index.vue', () => ({
     __esModule: true,
-    default: AsyncNever,
+    default: {
+        name: 'GeneralViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
 }));
 vi.mock('@/views/SettingsView/components/AiServices/index.vue', () => ({
     __esModule: true,
-    default: AsyncNever,
+    default: {
+        name: 'AiServicesViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
 }));
 vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
     __esModule: true,
-    default: AsyncNever,
+    default: {
+        name: 'BuiltInToolsViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
 }));
 vi.mock('@/views/SettingsView/components/McpTools/index.vue', () => ({
     __esModule: true,
-    default: AsyncNever,
+    default: {
+        name: 'McpToolsViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
 }));
 vi.mock('@/views/SettingsView/components/DataManagement/index.vue', () => ({
     __esModule: true,
-    default: AsyncNever,
-}));
-vi.mock('@/views/SettingsView/components/About/index.vue', () => ({
-    __esModule: true,
-    default: AsyncNever,
+    default: {
+        name: 'DataManagementViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
 }));
 
 async function flushMountedPromises() {
@@ -70,7 +105,12 @@ async function flushMountedPromises() {
 describe('SettingsView lazy loading i18n', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        asyncViewControls.resolveAll();
         setLocale('zh-CN');
+    });
+
+    afterEach(() => {
+        asyncViewControls.resolveAll();
     });
 
     it('renders lazy-loading placeholders in English when the active locale is English', async () => {
@@ -100,8 +140,7 @@ describe('SettingsView lazy loading i18n', () => {
         await wrapper.get('[data-testid="settings-nav-data-management"]').trigger('click');
         expect(wrapper.text()).toContain('Loading data management...');
 
-        await wrapper.get('[data-testid="settings-nav-about"]').trigger('click');
-        expect(wrapper.text()).toContain('Loading about page...');
+        expect(wrapper.find('[data-testid="settings-nav-about"]').exists()).toBe(false);
 
         expect(wrapper.text()).not.toContain('正在加载');
     });

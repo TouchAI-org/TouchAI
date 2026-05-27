@@ -4,11 +4,10 @@
     import AppIcon from '@components/AppIcon.vue';
     import type { Provider } from '@database/schema';
 
+    import { t } from '@/i18n';
+
     import { useSettingsResizablePanel } from '../../../composables/useSettingsResizablePanel';
     import ProviderCard from './ProviderCard.vue';
-
-
-    import { t } from '@/i18n';
     interface Props {
         providers: Provider[];
         selectedProviderId: number | null;
@@ -58,7 +57,7 @@
 
         <div class="settings-side-panel-footer">
             <button
-                class="settings-button-primary flex w-full items-center justify-center gap-2"
+                class="settings-button-primary flex w-full items-center justify-center gap-2 break-words whitespace-normal"
                 data-testid="settings-add-custom-provider-button"
                 @click="emit('add-custom')"
             >

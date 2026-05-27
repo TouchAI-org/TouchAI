@@ -22,7 +22,21 @@ describe('i18n format helpers', () => {
         setLocale('en-US');
 
         expect(formatShortDate('2026-05-20T08:09:10')).not.toBe('');
+        expect(formatDateTime('')).toBe('');
         expect(formatDateTime(null)).toBe('');
+        expect(formatMonthDay(undefined)).toBe('');
+        expect(formatTime('not-a-date')).toBe('');
         expect(formatShortDate('not-a-date')).toBe('');
+    });
+
+    it('uses an explicit locale without changing the active locale', () => {
+        const date = new Date('2026-05-20T08:09:10');
+
+        setLocale('zh-CN');
+
+        expect(formatShortDate(date, 'en-US')).toMatch(/May|5/);
+        expect(formatDateTime(date, 'en-US')).toMatch(/May|5/);
+        expect(formatMonthDay(date, 'en-US')).toMatch(/May|5/);
+        expect(formatTime(date, 'en-US')).not.toBe('');
     });
 });

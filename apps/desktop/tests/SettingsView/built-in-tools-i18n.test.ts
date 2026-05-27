@@ -510,7 +510,9 @@ describe('built-in tools settings i18n', () => {
         expect(wrapper.text()).toContain('Provider');
         expect(wrapper.text()).toContain('Search providers');
         expect(wrapper.text()).toContain('No available providers');
+        expect(wrapper.text()).toContain('1 available models');
         expect(wrapper.text()).not.toContain('模型升级链');
+        expect(wrapper.text()).not.toContain('1 个可选模型');
         expect(wrapper.get('.upgrade-model-chain-card > div').classes()).toContain('min-w-0');
     });
 

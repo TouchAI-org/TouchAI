@@ -4,6 +4,46 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '@/i18n';
 import AboutSection from '@/views/SettingsView/components/About/index.vue';
 
+const { appUpdateServiceMock } = vi.hoisted(() => {
+    const baseUpdateState = {
+        status: 'idle',
+        channel: 'stable',
+        autoCheckEnabled: true,
+        currentVersion: '0.1.0',
+        availableUpdate: null,
+        downloadedUpdate: null,
+        latestUpdate: null,
+        updateRequirement: {
+            required: false,
+            minimumSupportedVersion: null,
+            requiredSeverity: null,
+            requiredReason: null,
+            targetSatisfiesRequirement: true,
+        },
+        downloadProgress: null,
+        lastCheckedAt: null,
+        error: null,
+        unsupportedReason: null,
+    };
+
+    return {
+        appUpdateServiceMock: {
+            getState: vi.fn(() => baseUpdateState),
+            subscribe: vi.fn(() => () => undefined),
+            initialize: vi.fn(async () => undefined),
+            checkNow: vi.fn(async () => true),
+            download: vi.fn(async () => true),
+            install: vi.fn(async () => true),
+            setChannel: vi.fn(async () => undefined),
+            setAutoCheckEnabled: vi.fn(async () => undefined),
+        },
+    };
+});
+
+vi.mock('@services/AppUpdateService', () => ({
+    appUpdateService: appUpdateServiceMock,
+}));
+
 vi.mock('@tauri-apps/api/app', () => ({
     getTauriVersion: vi.fn(async () => '2.11.0'),
     getVersion: vi.fn(async () => '0.1.0'),

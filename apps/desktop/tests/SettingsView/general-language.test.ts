@@ -164,17 +164,25 @@ describe('Settings General shortcut capture i18n', () => {
 
         await flushMountedPromises();
 
-        expect(wrapper.text()).toContain('General settings');
-        expect(wrapper.text()).toContain('Configure basic app behavior and appearance');
-        expect(wrapper.text()).toContain('Global shortcut');
-        expect(wrapper.text()).toContain('Startup settings');
-        expect(wrapper.text()).toContain('Run TouchAI automatically when the system starts');
-        expect(wrapper.text()).toContain('Conversation settings');
+        expect(wrapper.text()).toContain('General');
+        expect(wrapper.text()).toContain('Shortcuts');
+        expect(wrapper.text()).toContain('Set the global entry point for opening TouchAI');
+        expect(wrapper.text()).toContain('Activation shortcut');
+        expect(wrapper.text()).toContain('Startup and window');
+        expect(wrapper.text()).toContain(
+            'Control startup behavior and the default search window size'
+        );
+        expect(wrapper.text()).toContain('Start on boot');
+        expect(wrapper.text()).toContain('Start minimized');
+        expect(wrapper.text()).toContain('Window size');
+        expect(wrapper.text()).toContain('Conversation experience');
+        expect(wrapper.text()).toContain('Output scroll behavior');
         expect(wrapper.text()).toContain('Follow output');
-        expect(wrapper.text()).toContain('Automatically scroll to the latest content');
-        expect(wrapper.text()).toContain('Search window');
-        expect(wrapper.text()).toContain('Default size');
+        expect(wrapper.text()).toContain(
+            'Automatically scroll to the latest content while output streams'
+        );
         expect(wrapper.text()).toContain('Language');
+        expect(wrapper.text()).toContain('Controls the display language used by TouchAI');
         expect(wrapper.text()).toContain('Interface language');
         expect(wrapper.text()).not.toContain('常规设置');
         expect(wrapper.text()).not.toContain('输出时滚动策略');

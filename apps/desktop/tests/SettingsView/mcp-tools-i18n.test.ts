@@ -151,7 +151,6 @@ describe('MCP settings i18n and long text layout', () => {
 
         await flushMountedPromises();
 
-        expect(wrapper.text()).toContain('MCP servers');
         expect(wrapper.text()).toContain('+ Add MCP server');
         expect(wrapper.text()).toContain('No servers yet');
         expect(wrapper.text()).toContain('Click the button below to add a server');
@@ -283,23 +282,43 @@ describe('MCP settings i18n and long text layout', () => {
                 session_id: 'session-with-long-id',
                 status: 'success',
                 tool_call_id: 'tool-call-with-long-id',
-                tool_name: 'very-long-log-tool-name-without-natural-breaks',
+                tool_name: '工具',
                 updated_at: '2026-05-20T08:30:00.000Z',
             },
         ]);
 
         const wrapper = mountWithPinia(McpToolLogViewer, {
             props: { server },
+            attachTo: document.body,
         });
 
         await flushMountedPromises();
+
+        const localizer = createDomLocalizer(document.body);
+        localizer.translateNow();
 
         expect(wrapper.text()).toContain('All');
         expect(wrapper.text()).toContain('Success');
         expect(wrapper.text()).toContain('Pending');
         expect(wrapper.find('input[placeholder="Search logs..."]').exists()).toBe(true);
+        expect(wrapper.get('[data-testid="mcp-tool-log-header"]').classes()).toContain('flex-wrap');
+        expect(wrapper.get('[data-testid="mcp-tool-log-name"]').text()).toBe('工具');
+        expect(wrapper.get('[data-testid="mcp-tool-log-name"]').attributes('data-no-i18n')).toBe(
+            'true'
+        );
         expect(wrapper.text()).toContain('Iteration 3');
         expect(wrapper.text()).toMatch(/5\/20\/2026|May 20, 2026/);
         expect(wrapper.text()).not.toContain('迭代');
+
+        await wrapper.get('button.w-full').trigger('click');
+
+        const metadata = wrapper.get('[data-testid="mcp-tool-log-detail-metadata"]');
+        expect(metadata.classes()).toContain('flex-wrap');
+        expect(metadata.classes()).toContain('break-words');
+        expect(metadata.text()).toContain('Call ID: tool-call-with-long-id');
+        expect(metadata.text()).toContain('Session: session-with-long-id');
+        expect(metadata.text()).toContain('Message: message-with-long-id');
+
+        wrapper.unmount();
     });
 });

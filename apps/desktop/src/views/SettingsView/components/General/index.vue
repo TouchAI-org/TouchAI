@@ -423,7 +423,7 @@
     <div class="settings-page" data-testid="settings-general-section">
         <div data-testid="settings-general-layout" class="settings-section-stack">
             <header class="settings-page-header">
-                <h1 class="settings-page-title">{{ t('settings.nav.general.short') }}</h1>
+                <h1 class="settings-page-title">{{ t('settings.nav.general.label') }}</h1>
             </header>
 
             <section class="space-y-4">
@@ -509,9 +509,7 @@
                                             data-testid="settings-shortcut-occupied-indicator"
                                             class="absolute top-1/2 right-2.5 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-red-500"
                                             :title="
-                                                t(
-                                                    'settings.general.shortcutRegistrationFailed'
-                                                )
+                                                t('settings.general.shortcutRegistrationFailed')
                                             "
                                         >
                                             <AppIcon

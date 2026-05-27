@@ -109,7 +109,11 @@
     };
 
     function syncNativeWindowTitle() {
-        currentWindow?.setTitle(`TouchAI - ${t('common.settings')}`).catch((error) => {
+        if (!currentWindow?.setTitle) {
+            return;
+        }
+
+        currentWindow.setTitle(`TouchAI - ${t('common.settings')}`).catch((error) => {
             console.error('[SettingsView] Failed to update native window title:', error);
         });
     }
@@ -192,9 +196,7 @@
                             data-testid="settings-window-maximize"
                             data-tauri-drag-region="false"
                             class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
-                            :title="
-                                isWindowMaximized ? t('window.restore') : t('window.maximize')
-                            "
+                            :title="isWindowMaximized ? t('window.restore') : t('window.maximize')"
                             :aria-label="
                                 isWindowMaximized ? t('window.restore') : t('window.maximize')
                             "

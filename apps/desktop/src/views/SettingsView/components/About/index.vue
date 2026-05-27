@@ -9,11 +9,9 @@
 
     import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
     import { APP_PRODUCT_CONFIG } from '@/config/product';
-    import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
-    import { formatDateTime } from '@/i18n/format';
-
-
     import { t } from '@/i18n';
+    import { formatDateTime } from '@/i18n/format';
+    import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
     defineOptions({
         name: 'SettingsAboutSection',
     });
@@ -203,6 +201,16 @@
         return t('settings.about.update.hint.autoCheck');
     });
 
+    const updateErrorDetailText = computed(() => {
+        if (updateState.value.status !== 'failed' || !updateState.value.error) {
+            return '';
+        }
+
+        return t('settings.about.update.errorDetail', {
+            error: updateState.value.error,
+        });
+    });
+
     const updateSizeText = computed(() => {
         const sizeBytes = visibleUpdate.value?.sizeBytes;
         if (!sizeBytes || sizeBytes <= 0) {
@@ -365,30 +373,42 @@
                         <h2 class="font-serif text-xl font-semibold text-gray-900">
                             {{ t('settings.about.title', { appName: appDisplayName }) }}
                         </h2>
-                        <p class="mt-1 font-serif text-sm text-gray-600">{{ t('settings.about.tagline') }}</p>
+                        <p class="mt-1 font-serif text-sm text-gray-600">
+                            {{ t('settings.about.tagline') }}
+                        </p>
                     </div>
                 </div>
             </div>
 
             <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">{{ t('settings.about.appInfo') }}</h2>
+                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">
+                    {{ t('settings.about.appInfo') }}
+                </h2>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.appName') }}</div>
+                        <div class="font-serif text-sm text-gray-500">
+                            {{ t('settings.about.appName') }}
+                        </div>
                         <div class="font-serif text-base text-gray-900">
                             {{ appDisplayName }}
                         </div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.version') }}</div>
+                        <div class="font-serif text-sm text-gray-500">
+                            {{ t('settings.about.version') }}
+                        </div>
                         <div class="font-serif text-base text-gray-900">{{ appVersion }}</div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.developer') }}</div>
+                        <div class="font-serif text-sm text-gray-500">
+                            {{ t('settings.about.developer') }}
+                        </div>
                         <div class="font-serif text-base text-gray-900">千诚</div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.license') }}</div>
+                        <div class="font-serif text-sm text-gray-500">
+                            {{ t('settings.about.license') }}
+                        </div>
                         <div class="font-serif text-base text-gray-900">GPL v3</div>
                     </div>
                 </div>
@@ -397,7 +417,9 @@
             <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
                 <div class="flex items-start justify-between gap-4">
                     <div>
-                        <h2 class="font-serif text-lg font-semibold text-gray-900">{{ t('settings.about.update.title') }}</h2>
+                        <h2 class="font-serif text-lg font-semibold text-gray-900">
+                            {{ t('settings.about.update.title') }}
+                        </h2>
                         <p class="mt-1 font-serif text-sm text-gray-600">
                             {{ updateStatusText }}
                         </p>
@@ -441,6 +463,12 @@
                         </div>
                         <div class="mt-1 line-clamp-2 font-serif text-xs text-gray-500">
                             {{ updateHintText }}
+                        </div>
+                        <div
+                            v-if="updateErrorDetailText"
+                            class="mt-1 font-serif text-xs text-red-600"
+                        >
+                            {{ updateErrorDetailText }}
                         </div>
                         <div
                             v-if="requiredUpdateText"
@@ -525,24 +553,34 @@
             </div>
 
             <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">{{ t('settings.about.systemInfo') }}</h2>
+                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">
+                    {{ t('settings.about.systemInfo') }}
+                </h2>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.operatingSystem') }}</div>
+                        <div class="font-serif text-sm text-gray-500">
+                            {{ t('settings.about.operatingSystem') }}
+                        </div>
                         <div class="font-serif text-base text-gray-900">{{ systemInfo.os }}</div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.systemVersion') }}</div>
+                        <div class="font-serif text-sm text-gray-500">
+                            {{ t('settings.about.systemVersion') }}
+                        </div>
                         <div class="font-serif text-base text-gray-900">
                             {{ systemInfo.osVersion }}
                         </div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.architecture') }}</div>
+                        <div class="font-serif text-sm text-gray-500">
+                            {{ t('settings.about.architecture') }}
+                        </div>
                         <div class="font-serif text-base text-gray-900">{{ systemInfo.arch }}</div>
                     </div>
                     <div>
-                        <div class="font-serif text-sm text-gray-500">{{ t('settings.about.tauriVersion') }}</div>
+                        <div class="font-serif text-sm text-gray-500">
+                            {{ t('settings.about.tauriVersion') }}
+                        </div>
                         <div class="font-serif text-base text-gray-900">
                             {{ systemInfo.tauriVersion }}
                         </div>
@@ -551,13 +589,17 @@
             </div>
 
             <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">{{ t('settings.about.externalLinks') }}</h2>
+                <h2 class="mb-4 font-serif text-lg font-semibold text-gray-900">
+                    {{ t('settings.about.externalLinks') }}
+                </h2>
                 <div class="space-y-3">
                     <button
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
                         @click="openLink(links.url)"
                     >
-                        <span class="font-serif text-gray-900">{{ t('settings.about.githubRepository') }}</span>
+                        <span class="font-serif text-gray-900">
+                            {{ t('settings.about.githubRepository') }}
+                        </span>
                         <svg
                             class="h-5 w-5 text-gray-400"
                             fill="none"
@@ -576,7 +618,9 @@
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
                         @click="openLink(links.docsUrl)"
                     >
-                        <span class="font-serif text-gray-900">{{ t('settings.about.documentation') }}</span>
+                        <span class="font-serif text-gray-900">
+                            {{ t('settings.about.documentation') }}
+                        </span>
                         <svg
                             class="h-5 w-5 text-gray-400"
                             fill="none"
@@ -595,7 +639,9 @@
                         class="flex w-full items-center justify-between rounded-lg bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-gray-100"
                         @click="openLink(links.issuesUrl)"
                     >
-                        <span class="font-serif text-gray-900">{{ t('settings.about.feedback') }}</span>
+                        <span class="font-serif text-gray-900">
+                            {{ t('settings.about.feedback') }}
+                        </span>
                         <svg
                             class="h-5 w-5 text-gray-400"
                             fill="none"

@@ -193,8 +193,7 @@ describe('AiServices i18n and layout', () => {
             },
         });
 
-        expect(wrapper.text()).toContain('Model services');
-        expect(wrapper.text()).toContain('+ Add custom provider');
+        expect(wrapper.text()).toContain('Add custom provider');
         expect(wrapper.text()).toContain('Default');
         expect(wrapper.text()).not.toContain('大模型服务');
 
@@ -224,7 +223,7 @@ describe('AiServices i18n and layout', () => {
         expect(wrapper.find('button[title="Refresh model list from provider"]').exists()).toBe(
             true
         );
-        expect(wrapper.text()).toContain('+ Add model');
+        expect(wrapper.text()).toContain('Add model');
         expect(wrapper.text()).not.toContain('模型列表');
     });
 
@@ -259,7 +258,7 @@ describe('AiServices i18n and layout', () => {
 
         await wrapper.findAll('button')[0]?.trigger('click');
 
-        expect(alertErrorMock).toHaveBeenCalledWith('Enter provider name and Base URL');
+        expect(alertErrorMock).toHaveBeenCalledWith('Enter provider name and request URL');
         expect(wrapper.text()).not.toContain('服务商名称');
     });
 
@@ -317,7 +316,6 @@ describe('AiServices i18n and layout', () => {
         const localizer = createDomLocalizer(document.body);
         localizer.translateNow();
 
-        expect(wrapper.text()).toContain('Model services');
         expect(wrapper.text()).toContain('Default');
         expect(wrapper.get('.provider-card h3').text()).toBe('服务商');
         expect(wrapper.get('.provider-card h3').attributes('data-no-i18n')).toBe('true');
