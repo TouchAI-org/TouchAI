@@ -18,6 +18,8 @@ import { useQuickSearchClickStats } from './useQuickSearchClickStats';
 const PAGE_SIZE = 60;
 const DEBOUNCE_MS = 80;
 
+type SearchOutcome = 'closed' | 'invalidated' | 'applied' | 'error';
+
 function createContextMenuItems(): ContextMenuItem[] {
     return [
         {
@@ -198,32 +200,35 @@ function useQuickSearchFlow(
      * 执行一次查询并同步面板展示状态。
      *
      * @param query 查询文本。
-     * @returns Promise<void>
+     * @returns Promise<SearchOutcome>
      */
-    async function executeSearch(query: string) {
+    async function executeSearch(query: string): Promise<SearchOutcome> {
         const trimmedQuery = query.trim();
         if (!trimmedQuery) {
             close();
-            return;
+            return 'closed';
         }
 
         // 相同查询且已有结果时跳过，避免失焦恢复等场景重复搜索覆盖多页结果。
         if (trimmedQuery === lastSearchedQuery && results.value.length > 0) {
-            return;
+            return 'applied';
         }
 
         const reqId = ++requestId.value;
 
         try {
             const searchResult = await deps.quickSearch.searchShortcuts(trimmedQuery, PAGE_SIZE, 0);
-            if (reqId !== requestId.value) return;
+            if (reqId !== requestId.value) return 'invalidated';
 
-            if (searchQuery.value.trim() !== trimmedQuery || !enabled.value) return;
+            if (searchQuery.value.trim() !== trimmedQuery || !enabled.value) return 'invalidated';
 
             let rankedShortcuts = searchResult.shortcuts;
             if (searchResult.shortcuts.length > 0) {
                 rankedShortcuts = await clickStats.rankResults(trimmedQuery, rankedShortcuts);
-                if (reqId !== requestId.value) return;
+                if (reqId !== requestId.value) return 'invalidated';
+                if (searchQuery.value.trim() !== trimmedQuery || !enabled.value) {
+                    return 'invalidated';
+                }
             }
 
             let mergedResults = [...rankedShortcuts, ...searchResult.files];
@@ -232,7 +237,7 @@ function useQuickSearchFlow(
                 mergedResults = resolveE2eQuickSearchFallbackResults(trimmedQuery);
                 if (mergedResults.length === 0) {
                     close();
-                    return;
+                    return 'applied';
                 }
             }
 
@@ -254,11 +259,13 @@ function useQuickSearchFlow(
             await syncLayout();
             scheduleIconLoad(reqId, false);
             scheduleImageLoad(reqId, false);
+            return 'applied';
         } catch (error) {
             console.error('[QuickSearchPanel] Failed to search shortcuts:', error);
             if (reqId === requestId.value) {
                 close();
             }
+            return 'error';
         }
     }
 
@@ -295,10 +302,19 @@ function useQuickSearchFlow(
         searchInFlight.value = true;
         try {
             while (currentQuery) {
-                await executeSearch(currentQuery);
+                const outcome = await executeSearch(currentQuery);
 
                 const pending = pendingQuery.value?.trim() ?? '';
                 pendingQuery.value = null;
+                if (
+                    outcome === 'invalidated' &&
+                    pending === currentQuery &&
+                    searchQuery.value.trim() === currentQuery &&
+                    enabled.value
+                ) {
+                    continue;
+                }
+
                 if (!pending || pending === currentQuery) break;
                 currentQuery = pending;
             }

@@ -449,6 +449,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         error,
         currentSessionId,
         sessionHistory: sessionHistory as Ref<SessionMessage[]>,
+        conversationPending: isLoading,
         sessionHistoryPopupOpen,
         sessionList,
         sessionListQuery,

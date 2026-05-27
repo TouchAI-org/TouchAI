@@ -20,6 +20,7 @@ import type { SearchWindowHeightMode } from '@/config/searchWindow';
 export interface SearchWindowHeightPolicyInput {
     sessionCount: number;
     quickSearchOpen: boolean;
+    conversationPending: boolean;
 }
 
 export interface IdleSearchWindowHeightState {
@@ -62,6 +63,12 @@ export interface SearchWindowMinimumSizeInput {
     autoHeightFloor: number;
 }
 
+export interface SearchHeightTargetInput {
+    measuredHeight: number;
+    currentHeight: number;
+    growthOvershootPx?: number;
+}
+
 export interface SearchWindowResizeConstraints {
     minWidth: number;
     minHeight: number;
@@ -72,6 +79,31 @@ export type SearchWindowDefaultSizeApplyAction =
     | 'skip'
     | 'reset_idle_bounds'
     | 'reset_and_remeasure_managed_panel';
+
+export type SearchHeightResizeReason = 'observer' | 'initial' | 'manual-remeasure';
+
+export interface SearchHeightResizeRequest {
+    targetHeight: number;
+    reason: SearchHeightResizeReason;
+    requestedAt: number;
+}
+
+export interface SearchHeightResizeSchedulerInput {
+    targetHeight: number;
+    reason: SearchHeightResizeReason;
+}
+
+export interface SearchHeightResizeScheduler {
+    schedule: (input: SearchHeightResizeSchedulerInput) => void;
+    cancel: () => void;
+}
+
+export interface SearchHeightResizeSchedulerOptions {
+    commit: (request: SearchHeightResizeRequest) => Promise<void>;
+    onDropped?: (request: SearchHeightResizeRequest) => void;
+    onError?: (error: unknown, request: SearchHeightResizeRequest) => void;
+    now?: () => number;
+}
 
 // ============================================================
 // 高度策略决策
@@ -88,7 +120,8 @@ export function resolveSearchWindowHeightPolicy(
     input: SearchWindowHeightPolicyInput
 ): SearchWindowHeightPolicy {
     const hasConversationPanel = input.sessionCount > 0;
-    const hasManagedPanel = hasConversationPanel || input.quickSearchOpen;
+    const hasConversationTransition = input.conversationPending;
+    const hasManagedPanel = hasConversationPanel || input.quickSearchOpen || hasConversationTransition;
 
     return {
         hasManagedPanel,
@@ -133,6 +166,28 @@ export function resolveSearchWindowMinimumSize(
         minHeight: height,
         maxHeight: input.hasManagedPanel ? null : input.defaultHeight,
     };
+}
+
+/**
+ * 根据当前页面测量值与已应用窗口高度，计算下一次应提交的目标高度。
+ *
+ * - 内容增长时，增加一个很小的 overshoot，让原生窗口略微先行，减少“网页先长、窗口后追”的裁切感。
+ * - 内容轻微回落但仍处于 overshoot 带宽内时，保持当前窗口高度，避免增长后立刻回缩造成抖动。
+ * - 明显收缩时，不保留 overshoot，直接回到测量高度。
+ */
+export function resolveSearchHeightTarget(input: SearchHeightTargetInput) {
+    const measuredHeight = Math.ceil(input.measuredHeight);
+    const growthOvershootPx = Math.max(0, input.growthOvershootPx ?? 0);
+
+    if (measuredHeight > input.currentHeight) {
+        return measuredHeight + growthOvershootPx;
+    }
+
+    if (input.currentHeight - measuredHeight <= growthOvershootPx) {
+        return input.currentHeight;
+    }
+
+    return measuredHeight;
 }
 
 /**
@@ -351,5 +406,57 @@ export function createWindowViewportSyncScheduler(
     return {
         schedule,
         cancel: clearTrailingTimer,
+    };
+}
+
+export function createLatestSearchHeightResizeScheduler(
+    options: SearchHeightResizeSchedulerOptions
+): SearchHeightResizeScheduler {
+    const now = options.now ?? (() => performance.now());
+    let pending: SearchHeightResizeRequest | null = null;
+    let running = false;
+    let cancelled = false;
+
+    async function drain() {
+        if (running) {
+            return;
+        }
+
+        running = true;
+
+        try {
+            while (!cancelled && pending) {
+                const request = pending;
+                pending = null;
+
+                try {
+                    await options.commit(request);
+                } catch (error) {
+                    options.onError?.(error, request);
+                }
+            }
+        } finally {
+            running = false;
+        }
+    }
+
+    return {
+        schedule(input) {
+            const request = {
+                ...input,
+                requestedAt: now(),
+            };
+
+            if (pending) {
+                options.onDropped?.(pending);
+            }
+
+            pending = request;
+            void drain();
+        },
+        cancel() {
+            pending = null;
+            cancelled = true;
+        },
     };
 }

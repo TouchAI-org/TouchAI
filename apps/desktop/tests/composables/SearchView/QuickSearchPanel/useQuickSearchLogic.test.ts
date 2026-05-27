@@ -233,6 +233,87 @@ describe('useQuickSearchLogic', () => {
         mounted.unmount();
     });
 
+    it('re-runs the same query after a hidden in-flight search is invalidated by clear-then-type', async () => {
+        const firstSearch = deferred<QuickSearchResult>();
+        const secondSearch = deferred<QuickSearchResult>();
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockImplementationOnce(() => firstSearch.promise)
+                    .mockImplementationOnce(() => secondSearch.promise),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'touchai';
+        mounted.result.triggerSearch('touchai');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenCalledTimes(1);
+
+        searchQuery.value = '';
+        mounted.result.close();
+        await flushAsyncWork();
+
+        searchQuery.value = 'touchai';
+        mounted.result.triggerSearch('touchai');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        firstSearch.resolve(createSearchResult([createShortcut('Stale TouchAI')]));
+        await flushAsyncWork();
+
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenNthCalledWith(
+            1,
+            'touchai',
+            60,
+            0
+        );
+        expect(quickSearchDeps.quickSearch.searchShortcuts).toHaveBeenNthCalledWith(
+            2,
+            'touchai',
+            60,
+            0
+        );
+
+        secondSearch.resolve(createSearchResult([createShortcut('Fresh TouchAI')]));
+        await flushAsyncWork();
+
+        expect(open.value).toBe(true);
+        expect(mounted.result.results.value).toEqual([createShortcut('Fresh TouchAI')]);
+
+        mounted.unmount();
+    });
+
     it('hides the panel when a query returns no results', async () => {
         const open = ref(true);
         const searchQuery = ref('');

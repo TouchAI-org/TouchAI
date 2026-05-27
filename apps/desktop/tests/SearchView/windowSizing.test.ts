@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SearchWindowHeightMode } from '@/config/searchWindow';
+import type { SearchHeightResizeRequest } from '@/views/SearchView/windowSizing';
 
 const windowApiMock = vi.hoisted(() => {
     let resizeListener: (() => void) | null = null;
@@ -30,11 +31,25 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => windowApiMock.currentWindow,
 }));
 
+function createDeferredVoid() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((nextResolve) => {
+        resolve = nextResolve;
+    });
+
+    return {
+        promise,
+        resolve,
+    };
+}
+
 import {
+    createLatestSearchHeightResizeScheduler,
     createWindowViewportSyncScheduler,
     ensureWindowMaximized,
     ensureWindowRestoredFromMaximized,
     resolveEffectiveWindowMaximized,
+    resolveSearchHeightTarget,
     resolveSearchWindowDefaultSizeApplyAction,
     resolveSearchWindowHeightPolicy,
     resolveSearchWindowMinimumSize,
@@ -55,6 +70,7 @@ describe('resolveSearchWindowHeightPolicy', () => {
             resolveSearchWindowHeightPolicy({
                 sessionCount: 1,
                 quickSearchOpen: false,
+                conversationPending: false,
             })
         ).toEqual({
             hasManagedPanel: true,
@@ -68,6 +84,7 @@ describe('resolveSearchWindowHeightPolicy', () => {
             resolveSearchWindowHeightPolicy({
                 sessionCount: 0,
                 quickSearchOpen: true,
+                conversationPending: false,
             })
         ).toEqual({
             hasManagedPanel: true,
@@ -83,6 +100,7 @@ describe('resolveSearchWindowHeightPolicy', () => {
             resolveSearchWindowHeightPolicy({
                 sessionCount: 0,
                 quickSearchOpen: false,
+                conversationPending: false,
             })
         ).toEqual({
             hasManagedPanel: false,
@@ -90,6 +108,22 @@ describe('resolveSearchWindowHeightPolicy', () => {
             respectManualOverride: false,
             allowHeightOverride: false,
             shouldEnforceIdleDefaultHeight: true,
+        });
+    });
+
+    it('keeps the window in a managed-panel state while the first conversation turn is still attaching', () => {
+        expect(
+            resolveSearchWindowHeightPolicy({
+                sessionCount: 0,
+                quickSearchOpen: false,
+                conversationPending: true,
+            })
+        ).toEqual({
+            hasManagedPanel: true,
+            autoResizeEnabled: true,
+            respectManualOverride: false,
+            allowHeightOverride: false,
+            shouldEnforceIdleDefaultHeight: false,
         });
     });
 });
@@ -161,6 +195,34 @@ describe('resolveSearchWindowMinimumSize', () => {
             minHeight: 60,
             maxHeight: 60,
         });
+    });
+});
+
+describe('resolveSearchHeightTarget', () => {
+    it('adds overshoot while growing, holds inside the overshoot band, and shrinks once content drops enough', () => {
+        expect(
+            resolveSearchHeightTarget({
+                measuredHeight: 180,
+                currentHeight: 120,
+                growthOvershootPx: 4,
+            })
+        ).toBe(184);
+
+        expect(
+            resolveSearchHeightTarget({
+                measuredHeight: 180,
+                currentHeight: 184,
+                growthOvershootPx: 4,
+            })
+        ).toBe(184);
+
+        expect(
+            resolveSearchHeightTarget({
+                measuredHeight: 120,
+                currentHeight: 184,
+                growthOvershootPx: 4,
+            })
+        ).toBe(120);
     });
 });
 
@@ -409,5 +471,73 @@ describe('createWindowViewportSyncScheduler', () => {
         );
 
         consoleError.mockRestore();
+    });
+});
+
+describe('createLatestSearchHeightResizeScheduler', () => {
+    it('runs the first resize immediately and drops obsolete pending heights while a commit is in flight', async () => {
+        const firstCommit = createDeferredVoid();
+        const committed: SearchHeightResizeRequest[] = [];
+        const commit = vi.fn((request: SearchHeightResizeRequest) => {
+            committed.push(request);
+            if (request.targetHeight === 180) {
+                return firstCommit.promise;
+            }
+
+            return Promise.resolve();
+        });
+        const dropped = vi.fn();
+        const scheduler = createLatestSearchHeightResizeScheduler({
+            commit,
+            onDropped: dropped,
+            now: () => 1,
+        });
+
+        scheduler.schedule({ targetHeight: 180, reason: 'observer' });
+        scheduler.schedule({ targetHeight: 220, reason: 'observer' });
+        scheduler.schedule({ targetHeight: 260, reason: 'observer' });
+
+        expect(commit).toHaveBeenCalledTimes(1);
+        expect(committed.map((request) => request.targetHeight)).toEqual([180]);
+        expect(dropped).toHaveBeenCalledWith({
+            targetHeight: 220,
+            reason: 'observer',
+            requestedAt: 1,
+        });
+
+        firstCommit.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(commit).toHaveBeenCalledTimes(2);
+        expect(committed.map((request) => request.targetHeight)).toEqual([180, 260]);
+    });
+
+    it('continues processing later requests after a commit failure', async () => {
+        const commit = vi
+            .fn()
+            .mockRejectedValueOnce(new Error('native resize failed'))
+            .mockResolvedValueOnce(undefined);
+        const onError = vi.fn();
+        const scheduler = createLatestSearchHeightResizeScheduler({
+            commit,
+            onError,
+            now: () => 2,
+        });
+
+        scheduler.schedule({ targetHeight: 180, reason: 'observer' });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        scheduler.schedule({ targetHeight: 220, reason: 'manual-remeasure' });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(onError).toHaveBeenCalledWith(expect.any(Error), {
+            targetHeight: 180,
+            reason: 'observer',
+            requestedAt: 2,
+        });
+        expect(commit).toHaveBeenCalledTimes(2);
     });
 });

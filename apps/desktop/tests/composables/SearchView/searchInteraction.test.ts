@@ -2,6 +2,7 @@ import { mountComposable } from '@tests/utils/composables';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computed, nextTick, ref } from 'vue';
 
+import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import {
     createPopupSurfaceCoordinator,
@@ -246,6 +247,7 @@ describe('createPopupSurfaceCoordinator', () => {
 
 describe('useQuickSearchCoordinator', () => {
     afterEach(() => {
+        vi.useRealTimers();
         document.body.innerHTML = '';
     });
 
@@ -288,6 +290,229 @@ describe('useQuickSearchCoordinator', () => {
         await nextTick();
 
         expect(controller.closeQuickSearch).toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('debounces query-driven quick-search sync and only triggers the latest query', async () => {
+        vi.useFakeTimers();
+        const controller = createControllerStub();
+        const queryText = ref('');
+        const attachments = ref<unknown[]>([]);
+        const sessionHistory = ref<SessionMessage[]>([]);
+        const cursorContext = ref<SearchCursorContext>({
+            isMultiLine: false,
+            cursorAtStart: true,
+            cursorAtTextStart: true,
+            cursorAtEnd: true,
+        });
+        const modelOverride = ref<SearchModelOverride>({
+            modelId: null,
+            providerId: null,
+        });
+        const modelDropdownState = ref({ isOpen: false });
+        const quickSearchOpen = ref(false);
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchCoordinator({
+                queryText,
+                attachments,
+                sessionHistory,
+                cursorContext,
+                modelOverride,
+                modelDropdownState,
+                quickSearchOpen,
+                controller,
+            })
+        );
+
+        queryText.value = 'to';
+        await nextTick();
+        queryText.value = 'touchai';
+        await nextTick();
+
+        expect(controller.triggerQuickSearch).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(49);
+        await nextTick();
+        expect(controller.triggerQuickSearch).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(1);
+        await nextTick();
+
+        expect(controller.triggerQuickSearch).toHaveBeenCalledTimes(1);
+        expect(controller.triggerQuickSearch).toHaveBeenCalledWith('touchai');
+
+        mounted.unmount();
+    });
+
+    it('re-triggers quick search after the query is cleared and then typed again', async () => {
+        vi.useFakeTimers();
+        const controller = createControllerStub();
+        const queryText = ref('');
+        const attachments = ref<unknown[]>([]);
+        const sessionHistory = ref<SessionMessage[]>([]);
+        const cursorContext = ref<SearchCursorContext>({
+            isMultiLine: false,
+            cursorAtStart: true,
+            cursorAtTextStart: true,
+            cursorAtEnd: true,
+        });
+        const modelOverride = ref<SearchModelOverride>({
+            modelId: null,
+            providerId: null,
+        });
+        const modelDropdownState = ref({ isOpen: false });
+        const quickSearchOpen = ref(false);
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchCoordinator({
+                queryText,
+                attachments,
+                sessionHistory,
+                cursorContext,
+                modelOverride,
+                modelDropdownState,
+                quickSearchOpen,
+                controller,
+            })
+        );
+
+        queryText.value = 'touchai';
+        await nextTick();
+        vi.advanceTimersByTime(50);
+        await nextTick();
+
+        expect(controller.triggerQuickSearch).toHaveBeenCalledTimes(1);
+        expect(controller.triggerQuickSearch).toHaveBeenLastCalledWith('touchai');
+
+        quickSearchOpen.value = true;
+        queryText.value = '';
+        await nextTick();
+
+        expect(controller.closeQuickSearch).toHaveBeenCalledTimes(1);
+
+        quickSearchOpen.value = false;
+        queryText.value = 'touchai';
+        await nextTick();
+        vi.advanceTimersByTime(50);
+        await nextTick();
+
+        expect(controller.triggerQuickSearch).toHaveBeenCalledTimes(2);
+        expect(controller.triggerQuickSearch).toHaveBeenLastCalledWith('touchai');
+
+        mounted.unmount();
+    });
+
+    it('re-opens quick search after clearing the query in the real coordinator plus panel flow', async () => {
+        vi.useFakeTimers();
+        const queryText = ref('');
+        const attachments = ref<unknown[]>([]);
+        const sessionHistory = ref<SessionMessage[]>([]);
+        const cursorContext = ref<SearchCursorContext>({
+            isMultiLine: false,
+            cursorAtStart: true,
+            cursorAtTextStart: true,
+            cursorAtEnd: true,
+        });
+        const modelOverride = ref<SearchModelOverride>({
+            modelId: null,
+            providerId: null,
+        });
+        const modelDropdownState = ref({ isOpen: false });
+        const quickSearchOpen = ref(false);
+
+        const mounted = await mountComposable(() => {
+            const quickSearch = useQuickSearchLogic(
+                {
+                    open: quickSearchOpen,
+                    searchQuery: queryText,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        quickSearchOpen.value = value;
+                    },
+                },
+                {
+                    quickSearch: {
+                        getStatus: vi.fn().mockResolvedValue({
+                            provider: 'everything',
+                            db_loaded: true,
+                            index_warmed: true,
+                            last_refresh_ms: null,
+                            last_error: null,
+                        }),
+                        prepareIndex: vi.fn().mockResolvedValue(undefined),
+                        searchShortcuts: vi.fn().mockResolvedValue([
+                            {
+                                name: 'TouchAI',
+                                path: 'D:/TouchAI.lnk',
+                                source: 'desktop_user',
+                            },
+                        ]),
+                    },
+                    window: {
+                        hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+                    },
+                    openPath: vi.fn().mockResolvedValue(undefined),
+                }
+            );
+
+            const controller = {
+                ...createControllerStub(),
+                closeQuickSearch: vi.fn(() => {
+                    const wasOpen = quickSearchOpen.value;
+                    quickSearchOpen.value = false;
+                    if (!wasOpen) {
+                        quickSearch.syncClosedState();
+                    }
+                }),
+                triggerQuickSearch: vi.fn((query: string) => {
+                    quickSearch.triggerSearch(query);
+                }),
+            } satisfies SearchPageController;
+
+            const coordinator = useQuickSearchCoordinator({
+                queryText,
+                attachments,
+                sessionHistory,
+                cursorContext,
+                modelOverride,
+                modelDropdownState,
+                quickSearchOpen,
+                controller,
+            });
+
+            return {
+                quickSearch,
+                coordinator,
+                controller,
+                quickSearchOpen,
+            };
+        });
+
+        queryText.value = 'touchai';
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(130);
+        await flushMicrotasks();
+
+        expect(mounted.result.quickSearchOpen.value).toBe(true);
+        expect(mounted.result.quickSearch.results.value).toHaveLength(1);
+
+        queryText.value = '';
+        await nextTick();
+        await flushMicrotasks();
+
+        expect(mounted.result.quickSearchOpen.value).toBe(false);
+        expect(mounted.result.controller.closeQuickSearch).toHaveBeenCalledTimes(1);
+
+        queryText.value = 'touchai';
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(130);
+        await flushMicrotasks();
+
+        expect(mounted.result.quickSearchOpen.value).toBe(true);
+        expect(mounted.result.controller.triggerQuickSearch).toHaveBeenCalledTimes(2);
+        expect(mounted.result.quickSearch.results.value).toHaveLength(1);
 
         mounted.unmount();
     });

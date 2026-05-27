@@ -5,24 +5,32 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { computed, nextTick, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import { type SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
+import { markPerformanceTrace } from '@/services/PerformanceTraceService';
 import {
+    createLatestSearchHeightResizeScheduler,
     createWindowViewportSyncScheduler,
     ensureWindowMaximized,
     ensureWindowRestoredFromMaximized,
     resolveEffectiveWindowMaximized,
+    resolveSearchHeightTarget,
     resolveSearchWindowDefaultSizeApplyAction,
     resolveSearchWindowHeightPolicy,
     resolveSearchWindowMinimumSize,
+    type SearchHeightResizeReason,
+    type SearchHeightResizeRequest,
     shouldEnforceIdleDefaultBounds,
     shouldFillConversationAvailableHeight,
     shouldRemeasureAfterMaximizedRestore,
     shouldRepairIdleSearchWindowHeight,
 } from '@/views/SearchView/windowSizing';
 
+const SEARCH_WINDOW_GROWTH_OVERSHOOT_PX = 4;
+
 interface UseSearchWindowResizeOptions {
     target: Ref<HTMLElement | null>;
     sessionCount: Ref<number>;
     quickSearchOpen: Ref<boolean>;
+    conversationPending: Ref<boolean>;
     defaultSize: Ref<SearchWindowDefaultSize>;
     ready: Ref<boolean>;
 }
@@ -30,11 +38,14 @@ interface UseSearchWindowResizeOptions {
 /**
  * 搜索窗口大小专用状态机。
  *
- * 负责统一管理页面内容高度、原生窗口状态、搜索窗口策略
+ * 负责统一管理页面内容高度、原生窗口状态、搜索窗口策略。
+ * 原则：原生窗口负责动画，前端只根据真实窗口尺寸暂时锁住可视 viewport。
  */
 export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const currentWindow = getCurrentWindow();
     const currentHeight = ref(0);
+    const visibleViewportHeightLock = ref<number | null>(null);
+    const windowScaleFactor = ref(1);
     const desiredMaximized = ref(false);
     const isMaximizeTransitioning = ref(false);
     const searchWindowHeightMode = ref<SearchWindowHeightMode>(SearchWindowHeightMode.Auto);
@@ -44,14 +55,13 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         resolveSearchWindowHeightPolicy({
             sessionCount: options.sessionCount.value,
             quickSearchOpen: options.quickSearchOpen.value,
+            conversationPending: options.conversationPending.value,
         })
     );
     const effectiveWindowMaximized = computed(() =>
         resolveEffectiveWindowMaximized(desiredMaximized.value, isMaximizeTransitioning.value)
     );
     const autoHeightEnabled = computed(() => {
-        // ManualOverride 只在有会话时生效；
-        // 一旦用户手动改过对话窗口高度，就停止内容驱动的自动伸缩。
         const manualOverrideActive =
             searchWindowHeightPolicy.value.respectManualOverride &&
             searchWindowHeightMode.value === SearchWindowHeightMode.ManualOverride;
@@ -75,6 +85,15 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const contentReady = computed(
         () => options.ready.value && searchWindowResizeConstraintsReady.value
     );
+    const shouldLockVisibleViewport = computed(
+        () => options.sessionCount.value > 0 || options.conversationPending.value
+    );
+    const conversationBootstrapTransition = computed(
+        () => options.conversationPending.value && !options.quickSearchOpen.value
+    );
+    const streamingConversationResizeTransaction = computed(
+        () => options.conversationPending.value && options.sessionCount.value > 0
+    );
 
     let resizeObserver: ResizeObserver | null = null;
     let unlistenWindowResize: (() => void) | null = null;
@@ -82,8 +101,31 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     let lastAllowHeightOverride: boolean | null = null;
     let lastSyncedDefaultSizeKey: string | null = null;
     let pendingDefaultSizeApplyAfterRestore = false;
+    let lastRequestedHeight: number | null = null;
+    let resizeTransactionInFlight = false;
+    let activeResizeDirection: 'grow' | 'shrink' | null = null;
+    let pendingProgrammaticTargetHeight: number | null = null;
+    let pendingObserverRemeasure = false;
+    let shrinkObserverReboundGuard:
+        | {
+              targetHeight: number;
+              upperBoundHeight: number;
+          }
+        | null = null;
 
     const viewportSyncScheduler = createWindowViewportSyncScheduler(syncViewportState, 80);
+    const heightResizeScheduler = createLatestSearchHeightResizeScheduler({
+        commit: commitResize,
+        onDropped: (request) => {
+            markPerformanceTrace('search.resize.dropped', {
+                height: request.targetHeight,
+                reason: request.reason,
+            });
+        },
+        onError: (error) => {
+            reportError('apply coalesced height resize', error);
+        },
+    });
 
     function reportError(action: string, error: unknown) {
         console.error(`[SearchView] Failed to ${action}:`, error);
@@ -103,8 +145,42 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         );
     }
 
+    function clearViewportHeightLock() {
+        visibleViewportHeightLock.value = null;
+    }
+
+    function applyViewportHeightLock(height: number | null) {
+        if (
+            height === null ||
+            !shouldLockVisibleViewport.value ||
+            effectiveWindowMaximized.value ||
+            height <= 0
+        ) {
+            clearViewportHeightLock();
+            return;
+        }
+
+        visibleViewportHeightLock.value = height;
+    }
+
+    function syncViewportHeightLockFromPhysicalSize(payload: {
+        height: number;
+        toLogical: (scaleFactor: number) => { width: number; height: number };
+    }) {
+        if (!resizeTransactionInFlight || !shouldLockVisibleViewport.value) {
+            return;
+        }
+
+        const logicalSize = payload.toLogical(Math.max(windowScaleFactor.value, 1));
+        applyViewportHeightLock(Math.round(logicalSize.height));
+    }
+
     async function isWindowVisible() {
         return currentWindow.isVisible().catch(() => true);
+    }
+
+    async function syncWindowScaleFactor() {
+        windowScaleFactor.value = await currentWindow.scaleFactor().catch(() => 1);
     }
 
     async function syncMaximizedState() {
@@ -112,6 +188,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function syncSearchWindowHeightMode() {
+        if (resizeTransactionInFlight) {
+            return;
+        }
+
         const state = await native.window.getSearchWindowState();
         searchWindowHeightMode.value = state.heightMode;
 
@@ -121,6 +201,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function syncWindowState() {
+        await syncWindowScaleFactor();
         await syncMaximizedState();
         await syncSearchWindowHeightMode();
     }
@@ -145,8 +226,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         }
 
         const defaultSize = options.defaultSize.value;
-        // 有面板时，最小高度跟随“默认高度”和“当前自动高度 floor”中的较大者。
-        // 这样既不会让用户把窗口缩得比默认值更小，也不会在收缩前被旧的 minHeight 卡住。
         const autoHeightFloor = Math.max(
             defaultSize.height,
             nextAutoHeightFloor ?? currentHeight.value ?? 0
@@ -170,35 +249,137 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function resetSearchWindowBounds() {
+        clearViewportHeightLock();
         currentHeight.value = options.defaultSize.value.height;
+        lastRequestedHeight = null;
+        pendingProgrammaticTargetHeight = null;
+        pendingObserverRemeasure = false;
+        shrinkObserverReboundGuard = null;
         searchWindowHeightMode.value = SearchWindowHeightMode.Auto;
         await native.window.resetSearchWindowBounds();
         await syncSearchWindowMinSizeConstraints();
     }
 
-    async function resize(pageHeight: number) {
-        const newHeight = Math.ceil(pageHeight);
-
+    async function commitResize(request: SearchHeightResizeRequest) {
+        const newHeight = request.targetHeight;
         if (!autoHeightEnabled.value || !(await isWindowVisible())) {
             return;
         }
 
-        if (newHeight < currentHeight.value) {
-            // 收缩前先下调原生最小高度约束，否则 Windows 会直接拒绝这次 shrink。
+        const previousHeight = currentHeight.value;
+        const isShrink = newHeight < currentHeight.value;
+        activeResizeDirection = isShrink ? 'shrink' : 'grow';
+        pendingProgrammaticTargetHeight = newHeight;
+        pendingObserverRemeasure = false;
+
+        markPerformanceTrace('search.resize.sent', {
+            height: newHeight,
+            reason: request.reason,
+        });
+
+        resizeTransactionInFlight = true;
+
+        try {
+            if (newHeight < currentHeight.value) {
+                await syncSearchWindowMinSizeConstraints(newHeight);
+            }
+
+            await native.window.resizeWindowHeight({
+                targetHeight: newHeight,
+                center: true,
+                animate: true,
+                respectManualOverride: searchWindowHeightPolicy.value.respectManualOverride,
+            });
+            currentHeight.value = newHeight;
+            lastRequestedHeight = newHeight;
+            shrinkObserverReboundGuard = isShrink
+                ? {
+                      targetHeight: newHeight,
+                      upperBoundHeight: previousHeight,
+                  }
+                : null;
             await syncSearchWindowMinSizeConstraints(newHeight);
+        } finally {
+            resizeTransactionInFlight = false;
+            activeResizeDirection = null;
+            pendingProgrammaticTargetHeight = null;
+            clearViewportHeightLock();
         }
 
-        await native.window.resizeWindowHeight({
-            targetHeight: newHeight,
-            center: true,
-            respectManualOverride: searchWindowHeightPolicy.value.respectManualOverride,
+        markPerformanceTrace('search.resize.committed', {
+            height: newHeight,
+            reason: request.reason,
         });
-        currentHeight.value = newHeight;
-        await syncSearchWindowMinSizeConstraints(newHeight);
+
+        if (pendingObserverRemeasure) {
+            pendingObserverRemeasure = false;
+            await remeasureTargetHeight();
+        }
     }
 
-    async function resizeToTargetElement(el: HTMLElement) {
-        await resize(measureElementHeight(el));
+    function scheduleResize(pageHeight: number, reason: SearchHeightResizeReason) {
+        const newHeight = resolveSearchHeightTarget({
+            measuredHeight: pageHeight,
+            currentHeight: currentHeight.value,
+            growthOvershootPx: SEARCH_WINDOW_GROWTH_OVERSHOOT_PX,
+        });
+
+        if (reason === 'observer') {
+            if (resizeTransactionInFlight) {
+                pendingObserverRemeasure = activeResizeDirection === 'grow';
+                return;
+            }
+
+            if (
+                shrinkObserverReboundGuard &&
+                newHeight > shrinkObserverReboundGuard.targetHeight &&
+                newHeight < shrinkObserverReboundGuard.upperBoundHeight
+            ) {
+                return;
+            }
+
+            if (
+                pendingProgrammaticTargetHeight !== null &&
+                activeResizeDirection === 'shrink' &&
+                newHeight > pendingProgrammaticTargetHeight
+            ) {
+                return;
+            }
+
+            if (
+                (conversationBootstrapTransition.value ||
+                    streamingConversationResizeTransaction.value) &&
+                newHeight < currentHeight.value
+            ) {
+                return;
+            }
+        }
+
+        if (
+            shrinkObserverReboundGuard &&
+            (newHeight <= shrinkObserverReboundGuard.targetHeight ||
+                newHeight >= shrinkObserverReboundGuard.upperBoundHeight)
+        ) {
+            shrinkObserverReboundGuard = null;
+        }
+
+        if (newHeight === lastRequestedHeight) {
+            return;
+        }
+
+        markPerformanceTrace('search.resize.requested', {
+            height: newHeight,
+            reason,
+        });
+
+        heightResizeScheduler.schedule({
+            targetHeight: newHeight,
+            reason,
+        });
+    }
+
+    function resizeToTargetElement(el: HTMLElement, reason: SearchHeightResizeReason) {
+        scheduleResize(measureElementHeight(el), reason);
     }
 
     async function remeasureTargetHeight() {
@@ -207,10 +388,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             return;
         }
 
-        // 切会话时不能只依赖 ResizeObserver；
-        // 当前窗口高度本身可能没先变化，因此这里提供显式重测入口。
+        shrinkObserverReboundGuard = null;
         await nextTick();
-        await resizeToTargetElement(target);
+        resizeToTargetElement(target, 'manual-remeasure');
     }
 
     async function syncSearchWindowDefaults() {
@@ -249,7 +429,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             return;
         }
 
-        // 统一吸收窗口系统事件后的原生状态，再决定是否要补默认尺寸或重新测量。
         await syncWindowState();
         await syncSearchWindowAllowHeightOverride();
         await syncSearchWindowMinSizeConstraints();
@@ -304,9 +483,11 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                     target.scrollHeight,
                     target.getBoundingClientRect().height
                 );
-                resize(height).catch((error) => {
-                    reportError('apply observed height resize', error);
+                markPerformanceTrace('search.resize.observed', {
+                    height,
+                    reason: 'observer',
                 });
+                scheduleResize(height, 'observer');
             }
         });
         resizeObserver.observe(el);
@@ -427,6 +608,20 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     );
 
     watch(
+        () => options.conversationPending.value,
+        (pending, previous) => {
+            if (pending || !previous || !options.ready.value || options.sessionCount.value === 0) {
+                return;
+            }
+
+            void remeasureTargetHeight().catch((error) => {
+                reportError('settle conversation height after streaming completed', error);
+            });
+        },
+        { flush: 'post' }
+    );
+
+    watch(
         () => ({
             ready: options.ready.value,
             idle: !searchWindowHeightPolicy.value.hasManagedPanel,
@@ -439,8 +634,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 return;
             }
 
-            // 空态不允许继承对话态留下的 ManualOverride 或放大后的高度，
-            // 因此一旦切回 idle，需要强制回到默认窗口尺寸。
             const shouldRepairIdleHeight = shouldRepairIdleSearchWindowHeight(
                 {
                     ready: current.ready,
@@ -485,11 +678,12 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     );
 
     currentWindow
-        .onResized(() => {
+        .onResized(({ payload }) => {
             if (!options.ready.value) {
                 return;
             }
 
+            syncViewportHeightLockFromPhysicalSize(payload);
             viewportSyncScheduler.schedule();
         })
         .then((unlisten) => {
@@ -501,6 +695,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     onUnmounted(() => {
         cleanup();
+        clearViewportHeightLock();
+        heightResizeScheduler.cancel();
         viewportSyncScheduler.cancel();
         unlistenWindowResize?.();
     });
@@ -510,6 +706,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         isMaximized: desiredMaximized,
         effectiveWindowMaximized,
         fillConversationAvailableHeight,
+        visibleViewportHeightLock,
         toggleMaximize,
         syncWindowState,
         remeasureTargetHeight,

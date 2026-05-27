@@ -96,6 +96,7 @@
     const conversationPanel = ref<ConversationPanelHandle>();
     const historyAnchorElement = ref<HTMLElement | null>(null);
     const pageContainer = ref<HTMLElement | null>(null);
+    const pageContent = ref<HTMLElement | null>(null);
     const approvalAttentionToken = ref(0);
     const isDragging = ref(false);
     const inputHistoryBrowseState = ref<SessionInputHistoryBrowseState>(
@@ -207,6 +208,7 @@
         pendingRequest,
         isWaitingForCompletion,
         isLoading,
+        conversationPending,
         error,
         currentSessionId,
         sessionHistory,
@@ -241,15 +243,32 @@
         isMaximized,
         effectiveWindowMaximized,
         fillConversationAvailableHeight,
+        visibleViewportHeightLock,
         toggleMaximize: toggleMaximizeBase,
         syncWindowState: syncSearchWindowState,
         remeasureTargetHeight,
     } = useSearchWindowResize({
-        target: pageContainer,
+        target: pageContent,
         sessionCount: computed(() => sessionHistory.value.length),
         quickSearchOpen,
+        conversationPending,
         defaultSize: searchWindowDefaultSize,
         ready: viewReady,
+    });
+
+    const hasConversationSurface = computed(
+        () => sessionHistory.value.length > 0 || conversationPending.value
+    );
+
+    const searchViewportStyle = computed(() => {
+        if (visibleViewportHeightLock.value === null || effectiveWindowMaximized.value) {
+            return undefined;
+        }
+
+        return {
+            height: `${visibleViewportHeightLock.value}px`,
+            maxHeight: `${visibleViewportHeightLock.value}px`,
+        };
     });
 
     const { isQuickSearchOpen, shouldTriggerQuickSearch } = useQuickSearchCoordinator({
@@ -1084,64 +1103,80 @@
         @paste.capture="handlePagePaste"
     >
         <div
-            v-if="searchViewContentReady && sessionHistory.length > 0"
             :class="[
-                'w-full overflow-hidden',
-                fillConversationAvailableHeight ? 'min-h-0 flex-1' : '',
+                'relative w-full overflow-hidden',
+                fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full min-h-0' : '',
             ]"
+            :style="searchViewportStyle"
         >
-            <ConversationPanel
-                ref="conversationPanel"
-                :messages="sessionHistory"
-                :is-loading="isLoading"
-                :error="error"
-                :is-pinned="isPinned"
-                :is-maximized="isMaximized"
-                :fill-available-height="fillConversationAvailableHeight"
-                :history-open="sessionHistoryPopupOpen"
-                :approval-attention-token="approvalAttentionToken"
-                @pin-change="handlePinChange"
-                @maximize-toggle="handleToggleMaximize"
-                @new-session="handleStartNewSession"
-                @history-open-change="handleHistoryOpenChange"
-                @history-prefetch="handleHistoryPrefetch"
-                @approve-tool-approval="approvePendingToolApproval"
-                @reject-tool-approval="rejectPendingToolApproval"
-                @drag-start="isDragging = true"
-                @drag-end="isDragging = false"
-                @regenerate-message="handleRegenerateMessage"
-            />
-        </div>
-        <div
-            v-if="searchViewContentReady && sessionHistory.length > 0"
-            class="w-full border-t-[0.5px] border-gray-300/80"
-        ></div>
-        <div v-if="searchViewContentReady" class="relative w-full">
-            <SearchBar
-                ref="searchBar"
-                :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"
-                :query-text="queryText"
-                :attachments="attachments"
-                :model-override="modelOverride"
-                @update:query-text="handleQueryTextChange"
-                @attachment-remove-request="handleAttachmentRemoveRequest"
-                @model-change="handleModelChange"
-                @cursor-context-change="handleCursorContextChange"
-                @model-override-change="handleModelOverrideChange"
-                @request-prefetch-model-dropdown="handleModelDropdownPrefetch"
-                @request-toggle-model-dropdown="handleToggleModelDropdownRequest"
-                @drag-start="isDragging = true"
-                @drag-end="isDragging = false"
-            />
-            <div v-if="sessionHistory.length === 0" v-show="quickSearchOpen">
-                <QuickSearchPanel
-                    ref="quickSearchPanel"
-                    :open="quickSearchOpen"
-                    :search-query="queryText"
-                    :enabled="true"
-                    @blank-click="handleQuickSearchBlankClick"
-                    @update:open="handleQuickSearchOpenChange"
-                />
+            <div
+                ref="pageContent"
+                :class="[
+                    'relative flex min-h-0 w-full flex-col',
+                    fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
+                ]"
+            >
+                <div
+                    v-if="searchViewContentReady && hasConversationSurface"
+                    :class="[
+                        'w-full overflow-hidden',
+                        fillConversationAvailableHeight ? 'min-h-0 flex-1' : '',
+                    ]"
+                >
+                    <ConversationPanel
+                        ref="conversationPanel"
+                        :messages="sessionHistory"
+                        :is-loading="isLoading"
+                        :error="error"
+                        :is-pinned="isPinned"
+                        :is-maximized="isMaximized"
+                        :fill-available-height="fillConversationAvailableHeight"
+                        :history-open="sessionHistoryPopupOpen"
+                        :approval-attention-token="approvalAttentionToken"
+                        @pin-change="handlePinChange"
+                        @maximize-toggle="handleToggleMaximize"
+                        @new-session="handleStartNewSession"
+                        @history-open-change="handleHistoryOpenChange"
+                        @history-prefetch="handleHistoryPrefetch"
+                        @approve-tool-approval="approvePendingToolApproval"
+                        @reject-tool-approval="rejectPendingToolApproval"
+                        @drag-start="isDragging = true"
+                        @drag-end="isDragging = false"
+                        @regenerate-message="handleRegenerateMessage"
+                    />
+                </div>
+                <div
+                    v-if="searchViewContentReady && hasConversationSurface"
+                    class="w-full border-t-[0.5px] border-gray-300/80"
+                ></div>
+                <div v-if="searchViewContentReady" class="relative w-full">
+                    <SearchBar
+                        ref="searchBar"
+                        :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"
+                        :query-text="queryText"
+                        :attachments="attachments"
+                        :model-override="modelOverride"
+                        @update:query-text="handleQueryTextChange"
+                        @attachment-remove-request="handleAttachmentRemoveRequest"
+                        @model-change="handleModelChange"
+                        @cursor-context-change="handleCursorContextChange"
+                        @model-override-change="handleModelOverrideChange"
+                        @request-prefetch-model-dropdown="handleModelDropdownPrefetch"
+                        @request-toggle-model-dropdown="handleToggleModelDropdownRequest"
+                        @drag-start="isDragging = true"
+                        @drag-end="isDragging = false"
+                    />
+                    <div v-if="!hasConversationSurface" v-show="quickSearchOpen">
+                        <QuickSearchPanel
+                            ref="quickSearchPanel"
+                            :open="quickSearchOpen"
+                            :search-query="queryText"
+                            :enabled="true"
+                            @blank-click="handleQuickSearchBlankClick"
+                            @update:open="handleQuickSearchOpenChange"
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     </div>

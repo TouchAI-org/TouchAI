@@ -5,7 +5,7 @@
  */
 import { AppEvent, eventService } from '@services/EventService';
 import type { PopupKeydownPayload } from '@services/PopupService';
-import { computed, type ComputedRef, reactive, type Ref, ref, watch } from 'vue';
+import { computed, type ComputedRef, onUnmounted, reactive, type Ref, ref, watch } from 'vue';
 
 import {
     cloneInputHistorySnapshot,
@@ -86,6 +86,8 @@ interface UseQuickSearchCoordinatorOptions {
     controller: SearchPageController;
     suppressNextAutoOpen?: Ref<boolean>;
 }
+
+const QUICK_SEARCH_SYNC_DEBOUNCE_MS = 50;
 
 interface UseSearchOverlayMachineOptions {
     isQuickSearchOpen: ComputedRef<boolean>;
@@ -572,6 +574,16 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
     const isQuickSearchOpen = computed(() => {
         return quickSearchOpen.value;
     });
+    let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function clearSyncTimer() {
+        if (!syncTimer) {
+            return;
+        }
+
+        clearTimeout(syncTimer);
+        syncTimer = null;
+    }
 
     function shouldTriggerQuickSearch(query: string) {
         return (
@@ -599,6 +611,14 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         controller.closeQuickSearch();
     }
 
+    function scheduleQuickSearchPanelSync(query = queryText.value) {
+        clearSyncTimer();
+        syncTimer = setTimeout(() => {
+            syncTimer = null;
+            syncQuickSearchPanel(query);
+        }, QUICK_SEARCH_SYNC_DEBOUNCE_MS);
+    }
+
     watch(
         () => ({
             query: queryText.value,
@@ -608,11 +628,44 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
             selectedModelId: modelOverride.value.modelId,
             isModelDropdownOpen: modelDropdownState.value.isOpen,
         }),
-        ({ query }) => {
-            syncQuickSearchPanel(query);
+        (current, previous) => {
+            const nonQueryStateChanged =
+                !previous ||
+                current.attachmentCount !== previous.attachmentCount ||
+                current.sessionCount !== previous.sessionCount ||
+                current.isMultiLine !== previous.isMultiLine ||
+                current.selectedModelId !== previous.selectedModelId ||
+                current.isModelDropdownOpen !== previous.isModelDropdownOpen;
+
+            if (nonQueryStateChanged) {
+                clearSyncTimer();
+                syncQuickSearchPanel(current.query);
+                return;
+            }
+
+            if (current.query !== previous.query && shouldTriggerQuickSearch(current.query)) {
+                scheduleQuickSearchPanelSync(current.query);
+                return;
+            }
+
+            clearSyncTimer();
+            syncQuickSearchPanel(current.query);
         },
         { flush: 'post' }
     );
+
+    watch(
+        () => quickSearchOpen.value,
+        (open) => {
+            if (open) {
+                clearSyncTimer();
+            }
+        }
+    );
+
+    onUnmounted(() => {
+        clearSyncTimer();
+    });
 
     return {
         isQuickSearchOpen,
