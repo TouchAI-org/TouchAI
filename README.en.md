@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" width="600" />
+  <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" />
 </p>
 
 <p align="center"><a href="./README.md">中文</a> | English</p>
@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/search-window.png" alt="TouchAI search window" style="max-width: 500px;width:100%" />
+  <img src="docs/images/search-window.png" alt="TouchAI search window" width="500" />
 </p>
 
 ---
