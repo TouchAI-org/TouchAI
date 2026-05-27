@@ -2,8 +2,8 @@ import { mountComposable } from '@tests/utils/composables';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computed, nextTick, ref } from 'vue';
 
-import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
+import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 import {
     createPopupSurfaceCoordinator,
     createSearchEntryPolicy,
@@ -442,13 +442,19 @@ describe('useQuickSearchCoordinator', () => {
                             last_error: null,
                         }),
                         prepareIndex: vi.fn().mockResolvedValue(undefined),
-                        searchShortcuts: vi.fn().mockResolvedValue([
-                            {
-                                name: 'TouchAI',
-                                path: 'D:/TouchAI.lnk',
-                                source: 'desktop_user',
-                            },
-                        ]),
+                        searchShortcuts: vi.fn().mockResolvedValue({
+                            shortcuts: [
+                                {
+                                    name: 'TouchAI',
+                                    path: 'D:/TouchAI.lnk',
+                                    source: 'desktop_user',
+                                },
+                            ],
+                            files: [],
+                            total_files: 0,
+                            total_results: 1,
+                            next_offset: 0,
+                        }),
                     },
                     window: {
                         hideSearchWindow: vi.fn().mockResolvedValue(undefined),

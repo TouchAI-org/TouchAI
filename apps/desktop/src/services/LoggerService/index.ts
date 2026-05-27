@@ -2,13 +2,13 @@ import { native } from '@services/NativeService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import {
-    DEFAULT_LOGGER_CONFIG,
-    LOG_LEVEL_VALUES,
     type ConsoleLevel,
-    type LogCategory,
-    type LogLevel,
-    type LoggerConfig,
+    DEFAULT_LOGGER_CONFIG,
     inferCategoryFromArgs,
+    LOG_LEVEL_VALUES,
+    type LogCategory,
+    type LoggerConfig,
+    type LogLevel,
     normalizeLogFields,
     shouldForwardLog,
 } from './policy';

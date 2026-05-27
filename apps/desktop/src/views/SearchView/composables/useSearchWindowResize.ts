@@ -106,12 +106,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     let activeResizeDirection: 'grow' | 'shrink' | null = null;
     let pendingProgrammaticTargetHeight: number | null = null;
     let pendingObserverRemeasure = false;
-    let shrinkObserverReboundGuard:
-        | {
-              targetHeight: number;
-              upperBoundHeight: number;
-          }
-        | null = null;
+    let shrinkObserverReboundGuard: {
+        targetHeight: number;
+        upperBoundHeight: number;
+    } | null = null;
 
     const viewportSyncScheduler = createWindowViewportSyncScheduler(syncViewportState, 80);
     const heightResizeScheduler = createLatestSearchHeightResizeScheduler({

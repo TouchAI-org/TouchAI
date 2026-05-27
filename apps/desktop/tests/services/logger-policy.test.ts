@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-    DEFAULT_LOGGER_CONFIG,
-    LOG_LEVEL_VALUES,
     createDiagnosticLoggerConfig,
+    DEFAULT_LOGGER_CONFIG,
     inferCategoryFromArgs,
+    LOG_LEVEL_VALUES,
     normalizeLogFields,
     resolveLogThreshold,
     shouldForwardLog,

@@ -121,7 +121,8 @@ export function resolveSearchWindowHeightPolicy(
 ): SearchWindowHeightPolicy {
     const hasConversationPanel = input.sessionCount > 0;
     const hasConversationTransition = input.conversationPending;
-    const hasManagedPanel = hasConversationPanel || input.quickSearchOpen || hasConversationTransition;
+    const hasManagedPanel =
+        hasConversationPanel || input.quickSearchOpen || hasConversationTransition;
 
     return {
         hasManagedPanel,
