@@ -4,12 +4,10 @@
     import type { McpServerEntity } from '@database/types';
     import { computed, onMounted, ref } from 'vue';
 
+    import { t } from '@/i18n';
     import { useMcpStore } from '@/stores/mcp';
 
     import McpServerCard from './McpServerCard.vue';
-
-
-    import { t } from '@/i18n';
     interface Props {
         selectedServer: McpServerEntity | null;
         togglingServers: Set<number>;
@@ -131,8 +129,12 @@
         <div v-else class="space-y-2">
             <!-- 新服务器编辑卡片 -->
             <div v-if="newServer" class="settings-item-selected rounded-lg border p-4">
-                <p class="text-[15px] font-normal text-neutral-950">{{ t('settings.mcp.servers.new') }}</p>
-                <p class="mt-1 text-xs text-neutral-500">{{ t('settings.mcp.servers.fillConfigOnRight') }}</p>
+                <p class="text-[15px] font-normal text-neutral-950">
+                    {{ t('settings.mcp.servers.new') }}
+                </p>
+                <p class="mt-1 text-xs text-neutral-500">
+                    {{ t('settings.mcp.servers.fillConfigOnRight') }}
+                </p>
             </div>
 
             <!-- 现有服务器列表 -->

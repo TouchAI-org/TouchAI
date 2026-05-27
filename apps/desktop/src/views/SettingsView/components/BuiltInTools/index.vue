@@ -7,6 +7,8 @@
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { computed, onMounted, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
+
     import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';
     import SectionTabs, { type SectionTabItem } from '../SectionTabs.vue';
     import BuiltInToolConfig from './components/BuiltInToolConfig.vue';
@@ -19,9 +21,6 @@
         loadBuiltInToolQueries,
         usesBuiltInToolEmptyConfig,
     } from './types';
-
-
-    import { t } from '@/i18n';
     defineOptions({
         name: 'SettingsBuiltInToolsSection',
     });

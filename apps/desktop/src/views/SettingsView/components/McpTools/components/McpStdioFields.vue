@@ -3,7 +3,6 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
 
-
     import { t } from '@/i18n';
     interface Props {
         command: string;
@@ -83,7 +82,9 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-neutral-700">{{ t('common.parameters') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('common.parameters') }}
+                </label>
                 <button
                     class="text-neutral-400 transition-colors hover:text-neutral-700"
                     @click="addArg"
@@ -112,7 +113,9 @@
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-neutral-700">{{ t('settings.mcp.config.cwd') }}</label>
+            <label class="block text-sm font-medium text-neutral-700">
+                {{ t('settings.mcp.config.cwd') }}
+            </label>
             <input
                 :value="cwd"
                 type="text"
@@ -125,7 +128,9 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.mcp.config.env') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.mcp.config.env') }}
+                </label>
                 <button
                     class="text-neutral-400 transition-colors hover:text-neutral-700"
                     @click="addEnv"

@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import { onUnmounted, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { serializeUpgradeModelToolConfig } from '@/services/BuiltInToolService/tools/upgradeModel/config';
 
     import type { BuiltInToolEntity, BuiltInToolUpdateData } from '../types';
@@ -15,9 +16,6 @@
     } from '../types';
     import BashToolConfig from './BashToolConfig.vue';
     import UpgradeModelToolConfig from './UpgradeModelToolConfig.vue';
-
-
-    import { t } from '@/i18n';
     interface Props {
         tool: BuiltInToolEntity;
         saving?: boolean;
@@ -136,7 +134,9 @@
             v-else
             class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-5 py-10 text-center"
         >
-            <p class="text-sm text-neutral-500">{{ t('settings.builtInTools.configComingSoon') }}</p>
+            <p class="text-sm text-neutral-500">
+                {{ t('settings.builtInTools.configComingSoon') }}
+            </p>
         </div>
     </div>
 </template>

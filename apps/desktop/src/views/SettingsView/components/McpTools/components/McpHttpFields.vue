@@ -3,7 +3,6 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
 
-
     import { t } from '@/i18n';
     interface Props {
         url: string;
@@ -62,7 +61,9 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-neutral-700">{{ t('settings.mcp.config.headers') }}</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.mcp.config.headers') }}
+                </label>
                 <button
                     class="text-neutral-400 transition-colors hover:text-neutral-700"
                     @click="addHeader"

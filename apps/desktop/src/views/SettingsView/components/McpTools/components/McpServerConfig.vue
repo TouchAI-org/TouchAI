@@ -6,6 +6,7 @@
     import type { DbTransportType, McpServerCreateData, McpServerEntity } from '@database/types';
     import { computed, onUnmounted, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { useMcpStore } from '@/stores/mcp';
     import {
         parseMcpServerArgsJson,
@@ -16,9 +17,6 @@
     import McpHttpFields from './McpHttpFields.vue';
     import McpServerHeader from './McpServerHeader.vue';
     import McpStdioFields from './McpStdioFields.vue';
-
-
-    import { t } from '@/i18n';
     interface Props {
         server: McpServerEntity;
     }
@@ -234,7 +232,9 @@
         <!-- 配置详情 -->
         <div class="space-y-4">
             <div class="flex items-center justify-between">
-                <h2 class="text-[15px] font-medium text-neutral-950">{{ t('settings.mcp.config.title') }}</h2>
+                <h2 class="text-[15px] font-medium text-neutral-950">
+                    {{ t('settings.mcp.config.title') }}
+                </h2>
             </div>
 
             <div class="settings-card">

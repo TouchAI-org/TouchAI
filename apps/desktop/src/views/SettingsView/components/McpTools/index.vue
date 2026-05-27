@@ -17,14 +17,13 @@
     defineOptions({
         name: 'SettingsMcpToolsSection',
     });
+    import { t } from '@/i18n';
+
     import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';
     import McpServerConfig from './components/McpServerConfig.vue';
     import McpServerList from './components/McpServerList.vue';
     import McpToolList from './components/McpToolList.vue';
     import McpToolLogViewer from './components/McpToolLogViewer.vue';
-
-
-    import { t } from '@/i18n';
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const {
         handleResizeKeyDown,
@@ -78,7 +77,10 @@
             await mcpStore.initialize();
         } catch (error) {
             console.error('[McpToolsView] Failed to initialize MCP store:', error);
-            alertMessage.value?.error(getErrorMessage(error, t('settings.mcp.messages.loadFailed')), 6000);
+            alertMessage.value?.error(
+                getErrorMessage(error, t('settings.mcp.messages.loadFailed')),
+                6000
+            );
         }
     };
 
@@ -274,7 +276,10 @@
                         }
                     } catch (error) {
                         console.error('Failed to update server:', error);
-                        alertMessage.value?.error(t('settings.mcp.messages.updateStatusFailed'), 3000);
+                        alertMessage.value?.error(
+                            t('settings.mcp.messages.updateStatusFailed'),
+                            3000
+                        );
                     }
                     togglingServers.value.delete(serverId);
                 }
@@ -406,7 +411,9 @@
             <div v-if="!selectedServer" class="flex h-full items-center justify-center">
                 <div class="text-center">
                     <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
-                    <p class="mt-4 text-sm text-neutral-500">{{ t('settings.mcp.servers.selectPrompt') }}</p>
+                    <p class="mt-4 text-sm text-neutral-500">
+                        {{ t('settings.mcp.servers.selectPrompt') }}
+                    </p>
                 </div>
             </div>
 

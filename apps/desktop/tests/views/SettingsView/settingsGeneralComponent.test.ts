@@ -104,6 +104,7 @@ describe('SettingsGeneralSection', () => {
         expect(wrapper.text()).toContain('窗口尺寸');
         expect(wrapper.text()).toContain('对话体验');
         expect(wrapper.text()).toContain('输出时滚动策略');
+        expect(wrapper.text()).toContain('界面语言');
         expect(wrapper.text()).not.toContain('快捷唤起');
         expect(wrapper.text()).not.toContain('管理全局唤起');
         expect(wrapper.text()).not.toContain('启动设置');
@@ -117,7 +118,7 @@ describe('SettingsGeneralSection', () => {
         expect(controls.length).toBeGreaterThanOrEqual(3);
 
         const rowLabels = wrapper.findAll('[data-testid="settings-general-row-label"]');
-        expect(rowLabels).toHaveLength(5);
+        expect(rowLabels).toHaveLength(6);
     });
 
     it('shows a compact occupied-shortcut indicator inside the fixed-width control area', async () => {
@@ -129,7 +130,7 @@ describe('SettingsGeneralSection', () => {
         expect(wrapper.find('[data-testid="settings-shortcut-error"]').exists()).toBe(false);
         expect(
             wrapper.get('[data-testid="settings-shortcut-occupied-indicator"]').attributes('title')
-        ).toBe('快捷键已被占用');
+        ).toBe('快捷键注册失败，可能已被其他应用占用');
         expect(wrapper.find('[data-testid="settings-shortcut-retry-button"]').exists()).toBe(false);
         expect(wrapper.find('[data-testid="settings-shortcut-cancel-button"]').exists()).toBe(
             false

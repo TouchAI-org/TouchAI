@@ -4,10 +4,9 @@
     import AppIcon from '@components/AppIcon.vue';
     import { open } from '@tauri-apps/plugin-dialog';
 
-    import type { BashApprovalMode, BashToolConfig } from '../types';
-
-
     import { t } from '@/i18n';
+
+    import type { BashApprovalMode, BashToolConfig } from '../types';
     interface Props {
         modelValue: BashToolConfig;
         disabled?: boolean;
@@ -117,7 +116,9 @@
         <div class="space-y-5">
             <div class="flex items-start justify-between gap-4">
                 <div>
-                    <h4 class="text-sm font-semibold text-neutral-950">{{ t('settings.builtInTools.bash.executionAndApproval') }}</h4>
+                    <h4 class="text-sm font-semibold text-neutral-950">
+                        {{ t('settings.builtInTools.bash.executionAndApproval') }}
+                    </h4>
                 </div>
             </div>
 
@@ -143,7 +144,9 @@
 
             <div class="mt-5 space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-neutral-700">{{ t('settings.builtInTools.bash.defaultWorkingDirectory') }}</label>
+                    <label class="block text-sm font-medium text-neutral-700">
+                        {{ t('settings.builtInTools.bash.defaultWorkingDirectory') }}
+                    </label>
                     <div class="mt-1.5 flex gap-2">
                         <input
                             :value="modelValue.defaultWorkingDirectory"
@@ -152,7 +155,9 @@
                             type="text"
                             spellcheck="false"
                             class="settings-input flex-1 font-mono disabled:bg-neutral-50"
-                            :placeholder="t('settings.builtInTools.bash.defaultWorkingDirectoryPlaceholder')"
+                            :placeholder="
+                                t('settings.builtInTools.bash.defaultWorkingDirectoryPlaceholder')
+                            "
                         />
                         <button
                             type="button"

@@ -6,10 +6,8 @@
     import type { McpServerEntity } from '@database/types';
     import { computed, onUnmounted, toRef } from 'vue';
 
-    import { useMcpStore } from '@/stores/mcp';
-
-
     import { t } from '@/i18n';
+    import { useMcpStore } from '@/stores/mcp';
     interface Props {
         server: McpServerEntity;
         isNewServer: boolean;
