@@ -301,32 +301,39 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     /**
-     * 使用 rAF 将同一帧内的多次 ResizeObserver 回调合并为一次 resize 调用。
-     * CSS transition 驱动 SearchBar 高度变化时，ResizeObserver 每帧触发一次，
-     * 始终取最新高度值传给 Rust（animate: false），使窗口尺寸逐帧跟随 CSS 动画。
+     * 串行 resize 消费队列。
+     *
+     * CSS transition 期间 ResizeObserver 每帧触发，始终取最新高度串行调用 resize()。
+     * 同一时刻只允许一个 resize() 在执行，避免并发 IPC 导致窗口在多个高度之间跳变。
+     * resize() 内部的 currentHeight 去重确保已完成的高度不会重复调用。
      */
-    let pendingObserverHeight: number | null = null;
-    let observerFrameScheduled = false;
+    let pendingHeight: number | null = null;
+    let isConsuming = false;
 
     function scheduleObserverResize(height: number) {
-        pendingObserverHeight = height;
-        if (observerFrameScheduled) {
+        pendingHeight = height;
+        consumeResizeQueue();
+    }
+
+    async function consumeResizeQueue() {
+        if (isConsuming) {
+            // 已有消费在运行，pendingHeight 会在当前循环的下一次迭代中被取走。
             return;
         }
-
-        observerFrameScheduled = true;
-        requestAnimationFrame(() => {
-            observerFrameScheduled = false;
-            const targetHeight = pendingObserverHeight;
-            pendingObserverHeight = null;
-            if (targetHeight === null) {
-                return;
+        isConsuming = true;
+        try {
+            while (pendingHeight !== null) {
+                const nextHeight = pendingHeight;
+                pendingHeight = null;
+                await resize(nextHeight);
+                // 等待一帧让 WebView2 完成重绘，避免透明闪烁。
+                // Rust animate=false 时 set_size 为同步调用，
+                // WebView2 buffer 需要一整帧来渲染新尺寸的内容。
+                await new Promise((resolve) => requestAnimationFrame(resolve));
             }
-
-            resize(targetHeight).catch((error) => {
-                reportError('apply observed height resize', error);
-            });
-        });
+        } finally {
+            isConsuming = false;
+        }
     }
 
     function observeTarget(el: HTMLElement) {
