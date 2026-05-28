@@ -131,6 +131,8 @@ export interface SessionStatusReminderPayload {
     title: string;
     body: string;
     approval?: SessionStatusReminderApprovalActionPayload | null;
+    replyPlaceholder?: string | null;
+    replyLabel?: string | null;
 }
 
 export interface SessionStatusReminderActionEvent {

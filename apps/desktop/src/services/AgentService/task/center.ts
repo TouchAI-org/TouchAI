@@ -142,6 +142,8 @@ function buildSessionStatusReminder(
                 summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
                 getSessionStatusReminderContent('completed'),
             approval: null,
+            replyPlaceholder: tt('回复 TouchAI'),
+            replyLabel: tt('回复'),
         };
     }
 
@@ -154,6 +156,8 @@ function buildSessionStatusReminder(
                 summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
                 getSessionStatusReminderContent('failed'),
             approval: null,
+            replyPlaceholder: tt('回复 TouchAI'),
+            replyLabel: tt('回复'),
         };
     }
 

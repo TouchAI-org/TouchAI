@@ -87,6 +87,8 @@ export interface SessionStatusReminderNotificationPayload {
     taskId: string;
     kind: SessionStatusReminderNotificationKind;
     approval?: SessionStatusReminderNotificationApprovalPayload | null;
+    replyPlaceholder?: string | null;
+    replyLabel?: string | null;
 }
 
 export type TrayStatusIndicator = SessionStatusReminderKind;
