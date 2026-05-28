@@ -51,11 +51,12 @@ function getReminderPublishKey(reminder: SessionStatusReminderPayload | null): s
         return null;
     }
 
-    if (reminder.kind === 'waiting_approval') {
-        return `${reminder.kind}:${reminder.approval?.callId ?? ''}`;
-    }
-
-    return reminder.kind;
+    return JSON.stringify({
+        kind: reminder.kind,
+        title: reminder.title,
+        body: reminder.body,
+        approvalCallId: reminder.approval?.callId ?? null,
+    });
 }
 
 function isTerminalStatus(status: SessionTaskSnapshot['status']): boolean {
