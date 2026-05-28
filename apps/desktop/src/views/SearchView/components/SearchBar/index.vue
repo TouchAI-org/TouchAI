@@ -6,7 +6,7 @@
     <div
         ref="searchBarContainerRef"
         data-testid="search-bar"
-        class="search-bar-container relative flex h-full min-h-14 w-full items-center gap-2 p-3 transition-all duration-250 ease-in-out"
+        class="search-bar-container relative flex h-full min-h-14 w-full items-center gap-2 p-3 transition duration-250 ease-in-out"
         @mousedown="handleContainerMouseDown"
     >
         <div
