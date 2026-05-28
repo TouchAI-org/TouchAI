@@ -43,16 +43,12 @@ export function currentAppUpdateRuntimePlatform(): AppUpdateRuntimePlatform {
 function priorityForWindows(download: AppUpdateDownload): number {
     const name = fileName(download);
 
-    if (name.endsWith('-setup.exe')) {
+    if (name.endsWith('.msi')) {
         return 0;
     }
 
-    if (name.endsWith('.msi')) {
+    if (name.endsWith('-setup.exe')) {
         return 1;
-    }
-
-    if (name.endsWith('-portable.zip')) {
-        return 2;
     }
 
     return 99;
@@ -114,10 +110,8 @@ function fallbackPriority(download: AppUpdateDownload): number {
     switch (download.kind) {
         case 'installer':
             return 0;
-        case 'portable':
-            return 1;
         case 'updatePackage':
-            return 2;
+            return 1;
         default:
             return 99;
     }
