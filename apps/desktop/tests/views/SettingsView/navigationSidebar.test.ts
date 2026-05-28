@@ -119,6 +119,18 @@ describe('NavigationSidebar', () => {
         expect(wrapper.emitted('navigate')?.[0]).toEqual(['general']);
     });
 
+    it('emits an update-section navigation request when the version is clicked', async () => {
+        const wrapper = mount(NavigationSidebar, {
+            props: {
+                activeSection: 'general',
+            },
+        });
+
+        await wrapper.get('[data-testid="settings-sidebar-version"]').trigger('click');
+
+        expect(wrapper.emitted('show-update-settings')).toHaveLength(1);
+    });
+
     it('lets users drag the sidebar width while respecting minimum and maximum bounds', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {

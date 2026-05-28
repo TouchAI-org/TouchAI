@@ -113,14 +113,7 @@ export interface AppUpdateRequirement {
 }
 
 export interface AppUpdateDownload {
-    kind:
-        | 'installer'
-        | 'portable'
-        | 'fullPackage'
-        | 'deltaPackage'
-        | 'updatePackage'
-        | 'asset'
-        | string;
+    kind: 'installer' | 'fullPackage' | 'deltaPackage' | 'updatePackage' | 'asset' | string;
     name: string;
     url: string;
     sizeBytes: number | null;

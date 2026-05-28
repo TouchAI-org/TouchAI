@@ -22,6 +22,7 @@
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
 
     import { resolveShortcutCaptureCompletion } from './shortcutCapture';
+    import UpdateSettingsSection from './UpdateSettingsSection.vue';
 
     defineOptions({
         name: 'SettingsGeneralSection',
@@ -681,6 +682,8 @@
                     </div>
                 </div>
             </section>
+
+            <UpdateSettingsSection />
         </div>
     </div>
 </template>

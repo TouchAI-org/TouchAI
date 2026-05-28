@@ -16,9 +16,8 @@
         "updates": {
             "baseUrl": "https://updates.touch-ai.org/touchai-app/v1",
             "deployment": {
-                "provider": "cloudflare-pages",
-                "projectName": "touchai-updates",
-                "branch": "main"
+                "provider": "cloudflare-r2",
+                "bucketName": "touchai-updates"
             },
             "channels": {
                 "stable": {

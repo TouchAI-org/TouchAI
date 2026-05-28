@@ -1,20 +1,11 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const REQUIRED_SEVERITIES = ['critical', 'security', 'recommended'];
-const DOWNLOAD_KINDS = [
-    'installer',
-    'portable',
-    'fullPackage',
-    'deltaPackage',
-    'updatePackage',
-    'asset',
-];
+const DOWNLOAD_KINDS = ['installer', 'fullPackage', 'deltaPackage', 'updatePackage', 'asset'];
 const SEMVER_PATTERN =
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-const SEMVER_CAPTURE_PATTERN =
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function assertObject(value, label) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -128,11 +119,11 @@ function normalizeDownload(value, label) {
 function normalizeDownloads(value, channel) {
     const downloads = value ?? [];
     if (!Array.isArray(downloads)) {
-        throw new Error(`${channel}.latest.downloads must be an array.`);
+        throw new Error(`${channel}.Latest.downloads must be an array.`);
     }
 
     return downloads.map((download, index) =>
-        normalizeDownload(download, `${channel}.latest.downloads[${index}]`)
+        normalizeDownload(download, `${channel}.Latest.downloads[${index}]`)
     );
 }
 
@@ -141,17 +132,17 @@ function normalizeLatestRelease(value, channel) {
         return null;
     }
 
-    assertObject(value, `${channel}.latest`);
-    assertVersion(value.version, `${channel}.latest.version`);
-    assertNonEmptyString(value.tag, `${channel}.latest.tag`);
-    assertAbsoluteHttpsUrl(value.releaseUrl, `${channel}.latest.releaseUrl`);
+    assertObject(value, `${channel}.Latest`);
+    assertVersion(value.version, `${channel}.Latest.version`);
+    assertNonEmptyString(value.tag, `${channel}.Latest.tag`);
+    assertAbsoluteHttpsUrl(value.releaseUrl, `${channel}.Latest.releaseUrl`);
 
     if (typeof value.prerelease !== 'boolean') {
-        throw new Error(`${channel}.latest.prerelease must be a boolean.`);
+        throw new Error(`${channel}.Latest.prerelease must be a boolean.`);
     }
 
     const publishedAt = value.publishedAt ?? null;
-    assertNullableString(publishedAt, `${channel}.latest.publishedAt`);
+    assertNullableString(publishedAt, `${channel}.Latest.publishedAt`);
 
     return {
         version: value.version,
@@ -161,21 +152,9 @@ function normalizeLatestRelease(value, channel) {
         prerelease: value.prerelease,
         releaseNotes: normalizeReleaseNotes(
             value.releaseNotes ?? null,
-            `${channel}.latest.releaseNotes`
+            `${channel}.Latest.releaseNotes`
         ),
         downloads: normalizeDownloads(value.downloads, channel),
-    };
-}
-
-function channelOutput(product, channel, channelConfig, generatedAt, latestRelease) {
-    return {
-        schemaVersion: 1,
-        product: product.product,
-        displayName: product.displayName,
-        channel,
-        generatedAt,
-        latest: normalizeLatestRelease(latestRelease, channel),
-        policy: normalizePolicy(channelConfig.policy, channel),
     };
 }
 
@@ -215,12 +194,11 @@ function assertPackaging(packaging) {
 function assertUpdateDeployment(deployment) {
     assertObject(deployment, 'services.updates.deployment');
 
-    if (deployment.provider !== 'cloudflare-pages') {
-        throw new Error('services.updates.deployment.provider must be cloudflare-pages.');
+    if (deployment.provider !== 'cloudflare-r2') {
+        throw new Error('services.updates.deployment.provider must be cloudflare-r2.');
     }
 
-    assertNonEmptyString(deployment.projectName, 'services.updates.deployment.projectName');
-    assertNonEmptyString(deployment.branch, 'services.updates.deployment.branch');
+    assertNonEmptyString(deployment.bucketName, 'services.updates.deployment.bucketName');
 }
 
 function channelEntries(channels) {
@@ -267,49 +245,34 @@ function releaseUrl(product, tag) {
     return `${product.repository.releasesUrl.replace(/\/+$/g, '')}/tag/${tag}`;
 }
 
-function releaseDownloadUrl(product, tag, fileName) {
-    return `${product.repository.url.replace(/\/+$/g, '')}/releases/download/${encodeURIComponent(
-        tag
-    )}/${encodeURIComponent(fileName)}`;
+function updateAssetUrl(product, fileName) {
+    return `${product.services.updates.baseUrl.replace(/\/+$/g, '')}/${encodeURIComponent(fileName)}`;
 }
 
 function downloadKindFromFileName(fileName) {
     const lowerName = fileName.toLowerCase();
 
-    // Windows
-    if (lowerName.endsWith('-setup.exe')) {
-        return 'installer';
-    }
-    if (lowerName.endsWith('-portable.zip') && !lowerName.endsWith('.app.tar.gz')) {
-        return 'portable';
-    }
     if (lowerName.endsWith('.msi')) {
         return 'installer';
     }
-
-    // macOS
     if (lowerName.endsWith('.dmg')) {
         return 'installer';
     }
     if (lowerName.endsWith('.app.tar.gz')) {
         return 'updatePackage';
     }
-
-    // Linux
     if (lowerName.endsWith('.deb')) {
         return 'installer';
     }
     if (lowerName.endsWith('.rpm')) {
         return 'installer';
     }
-    if (lowerName.endsWith('.appimage')) {
-        return 'portable';
-    }
     if (lowerName.endsWith('.appimage.tar.gz')) {
         return 'updatePackage';
     }
-
-    // Velopack
+    if (lowerName.endsWith('.appimage')) {
+        return 'installer';
+    }
     if (lowerName.endsWith('-full.nupkg')) {
         return 'fullPackage';
     }
@@ -343,40 +306,7 @@ function mergeDownloads(...downloadLists) {
     return sortDownloads([...merged.values()]);
 }
 
-function releaseDownloadsFromGithubAssets(assets, version) {
-    if (!Array.isArray(assets)) {
-        return [];
-    }
-
-    const downloads = [];
-    for (const asset of assets) {
-        const name = asset?.name;
-        const url = asset?.browser_download_url;
-        if (typeof name !== 'string' || typeof url !== 'string') {
-            continue;
-        }
-
-        if (version && !name.includes(version)) {
-            continue;
-        }
-
-        const kind = downloadKindFromFileName(name);
-        if (!kind) {
-            continue;
-        }
-
-        downloads.push({
-            kind,
-            name,
-            url,
-            sizeBytes: Number.isInteger(asset.size) && asset.size >= 0 ? asset.size : null,
-        });
-    }
-
-    return sortDownloads(downloads);
-}
-
-async function releaseDownloadsFromDirectory(product, tag, releaseDir, version) {
+async function releaseDownloadsFromDirectory(product, releaseDir, version) {
     if (!releaseDir) {
         return [];
     }
@@ -401,7 +331,7 @@ async function releaseDownloadsFromDirectory(product, tag, releaseDir, version) 
         downloads.push({
             kind,
             name: entry.name,
-            url: releaseDownloadUrl(product, tag, entry.name),
+            url: updateAssetUrl(product, entry.name),
             sizeBytes: fileStat.size,
         });
     }
@@ -409,155 +339,28 @@ async function releaseDownloadsFromDirectory(product, tag, releaseDir, version) 
     return sortDownloads(downloads);
 }
 
-function parseVersion(value) {
-    const match = value.match(SEMVER_CAPTURE_PATTERN);
-    if (!match) {
-        return null;
+async function releaseAssetsFromDirectory(releaseDir, channel) {
+    if (!releaseDir) {
+        return [];
     }
 
-    return {
-        version: value,
-        major: Number(match[1]),
-        minor: Number(match[2]),
-        patch: Number(match[3]),
-        prerelease: match[4] ?? null,
-    };
+    try {
+        const feed = JSON.parse(
+            await readFile(join(releaseDir, `releases.${channel}.json`), 'utf8')
+        );
+        if (!Array.isArray(feed.Assets)) {
+            return [];
+        }
+        return feed.Assets;
+    } catch (error) {
+        if (error?.code === 'ENOENT') {
+            return [];
+        }
+        throw error;
+    }
 }
 
-function channelFromVersion(parsedVersion) {
-    if (!parsedVersion.prerelease) {
-        return 'stable';
-    }
-
-    const firstLabel = parsedVersion.prerelease.split('.')[0];
-    if (firstLabel === 'beta' || firstLabel === 'nightly') {
-        return firstLabel;
-    }
-
-    return null;
-}
-
-function comparePrerelease(left, right) {
-    if (!left && !right) {
-        return 0;
-    }
-
-    if (!left) {
-        return 1;
-    }
-
-    if (!right) {
-        return -1;
-    }
-
-    const leftParts = left.split('.');
-    const rightParts = right.split('.');
-    const length = Math.max(leftParts.length, rightParts.length);
-
-    for (let index = 0; index < length; index += 1) {
-        const leftPart = leftParts[index];
-        const rightPart = rightParts[index];
-        if (leftPart === undefined) {
-            return -1;
-        }
-        if (rightPart === undefined) {
-            return 1;
-        }
-        if (leftPart === rightPart) {
-            continue;
-        }
-
-        const leftNumeric = /^\d+$/.test(leftPart);
-        const rightNumeric = /^\d+$/.test(rightPart);
-        if (leftNumeric && rightNumeric) {
-            return Number(leftPart) - Number(rightPart);
-        }
-        if (leftNumeric) {
-            return -1;
-        }
-        if (rightNumeric) {
-            return 1;
-        }
-        return leftPart.localeCompare(rightPart);
-    }
-
-    return 0;
-}
-
-function compareVersions(left, right) {
-    return (
-        left.major - right.major ||
-        left.minor - right.minor ||
-        left.patch - right.patch ||
-        comparePrerelease(left.prerelease, right.prerelease)
-    );
-}
-
-function releaseCandidateFromGithubRelease(product, release) {
-    if (!release || release.draft) {
-        return null;
-    }
-
-    const tag = release.tag_name;
-    if (typeof tag !== 'string' || !tag.startsWith('v')) {
-        return null;
-    }
-
-    const parsedVersion = parseVersion(tag.slice(1));
-    if (!parsedVersion) {
-        return null;
-    }
-
-    const channel = channelFromVersion(parsedVersion);
-    if (!channel) {
-        return null;
-    }
-
-    return {
-        channel,
-        latest: {
-            version: parsedVersion.version,
-            tag,
-            releaseUrl: release.html_url ?? releaseUrl(product, tag),
-            publishedAt: release.published_at ?? null,
-            prerelease: Boolean(release.prerelease),
-            releaseNotes: normalizeReleaseNotes(release.body ?? null, `${tag}.releaseNotes`),
-            downloads: releaseDownloadsFromGithubAssets(release.assets, parsedVersion.version),
-        },
-        parsedVersion,
-    };
-}
-
-function latestByChannelFromGithubReleases(product, releases) {
-    const latest = {};
-    for (const release of releases) {
-        const candidate = releaseCandidateFromGithubRelease(product, release);
-        if (!candidate) {
-            continue;
-        }
-
-        const existing = latest[candidate.channel];
-        if (
-            !existing ||
-            compareVersions(candidate.parsedVersion, existing.parsedVersion) > 0 ||
-            (compareVersions(candidate.parsedVersion, existing.parsedVersion) === 0 &&
-                String(candidate.latest.publishedAt ?? '') >
-                    String(existing.latest.publishedAt ?? ''))
-        ) {
-            latest[candidate.channel] = candidate;
-        }
-    }
-
-    return Object.fromEntries(
-        Object.entries(latest).map(([channel, candidate]) => [channel, candidate.latest])
-    );
-}
-
-function releaseByTag(releases, tag) {
-    return releases.find((release) => release?.tag_name === tag) ?? null;
-}
-
-function latestByChannelFromRelease(product, release, fallbackPublishedAt, releases) {
+function latestByChannelFromRelease(product, release, fallbackPublishedAt) {
     if (!release) {
         return {};
     }
@@ -571,59 +374,91 @@ function latestByChannelFromRelease(product, release, fallbackPublishedAt, relea
         throw new Error('release prerelease must be a boolean.');
     }
 
-    const githubRelease = releaseByTag(releases, tag);
-    const githubLatest = githubRelease
-        ? releaseCandidateFromGithubRelease(product, githubRelease)?.latest
-        : null;
-
     return {
         [channel]: {
             version,
             tag,
-            releaseUrl: githubLatest?.releaseUrl ?? releaseUrl(product, tag),
-            publishedAt: publishedAt ?? githubLatest?.publishedAt ?? fallbackPublishedAt,
+            releaseUrl: releaseUrl(product, tag),
+            publishedAt: publishedAt ?? fallbackPublishedAt,
             prerelease,
             releaseNotes: normalizeReleaseNotes(
-                release.releaseNotes ?? githubLatest?.releaseNotes ?? null,
-                `${channel}.latest.releaseNotes`
+                release.releaseNotes ?? null,
+                `${channel}.Latest.releaseNotes`
             ),
-            downloads: mergeDownloads(release.downloads, githubLatest?.downloads),
+            downloads: mergeDownloads(release.downloads),
         },
     };
 }
 
-async function githubReleases(githubRepository, githubToken) {
-    if (!githubRepository) {
-        return [];
+async function existingFeed(product, channel) {
+    const url = `${product.services.updates.baseUrl.replace(/\/+$/g, '')}/releases.${channel}.json`;
+    const response = await fetch(url);
+    if (response.status === 404) {
+        return null;
     }
-
-    assertNonEmptyString(githubRepository, 'github repository');
-    const headers = {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'TouchAI update channel builder',
-    };
-    if (githubToken) {
-        headers.Authorization = `Bearer ${githubToken}`;
-    }
-
-    const response = await fetch(
-        `https://api.github.com/repos/${githubRepository}/releases?per_page=100`,
-        { headers }
-    );
     if (!response.ok) {
-        throw new Error(`Failed to list GitHub releases: HTTP ${response.status}`);
+        throw new Error(`Failed to fetch existing ${channel} update feed: HTTP ${response.status}`);
     }
 
-    return response.json();
+    const feed = await response.json();
+    if (!feed || typeof feed !== 'object' || Array.isArray(feed)) {
+        throw new Error(`Existing ${channel} update feed must be an object.`);
+    }
+    return feed;
+}
+
+async function existingFeedsByChannel(product, channels, fetchExisting) {
+    if (!fetchExisting) {
+        return {};
+    }
+
+    const feeds = {};
+    for (const channel of channels) {
+        feeds[channel] = await existingFeed(product, channel);
+    }
+    return feeds;
+}
+
+function feedOutput(product, channel, channelConfig, generatedAt, options) {
+    const existing = options.existing ?? null;
+    return {
+        Assets: options.assets ?? existing?.Assets ?? [],
+        SchemaVersion: 1,
+        Product: product.product,
+        DisplayName: product.displayName,
+        Channel: channel,
+        GeneratedAt: generatedAt,
+        Latest: normalizeLatestRelease(options.latest ?? existing?.Latest ?? null, channel),
+        Policy: normalizePolicy(channelConfig.policy, channel),
+    };
+}
+
+async function copyReleaseAssets(releaseDir, outputDir) {
+    if (!releaseDir) {
+        return;
+    }
+
+    const entries = await readdir(releaseDir, { withFileTypes: true });
+    for (const entry of entries) {
+        if (!entry.isFile()) {
+            continue;
+        }
+        if (entry.name.endsWith('.json') || entry.name.startsWith('RELEASES')) {
+            continue;
+        }
+        if (!downloadKindFromFileName(entry.name)) {
+            continue;
+        }
+        await copyFile(join(releaseDir, entry.name), join(outputDir, entry.name));
+    }
 }
 
 export async function buildUpdateChannels(projectRoot, outputRoot, now = new Date(), options = {}) {
     const product = await readProduct(projectRoot);
     const generatedAt = now.toISOString();
     const updates = product.services.updates;
-    const outputDir = join(outputRoot, relativeUpdatePath(updates.baseUrl), 'channels');
-    const releases = await githubReleases(options.githubRepository, options.githubToken);
+    const outputDir = join(outputRoot, relativeUpdatePath(updates.baseUrl));
+    const channelNames = channelEntries(updates.channels).map(([channel]) => channel);
     const release = options.release
         ? {
               ...options.release,
@@ -635,32 +470,46 @@ export async function buildUpdateChannels(projectRoot, outputRoot, now = new Dat
               downloads: mergeDownloads(
                   await releaseDownloadsFromDirectory(
                       product,
-                      options.release.tag,
                       options.release.releaseDir,
                       options.release.version
                   ),
                   options.release.downloads
               ),
+              assets: await releaseAssetsFromDirectory(
+                  options.release.releaseDir,
+                  options.release.channel
+              ),
           }
         : null;
+    const existingByChannel = await existingFeedsByChannel(
+        product,
+        channelNames,
+        Boolean(options.fetchExisting)
+    );
     const latestByChannel = {
-        ...latestByChannelFromGithubReleases(product, releases),
-        ...latestByChannelFromRelease(product, release, generatedAt, releases),
+        ...Object.fromEntries(
+            Object.entries(existingByChannel)
+                .filter(([, feed]) => feed?.Latest)
+                .map(([channel, feed]) => [channel, feed.Latest])
+        ),
+        ...latestByChannelFromRelease(product, release, generatedAt),
         ...(options.latestByChannel ?? {}),
     };
 
     await rm(outputRoot, { recursive: true, force: true });
     await mkdir(outputDir, { recursive: true });
+    await copyReleaseAssets(release?.releaseDir, outputDir);
 
     for (const [channel, channelConfig] of channelEntries(updates.channels)) {
-        const output = channelOutput(
-            product,
-            channel,
-            channelConfig,
-            generatedAt,
-            latestByChannel[channel] ?? null
+        const output = feedOutput(product, channel, channelConfig, generatedAt, {
+            existing: existingByChannel[channel] ?? null,
+            latest: latestByChannel[channel] ?? null,
+            assets: release?.channel === channel ? release.assets : undefined,
+        });
+        await writeFile(
+            join(outputDir, `releases.${channel}.json`),
+            `${JSON.stringify(output, null, 4)}\n`
         );
-        await writeFile(join(outputDir, `${channel}.json`), `${JSON.stringify(output, null, 4)}\n`);
     }
 }
 
@@ -690,8 +539,9 @@ function parseCliOptions(argv) {
     }
 
     const parsedOptions = {
-        githubRepository: options['github-repository'] ?? null,
-        githubToken: process.env.GITHUB_TOKEN ?? null,
+        fetchExisting: options['fetch-existing']
+            ? booleanArg(options['fetch-existing'], '--fetch-existing')
+            : false,
     };
 
     if (options.channel || options.version || options.tag || options.prerelease) {
@@ -720,7 +570,7 @@ async function main() {
     const parsed = parseCliOptions(process.argv.slice(2));
     const outputRoot = parsed.outputRoot ?? join(projectRoot, '.update-dist');
     await buildUpdateChannels(projectRoot, outputRoot, new Date(), parsed.options);
-    console.log(`Update channel JSON written to ${outputRoot}.`);
+    console.log(`Update release feeds written to ${outputRoot}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
