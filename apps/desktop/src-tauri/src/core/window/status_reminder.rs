@@ -73,8 +73,6 @@ pub struct SessionStatusReminderNotificationRuntime {
     active_toasts: Mutex<Vec<windows::UI::Notifications::ToastNotification>>,
     #[cfg(target_os = "macos")]
     active_notification_ids: Mutex<Vec<String>>,
-    #[cfg(target_os = "linux")]
-    active_notification_handles: Mutex<Vec<notify_rust::Notification>>,
 }
 
 impl SessionStatusReminderNotificationRuntime {
@@ -163,25 +161,16 @@ impl SessionStatusReminderNotificationRuntime {
     }
 
     #[cfg(target_os = "linux")]
-    pub fn track_active_notification(&self, notification: notify_rust::Notification) {
-        self.active_notification_handles
-            .lock()
-            .expect("session status reminder runtime poisoned")
-            .push(notification);
+    pub fn track_active_notification(&self, _id: u32) {
+        // Tracking IDs for future dismissal is not yet supported on Linux
+        // because notify-rust's wait_for_action consumes the handle.
     }
 
     #[cfg(target_os = "linux")]
     pub fn clear_active_notifications(&self) {
-        let handles = {
-            let mut guard = self
-                .active_notification_handles
-                .lock()
-                .expect("session status reminder runtime poisoned");
-            std::mem::take(&mut *guard)
-        };
-        for handle in handles {
-            handle.close();
-        }
+        // No-op on Linux: notify-rust's NotificationHandle is consumed by
+        // wait_for_action, so we cannot close notifications programmatically.
+        // Notifications with Timeout::Never persist until user interaction.
     }
 }
 
@@ -953,8 +942,6 @@ mod linux_notifications {
             .show()
             .map_err(|error| format!("Failed to show Linux notification: {error}"))?;
 
-        // Spawn a thread to wait for the user action, then emit the
-        // corresponding event back to the frontend.
         let app_handle = app.clone();
         let action_payload = SessionStatusReminderActionPayload {
             action: SessionStatusReminderAction::Open,
@@ -964,11 +951,11 @@ mod linux_notifications {
             call_id: payload.approval.as_ref().map(|a| a.call_id.clone()),
             reply_text: None,
         };
-        let is_approval = payload.kind == SessionStatusReminderKind::WaitingApproval;
 
-        std::thread::spawn(move || {
-            let action_name = handle.wait_for_action();
-            let resolved_action = match action_name.as_str() {
+        // wait_for_action consumes the handle and invokes the closure when the
+        // user interacts with the notification.
+        handle.wait_for_action(move |action_name| {
+            let resolved_action = match action_name {
                 "approve" => SessionStatusReminderAction::Approve,
                 "reject" => SessionStatusReminderAction::Reject,
                 "open" => SessionStatusReminderAction::Open,
@@ -977,7 +964,7 @@ mod linux_notifications {
 
             let final_payload = SessionStatusReminderActionPayload {
                 action: resolved_action,
-                ..action_payload.clone()
+                ..action_payload
             };
 
             tauri::async_runtime::block_on(async {
@@ -992,12 +979,12 @@ mod linux_notifications {
             });
         });
 
-        runtime.track_active_notification(handle);
+        runtime.track_active_notification(0);
 
         Ok(())
     }
 
-    /// Close all tracked Linux notification handles.
+    /// Clear tracked Linux notifications.
     pub fn clear(runtime: &super::SessionStatusReminderNotificationRuntime) {
         runtime.clear_active_notifications();
     }
