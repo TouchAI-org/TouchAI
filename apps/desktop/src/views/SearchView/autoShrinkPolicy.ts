@@ -23,17 +23,54 @@ export interface SearchAutoShrinkEligibilityInput {
     latestSeenCompletedMessageMarker: string | null;
 }
 
+function hasPendingToolCalls(message: SessionMessage): boolean {
+    return (
+        message.toolCalls?.some(
+            (toolCall) =>
+                toolCall.status === 'executing' || toolCall.status === 'awaiting_approval'
+        ) ?? false
+    );
+}
+
+function hasPendingApprovals(message: SessionMessage): boolean {
+    return message.approvals?.some((approval) => approval.status === 'pending') ?? false;
+}
+
+function isAssistantMessageSettled(message: SessionMessage): boolean {
+    return (
+        message.role === 'assistant' &&
+        message.isStreaming !== true &&
+        !hasPendingToolCalls(message) &&
+        !hasPendingApprovals(message)
+    );
+}
+
 export function findLatestSettledAssistantMessage(
     messages: SessionMessage[]
 ): SessionMessage | null {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
-        if (message?.role === 'assistant') {
+        if (message && isAssistantMessageSettled(message)) {
             return message;
         }
     }
 
     return null;
+}
+
+export function isSessionHistorySettled(messages: SessionMessage[]): boolean {
+    const latestAssistantMessage = findLatestSettledAssistantMessage(messages);
+    if (!latestAssistantMessage) {
+        return false;
+    }
+
+    return messages.every((message) => {
+        if (message.role !== 'assistant') {
+            return true;
+        }
+
+        return isAssistantMessageSettled(message);
+    });
 }
 
 function buildLatestCompletedMessageMarkerParts(
@@ -76,6 +113,10 @@ export function buildLatestCompletedMessageMarker(
     messages: SessionMessage[]
 ): string | null {
     if (sessionId === null) {
+        return null;
+    }
+
+    if (!isSessionHistorySettled(messages)) {
         return null;
     }
 

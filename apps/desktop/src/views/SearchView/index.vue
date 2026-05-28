@@ -27,6 +27,7 @@
 
     import {
         buildLatestCompletedMessageMarker,
+        isSessionHistorySettled,
         shouldAutoShrinkSearchSession,
     } from './autoShrinkPolicy';
     import ConversationPanel from './components/ConversationPanel/index.vue';
@@ -282,7 +283,11 @@
     });
 
     const sessionIdleForAutoShrink = computed(
-        () => currentSessionId.value !== null && !isLoading.value
+        () =>
+            currentSessionId.value !== null &&
+            !isLoading.value &&
+            !pendingToolApproval.value &&
+            isSessionHistorySettled(sessionHistory.value)
     );
     const latestCompletedMessageMarker = computed(() =>
         sessionIdleForAutoShrink.value
