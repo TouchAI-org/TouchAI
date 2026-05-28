@@ -183,6 +183,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             return;
         }
 
+        if (newHeight === currentHeight.value) {
+            return;
+        }
+
         if (newHeight < currentHeight.value) {
             // 收缩前先下调原生最小高度约束，否则 Windows 会直接拒绝这次 shrink。
             await syncSearchWindowMinSizeConstraints(newHeight);
@@ -191,6 +195,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         await native.window.resizeWindowHeight({
             targetHeight: newHeight,
             center: true,
+            animate: false,
             respectManualOverride: searchWindowHeightPolicy.value.respectManualOverride,
         });
         currentHeight.value = newHeight;
@@ -295,6 +300,35 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         }
     }
 
+    /**
+     * 使用 rAF 将同一帧内的多次 ResizeObserver 回调合并为一次 resize 调用。
+     * CSS transition 驱动 SearchBar 高度变化时，ResizeObserver 每帧触发一次，
+     * 始终取最新高度值传给 Rust（animate: false），使窗口尺寸逐帧跟随 CSS 动画。
+     */
+    let pendingObserverHeight: number | null = null;
+    let observerFrameScheduled = false;
+
+    function scheduleObserverResize(height: number) {
+        pendingObserverHeight = height;
+        if (observerFrameScheduled) {
+            return;
+        }
+
+        observerFrameScheduled = true;
+        requestAnimationFrame(() => {
+            observerFrameScheduled = false;
+            const targetHeight = pendingObserverHeight;
+            pendingObserverHeight = null;
+            if (targetHeight === null) {
+                return;
+            }
+
+            resize(targetHeight).catch((error) => {
+                reportError('apply observed height resize', error);
+            });
+        });
+    }
+
     function observeTarget(el: HTMLElement) {
         resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
@@ -304,9 +338,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                     target.scrollHeight,
                     target.getBoundingClientRect().height
                 );
-                resize(height).catch((error) => {
-                    reportError('apply observed height resize', error);
-                });
+                scheduleObserverResize(height);
             }
         });
         resizeObserver.observe(el);
