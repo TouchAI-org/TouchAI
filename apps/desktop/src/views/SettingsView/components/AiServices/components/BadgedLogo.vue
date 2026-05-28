@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import { computed } from 'vue';
 
+    import { t } from '@/i18n';
     interface Props {
         logo: string;
         name: string;
@@ -57,9 +58,10 @@
 
         <span
             v-if="showBadge"
-            class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 rounded border border-neutral-300 bg-white px-1 py-0.5 text-[9px] leading-none text-neutral-600 shadow-sm"
+            data-testid="provider-built-in-badge"
+            class="absolute top-0 right-0 min-w-max translate-x-1/2 -translate-y-1/2 rounded border border-neutral-300 bg-white px-1 py-0.5 text-[9px] leading-none whitespace-nowrap text-neutral-600 shadow-sm"
         >
-            内置
+            {{ t('common.builtIn') }}
         </span>
     </div>
 </template>

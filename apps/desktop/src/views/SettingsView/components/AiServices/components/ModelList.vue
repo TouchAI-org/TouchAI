@@ -6,10 +6,11 @@
     import type { Model, NewModel, Provider } from '@database/schema';
     import { computed, ref } from 'vue';
 
+    import { t, tp } from '@/i18n';
+
     import AddModelDialog from './AddModelDialog.vue';
     import EditModelDialog from './EditModelDialog.vue';
     import ModelGroup from './ModelGroup.vue';
-
     interface Props {
         providerId: number;
         models: Model[];
@@ -154,9 +155,9 @@
     // 计算 placeholder 文本
     const searchPlaceholder = computed(() => {
         if (props.models.length > 0) {
-            return `搜索${props.models.length}个模型...`;
+            return tp('settings.ai.modelSearchPlaceholder', props.models.length);
         }
-        return '搜索模型...';
+        return t('settings.ai.modelSearchGenericPlaceholder');
     });
 
     // 计算分组后的模型
@@ -206,12 +207,12 @@
     const handleRefresh = () => {
         // 检查是否已配置地址
         if (!props.provider) {
-            alert.error('服务商信息不存在');
+            alert.error(t('settings.ai.providerInfoMissing'));
             return;
         }
 
         if (!props.provider.api_endpoint) {
-            alert.warning('请先配置 API 地址');
+            alert.warning(t('settings.ai.configureApiUrlFirst'));
             return;
         }
 
@@ -237,7 +238,9 @@
     <div class="space-y-4">
         <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-5">
-                <h2 class="flex-shrink-0 text-[15px] font-medium text-neutral-950">模型列表</h2>
+                <h2 class="flex-shrink-0 text-[15px] font-medium text-neutral-950">
+                    {{ t('settings.ai.modelListTitle') }}
+                </h2>
 
                 <div class="relative flex-1">
                     <AppIcon
@@ -263,20 +266,20 @@
                             refreshing,
                     }"
                     :disabled="refreshing"
-                    title="从服务商刷新模型列表"
+                    :title="t('settings.ai.refreshModelsTitle')"
                     @click="handleRefresh"
                 >
                     <span v-if="refreshing" class="inline-flex items-center gap-1.5">
                         <AppIcon name="refresh" class="h-4 w-4 animate-spin" />
-                        刷新中...
+                        {{ t('settings.ai.refreshing') }}
                     </span>
-                    <span v-else>刷新</span>
+                    <span v-else>{{ t('settings.ai.refresh') }}</span>
                 </button>
                 <button
                     class="settings-button-primary flex-shrink-0 px-3 py-1.5"
                     @click="startCreate"
                 >
-                    添加模型
+                    {{ t('settings.ai.addModelTitle') }}
                 </button>
             </div>
         </div>
@@ -287,9 +290,11 @@
         >
             <div class="mx-auto max-w-sm">
                 <AppIcon name="search" class="mx-auto h-10 w-10 text-neutral-300" />
-                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">未找到匹配的模型</h3>
+                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">
+                    {{ t('settings.ai.noMatchingModels') }}
+                </h3>
                 <p class="mt-1 text-xs text-neutral-500">
-                    没有找到与 "{{ searchQuery }}" 匹配的模型，请尝试其他关键词
+                    {{ t('settings.ai.noMatchingModelsDescription', { query: searchQuery }) }}
                 </p>
             </div>
         </div>
@@ -301,7 +306,9 @@
         >
             <div class="mx-auto max-w-sm">
                 <AppIcon name="llm" class="mx-auto h-10 w-10 text-neutral-300" />
-                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">暂无模型</h3>
+                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">
+                    {{ t('settings.ai.noModels') }}
+                </h3>
             </div>
         </div>
 

@@ -1,10 +1,25 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const pkgDir = path.dirname(fileURLToPath(import.meta.url));
+const glimmPath = path.resolve(pkgDir, 'node_modules/glimm/dist/index.js');
 
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://touch-ai.org/',
+	vite: {
+		resolve: {
+			alias: {
+				'glimm': glimmPath,
+			},
+		},
+		optimizeDeps: {
+			include: ['glimm'],
+		},
+	},
 	integrations: [
 		starlight({
 			title: 'TouchAI',

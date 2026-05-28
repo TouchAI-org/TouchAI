@@ -12,10 +12,20 @@
         <template v-if="isBuiltinTool">
             <div class="tool-call-log-line">
                 <span class="tool-call-log-verb">{{ builtinVerbText }}</span>
-                <span v-if="builtinSummaryText" class="tool-call-log-content">
+                <span
+                    v-if="builtinSummaryText"
+                    class="tool-call-log-content"
+                    :data-no-i18n="isBuiltinSummaryPayload ? 'true' : undefined"
+                    :translate="isBuiltinSummaryPayload ? 'no' : undefined"
+                >
                     {{ ` ${builtinSummaryText}` }}
                 </span>
-                <span v-if="builtinDurationText" class="tool-call-log-duration">
+                <span
+                    v-if="builtinDurationText"
+                    class="tool-call-log-duration"
+                    data-no-i18n="true"
+                    translate="no"
+                >
                     {{ ` (${builtinDurationText})` }}
                 </span>
             </div>
@@ -32,8 +42,18 @@
                     <AppIcon name="wrench" class="tool-call-icon" />
                     <div class="tool-call-text">
                         <div class="tool-call-title-row">
-                            <span class="tool-call-label">{{ toolDisplayName }}</span>
-                            <span v-if="toolBadgeLabel" class="tool-call-server">
+                            <span
+                                class="tool-call-label"
+                                :data-no-i18n="isToolDisplayNamePayload ? 'true' : undefined"
+                                :translate="isToolDisplayNamePayload ? 'no' : undefined"
+                                v-text="toolDisplayName"
+                            ></span>
+                            <span
+                                v-if="toolBadgeLabel"
+                                class="tool-call-server"
+                                :data-no-i18n="isToolBadgePayload ? 'true' : undefined"
+                                :translate="isToolBadgePayload ? 'no' : undefined"
+                            >
                                 {{ toolBadgeLabel }}
                             </span>
                         </div>
@@ -44,7 +64,12 @@
                         <span v-if="statusType === 'running'" class="tool-call-pulse"></span>
                         {{ statusText }}
                     </span>
-                    <span v-if="toolCall.durationMs" class="tool-call-duration">
+                    <span
+                        v-if="toolCall.durationMs"
+                        class="tool-call-duration"
+                        data-no-i18n="true"
+                        translate="no"
+                    >
                         {{ toolCall.durationMs }}ms
                     </span>
                     <AppIcon
@@ -61,17 +86,25 @@
             <transition name="tool-call-slide">
                 <div v-if="isExpanded" class="tool-call-detail">
                     <div class="tool-call-section">
-                        <h4 class="tool-call-section-title">参数</h4>
+                        <h4 class="tool-call-section-title">
+                            {{ t('conversation.toolCall.section.arguments') }}
+                        </h4>
                         <pre
                             class="tool-call-block custom-scrollbar-thin"
+                            data-no-i18n="true"
+                            translate="no"
                             v-text="argumentsText"
                         ></pre>
                     </div>
 
                     <div class="tool-call-section">
-                        <h4 class="tool-call-section-title">结果</h4>
+                        <h4 class="tool-call-section-title">
+                            {{ t('conversation.toolCall.section.result') }}
+                        </h4>
                         <pre
                             class="tool-call-block custom-scrollbar-thin"
+                            :data-no-i18n="isResultPayload ? 'true' : undefined"
+                            :translate="isResultPayload ? 'no' : undefined"
                             v-text="resultText"
                         ></pre>
                     </div>
@@ -86,6 +119,7 @@
     import type { Component } from 'vue';
     import { computed, ref } from 'vue';
 
+    import { t } from '@/i18n';
     import type { ToolCallInfo } from '@/types/session';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
@@ -139,10 +173,36 @@
             return namespaced;
         }
 
-        return '未命名工具';
+        return t('conversation.toolCall.unnamed');
+    });
+    const isToolDisplayNamePayload = computed(() => {
+        return Boolean(props.toolCall.name?.trim() || props.toolCall.namespacedName?.trim());
     });
     const toolBadgeLabel = computed(() => {
-        return props.toolCall.serverName || props.toolCall.sourceLabel || null;
+        if (props.toolCall.serverName) {
+            return props.toolCall.serverName;
+        }
+
+        if (props.toolCall.sourceLabel === '内置工具') {
+            return t('conversation.toolCall.builtInBadge');
+        }
+
+        if (props.toolCall.sourceLabel === 'MCP 工具') {
+            return t('conversation.toolCall.mcpBadge');
+        }
+
+        return props.toolCall.sourceLabel || null;
+    });
+    const isToolBadgePayload = computed(() => {
+        if (props.toolCall.serverName) {
+            return true;
+        }
+
+        return Boolean(
+            props.toolCall.sourceLabel &&
+            props.toolCall.sourceLabel !== '内置工具' &&
+            props.toolCall.sourceLabel !== 'MCP 工具'
+        );
     });
     const argumentsText = computed(() => {
         return formatJson(props.toolCall.arguments ?? {});
@@ -179,26 +239,26 @@
     });
     const fallbackBuiltinVerbText = computed(() => {
         if (props.toolCall.status === 'awaiting_approval') {
-            return '等待批准';
+            return t('conversation.toolCall.waitingApproval');
         }
 
         if (props.toolCall.status === 'executing') {
-            return '正在处理';
+            return t('conversation.toolCall.processing');
         }
 
         if (props.toolCall.status === 'error') {
-            return '处理失败';
+            return t('conversation.toolCall.processFailed');
         }
 
         if (props.toolCall.status === 'rejected') {
-            return '已拒绝';
+            return t('common.rejected');
         }
 
         if (props.toolCall.status === 'cancelled') {
-            return '已取消';
+            return t('common.cancelled');
         }
 
-        return '已处理';
+        return t('conversation.toolCall.processed');
     });
     const builtinVerbText = computed(() => {
         return props.toolCall.builtinPresentation?.verb || fallbackBuiltinVerbText.value;
@@ -206,14 +266,19 @@
     const builtinSummaryText = computed(
         () => props.toolCall.builtinPresentation?.content?.trim() || toolDisplayName.value
     );
+    const isBuiltinSummaryPayload = computed(() => {
+        return Boolean(
+            props.toolCall.builtinPresentation?.content?.trim() || isToolDisplayNamePayload.value
+        );
+    });
     const builtinDurationText = computed(() => formatDurationLabel(props.toolCall.durationMs));
     const resultText = computed(() => {
         if (props.toolCall.status === 'executing') {
-            return '执行中...';
+            return t('conversation.toolCall.executing');
         }
 
         if (props.toolCall.status === 'awaiting_approval') {
-            return '等待用户批准后继续执行...';
+            return t('conversation.toolCall.waitingUserApproval');
         }
 
         const raw = props.toolCall.result?.trim();
@@ -222,18 +287,21 @@
         }
 
         if (props.toolCall.status === 'error') {
-            return '无错误输出';
+            return t('conversation.toolCall.noErrorOutput');
         }
 
         if (props.toolCall.status === 'rejected') {
-            return '用户已拒绝此次执行';
+            return t('conversation.toolCall.userRejected');
         }
 
         if (props.toolCall.status === 'cancelled') {
-            return '请求已取消';
+            return t('common.requestCancelled');
         }
 
-        return '无输出';
+        return t('conversation.toolCall.noOutput');
+    });
+    const isResultPayload = computed(() => {
+        return Boolean(props.toolCall.result?.trim());
     });
 
     function formatJson(value: unknown): string {
@@ -256,32 +324,29 @@
 
     function getToolStatusText(
         status: ToolCallInfo['status'],
-        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled',
-        options?: {
-            completedText?: string;
-        }
+        statusTypeValue: 'running' | 'error' | 'completed' | 'rejected' | 'cancelled'
     ): string {
         if (status === 'awaiting_approval') {
-            return '等待批准';
+            return t('conversation.toolCall.waitingApproval');
         }
 
         if (statusTypeValue === 'running') {
-            return '运行中';
+            return t('common.running');
         }
 
         if (statusTypeValue === 'error') {
-            return '失败';
+            return t('common.failed');
         }
 
         if (statusTypeValue === 'rejected') {
-            return '已拒绝';
+            return t('common.rejected');
         }
 
         if (statusTypeValue === 'cancelled') {
-            return '已取消';
+            return t('common.cancelled');
         }
 
-        return options?.completedText || '完成';
+        return t('common.done');
     }
 
     function getStatusClassName(

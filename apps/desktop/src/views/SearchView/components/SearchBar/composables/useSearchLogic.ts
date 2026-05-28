@@ -4,6 +4,7 @@ import '../tags';
 import { Editor } from '@tiptap/vue-3';
 import { type Ref, ref, shallowRef, watch } from 'vue';
 
+import { locale, t } from '@/i18n';
 import {
     buildAttachmentPromptMetas,
     type Index,
@@ -22,6 +23,7 @@ import { getModelTag, insertModelTag, MODEL_TAG_NODE, removeModelTag } from '../
 import type { SearchModelOverride } from '../types';
 import {
     createSearchEditorExtensions,
+    DEFAULT_PLACEHOLDER_KEY,
     findSearchTagChip,
     getEditorJSON,
     getEditorText,
@@ -173,6 +175,7 @@ export function useSearchInput(
      */
     function initEditor() {
         const extensions = createSearchEditorExtensions({
+            placeholder: () => t(DEFAULT_PLACEHOLDER_KEY),
             onTagRemoved: (tagName, id) => {
                 if (controlledTagSyncDepth > 0) {
                     return;
@@ -226,6 +229,15 @@ export function useSearchInput(
         editor.value?.destroy();
         editor.value = null;
         cachedLineHeight = 0;
+    }
+
+    function refreshPlaceholderLocale(ed: Editor, nextLocale: string) {
+        ed.view.dispatch(ed.state.tr.setMeta('search-placeholder-locale', nextLocale));
+
+        const placeholderText = t(DEFAULT_PLACEHOLDER_KEY);
+        ed.view.dom.querySelectorAll<HTMLElement>('[data-placeholder]').forEach((element) => {
+            element.setAttribute('data-placeholder', placeholderText);
+        });
     }
 
     // 4. 状态同步监听
@@ -296,6 +308,19 @@ export function useSearchInput(
 
         syncControlledQueryToEditor(nextQuery);
     });
+
+    watch(
+        locale,
+        (nextLocale) => {
+            const ed = editor.value;
+            if (!ed) {
+                return;
+            }
+
+            refreshPlaceholderLocale(ed, nextLocale);
+        },
+        { flush: 'post' }
+    );
 
     /**
      * 受控标签同步包装器。

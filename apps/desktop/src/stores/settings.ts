@@ -19,6 +19,7 @@ import {
     type SearchWindowSizePreset,
     SearchWindowSizePreset as SearchWindowSizePresets,
 } from '@/config/searchWindow';
+import { type AppLocale, normalizeLocale, resolveFirstLaunchLocale, setLocale } from '@/i18n';
 import { z } from '@/utils/zod';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
@@ -30,6 +31,7 @@ export interface GeneralSettingsData {
     outputScrollBehavior: OutputScrollBehavior;
     searchWindowSizePreset: SearchWindowSizePreset;
     searchWindowDefaultSize: SearchWindowDefaultSize;
+    language: AppLocale;
     appUpdateChannel: AppUpdateChannel;
     appUpdateAutoCheck: boolean;
     appUpdateLastCheckedAt: string | null;
@@ -42,6 +44,7 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     outputScrollBehavior: 'follow_output',
     searchWindowSizePreset: DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
     searchWindowDefaultSize: resolveSearchWindowDefaultSize(DEFAULT_SEARCH_WINDOW_SIZE_PRESET),
+    language: 'zh-CN',
     appUpdateChannel: DEFAULT_APP_UPDATE_CHANNEL,
     appUpdateAutoCheck: true,
     appUpdateLastCheckedAt: null,
@@ -89,6 +92,19 @@ export const useSettingsStore = defineStore('settings', () => {
         return DEFAULT_GENERAL_SETTINGS.searchWindowSizePreset;
     }
 
+    function applyLanguage(value: unknown): void {
+        settings.value.language = normalizeLocale(value);
+        setLocale(settings.value.language);
+    }
+
+    function resolvePersistedLanguage(language: string | null): AppLocale {
+        if (language === null) {
+            return resolveFirstLaunchLocale();
+        }
+
+        return normalizeLocale(language);
+    }
+
     function applySearchWindowSizePreset(preset: SearchWindowSizePreset): void {
         settings.value.searchWindowSizePreset = preset;
         settings.value.searchWindowDefaultSize = {
@@ -117,6 +133,9 @@ export const useSettingsStore = defineStore('settings', () => {
             case 'search_window_size_preset':
                 applySearchWindowSizePreset(normalizeSearchWindowSizePreset(String(value)));
                 break;
+            case 'language':
+                applyLanguage(value);
+                break;
             case 'app_update_channel':
                 settings.value.appUpdateChannel = normalizeAppUpdateChannel(value);
                 break;
@@ -144,6 +163,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.outputScrollBehavior;
             case 'search_window_size_preset':
                 return settings.value.searchWindowSizePreset;
+            case 'language':
+                return settings.value.language;
             case 'app_update_channel':
                 return settings.value.appUpdateChannel;
             case 'app_update_auto_check':
@@ -167,6 +188,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.outputScrollBehavior;
             case 'search_window_size_preset':
                 return settings.value.searchWindowSizePreset;
+            case 'language':
+                return settings.value.language;
             case 'app_update_channel':
                 return settings.value.appUpdateChannel;
             case 'app_update_auto_check':
@@ -194,6 +217,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 startMinimized,
                 outputScroll,
                 searchWindowSizePreset,
+                language,
                 appUpdateChannel,
                 appUpdateAutoCheck,
                 appUpdateLastCheckedAt,
@@ -203,6 +227,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 getSettingValue({ key: 'start_minimized' }),
                 getSettingValue({ key: 'output_scroll_behavior' }),
                 getSettingValue({ key: 'search_window_size_preset' }),
+                getSettingValue({ key: 'language' }),
                 getSettingValue({ key: 'app_update_channel' }),
                 getSettingValue({ key: 'app_update_auto_check' }),
                 getSettingValue({ key: 'app_update_last_checked_at' }),
@@ -220,6 +245,7 @@ export const useSettingsStore = defineStore('settings', () => {
                     : startMinimized === 'true';
             settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(outputScroll);
             applySearchWindowSizePreset(normalizeSearchWindowSizePreset(searchWindowSizePreset));
+            applyLanguage(resolvePersistedLanguage(language));
             settings.value.appUpdateChannel = normalizeAppUpdateChannel(appUpdateChannel);
             settings.value.appUpdateAutoCheck =
                 appUpdateAutoCheck === null
@@ -233,6 +259,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 persistDefaultIfMissing('start_minimized', startMinimized),
                 persistDefaultIfMissing('output_scroll_behavior', outputScroll),
                 persistDefaultIfMissing('search_window_size_preset', searchWindowSizePreset),
+                persistDefaultIfMissing('language', language),
                 persistDefaultIfMissing('app_update_channel', appUpdateChannel),
                 persistDefaultIfMissing('app_update_auto_check', appUpdateAutoCheck),
             ]);
@@ -256,6 +283,16 @@ export const useSettingsStore = defineStore('settings', () => {
         options: { broadcast?: boolean } = {}
     ): Promise<void> {
         const { broadcast = true } = options;
+        if (key === 'language') {
+            const normalizedLanguage = normalizeLocale(value);
+            await setSetting({ key, value: normalizedLanguage });
+            applyLanguage(normalizedLanguage);
+            if (broadcast) {
+                await broadcastUpdate(key);
+            }
+            return;
+        }
+
         applySetting(key, value);
         await setSetting({ key, value: serializeSetting(key) });
         if (broadcast) {
@@ -336,6 +373,10 @@ export const useSettingsStore = defineStore('settings', () => {
         await updateSetting('search_window_size_preset', normalizeSearchWindowSizePreset(preset));
     }
 
+    async function updateLanguage(language: AppLocale) {
+        await updateSetting('language', normalizeLocale(language));
+    }
+
     async function updateAppUpdateChannel(channel: AppUpdateChannel) {
         await updateSetting('app_update_channel', normalizeAppUpdateChannel(channel));
     }
@@ -352,6 +393,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const globalShortcut = computed(() => settings.value.globalShortcut);
     const searchWindowSizePreset = computed(() => settings.value.searchWindowSizePreset);
     const searchWindowDefaultSize = computed(() => settings.value.searchWindowDefaultSize);
+    const language = computed(() => settings.value.language);
     const appUpdateChannel = computed(() => settings.value.appUpdateChannel);
     const appUpdateAutoCheck = computed(() => settings.value.appUpdateAutoCheck);
     const appUpdateLastCheckedAt = computed(() => settings.value.appUpdateLastCheckedAt);
@@ -364,6 +406,7 @@ export const useSettingsStore = defineStore('settings', () => {
         globalShortcut,
         searchWindowSizePreset,
         searchWindowDefaultSize,
+        language,
         appUpdateChannel,
         appUpdateAutoCheck,
         appUpdateLastCheckedAt,
@@ -375,6 +418,7 @@ export const useSettingsStore = defineStore('settings', () => {
         updateStartMinimized,
         updateOutputScrollBehavior,
         updateSearchWindowSizePreset,
+        updateLanguage,
         updateAppUpdateChannel,
         updateAppUpdateAutoCheck,
         updateAppUpdateLastCheckedAt,

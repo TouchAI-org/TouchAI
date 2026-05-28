@@ -196,7 +196,7 @@ describe('SettingsWindowView', () => {
 
         expect(loadingState().attributes('variant')).toBe('brand');
         expect(loadingState().attributes('fill')).toBe('min');
-        expect(loadingState().attributes('message')).toBeUndefined();
+        expect(loadingState().attributes('message')).toBe('正在加载常规设置...');
 
         nav.vm.$emit('navigate', 'ai-services');
         await flushPromises();

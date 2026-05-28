@@ -245,9 +245,9 @@ mod tests {
         let failed_bytes = tray_icon_bytes(Some(TrayStatusIndicator::Failed));
         let waiting_bytes = tray_icon_bytes(Some(TrayStatusIndicator::WaitingApproval));
 
-        assert_ne!(default_bytes.as_ptr(), completed_bytes.as_ptr());
-        assert_ne!(completed_bytes.as_ptr(), failed_bytes.as_ptr());
-        assert_ne!(failed_bytes.as_ptr(), waiting_bytes.as_ptr());
+        assert_ne!(default_bytes, completed_bytes);
+        assert_ne!(completed_bytes, failed_bytes);
+        assert_ne!(failed_bytes, waiting_bytes);
     }
 
     #[test]

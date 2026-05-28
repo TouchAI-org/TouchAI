@@ -2,10 +2,72 @@
 
 import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
 import { MetaKey } from '@database/schema';
+import { notify } from '@services/NotificationService';
+
+import type { ImportMode } from '@/database/backup';
+import { t } from '@/i18n';
+
+interface ImportSuccessStartupPayload {
+    type: 'import-success';
+    version: 1;
+    importMode: ImportMode;
+}
 
 interface StartupTask {
     key: MetaKey;
     handler?: (value: string) => void | Promise<void>;
+}
+
+export function serializeImportSuccessStartupPayload(importMode: ImportMode): string {
+    const payload: ImportSuccessStartupPayload = {
+        type: 'import-success',
+        version: 1,
+        importMode,
+    };
+
+    return JSON.stringify(payload);
+}
+
+function parseImportSuccessStartupPayload(value: string): ImportSuccessStartupPayload | null {
+    try {
+        const payload = JSON.parse(value) as Partial<ImportSuccessStartupPayload>;
+        if (payload.type !== 'import-success' || payload.version !== 1) {
+            return null;
+        }
+
+        if (payload.importMode !== 'chat_only' && payload.importMode !== 'full') {
+            return null;
+        }
+
+        return {
+            type: 'import-success',
+            version: 1,
+            importMode: payload.importMode,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function getImportModeNotificationText(importMode: ImportMode): string {
+    return importMode === 'chat_only'
+        ? t('startup.import.mode.chatOnly')
+        : t('startup.import.mode.full');
+}
+
+function notifyImportSuccess(value: string): void {
+    const payload = parseImportSuccessStartupPayload(value);
+    if (!payload) {
+        notify({ title: 'TouchAI', body: value });
+        return;
+    }
+
+    notify({
+        title: 'TouchAI',
+        body: t('startup.import.successBody', {
+            mode: getImportModeNotificationText(payload.importMode),
+        }),
+    });
 }
 
 /**
@@ -16,6 +78,7 @@ interface StartupTask {
 const tasks: StartupTask[] = [
     {
         key: MetaKey.IMPORT_SUCCESS,
+        handler: notifyImportSuccess,
     },
 ];
 

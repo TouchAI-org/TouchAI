@@ -2,6 +2,7 @@
 
 import { native } from '@services/NativeService';
 
+import { t, tt } from '@/i18n';
 import { type GeneralSettingsData, useSettingsStore } from '@/stores/settings';
 
 import { parseToolArguments } from '../../utils/toolSchema';
@@ -41,7 +42,7 @@ function normalizeUpdateValue(key: SupportedSettingKey, value: unknown): Support
     const result = settingValueSchemaByKey[key].safeParse(value);
     if (!result.success) {
         throw new Error(
-            `Setting tool received an invalid value for "${key}".\n${result.error.issues
+            `${t('builtInTools.setting.error.invalidValue', { key })}\n${result.error.issues
                 .map((issue) => `- ${issue.message}`)
                 .join('\n')}`
         );
@@ -139,24 +140,24 @@ async function buildSettingItem(
 }
 
 function formatSettingSummary(key: SupportedSettingKey, value: SupportedSettingValue): string {
-    return `${SETTING_DEFINITIONS[key].label} (${key}): ${formatSettingValue(value)}`;
+    return `${tt(SETTING_DEFINITIONS[key].label)} (${key}): ${formatSettingValue(value)}`;
 }
 
 function formatSettingMetadata(item: SettingToolItem, index: number): string {
     const definition = SETTING_DEFINITIONS[item.key];
     const allowedValues =
         item.allowedValues && item.allowedValues.length > 0
-            ? `\n   可选值: ${item.allowedValues.join(', ')}`
+            ? `\n   ${tt('可选值')}: ${item.allowedValues.join(', ')}`
             : '';
 
     return [
-        `${index + 1}. ${definition.label} (${item.key})`,
-        `   当前值: ${formatSettingValue(item.value)}`,
-        `   类型: ${item.kind}`,
-        `   说明: ${item.description}`,
+        `${index + 1}. ${tt(definition.label)} (${item.key})`,
+        `   ${tt('当前值')}: ${formatSettingValue(item.value)}`,
+        `   ${tt('类型')}: ${item.kind}`,
+        `   ${tt('说明')}: ${tt(definition.description)}`,
         allowedValues,
-        `   示例: ${definition.examples.join(' | ')}`,
-        item.sideEffect ? `   副作用: ${item.sideEffect}` : '',
+        `   ${tt('示例')}: ${definition.examples.join(' | ')}`,
+        item.sideEffect ? `   ${tt('副作用')}: ${tt(item.sideEffect)}` : '',
     ]
         .join('\n')
         .trimEnd();
@@ -170,7 +171,7 @@ export async function listSupportedSettings(settingsStore: SettingsStore): Promi
     );
     const lines = items.map((item, index) => formatSettingMetadata(item, index));
 
-    return ['可用设置', ...lines].join('\n\n');
+    return [tt('可用设置'), ...lines].join('\n\n');
 }
 
 export async function getSettings(
@@ -182,7 +183,7 @@ export async function getSettings(
         (item, index) => `${index + 1}. ${formatSettingSummary(item.key, item.value)}`
     );
 
-    return ['当前设置值', ...lines].join('\n');
+    return [tt('当前设置值'), ...lines].join('\n');
 }
 
 export function formatSingleUpdate(key: SupportedSettingKey, value: SupportedSettingValue): string {
@@ -192,13 +193,13 @@ export function formatSingleUpdate(key: SupportedSettingKey, value: SupportedSet
 export function formatShortcutRegistrationError(shortcut: string, error: unknown): string {
     const errorText = String(error);
     if (errorText.includes('already registered') || errorText.includes('已注册')) {
-        return `快捷键 ${shortcut} 已被其他应用占用。`;
+        return tt('快捷键 {shortcut} 已被其他应用占用。', { shortcut });
     }
     if (errorText.includes('invalid') || errorText.includes('无效')) {
-        return `快捷键 ${shortcut} 格式无效。`;
+        return tt('快捷键 {shortcut} 格式无效。', { shortcut });
     }
     if (errorText.includes('Unknown key')) {
-        return '快捷键包含不支持的按键。';
+        return tt('快捷键包含不支持的按键。');
     }
-    return `注册快捷键失败：${errorText}`;
+    return tt('注册快捷键失败：{error}', { error: errorText });
 }

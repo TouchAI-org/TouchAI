@@ -28,8 +28,9 @@
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
     import { AppEvent, eventService } from '@services/EventService';
-    import { computed, onMounted, ref } from 'vue';
+    import { computed, onMounted, ref, watch } from 'vue';
 
+    import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
@@ -50,11 +51,17 @@
     const contentScrollRef = ref<HTMLElement | null>(null);
     useScrollbarStabilizer(contentScrollRef);
 
+    const providerMenuItems = [
+        { key: 'edit', label: t('common.edit'), icon: 'edit' as const },
+        { key: 'delete', label: t('common.delete'), icon: 'trash' as const, danger: true },
+    ];
+    watch(locale, () => {
+        providerMenuItems[0]!.label = t('common.edit');
+        providerMenuItems[1]!.label = t('common.delete');
+    });
+
     const { open: openProviderMenu } = useContextMenu<number>(
-        [
-            { key: 'edit', label: '编辑', icon: 'edit' },
-            { key: 'delete', label: '删除', icon: 'trash', danger: true },
-        ],
+        providerMenuItems,
         (key, providerId) => {
             if (key === 'edit') {
                 selectedProviderId.value = providerId;
@@ -195,7 +202,7 @@
                 }
             }
         } catch (err) {
-            error.value = err instanceof Error ? err.message : '加载失败';
+            error.value = err instanceof Error ? err.message : t('settings.ai.loadFailed');
             console.error('Failed to load providers:', err);
         } finally {
             loading.value = false;
@@ -215,7 +222,7 @@
             setCachedModels(providerId, models);
         } catch (err) {
             console.error('Failed to load models:', err);
-            alert.error('加载模型失败');
+            alert.error(t('settings.ai.loadModelsFailed'));
         } finally {
             loadingModels.value = false;
         }
@@ -251,8 +258,14 @@
 
             patchProvider(providerId, { enabled: newEnabled });
             await broadcastModelsUpdated();
+
+            if (newEnabled === 1) {
+                alert.success(t('settings.ai.providerEnabled'));
+            } else {
+                alert.info(t('settings.ai.providerDisabled'));
+            }
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '操作失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.operationFailed'));
         }
     };
 
@@ -263,7 +276,7 @@
     function requireNonEmptyProviderField(value: string, label: string): string {
         const normalizedValue = value.trim();
         if (!normalizedValue) {
-            throw new Error(`${label}不能为空`);
+            throw new Error(t('settings.ai.fieldRequired', { label }));
         }
         return normalizedValue;
     }
@@ -273,14 +286,17 @@
             ...providerPatch,
             ...(providerPatch.name !== undefined
                 ? {
-                      name: requireNonEmptyProviderField(providerPatch.name, '服务商名称'),
+                      name: requireNonEmptyProviderField(
+                          providerPatch.name,
+                          t('settings.ai.providerName')
+                      ),
                   }
                 : {}),
             ...(providerPatch.api_endpoint !== undefined
                 ? {
                       api_endpoint: requireNonEmptyProviderField(
                           providerPatch.api_endpoint,
-                          '请求地址'
+                          t('settings.ai.apiEndpoint')
                       ),
                   }
                 : {}),
@@ -289,17 +305,17 @@
 
     function assertProviderCanBeDisabled(provider: Provider) {
         if (defaultModelProviderId.value === provider.id) {
-            throw new Error('无法禁用包含默认模型的服务商，请先设置其他模型为默认');
+            throw new Error(t('settings.ai.cannotDisableProviderWithDefaultModel'));
         }
     }
 
     function assertProviderCanBeDeleted(provider: Provider) {
         if (provider.is_builtin) {
-            throw new Error('无法删除内置服务商');
+            throw new Error(t('settings.ai.cannotDeleteBuiltInProvider'));
         }
 
         if (defaultModelProviderId.value === provider.id) {
-            throw new Error('无法删除包含默认模型的服务商，请先设置其他模型为默认');
+            throw new Error(t('settings.ai.cannotDeleteProviderWithDefaultModel'));
         }
     }
 
@@ -317,8 +333,9 @@
                 providerPatch: normalizedProviderPatch,
             });
             patchProvider(selectedProviderId.value, normalizedProviderPatch);
+            alert.success(t('common.saved'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '保存失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
         }
     };
 
@@ -334,16 +351,20 @@
         try {
             const createdProvider = await createProvider({
                 ...data,
-                name: requireNonEmptyProviderField(data.name, '服务商名称'),
-                api_endpoint: requireNonEmptyProviderField(data.api_endpoint, '请求地址'),
+                name: requireNonEmptyProviderField(data.name, t('settings.ai.providerName')),
+                api_endpoint: requireNonEmptyProviderField(
+                    data.api_endpoint,
+                    t('settings.ai.apiEndpoint')
+                ),
             });
             providers.value = [...providers.value, createdProvider];
             if (!selectedProviderId.value) {
                 selectedProviderId.value = createdProvider.id;
             }
             showAddDialog.value = false;
+            alert.success(t('settings.ai.createSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '创建失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.createFailed'));
         }
     };
 
@@ -358,8 +379,9 @@
             });
             patchProvider(selectedProviderId.value, normalizedProviderPatch);
             showEditDialog.value = false;
+            alert.success(t('common.saved'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '保存失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
         }
     };
 
@@ -367,7 +389,7 @@
         try {
             const provider = providers.value.find((item) => item.id === providerId);
             if (!provider) {
-                throw new Error('服务商不存在');
+                throw new Error(t('settings.ai.providerNotFound'));
             }
 
             assertProviderCanBeDeleted(provider);
@@ -381,8 +403,9 @@
                 }
             }
             showEditDialog.value = false;
+            alert.success(t('settings.ai.deleteSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '删除失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
         }
     };
 
@@ -401,8 +424,9 @@
                 await loadModelsForProvider(selectedProviderId.value, true);
             }
             await broadcastModelsUpdated();
+            alert.success(t('settings.ai.createSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '创建失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.createFailed'));
         }
     };
 
@@ -411,8 +435,9 @@
             await updateModel({ id, modelPatch: data });
             patchCachedModel(id, data);
             await broadcastModelsUpdated();
+            alert.success(t('common.saved'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '保存失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
         }
     };
 
@@ -421,12 +446,15 @@
             await deleteModel({ id });
             removeCachedModel(id);
             await broadcastModelsUpdated();
-            if (!silent && defaultModelId.value === id) {
+            if (defaultModelId.value === id) {
                 defaultModelId.value = null;
                 defaultModelProviderId.value = null;
             }
+            if (!silent) {
+                alert.success(t('settings.ai.deleteSucceeded'));
+            }
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '删除失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
         }
     };
 
@@ -451,8 +479,9 @@
             modelsCache.value = nextCache;
 
             await broadcastModelsUpdated();
+            alert.success(t('settings.ai.setSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '设置失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.setFailed'));
         }
     };
 
@@ -467,7 +496,7 @@
             refreshing.value = true;
             const provider = await findProviderById({ id: currentProviderId });
             if (!provider) {
-                if (!silent) alert.error('服务商不存在');
+                if (!silent) alert.error(t('settings.ai.providerNotFound'));
                 return;
             }
 
@@ -503,7 +532,7 @@
                 // 如果是认证错误且没有配置 key，提示用户
                 if (isAuthError && !provider.api_key) {
                     if (!silent) {
-                        alert.warning('该服务商需要配置 API Key 才能获取模型列表');
+                        alert.warning(t('settings.ai.providerNeedsApiKeyForModels'));
                     }
                     return;
                 }
@@ -518,6 +547,7 @@
             }
 
             if (fetchedModels.length === 0) {
+                if (!silent) alert.info(t('settings.ai.noModelsFetched'));
                 return;
             }
 
@@ -555,6 +585,9 @@
 
             await loadModelsForProvider(currentProviderId, true); // 强制刷新缓存
             await broadcastModelsUpdated();
+            if (!silent) {
+                alert.success(t('settings.ai.refreshModelsSucceeded', { count: newModels.length }));
+            }
         } catch (err) {
             if (refreshingProviderId.value !== currentProviderId) {
                 return;
@@ -562,7 +595,7 @@
 
             console.error('Failed to refresh models:', err);
             if (!silent) {
-                alert.error(`获取模型列表失败:${err}`);
+                alert.error(t('settings.ai.refreshModelsFailed', { error: String(err) }));
             }
         } finally {
             if (refreshingProviderId.value === currentProviderId) {
@@ -607,10 +640,10 @@
 
             <div v-else-if="error" class="flex h-full items-center justify-center">
                 <div class="settings-card text-neutral-600">
-                    <p class="font-medium text-neutral-950">加载失败</p>
+                    <p class="font-medium text-neutral-950">{{ t('settings.ai.loadFailed') }}</p>
                     <p class="mt-1 text-sm">{{ error }}</p>
                     <button class="settings-button-primary mt-4" @click="() => loadProviders()">
-                        重试
+                        {{ t('common.retry') }}
                     </button>
                 </div>
             </div>
@@ -655,7 +688,7 @@
                             v-if="!selectedProvider.is_builtin"
                             data-testid="settings-provider-edit-button"
                             class="settings-icon-button"
-                            title="编辑服务商"
+                            :title="t('settings.ai.editProvider.title')"
                             @click="handleEditProvider"
                         >
                             <AppIcon name="edit" class="h-5 w-5" />

@@ -5,7 +5,17 @@
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { getCurrentWindow } from '@tauri-apps/api/window';
-    import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+    import {
+        computed,
+        defineAsyncComponent,
+        nextTick,
+        onBeforeUnmount,
+        onMounted,
+        ref,
+        watch,
+    } from 'vue';
+
+    import { locale, t } from '@/i18n';
 
     import NavigationSidebar, { type NavigationSection } from './components/NavigationSidebar.vue';
 
@@ -98,6 +108,16 @@
         await currentWindow?.close();
     };
 
+    function syncNativeWindowTitle() {
+        if (!currentWindow?.setTitle) {
+            return;
+        }
+
+        currentWindow.setTitle(`TouchAI - ${t('common.settings')}`).catch((error) => {
+            console.error('[SettingsView] Failed to update native window title:', error);
+        });
+    }
+
     /**
      * 设置窗口在页面内部准备数据库，入口脚本只负责窗口装载。
      */
@@ -115,8 +135,11 @@
     }
 
     onMounted(() => {
+        syncNativeWindowTitle();
         void initialize();
     });
+
+    watch(locale, syncNativeWindowTitle);
 
     onBeforeUnmount(() => {
         if (loadingDelayTimer) {
@@ -161,7 +184,8 @@
                             data-testid="settings-window-minimize"
                             data-tauri-drag-region="false"
                             class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
-                            title="最小化"
+                            :title="t('window.minimize')"
+                            :aria-label="t('window.minimize')"
                             @click="handleMinimize"
                         >
                             <AppIcon name="minimize" class="h-3.5 w-3.5" />
@@ -172,7 +196,10 @@
                             data-testid="settings-window-maximize"
                             data-tauri-drag-region="false"
                             class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
-                            :title="isWindowMaximized ? '还原' : '最大化'"
+                            :title="isWindowMaximized ? t('window.restore') : t('window.maximize')"
+                            :aria-label="
+                                isWindowMaximized ? t('window.restore') : t('window.maximize')
+                            "
                             @click="handleToggleMaximize"
                         >
                             <AppIcon
@@ -186,7 +213,8 @@
                             data-testid="settings-window-close"
                             data-tauri-drag-region="false"
                             class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                            title="关闭"
+                            :title="t('window.close')"
+                            :aria-label="t('window.close')"
                             @click="handleClose"
                         >
                             <AppIcon name="close" class="h-3.5 w-3.5" />
@@ -205,7 +233,11 @@
                             <Suspense @resolve="handleContentResolved">
                                 <GeneralView />
                                 <template #fallback>
-                                    <LoadingState variant="brand" fill="min" />
+                                    <LoadingState
+                                        :message="t('settings.loading.general')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
                                 </template>
                             </Suspense>
                         </div>
@@ -214,7 +246,11 @@
                             <Suspense>
                                 <AiServicesView />
                                 <template #fallback>
-                                    <LoadingState variant="brand" fill="min" />
+                                    <LoadingState
+                                        :message="t('settings.loading.aiServices')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
                                 </template>
                             </Suspense>
                         </div>
@@ -223,7 +259,11 @@
                             <Suspense>
                                 <BuiltInToolsView />
                                 <template #fallback>
-                                    <LoadingState variant="brand" fill="min" />
+                                    <LoadingState
+                                        :message="t('settings.loading.builtInTools')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
                                 </template>
                             </Suspense>
                         </div>
@@ -232,7 +272,11 @@
                             <Suspense>
                                 <McpToolsView />
                                 <template #fallback>
-                                    <LoadingState variant="brand" fill="min" />
+                                    <LoadingState
+                                        :message="t('settings.loading.mcpTools')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
                                 </template>
                             </Suspense>
                         </div>
@@ -245,7 +289,11 @@
                             <Suspense>
                                 <DataManagementView />
                                 <template #fallback>
-                                    <LoadingState variant="brand" fill="min" />
+                                    <LoadingState
+                                        :message="t('settings.loading.dataManagement')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
                                 </template>
                             </Suspense>
                         </div>

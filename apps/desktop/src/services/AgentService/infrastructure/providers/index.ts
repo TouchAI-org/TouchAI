@@ -6,6 +6,7 @@ export { getProviderAttachmentCapabilities } from './capabilities';
 export {
     createProviderFromRegistry,
     getProviderDriverDefinition,
+    getProviderDriverDefinitions,
     isProviderDriver,
     parseProviderDriver,
     type ProviderDriverDefinition,

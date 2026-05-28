@@ -49,4 +49,15 @@ describe('NotificationService', () => {
         expect(notificationPluginMock.isPermissionGranted).toHaveBeenCalledTimes(1);
         expect(notificationPluginMock.requestPermission).not.toHaveBeenCalled();
     });
+
+    it('requests permission when it is not granted yet', async () => {
+        notificationPluginMock.isPermissionGranted.mockResolvedValue(false);
+        notificationPluginMock.requestPermission.mockResolvedValue('granted');
+        const service = await importNotificationService();
+
+        await service.initNotificationPermission();
+
+        expect(notificationPluginMock.isPermissionGranted).toHaveBeenCalledTimes(1);
+        expect(notificationPluginMock.requestPermission).toHaveBeenCalledTimes(1);
+    });
 });

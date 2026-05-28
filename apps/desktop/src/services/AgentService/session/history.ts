@@ -6,6 +6,7 @@ import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurn
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import type { PersistedToolLogStatus } from '@database/schema';
 
+import { tt } from '@/i18n';
 import { hydratePersistedAttachments } from '@/services/AgentService/infrastructure/attachments';
 import {
     buildBuiltInToolConversationPresentation,
@@ -25,6 +26,7 @@ import { parseDbDateTimestamp } from '@/utils/date';
 import { createTextPart } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
+import { AiError } from '../contracts/errors';
 import { getRetryStatusMessage } from '../execution/retry';
 import type { PromptSnapshot } from '../prompt/types';
 import { getSessionData, type SessionData } from './manager';
@@ -556,7 +558,9 @@ function convertEntriesToSessionHistory(
 }
 
 function createDerivedErrorMessage(turn: SessionTurnHistoryRow): SessionMessage {
-    const content = `请求失败: ${turn.error_message}`;
+    const content = tt('请求失败: {error}', {
+        error: AiError.getKnownDefaultDisplayMessage(turn.error_message ?? ''),
+    });
 
     return {
         id: `turn-error-${turn.id}`,
@@ -569,7 +573,7 @@ function createDerivedErrorMessage(turn: SessionTurnHistoryRow): SessionMessage 
 }
 
 function createDerivedCancelledMessage(turn: SessionTurnHistoryRow): SessionMessage {
-    const content = '请求已取消';
+    const content = tt('请求已取消');
 
     return {
         id: `turn-cancelled-${turn.id}`,
@@ -608,7 +612,10 @@ function attachStatusText(message: SessionMessage, statusText: string): boolean 
     return true;
 }
 
-function markToolCallsCancelled(message: SessionMessage, cancellationText = '请求已取消'): void {
+function markToolCallsCancelled(
+    message: SessionMessage,
+    cancellationText = tt('请求已取消')
+): void {
     if (message.role !== 'assistant' || !message.toolCalls?.length) {
         return;
     }
@@ -795,8 +802,16 @@ function injectDerivedRequestStatuses(
                 buildResult.historyIndexByPersistedMessageId
             );
             const anchorMessage = buildResult.history[anchorIndex];
-            if (anchorMessage && turn.error_message?.trim()) {
-                attachStatusText(anchorMessage, `请求失败: ${turn.error_message}`);
+            if (
+                anchorMessage &&
+                attachStatusText(
+                    anchorMessage,
+                    tt('请求失败: {error}', {
+                        error: AiError.getKnownDefaultDisplayMessage(turn.error_message),
+                    })
+                )
+            ) {
+                continue;
             }
 
             if (!anchorMessage || !hasVisibleAssistantContent(anchorMessage)) {
@@ -819,7 +834,7 @@ function injectDerivedRequestStatuses(
             if (anchorMessage) {
                 markToolCallsCancelled(anchorMessage);
             }
-            if (anchorMessage && attachStatusText(anchorMessage, '请求已取消')) {
+            if (anchorMessage && attachStatusText(anchorMessage, tt('请求已取消'))) {
                 continue;
             }
 

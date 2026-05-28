@@ -1,11 +1,13 @@
 import type { Editor, JSONContent } from '@tiptap/core';
 import { Extension } from '@tiptap/core';
-import Placeholder from '@tiptap/extension-placeholder';
+import Placeholder, { type PlaceholderOptions } from '@tiptap/extension-placeholder';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
+
+import { type MessageKey, t } from '@/i18n';
 
 import { MODEL_TAG_NODE } from '../tags/model';
 import {
@@ -18,7 +20,11 @@ import {
 export const SEARCH_TAG_SELECTOR = '[data-search-tag]';
 export const SEARCH_TAG_CLOSE_SELECTOR = '[data-tag-close]';
 export const SEARCH_TAG_INTERACTIVE_SELECTOR = `${SEARCH_TAG_SELECTOR}, ${SEARCH_TAG_CLOSE_SELECTOR}`;
-export const DEFAULT_PLACEHOLDER = '写下你的需求...';
+export const DEFAULT_PLACEHOLDER_KEY = 'search.placeholder' satisfies MessageKey;
+
+function getDefaultPlaceholder() {
+    return t(DEFAULT_PLACEHOLDER_KEY);
+}
 
 export function findSearchTagChip(target: Element | null) {
     return target?.closest(SEARCH_TAG_SELECTOR) as HTMLElement | null;
@@ -421,7 +427,7 @@ const SearchKeyboard = Extension.create({
 // ─── 扩展工厂 ─────────────────────────────────────────────────────
 
 export interface CreateSearchEditorOptions {
-    placeholder?: string;
+    placeholder?: PlaceholderOptions['placeholder'];
     onTagRemoved?: (tagName: string, id: string) => void;
 }
 
@@ -450,7 +456,7 @@ export function createSearchEditorExtensions(options: CreateSearchEditorOptions)
             // 保留：document、paragraph、text、hardBreak、history
         }),
         Placeholder.configure({
-            placeholder: placeholder || DEFAULT_PLACEHOLDER,
+            placeholder: placeholder ?? getDefaultPlaceholder,
         }),
         ...getSearchTagNodes(),
         NodeSyncExtension.configure({

@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import { useWindowResize } from '@composables/useWindowResize';
@@ -8,6 +8,8 @@
     import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
+
+    import { useSettingsStore } from '@/stores/settings';
 
     import { getPopupTypeFromLocation } from './location';
 
@@ -99,6 +101,12 @@
     });
 
     onMounted(async () => {
+        useSettingsStore()
+            .initialize()
+            .catch((error) => {
+                console.error('[PopupView] Failed to initialize settings:', error);
+            });
+
         const currentLabel = getCurrentWindow().label;
 
         /**

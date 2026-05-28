@@ -72,6 +72,7 @@ export type GeneralSettingKey =
     | 'start_minimized'
     | 'output_scroll_behavior'
     | 'search_window_size_preset'
+    | 'language'
     | 'app_update_channel'
     | 'app_update_auto_check'
     | 'app_update_last_checked_at';

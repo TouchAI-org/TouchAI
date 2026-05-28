@@ -16,7 +16,7 @@
 </script>
 
 <template>
-    <span :class="['rounded px-2 py-0.5 text-xs', statusClass]">
+    <span :class="['rounded px-2 py-0.5 text-xs whitespace-nowrap', statusClass]">
         {{ statusText }}
     </span>
 </template>

@@ -8,18 +8,27 @@
                     <AppIcon name="tool" class="h-3.5 w-3.5" />
                 </span>
                 <span>{{ summaryText }}</span>
-                <span v-if="latestToolName" class="tool-call-inline-latest">
+                <span
+                    v-if="latestToolName"
+                    class="tool-call-inline-latest"
+                    data-no-i18n="true"
+                    translate="no"
+                >
                     {{ latestToolName }}
                 </span>
             </div>
             <div class="tool-call-inline-meta">
                 <span v-if="hasExecutingTools" class="tool-call-inline-running">
                     <span class="tool-call-inline-pulse"></span>
-                    运行中
+                    {{ t('common.running') }}
                 </span>
-                <span v-else-if="hasErrorTools" class="tool-call-inline-error">含错误</span>
-                <span v-else-if="hasCancelledTools" class="tool-call-inline-cancelled">已取消</span>
-                <span v-else>已完成</span>
+                <span v-else-if="hasErrorTools" class="tool-call-inline-error">
+                    {{ t('conversation.toolCall.hasErrors') }}
+                </span>
+                <span v-else-if="hasCancelledTools" class="tool-call-inline-cancelled">
+                    {{ t('common.cancelled') }}
+                </span>
+                <span v-else>{{ t('conversation.toolCall.completed') }}</span>
                 <AppIcon
                     name="chevron-right"
                     :class="
@@ -46,6 +55,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import type { ToolCallInfo } from '@/types/session';
 
     import ToolCallItem from './ToolCallItem.vue';
@@ -85,10 +95,15 @@
     );
     const summaryText = computed(() => {
         if (hasExecutingTools.value) {
-            return `正在调用工具 (${completedTools.value}/${totalTools.value})`;
+            return t('conversation.toolCall.summaryRunning', {
+                completed: completedTools.value,
+                total: totalTools.value,
+            });
         }
 
-        return `工具调用 (${totalTools.value})`;
+        return t('conversation.toolCall.summaryComplete', {
+            total: totalTools.value,
+        });
     });
 
     function toggleSection() {

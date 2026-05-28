@@ -14,6 +14,8 @@
         AlertDialogTitle,
     } from '@components/ui/alert-dialog';
 
+    import { t } from '@/i18n';
+
     interface Props {
         title?: string;
         message: string;
@@ -28,9 +30,9 @@
     }
 
     const props = withDefaults(defineProps<Props>(), {
-        title: '确认操作',
-        confirmText: '确定',
-        cancelText: '取消',
+        title: '',
+        confirmText: '',
+        cancelText: '',
         type: 'warning',
     });
 
@@ -89,7 +91,7 @@
 
                 <div class="flex-1">
                     <AlertDialogTitle class="font-serif text-base font-semibold text-gray-900">
-                        {{ title }}
+                        {{ title || t('common.confirmAction') }}
                     </AlertDialogTitle>
                     <AlertDialogDescription class="mt-2 text-sm text-gray-600">
                         {{ message }}
@@ -102,7 +104,7 @@
                     class="flex-1 rounded-lg border border-gray-200 px-4 py-2 font-serif text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50"
                     @click="handleCancel"
                 >
-                    {{ cancelText }}
+                    {{ cancelText || t('common.cancel') }}
                 </AlertDialogCancel>
                 <AlertDialogAction
                     class="flex-1 rounded-lg px-4 py-2 font-serif text-sm font-medium text-white transition-colors"
@@ -113,7 +115,7 @@
                     }"
                     @click="handleConfirm"
                 >
-                    {{ confirmText }}
+                    {{ confirmText || t('common.confirm') }}
                 </AlertDialogAction>
             </AlertDialogFooter>
         </AlertDialogContent>

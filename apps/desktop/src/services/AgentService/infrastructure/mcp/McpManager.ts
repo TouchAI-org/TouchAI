@@ -26,6 +26,7 @@ import {
 } from '@services/NativeService';
 import { eq } from 'drizzle-orm';
 
+import { t } from '@/i18n';
 import { parseMcpToolSchemaJson } from '@/utils/mcpSchemas';
 
 import type { AiToolDefinition } from '../../contracts/tooling';
@@ -227,7 +228,7 @@ export class McpManager {
             const timeoutPromise = new Promise<never>((_, reject) => {
                 timer = setTimeout(() => {
                     didTimeout = true;
-                    reject(new Error('Disconnect timeout'));
+                    reject(new Error(t('agent.mcp.disconnectTimeout')));
                 }, timeout);
             });
 
@@ -345,7 +346,9 @@ export class McpManager {
                         const inputSchema = parseMcpToolSchemaJson(tool.input_schema);
                         return {
                             name: `mcp__${server.id}__${tool.name}`,
-                            description: tool.description || `Tool: ${tool.name}`,
+                            description:
+                                tool.description ||
+                                t('agent.mcp.toolDescriptionFallback', { toolName: tool.name }),
                             input_schema: inputSchema as AiToolDefinition['input_schema'],
                         };
                     });
@@ -443,13 +446,13 @@ export class McpManager {
     }> {
         // 如果请求已被取消，立即返回，避免消耗
         if (options?.signal?.aborted) {
-            return { result: 'Request cancelled', isError: true };
+            return { result: t('agent.mcp.requestCancelled'), isError: true };
         }
 
         const resolved = options?.resolved ?? (await this.resolveToolCall(toolName));
 
         if (!resolved) {
-            throw new Error(`Tool not found: ${toolName}`);
+            throw new Error(t('agent.mcp.toolNotFound', { toolName }));
         }
 
         // 将工具调用与超时和中止信号进行竞争

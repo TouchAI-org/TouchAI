@@ -4,6 +4,7 @@
  */
 import { type Ref, ref } from 'vue';
 
+import { t } from '@/i18n';
 import {
     type AttachmentSupportStatus,
     createAttachment,
@@ -97,15 +98,13 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
             (attachment) => attachment.supportStatus === 'unsupported-file'
         );
 
-        let message = '当前模型不支持';
         if (hasUnsupportedImage && hasUnsupportedFile) {
-            message += '图片和文件';
-        } else if (hasUnsupportedImage) {
-            message += '图片';
-        } else {
-            message += '文件';
+            return t('conversation.attachment.unsupportedImageAndFile');
         }
-        return `${message}，请移除不支持的附件或切换模型`;
+        if (hasUnsupportedImage) {
+            return t('conversation.attachment.unsupportedImage');
+        }
+        return t('conversation.attachment.unsupportedFile');
     }
 
     async function createNormalizedAttachment(type: 'image' | 'file', path: string) {

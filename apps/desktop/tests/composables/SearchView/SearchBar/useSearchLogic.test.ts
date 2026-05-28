@@ -2,9 +2,11 @@ import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import { setLocale } from '@/i18n';
 import { createInputHistorySnapshot } from '@/types/session';
 
 type SearchEditorExtensionOptions = {
+    placeholder?: string | (() => string);
     onTagRemoved?: (tagType: string, value: string) => void;
 };
 
@@ -50,6 +52,9 @@ const {
                     pos: 1,
                 },
             },
+            tr: {
+                setMeta: vi.fn(() => this.state.tr),
+            },
             doc: {
                 descendants: (callback: (node: { type: { name: string } }) => boolean | void) => {
                     callback({ type: { name: 'paragraph' } });
@@ -62,6 +67,7 @@ const {
                 top: 0,
                 bottom: 20,
             })),
+            dispatch: vi.fn(),
             state: this.state,
         };
 
@@ -152,6 +158,7 @@ vi.mock('@/views/SearchView/components/SearchBar/tags/model', () => ({
 }));
 
 vi.mock('@/views/SearchView/components/SearchBar/utils/tiptap', () => ({
+    DEFAULT_PLACEHOLDER_KEY: 'search.placeholder',
     createSearchEditorExtensions: createSearchEditorExtensionsMock,
     findSearchTagChip: findSearchTagChipMock,
     getEditorJSON: getEditorJSONMock,
@@ -267,6 +274,7 @@ describe('useSearchInput', () => {
     });
 
     afterEach(() => {
+        setLocale('zh-CN');
         vi.unstubAllGlobals();
         document.body.innerHTML = '';
     });
@@ -498,6 +506,58 @@ describe('useSearchInput', () => {
         );
         expect(editor.commands.focus).toHaveBeenCalledWith('end');
         expect(restored).toBe('restored text');
+
+        mounted.unmount();
+    });
+
+    it('localizes the main search placeholder and refreshes it after locale changes', async () => {
+        setLocale('zh-CN');
+        const mounted = await mountComposable(() =>
+            useSearchInput({
+                searchBarContainerRef: ref(null),
+                editorHostRef: ref(document.createElement('div')),
+                queryText: ref(''),
+                attachments: ref([]),
+                modelOverride: ref({
+                    modelId: null,
+                    providerId: null,
+                }),
+                emitQueryText: vi.fn(),
+                emitModelChange: vi.fn(),
+                emitModelOverrideChange: vi.fn(),
+                emitRemoveAttachmentRequest: vi.fn(),
+                emitDragStart: vi.fn(),
+                emitDragEnd: vi.fn(),
+            })
+        );
+
+        mounted.result.initEditor();
+        const extensionOptions = createSearchEditorExtensionsMock.mock.calls[0]?.[0] as
+            | SearchEditorExtensionOptions
+            | undefined;
+        const placeholder =
+            typeof extensionOptions?.placeholder === 'function'
+                ? extensionOptions.placeholder
+                : () => extensionOptions?.placeholder ?? '';
+
+        expect(placeholder()).toBe('写下你的需求...');
+
+        const placeholderElement = document.createElement('p');
+        placeholderElement.setAttribute('data-placeholder', '写下你的需求...');
+        editorInstances[0]!.view.dom.appendChild(placeholderElement);
+
+        setLocale('en-US');
+        await flushAsyncWork();
+
+        expect(placeholder()).toBe('Write your request...');
+        expect(placeholderElement.getAttribute('data-placeholder')).toBe('Write your request...');
+        expect(editorInstances[0]?.state.tr.setMeta).toHaveBeenCalledWith(
+            'search-placeholder-locale',
+            'en-US'
+        );
+        expect(editorInstances[0]?.view.dispatch).toHaveBeenCalledWith(
+            editorInstances[0]?.state.tr
+        );
 
         mounted.unmount();
     });

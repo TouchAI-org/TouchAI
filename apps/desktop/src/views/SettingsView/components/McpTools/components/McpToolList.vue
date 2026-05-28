@@ -7,13 +7,13 @@
     import type { McpServerEntity, McpToolEntity } from '@database/types';
     import { computed, onMounted, ref } from 'vue';
 
+    import { t } from '@/i18n';
     import { useMcpStore } from '@/stores/mcp';
     import {
         type McpToolProperty,
         type McpToolSchema,
         parseMcpToolSchemaJson,
     } from '@/utils/mcpSchemas';
-
     interface Props {
         server: McpServerEntity;
     }
@@ -122,7 +122,7 @@
                         ]"
                         @click="filterStatus = 'all'"
                     >
-                        全部
+                        {{ t('common.all') }}
                     </button>
                     <button
                         :class="[
@@ -133,7 +133,7 @@
                         ]"
                         @click="filterStatus = 'enabled'"
                     >
-                        已启用
+                        {{ t('common.enabled') }}
                     </button>
                     <button
                         :class="[
@@ -144,7 +144,7 @@
                         ]"
                         @click="filterStatus = 'disabled'"
                     >
-                        已禁用
+                        {{ t('common.disabled') }}
                     </button>
                 </div>
 
@@ -153,7 +153,7 @@
                     <input
                         v-model="searchQuery"
                         type="text"
-                        placeholder="搜索工具..."
+                        :placeholder="t('settings.mcp.tools.searchPlaceholder')"
                         class="settings-input w-full py-1.5 pr-3 pl-9"
                     />
                     <AppIcon
@@ -170,10 +170,18 @@
             <div v-else-if="filteredTools.length === 0" class="py-12 text-center">
                 <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
                 <p class="mt-4 text-sm text-neutral-500">
-                    {{ searchQuery ? '未找到匹配的工具' : '暂无工具' }}
+                    {{
+                        searchQuery
+                            ? t('settings.mcp.tools.noMatches')
+                            : t('settings.mcp.tools.empty')
+                    }}
                 </p>
                 <p class="mt-1 text-xs text-neutral-400">
-                    {{ searchQuery ? '尝试其他搜索关键词' : '连接服务器后将自动发现工具' }}
+                    {{
+                        searchQuery
+                            ? t('toolLog.tryAnotherKeyword')
+                            : t('settings.mcp.tools.discoverAfterConnect')
+                    }}
                 </p>
             </div>
 
@@ -190,7 +198,11 @@
                         <div class="flex items-start justify-between">
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center gap-2">
-                                    <h3 class="text-[15px] font-medium text-neutral-950">
+                                    <h3
+                                        class="text-[15px] font-medium break-words text-neutral-950"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
                                         {{ tool.name }}
                                     </h3>
                                     <button
@@ -211,9 +223,11 @@
                                 <p
                                     v-if="tool.description"
                                     :class="[
-                                        'mt-1 text-xs text-gray-500',
+                                        'mt-1 text-xs break-words text-gray-500',
                                         !expandedTools.has(tool.id) && 'line-clamp-2',
                                     ]"
+                                    data-no-i18n="true"
+                                    translate="no"
                                 >
                                     {{ tool.description }}
                                 </p>
@@ -234,7 +248,9 @@
                         v-if="expandedTools.has(tool.id)"
                         class="border-t border-neutral-200/70 bg-neutral-50/70 p-4"
                     >
-                        <h4 class="mb-2 text-xs font-medium text-neutral-700">输入参数</h4>
+                        <h4 class="mb-2 text-xs font-medium text-neutral-700">
+                            {{ t('settings.mcp.tools.inputParameters') }}
+                        </h4>
 
                         <template v-if="getToolSchema(tool.id)">
                             <template v-if="getSchemaProperties(getToolSchema(tool.id))">
@@ -245,34 +261,34 @@
                                     "
                                     class="rounded-lg bg-white p-3 text-center text-xs text-neutral-500"
                                 >
-                                    无参数
+                                    {{ t('settings.mcp.tools.noParameters') }}
                                 </div>
                                 <div
                                     v-else
-                                    class="overflow-hidden rounded-lg border border-neutral-200 bg-white"
+                                    class="overflow-x-auto rounded-lg border border-neutral-200 bg-white"
                                 >
-                                    <table class="w-full">
+                                    <table class="min-w-full">
                                         <thead class="bg-neutral-50">
                                             <tr>
                                                 <th
                                                     class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                 >
-                                                    参数名
+                                                    {{ t('settings.mcp.tools.parameterName') }}
                                                 </th>
                                                 <th
                                                     class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                 >
-                                                    类型
+                                                    {{ t('common.type') }}
                                                 </th>
                                                 <th
                                                     class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                 >
-                                                    必填
+                                                    {{ t('settings.mcp.tools.required') }}
                                                 </th>
                                                 <th
                                                     class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                 >
-                                                    描述
+                                                    {{ t('common.description') }}
                                                 </th>
                                             </tr>
                                         </thead>
@@ -285,12 +301,16 @@
                                                 class="border-b border-neutral-100 last:border-0"
                                             >
                                                 <td
-                                                    class="px-3 py-2 font-mono text-xs text-neutral-950"
+                                                    class="px-3 py-2 font-mono text-xs break-all text-neutral-950"
+                                                    data-no-i18n="true"
+                                                    translate="no"
                                                 >
                                                     {{ propName }}
                                                 </td>
                                                 <td
-                                                    class="px-3 py-2 font-mono text-xs text-neutral-600"
+                                                    class="px-3 py-2 font-mono text-xs break-all text-neutral-600"
+                                                    data-no-i18n="true"
+                                                    translate="no"
                                                 >
                                                     {{ getPropertyType(prop) }}
                                                 </td>
@@ -304,11 +324,17 @@
                                                         "
                                                         class="rounded bg-red-100 px-1.5 py-0.5 text-red-700"
                                                     >
-                                                        是
+                                                        {{ t('common.yes') }}
                                                     </span>
-                                                    <span v-else class="text-gray-400">否</span>
+                                                    <span v-else class="text-gray-400">
+                                                        {{ t('common.no') }}
+                                                    </span>
                                                 </td>
-                                                <td class="px-3 py-2 text-xs text-neutral-600">
+                                                <td
+                                                    class="px-3 py-2 text-xs break-words text-neutral-600"
+                                                    data-no-i18n="true"
+                                                    translate="no"
+                                                >
                                                     {{ prop.description || '-' }}
                                                 </td>
                                             </tr>

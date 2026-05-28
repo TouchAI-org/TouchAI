@@ -4,6 +4,7 @@ import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ProviderDriver, ToolLogKind } from '@database/schema';
 
+import { tt } from '@/i18n';
 import {
     type BuiltInToolControlSignal,
     type BuiltInToolId,
@@ -27,6 +28,7 @@ import {
     createProviderFromRegistry,
     parseProviderConfigJson,
 } from '../infrastructure/providers';
+import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import type { TurnEvent } from './runtime';
 
@@ -39,12 +41,13 @@ const toolArgumentsSchema = z.record(z.string(), z.unknown());
  * console 日志仍保留英文，便于对齐 SDK、provider 和协议层排障信息。
  */
 const formatToolArgumentJsonError = (toolName: string): string =>
-    `工具参数协议错误：${toolName} 返回了无效的 JSON 参数。`;
+    tt('工具参数协议错误：{toolName} 返回了无效的 JSON 参数。', { toolName });
 const formatToolArgumentShapeError = (toolName: string, issues: string): string =>
-    `工具参数协议错误：${toolName} 必须接收 JSON 对象。\n${issues}`;
-const formatToolNotFoundError = (toolName: string): string => `未找到工具：${toolName}`;
+    `${tt('工具参数协议错误：{toolName} 必须接收 JSON 对象。', { toolName })}\n${issues}`;
+const formatToolNotFoundError = (toolName: string): string =>
+    tt('未找到工具：{toolName}', { toolName });
 const formatToolExecutionFailedError = (errorMessage: string): string =>
-    `工具执行失败：${errorMessage}`;
+    tt('工具执行失败：{error}', { error: errorMessage });
 
 interface ProviderErrorDetails {
     statusCode?: number;
@@ -72,6 +75,7 @@ export interface AttemptCheckpoint {
     reasoning: string;
     iteration: number;
     modelSwitchCount: number;
+    modelLanguageContext: ModelLanguageContext;
     executedBuiltInToolIds: BuiltInToolId[];
 }
 
@@ -84,6 +88,7 @@ interface AttemptRuntime {
     reasoning: string;
     iteration: number;
     modelSwitchCount: number;
+    modelLanguageContext: ModelLanguageContext;
     hasVisibleOutputSinceCheckpoint: boolean;
     hasToolActivitySinceCheckpoint: boolean;
     executedBuiltInTools: Set<BuiltInToolId>;
@@ -366,6 +371,7 @@ export class AiRequestExecutor {
         modelId: string,
         messages: AiMessage[],
         tools?: AiToolDefinition[],
+        modelLanguageContext?: ModelLanguageContext,
         signal?: AbortSignal,
         attachmentRequestIndex?: number,
         onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
@@ -380,6 +386,7 @@ export class AiRequestExecutor {
             messages,
             supportsReasoning,
             tools,
+            modelLanguageContext,
             signal,
             attachmentRequestIndex,
             onAttachmentManifestResolved,
@@ -535,6 +542,7 @@ export class AiRequestExecutor {
     createInitialCheckpoint(options: {
         initialModel: ModelWithProvider;
         baseMessages: AiMessage[];
+        modelLanguageContext: ModelLanguageContext;
     }): AttemptCheckpoint {
         return {
             activeModel: options.initialModel,
@@ -543,6 +551,7 @@ export class AiRequestExecutor {
             reasoning: '',
             iteration: 0,
             modelSwitchCount: 0,
+            modelLanguageContext: options.modelLanguageContext,
             executedBuiltInToolIds: [],
         };
     }
@@ -550,7 +559,7 @@ export class AiRequestExecutor {
     private async createAttemptRuntime(
         startCheckpoint: AttemptCheckpoint
     ): Promise<AttemptRuntime> {
-        const { activeModel, modelSwitchCount } = startCheckpoint;
+        const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
         return {
             activeModel,
@@ -566,6 +575,7 @@ export class AiRequestExecutor {
             reasoning: startCheckpoint.reasoning,
             iteration: startCheckpoint.iteration,
             modelSwitchCount,
+            modelLanguageContext,
             hasVisibleOutputSinceCheckpoint: false,
             hasToolActivitySinceCheckpoint: false,
             executedBuiltInTools: new Set(startCheckpoint.executedBuiltInToolIds),
@@ -580,6 +590,7 @@ export class AiRequestExecutor {
             reasoning: runtime.reasoning,
             iteration: runtime.iteration,
             modelSwitchCount: runtime.modelSwitchCount,
+            modelLanguageContext: runtime.modelLanguageContext,
             executedBuiltInToolIds: [...runtime.executedBuiltInTools],
         };
     }
@@ -604,6 +615,7 @@ export class AiRequestExecutor {
             runtime.activeModel.model_id,
             runtime.messages,
             runtime.tools,
+            runtime.modelLanguageContext,
             options.signal,
             runtime.iteration,
             options.onAttachmentManifestResolved,

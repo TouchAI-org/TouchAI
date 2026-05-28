@@ -315,9 +315,9 @@ describe('useSearchPageLifecycle', () => {
 
         await flushLifecycle();
 
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.(
-            createStatusChangedPayload('completed')
-        );
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(createStatusChangedPayload('completed'));
         await flushLifecycle();
 
         expect(nativeMock.window.showSessionStatusReminderNotification).not.toHaveBeenCalled();
@@ -343,13 +343,17 @@ describe('useSearchPageLifecycle', () => {
         );
 
         await flushLifecycle();
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)?.({
+        const surfaceHiddenHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN);
+        expect(surfaceHiddenHandler).toBeDefined();
+        await surfaceHiddenHandler!({
             sequence: 1,
             reason: 'manual-dismiss',
         });
         await flushLifecycle();
 
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.(
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
             createStatusChangedPayload('failed', {
                 title: '任务失败',
                 body: 'network error',
@@ -387,13 +391,17 @@ describe('useSearchPageLifecycle', () => {
         );
 
         await flushLifecycle();
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)?.({
+        const surfaceHiddenHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN);
+        expect(surfaceHiddenHandler).toBeDefined();
+        await surfaceHiddenHandler!({
             sequence: 1,
             reason: 'manual-dismiss',
         });
         await flushLifecycle();
 
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.(
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
             createStatusChangedPayload('waiting_approval', {
                 body: 'Need approval',
             })
@@ -414,7 +422,9 @@ describe('useSearchPageLifecycle', () => {
         });
         expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('waiting_approval');
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        const surfaceShownHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN);
+        expect(surfaceShownHandler).toBeDefined();
+        await surfaceShownHandler!({
             source: 'notification',
             sequence: 2,
         });
@@ -446,7 +456,9 @@ describe('useSearchPageLifecycle', () => {
 
         await flushLifecycle();
 
-        await eventHandlers.get(AppEvent.SESSION_STATUS_REMINDER_ACTION)?.({
+        const reminderActionHandler = eventHandlers.get(AppEvent.SESSION_STATUS_REMINDER_ACTION);
+        expect(reminderActionHandler).toBeDefined();
+        await reminderActionHandler!({
             sessionId: 1,
             taskId: 'task-1',
             kind: 'completed',

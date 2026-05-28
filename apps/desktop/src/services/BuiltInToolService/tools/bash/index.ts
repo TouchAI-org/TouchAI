@@ -2,6 +2,7 @@
 
 import { native } from '@services/NativeService';
 
+import { t, tt } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
@@ -123,14 +124,14 @@ export function createBashApprovalRequest(
         }
 
         return {
-            title: '命令执行确认',
+            title: tt('命令执行确认'),
             description: requestedReason,
             command: commandContext.command,
             riskLabel: '',
-            reason: matchedRule.reason,
+            reason: tt(matchedRule.reason),
             commandLabel: '',
-            approveLabel: '批准',
-            rejectLabel: '拒绝',
+            approveLabel: tt('批准'),
+            rejectLabel: tt('拒绝'),
             enterHint: 'Enter',
             escHint: 'Esc',
             keyboardApproveDelayMs: 450,
@@ -172,7 +173,7 @@ export async function executeBashTool(
             result,
             isError: true,
             status: 'timeout',
-            errorMessage: 'Command execution timed out',
+            errorMessage: t('builtInTools.bash.error.timeout'),
         };
     }
 
@@ -181,7 +182,9 @@ export async function executeBashTool(
             result,
             isError: true,
             status: 'error',
-            errorMessage: output || `Command failed with exit code ${response.exitCode}`,
+            errorMessage:
+                output ||
+                t('builtInTools.bash.error.exitCode', { exitCode: response.exitCode ?? 'none' }),
         };
     }
 

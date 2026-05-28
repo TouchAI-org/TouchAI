@@ -177,7 +177,7 @@ describe('SettingsAiServicesSection', () => {
         expect(wrapper.text()).toContain('Custom Gateway');
     });
 
-    it('patches provider config locally without success toast or provider list reload', async () => {
+    it('patches provider config locally without provider list reload', async () => {
         const provider = {
             id: 2,
             name: 'Custom Gateway',
@@ -232,11 +232,11 @@ describe('SettingsAiServicesSection', () => {
             providerPatch: { name: 'Renamed Gateway' },
         });
         expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
-        expect(alertMock.success).not.toHaveBeenCalled();
+        expect(alertMock.success).toHaveBeenCalledWith('保存成功');
         expect(wrapper.text()).toContain('Renamed Gateway');
     });
 
-    it('patches the default model locally without success toast or provider list reload', async () => {
+    it('patches the default model locally without provider list reload', async () => {
         const provider = {
             id: 2,
             name: 'Custom Gateway',
@@ -318,7 +318,7 @@ describe('SettingsAiServicesSection', () => {
 
         expect(queries.setDefaultModel).toHaveBeenCalledWith({ modelId: 20 });
         expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
-        expect(alertMock.success).not.toHaveBeenCalled();
+        expect(alertMock.success).toHaveBeenCalledWith('设置成功');
         expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
     });
 });

@@ -5,8 +5,8 @@
     import type { McpServerEntity } from '@database/types';
     import { computed } from 'vue';
 
+    import { t } from '@/i18n';
     import { useMcpStore } from '@/stores/mcp';
-
     interface Props {
         server: McpServerEntity;
         selected: boolean;
@@ -32,11 +32,13 @@
 
     const handleDelete = async () => {
         const confirmed = await confirm({
-            title: '确认删除',
-            message: `确定要删除服务器 "${props.server.name}" 吗？`,
+            title: t('settings.ai.confirmDeleteTitle'),
+            message: t('settings.mcp.servers.deleteConfirmMessage', {
+                serverName: props.server.name,
+            }),
             type: 'danger',
-            confirmText: '删除',
-            cancelText: '取消',
+            confirmText: t('common.delete'),
+            cancelText: t('common.cancel'),
         });
 
         if (confirmed) {
@@ -67,15 +69,15 @@
     const statusText = computed(() => {
         switch (status.value) {
             case 'connected':
-                return '已连接';
+                return t('settings.mcp.status.connected');
             case 'connecting':
-                return '连接中';
+                return t('settings.mcp.status.connecting');
             case 'disconnected':
-                return '未连接';
+                return t('settings.mcp.status.disconnected');
             case 'error':
-                return '错误';
+                return t('settings.mcp.status.error');
             default:
-                return '未知';
+                return t('settings.mcp.status.unknown');
         }
     });
 
@@ -88,7 +90,7 @@
             case 'http':
                 return 'HTTP';
             default:
-                return '未知';
+                return t('settings.mcp.status.unknown');
         }
     });
 
@@ -151,7 +153,7 @@
                         server.enabled ? 'bg-primary-700' : 'bg-neutral-200',
                         isToggling && 'cursor-not-allowed opacity-50',
                     ]"
-                    title="启用/禁用"
+                    :title="t('settings.builtInTools.toggleEnabled')"
                     @click.stop="handleToggleEnabled"
                 >
                     <span

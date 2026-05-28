@@ -1,13 +1,13 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import PasswordInput from '@components/PasswordInput.vue';
     import type { Provider } from '@database/schema';
     import { computed, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
-
     interface Props {
         provider: Provider;
     }
@@ -86,11 +86,15 @@
 
 <template>
     <div class="space-y-4">
-        <h2 class="text-[15px] font-medium text-neutral-950">服务商配置</h2>
+        <h2 class="text-[15px] font-medium text-neutral-950">
+            {{ t('settings.ai.providerConfigTitle') }}
+        </h2>
 
         <div class="settings-row-group divide-y divide-neutral-200/70">
             <div class="px-5 py-4">
-                <label class="block text-sm font-normal text-neutral-700">请求地址 *</label>
+                <label class="block text-sm font-normal text-neutral-700">
+                    {{ t('settings.ai.apiEndpointRequired') }}
+                </label>
                 <input
                     v-model="form.api_endpoint"
                     type="text"
@@ -102,7 +106,7 @@
                     v-if="shouldShowGenerationApiPreview"
                     class="mt-2 text-xs break-all text-neutral-400"
                 >
-                    根地址预览：
+                    {{ t('settings.ai.providerBaseUrlPreview') }}
                     <span class="font-mono text-neutral-500">
                         {{ generationApiPreview }}
                     </span>

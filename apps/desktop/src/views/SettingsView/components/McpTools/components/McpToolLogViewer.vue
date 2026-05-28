@@ -8,6 +8,9 @@
     import type { McpServerEntity, McpToolLogEntity } from '@database/types';
     import { onMounted, ref } from 'vue';
 
+    import { t } from '@/i18n';
+    import { formatDateTime } from '@/i18n/format';
+
     import { getToolLogStatusText } from '../../common/toolLogStatus';
     import ToolLogStatusBadge from '../../common/ToolLogStatusBadge.vue';
 
@@ -71,7 +74,7 @@
     };
 
     const formatDate = (dateStr: string) => {
-        return new Date(dateStr).toLocaleString('zh-CN');
+        return formatDateTime(dateStr);
     };
 
     onMounted(() => {
@@ -97,7 +100,7 @@
                         ]"
                         @click="filterStatus = status"
                     >
-                        {{ status === 'all' ? '全部' : getToolLogStatusText(status) }}
+                        {{ status === 'all' ? t('common.all') : getToolLogStatusText(status) }}
                     </button>
                 </div>
 
@@ -106,7 +109,7 @@
                     <input
                         v-model="searchQuery"
                         type="text"
-                        placeholder="搜索日志..."
+                        :placeholder="t('toolLog.searchPlaceholder')"
                         class="settings-input w-full py-1.5 pr-3 pl-9"
                     />
                     <AppIcon
@@ -123,9 +126,11 @@
             <div v-else-if="filteredLogs.length === 0" class="py-12 text-center">
                 <AppIcon name="document-text" class="mx-auto h-16 w-16 text-neutral-300" />
                 <p class="mt-4 text-sm text-neutral-500">
-                    {{ searchQuery ? '未找到匹配的日志' : '暂无日志' }}
+                    {{ searchQuery ? t('toolLog.noMatches') : t('toolLog.empty') }}
                 </p>
-                <p v-if="searchQuery" class="mt-1 text-xs text-neutral-400">尝试其他搜索关键词</p>
+                <p v-if="searchQuery" class="mt-1 text-xs text-neutral-400">
+                    {{ t('toolLog.tryAnotherKeyword') }}
+                </p>
             </div>
 
             <div v-else class="space-y-2">
@@ -140,18 +145,30 @@
                     >
                         <div class="flex items-start justify-between">
                             <div class="min-w-0 flex-1">
-                                <div class="flex items-center gap-2">
-                                    <span class="text-[15px] font-normal text-neutral-950">
+                                <div
+                                    class="flex flex-wrap items-center gap-2"
+                                    data-testid="mcp-tool-log-header"
+                                >
+                                    <span
+                                        class="text-[15px] font-normal break-words text-neutral-950"
+                                        data-no-i18n="true"
+                                        data-testid="mcp-tool-log-name"
+                                        translate="no"
+                                    >
                                         {{ log.tool_name }}
                                     </span>
                                     <ToolLogStatusBadge :status="log.status" />
                                     <span class="text-xs text-neutral-500">
-                                        迭代 {{ log.iteration }}
+                                        {{ t('toolLog.iteration') }} {{ log.iteration }}
                                     </span>
                                 </div>
                                 <div class="mt-1 flex items-center gap-4 text-xs text-neutral-500">
-                                    <span>{{ formatDate(log.created_at) }}</span>
-                                    <span v-if="log.duration_ms">{{ log.duration_ms }}ms</span>
+                                    <span data-no-i18n="true" translate="no">
+                                        {{ formatDate(log.created_at) }}
+                                    </span>
+                                    <span v-if="log.duration_ms" data-no-i18n="true" translate="no">
+                                        {{ log.duration_ms }}ms
+                                    </span>
                                 </div>
                             </div>
 
@@ -178,11 +195,18 @@
                         />
 
                         <div
-                            class="mt-3 flex items-center gap-4 border-t border-neutral-200 pt-3 font-mono text-xs text-neutral-500"
+                            class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-200 pt-3 font-mono text-xs break-words text-neutral-500"
+                            data-testid="mcp-tool-log-detail-metadata"
                         >
-                            <span>Call ID: {{ log.tool_call_id }}</span>
-                            <span v-if="log.session_id">Session: {{ log.session_id }}</span>
-                            <span v-if="log.message_id">Message: {{ log.message_id }}</span>
+                            <span data-no-i18n="true" translate="no">
+                                {{ t('toolLog.callIdLabel') }} {{ log.tool_call_id }}
+                            </span>
+                            <span v-if="log.session_id" data-no-i18n="true" translate="no">
+                                {{ t('toolLog.sessionLabel') }} {{ log.session_id }}
+                            </span>
+                            <span v-if="log.message_id" data-no-i18n="true" translate="no">
+                                {{ t('toolLog.messageLabel') }} {{ log.message_id }}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -194,7 +218,7 @@
                         class="settings-button-secondary"
                         @click="loadMore"
                     >
-                        {{ loadingMore ? '加载中...' : '加载更多' }}
+                        {{ loadingMore ? t('common.loading') : t('common.loadMore') }}
                     </button>
                 </div>
             </div>

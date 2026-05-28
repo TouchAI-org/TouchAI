@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { t, tt } from '@/i18n';
 import { createTauriFetch } from '@/services/AgentService/infrastructure/providers';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
@@ -34,7 +35,7 @@ const tauriFetch = createTauriFetch();
 function formatWebFetchTarget(args: Record<string, unknown>): string {
     const rawUrl = normalizeOptionalString(args.url, { collapseWhitespace: true });
     if (!rawUrl) {
-        return '网页';
+        return t('builtInTools.webFetch.target');
     }
 
     try {
@@ -87,7 +88,9 @@ export async function executeWebFetchTool(
                 result: formatUnsupportedResponse(request, response, contentType),
                 isError: true,
                 status: 'error',
-                errorMessage: `Unsupported content type: ${contentType}`,
+                errorMessage: t('builtInTools.webFetch.error.unsupportedContentType', {
+                    contentType,
+                }),
             };
         }
 
@@ -131,9 +134,9 @@ export async function executeWebFetchTool(
 
         return {
             result: [
-                '网页抓取失败',
-                `请求 URL: ${request.url.toString()}`,
-                `原因: ${errorMessage}`,
+                tt('网页抓取失败'),
+                `${tt('请求 URL')}: ${request.url.toString()}`,
+                `${tt('原因')}: ${errorMessage}`,
             ].join('\n'),
             isError: true,
             status: isTimeout ? 'timeout' : 'error',

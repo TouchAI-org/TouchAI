@@ -1,12 +1,13 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import type { Provider } from '@database/schema';
 
+    import { t } from '@/i18n';
+
     import { useSettingsResizablePanel } from '../../../composables/useSettingsResizablePanel';
     import ProviderCard from './ProviderCard.vue';
-
     interface Props {
         providers: Provider[];
         selectedProviderId: number | null;
@@ -56,12 +57,12 @@
 
         <div class="settings-side-panel-footer">
             <button
-                class="settings-button-primary flex w-full items-center justify-center gap-2"
+                class="settings-button-primary flex w-full items-center justify-center gap-2 break-words whitespace-normal"
                 data-testid="settings-add-custom-provider-button"
                 @click="emit('add-custom')"
             >
                 <AppIcon name="plus" class="h-4 w-4" />
-                添加自定义服务商
+                {{ t('settings.ai.addProvider.title') }}
             </button>
         </div>
 
@@ -74,7 +75,7 @@
             :aria-valuenow="panelWidth"
             tabindex="0"
             class="settings-side-panel-resizer"
-            title="调整服务商列表宽度"
+            :title="t('settings.ai.resizeProviderList')"
             @keydown="handleResizeKeyDown"
             @pointerdown="handleResizePointerDown"
         />

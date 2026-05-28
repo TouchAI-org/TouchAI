@@ -7,6 +7,8 @@
     import { Input } from '@components/ui/input';
     import { computed, ref } from 'vue';
 
+    import { t } from '@/i18n';
+
     interface Props {
         modelValue: string;
         placeholder?: string;
@@ -54,7 +56,7 @@
             variant="ghost"
             size="icon"
             :disabled="disabled"
-            :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+            :aria-label="showPassword ? t('common.password.hide') : t('common.password.show')"
             :aria-pressed="showPassword"
             class="absolute top-1/2 right-2 h-7 w-7 -translate-y-1/2 rounded-md p-0 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
             @click="togglePasswordVisibility"

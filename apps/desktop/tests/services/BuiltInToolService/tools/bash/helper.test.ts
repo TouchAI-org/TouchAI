@@ -1,6 +1,7 @@
 import type { BuiltInBashExecutionResponse } from '@services/NativeService';
 import { describe, expect, it, vi } from 'vitest';
 
+import { setLocale } from '@/i18n';
 import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
 import {
     formatBashToolResult,
@@ -83,6 +84,7 @@ describe('resolveCommandContext', () => {
     });
 
     it('rejects command outside allowed directories', async () => {
+        setLocale('en-US');
         const config = {
             ...baseConfig,
             allowedWorkingDirectories: ['D:/allowed'],
@@ -168,7 +170,7 @@ describe('formatBashToolResult', () => {
             },
             12000
         );
-        expect(result).toContain('命令无输出');
+        expect(result).toContain('[No command output]');
     });
 
     it('uses none when exitCode is null', () => {

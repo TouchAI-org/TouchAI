@@ -376,7 +376,7 @@ fn build_approval_actions_xml(
     payload: &SessionStatusReminderNotificationPayload,
 ) -> Result<String, String> {
     let Some(approval) = payload.approval.as_ref() else {
-        return Ok(String::new());
+        return Err("waiting_approval reminder requires approval payload".to_string());
     };
 
     let approve_arguments = serialize_activation_payload(
