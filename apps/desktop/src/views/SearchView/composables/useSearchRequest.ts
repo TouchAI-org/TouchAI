@@ -26,8 +26,8 @@ import type { PendingRequest, SearchModelOverride } from '../types';
 interface UseSearchRequestFlowOptions {
     modelOverride: Ref<SearchModelOverride>;
     clearDraft: (options?: { preserveModelTag?: boolean }) => void;
-    getSupportedAttachments: (attachments?: Index[]) => Index[];
-    getUnsupportedAttachmentMessage: (attachments?: Index[]) => string | null;
+    getSupportedAttachments: () => Index[];
+    getUnsupportedAttachmentMessage: () => string | null;
     getCurrentInputSnapshot: (query: string) => InputHistorySnapshot;
 }
 
@@ -329,16 +329,13 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     async function handleSubmit(query: string, inputSnapshotOverride?: InputHistorySnapshot) {
-        const inputSnapshot = inputSnapshotOverride ?? getCurrentInputSnapshot(query);
-        const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage(
-            inputSnapshot.attachments
-        );
+        const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
         if (unsupportedAttachmentMessage) {
             notify({ title: 'TouchAI', body: unsupportedAttachmentMessage });
             return;
         }
 
-        const supportedAttachments = getSupportedAttachments(inputSnapshot.attachments);
+        const inputSnapshot = inputSnapshotOverride ?? getCurrentInputSnapshot(query);
 
         if (isLoading.value) {
             if (pendingRequest.value) {
@@ -349,7 +346,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             const selectedProviderId = modelOverride.value.providerId;
             pendingRequest.value = {
                 query,
-                attachments: supportedAttachments,
+                attachments: getSupportedAttachments(),
                 inputSnapshot,
                 modelId: selectedModelId ?? undefined,
                 providerId: selectedProviderId ?? undefined,
@@ -360,6 +357,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
         const selectedModelId = modelOverride.value.modelId;
         const selectedProviderId = modelOverride.value.providerId;
+        const supportedAttachments = getSupportedAttachments();
 
         clearDraft({ preserveModelTag: true });
 
