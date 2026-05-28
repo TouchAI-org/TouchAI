@@ -14,6 +14,9 @@ export function createTextPart(content: string): TextMessagePart {
     };
 }
 
+/**
+ * 根据状态类型返回对应的本地化提醒文本。
+ */
 export function getSessionStatusReminderContent(status: SessionStatusReminderKind): string {
     switch (status) {
         case 'completed':
