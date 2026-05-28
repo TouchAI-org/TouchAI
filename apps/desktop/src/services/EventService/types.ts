@@ -11,6 +11,10 @@ import type {
     PopupSessionSearchQueryChangePayload,
 } from '@services/PopupService/types';
 
+import type { SessionStatusReminderKind } from '@/utils/session';
+
+export type { SessionStatusReminderKind } from '@/utils/session';
+
 /**
  * 事件类型定义
  *
@@ -115,8 +119,6 @@ export interface SearchSurfaceCommandEvent {
     command: 'toggle-model-dropdown';
     source: 'webview2-accelerator';
 }
-
-export type SessionStatusReminderKind = 'completed' | 'failed' | 'waiting_approval';
 
 export interface SessionStatusReminderApprovalActionPayload {
     callId: string;

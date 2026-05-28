@@ -5,6 +5,7 @@ import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
 import type { PendingToolApproval, SessionMessage } from '@/types/session';
 import { getSessionStatusReminderContent } from '@/utils/session';
+import { collapseWhitespace } from '@/utils/text';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import type { ConversationRuntimeEnvironment, TurnEvent } from '../execution';
@@ -60,7 +61,7 @@ function summarizeReminderText(
     value: string | null | undefined,
     maxChars = STATUS_REMINDER_MAX_BODY_CHARS
 ) {
-    const normalized = (value ?? '').replace(/\s+/g, ' ').trim();
+    const normalized = collapseWhitespace(value ?? '');
     if (!normalized) {
         return null;
     }
