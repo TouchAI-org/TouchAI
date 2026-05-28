@@ -26,8 +26,7 @@ export interface SearchAutoShrinkEligibilityInput {
 function hasPendingToolCalls(message: SessionMessage): boolean {
     return (
         message.toolCalls?.some(
-            (toolCall) =>
-                toolCall.status === 'executing' || toolCall.status === 'awaiting_approval'
+            (toolCall) => toolCall.status === 'executing' || toolCall.status === 'awaiting_approval'
         ) ?? false
     );
 }
