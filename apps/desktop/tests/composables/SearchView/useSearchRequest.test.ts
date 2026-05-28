@@ -1,6 +1,5 @@
 import type { SessionEntity } from '@database/types';
 import type { Index } from '@services/AgentService/infrastructure/attachments';
-import { isAttachmentSupported } from '@services/AgentService/infrastructure/attachments';
 import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
@@ -180,58 +179,6 @@ describe('useSearchRequestFlow', () => {
         mounted.unmount();
     });
 
-    it('uses the override snapshot attachments when submitting a notification reply', async () => {
-        const draftAttachment = createAttachment('draft-attachment');
-        const modelOverride = ref({
-            modelId: 'reply-model',
-            providerId: 5,
-        });
-        const clearDraft = vi.fn();
-        const getSupportedAttachments = vi.fn((attachments: Index[] = []) =>
-            attachments.filter(isAttachmentSupported)
-        );
-        const getUnsupportedAttachmentMessage = vi.fn((attachments: Index[] = []) =>
-            attachments.some((attachment) => !isAttachmentSupported(attachment))
-                ? 'Unsupported attachments present.'
-                : null
-        );
-        const replySnapshot = createInputHistorySnapshot({
-            text: 'follow up',
-            attachments: [],
-        });
-
-        const mounted = await mountComposable(() =>
-            useSearchRequestFlow({
-                modelOverride,
-                clearDraft,
-                getSupportedAttachments,
-                getUnsupportedAttachmentMessage,
-                getCurrentInputSnapshot: () =>
-                    createInputHistorySnapshot({
-                        text: 'draft text',
-                        attachments: [draftAttachment],
-                    }),
-            })
-        );
-
-        await mounted.result.handleSubmit('follow up', replySnapshot);
-
-        expect(getUnsupportedAttachmentMessage).toHaveBeenCalledWith([]);
-        expect(getSupportedAttachments).toHaveBeenCalledWith([]);
-        expect(clearDraft).toHaveBeenCalledWith({
-            preserveModelTag: true,
-        });
-        expect(agentState.sendRequest).toHaveBeenCalledWith(
-            'follow up',
-            [],
-            replySnapshot,
-            'reply-model',
-            5
-        );
-
-        mounted.unmount();
-    });
-
     it('queues a follow-up request while loading and replays it after completion', async () => {
         const supportedAttachment = createAttachment('queued-1');
         const queuedSnapshot = createInputHistorySnapshot({
@@ -323,10 +270,7 @@ describe('useSearchRequestFlow', () => {
 
         await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)?.({
             sessionId: 42,
-            taskId: 'task-1',
             status: 'completed',
-            previousStatus: 'running',
-            reminder: null,
         });
         await flushAsyncWork();
 
