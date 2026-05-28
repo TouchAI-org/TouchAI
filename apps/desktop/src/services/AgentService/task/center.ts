@@ -35,6 +35,7 @@ interface MutableSessionTask {
     releaseTimer: ReturnType<typeof setTimeout> | null;
     lastPublishedStatus: SessionTaskStatus | null;
     lastPublishedSessionId: number | null;
+    lastPublishedReminderKey: string | null;
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
@@ -43,6 +44,18 @@ const STATUS_REMINDER_MAX_COMMAND_CHARS = 160;
 
 function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
     return cloneTaskValue(snapshot);
+}
+
+function getReminderPublishKey(reminder: SessionStatusReminderPayload | null): string | null {
+    if (!reminder) {
+        return null;
+    }
+
+    if (reminder.kind === 'waiting_approval') {
+        return `${reminder.kind}:${reminder.approval?.callId ?? ''}`;
+    }
+
+    return reminder.kind;
 }
 
 function isTerminalStatus(status: SessionTaskSnapshot['status']): boolean {
@@ -228,6 +241,7 @@ class SessionTaskCenter {
             releaseTimer: null,
             lastPublishedStatus: null,
             lastPublishedSessionId: null,
+            lastPublishedReminderKey: null,
         };
 
         this.tasks.set(taskId, task);
@@ -588,22 +602,26 @@ class SessionTaskCenter {
             return;
         }
 
+        const reminder = buildSessionStatusReminder(task.snapshot);
         const sessionChanged = task.lastPublishedSessionId !== task.sessionId;
         const statusChanged = task.lastPublishedStatus !== task.snapshot.status;
-        if (!sessionChanged && !statusChanged) {
+        const reminderKey = getReminderPublishKey(reminder);
+        const reminderChanged = task.lastPublishedReminderKey !== reminderKey;
+        if (!sessionChanged && !statusChanged && !reminderChanged) {
             return;
         }
 
         const previousStatus = sessionChanged ? null : task.lastPublishedStatus;
         task.lastPublishedSessionId = task.sessionId;
         task.lastPublishedStatus = task.snapshot.status;
+        task.lastPublishedReminderKey = reminderKey;
 
         void eventService.emit(AppEvent.SESSION_TASK_STATUS_CHANGED, {
             sessionId: task.sessionId,
             taskId: task.taskId,
             status: task.snapshot.status,
             previousStatus,
-            reminder: buildSessionStatusReminder(task.snapshot),
+            reminder,
         });
     }
 }
