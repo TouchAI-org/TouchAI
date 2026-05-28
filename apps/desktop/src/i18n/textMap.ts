@@ -719,6 +719,9 @@ export const zhToEnTextMap = {
     'Anthropic 兼容': 'Anthropic compatible',
     阿里云百炼: 'Alibaba Cloud Bailian',
     智谱: 'Zhipu',
+    任务已完成: 'Task completed',
+    任务失败: 'Task failed',
+    任务正在等待批准: 'Task is waiting for approval',
 } as const;
 
 export type SourceText = keyof typeof zhToEnTextMap;
