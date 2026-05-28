@@ -3,7 +3,9 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+#[cfg(target_os = "windows")]
+use tauri::Emitter;
+use tauri::{AppHandle, Manager, Runtime};
 
 const STATUS_REMINDER_NOTIFICATION_GROUP: &str = "session-status-reminders";
 const SESSION_STATUS_REMINDER_ACTION_EVENT: &str = "session-status-reminder:action";
@@ -86,8 +88,6 @@ impl SessionStatusReminderNotificationRuntime {
             active_toasts: Mutex::new(Vec::new()),
             #[cfg(target_os = "macos")]
             active_notification_ids: Mutex::new(Vec::new()),
-            #[cfg(target_os = "linux")]
-            active_notification_handles: Mutex::new(Vec::new()),
         }
     }
 
