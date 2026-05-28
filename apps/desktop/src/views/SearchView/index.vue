@@ -25,6 +25,10 @@
     } from '@/types/session';
     import { isE2eTestMode } from '@/utils/runtimeMode';
 
+    import {
+        buildLatestCompletedMessageMarker,
+        shouldAutoShrinkSearchSession,
+    } from './autoShrinkPolicy';
     import ConversationPanel from './components/ConversationPanel/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
     import SearchBar from './components/SearchBar/index.vue';
@@ -97,6 +101,8 @@
     const pageContainer = ref<HTMLElement | null>(null);
     const approvalAttentionToken = ref(0);
     const isDragging = ref(false);
+    const latestContentVisible = ref(true);
+    const latestSeenCompletedMessageMarker = ref<string | null>(null);
     const inputHistoryBrowseState = ref<SessionInputHistoryBrowseState>(
         createSessionInputHistoryBrowseState()
     );
@@ -275,6 +281,42 @@
         modelDropdownState,
     });
 
+    const sessionIdleForAutoShrink = computed(
+        () => currentSessionId.value !== null && !isLoading.value
+    );
+    const latestCompletedMessageMarker = computed(() =>
+        sessionIdleForAutoShrink.value
+            ? buildLatestCompletedMessageMarker(currentSessionId.value, sessionHistory.value)
+            : null
+    );
+
+    function syncLatestCompletedMessageSeenState() {
+        const marker = latestCompletedMessageMarker.value;
+        if (
+            !marker ||
+            !latestContentVisible.value ||
+            !searchInteractionContext.state.windowVisible ||
+            !searchInteractionContext.state.windowFocused
+        ) {
+            return;
+        }
+
+        latestSeenCompletedMessageMarker.value = marker;
+    }
+
+    function shouldClearSessionAfterTimeout() {
+        return shouldAutoShrinkSearchSession({
+            timedOut: true,
+            sessionIdle: sessionIdleForAutoShrink.value,
+            latestCompletedMessageMarker: latestCompletedMessageMarker.value,
+            latestSeenCompletedMessageMarker: latestSeenCompletedMessageMarker.value,
+        });
+    }
+
+    function handleLatestContentVisibilityChange(visible: boolean) {
+        latestContentVisible.value = visible;
+    }
+
     function isDisplayableSessionStatus(
         status: SessionTaskStatus | null | undefined
     ): status is SessionHistorySessionItem['displayStatus'] {
@@ -351,6 +393,7 @@
         interactionContext: searchInteractionContext,
         syncWindowPinState,
         clearSession: clearSessionToIdle,
+        shouldClearSessionAfterTimeout,
         reconcilePopupSurfaces: hideAllPopups,
         onSurfaceHidden: clearSurfaceUiAfterHidden,
         handleSearchSurfaceCommand: async (payload) => {
@@ -939,6 +982,19 @@
     }
 
     watch(
+        () => ({
+            marker: latestCompletedMessageMarker.value,
+            latestContentVisible: latestContentVisible.value,
+            windowVisible: searchInteractionContext.state.windowVisible,
+            windowFocused: searchInteractionContext.state.windowFocused,
+        }),
+        () => {
+            syncLatestCompletedMessageSeenState();
+        },
+        { flush: 'post' }
+    );
+
+    watch(
         sessionInputHistoryEntries,
         (entries, previousEntries) => {
             const previousLength = previousEntries?.length ?? 0;
@@ -995,6 +1051,8 @@
                 return;
             }
 
+            latestSeenCompletedMessageMarker.value = null;
+            latestContentVisible.value = true;
             resetSessionInputHistoryTracking();
             await closeSessionHistoryPopup();
             await controller.focusSearchInput();
@@ -1102,6 +1160,7 @@
                 @drag-start="isDragging = true"
                 @drag-end="isDragging = false"
                 @regenerate-message="handleRegenerateMessage"
+                @latest-content-visibility-change="handleLatestContentVisibilityChange"
             />
         </div>
         <div

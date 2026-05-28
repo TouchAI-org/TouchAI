@@ -64,6 +64,7 @@ export interface ConversationPanelHandle {
     revealLatestContent: () => void;
     scrollByDelta: (deltaY: number) => void;
     getHistoryAnchor: () => HTMLElement | null;
+    isLatestContentVisible: () => boolean;
 }
 
 export interface SearchPageController {

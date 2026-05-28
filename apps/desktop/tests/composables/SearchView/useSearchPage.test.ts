@@ -373,4 +373,47 @@ describe('useSearchPageLifecycle', () => {
 
         mounted.unmount();
     });
+
+    it('suppresses timed-out session clearing when the page policy says auto-shrink is not yet allowed', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                shouldClearSessionAfterTimeout: () => false,
+                reconcilePopupSurfaces,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
+
+        interactionContext.markWindowHidden({
+            hideReason: 'app-blur-hide',
+            hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
+        });
+
+        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({ sequence: 1 });
+        await flushLifecycle();
+
+        expect(clearSession).not.toHaveBeenCalled();
+        expect(reconcilePopupSurfaces).toHaveBeenCalledTimes(1);
+        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
+        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
+        expect(syncWindowPinState).toHaveBeenCalledTimes(2);
+        expect(handleShortcutAutoPaste).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
+    });
 });

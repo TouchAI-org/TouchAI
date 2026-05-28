@@ -377,6 +377,7 @@ interface UseSearchPageLifecycleOptions {
     interactionContext: ReturnType<typeof createSearchInteractionContext>;
     syncWindowPinState: () => Promise<boolean>;
     clearSession: () => void | Promise<void>;
+    shouldClearSessionAfterTimeout?: () => boolean | Promise<boolean>;
     reconcilePopupSurfaces?: () => Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
     handleSearchSurfaceCommand?: (payload: {
@@ -397,6 +398,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext,
         syncWindowPinState,
         clearSession,
+        shouldClearSessionAfterTimeout,
         reconcilePopupSurfaces,
         onSurfaceHidden,
         handleSearchSurfaceCommand,
@@ -487,14 +489,16 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
         syncFocusStateOnFocus();
 
-        if (
-            interactionContext.shouldRunTimeoutClearOnFocus(
-                interactionContext.state.visibilityEpoch,
-                Date.now(),
-                HIDE_TIMEOUT_MS
-            )
-        ) {
-            await Promise.resolve(clearSession());
+        const timedOut = interactionContext.shouldRunTimeoutClearOnFocus(
+            interactionContext.state.visibilityEpoch,
+            Date.now(),
+            HIDE_TIMEOUT_MS
+        );
+        if (timedOut) {
+            const shouldClear = await Promise.resolve(shouldClearSessionAfterTimeout?.() ?? true);
+            if (shouldClear) {
+                await Promise.resolve(clearSession());
+            }
         }
 
         const activationEpoch = interactionContext.state.activationEpoch;
