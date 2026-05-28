@@ -588,12 +588,25 @@ mod macos_notifications {
     type ActionCallback = Box<dyn Fn(&str) + Send>;
 
     static ACTION_CALLBACK: OnceLock<Mutex<Option<ActionCallback>>> = OnceLock::new();
+    static DELEGATE_INSTANCE: OnceLock<TouchAINotificationDelegate> = OnceLock::new();
 
     /// Register the callback invoked from the notification-center delegate when
     /// the user interacts with a delivered notification.
     fn set_action_callback(cb: ActionCallback) {
         let lock = ACTION_CALLBACK.get_or_init(|| Mutex::new(None));
         *lock.lock().expect("macos action callback poisoned") = Some(cb);
+    }
+
+    /// Ensure the delegate is set on the center exactly once and lives for the
+    /// entire process lifetime. `UNUserNotificationCenter.delegate` is a weak
+    /// property, so the delegate object must be held in a static to prevent
+    /// deallocation.
+    fn ensure_delegate_registered(center: &UNUserNotificationCenter) {
+        DELEGATE_INSTANCE.get_or_init(|| {
+            let delegate = TouchAINotificationDelegate::new();
+            center.setDelegate(&delegate);
+            delegate
+        });
     }
 
     /// Objective-C delegate that translates `UNUserNotificationCenter` action
@@ -668,7 +681,7 @@ mod macos_notifications {
             );
             if let Some(text) = reply_text {
                 obj.insert(
-                    "reply_text".to_string(),
+                    "replyText".to_string(),
                     serde_json::Value::String(text.to_string()),
                 );
             }
@@ -705,7 +718,16 @@ mod macos_notifications {
             .as_deref()
             .unwrap_or("Reply to TouchAI");
 
+        let existing_categories = center.notificationCategories();
+        let mut category_ids: Vec<String> = existing_categories
+            .iter()
+            .map(|cat| cat.identifier().to_string())
+            .collect();
+
         if payload.kind == SessionStatusReminderKind::WaitingApproval {
+            if category_ids.contains(&"touchai-waiting-approval".to_string()) {
+                return;
+            }
             let approve_action = UNNotificationAction::actionWithIdentifier_title_options(
                 &NSString::from_str("approve"),
                 &NSString::from_str(approve_label),
@@ -724,8 +746,13 @@ mod macos_notifications {
                     &NSArray::new(),
                     objc2_user_notifications::UNNotificationCategoryOptions::empty(),
                 );
-            center.setNotificationCategories(&NSArray::from_vec(vec![category]));
+            let mut all: Vec<UNNotificationCategory> = existing_categories.to_vec();
+            all.push(category);
+            center.setNotificationCategories(&NSArray::from_vec(all));
         } else {
+            if category_ids.contains(&"touchai-completed-failed".to_string()) {
+                return;
+            }
             let reply_action = objc2_user_notifications::UNTextInputNotificationAction::actionWithIdentifier_title_options_textInputButtonTitle_textInputPlaceholder(
                 &NSString::from_str("reply"),
                 &NSString::from_str(reply_label),
@@ -741,7 +768,9 @@ mod macos_notifications {
                     &NSArray::new(),
                     objc2_user_notifications::UNNotificationCategoryOptions::empty(),
                 );
-            center.setNotificationCategories(&NSArray::from_vec(vec![category]));
+            let mut all: Vec<UNNotificationCategory> = existing_categories.to_vec();
+            all.push(category);
+            center.setNotificationCategories(&NSArray::from_vec(all));
         }
     }
 
@@ -782,16 +811,16 @@ mod macos_notifications {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             let reply_text: Option<String> = payload
-                .get("reply_text")
+                .get("replyText")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             let call_id: Option<String> = payload
-                .get("call_id")
+                .get("callId")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let session_id: Option<i64> = payload.get("session_id").and_then(|v| v.as_i64());
+            let session_id: Option<i64> = payload.get("sessionId").and_then(|v| v.as_i64());
             let task_id: Option<String> = payload
-                .get("task_id")
+                .get("taskId")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             let kind: Option<SessionStatusReminderKind> = payload
@@ -822,9 +851,9 @@ mod macos_notifications {
             let _ = app_handle.emit(SESSION_STATUS_REMINDER_ACTION_EVENT, &final_payload);
         }));
 
-        // Ensure the delegate is set on the center (idempotent).
-        let delegate = TouchAINotificationDelegate::new();
-        center.setDelegate(&delegate);
+        // Ensure the delegate is registered exactly once and held by the static
+        // so it lives for the process lifetime.
+        ensure_delegate_registered(&center);
 
         // Register the appropriate category (actions) for this notification.
         ensure_categories_registered(&center, payload);
@@ -967,16 +996,14 @@ mod linux_notifications {
                 ..action_payload
             };
 
-            tauri::async_runtime::block_on(async {
-                if let Err(error) =
-                    app_handle.emit(SESSION_STATUS_REMINDER_ACTION_EVENT, &final_payload)
-                {
-                    warn!(
-                        "Failed to emit Linux session status reminder action event: {}",
-                        error
-                    );
-                }
-            });
+            if let Err(error) =
+                app_handle.emit(SESSION_STATUS_REMINDER_ACTION_EVENT, &final_payload)
+            {
+                warn!(
+                    "Failed to emit Linux session status reminder action event: {}",
+                    error
+                );
+            }
         });
 
         runtime.track_active_notification(0);

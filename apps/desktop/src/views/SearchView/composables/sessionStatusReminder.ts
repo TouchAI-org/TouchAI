@@ -84,6 +84,8 @@ export function createSessionStatusReminderCoordinator(
             return;
         }
 
+        clearReminderState();
+
         showNativeStatusReminderNotification({
             ...payload.reminder,
             sessionId: payload.sessionId,
