@@ -1,3 +1,4 @@
+import { tt } from '@/i18n';
 import type { TextMessagePart } from '@/types/session';
 
 export type SessionStatusReminderKind = 'completed' | 'failed' | 'waiting_approval';
@@ -16,10 +17,10 @@ export function createTextPart(content: string): TextMessagePart {
 export function getSessionStatusReminderContent(status: SessionStatusReminderKind): string {
     switch (status) {
         case 'completed':
-            return '任务已完成';
+            return tt('任务已完成');
         case 'failed':
-            return '任务失败';
+            return tt('任务失败');
         case 'waiting_approval':
-            return '任务正在等待批准';
+            return tt('任务正在等待批准');
     }
 }

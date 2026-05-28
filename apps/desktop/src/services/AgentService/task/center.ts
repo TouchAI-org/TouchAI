@@ -109,7 +109,7 @@ function buildSessionStatusReminder(
     if (snapshot.status === 'completed') {
         return {
             kind: 'completed',
-            title: '任务已完成',
+            title: tt('任务已完成'),
             body:
                 summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
                 getSessionStatusReminderContent('completed'),
@@ -120,7 +120,7 @@ function buildSessionStatusReminder(
     if (snapshot.status === 'failed') {
         return {
             kind: 'failed',
-            title: '任务失败',
+            title: tt('任务失败'),
             body:
                 summarizeReminderText(snapshot.error) ??
                 summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
@@ -135,12 +135,12 @@ function buildSessionStatusReminder(
 
     return {
         kind: 'waiting_approval',
-        title: '等待批准',
+        title: tt('等待批准'),
         body: buildWaitingApprovalBody(snapshot.pendingToolApproval),
         approval: {
             callId: snapshot.pendingToolApproval.callId,
-            approveLabel: 'Approve',
-            rejectLabel: 'Reject',
+            approveLabel: tt('批准'),
+            rejectLabel: tt('拒绝'),
         },
     };
 }
