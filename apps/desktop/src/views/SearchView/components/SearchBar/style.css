@@ -1,5 +1,3 @@
-@reference "@styles/tailwind.css";
-
 /* ─── Tiptap 基础样式 ──────────────────────────────────────────── */
 
 :deep(.tiptap) {
