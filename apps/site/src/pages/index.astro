@@ -1,5 +1,11 @@
 ---
+import ToastProvider from '../components/ToastProvider';
 
+// Public runtime config — values are injected at build time from env vars.
+// Set in apps/site/.env.local for local dev; set as GitHub Actions secrets for CI.
+// Empty values disable the corresponding feature gracefully.
+const CLARITY_ID = import.meta.env.PUBLIC_CLARITY_ID ?? '';
+const WAITLIST_ENDPOINT = import.meta.env.PUBLIC_WAITLIST_ENDPOINT ?? '';
 ---
 
 <!doctype html>
@@ -40,6 +46,14 @@
         <link rel="apple-touch-icon" href="/favicon.svg" />
         <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
         <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)" />
+        {
+            CLARITY_ID && (
+                <script
+                    is:inline
+                    set:html={`(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src='https://www.clarity.ms/tag/'+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y)})(window,document,'clarity','script','${CLARITY_ID}');`}
+                />
+            )
+        }
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
@@ -115,6 +129,8 @@
                 display: flex;
                 flex-direction: column;
                 gap: 0.5rem;
+                min-height: 5.5rem;
+                justify-content: center;
             }
             .title {
                 font-size: 2.25rem;
@@ -134,6 +150,7 @@
                 justify-content: center;
                 align-items: center;
                 gap: 0.6rem;
+                min-height: 2.6rem;
             }
             .cd-pair {
                 display: flex;
@@ -181,6 +198,172 @@
                 line-height: 2.6rem;
                 text-align: center;
                 user-select: none;
+            }
+            .waitlist {
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 0.4rem;
+                width: 100%;
+                max-width: 100%;
+                overflow: hidden;
+                transition:
+                    opacity 0.4s ease,
+                    transform 0.4s ease,
+                    max-height 0.5s ease 0.05s,
+                    margin 0.5s ease 0.05s;
+                max-height: 200px;
+            }
+            .waitlist.hide {
+                opacity: 0;
+                transform: translateY(-8px);
+                max-height: 0;
+                margin: -1.5rem 0;
+                pointer-events: none;
+            }
+            .waitlist.gone {
+                display: none;
+            }
+            .waitlist-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                width: 100%;
+            }
+            .waitlist input {
+                flex: 1;
+                min-width: 0;
+                padding: 0.6rem 0.9rem;
+                border: 1px solid var(--cell-border);
+                border-radius: 0.5rem;
+                background: var(--cell-bg);
+                color: var(--fg);
+                font-family: inherit;
+                font-size: 0.875rem;
+                outline: none;
+                transition:
+                    border-color 0.2s,
+                    background 0.2s;
+            }
+            .waitlist input::placeholder {
+                color: var(--muted);
+                opacity: 0.7;
+            }
+            .waitlist input:focus {
+                border-color: var(--muted);
+            }
+            .waitlist button {
+                padding: 0.6rem 1.1rem;
+                border: 1px solid var(--cell-border);
+                border-radius: 0.5rem;
+                background: var(--fg);
+                color: var(--bg);
+                font-family: inherit;
+                font-size: 0.875rem;
+                font-weight: 500;
+                cursor: pointer;
+                white-space: nowrap;
+                transition:
+                    opacity 0.2s,
+                    transform 0.1s;
+            }
+            .waitlist button:hover:not(:disabled) {
+                opacity: 0.85;
+            }
+            .waitlist button:active:not(:disabled) {
+                transform: scale(0.98);
+            }
+            .waitlist button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            .waitlist button {
+                position: relative;
+            }
+            .waitlist button .btn-label {
+                transition: opacity 0.2s ease;
+            }
+            .waitlist button .btn-check {
+                position: absolute;
+                inset: 0;
+                margin: auto;
+                width: 18px;
+                height: 18px;
+                color: #fff;
+                opacity: 0;
+                pointer-events: none;
+            }
+            .waitlist button .btn-check path {
+                stroke-dasharray: 30;
+                stroke-dashoffset: 30;
+            }
+            .waitlist button.loading .btn-label {
+                opacity: 0;
+            }
+            .waitlist button.loading::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                margin: auto;
+                width: 14px;
+                height: 14px;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                border-top-color: #fff;
+                border-radius: 50%;
+                animation: spin 0.6s linear infinite;
+            }
+            .waitlist button.success {
+                background: #16a34a;
+                border-color: #16a34a;
+            }
+            .waitlist button.success .btn-label {
+                opacity: 0;
+            }
+            .waitlist button.success .btn-check {
+                opacity: 1;
+            }
+            .waitlist button.success .btn-check path {
+                animation: drawCheck 0.45s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+            }
+            .waitlist-row {
+                overflow: hidden;
+                transition:
+                    opacity 0.4s ease,
+                    transform 0.4s ease,
+                    max-height 0.5s ease 0.1s,
+                    margin 0.5s ease 0.1s,
+                    padding 0.5s ease 0.1s;
+                max-height: 200px;
+            }
+            .waitlist-row.hide {
+                opacity: 0;
+                transform: translateY(-8px);
+                max-height: 0;
+                margin: 0;
+                padding: 0;
+                pointer-events: none;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+            @keyframes drawCheck {
+                to {
+                    stroke-dashoffset: 0;
+                }
+            }
+            .waitlist-msg {
+                font-size: 0.78rem;
+                color: var(--muted);
+                min-height: 1.1em;
+                text-align: center;
+            }
+            .waitlist-msg.ok {
+                color: #16a34a;
+            }
+            .waitlist-msg.err {
+                color: #ef4444;
             }
             .gh {
                 display: flex;
@@ -262,6 +445,14 @@
                 }
                 .sep {
                     font-size: 0.7rem;
+                }
+                .waitlist {
+                    max-width: 100%;
+                }
+                .waitlist input,
+                .waitlist button {
+                    font-size: 0.8rem;
+                    padding: 0.55rem 0.8rem;
                 }
             }
         </style>
@@ -687,6 +878,35 @@
                 </p>
             </div>
             <div class="countdown" id="cd"></div>
+            <form class="waitlist" id="waitlistForm" novalidate>
+                <div class="waitlist-row">
+                    <input
+                        type="email"
+                        id="waitlistEmail"
+                        autocomplete="email"
+                        required
+                        data-zh-placeholder="输入邮箱，发布时第一时间通知您"
+                        data-en-placeholder="Enter your email for launch notification"
+                        placeholder="输入邮箱，发布时第一时间通知您"
+                    />
+                    <button type="submit" id="waitlistSubmit">
+                        <span class="btn-label" data-zh="加入等候" data-en="Join">加入等候</span>
+                        <svg
+                            class="btn-check"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                        >
+                            <path d="M5 12.5l4.5 4.5L19 7.5"></path>
+                        </svg>
+                    </button>
+                </div>
+                <p class="waitlist-msg" id="waitlistMsg" aria-live="polite"></p>
+            </form>
             <a
                 href="https://github.com/TouchAI-org/TouchAI"
                 target="_blank"
@@ -701,7 +921,7 @@
                 </svg>
             </a>
         </div>
-        <script type="module">
+        <script type="module" define:vars={{ WAITLIST_ENDPOINT }}>
             import { createShader, playSweep as glimmPlaySweep } from '/glimm.js';
 
             console.log(
@@ -729,7 +949,7 @@
                 if (shader && shader.canvas) {
                     var c = shader.canvas;
                     c.style.cssText =
-                        'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:9999;';
+                        'position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;display:block;pointer-events:none;z-index:9999;';
                     document.body.appendChild(c);
                 }
             } catch (e) {
@@ -763,8 +983,8 @@
                 var btn = document.getElementById('themeBtn');
                 if (!btn) return;
                 btn.innerHTML = isDark
-                    ? '<svg viewBox="0 0 24 24"><path d="M12 7a5 5 0 100 10 5 5 0 000-10zm0-3a1 1 0 01-1-1V1a1 1 0 112 0v2a1 1 0 01-1 1zm0 18a1 1 0 01-1-1v-2a1 1 0 112 0v2a1 1 0 01-1 1zm9-9a1 1 0 01-1 1h-2a1 1 0 110-2h2a1 1 0 011 1zM6 12a1 1 0 01-1 1H3a1 1 0 110-2h2a1 1 0 011 1zm12.36-5.64a1 1 0 01-.7-.3l-1.42-1.42a1 1 0 011.41-1.41l1.42 1.42a1 1 0 01-.71 1.71zM5.76 18.24a1 1 0 01-.7-.3l-1.42-1.42a1 1 0 011.41-1.41l1.42 1.42a1 1 0 01-.71 1.71zM18.24 18.24a1 1 0 01-.71-1.71l1.42-1.42a1 1 0 011.41 1.41l-1.42 1.42a1 1 0 01-.7.3zM5.76 5.76a1 1 0 01-.71-1.71l1.42-1.42A1 1 0 017.87 4.04L6.46 5.46a1 1 0 01-.7.3z"/></svg>'
-                    : '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 01-4.4 2.26 5.403 5.403 0 01-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>';
+                    ? '<svg viewBox="0 0 24 24" fill-rule="evenodd" clip-rule="evenodd"><path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zm11.394-5.834a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 101.06 1.061l1.591-1.59zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zm-3.916 6.894a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 10-1.061 1.06l1.59 1.591zM12 18a.75.75 0 01.75.75V21a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 18zm-4.242-.697a.75.75 0 00-1.061-1.06l-1.591 1.59a.75.75 0 001.06 1.061l1.591-1.59zM6 12a.75.75 0 01-.75.75H3a.75.75 0 010-1.5h2.25A.75.75 0 016 12zm.697-4.243a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 00-1.061 1.06l1.59 1.591z"/></svg>'
+                    : '<svg viewBox="0 0 24 24"><path d="M21.752 15.002A9.72 9.72 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>';
                 btn.setAttribute(
                     'aria-label',
                     isDark ? 'Switch to light mode' : 'Switch to dark mode'
@@ -783,6 +1003,10 @@
                     } else {
                         el.textContent = val;
                     }
+                });
+                document.querySelectorAll('[data-zh-placeholder]').forEach(function (el) {
+                    var val = el.getAttribute('data-' + lang + '-placeholder');
+                    if (val) el.setAttribute('placeholder', val);
                 });
                 localStorage.setItem('ta_lang', lang);
                 var sps = document.querySelectorAll('.sep');
@@ -904,6 +1128,173 @@
 
             tick();
             setInterval(tick, 1000);
+
+            // --- Sync waitlist width to countdown ---
+            (function () {
+                var cd = document.getElementById('cd');
+                var wl = document.getElementById('waitlistForm');
+                if (!cd || !wl) return;
+                function sync() {
+                    var w = cd.offsetWidth;
+                    if (w > 0) wl.style.maxWidth = w + 'px';
+                }
+                sync();
+                if (typeof ResizeObserver !== 'undefined') {
+                    new ResizeObserver(sync).observe(cd);
+                }
+                window.addEventListener('resize', sync);
+            })();
+
+            // --- Waitlist ---
+            // WAITLIST_ENDPOINT is injected at build time via define:vars (PUBLIC_WAITLIST_ENDPOINT).
+            // If empty, the form shows a fallback message instead of submitting.
+            var waitlistMessages = {
+                zh: {
+                    invalid: '请输入有效的邮箱地址',
+                    success: '订阅成功，发布时第一时间通知您！',
+                    duplicate: '该邮箱已订阅，发布时会通知您',
+                    rateLimit: '请求过于频繁，请稍后再试',
+                    serverError: '服务暂时不可用，请稍后再试',
+                    networkError: '网络错误，请重试',
+                },
+                en: {
+                    invalid: 'Please enter a valid email address',
+                    success: 'Subscribed! We will notify you at launch.',
+                    duplicate: 'Already subscribed — we will notify you',
+                    rateLimit: 'Too many requests, please retry later',
+                    serverError: 'Service unavailable, please retry later',
+                    networkError: 'Network error, please retry',
+                },
+            };
+            var emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            var waitlistForm = document.getElementById('waitlistForm');
+            var waitlistEmail = document.getElementById('waitlistEmail');
+            var waitlistSubmit = document.getElementById('waitlistSubmit');
+            var waitlistMsg = document.getElementById('waitlistMsg');
+
+            function showToast(msg, type) {
+                var t = window.__toast;
+                if (t) {
+                    if (type === 'error') t.error(msg);
+                    else if (type === 'success') t.success(msg);
+                    else t(msg);
+                }
+            }
+
+            if (waitlistForm) {
+                waitlistForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    var t = waitlistMessages[lang];
+                    var email = (waitlistEmail.value || '').trim();
+                    if (!emailRe.test(email)) {
+                        showToast(t.invalid, 'error');
+                        waitlistEmail.focus();
+                        return;
+                    }
+                    if (!WAITLIST_ENDPOINT) {
+                        showToast(t.serverError, 'error');
+                        return;
+                    }
+                    // Start loading animation
+                    waitlistSubmit.disabled = true;
+                    waitlistSubmit.classList.add('loading');
+                    if (waitlistMsg) {
+                        waitlistMsg.textContent = '';
+                        waitlistMsg.className = 'waitlist-msg';
+                    }
+                    fetch(WAITLIST_ENDPOINT, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email: email,
+                            lang: lang,
+                            ref: document.referrer || '',
+                        }),
+                    })
+                        .then(function (res) {
+                            return res
+                                .json()
+                                .catch(function () {
+                                    return {};
+                                })
+                                .then(function (data) {
+                                    return { status: res.status, data: data };
+                                });
+                        })
+                        .then(function (r) {
+                            var tt = waitlistMessages[lang];
+                            waitlistSubmit.classList.remove('loading');
+                            if (r.status === 200 || r.status === 201) {
+                                // Success: show checkmark then fade out row
+                                waitlistSubmit.classList.add('success');
+                                showToast(
+                                    r.data && r.data.duplicate ? tt.duplicate : tt.success,
+                                    'success'
+                                );
+                                waitlistEmail.value = '';
+                                setTimeout(function () {
+                                    var wrap = document.querySelector('.wrap');
+                                    var siblings = wrap
+                                        ? Array.prototype.filter.call(wrap.children, function (el) {
+                                              return el !== waitlistForm;
+                                          })
+                                        : [];
+                                    var firstRects = siblings.map(function (el) {
+                                        return el.getBoundingClientRect();
+                                    });
+
+                                    waitlistForm.classList.add('hide');
+
+                                    requestAnimationFrame(function () {
+                                        siblings.forEach(function (el, i) {
+                                            var lastRect = el.getBoundingClientRect();
+                                            var dy = firstRects[i].top - lastRect.top;
+                                            if (dy === 0) return;
+                                            el.style.transition = 'none';
+                                            el.style.transform = 'translateY(' + dy + 'px)';
+                                            requestAnimationFrame(function () {
+                                                el.style.transition =
+                                                    'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
+                                                el.style.transform = '';
+                                                setTimeout(function () {
+                                                    el.style.transition = '';
+                                                }, 550);
+                                            });
+                                        });
+                                    });
+
+                                    var onEnd = function (e) {
+                                        if (e.propertyName !== 'max-height') return;
+                                        waitlistForm.classList.add('gone');
+                                        waitlistForm.removeEventListener('transitionend', onEnd);
+                                    };
+                                    waitlistForm.addEventListener('transitionend', onEnd);
+                                }, 800);
+                                if (typeof window.clarity === 'function') {
+                                    try {
+                                        window.clarity('event', 'waitlist_submit');
+                                    } catch (_e) {
+                                        // ignore
+                                    }
+                                }
+                            } else if (r.status === 429) {
+                                showToast(tt.rateLimit, 'error');
+                            } else if (r.status === 400) {
+                                showToast((r.data && r.data.error) || tt.invalid, 'error');
+                            } else {
+                                showToast(tt.serverError, 'error');
+                            }
+                        })
+                        .catch(function () {
+                            waitlistSubmit.classList.remove('loading');
+                            showToast(waitlistMessages[lang].networkError, 'error');
+                        })
+                        .then(function () {
+                            waitlistSubmit.disabled = false;
+                        });
+                });
+            }
         </script>
+        <ToastProvider client:load />
     </body>
 </html>
