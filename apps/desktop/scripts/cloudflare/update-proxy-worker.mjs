@@ -96,6 +96,10 @@ function canUseWorkerCache(request) {
     return (request.method === 'GET' || request.method === 'HEAD') && !request.headers.has('range');
 }
 
+function rangeOptions(request) {
+    return request.headers.has('range') ? { range: request.headers } : undefined;
+}
+
 function defaultCacheControl(fileName, env) {
     if (isFeedFile(fileName)) {
         return `public, max-age=${cacheSeconds(env.UPDATE_FEED_CACHE_SECONDS, DEFAULT_FEED_CACHE_SECONDS)}`;
@@ -107,7 +111,11 @@ function defaultCacheControl(fileName, env) {
     )}, immutable`;
 }
 
-function r2ObjectRange(object) {
+function r2ObjectRange(request, object) {
+    if (!request.headers.has('range')) {
+        return null;
+    }
+
     const range = object?.range;
     const size = object?.size;
     if (!range || typeof range !== 'object' || !Number.isFinite(size) || size < 0) {
@@ -159,14 +167,14 @@ async function responseFromR2Object(request, object, fileName, env) {
     if (typeof object.size === 'number' && !headers.has('content-length')) {
         headers.set('content-length', String(object.size));
     }
-    const range = r2ObjectRange(object);
+    const range = r2ObjectRange(request, object);
     if (range) {
         headers.set('content-range', range.contentRange);
         headers.set('content-length', String(range.contentLength));
     }
 
     return new Response(request.method === 'HEAD' ? null : object.body, {
-        status: object.range ? 206 : 200,
+        status: range ? 206 : 200,
         headers,
     });
 }
@@ -179,10 +187,12 @@ async function responseFromR2(request, env, key, fileName) {
 
     let object;
     try {
-        object =
-            request.method === 'HEAD' && bucket.head
-                ? await bucket.head(key)
-                : await bucket.get(key, { range: request.headers });
+        const options = rangeOptions(request);
+        if (request.method === 'HEAD' && !options && bucket.head) {
+            object = await bucket.head(key);
+        } else {
+            object = options ? await bucket.get(key, options) : await bucket.get(key);
+        }
     } catch (error) {
         console.error('Update R2 lookup failed', {
             error: messageFromError(error),
