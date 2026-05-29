@@ -441,7 +441,7 @@ fn build_toast_xml(payload: &SessionStatusReminderNotificationPayload) -> Result
     Ok(xml.to_string())
 }
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(target_os = "windows")]
 fn build_toast_document(
     payload: &SessionStatusReminderNotificationPayload,
 ) -> Result<windows::Data::Xml::Dom::XmlDocument, String> {
@@ -579,6 +579,7 @@ fn build_toast_document(
     Ok(doc)
 }
 
+#[cfg(target_os = "windows")]
 fn append_action_element(
     doc: &windows::Data::Xml::Dom::XmlDocument,
     parent: &windows::Data::Xml::Dom::XmlElement,
@@ -1127,8 +1128,51 @@ mod linux_notifications {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_toast_xml, finalize_activation_payload, SessionStatusReminderAction,
+        finalize_activation_payload, SessionStatusReminderAction,
         SessionStatusReminderActionPayload, SessionStatusReminderKind,
+    };
+
+    #[test]
+    fn finalize_activation_payload_promotes_blank_reply_to_open() {
+        let payload = finalize_activation_payload(
+            SessionStatusReminderActionPayload {
+                action: SessionStatusReminderAction::Reply,
+                session_id: 1,
+                task_id: "task-1".to_string(),
+                kind: SessionStatusReminderKind::Completed,
+                call_id: None,
+                reply_text: None,
+            },
+            Some("   ".to_string()),
+        );
+
+        assert_eq!(payload.action, SessionStatusReminderAction::Open);
+        assert_eq!(payload.reply_text, None);
+    }
+
+    #[test]
+    fn finalize_activation_payload_preserves_reply_text() {
+        let payload = finalize_activation_payload(
+            SessionStatusReminderActionPayload {
+                action: SessionStatusReminderAction::Reply,
+                session_id: 1,
+                task_id: "task-1".to_string(),
+                kind: SessionStatusReminderKind::Failed,
+                call_id: None,
+                reply_text: None,
+            },
+            Some(" follow up ".to_string()),
+        );
+
+        assert_eq!(payload.action, SessionStatusReminderAction::Reply);
+        assert_eq!(payload.reply_text.as_deref(), Some("follow up"));
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests_windows {
+    use super::{
+        build_toast_xml, SessionStatusReminderKind,
         SessionStatusReminderNotificationApprovalPayload, SessionStatusReminderNotificationPayload,
     };
 
@@ -1175,41 +1219,5 @@ mod tests {
         assert!(xml.contains("Approve"));
         assert!(xml.contains("Reject"));
         assert!(!xml.contains("Reply to TouchAI"));
-    }
-
-    #[test]
-    fn finalize_activation_payload_promotes_blank_reply_to_open() {
-        let payload = finalize_activation_payload(
-            SessionStatusReminderActionPayload {
-                action: SessionStatusReminderAction::Reply,
-                session_id: 1,
-                task_id: "task-1".to_string(),
-                kind: SessionStatusReminderKind::Completed,
-                call_id: None,
-                reply_text: None,
-            },
-            Some("   ".to_string()),
-        );
-
-        assert_eq!(payload.action, SessionStatusReminderAction::Open);
-        assert_eq!(payload.reply_text, None);
-    }
-
-    #[test]
-    fn finalize_activation_payload_preserves_reply_text() {
-        let payload = finalize_activation_payload(
-            SessionStatusReminderActionPayload {
-                action: SessionStatusReminderAction::Reply,
-                session_id: 1,
-                task_id: "task-1".to_string(),
-                kind: SessionStatusReminderKind::Failed,
-                call_id: None,
-                reply_text: None,
-            },
-            Some(" follow up ".to_string()),
-        );
-
-        assert_eq!(payload.action, SessionStatusReminderAction::Reply);
-        assert_eq!(payload.reply_text.as_deref(), Some("follow up"));
     }
 }
