@@ -17,7 +17,16 @@
             "baseUrl": "https://updates.touch-ai.org/touchai-app/v1",
             "deployment": {
                 "provider": "cloudflare-r2",
-                "bucketName": "touchai-updates"
+                "bucketName": "touchai-updates",
+                "workerName": "touchai-update-proxy",
+                "routePattern": "updates.touch-ai.org/touchai-app/v1/*",
+                "zoneName": "touch-ai.org",
+                "compatibilityDate": "2026-05-29",
+                "r2HotAssetVersions": {
+                    "stable": 3,
+                    "beta": 3,
+                    "nightly": 7
+                }
             },
             "channels": {
                 "stable": {
