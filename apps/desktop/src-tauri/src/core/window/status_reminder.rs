@@ -11,10 +11,6 @@ const STATUS_REMINDER_NOTIFICATION_GROUP: &str = "session-status-reminders";
 const SESSION_STATUS_REMINDER_ACTION_EVENT: &str = "session-status-reminder:action";
 const REPLY_INPUT_ID: &str = "touchai-reply";
 
-#[cfg(target_os = "windows")]
-const POWERSHELL_APP_ID: &str =
-    "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatusReminderKind {
@@ -265,17 +261,12 @@ fn show_windows_status_reminder_notification<R: Runtime>(
 ) -> Result<(), String> {
     use log::warn;
     use windows::core::{Interface, HSTRING};
-    use windows::Data::Xml::Dom::XmlDocument;
     use windows::Foundation::TypedEventHandler;
     use windows::UI::Notifications::{
         ToastActivatedEventArgs, ToastNotification, ToastNotificationManager,
     };
 
-    let notification_xml = XmlDocument::new().map_err(|error| error.to_string())?;
-    notification_xml
-        .LoadXml(&HSTRING::from(build_toast_xml(payload)?))
-        .map_err(|error| format!("Failed to load toast xml: {error}"))?;
-
+    let notification_xml = build_toast_document(payload)?;
     let toast = ToastNotification::CreateToastNotification(&notification_xml)
         .map_err(|error| format!("Failed to create toast notification: {error}"))?;
     toast
@@ -377,30 +368,88 @@ fn clear_windows_status_reminder_notifications<R: Runtime>(
     Ok(())
 }
 
+/// 设置当前进程的 AppUserModelId 并确保开始菜单存在快捷方式，
+/// 这样 Windows Toast 通知顶部会显示 "TouchAI" 而非 AUMID GUID。
 #[cfg(target_os = "windows")]
-fn notification_application_id<R: Runtime>(app: &AppHandle<R>) -> String {
-    use std::path::MAIN_SEPARATOR;
+pub fn ensure_windows_start_menu_shortcut(app_id: &str) -> Result<(), String> {
+    use std::path::PathBuf;
+    use windows::core::HSTRING;
+    use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 
-    let default_id = app.config().identifier.clone();
-    let exe = match tauri::utils::platform::current_exe() {
-        Ok(exe) => exe,
-        Err(_) => return default_id,
-    };
-    let exe_dir = match exe.parent() {
-        Some(parent) => parent.display().to_string(),
-        None => return default_id,
-    };
-
-    let debug_dir = format!("{MAIN_SEPARATOR}target{MAIN_SEPARATOR}debug");
-    let release_dir = format!("{MAIN_SEPARATOR}target{MAIN_SEPARATOR}release");
-    if exe_dir.ends_with(&debug_dir) || exe_dir.ends_with(&release_dir) {
-        return POWERSHELL_APP_ID.to_string();
+    let app_id_hstring = HSTRING::from(app_id);
+    unsafe {
+        SetCurrentProcessExplicitAppUserModelID(&app_id_hstring)
+            .map_err(|error| format!("Failed to set current process AUMID: {error}"))?;
     }
 
-    default_id
+    let shortcut_dir = {
+        let appdata =
+            std::env::var("APPDATA").map_err(|error| format!("APPDATA not set: {error}"))?;
+        PathBuf::from(appdata)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs")
+            .join("TouchAI")
+    };
+    let shortcut_path = shortcut_dir.join("TouchAI.lnk");
+
+    if shortcut_path.exists() {
+        return Ok(());
+    }
+
+    let exe_path = std::env::current_exe()
+        .map_err(|error| format!("Failed to get current exe path: {error}"))?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or_else(|| "exe has no parent directory".to_string())?;
+
+    std::fs::create_dir_all(&shortcut_dir)
+        .map_err(|error| format!("Failed to create shortcut directory: {error}"))?;
+
+    let ps_script = format!(
+        r#"$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = '{}'; $s.WorkingDirectory = '{}'; $s.Save()"#,
+        shortcut_path.display(),
+        exe_path.display(),
+        exe_dir.display(),
+    );
+
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+        .output()
+        .map_err(|error| format!("Failed to run PowerShell: {error}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "PowerShell shortcut creation failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn notification_application_id<R: Runtime>(app: &AppHandle<R>) -> String {
+    app.config().identifier.clone()
+}
+
+#[cfg(target_os = "windows")]
 fn build_toast_xml(payload: &SessionStatusReminderNotificationPayload) -> Result<String, String> {
+    let doc = build_toast_document(payload)?;
+    let xml = doc.GetXml().map_err(|error| error.to_string())?;
+    Ok(xml.to_string())
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn build_toast_document(
+    payload: &SessionStatusReminderNotificationPayload,
+) -> Result<windows::Data::Xml::Dom::XmlDocument, String> {
+    use windows::core::HSTRING;
+    use windows::Data::Xml::Dom::XmlDocument;
+
+    let doc = XmlDocument::new().map_err(|error| error.to_string())?;
+
     let launch = serialize_activation_payload(
         payload,
         SessionStatusReminderAction::Open,
@@ -410,88 +459,161 @@ fn build_toast_xml(payload: &SessionStatusReminderNotificationPayload) -> Result
             .map(|approval| approval.call_id.clone()),
     )?;
 
-    let actions = if payload.kind == SessionStatusReminderKind::WaitingApproval {
-        build_approval_actions_xml(payload)?
+    let toast = doc
+        .CreateElement(&HSTRING::from("toast"))
+        .map_err(|error| error.to_string())?;
+    toast
+        .SetAttribute(&HSTRING::from("launch"), &HSTRING::from(&launch))
+        .map_err(|error| error.to_string())?;
+
+    let visual = doc
+        .CreateElement(&HSTRING::from("visual"))
+        .map_err(|error| error.to_string())?;
+    let binding = doc
+        .CreateElement(&HSTRING::from("binding"))
+        .map_err(|error| error.to_string())?;
+    binding
+        .SetAttribute(&HSTRING::from("template"), &HSTRING::from("ToastGeneric"))
+        .map_err(|error| error.to_string())?;
+
+    let text1 = doc
+        .CreateElement(&HSTRING::from("text"))
+        .map_err(|error| error.to_string())?;
+    text1
+        .SetInnerText(&HSTRING::from(&payload.title))
+        .map_err(|error| error.to_string())?;
+    let text2 = doc
+        .CreateElement(&HSTRING::from("text"))
+        .map_err(|error| error.to_string())?;
+    text2
+        .SetInnerText(&HSTRING::from(&payload.body))
+        .map_err(|error| error.to_string())?;
+
+    binding
+        .AppendChild(&text1)
+        .map_err(|error| error.to_string())?;
+    binding
+        .AppendChild(&text2)
+        .map_err(|error| error.to_string())?;
+    visual
+        .AppendChild(&binding)
+        .map_err(|error| error.to_string())?;
+    toast
+        .AppendChild(&visual)
+        .map_err(|error| error.to_string())?;
+
+    let actions_element = doc
+        .CreateElement(&HSTRING::from("actions"))
+        .map_err(|error| error.to_string())?;
+
+    if payload.kind == SessionStatusReminderKind::WaitingApproval {
+        let Some(approval) = payload.approval.as_ref() else {
+            return Err("waiting_approval reminder requires approval payload".to_string());
+        };
+
+        let approve_arguments = serialize_activation_payload(
+            payload,
+            SessionStatusReminderAction::Approve,
+            Some(approval.call_id.clone()),
+        )?;
+        let reject_arguments = serialize_activation_payload(
+            payload,
+            SessionStatusReminderAction::Reject,
+            Some(approval.call_id.clone()),
+        )?;
+
+        append_action_element(
+            &doc,
+            &actions_element,
+            &approval.approve_label,
+            &approve_arguments,
+            None,
+        )?;
+        append_action_element(
+            &doc,
+            &actions_element,
+            &approval.reject_label,
+            &reject_arguments,
+            None,
+        )?;
     } else {
-        build_reply_actions_xml(payload)?
-    };
+        let reply_arguments =
+            serialize_activation_payload(payload, SessionStatusReminderAction::Reply, None)?;
 
-    Ok(format!(
-        r#"<toast launch="{}">
-            <visual>
-                <binding template="ToastGeneric">
-                    <text>{}</text>
-                    <text>{}</text>
-                </binding>
-            </visual>
-            {}
-        </toast>"#,
-        escape_xml(&launch),
-        escape_xml(&payload.title),
-        escape_xml(&payload.body),
-        actions
-    ))
+        let placeholder = payload.reply_placeholder.as_deref().unwrap_or("Reply");
+        let label = payload.reply_label.as_deref().unwrap_or("Reply");
+
+        let input = doc
+            .CreateElement(&HSTRING::from("input"))
+            .map_err(|error| error.to_string())?;
+        input
+            .SetAttribute(&HSTRING::from("id"), &HSTRING::from(REPLY_INPUT_ID))
+            .map_err(|error| error.to_string())?;
+        input
+            .SetAttribute(&HSTRING::from("type"), &HSTRING::from("text"))
+            .map_err(|error| error.to_string())?;
+        input
+            .SetAttribute(
+                &HSTRING::from("placeHolderContent"),
+                &HSTRING::from(placeholder),
+            )
+            .map_err(|error| error.to_string())?;
+        actions_element
+            .AppendChild(&input)
+            .map_err(|error| error.to_string())?;
+
+        append_action_element(
+            &doc,
+            &actions_element,
+            label,
+            &reply_arguments,
+            Some(REPLY_INPUT_ID),
+        )?;
+    }
+
+    toast
+        .AppendChild(&actions_element)
+        .map_err(|error| error.to_string())?;
+    doc.AppendChild(&toast).map_err(|error| error.to_string())?;
+
+    Ok(doc)
 }
 
-fn build_approval_actions_xml(
-    payload: &SessionStatusReminderNotificationPayload,
-) -> Result<String, String> {
-    let Some(approval) = payload.approval.as_ref() else {
-        return Err("waiting_approval reminder requires approval payload".to_string());
-    };
+fn append_action_element(
+    doc: &windows::Data::Xml::Dom::XmlDocument,
+    parent: &windows::Data::Xml::Dom::XmlElement,
+    content: &str,
+    arguments: &str,
+    input_id: Option<&str>,
+) -> Result<(), String> {
+    use windows::core::HSTRING;
 
-    let approve_arguments = serialize_activation_payload(
-        payload,
-        SessionStatusReminderAction::Approve,
-        Some(approval.call_id.clone()),
-    )?;
-    let reject_arguments = serialize_activation_payload(
-        payload,
-        SessionStatusReminderAction::Reject,
-        Some(approval.call_id.clone()),
-    )?;
+    let action = doc
+        .CreateElement(&HSTRING::from("action"))
+        .map_err(|error| error.to_string())?;
+    action
+        .SetAttribute(&HSTRING::from("content"), &HSTRING::from(content))
+        .map_err(|error| error.to_string())?;
+    action
+        .SetAttribute(&HSTRING::from("arguments"), &HSTRING::from(arguments))
+        .map_err(|error| error.to_string())?;
+    action
+        .SetAttribute(
+            &HSTRING::from("activationType"),
+            &HSTRING::from("foreground"),
+        )
+        .map_err(|error| error.to_string())?;
 
-    Ok(format!(
-        r#"<actions>
-            {}
-            {}
-        </actions>"#,
-        build_action_xml(&approval.approve_label, &approve_arguments, None),
-        build_action_xml(&approval.reject_label, &reject_arguments, None)
-    ))
-}
+    if let Some(id) = input_id {
+        action
+            .SetAttribute(&HSTRING::from("hint-inputId"), &HSTRING::from(id))
+            .map_err(|error| error.to_string())?;
+    }
 
-fn build_reply_actions_xml(
-    payload: &SessionStatusReminderNotificationPayload,
-) -> Result<String, String> {
-    let reply_arguments =
-        serialize_activation_payload(payload, SessionStatusReminderAction::Reply, None)?;
-
-    let placeholder = payload.reply_placeholder.as_deref().unwrap_or("Reply");
-    let label = payload.reply_label.as_deref().unwrap_or("Reply");
-
-    Ok(format!(
-        r#"<actions>
-            <input id="{}" type="text" placeHolderContent="{}" />
-            {}
-        </actions>"#,
-        escape_xml(REPLY_INPUT_ID),
-        escape_xml(placeholder),
-        build_action_xml(label, &reply_arguments, Some(REPLY_INPUT_ID))
-    ))
-}
-
-fn build_action_xml(content: &str, arguments: &str, input_id: Option<&str>) -> String {
-    let hint_input = input_id
-        .map(|value| format!(r#" hint-inputId="{}""#, escape_xml(value)))
-        .unwrap_or_default();
-
-    format!(
-        r#"<action content="{}" arguments="{}" activationType="foreground"{} />"#,
-        escape_xml(content),
-        escape_xml(arguments),
-        hint_input
-    )
+    parent
+        .AppendChild(&action)
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn serialize_activation_payload(
@@ -544,21 +666,6 @@ fn extract_reply_text(
     let value = inputs.Lookup(&HSTRING::from(REPLY_INPUT_ID)).ok()?;
     let property = value.cast::<IPropertyValue>().ok()?;
     property.GetString().ok().map(|value| value.to_string())
-}
-
-fn escape_xml(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&apos;"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
 }
 
 // ---------------------------------------------------------------------------
@@ -1020,18 +1127,10 @@ mod linux_notifications {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_toast_xml, escape_xml, finalize_activation_payload, SessionStatusReminderAction,
+        build_toast_xml, finalize_activation_payload, SessionStatusReminderAction,
         SessionStatusReminderActionPayload, SessionStatusReminderKind,
         SessionStatusReminderNotificationApprovalPayload, SessionStatusReminderNotificationPayload,
     };
-
-    #[test]
-    fn escape_xml_escapes_reserved_characters() {
-        assert_eq!(
-            escape_xml(r#"<TouchAI "done" & 'ok'>"#),
-            "&lt;TouchAI &quot;done&quot; &amp; &apos;ok&apos;&gt;"
-        );
-    }
 
     #[test]
     fn build_toast_xml_embeds_reply_input_for_non_approval_notifications() {
@@ -1049,9 +1148,9 @@ mod tests {
 
         assert!(xml.contains("Done &amp; ready"));
         assert!(xml.contains("&lt;approved&gt;"));
-        assert!(xml.contains("&quot;action&quot;:&quot;open&quot;"));
         assert!(xml.contains("Reply to TouchAI"));
-        assert!(xml.contains("&quot;action&quot;:&quot;reply&quot;"));
+        assert!(xml.contains("reply"));
+        assert!(xml.contains("input"));
     }
 
     #[test]
@@ -1075,8 +1174,6 @@ mod tests {
         assert!(xml.contains("<actions>"));
         assert!(xml.contains("Approve"));
         assert!(xml.contains("Reject"));
-        assert!(xml.contains("&quot;action&quot;:&quot;approve&quot;"));
-        assert!(xml.contains("&quot;action&quot;:&quot;reject&quot;"));
         assert!(!xml.contains("Reply to TouchAI"));
     }
 

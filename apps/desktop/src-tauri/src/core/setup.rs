@@ -220,5 +220,15 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         warn!("Failed to preload tray menu: {}", error);
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        let app_id = app.config().identifier.clone();
+        if let Err(error) =
+            crate::core::window::status_reminder::ensure_windows_start_menu_shortcut(&app_id)
+        {
+            warn!("Failed to ensure Start Menu shortcut: {}", error);
+        }
+    }
+
     Ok(())
 }
