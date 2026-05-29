@@ -400,6 +400,11 @@ const SearchKeyboard = Extension.create({
                 return true;
             },
             'Shift-Enter': ({ editor }: { editor: Editor }) => {
+                // 空编辑器中阻止插入硬换行：hardBreak 节点会让 Tiptap 判定文档非空，
+                // 移除 is-editor-empty 类导致占位符消失，但视觉上没有任何内容。
+                if (!getEditorText(editor).trim()) {
+                    return true;
+                }
                 return editor.commands.setHardBreak();
             },
             Backspace: ({ editor }: { editor: Editor }) => {

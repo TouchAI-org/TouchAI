@@ -28,11 +28,8 @@
         <div
             ref="editorHostRef"
             data-testid="search-editor-host"
-            class="search-bar-editor-host custom-scrollbar-thin flex min-h-0 flex-1 cursor-default self-stretch overflow-y-auto"
-            :class="[
-                disabled ? 'pointer-events-none opacity-60' : '',
-                isMultiLine ? 'items-start' : 'items-center',
-            ]"
+            class="search-bar-editor-host custom-scrollbar-thin flex min-h-0 flex-1 cursor-default items-start self-stretch overflow-y-auto"
+            :class="[disabled ? 'pointer-events-none opacity-60' : '']"
             :style="{ maxHeight: 'calc(1.5em * 3 + 8px)' }"
             @click="onEditorClick"
             @mousedown.capture="handleEditorSelectionMouseDown"
