@@ -1,7 +1,10 @@
 <p align="center"><a href="./README.md">中文</a> | English</p>
 
 <p align="center">
-  <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-with-text-light.svg" />
+    <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
+  </picture>
 </p>
 
 <p align="center">
@@ -19,10 +22,17 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/search-window.png" alt="TouchAI search window" style="max-width: 500px;width:100%" />
+  <img src="docs/images/search-window.png" alt="TouchAI search window" width="650" />
 </p>
 
 ---
+
+<p align="center">
+  <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" />
+</p>
+
+> [!WARNING]
+> Many features are still pending merge and may undergo breaking changes. Version 1.0 will be released when the June 1 free token event officially launches.
 
 ### Features
 
@@ -53,6 +63,12 @@ For more details, browse the project docs and source code.
   <img src="https://contrib.rocks/image?repo=TouchAI-org/TouchAI" alt="Contributors" />
 </a>
 
-### Star History
+### Repository Statistics
 
-[![Star History Chart](https://api.star-history.com/svg?repos=TouchAI-org/TouchAI&type=Date)](https://star-history.com/#TouchAI-org/TouchAI&Date)
+![Repository Statistics](https://repobeats.axiom.co/api/embed/df11a0b7cf3ec05d667151f6ece595dd7a65e3ff.svg)
+
+### Friendly Links
+
+- [LINUX DO](https://linux.do/)
+- [Xiaomi MIMO](https://mimo.xiaomi.com/)
+- [ExoMind](https://exo-mind.ai/)
