@@ -646,10 +646,15 @@ export async function buildModelMessages(
             continue;
         }
 
-        if (toolCallParts.length === 0 && contentParts.length === 1) {
+        const onlyContentPart = contentParts[0];
+        if (
+            toolCallParts.length === 0 &&
+            contentParts.length === 1 &&
+            onlyContentPart?.type === 'text'
+        ) {
             mappedMessages.push({
                 role: 'assistant',
-                content: contentParts[0]!.text,
+                content: onlyContentPart.text,
             });
             continue;
         }

@@ -166,17 +166,6 @@ function mapPersistedToolResultStatus(
     return assertUnreachablePersistedToolStatus(toolStatus);
 }
 
-function mapPersistedToolCallStatus(
-    toolStatus: PersistedToolLogStatus | null,
-    resultText: string
-): ToolCallInfo['status'] {
-    if (toolStatus === null) {
-        return 'executing';
-    }
-
-    return mapPersistedToolResultStatus(toolStatus, resultText);
-}
-
 function isPersistedToolResultErrorStatus(
     toolStatus: PersistedToolLogStatus | null,
     resultText: string
@@ -270,7 +259,7 @@ async function buildPersistedEntries(
                 serverId: row.server_id,
                 sourceLabel: source === 'builtin' ? '内置工具' : serverName || 'MCP 工具',
                 arguments: parseToolArguments(row.tool_input),
-                status: mapPersistedToolCallStatus(row.tool_status, row.content),
+                status: 'executing',
             };
             syncBuiltInToolCallPresentation(toolCall);
             currentEntry.toolCalls = [...(currentEntry.toolCalls ?? []), toolCall];
@@ -814,14 +803,7 @@ function injectDerivedRequestStatuses(
                 continue;
             }
 
-            if (!anchorMessage || !hasVisibleAssistantContent(anchorMessage)) {
-                pushAnchoredMessage(
-                    collections,
-                    createDerivedErrorMessage(turn),
-                    'after',
-                    anchorIndex
-                );
-            }
+            pushAnchoredMessage(collections, createDerivedErrorMessage(turn), 'after', anchorIndex);
         }
 
         if (turn.status === 'cancelled') {
