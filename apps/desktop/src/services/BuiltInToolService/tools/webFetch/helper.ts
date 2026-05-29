@@ -71,8 +71,30 @@ function isPrivateIpv4(hostname: string): boolean {
     );
 }
 
+function ipv4FromMappedIpv6(hostname: string): string | null {
+    const normalized = stripIpv6Brackets(hostname).toLowerCase();
+    const dottedMatch = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(normalized);
+    if (dottedMatch) {
+        return dottedMatch[1] ?? null;
+    }
+
+    const hexMatch = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(normalized);
+    if (!hexMatch) {
+        return null;
+    }
+
+    const high = Number.parseInt(hexMatch[1]!, 16);
+    const low = Number.parseInt(hexMatch[2]!, 16);
+    return [(high >> 8) & 255, high & 255, (low >> 8) & 255, low & 255].join('.');
+}
+
 function isPrivateIpv6(hostname: string): boolean {
     const normalized = stripIpv6Brackets(hostname).toLowerCase();
+    const mappedIpv4 = ipv4FromMappedIpv6(normalized);
+    if (mappedIpv4) {
+        return isPrivateIpv4(mappedIpv4);
+    }
+
     return (
         normalized === '::1' ||
         normalized.startsWith('fc') ||
