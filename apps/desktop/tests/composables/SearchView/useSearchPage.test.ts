@@ -326,6 +326,51 @@ describe('useSearchPageLifecycle', () => {
         mounted.unmount();
     });
 
+    it('sends status notifications when the search surface is visible but the app is unfocused', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(true),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+
+        window.dispatchEvent(new Event('blur'));
+        await flushLifecycle();
+
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
+            createStatusChangedPayload('completed', {
+                title: '浠诲姟宸插畬鎴?',
+                body: 'done',
+            })
+        );
+        await flushLifecycle();
+
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
+            title: '浠诲姟宸插畬鎴?',
+            body: 'done',
+            sessionId: 1,
+            taskId: 'task-1',
+            kind: 'completed',
+            approval: null,
+            openLabel: '打开',
+        });
+        expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('completed');
+
+        mounted.unmount();
+    });
+
     it('sends background reminders through native notifications and tray status dots', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();
@@ -368,6 +413,7 @@ describe('useSearchPageLifecycle', () => {
             taskId: 'task-1',
             kind: 'failed',
             approval: null,
+            openLabel: '打开',
         });
         expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('failed');
 

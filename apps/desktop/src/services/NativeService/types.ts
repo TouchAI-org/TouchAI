@@ -87,6 +87,7 @@ export interface SessionStatusReminderNotificationPayload {
     taskId: string;
     kind: SessionStatusReminderNotificationKind;
     approval?: SessionStatusReminderNotificationApprovalPayload | null;
+    openLabel?: string | null;
     replyPlaceholder?: string | null;
     replyLabel?: string | null;
 }

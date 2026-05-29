@@ -62,6 +62,7 @@ export const zhToEnTextMap = {
         'This operation changes TouchAI application settings and affects future behavior immediately.',
     批准: 'Approve',
     拒绝: 'Reject',
+    打开: 'Open',
     批准执行: 'Approve execution',
     拒绝执行: 'Reject execution',
     设置已更新: 'Setting updated',

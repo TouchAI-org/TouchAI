@@ -8,8 +8,10 @@ import type {
     SessionStatusReminderNotificationPayload,
 } from '@services/NativeService/types';
 
+import { tt } from '@/i18n';
+
 interface SessionStatusReminderCoordinatorOptions {
-    isSearchSurfaceVisible: () => boolean;
+    isSearchSurfaceForegrounded: () => boolean;
     onReminderAction?: (payload: SessionStatusReminderActionEvent) => void | Promise<void>;
 }
 
@@ -80,7 +82,7 @@ export function createSessionStatusReminderCoordinator(
             clearReminderState();
         }
 
-        if (!payload.reminder || options.isSearchSurfaceVisible()) {
+        if (!payload.reminder || options.isSearchSurfaceForegrounded()) {
             return;
         }
 
@@ -91,6 +93,7 @@ export function createSessionStatusReminderCoordinator(
             sessionId: payload.sessionId,
             taskId: payload.taskId,
             approval: payload.reminder.approval ?? null,
+            ...(payload.reminder.kind === 'waiting_approval' ? {} : { openLabel: tt('打开') }),
         });
         setTrayStatusIndicator(payload.reminder.kind);
         hasActiveReminder = true;

@@ -45,6 +45,7 @@ pub struct SessionStatusReminderNotificationPayload {
     pub task_id: String,
     pub kind: SessionStatusReminderKind,
     pub approval: Option<SessionStatusReminderNotificationApprovalPayload>,
+    pub open_label: Option<String>,
     pub reply_placeholder: Option<String>,
     pub reply_label: Option<String>,
 }
@@ -370,7 +371,7 @@ fn clear_windows_status_reminder_notifications<R: Runtime>(
 
 /// 设置当前进程的 AppUserModelId 并确保开始菜单存在快捷方式，
 /// 这样 Windows Toast 通知顶部会显示 "TouchAI" 而非 AUMID GUID。
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(debug_assertions)))]
 pub fn ensure_windows_start_menu_shortcut(app_id: &str) -> Result<(), String> {
     use std::path::PathBuf;
     use windows::core::HSTRING;
@@ -434,7 +435,7 @@ fn notification_application_id<R: Runtime>(app: &AppHandle<R>) -> String {
     app.config().identifier.clone()
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(test, target_os = "windows"))]
 fn build_toast_xml(payload: &SessionStatusReminderNotificationPayload) -> Result<String, String> {
     let doc = build_toast_document(payload)?;
     let xml = doc.GetXml().map_err(|error| error.to_string())?;
@@ -827,15 +828,8 @@ mod macos_notifications {
             .unwrap_or("Reply to TouchAI");
 
         let existing_categories = center.notificationCategories();
-        let mut category_ids: Vec<String> = existing_categories
-            .iter()
-            .map(|cat| cat.identifier().to_string())
-            .collect();
 
         if payload.kind == SessionStatusReminderKind::WaitingApproval {
-            if category_ids.contains(&"touchai-waiting-approval".to_string()) {
-                return;
-            }
             let approve_action = UNNotificationAction::actionWithIdentifier_title_options(
                 &NSString::from_str("approve"),
                 &NSString::from_str(approve_label),
@@ -854,13 +848,14 @@ mod macos_notifications {
                     &NSArray::new(),
                     objc2_user_notifications::UNNotificationCategoryOptions::empty(),
                 );
-            let mut all: Vec<UNNotificationCategory> = existing_categories.to_vec();
+            let mut all: Vec<UNNotificationCategory> = existing_categories
+                .to_vec()
+                .into_iter()
+                .filter(|category| category.identifier().to_string() != "touchai-waiting-approval")
+                .collect();
             all.push(category);
             center.setNotificationCategories(&NSArray::from_vec(all));
         } else {
-            if category_ids.contains(&"touchai-completed-failed".to_string()) {
-                return;
-            }
             let reply_action = objc2_user_notifications::UNTextInputNotificationAction::actionWithIdentifier_title_options_textInputButtonTitle_textInputPlaceholder(
                 &NSString::from_str("reply"),
                 &NSString::from_str(reply_label),
@@ -876,7 +871,11 @@ mod macos_notifications {
                     &NSArray::new(),
                     objc2_user_notifications::UNNotificationCategoryOptions::empty(),
                 );
-            let mut all: Vec<UNNotificationCategory> = existing_categories.to_vec();
+            let mut all: Vec<UNNotificationCategory> = existing_categories
+                .to_vec()
+                .into_iter()
+                .filter(|category| category.identifier().to_string() != "touchai-completed-failed")
+                .collect();
             all.push(category);
             center.setNotificationCategories(&NSArray::from_vec(all));
         }
@@ -1059,7 +1058,7 @@ mod linux_notifications {
             .as_ref()
             .map(|a| a.reject_label.as_str())
             .unwrap_or("Reject");
-        let reply_label = payload.reply_label.as_deref().unwrap_or("Reply");
+        let open_label = payload.open_label.as_deref().unwrap_or("Open");
 
         let mut notification = Notification::new();
         notification
@@ -1072,7 +1071,7 @@ mod linux_notifications {
             notification.action("approve", approve_label);
             notification.action("reject", reject_label);
         } else {
-            notification.action("open", reply_label);
+            notification.action("open", open_label);
         }
 
         let handle = notification
@@ -1185,6 +1184,7 @@ mod tests_windows {
             task_id: "task-1".to_string(),
             kind: SessionStatusReminderKind::Completed,
             approval: None,
+            open_label: None,
             reply_placeholder: Some("Reply to TouchAI".to_string()),
             reply_label: Some("Reply".to_string()),
         })
@@ -1210,6 +1210,7 @@ mod tests_windows {
                 approve_label: "Approve".to_string(),
                 reject_label: "Reject".to_string(),
             }),
+            open_label: None,
             reply_placeholder: None,
             reply_label: None,
         })

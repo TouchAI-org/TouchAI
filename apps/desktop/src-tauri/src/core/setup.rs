@@ -220,8 +220,10 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         warn!("Failed to preload tray menu: {}", error);
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", not(debug_assertions)))]
     {
+        // Only packaged builds should register the Windows notification identity,
+        // so local dev runs do not reuse or overwrite the installed app shortcut/AUMID.
         let app_id = app.config().identifier.clone();
         if let Err(error) =
             crate::core::window::status_reminder::ensure_windows_start_menu_shortcut(&app_id)

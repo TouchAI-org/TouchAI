@@ -425,7 +425,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let restoredActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
     const sessionStatusReminderCoordinator = createSessionStatusReminderCoordinator({
-        isSearchSurfaceVisible: () => interactionContext.state.windowVisible,
+        isSearchSurfaceForegrounded: () =>
+            interactionContext.state.windowVisible &&
+            interactionContext.state.windowFocused &&
+            interactionContext.state.appFocused,
         onReminderAction: handleSessionStatusReminderAction,
     });
 
