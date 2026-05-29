@@ -55,6 +55,12 @@
     const releaseNotes = computed(
         () => visibleUpdate.value?.notes?.trim() || latestUpdate.value?.releaseNotes?.trim() || ''
     );
+    const currentDisplayVersion = computed(
+        () => updateState.value.currentVersion ?? appVersion.value
+    );
+    const latestDisplayVersion = computed(
+        () => latestUpdate.value?.version ?? currentDisplayVersion.value
+    );
     const directDownload = computed(() =>
         preferredAppUpdateDownload(latestUpdate.value?.downloads ?? [])
     );
@@ -99,7 +105,9 @@
         }
 
         if (updateState.value.status === 'not_available') {
-            return t('settings.general.update.status.latest');
+            return t('settings.general.update.status.latestVersion', {
+                version: latestDisplayVersion.value,
+            });
         }
 
         if (updateState.value.status === 'failed') {
@@ -145,18 +153,36 @@
         return t('settings.general.update.dialog.action.openDownload');
     });
 
+    const hasUpdateDetails = computed(() => {
+        if (
+            ['available', 'downloaded', 'downloading', 'installing'].includes(
+                updateState.value.status
+            )
+        ) {
+            return true;
+        }
+
+        return (
+            updateState.value.status === 'unsupported' &&
+            Boolean(latestUpdate.value?.version) &&
+            latestUpdate.value?.version !== currentDisplayVersion.value
+        );
+    });
+
     const detailsTitle = computed(() =>
-        latestUpdate.value?.version || visibleUpdate.value?.version
+        hasUpdateDetails.value && (latestUpdate.value?.version || visibleUpdate.value?.version)
             ? t('settings.general.update.dialog.availableTitle', {
                   version: latestUpdate.value?.version ?? visibleUpdate.value?.version ?? '',
                   channel: channelLabel.value,
               })
-            : t('settings.general.update.status.latest')
+            : t('settings.general.update.status.latestVersion', {
+                  version: latestDisplayVersion.value,
+              })
     );
 
     const versionLine = computed(() =>
         t('settings.general.update.dialog.versionLine', {
-            current: updateState.value.currentVersion ?? appVersion.value,
+            current: currentDisplayVersion.value,
             target: targetVersion.value || appVersion.value,
         })
     );
@@ -242,14 +268,11 @@
             <h2 class="settings-section-title">
                 {{ t('settings.general.update.channelTitle') }}
             </h2>
-            <p class="settings-section-description">
-                {{ t('settings.general.update.channelDescription') }}
-            </p>
         </div>
 
         <div class="settings-row-group divide-y divide-neutral-200/70">
             <div
-                class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
             >
                 <label
                     data-testid="settings-general-row-label"
@@ -257,7 +280,7 @@
                 >
                     {{ t('settings.general.update.channelRowLabel') }}
                 </label>
-                <div data-testid="settings-general-control" class="ml-auto w-[220px]">
+                <div data-testid="settings-general-control" class="ml-auto w-[180px]">
                     <CustomSelect
                         :model-value="updateState.channel"
                         :options="channelOptions"
@@ -357,6 +380,7 @@
                         >
                             <MarkdownContent
                                 v-if="releaseNotes"
+                                class="settings-update-release-notes"
                                 :content="releaseNotes"
                                 :final="true"
                             />
@@ -389,3 +413,25 @@
         </div>
     </section>
 </template>
+
+<style scoped>
+    .settings-update-release-notes.touchai-markdown {
+        --touchai-markdown-body-size: 13px;
+        --touchai-markdown-body-leading: 1.72;
+        --touchai-flow-paragraph-y: 0.64rem;
+        --touchai-flow-list-y: 0.58rem;
+        --touchai-flow-list-item-y: 0.24rem;
+        --touchai-flow-heading-1-mt: 0.7rem;
+        --touchai-flow-heading-1-mb: 0.44rem;
+        --touchai-flow-heading-2-mt: 0.66rem;
+        --touchai-flow-heading-2-mb: 0.4rem;
+        --touchai-flow-heading-3-mt: 0.6rem;
+        --touchai-flow-heading-3-mb: 0.34rem;
+        --touchai-heading-1-size: 1.18em;
+        --touchai-heading-2-size: 1.12em;
+        --touchai-heading-3-size: 1.08em;
+        font-size: 13px;
+        line-height: 1.72;
+        letter-spacing: 0;
+    }
+</style>
