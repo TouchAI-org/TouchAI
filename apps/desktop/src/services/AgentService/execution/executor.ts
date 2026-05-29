@@ -735,6 +735,28 @@ export class AiRequestExecutor {
         });
     }
 
+    private async sanitizeToolCallsForHistory(toolCalls: AiToolCall[]): Promise<AiToolCall[]> {
+        return await Promise.all(
+            toolCalls.map(async (toolCall) => {
+                try {
+                    return await builtInToolService.sanitizeToolCallForHistory(toolCall);
+                } catch (error) {
+                    console.warn(
+                        `[AiRequestExecutor] Failed to sanitize tool call history: ${toolCall.name}`,
+                        error
+                    );
+                    if (toolCall.name.startsWith('builtin__')) {
+                        return {
+                            ...toolCall,
+                            arguments: '[REDACTED_BUILTIN_TOOL_ARGUMENTS]',
+                        };
+                    }
+                    return toolCall;
+                }
+            })
+        );
+    }
+
     private async runToolRound(
         runtime: AttemptRuntime,
         options: {
@@ -747,11 +769,12 @@ export class AiRequestExecutor {
             iteration: runtime.iteration,
         });
 
+        const historyToolCalls = await this.sanitizeToolCallsForHistory(options.step.toolCalls);
         runtime.messages.push(
             buildAssistantToolCallHistoryMessage(
                 options.step.chunkResponse,
                 options.step.chunkReasoning,
-                options.step.toolCalls
+                historyToolCalls
             )
         );
 

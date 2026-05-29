@@ -59,6 +59,13 @@ vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
     },
 }));
 
+vi.mock('@/views/SettingsView/components/Memory/index.vue', () => ({
+    default: {
+        name: 'MemoryView',
+        template: '<section data-testid="memory-view-stub" />',
+    },
+}));
+
 vi.mock('@/views/SettingsView/components/McpTools/index.vue', () => ({
     default: {
         name: 'McpToolsView',
@@ -206,6 +213,10 @@ describe('SettingsWindowView', () => {
         await flushPromises();
         expect(loadingState().attributes('variant')).toBe('brand');
 
+        nav.vm.$emit('navigate', 'memory');
+        await flushPromises();
+        expect(loadingState().attributes('variant')).toBe('brand');
+
         nav.vm.$emit('navigate', 'mcp-tools');
         await flushPromises();
         expect(loadingState().attributes('variant')).toBe('brand');
@@ -232,6 +243,10 @@ describe('SettingsWindowView', () => {
         nav.vm.$emit('navigate', 'built-in-tools');
         await flushPromises();
         expect(wrapper.find('built-in-tools-view-stub').exists()).toBe(true);
+
+        nav.vm.$emit('navigate', 'memory');
+        await flushPromises();
+        expect(wrapper.find('memory-view-stub').exists()).toBe(true);
 
         nav.vm.$emit('navigate', 'mcp-tools');
         await flushPromises();

@@ -12,6 +12,7 @@ import { AiError, AiErrorCode } from '../contracts/errors';
 import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
+import { buildMemoryDirectoryPrompt } from '../prompt/memoryDirectory';
 import { buildPromptTransportMessages } from '../prompt/transport';
 import type { PromptSnapshot } from '../prompt/types';
 import { buildSessionTitle } from '../session/title';
@@ -233,6 +234,7 @@ export class AiConversationRuntime {
                 attachments,
                 executionMode: this.options.executionMode ?? 'foreground',
                 inputSnapshot: this.options.inputSnapshot,
+                sessionMemory: await buildMemoryDirectoryPrompt(),
             }));
         const modelLanguageContext =
             promptSnapshot.modelLanguageContext ?? getCurrentModelLanguageContext();

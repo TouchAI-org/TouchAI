@@ -63,6 +63,7 @@ describe('NavigationSidebar', () => {
         expect(wrapper.text()).not.toContain('概览');
         expect(wrapper.text()).toContain('通用');
         expect(wrapper.text()).toContain('服务商与模型');
+        expect(wrapper.text()).toContain('记忆');
         expect(wrapper.text()).not.toContain('关于');
         expect(wrapper.text()).not.toContain('Provider、模型、默认模型和密钥');
     });
@@ -375,7 +376,7 @@ describe('NavigationSidebar', () => {
 
         expect(sidebar.attributes('style')).toContain(`width: ${SETTINGS_SIDEBAR_MAX_WIDTH}px`);
 
-        await wrapper.setProps({ activeSection: 'ai-services' });
+        await wrapper.setProps({ activeSection: 'memory' });
         await wrapper.vm.$nextTick();
 
         const effectiveMax = Math.max(

@@ -189,6 +189,37 @@ export const settings = sqliteTable('settings', {
 });
 
 /**
+ * 记忆表。
+ */
+export const memoryItems = sqliteTable(
+    'memory_items',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        title: text('title').notNull(),
+        applicability: text('applicability').notNull(),
+        content: text('content').notNull(),
+        enabled: integer('enabled').notNull().default(1),
+        source_session_id: integer('source_session_id').references(() => sessions.id, {
+            onDelete: 'set null',
+        }),
+        source_message_id: integer('source_message_id').references(() => messages.id, {
+            onDelete: 'set null',
+        }),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        last_used_at: text('last_used_at'),
+    },
+    (table) => [
+        index('memory_items_enabled_idx').on(table.enabled),
+        index('memory_items_updated_at_idx').on(table.updated_at),
+    ]
+);
+
+/**
  * 统计表
  */
 export const statistics = sqliteTable('statistics', {
@@ -567,6 +598,10 @@ export type AttachmentRemoteRefUpdate = Partial<NewAttachmentRemoteRef>;
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
 export type SettingUpdate = Partial<NewSetting>;
+
+export type MemoryItem = typeof memoryItems.$inferSelect;
+export type NewMemoryItem = typeof memoryItems.$inferInsert;
+export type MemoryItemUpdate = Partial<NewMemoryItem>;
 
 export type Statistic = typeof statistics.$inferSelect;
 export type NewStatistic = typeof statistics.$inferInsert;

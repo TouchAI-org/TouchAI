@@ -20,6 +20,8 @@ const {
             target: 'Setting',
         })),
         buildApprovalRequest: vi.fn(() => null),
+        prepareForExecution: vi.fn(async (args) => args),
+        sanitizeLogInput: vi.fn((args) => args),
         execute: vi.fn(),
     };
 

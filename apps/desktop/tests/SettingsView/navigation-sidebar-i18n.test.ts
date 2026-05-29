@@ -37,6 +37,9 @@ describe('Settings navigation sidebar i18n', () => {
         expect(wrapper.get('[data-testid="settings-nav-ai-services"]').attributes('title')).toBe(
             'Providers and models'
         );
+        expect(wrapper.get('[data-testid="settings-nav-memory"]').attributes('title')).toBe(
+            'Memory'
+        );
         expect(wrapper.get('[data-testid="settings-nav-built-in-tools"]').attributes('title')).toBe(
             'Built-in tools'
         );
@@ -56,6 +59,7 @@ describe('Settings navigation sidebar i18n', () => {
         expect(flattenSettingsNavigation().map((item) => item.label)).toEqual([
             'General',
             'Providers and models',
+            'Memory',
             'Built-in tools',
             'MCP tools',
             'Data management',

@@ -28,6 +28,7 @@
     const BuiltInToolsView = defineAsyncComponent(
         () => import('./components/BuiltInTools/index.vue')
     );
+    const MemoryView = defineAsyncComponent(() => import('./components/Memory/index.vue'));
     const McpToolsView = defineAsyncComponent(() => import('./components/McpTools/index.vue'));
     const DataManagementView = defineAsyncComponent(
         () => import('./components/DataManagement/index.vue')
@@ -260,6 +261,19 @@
                                 <template #fallback>
                                     <LoadingState
                                         :message="t('settings.loading.aiServices')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
+                                </template>
+                            </Suspense>
+                        </div>
+
+                        <div v-else-if="activeSection === 'memory'" class="h-full w-full">
+                            <Suspense>
+                                <MemoryView />
+                                <template #fallback>
+                                    <LoadingState
+                                        :message="t('settings.loading.memory')"
                                         variant="brand"
                                         fill="min"
                                     />

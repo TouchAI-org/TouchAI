@@ -18,7 +18,9 @@ import type { AttachmentIndex } from '@/services/AgentService/infrastructure/att
 export type BuiltInToolId =
     | 'bash'
     | 'file_search'
+    | 'memory'
     | 'read'
+    | 'search_conversation'
     | 'setting'
     | 'web_fetch'
     | 'upgrade_model'
@@ -158,6 +160,41 @@ export abstract class BuiltInTool<
         void result;
         void args;
         return null;
+    }
+
+    /**
+     * 执行前预处理工具参数。
+     *
+     * 这个阶段发生在 UI 事件和数据库日志之前，适合做会影响日志安全的校验
+     * 或一次性规范化。默认不修改参数。
+     *
+     * @param args 模型传入的工具参数。
+     * @param config 当前工具配置。
+     * @param context 当前执行上下文。
+     * @returns 后续审批与执行使用的参数。
+     */
+    prepareForExecution(
+        args: Record<string, unknown>,
+        config: TConfig,
+        context: TContext
+    ): Record<string, unknown> | Promise<Record<string, unknown>> {
+        void config;
+        void context;
+        return args;
+    }
+
+    /**
+     * 生成可写入 UI 事件和数据库日志的参数快照。
+     *
+     * 默认直接使用参数；包含敏感字段的工具应覆写此方法。
+     *
+     * @param args 模型传入或预处理后的工具参数。
+     * @param config 当前工具配置。
+     * @returns 安全日志参数。
+     */
+    sanitizeLogInput(args: Record<string, unknown>, config: TConfig): Record<string, unknown> {
+        void config;
+        return args;
     }
 
     /**

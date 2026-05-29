@@ -99,14 +99,25 @@ function syncBuiltInToolCallPresentation(toolCall: ToolCallInfo): void {
         return;
     }
 
-    if (!toolCall.builtinConversationSemantic && toolCall.result) {
+    if (toolCall.result) {
+        const semanticFromResult = resolveBuiltInToolConversationSemantic(
+            toolCall.namespacedName || toolCall.name,
+            toolCall.arguments ?? {},
+            {
+                result: toolCall.result,
+                resultOnly: true,
+            }
+        );
+        if (semanticFromResult) {
+            toolCall.builtinConversationSemantic = semanticFromResult;
+        }
+    }
+
+    if (!toolCall.builtinConversationSemantic) {
         toolCall.builtinConversationSemantic =
             resolveBuiltInToolConversationSemantic(
                 toolCall.namespacedName || toolCall.name,
-                toolCall.arguments ?? {},
-                {
-                    result: toolCall.result,
-                }
+                toolCall.arguments ?? {}
             ) ?? undefined;
     }
     toolCall.builtinPresentation =

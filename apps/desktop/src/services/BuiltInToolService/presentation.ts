@@ -112,19 +112,71 @@ function getBuiltInToolConversationVerb(
     return t(key);
 }
 
+function normalizePresentationTarget(value?: string): string | undefined {
+    const normalized = value?.trim();
+    return normalized || undefined;
+}
+
+function parseLegacyMemoryPresentationItems(target?: string): string[] {
+    const normalizedTarget = normalizePresentationTarget(target);
+    if (!normalizedTarget) {
+        return [];
+    }
+
+    if (normalizedTarget === '记忆' || normalizedTarget === 'Memory') {
+        return [];
+    }
+
+    const legacyMatch = normalizedTarget.match(/^(?:记忆|Memory)\s*\((.*)\)$/);
+    if (legacyMatch?.[1]?.trim()) {
+        return [legacyMatch[1].trim()];
+    }
+
+    return [normalizedTarget];
+}
+
+function formatMemoryConversationContent(semantic: BuiltInToolConversationSemantic): string {
+    if (semantic.action === 'update') {
+        return (
+            normalizePresentationTarget(semantic.target) ||
+            t('builtInTools.presentation.memory.label')
+        );
+    }
+
+    const hintedItems =
+        semantic.presentationHint?.kind === 'memory'
+            ? semantic.presentationHint.items.map((item) => item.trim()).filter(Boolean)
+            : parseLegacyMemoryPresentationItems(semantic.target);
+
+    if (hintedItems.length === 0) {
+        return t('builtInTools.presentation.memory.label');
+    }
+
+    return t('builtInTools.presentation.memory.target', {
+        target: hintedItems.join(', '),
+    });
+}
+
 interface ResolveBuiltInToolConversationSemanticOptions {
     semantic?: BuiltInToolConversationSemantic;
     result?: string;
+    resultOnly?: boolean;
 }
 
 function buildBuiltInToolConversationPresentationFromSemantic(
+    toolId: BuiltInToolId,
     semantic: BuiltInToolConversationSemantic,
     status: BuiltInToolConversationStatus,
     fallbackContent: string
 ): BuiltInToolConversationPresentation {
+    const content =
+        toolId === 'memory'
+            ? formatMemoryConversationContent(semantic)
+            : normalizePresentationTarget(semantic.target) || fallbackContent;
+
     return {
         verb: getBuiltInToolConversationVerb(semantic.action, status),
-        content: semantic.target?.trim() || fallbackContent,
+        content,
     };
 }
 
@@ -155,6 +207,10 @@ export function resolveBuiltInToolConversationSemantic(
         return semanticFromResult;
     }
 
+    if (options.resultOnly) {
+        return null;
+    }
+
     return tool.buildConversationSemantic(args);
 }
 
@@ -179,5 +235,10 @@ export function buildBuiltInToolConversationPresentation(
         return null;
     }
 
-    return buildBuiltInToolConversationPresentationFromSemantic(semantic, status, tool.displayName);
+    return buildBuiltInToolConversationPresentationFromSemantic(
+        tool.id,
+        semantic,
+        status,
+        tool.displayName
+    );
 }

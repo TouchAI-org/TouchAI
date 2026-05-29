@@ -15,6 +15,7 @@ describe('settingsNavigation', () => {
         expect(items.map((item) => item.label)).toEqual([
             '通用',
             '服务商与模型',
+            '记忆',
             '内置工具',
             'MCP 工具',
             '数据管理',
@@ -31,6 +32,10 @@ describe('settingsNavigation', () => {
         expect(getSettingsNavigationItem('ai-services')).toMatchObject({
             label: '服务商与模型',
             icon: 'llm',
+        });
+        expect(getSettingsNavigationItem('memory')).toMatchObject({
+            label: '记忆',
+            icon: 'history',
         });
         expect(getSettingsNavigationItem('general')?.description).toContain('快捷键');
         expect(getSettingsNavigationItem('overview' as never)).toBeUndefined();

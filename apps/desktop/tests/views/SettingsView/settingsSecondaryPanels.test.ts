@@ -4,6 +4,7 @@ import { vi } from 'vitest';
 import ProviderList from '@/views/SettingsView/components/AiServices/components/ProviderList.vue';
 import BuiltInToolsSection from '@/views/SettingsView/components/BuiltInTools/index.vue';
 import McpToolsSection from '@/views/SettingsView/components/McpTools/index.vue';
+import MemorySection from '@/views/SettingsView/components/Memory/index.vue';
 
 const builtInToolQueriesMock = vi.hoisted(() => ({
     findAllBuiltInTools: vi.fn().mockResolvedValue([
@@ -34,6 +35,34 @@ const mcpStoreMock = vi.hoisted(() => ({
     getServerStatus: vi.fn(() => 'disconnected'),
 }));
 
+const memoryQueriesMock = vi.hoisted(() => ({
+    createMemoryItem: vi.fn(),
+    findMemoryDirectoryItems: vi.fn().mockResolvedValue([
+        {
+            id: 1,
+            title: 'Desktop agent workflow',
+            applicability: 'When TouchAI needs reusable desktop-agent context.',
+            enabled: 1,
+            updated_at: '2026-05-30T00:00:00.000Z',
+        },
+    ]),
+    readMemoryItemsByIds: vi.fn().mockResolvedValue([
+        {
+            id: 1,
+            title: 'Desktop agent workflow',
+            applicability: 'When TouchAI needs reusable desktop-agent context.',
+            content: 'Prefer the real desktop context before assuming coding intent.',
+            enabled: 1,
+            source_session_id: null,
+            source_message_id: null,
+            created_at: '2026-05-30T00:00:00.000Z',
+            updated_at: '2026-05-30T00:00:00.000Z',
+            last_used_at: null,
+        },
+    ]),
+    updateMemoryItem: vi.fn(),
+}));
+
 vi.mock('@components/AppIcon.vue', () => ({
     default: {
         name: 'AppIconStub',
@@ -52,6 +81,51 @@ vi.mock('@/views/SettingsView/components/BuiltInTools/types', async (importOrigi
     };
 });
 
+vi.mock('@/views/SettingsView/components/BuiltInTools/components/BuiltInToolConfig.vue', () => ({
+    default: {
+        name: 'BuiltInToolConfigStub',
+        template: '<div data-testid="built-in-tool-config-stub" />',
+    },
+}));
+
+vi.mock(
+    '@/views/SettingsView/components/BuiltInTools/components/BuiltInToolLogViewer.vue',
+    () => ({
+        default: {
+            name: 'BuiltInToolLogViewerStub',
+            template: '<div data-testid="built-in-tool-log-viewer-stub" />',
+        },
+    })
+);
+
+vi.mock('@/views/SettingsView/components/McpTools/components/McpServerConfig.vue', () => ({
+    default: {
+        name: 'McpServerConfigStub',
+        template: '<div data-testid="mcp-server-config-stub" />',
+    },
+}));
+
+vi.mock('@/views/SettingsView/components/McpTools/components/McpServerList.vue', () => ({
+    default: {
+        name: 'McpServerListStub',
+        template: '<div data-testid="mcp-server-list-stub" />',
+    },
+}));
+
+vi.mock('@/views/SettingsView/components/McpTools/components/McpToolList.vue', () => ({
+    default: {
+        name: 'McpToolListStub',
+        template: '<div data-testid="mcp-tool-list-stub" />',
+    },
+}));
+
+vi.mock('@/views/SettingsView/components/McpTools/components/McpToolLogViewer.vue', () => ({
+    default: {
+        name: 'McpToolLogViewerStub',
+        template: '<div data-testid="mcp-tool-log-viewer-stub" />',
+    },
+}));
+
 vi.mock('@/stores/mcp', () => ({
     useMcpStore: () => mcpStoreMock,
 }));
@@ -67,6 +141,8 @@ vi.mock('@database/queries', () => ({
     deleteMcpServer: vi.fn(),
     updateMcpServer: vi.fn(),
 }));
+
+vi.mock('@database/queries/memoryItems', () => memoryQueriesMock);
 
 vi.mock('@composables/useContextMenu.ts', () => ({
     useContextMenu: () => ({ open: vi.fn() }),
@@ -90,6 +166,7 @@ vi.mock('@components/AlertMessage.vue', () => ({
 describe('settings secondary panels', () => {
     beforeEach(() => {
         builtInToolQueriesMock.findAllBuiltInTools.mockClear();
+        memoryQueriesMock.findMemoryDirectoryItems.mockClear();
         mcpStoreMock.loadServers.mockClear();
         mcpStoreMock.initialize.mockClear();
     });
@@ -209,7 +286,14 @@ describe('settings secondary panels', () => {
         expect(wrapper.emitted('add-custom')).toHaveLength(1);
     });
 
-    it('mounts resizable built-in tools and MCP secondary panels without redundant local headers', () => {
+    it('mounts resizable memory, built-in tools and MCP secondary panels without redundant local headers', () => {
+        const memoryWrapper = shallowMount(MemorySection, {
+            global: {
+                stubs: {
+                    AlertMessage: true,
+                },
+            },
+        });
         const builtInWrapper = shallowMount(BuiltInToolsSection, {
             global: {
                 stubs: {
@@ -231,6 +315,15 @@ describe('settings secondary panels', () => {
                 },
             },
         });
+
+        expect(memoryWrapper.find('[data-testid="settings-memory-panel"]').exists()).toBe(true);
+        expect(memoryWrapper.find('[data-testid="settings-memory-panel-resizer"]').exists()).toBe(
+            true
+        );
+        expect(memoryWrapper.get('[data-testid="settings-memory-panel"]').find('h2').exists()).toBe(
+            false
+        );
+        expect(memoryWrapper.text()).not.toContain('长期记忆');
 
         expect(builtInWrapper.find('[data-testid="settings-built-in-tools-panel"]').exists()).toBe(
             true

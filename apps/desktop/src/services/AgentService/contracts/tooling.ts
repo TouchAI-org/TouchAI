@@ -82,9 +82,15 @@ export type ToolEventBuiltInConversationSemanticAction =
     | 'render'
     | 'remove';
 
+export interface ToolEventBuiltInConversationPresentationHint {
+    kind: 'memory';
+    items: string[];
+}
+
 export interface ToolEventBuiltInConversationSemantic {
     action: ToolEventBuiltInConversationSemanticAction;
     target?: string;
+    presentationHint?: ToolEventBuiltInConversationPresentationHint;
 }
 
 export type ShowWidgetMode = 'render' | 'remove';

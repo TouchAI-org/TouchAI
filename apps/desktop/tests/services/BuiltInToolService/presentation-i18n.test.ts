@@ -21,14 +21,28 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
                                 }
                               : null,
                   }
-                : toolId === 'empty'
+                : toolId === 'memory'
                   ? {
-                        id: 'empty',
-                        displayName: 'Empty',
-                        buildConversationSemantic: () => null,
+                        id: 'memory',
+                        displayName: 'Memory',
+                        buildConversationSemantic: () => ({
+                            action: 'read',
+                            target: '3',
+                            presentationHint: {
+                                kind: 'memory',
+                                items: ['3'],
+                            },
+                        }),
                         buildConversationSemanticFromResult: () => null,
                     }
-                  : null,
+                  : toolId === 'empty'
+                    ? {
+                          id: 'empty',
+                          displayName: 'Empty',
+                          buildConversationSemantic: () => null,
+                          buildConversationSemanticFromResult: () => null,
+                      }
+                    : null,
         list: () => [
             {
                 id: 'bash',
@@ -37,6 +51,10 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
             {
                 id: 'ghost',
                 displayName: 'Ghost',
+            },
+            {
+                id: 'memory',
+                displayName: 'Memory',
             },
             {
                 id: 'empty',
@@ -122,6 +140,45 @@ describe('BuiltInToolService presentation i18n', () => {
         ).toMatchObject({
             verb: 'Ran',
             content: 'result target',
+        });
+    });
+
+    it('localizes memory summary content for the active locale', async () => {
+        const { buildBuiltInToolConversationPresentation } =
+            await import('@/services/BuiltInToolService/presentation');
+
+        setLocale('zh-CN');
+        expect(
+            buildBuiltInToolConversationPresentation('memory', {}, 'completed', {
+                semantic: {
+                    action: 'read',
+                    target: '桌面 Agent 工作方式',
+                    presentationHint: {
+                        kind: 'memory',
+                        items: ['桌面 Agent 工作方式'],
+                    },
+                },
+            })
+        ).toMatchObject({
+            verb: '已读取',
+            content: '记忆(桌面 Agent 工作方式)',
+        });
+
+        setLocale('en-US');
+        expect(
+            buildBuiltInToolConversationPresentation('memory', {}, 'completed', {
+                semantic: {
+                    action: 'read',
+                    target: '桌面 Agent 工作方式',
+                    presentationHint: {
+                        kind: 'memory',
+                        items: ['桌面 Agent 工作方式'],
+                    },
+                },
+            })
+        ).toMatchObject({
+            verb: 'Read',
+            content: 'Memory (桌面 Agent 工作方式)',
         });
     });
 
