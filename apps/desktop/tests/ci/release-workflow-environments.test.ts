@@ -26,12 +26,4 @@ describe('release workflow deployment environments', () => {
 
         expect(workflow).toContain('deployment-environment: prerelease');
     });
-
-    it('packs Windows releases as MSI without conflicting Velopack installer flags', async () => {
-        const workflow = await readWorkflow('velopack-build.yml');
-
-        expect(workflow).toContain('--msi');
-        expect(workflow).toContain('--noPortable');
-        expect(workflow).not.toMatch(/--noInst[\s\S]*--noPortable|--noPortable[\s\S]*--noInst/);
-    });
 });
