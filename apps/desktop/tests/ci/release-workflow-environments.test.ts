@@ -34,4 +34,13 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('--noPortable');
         expect(workflow).not.toMatch(/--noInst[\s\S]*--noPortable|--noPortable[\s\S]*--noInst/);
     });
+
+    it('attaches public release assets to GitHub releases from the staged asset directory', async () => {
+        const workflow = await readWorkflow('velopack-build.yml');
+        const uploadLine = workflow.split('\n').find((line) => line.includes('gh release upload'));
+
+        expect(workflow).toContain('gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber');
+        expect(workflow).toContain('release_dir="$RUNNER_TEMP/touchai-release-assets"');
+        expect(uploadLine).not.toContain('touchai-update-dist');
+    });
 });

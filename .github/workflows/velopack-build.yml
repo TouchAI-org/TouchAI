@@ -588,6 +588,22 @@ jobs:
                     --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md" \
                     --release-dir "$RUNNER_TEMP/touchai-release-assets"
 
+            - name: Upload public release assets to GitHub release
+              shell: bash
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+              run: |
+                  set -euo pipefail
+                  release_dir="$RUNNER_TEMP/touchai-release-assets"
+                  shopt -s nullglob
+                  assets=("$release_dir"/*)
+                  if [ ${#assets[@]} -eq 0 ]; then
+                    echo "No release assets were staged." >&2
+                    exit 1
+                  fi
+                  gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+
             - name: Upload update release feeds artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
