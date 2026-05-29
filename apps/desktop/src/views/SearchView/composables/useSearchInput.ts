@@ -79,12 +79,12 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
         attachments.value = [];
     }
 
-    function getSupportedAttachments(sourceAttachments: Index[] = attachments.value) {
-        return sourceAttachments.filter(isAttachmentSupported);
+    function getSupportedAttachments() {
+        return attachments.value.filter(isAttachmentSupported);
     }
 
-    function getUnsupportedAttachmentMessage(sourceAttachments: Index[] = attachments.value) {
-        const unsupported = sourceAttachments.filter(
+    function getUnsupportedAttachmentMessage() {
+        const unsupported = attachments.value.filter(
             (attachment) => !isAttachmentSupported(attachment)
         );
         if (unsupported.length === 0) {

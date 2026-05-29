@@ -5,7 +5,6 @@
         "x86_64-pc-windows-msvc": {
             "size": 3884282,
             "digest": "7fc90190f76f55dc170898d0ac755e89f405fc2d1d89f717ad8600640ab0f1ed",
-            "binary_digest": "3f8786f4bc120a10dd83728d4e481e74460fede13e811c9d8849098a48d0b33e",
             "format": "zip",
             "archivePath": "rtk.exe",
             "url": "https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-pc-windows-msvc.zip"

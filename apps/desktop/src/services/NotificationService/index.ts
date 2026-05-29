@@ -64,7 +64,6 @@ export function notify(options: NotificationOptions): void {
             '[NotificationService] Notification permission not granted, attempting anyway'
         );
     }
-
     try {
         sendNotification({
             title:
