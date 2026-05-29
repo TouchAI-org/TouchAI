@@ -119,7 +119,7 @@
 
     body {
         overflow: hidden;
-        background: transparent;
+        background: var(--color-background-primary);
         font-family: var(--font-sans), system-ui;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;

@@ -278,7 +278,6 @@ jobs:
                     --packVersion "${{ inputs.version }}" `
                     --packDir "$env:VELOPACK_STAGE" `
                     --mainExe "$env:VELOPACK_MAIN_EXE" `
-                    --noInst `
                     --noPortable `
                     --msi `
                     --instLocation Either `
