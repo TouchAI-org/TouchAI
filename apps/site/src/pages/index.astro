@@ -1288,8 +1288,6 @@ const WAITLIST_ENDPOINT = import.meta.env.PUBLIC_WAITLIST_ENDPOINT ?? '';
                         .catch(function () {
                             waitlistSubmit.classList.remove('loading');
                             showToast(waitlistMessages[lang].networkError, 'error');
-                        })
-                        .then(function () {
                             waitlistSubmit.disabled = false;
                         });
                 });
