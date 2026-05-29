@@ -588,6 +588,22 @@ jobs:
                     --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md" \
                     --release-dir "$RUNNER_TEMP/touchai-release-assets"
 
+            - name: Upload public release assets to GitHub release
+              shell: bash
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+              run: |
+                  set -euo pipefail
+                  release_dir="$RUNNER_TEMP/touchai-release-assets"
+                  shopt -s nullglob
+                  assets=("$release_dir"/*)
+                  if [ ${#assets[@]} -eq 0 ]; then
+                    echo "No release assets were staged." >&2
+                    exit 1
+                  fi
+                  gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+
             - name: Upload update release feeds artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
@@ -622,6 +638,22 @@ jobs:
                   name: touchai-update-dist
                   path: ${{ runner.temp }}/touchai-update-dist
 
+            - name: Generate Cloudflare update proxy config
+              working-directory: apps/desktop
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  wrangler_config="$PWD/.wrangler-update-proxy.toml"
+                  node scripts/ci/write-cloudflare-update-worker-config.mjs "$wrangler_config"
+                  echo "WRANGLER_UPDATE_PROXY_CONFIG=$wrangler_config" >> "$GITHUB_ENV"
+
+            - name: Deploy Cloudflare update proxy Worker
+              working-directory: apps/desktop
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+              run: pnpm dlx wrangler@3.90.0 deploy --config "$WRANGLER_UPDATE_PROXY_CONFIG"
+
             - name: Deploy update release feeds to Cloudflare R2
               shell: bash
               env:
@@ -636,3 +668,27 @@ jobs:
                       key="${file#"$update_dist"/}"
                       pnpm dlx wrangler@3.90.0 r2 object put "$CLOUDFLARE_R2_BUCKET_NAME/$key" --file "$file"
                     done
+
+            - name: Prune archived R2 release assets
+              working-directory: apps/desktop
+              shell: bash
+              env:
+                  RELEASE_CHANNEL: ${{ inputs.channel }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
+              run: |
+                  set -euo pipefail
+                  prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"
+                  node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL" > "$prune_plan"
+                  if [ ! -s "$prune_plan" ]; then
+                    echo "No archived R2 release assets to prune."
+                    exit 0
+                  fi
+
+                  while IFS= read -r key; do
+                    if [ -n "$key" ]; then
+                      pnpm dlx wrangler@3.90.0 r2 object delete "$CLOUDFLARE_R2_BUCKET_NAME/$key"
+                    fi
+                  done < "$prune_plan"
