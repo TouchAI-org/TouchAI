@@ -170,8 +170,8 @@ describe('SettingsGeneralSection', () => {
         expect(wrapper.text()).toContain('输出时滚动策略');
         expect(wrapper.text()).toContain('界面语言');
         expect(wrapper.text()).toContain('版本更新通道');
-        expect(wrapper.text()).toContain('选择您适合的版本更新频率');
-        expect(wrapper.text()).toContain('当前已是最新版');
+        expect(wrapper.text()).not.toContain('选择您适合的版本更新频率');
+        expect(wrapper.text()).toContain('当前已是最新版（V0.1.0）');
         expect(wrapper.text()).toContain('自动检查更新');
         expect(wrapper.text()).toContain('检查更新');
         expect(wrapper.text()).not.toContain('快捷唤起');
@@ -188,6 +188,36 @@ describe('SettingsGeneralSection', () => {
 
         const rowLabels = wrapper.findAll('[data-testid="settings-general-row-label"]');
         expect(rowLabels).toHaveLength(8);
+    });
+
+    it('shows the current version in the latest update details', async () => {
+        appUpdateServiceMock.state = {
+            ...appUpdateServiceMock.createState(),
+            status: 'not_available',
+            currentVersion: '0.1.1-beta.19',
+            latestUpdate: {
+                version: '0.1.1-beta.19',
+                tag: 'v0.1.1-beta.19',
+                releaseUrl: 'https://updates.touch-ai.org/touchai-app/v1/releases.beta.json',
+                publishedAt: '2026-05-30T03:19:00.000Z',
+                prerelease: true,
+                releaseNotes: '## 更新日志\n\n- 已是最新版本',
+                downloads: [],
+            },
+        };
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        expect(wrapper.get('[data-testid="settings-update-status-title"]').text()).toBe(
+            '当前已是最新版（V0.1.1-beta.19）'
+        );
+
+        await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+
+        expect(wrapper.text()).toContain('当前已是最新版（V0.1.1-beta.19）');
+        expect(wrapper.text()).toContain('当前版本 V0.1.1-beta.19，目标版本 V0.1.1-beta.19');
+        expect(wrapper.text()).not.toContain('已有新版本');
     });
 
     it('delegates auto-check toggle changes', async () => {
