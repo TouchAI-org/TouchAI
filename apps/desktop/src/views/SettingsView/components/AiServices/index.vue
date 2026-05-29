@@ -663,6 +663,7 @@
                                 :name="selectedProvider.name"
                                 size="large"
                                 :show-badge="selectedProvider.is_builtin === 1"
+                                :promoted="selectedProvider.name === 'Xiaomi MiMo'"
                             />
 
                             <div data-testid="settings-provider-copy" class="min-w-0 self-center">

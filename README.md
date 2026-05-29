@@ -1,7 +1,10 @@
 <p align="center">中文 | <a href="./README.en.md">English</a></p>
 
 <p align="center">
-  <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-with-text-light.svg" />
+    <img src="docs/images/logo-with-text.svg" alt="TouchAI logo" width="360" />
+  </picture>
 </p>
 
 <p align="center">
@@ -19,10 +22,17 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/search-window.png" alt="TouchAI search window" style="max-width: 500px;width:100%" />
+  <img src="docs/images/search-window.png" alt="TouchAI 搜索窗口" width="650" />
 </p>
 
 ---
+
+<p align="center">
+  <img src="docs/images/touchai-mimo.png" alt="TouchAI × 小米 MIMO" />
+</p>
+
+> [!WARNING]
+> 当前尚有大量功能未合并，可能会破坏性升级。6.1 限免活动正式启动后将推送 1.0 正式版。
 
 ### 功能特性
 
@@ -52,6 +62,12 @@
   <img src="https://contrib.rocks/image?repo=TouchAI-org/TouchAI" alt="Contributors" />
 </a>
 
-### Star 历史
+### 统计数据
 
-[![Star History Chart](https://api.star-history.com/svg?repos=TouchAI-org/TouchAI&type=Date)](https://star-history.com/#TouchAI-org/TouchAI&Date)
+![Repository Statistics](https://repobeats.axiom.co/api/embed/df11a0b7cf3ec05d667151f6ece595dd7a65e3ff.svg)
+
+### 友情链接
+
+- [LINUX DO](https://linux.do/)
+- [Xiaomi MIMO](https://mimo.xiaomi.com/)
+- [ExoMind](https://exo-mind.ai/)

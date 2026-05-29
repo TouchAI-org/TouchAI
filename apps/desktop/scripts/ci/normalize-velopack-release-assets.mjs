@@ -1,4 +1,4 @@
-import { readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -47,10 +47,7 @@ function publicArtifactName(fileName, product, options) {
     const lowerName = fileName.toLowerCase();
     const hasTargetVersion = fileName.includes(version);
     const windowsPrefix = platformArtifactPrefix(product, channel, version, 'windows');
-    const macosPrefix = platformArtifactPrefix(product, channel, version, 'macos');
-    const linuxPrefix = platformArtifactPrefix(product, channel, version, 'linux');
 
-    // Velopack nupkg
     if (lowerName.endsWith('-full.nupkg') && hasTargetVersion) {
         return `${windowsPrefix}-full.nupkg`;
     }
@@ -59,46 +56,27 @@ function publicArtifactName(fileName, product, options) {
         return `${windowsPrefix}-delta.nupkg`;
     }
 
-    // Windows
     if (lowerName.endsWith('-setup.exe')) {
-        return `${windowsPrefix}-Setup.exe`;
+        return null;
     }
 
     if (lowerName.endsWith('-portable.zip') && !lowerName.endsWith('.app.tar.gz')) {
-        return `${windowsPrefix}-Portable.zip`;
+        return null;
     }
 
     if (lowerName.endsWith('.msi')) {
         return `${windowsPrefix}.msi`;
     }
 
-    // macOS
-    if (lowerName.endsWith('.dmg')) {
-        return `${macosPrefix}.dmg`;
-    }
-
-    if (lowerName.endsWith('.app.tar.gz')) {
-        return `${macosPrefix}.app.tar.gz`;
-    }
-
-    // Linux
-    if (lowerName.endsWith('.appimage') && !lowerName.endsWith('.appimage.tar.gz')) {
-        return `${linuxPrefix}.AppImage`;
-    }
-
-    if (lowerName.endsWith('.appimage.tar.gz')) {
-        return `${linuxPrefix}.AppImage.tar.gz`;
-    }
-
-    if (lowerName.endsWith('.deb')) {
-        return `${linuxPrefix}-amd64.deb`;
-    }
-
-    if (lowerName.endsWith('.rpm')) {
-        return `${linuxPrefix}-x86_64.rpm`;
-    }
-
     return null;
+}
+
+function shouldDropPublicArtifact(fileName) {
+    const lowerName = fileName.toLowerCase();
+    return (
+        lowerName.endsWith('-setup.exe') ||
+        (lowerName.endsWith('-portable.zip') && !lowerName.endsWith('.app.tar.gz'))
+    );
 }
 
 async function fileExists(path) {
@@ -113,33 +91,52 @@ async function fileExists(path) {
     }
 }
 
-function rewriteJsonStrings(value, renameMap) {
+function referencesDroppedFile(value, dropNames) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+    }
+
+    return ['FileName', 'RelativeFileName'].some((field) => {
+        const fileName = value[field];
+        return typeof fileName === 'string' && dropNames.has(fileName);
+    });
+}
+
+function rewriteJsonStrings(value, renameMap, dropNames) {
     if (typeof value === 'string') {
         return renameMap.get(value) ?? value;
     }
 
     if (Array.isArray(value)) {
-        return value.map((item) => rewriteJsonStrings(item, renameMap));
+        return value
+            .filter((item) => !referencesDroppedFile(item, dropNames))
+            .map((item) => rewriteJsonStrings(item, renameMap, dropNames));
     }
 
     if (value && typeof value === 'object') {
         return Object.fromEntries(
-            Object.entries(value).map(([key, item]) => [key, rewriteJsonStrings(item, renameMap)])
+            Object.entries(value).map(([key, item]) => [
+                key,
+                rewriteJsonStrings(item, renameMap, dropNames),
+            ])
         );
     }
 
     return value;
 }
 
-function replaceAllFileNames(text, renameMap) {
-    let next = text;
+function replaceAllFileNames(text, renameMap, dropNames) {
+    let next = text
+        .split(/\r?\n/)
+        .filter((line) => ![...dropNames].some((fileName) => line.includes(fileName)))
+        .join('\n');
     for (const [from, to] of renameMap) {
         next = next.split(from).join(to);
     }
     return next;
 }
 
-async function rewriteReleaseIndexes(releaseDir, renameMap) {
+async function rewriteReleaseIndexes(releaseDir, renameMap, dropNames) {
     const entries = await readdir(releaseDir, { withFileTypes: true });
     for (const entry of entries) {
         if (!entry.isFile()) {
@@ -149,14 +146,14 @@ async function rewriteReleaseIndexes(releaseDir, renameMap) {
         const path = join(releaseDir, entry.name);
         if (entry.name.endsWith('.json')) {
             const text = await readFile(path, 'utf8');
-            const rewritten = rewriteJsonStrings(JSON.parse(text), renameMap);
+            const rewritten = rewriteJsonStrings(JSON.parse(text), renameMap, dropNames);
             await writeFile(path, `${JSON.stringify(rewritten, null, 4)}\n`, 'utf8');
             continue;
         }
 
         if (entry.name.startsWith('RELEASES')) {
             const text = await readFile(path, 'utf8');
-            await writeFile(path, replaceAllFileNames(text, renameMap), 'utf8');
+            await writeFile(path, replaceAllFileNames(text, renameMap, dropNames), 'utf8');
         }
     }
 }
@@ -169,9 +166,15 @@ export async function normalizeVelopackReleaseAssets(projectRoot, releaseDir, op
     const product = await readProduct(projectRoot);
     const entries = await readdir(releaseDir, { withFileTypes: true });
     const renameMap = new Map();
+    const dropNames = new Set();
 
     for (const entry of entries) {
         if (!entry.isFile()) {
+            continue;
+        }
+
+        if (shouldDropPublicArtifact(entry.name)) {
+            dropNames.add(entry.name);
             continue;
         }
 
@@ -200,7 +203,11 @@ export async function normalizeVelopackReleaseAssets(projectRoot, releaseDir, op
         await rename(fromPath, toPath);
     }
 
-    await rewriteReleaseIndexes(releaseDir, renameMap);
+    for (const fileName of dropNames) {
+        await rm(join(releaseDir, fileName), { force: true });
+    }
+
+    await rewriteReleaseIndexes(releaseDir, renameMap, dropNames);
 }
 
 function parseArgs(argv) {

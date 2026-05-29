@@ -1148,10 +1148,6 @@
 </template>
 
 <style scoped>
-    .search-view-container {
-        border: 1.5px solid var(--color-gray-300);
-    }
-
     .search-view-container.loading {
         border: 2px solid transparent;
         background-image:

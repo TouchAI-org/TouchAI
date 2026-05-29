@@ -1,4 +1,4 @@
-import {
+﻿import {
     type AppUpdateCheckResult,
     type AppUpdateInfo,
     autostart,
@@ -656,12 +656,12 @@ describe('NativeService supporting boundaries', () => {
                 releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.0`,
                 publishedAt: '2026-05-22T09:00:00.000Z',
                 prerelease: false,
-                releaseNotes: 'Release notes from GitHub',
+                releaseNotes: '## 更新日志\n\n- 修复问题',
                 downloads: [
                     {
                         kind: 'installer',
-                        name: 'TouchAI-0.2.0-windows-Setup.exe',
-                        url: `${APP_PRODUCT_CONFIG.repository.url}/releases/download/v0.2.0/TouchAI-0.2.0-windows-Setup.exe`,
+                        name: 'TouchAI-0.2.0-windows.msi',
+                        url: `${APP_PRODUCT_CONFIG.services.updates.baseUrl}/TouchAI-0.2.0-windows.msi`,
                         sizeBytes: 12_000_000,
                     },
                 ],

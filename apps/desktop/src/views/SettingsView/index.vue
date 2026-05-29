@@ -60,6 +60,17 @@
         activeSection.value = section;
     };
 
+    const scrollGeneralUpdateSectionIntoView = async () => {
+        activeSection.value = 'general';
+        await nextTick();
+        window.setTimeout(() => {
+            document.querySelector('[data-settings-update-section="true"]')?.scrollIntoView({
+                block: 'start',
+                behavior: 'smooth',
+            });
+        }, 0);
+    };
+
     const completeInitialLoadingWhenReady = async () => {
         if (
             !initialLoadingVisible.value ||
@@ -162,6 +173,7 @@
                 :active-section="activeSection"
                 @navigate="handleNavigate"
                 @ready="handleSidebarReady"
+                @show-update-settings="scrollGeneralUpdateSectionIntoView"
             />
 
             <div

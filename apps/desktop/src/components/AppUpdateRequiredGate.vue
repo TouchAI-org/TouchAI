@@ -48,13 +48,13 @@
     );
     const targetVersionText = computed(() => {
         if (visibleUpdate.value?.version) {
-            return t('settings.about.update.required.availableVersion', {
+            return t('settings.update.required.availableVersion', {
                 version: visibleUpdate.value.version,
             });
         }
 
         if (latestUpdate.value?.version) {
-            return t('settings.about.update.required.availableVersion', {
+            return t('settings.update.required.availableVersion', {
                 version: latestUpdate.value.version,
             });
         }
@@ -74,7 +74,7 @@
         const parts = [
             getAppUpdateRequirementReasonText(requirement.value),
             requirement.value?.minimumSupportedVersion
-                ? t('settings.about.update.required.minimumSupportedVersion', {
+                ? t('settings.update.required.minimumSupportedVersion', {
                       version: requirement.value.minimumSupportedVersion,
                   })
                 : null,
@@ -89,34 +89,34 @@
     });
     const primaryActionText = computed(() => {
         if (isChecking.value) {
-            return t('settings.about.update.action.checking');
+            return t('settings.update.action.checking');
         }
 
         if (isDownloading.value) {
-            return t('settings.about.update.action.downloading', {
+            return t('settings.update.action.downloading', {
                 progress: updateState.value.downloadProgress ?? 0,
             });
         }
 
         if (isInstalling.value) {
-            return t('settings.about.update.action.installing');
+            return t('settings.update.action.installing');
         }
 
         if (canInstall.value) {
-            return t('settings.about.update.action.installRestart');
+            return t('settings.update.action.installRestart');
         }
 
         if (canUseInAppUpdate.value) {
-            return t('settings.about.update.action.download');
+            return t('settings.update.action.download');
         }
 
         return directDownloadUrl.value
-            ? t('settings.about.update.action.downloadInstaller')
-            : t('settings.about.update.action.downloadPage');
+            ? t('settings.update.action.downloadInstaller')
+            : t('settings.update.action.downloadPage');
     });
     const errorDetailText = computed(() => {
         const error = updateState.value.error?.trim();
-        return error ? t('settings.about.update.errorDetail', { error }) : '';
+        return error ? t('settings.update.errorDetail', { error }) : '';
     });
 
     onMounted(async () => {
@@ -185,7 +185,7 @@
                         id="app-update-required-title"
                         class="font-serif text-xl font-semibold text-gray-950"
                     >
-                        {{ t('settings.about.update.required.unsupported') }}
+                        {{ t('settings.update.required.unsupported') }}
                     </h1>
                     <p class="mt-2 font-serif text-sm leading-6 text-gray-600">
                         {{ continueAfterUpdateText }}
@@ -204,7 +204,7 @@
                 <div
                     v-if="isDownloading"
                     class="h-2 overflow-hidden rounded-full bg-gray-100"
-                    :aria-label="t('settings.about.update.downloadProgress')"
+                    :aria-label="t('settings.update.downloadProgress')"
                 >
                     <div
                         class="bg-primary-600 h-full rounded-full transition-all"
@@ -217,7 +217,7 @@
                     class="max-h-44 overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-4"
                 >
                     <div class="mb-2 font-serif text-sm font-medium text-gray-900">
-                        {{ t('settings.about.update.releaseNotes') }}
+                        {{ t('settings.update.releaseNotes') }}
                     </div>
                     <pre class="font-serif text-xs leading-5 whitespace-pre-wrap text-gray-600">{{
                         releaseNotes
@@ -240,7 +240,7 @@
                     @click="checkAgain"
                 >
                     <AppIcon name="refresh" class="h-4 w-4" />
-                    {{ t('settings.about.update.action.recheck') }}
+                    {{ t('settings.update.action.recheck') }}
                 </button>
                 <button
                     class="bg-primary-600 hover:bg-primary-700 inline-flex items-center gap-2 rounded-lg px-4 py-2 font-serif text-sm text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"

@@ -6,8 +6,8 @@ import { preferredAppUpdateDownload } from '@/services/AppUpdateService/download
 const downloads: AppUpdateDownload[] = [
     {
         kind: 'installer',
-        name: 'TouchAI-0.2.0-windows-Setup.exe',
-        url: 'https://example.com/TouchAI-0.2.0-windows-Setup.exe',
+        name: 'TouchAI-0.2.0-windows.msi',
+        url: 'https://example.com/TouchAI-0.2.0-windows.msi',
         sizeBytes: 1,
     },
     {
@@ -17,7 +17,7 @@ const downloads: AppUpdateDownload[] = [
         sizeBytes: 1,
     },
     {
-        kind: 'portable',
+        kind: 'installer',
         name: 'TouchAI-0.2.0-linux.AppImage',
         url: 'https://example.com/TouchAI-0.2.0-linux.AppImage',
         sizeBytes: 1,
@@ -39,6 +39,33 @@ const downloads: AppUpdateDownload[] = [
 describe('preferredAppUpdateDownload', () => {
     it('prefers the Windows installer on Windows', () => {
         expect(preferredAppUpdateDownload(downloads, { os: 'windows' })?.name).toBe(
+            'TouchAI-0.2.0-windows.msi'
+        );
+    });
+
+    it('falls back to the Windows setup installer when no MSI is available', () => {
+        const downloadsWithoutMsi: AppUpdateDownload[] = [
+            {
+                kind: 'installer',
+                name: 'TouchAI-0.2.0-windows-Setup.exe',
+                url: 'https://example.com/TouchAI-0.2.0-windows-Setup.exe',
+                sizeBytes: 1,
+            },
+            {
+                kind: 'installer',
+                name: 'TouchAI-0.2.0-linux.AppImage',
+                url: 'https://example.com/TouchAI-0.2.0-linux.AppImage',
+                sizeBytes: 1,
+            },
+            {
+                kind: 'installer',
+                name: 'TouchAI-0.2.0-macos.dmg',
+                url: 'https://example.com/TouchAI-0.2.0-macos.dmg',
+                sizeBytes: 1,
+            },
+        ];
+
+        expect(preferredAppUpdateDownload(downloadsWithoutMsi, { os: 'windows' })?.name).toBe(
             'TouchAI-0.2.0-windows-Setup.exe'
         );
     });
@@ -57,7 +84,7 @@ describe('preferredAppUpdateDownload', () => {
 
     it('falls back to the first preferred download on unknown platforms', () => {
         expect(preferredAppUpdateDownload(downloads, { os: 'unknown' })?.name).toBe(
-            'TouchAI-0.2.0-windows-Setup.exe'
+            'TouchAI-0.2.0-windows.msi'
         );
     });
 

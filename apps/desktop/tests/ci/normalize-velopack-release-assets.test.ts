@@ -39,18 +39,20 @@ async function createFixture() {
 }
 
 describe('normalizeVelopackReleaseAssets', () => {
-    it('renames current beta artifacts to product-channel-version names', async () => {
+    it('renames current beta packages and MSI while dropping setup and portable artifacts', async () => {
         const normalizeVelopackReleaseAssets = await loadNormalizer();
         const { root, releaseDir } = await createFixture();
         const previousFull = 'org.touch-ai.app-0.1.0-beta-full.nupkg';
         const currentFull = 'org.touch-ai.app-0.1.1-beta.1-beta-full.nupkg';
         const currentDelta = 'org.touch-ai.app-0.1.1-beta.1-beta-delta.nupkg';
+        const currentMsi = 'org.touch-ai.app-beta.msi';
         const currentSetup = 'org.touch-ai.app-beta-Setup.exe';
         const currentPortable = 'org.touch-ai.app-beta-Portable.zip';
 
         await writeFile(join(releaseDir, previousFull), 'previous');
         await writeFile(join(releaseDir, currentFull), 'full');
         await writeFile(join(releaseDir, currentDelta), 'delta');
+        await writeFile(join(releaseDir, currentMsi), 'msi');
         await writeFile(join(releaseDir, currentSetup), 'setup');
         await writeFile(join(releaseDir, currentPortable), 'portable');
         await writeFile(
@@ -88,6 +90,7 @@ describe('normalizeVelopackReleaseAssets', () => {
                 [
                     { RelativeFileName: currentFull, Type: 1 },
                     { RelativeFileName: currentDelta, Type: 2 },
+                    { RelativeFileName: currentMsi, Type: 5 },
                     { RelativeFileName: currentSetup, Type: 4 },
                     { RelativeFileName: currentPortable, Type: 3 },
                 ],
@@ -111,8 +114,7 @@ describe('normalizeVelopackReleaseAssets', () => {
 
             const renamedFull = 'TouchAI-beta-0.1.1-beta.1-windows-full.nupkg';
             const renamedDelta = 'TouchAI-beta-0.1.1-beta.1-windows-delta.nupkg';
-            const renamedSetup = 'TouchAI-beta-0.1.1-beta.1-windows-Setup.exe';
-            const renamedPortable = 'TouchAI-beta-0.1.1-beta.1-windows-Portable.zip';
+            const renamedMsi = 'TouchAI-beta-0.1.1-beta.1-windows.msi';
             const releases = JSON.parse(
                 await readFile(join(releaseDir, 'releases.beta.json'), 'utf8')
             );
@@ -121,13 +123,18 @@ describe('normalizeVelopackReleaseAssets', () => {
 
             await expect(readFile(join(releaseDir, renamedFull), 'utf8')).resolves.toBe('full');
             await expect(readFile(join(releaseDir, renamedDelta), 'utf8')).resolves.toBe('delta');
-            await expect(readFile(join(releaseDir, renamedSetup), 'utf8')).resolves.toBe('setup');
-            await expect(readFile(join(releaseDir, renamedPortable), 'utf8')).resolves.toBe(
-                'portable'
-            );
+            await expect(readFile(join(releaseDir, renamedMsi), 'utf8')).resolves.toBe('msi');
             await expect(readFile(join(releaseDir, currentFull), 'utf8')).rejects.toMatchObject({
                 code: 'ENOENT',
             });
+            await expect(readFile(join(releaseDir, currentSetup), 'utf8')).rejects.toMatchObject({
+                code: 'ENOENT',
+            });
+            await expect(readFile(join(releaseDir, currentPortable), 'utf8')).rejects.toMatchObject(
+                {
+                    code: 'ENOENT',
+                }
+            );
             await expect(readFile(join(releaseDir, previousFull), 'utf8')).resolves.toBe(
                 'previous'
             );
@@ -142,10 +149,12 @@ describe('normalizeVelopackReleaseAssets', () => {
             expect(releases.Assets[2]).toMatchObject({ FileName: previousFull });
             expect(
                 assets.map((asset: { RelativeFileName: string }) => asset.RelativeFileName)
-            ).toEqual([renamedFull, renamedDelta, renamedSetup, renamedPortable]);
+            ).toEqual([renamedFull, renamedDelta, renamedMsi]);
             expect(legacyReleases).toContain(renamedFull);
             expect(legacyReleases).toContain(renamedDelta);
             expect(legacyReleases).toContain(previousFull);
+            expect(legacyReleases).not.toContain(currentSetup);
+            expect(legacyReleases).not.toContain(currentPortable);
         } finally {
             await rm(root, { recursive: true, force: true });
         }
@@ -156,6 +165,7 @@ describe('normalizeVelopackReleaseAssets', () => {
         const { root, releaseDir } = await createFixture();
 
         await writeFile(join(releaseDir, 'org.touch-ai.app-0.2.0-full.nupkg'), 'full');
+        await writeFile(join(releaseDir, 'org.touch-ai.app.msi'), 'msi');
         await writeFile(join(releaseDir, 'org.touch-ai.app-Setup.exe'), 'setup');
         await writeFile(join(releaseDir, 'org.touch-ai.app-Portable.zip'), 'portable');
 
@@ -170,11 +180,14 @@ describe('normalizeVelopackReleaseAssets', () => {
                 readFile(join(releaseDir, 'TouchAI-0.2.0-windows-full.nupkg'), 'utf8')
             ).resolves.toBe('full');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-0.2.0-windows-Setup.exe'), 'utf8')
-            ).resolves.toBe('setup');
+                readFile(join(releaseDir, 'TouchAI-0.2.0-windows.msi'), 'utf8')
+            ).resolves.toBe('msi');
             await expect(
-                readFile(join(releaseDir, 'TouchAI-0.2.0-windows-Portable.zip'), 'utf8')
-            ).resolves.toBe('portable');
+                readFile(join(releaseDir, 'org.touch-ai.app-Setup.exe'), 'utf8')
+            ).rejects.toMatchObject({ code: 'ENOENT' });
+            await expect(
+                readFile(join(releaseDir, 'org.touch-ai.app-Portable.zip'), 'utf8')
+            ).rejects.toMatchObject({ code: 'ENOENT' });
         } finally {
             await rm(root, { recursive: true, force: true });
         }

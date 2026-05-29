@@ -169,7 +169,7 @@ fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let manifest: BundledManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
     let target_triple = std::env::var("TARGET")?;
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
-    let cache_dir = PathBuf::from("target")
+    let cache_dir = cargo_target_dir(&out_dir)?
         .join(format!("{name}-cache"))
         .join(&manifest.version)
         .join(&target_triple);
@@ -187,6 +187,29 @@ fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn cargo_target_dir(out_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if let Some(target_dir) = std::env::var_os("CARGO_TARGET_DIR") {
+        let target_dir = PathBuf::from(target_dir);
+        return Ok(if target_dir.is_absolute() {
+            target_dir
+        } else {
+            PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?).join(target_dir)
+        });
+    }
+
+    out_dir
+        .ancestors()
+        .nth(4)
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            format!(
+                "failed to resolve Cargo target directory from {}",
+                out_dir.display()
+            )
+            .into()
+        })
 }
 
 fn materialize_binary(
