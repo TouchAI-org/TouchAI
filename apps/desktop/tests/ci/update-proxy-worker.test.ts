@@ -114,10 +114,7 @@ describe('update proxy Worker', () => {
         expect(await response.text()).toBe('from-r2');
         expect(response.headers.get('etag')).toBe('"r2-etag"');
         expect(env.UPDATE_BUCKET.get).toHaveBeenCalledWith(
-            'touchai-app/v1/TouchAI-beta-0.1.1-beta.14-windows.msi',
-            {
-                range: request.headers,
-            }
+            'touchai-app/v1/TouchAI-beta-0.1.1-beta.14-windows.msi'
         );
         expect(fetchMock).not.toHaveBeenCalled();
         expect(cache.put).not.toHaveBeenCalled();
@@ -201,6 +198,77 @@ describe('update proxy Worker', () => {
         expect(response.headers.get('content-range')).toBe('bytes 2-5/10');
         expect(response.headers.get('content-length')).toBe('4');
         expect(await response.text()).toBe('2345');
+        expect(env.UPDATE_BUCKET.get).toHaveBeenCalledWith(
+            'touchai-app/v1/TouchAI-0.2.0-windows.msi',
+            {
+                range: request.headers,
+            }
+        );
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('serves non-range HEAD requests from R2 as a full object response', async () => {
+        const worker = await loadWorker();
+        const fetchMock = vi.fn<typeof fetch>();
+        vi.stubGlobal('fetch', fetchMock);
+
+        const env = {
+            UPDATE_BASE_PATH: 'touchai-app/v1',
+            GITHUB_REPOSITORY: 'TouchAI-org/TouchAI',
+            UPDATE_BUCKET: {
+                head: vi.fn(async () =>
+                    r2Object('', {}, { range: { offset: 0, length: 10 }, size: 10 })
+                ),
+                get: vi.fn(async () => null),
+            },
+        };
+        const request = new Request(
+            'https://updates.touch-ai.org/touchai-app/v1/TouchAI-0.2.0-windows.msi',
+            { method: 'HEAD' }
+        );
+
+        expect(worker?.default.fetch).toBeTypeOf('function');
+        const response = await worker!.default.fetch(request, env, workerContext().context);
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-range')).toBeNull();
+        expect(response.headers.get('content-length')).toBe('10');
+        expect(await response.text()).toBe('');
+        expect(env.UPDATE_BUCKET.head).toHaveBeenCalledWith(
+            'touchai-app/v1/TouchAI-0.2.0-windows.msi'
+        );
+        expect(env.UPDATE_BUCKET.get).not.toHaveBeenCalled();
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('serves non-range GET requests from R2 as a full object response', async () => {
+        const worker = await loadWorker();
+        const fetchMock = vi.fn<typeof fetch>();
+        vi.stubGlobal('fetch', fetchMock);
+
+        const env = {
+            UPDATE_BASE_PATH: 'touchai-app/v1',
+            GITHUB_REPOSITORY: 'TouchAI-org/TouchAI',
+            UPDATE_BUCKET: {
+                get: vi.fn(async () =>
+                    r2Object('0123456789', {}, { range: { offset: 0, length: 10 }, size: 10 })
+                ),
+            },
+        };
+        const request = new Request(
+            'https://updates.touch-ai.org/touchai-app/v1/TouchAI-0.2.0-windows.msi'
+        );
+
+        expect(worker?.default.fetch).toBeTypeOf('function');
+        const response = await worker!.default.fetch(request, env, workerContext().context);
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-range')).toBeNull();
+        expect(response.headers.get('content-length')).toBe('10');
+        expect(await response.text()).toBe('0123456789');
+        expect(env.UPDATE_BUCKET.get).toHaveBeenCalledWith(
+            'touchai-app/v1/TouchAI-0.2.0-windows.msi'
+        );
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
