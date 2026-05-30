@@ -78,7 +78,7 @@ describe('resolveSearchWindowHeightPolicy', () => {
         });
     });
 
-    it('forces the idle default height when neither conversation nor quick search is active', () => {
+    it('keeps idle windows on the default height while still allowing content-driven auto resize', () => {
         expect(
             resolveSearchWindowHeightPolicy({
                 sessionCount: 0,
@@ -86,7 +86,7 @@ describe('resolveSearchWindowHeightPolicy', () => {
             })
         ).toEqual({
             hasManagedPanel: false,
-            autoResizeEnabled: false,
+            autoResizeEnabled: true,
             respectManualOverride: false,
             allowHeightOverride: false,
             shouldEnforceIdleDefaultHeight: true,

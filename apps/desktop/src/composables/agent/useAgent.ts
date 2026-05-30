@@ -256,17 +256,19 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 requestError instanceof AiError && requestError.is(AiErrorCode.EMPTY_RESPONSE);
             const displayMessage = AiError.getDisplayMessage(requestError);
 
-            try {
-                notify({
-                    title: t(
-                        isEmptyResponse
-                            ? 'notification.search.emptyResponseTitle'
-                            : 'notification.search.requestFailedTitle'
-                    ),
-                    body: displayMessage || t('common.unknownError'),
-                });
-            } catch (notificationError) {
-                console.error('[useAgent] Failed to send notification:', notificationError);
+            if (!startedTaskId) {
+                try {
+                    notify({
+                        title: t(
+                            isEmptyResponse
+                                ? 'notification.search.emptyResponseTitle'
+                                : 'notification.search.requestFailedTitle'
+                        ),
+                        body: displayMessage || t('common.unknownError'),
+                    });
+                } catch (notificationError) {
+                    console.error('[useAgent] Failed to send notification:', notificationError);
+                }
             }
 
             options.onError?.(requestError);

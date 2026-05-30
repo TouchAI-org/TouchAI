@@ -70,6 +70,47 @@ describe('NativeService window boundary', () => {
             payload: undefined,
         },
         {
+            name: 'updates the tray status indicator',
+            call: () => windowCommands.setTrayStatusIndicator('failed'),
+            cmd: 'set_tray_status_indicator',
+            payload: { status: 'failed' },
+        },
+        {
+            name: 'clears the tray status indicator',
+            call: () => windowCommands.clearTrayStatusIndicator(),
+            cmd: 'clear_tray_status_indicator',
+            payload: undefined,
+        },
+        {
+            name: 'shows a session status reminder notification',
+            call: () =>
+                windowCommands.showSessionStatusReminderNotification({
+                    title: 'TouchAI',
+                    sessionId: 8,
+                    taskId: 'task-1',
+                    kind: 'completed',
+                    approval: null,
+                    body: '任务已完成',
+                }),
+            cmd: 'show_session_status_reminder_notification',
+            payload: {
+                payload: {
+                    title: 'TouchAI',
+                    sessionId: 8,
+                    taskId: 'task-1',
+                    kind: 'completed',
+                    approval: null,
+                    body: '任务已完成',
+                },
+            },
+        },
+        {
+            name: 'clears session status reminder notifications',
+            call: () => windowCommands.clearSessionStatusReminderNotifications(),
+            cmd: 'clear_session_status_reminder_notifications',
+            payload: undefined,
+        },
+        {
             name: 'opens the settings window',
             call: () => windowCommands.openSettingsWindow(),
             cmd: 'open_settings_window',
