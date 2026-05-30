@@ -527,7 +527,6 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
             (node as HTMLScriptElement).textContent = '';
         }
     });
-    const purifyConfig: DOMPurify.Config = { ADD_TAGS: ['script'] };
 
     if (isFullDocument) {
         const parser = new DOMParser();
