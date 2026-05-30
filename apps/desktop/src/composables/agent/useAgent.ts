@@ -51,6 +51,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         attachedTaskId,
         pendingToolApproval,
         pendingApprovalQueue,
+        pendingUserQuestion,
         attachTaskView,
         detachTaskView,
         resetTaskViewState,
@@ -255,17 +256,19 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 requestError instanceof AiError && requestError.is(AiErrorCode.EMPTY_RESPONSE);
             const displayMessage = AiError.getDisplayMessage(requestError);
 
-            try {
-                notify({
-                    title: t(
-                        isEmptyResponse
-                            ? 'notification.search.emptyResponseTitle'
-                            : 'notification.search.requestFailedTitle'
-                    ),
-                    body: displayMessage || t('common.unknownError'),
-                });
-            } catch (notificationError) {
-                console.error('[useAgent] Failed to send notification:', notificationError);
+            if (!startedTaskId) {
+                try {
+                    notify({
+                        title: t(
+                            isEmptyResponse
+                                ? 'notification.search.emptyResponseTitle'
+                                : 'notification.search.requestFailedTitle'
+                        ),
+                        body: displayMessage || t('common.unknownError'),
+                    });
+                } catch (notificationError) {
+                    console.error('[useAgent] Failed to send notification:', notificationError);
+                }
             }
 
             options.onError?.(requestError);
@@ -315,6 +318,16 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         return sessionTaskCenter.rejectTaskToolCall(attachedTaskId.value, callId);
     }
 
+    function settleUserQuestion(
+        callId: string,
+        answers: import('@/services/AgentService/contracts/tooling').AskUserAnswer[] | null
+    ): boolean {
+        if (!attachedTaskId.value) {
+            return false;
+        }
+        return sessionTaskCenter.settleTaskUserQuestion(attachedTaskId.value, callId, answers);
+    }
+
     onUnmounted(() => {
         invalidateRequestObservation();
         detachTaskView();
@@ -336,7 +349,9 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         clearSession,
         pendingToolApproval,
         pendingApprovalQueue,
+        pendingUserQuestion,
         approvePendingToolApproval,
         rejectPendingToolApproval,
+        settleUserQuestion,
     };
 }

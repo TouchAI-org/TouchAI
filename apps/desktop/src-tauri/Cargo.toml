@@ -97,6 +97,10 @@ codegen-units = 1
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
+    "Data_Xml_Dom",
+    "Foundation",
+    "Foundation_Collections",
+    "UI_Notifications",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Foundation",
@@ -111,3 +115,11 @@ windows = { version = "0.58", features = [
 ] }
 webview2-com = "0.38.0"
 windows-core = "0.61.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-user-notifications = "0.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+notify-rust = "4.11"

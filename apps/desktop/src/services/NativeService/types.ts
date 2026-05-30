@@ -1,5 +1,6 @@
 import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
+import type { SessionStatusReminderKind } from '@/utils/session';
 
 export type { AppUpdateChannel } from '@/config/appUpdate';
 export type { SearchWindowDefaultSize, SearchWindowHeightMode };
@@ -70,6 +71,28 @@ export interface SearchWindowState {
     currentHeight: number;
     heightMode: SearchWindowHeightMode;
 }
+
+export type SessionStatusReminderNotificationKind = SessionStatusReminderKind;
+
+export interface SessionStatusReminderNotificationApprovalPayload {
+    callId: string;
+    approveLabel: string;
+    rejectLabel: string;
+}
+
+export interface SessionStatusReminderNotificationPayload {
+    title: string;
+    body: string;
+    sessionId: number;
+    taskId: string;
+    kind: SessionStatusReminderNotificationKind;
+    approval?: SessionStatusReminderNotificationApprovalPayload | null;
+    openLabel?: string | null;
+    replyPlaceholder?: string | null;
+    replyLabel?: string | null;
+}
+
+export type TrayStatusIndicator = SessionStatusReminderKind;
 
 export interface RuntimeInfo {
     isE2eTestMode: boolean;

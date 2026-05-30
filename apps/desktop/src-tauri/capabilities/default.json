@@ -115,6 +115,46 @@
             ]
         },
         {
+            "identifier": "fs:allow-stat",
+            "allow": [
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-read",
+            "allow": [
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-read-dir",
+            "allow": [
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-read-file",
+            "allow": [
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
+            "identifier": "fs:allow-open",
+            "allow": [
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        {
             "identifier": "fs:allow-remove",
             "allow": [
                 {

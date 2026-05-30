@@ -4,6 +4,7 @@
  */
 import { useAlert } from '@composables/useAlert';
 import { AppEvent, eventService } from '@services/EventService';
+import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
 import { native } from '@services/NativeService';
 import { initNotificationPermission, notify } from '@services/NotificationService';
 import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
@@ -28,6 +29,7 @@ import type {
 import type { SearchOverlayCommand, SearchPopupSessionIdentity } from './searchInteraction';
 import type { createSearchInteractionContext, UseSearchKeyboardOptions } from './searchInteraction';
 import { createSearchKeydownHandler } from './searchInteraction';
+import { createSessionStatusReminderCoordinator } from './sessionStatusReminder';
 import { useModelDropdownPopup } from './useModelDropdownPopup';
 
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -378,12 +380,16 @@ interface UseSearchPageLifecycleOptions {
     interactionContext: ReturnType<typeof createSearchInteractionContext>;
     syncWindowPinState: () => Promise<boolean>;
     clearSession: () => void | Promise<void>;
+    shouldClearSessionAfterTimeout?: () => boolean | Promise<boolean>;
     reconcilePopupSurfaces?: () => Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
     handleSearchSurfaceCommand?: (payload: {
         command: 'toggle-model-dropdown';
         source: 'webview2-accelerator';
     }) => void | Promise<void>;
+    handleSessionStatusReminderAction?: (
+        payload: SessionStatusReminderActionEvent
+    ) => void | Promise<void>;
     handleAiModelsUpdated?: () => void | Promise<void>;
     handleShortcutAutoPaste?: () => void | Promise<void>;
 }
@@ -398,9 +404,11 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext,
         syncWindowPinState,
         clearSession,
+        shouldClearSessionAfterTimeout,
         reconcilePopupSurfaces,
         onSurfaceHidden,
         handleSearchSurfaceCommand,
+        handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste,
     } = options;
@@ -411,11 +419,24 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let unlistenSearchSurfaceShown: (() => void) | null = null;
     let unlistenSearchSurfaceHidden: (() => void) | null = null;
     let unlistenSearchSurfaceCommand: (() => void) | null = null;
+    let unlistenSessionTaskStatusChanged: (() => void) | null = null;
+    let unlistenSessionStatusReminderAction: (() => void) | null = null;
     let stopReadyWatch: (() => void) | null = null;
     let stopPinnedWatch: (() => void) | null = null;
     let lifecycleInitialized = false;
-    let restoredShortcutActivationEpoch: number | null = null;
+    let restoredActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
+    const sessionStatusReminderCoordinator = createSessionStatusReminderCoordinator({
+        isSearchSurfaceForegrounded: () =>
+            interactionContext.state.windowVisible &&
+            interactionContext.state.windowFocused &&
+            interactionContext.state.appFocused,
+        onReminderAction: handleSessionStatusReminderAction,
+    });
+
+    function handleReminderSurfaceVisible() {
+        sessionStatusReminderCoordinator.handleSurfaceVisible();
+    }
 
     async function hideSearchWindow() {
         await native.window.hideSearchWindow();
@@ -465,12 +486,16 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await reconcilePopupSurfaces?.();
     }
 
-    async function restoreSearchWindowAfterActivation() {
+    async function restoreSearchWindowAfterActivation(surfaceSource: 'shortcut' | 'notification') {
         await nextTick();
         await reconcilePopupSurfacesAfterActivation();
         await controller.focusSearchInput();
         await controller.loadActiveModel();
         await syncWindowPinStateSafely('focus');
+
+        if (surfaceSource !== 'shortcut') {
+            return;
+        }
 
         try {
             await handleShortcutAutoPaste?.();
@@ -479,33 +504,35 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
     }
 
-    async function handleSearchWindowActivated() {
-        interactionContext.recordActivation('shortcut');
+    async function handleSearchWindowActivated(surfaceSource: 'shortcut' | 'notification') {
+        interactionContext.recordActivation(surfaceSource === 'shortcut' ? 'shortcut' : 'manual');
         if (hasActivePopupWindowFocus()) {
-            restoredShortcutActivationEpoch = interactionContext.state.activationEpoch;
+            restoredActivationEpoch = interactionContext.state.activationEpoch;
             return;
         }
 
         syncFocusStateOnFocus();
 
-        if (
-            interactionContext.shouldRunTimeoutClearOnFocus(
-                interactionContext.state.visibilityEpoch,
-                Date.now(),
-                HIDE_TIMEOUT_MS
-            )
-        ) {
-            await Promise.resolve(clearSession());
+        const timedOut = interactionContext.shouldRunTimeoutClearOnFocus(
+            interactionContext.state.visibilityEpoch,
+            Date.now(),
+            HIDE_TIMEOUT_MS
+        );
+        if (timedOut) {
+            const shouldClear = await Promise.resolve(shouldClearSessionAfterTimeout?.() ?? true);
+            if (shouldClear) {
+                await Promise.resolve(clearSession());
+            }
         }
 
         const activationEpoch = interactionContext.state.activationEpoch;
-        if (restoredShortcutActivationEpoch === activationEpoch) {
+        if (restoredActivationEpoch === activationEpoch) {
             await reconcilePopupSurfacesAfterActivation();
             return;
         }
-        restoredShortcutActivationEpoch = activationEpoch;
+        restoredActivationEpoch = activationEpoch;
 
-        await restoreSearchWindowAfterActivation();
+        await restoreSearchWindowAfterActivation(surfaceSource);
     }
 
     async function initializeGlobalShortcut() {
@@ -569,6 +596,11 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext.state.windowVisible = await getCurrentWindow()
             .isVisible()
             .catch(() => true);
+        interactionContext.setWindowFocused(interactionContext.state.windowVisible);
+        interactionContext.setAppFocused(interactionContext.state.windowVisible);
+        if (interactionContext.state.windowVisible) {
+            handleReminderSurfaceVisible();
+        }
         await syncWindowPinStateSafely('initialize');
         await initFocusListener();
         if (!(await isE2eTestMode())) {
@@ -596,7 +628,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             AppEvent.SEARCH_SURFACE_SHOWN,
             async (payload) => {
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
-                await handleSearchWindowActivated();
+                interactionContext.markWindowVisible();
+                handleReminderSurfaceVisible();
+                await handleSearchWindowActivated(payload.source ?? 'shortcut');
             }
         );
 
@@ -619,6 +653,16 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             }
         );
 
+        unlistenSessionTaskStatusChanged = await eventService.on(
+            AppEvent.SESSION_TASK_STATUS_CHANGED,
+            sessionStatusReminderCoordinator.handleTaskStatusChanged
+        );
+
+        unlistenSessionStatusReminderAction = await eventService.on(
+            AppEvent.SESSION_STATUS_REMINDER_ACTION,
+            sessionStatusReminderCoordinator.handleReminderAction
+        );
+
         unlistenSearchSurfaceCommand = await eventService.on(
             AppEvent.SEARCH_SURFACE_COMMAND,
             async (payload) => {
@@ -629,7 +673,34 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         );
     }
 
+    const handleWindowFocus = () => {
+        interactionContext.markWindowVisible();
+        interactionContext.setWindowFocused(true);
+        interactionContext.setAppFocused(true);
+        handleReminderSurfaceVisible();
+    };
+    const handleWindowBlur = () => {
+        interactionContext.setWindowFocused(false);
+    };
+    const handleVisibilityChange = () => {
+        const isVisible = document.visibilityState !== 'hidden';
+        if (isVisible) {
+            interactionContext.markWindowVisible();
+        }
+        interactionContext.setAppFocused(isVisible);
+        if (!isVisible) {
+            interactionContext.setWindowFocused(false);
+            return;
+        }
+
+        handleReminderSurfaceVisible();
+    };
+
     onMounted(() => {
+        window.addEventListener('focus', handleWindowFocus);
+        window.addEventListener('blur', handleWindowBlur);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         stopPinnedWatch = watch(
             [isPinned, isDragging, () => Boolean(isMaximized?.value)],
             ([nextPinned, dragging, maximized]) => {
@@ -667,6 +738,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     });
 
     onUnmounted(() => {
+        window.removeEventListener('focus', handleWindowFocus);
+        window.removeEventListener('blur', handleWindowBlur);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         stopReadyWatch?.();
         stopReadyWatch = null;
         stopPinnedWatch?.();
@@ -677,6 +751,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         unlistenSearchSurfaceShown = null;
         unlistenSearchSurfaceHidden?.();
         unlistenSearchSurfaceHidden = null;
+        unlistenSessionTaskStatusChanged?.();
+        unlistenSessionTaskStatusChanged = null;
+        unlistenSessionStatusReminderAction?.();
+        unlistenSessionStatusReminderAction = null;
         unlistenSearchSurfaceCommand?.();
         unlistenSearchSurfaceCommand = null;
     });

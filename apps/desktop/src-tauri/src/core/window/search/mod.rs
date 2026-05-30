@@ -26,6 +26,11 @@ pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     surface::hide_surface(&app, surface::SearchSurfaceHideReason::ManualDismiss)
 }
 
+/// 显示主搜索窗口并广播搜索窗口组已显示事件。
+pub fn show_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    surface::show_surface(&app, surface::SearchSurfaceShowSource::Notification)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShortcutToggleAction {
     ShowWithAutoPasteAuthorization,
