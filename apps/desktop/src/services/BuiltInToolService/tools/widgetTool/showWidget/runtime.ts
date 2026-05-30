@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import DOMPurify from 'dompurify';
 import type morphdom from 'morphdom';
 
 import { tt } from '@/i18n';
@@ -516,12 +517,29 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     const normalizedHtml = sanitizedHtml || '<div></div>';
     const isFullDocument = /<(?:!doctype|html|head|body)\b/i.test(normalizedHtml);
 
+    // Allow <script src="..."> tags so runInlineScripts can re-execute external
+    // scripts after morphdom patching. Inline script content is stripped via the
+    // uponSanitizeElement hook to prevent XSS. DOMPurify still strips event-handler
+    // attributes (onclick, onerror, etc.) and javascript: URIs by default.
+    const purifyInstance = DOMPurify(window);
+    purifyInstance.addHook('uponSanitizeElement', (node, data) => {
+        if (data.tagName === 'script' && !(node as HTMLScriptElement).src) {
+            (node as HTMLScriptElement).textContent = '';
+        }
+    });
+
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
-        template.innerHTML = parsed.body.innerHTML || '<div></div>';
+        template.innerHTML = String(
+            purifyInstance.sanitize(parsed.body.innerHTML || '<div></div>', {
+                ADD_TAGS: ['script'],
+            })
+        );
     } else {
-        template.innerHTML = normalizedHtml;
+        template.innerHTML = String(
+            purifyInstance.sanitize(normalizedHtml, { ADD_TAGS: ['script'] })
+        );
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }

@@ -192,6 +192,11 @@ function createStatusChangedPayload(
         previousStatus: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
         body: string;
         title: string;
+        approval: {
+            callId: string;
+            approveLabel: string;
+            rejectLabel: string;
+        } | null;
     }> = {}
 ) {
     const defaultTitle =
@@ -207,13 +212,15 @@ function createStatusChangedPayload(
             title: overrides.title ?? defaultTitle,
             body: overrides.body ?? `${kind} body`,
             approval:
-                kind === 'waiting_approval'
-                    ? {
-                          callId: 'call-1',
-                          approveLabel: 'Approve',
-                          rejectLabel: 'Reject',
-                      }
-                    : null,
+                overrides.approval !== undefined
+                    ? overrides.approval
+                    : kind === 'waiting_approval'
+                      ? {
+                            callId: 'call-1',
+                            approveLabel: 'Approve',
+                            rejectLabel: 'Reject',
+                        }
+                      : null,
         },
     };
 }
@@ -482,6 +489,56 @@ describe('useSearchPageLifecycle', () => {
         mounted.unmount();
     });
 
+    it('adds an open action for waiting reminders that have no approval buttons', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        const surfaceHiddenHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN);
+        expect(surfaceHiddenHandler).toBeDefined();
+        await surfaceHiddenHandler!({
+            sequence: 1,
+            reason: 'manual-dismiss',
+        });
+        await flushLifecycle();
+
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
+            createStatusChangedPayload('waiting_approval', {
+                title: 'Waiting for response',
+                body: 'Pick the deployment target',
+                approval: null,
+            })
+        );
+        await flushLifecycle();
+
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
+            title: 'Waiting for response',
+            body: 'Pick the deployment target',
+            sessionId: 1,
+            taskId: 'task-1',
+            kind: 'waiting_approval',
+            approval: null,
+            openLabel: '打开',
+        });
+        expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('waiting_approval');
+
+        mounted.unmount();
+    });
+
     it('clears reminders and delegates notification actions to the page handler', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();
@@ -522,6 +579,92 @@ describe('useSearchPageLifecycle', () => {
             action: 'reply',
             replyText: 'follow up',
         });
+
+        mounted.unmount();
+    });
+
+    it('clears timed-out sessions when the search surface is reopened after manual dismiss', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                reconcilePopupSurfaces,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
+
+        interactionContext.markWindowHidden({
+            hideReason: 'manual-dismiss',
+            hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
+        });
+
+        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({ sequence: 1 });
+        await flushLifecycle();
+
+        expect(clearSession).toHaveBeenCalledTimes(1);
+        expect(reconcilePopupSurfaces).toHaveBeenCalledTimes(1);
+        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
+        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
+        expect(syncWindowPinState).toHaveBeenCalledTimes(2);
+        expect(handleShortcutAutoPaste).toHaveBeenCalledTimes(1);
+        expect(interactionContext.state.lastHideReason).toBe('manual-dismiss');
+
+        mounted.unmount();
+    });
+
+    it('suppresses timed-out session clearing when the page policy says auto-shrink is not yet allowed', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                shouldClearSessionAfterTimeout: () => false,
+                reconcilePopupSurfaces,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
+
+        interactionContext.markWindowHidden({
+            hideReason: 'app-blur-hide',
+            hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
+        });
+
+        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({ sequence: 1 });
+        await flushLifecycle();
+
+        expect(clearSession).not.toHaveBeenCalled();
+        expect(reconcilePopupSurfaces).toHaveBeenCalledTimes(1);
+        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
+        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
+        expect(syncWindowPinState).toHaveBeenCalledTimes(2);
+        expect(handleShortcutAutoPaste).toHaveBeenCalledTimes(1);
 
         mounted.unmount();
     });

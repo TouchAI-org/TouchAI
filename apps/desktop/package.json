@@ -60,6 +60,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "croner": "^10.0.1",
+        "dompurify": "^3.4.7",
         "drizzle-orm": "^0.45.2",
         "katex": "^0.16.46",
         "markdown-it-emoji": "^3.0.0",
@@ -67,6 +68,7 @@
         "mermaid": "^11.15.0",
         "monaco-editor": "0.55.1",
         "morphdom": "^2.7.8",
+        "motion-v": "^2.2.1",
         "pinia": "^3.0.4",
         "reka-ui": "^2.9.7",
         "stream-monaco": "^0.0.40",
@@ -121,9 +123,9 @@
         "vite": "^8.0.13",
         "vite-plugin-monaco-editor-esm": "^2.0.2",
         "vitest": "^4.1.6",
-        "webdriverio": "^9.27.1",
         "vue-eslint-parser": "^10.4.0",
-        "vue-tsc": "^3.2.9"
+        "vue-tsc": "^3.2.9",
+        "webdriverio": "^9.27.1"
     },
     "keywords": [
         "ai",

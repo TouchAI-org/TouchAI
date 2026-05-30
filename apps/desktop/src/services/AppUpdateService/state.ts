@@ -131,12 +131,20 @@ export function reduceAppUpdateState(
                 error: null,
             };
         case 'download-progress':
+            if (state.status !== 'downloading') {
+                return state;
+            }
+
             return {
                 ...state,
                 status: 'downloading',
                 downloadProgress: clampProgress(action.progress),
             };
         case 'download-completed':
+            if (state.status !== 'downloading') {
+                return state;
+            }
+
             return {
                 ...state,
                 status: 'downloaded',
@@ -151,6 +159,14 @@ export function reduceAppUpdateState(
                 error: null,
             };
         case 'failed':
+            if (
+                state.status !== 'checking' &&
+                state.status !== 'downloading' &&
+                state.status !== 'installing'
+            ) {
+                return state;
+            }
+
             return {
                 ...state,
                 status: 'failed',
