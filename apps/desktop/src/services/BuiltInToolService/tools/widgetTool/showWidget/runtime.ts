@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import DOMPurify from 'dompurify';
 import type morphdom from 'morphdom';
 
 import { tt } from '@/i18n';
@@ -519,9 +520,9 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
-        template.innerHTML = parsed.body.innerHTML || '<div></div>';
+        template.innerHTML = DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>');
     } else {
-        template.innerHTML = normalizedHtml;
+        template.innerHTML = DOMPurify.sanitize(normalizedHtml);
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
