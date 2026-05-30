@@ -213,6 +213,51 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
+    it('ignores stale download completion after the user switches channels', () => {
+        const switched = reduceAppUpdateState(
+            {
+                ...createInitialAppUpdateState(),
+                status: 'idle',
+                channel: 'nightly',
+                availableUpdate: null,
+                downloadedUpdate: null,
+                downloadProgress: null,
+            },
+            {
+                type: 'download-completed',
+                update: availableUpdate.update,
+            }
+        );
+
+        expect(switched).toMatchObject({
+            status: 'idle',
+            channel: 'nightly',
+            downloadedUpdate: null,
+            downloadProgress: null,
+        });
+    });
+
+    it('ignores stale failures after the user leaves an in-flight updater operation', () => {
+        const switched = reduceAppUpdateState(
+            {
+                ...createInitialAppUpdateState(),
+                status: 'idle',
+                channel: 'nightly',
+                error: null,
+            },
+            {
+                type: 'failed',
+                error: 'download failed',
+            }
+        );
+
+        expect(switched).toMatchObject({
+            status: 'idle',
+            channel: 'nightly',
+            error: null,
+        });
+    });
+
     it('records installing and failed states', () => {
         const installing = reduceAppUpdateState(createInitialAppUpdateState(), {
             type: 'install-started',
