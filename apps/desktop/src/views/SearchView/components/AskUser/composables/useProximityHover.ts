@@ -2,7 +2,7 @@
 // Upstream: registry/default/hooks/use-proximity-hover.ts
 // Adapted: React useState/useRef/useCallback → Vue refs/composables.
 
-import { onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
+import { onUnmounted, type Ref, ref, watch } from 'vue';
 
 export interface ItemRect {
     top: number;
@@ -148,10 +148,9 @@ export function useProximityHover(
             measureItems();
         });
     }
-    onMounted(() => {
-        if (typeof ResizeObserver === 'undefined') return;
+    if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(scheduleRemeasure);
-    });
+    }
     watch(
         containerRef,
         (el, prev) => {

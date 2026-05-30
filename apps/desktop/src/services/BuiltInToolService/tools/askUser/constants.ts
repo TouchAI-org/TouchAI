@@ -38,6 +38,12 @@ export const ASK_USER_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
                             'If true, the user can select multiple options. Default: false.',
                         default: false,
                     },
+                    allowOther: {
+                        type: 'boolean',
+                        description:
+                            'If true, show a free-text "Other" input alongside the options. Default: false.',
+                        default: false,
+                    },
                     options: {
                         type: 'array',
                         description: 'Available choices (2-4 options).',

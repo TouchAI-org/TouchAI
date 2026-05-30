@@ -90,10 +90,7 @@
                 {
                     id: 'approval',
                     title: approval.title || t('askUser.approval.fallbackTitle'),
-                    subtitle:
-                        approval.description?.trim() ||
-                        approval.reason?.trim() ||
-                        undefined,
+                    subtitle: approval.description?.trim() || approval.reason?.trim() || undefined,
                     commandPreview: approval.command,
                     layout: 'inline',
                     skippable: false,
@@ -139,7 +136,7 @@
                 description: opt.description,
             })),
             multiSelect: q.multiSelect,
-            allowOther: true,
+            allowOther: q.allowOther ?? false,
             skippable: true,
             layout: 'stacked' as const,
         }));
@@ -214,7 +211,8 @@
             if (!id) return;
             const req = current.value;
             if (req?.kind === 'approval') {
-                const delayMs = (req as AskUserApprovalRequest).payload.keyboardApproveDelayMs ?? 450;
+                const delayMs =
+                    (req as AskUserApprovalRequest).payload.keyboardApproveDelayMs ?? 450;
                 startArmTimer(delayMs);
             } else {
                 approvalArmed.value = true;
@@ -230,9 +228,7 @@
     function focusFirstRow(): void {
         const root = (questionsBodyRef.value as { rootRef?: HTMLElement } | null)?.rootRef;
         if (!root) return;
-        const firstRow = root.querySelector(
-            '[data-proximity-index="0"]'
-        ) as HTMLElement | null;
+        const firstRow = root.querySelector('[data-proximity-index="0"]') as HTMLElement | null;
         if (firstRow) {
             firstRow.focus();
         } else {

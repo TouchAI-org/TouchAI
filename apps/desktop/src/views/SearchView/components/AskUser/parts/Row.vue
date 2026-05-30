@@ -81,7 +81,7 @@
     import { AnimatePresence, motion } from 'motion-v';
 
     defineOptions({ name: 'AskUserRow' });
-    import { onMounted, onUnmounted, ref } from 'vue';
+    import { computed, onMounted, onUnmounted, ref } from 'vue';
 
     import { fontWeights } from '../lib/fontWeights';
     import { shape } from '../lib/shape';
@@ -114,8 +114,9 @@
 
     const rowRef = ref<HTMLDivElement | null>(null);
 
-    const ariaCheckedAttr =
-        props.role === 'radio' || props.role === 'checkbox' ? !!props.ariaChecked : undefined;
+    const ariaCheckedAttr = computed(() =>
+        props.role === 'radio' || props.role === 'checkbox' ? !!props.ariaChecked : undefined
+    );
 
     function handleFocus(e: FocusEvent): void {
         const target = e.target as HTMLElement | null;

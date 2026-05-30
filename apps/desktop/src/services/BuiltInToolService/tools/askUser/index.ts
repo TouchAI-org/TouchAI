@@ -55,6 +55,7 @@ function parseAskUserArgs(args: Record<string, unknown>): ParsedAskUserArgs | st
             question,
             header,
             multiSelect: Boolean(item.multiSelect),
+            allowOther: Boolean(item.allowOther),
             options: options.map((opt: unknown) => {
                 if (!opt || typeof opt !== 'object') {
                     return { label: String(opt ?? '') };
@@ -124,8 +125,9 @@ class AskUserTool extends BuiltInTool {
 
     override buildConversationSemanticFromResult(
         result: string,
-        _args: Record<string, unknown>
+        args: Record<string, unknown>
     ): BuiltInToolConversationSemantic | null {
+        void args;
         const lines = result.split('\n').filter((l) => l.startsWith('Q'));
         if (lines.length === 0) return null;
         const summary = lines

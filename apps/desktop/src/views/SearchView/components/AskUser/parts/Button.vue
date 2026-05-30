@@ -6,6 +6,7 @@
 
 <template>
     <button
+        type="button"
         :class="[
             baseClasses,
             sizeClasses,

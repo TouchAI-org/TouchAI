@@ -144,11 +144,6 @@
         color: inherit;
     }
 
-    *:focus,
-    *:focus-visible {
-        outline: none !important;
-    }
-
     /* 允许输入框和文本区域选择文本 */
     input,
     textarea,

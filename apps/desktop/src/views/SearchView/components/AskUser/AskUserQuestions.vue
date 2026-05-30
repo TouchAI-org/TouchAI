@@ -15,222 +15,206 @@
         <div
             ref="rootRef"
             tabindex="-1"
-            class="ask-user-questions-root bg-card border-border relative w-full min-w-0 max-w-[700px] overflow-hidden rounded-t-2xl border border-b-0"
+            class="ask-user-questions-root bg-card border-border relative w-full max-w-[700px] min-w-0 overflow-hidden rounded-t-2xl border border-b-0"
             @keydown="handleRootKey"
         >
-        <!-- Header -->
-        <div
-            v-if="total > 1"
-            class="ask-content-x text-muted-foreground flex items-center pt-5 pb-2 text-[12px]"
-        >
-            <span>{{ safeIndex + 1 }} / {{ total }}</span>
-        </div>
-
-        <!-- Morphing Q/A region -->
-        <motion.div
-            :animate="{ height: contentHeight }"
-            :initial="false"
-            :transition="springs.slow"
-            class="overflow-hidden"
-        >
+            <!-- Header -->
             <div
-                ref="contentMeasureRef"
-                :class="[
-                    'ask-content-x',
-                    total > 1 ? '' : 'pt-4',
-                    showFooter ? 'pb-1' : 'pb-3',
-                ]"
+                v-if="total > 1"
+                class="ask-content-x text-muted-foreground flex items-center pt-5 pb-2 text-[12px]"
             >
-                <div :key="qId" class="flex flex-col gap-3">
-                    <!-- Question title -->
-                    <h3
-                        :id="`${uid}-${qId}-title`"
-                        class="text-foreground pt-1 pb-1 text-[14px] leading-snug"
-                        :style="{ fontWeight: fontWeights.semibold }"
-                    >
-                        {{ question?.title }}
-                    </h3>
+                <span>{{ safeIndex + 1 }} / {{ total }}</span>
+            </div>
 
-                    <!-- Optional subtitle / reason -->
-                    <p
-                        v-if="question?.subtitle"
-                        class="text-muted-foreground -mt-2 text-[13px] leading-relaxed"
-                    >
-                        {{ question.subtitle }}
-                    </p>
-
-                    <!-- Optional command preview -->
-                    <pre
-                        v-if="question?.commandPreview"
-                        class="custom-scrollbar-thin border-border bg-accent/40 text-foreground -mt-1 max-h-[8rem] overflow-auto rounded-lg border px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap"
-                        >{{ question.commandPreview }}</pre
-                    >
-
-                    <!-- Options container -->
-                    <div
-                        ref="rowsContainerRef"
-                        :role="isMulti ? 'group' : 'radiogroup'"
-                        :aria-labelledby="`${uid}-${qId}-title`"
-                        class="ask-rows-extend relative flex flex-col gap-0.5"
-                        @mouseenter="handlers.onMouseEnter"
-                        @mousemove="handlers.onMouseMove"
-                        @mouseleave="handlers.onMouseLeave"
-                    >
-                        <!-- Other-row input hint (empty focused state) -->
-                        <AnimatePresence>
-                            <motion.div
-                                v-if="
-                                    allowOther &&
-                                    itemRects[otherIndex] &&
-                                    focusedIndex === otherIndex &&
-                                    otherText.length === 0
-                                "
-                                key="other-input"
-                                aria-hidden
-                                :class="[
-                                    'bg-card ring-border pointer-events-none absolute ring-1 ring-inset',
-                                    shape.bg,
-                                ]"
-                                :initial="{
-                                    opacity: 0,
-                                    top: itemRects[otherIndex]?.top,
-                                    left: itemRects[otherIndex]?.left,
-                                    width: itemRects[otherIndex]?.width,
-                                    height: itemRects[otherIndex]?.height,
-                                }"
-                                :animate="{
-                                    opacity: 1,
-                                    top: itemRects[otherIndex]?.top,
-                                    left: itemRects[otherIndex]?.left,
-                                    width: itemRects[otherIndex]?.width,
-                                    height: itemRects[otherIndex]?.height,
-                                }"
-                                :exit="{ opacity: 0, transition: { duration: 0.08 } }"
-                                :transition="{ ...springs.fast, opacity: { duration: 0.08 } }"
-                            />
-                        </AnimatePresence>
-
-                        <!-- Single morphing hover indicator -->
-                        <AnimatePresence>
-                            <motion.div
-                                v-if="activeRect"
-                                :key="`hover-${sessionRef}`"
-                                aria-hidden
-                                :class="['bg-hover pointer-events-none absolute', shape.bg]"
-                                :initial="{
-                                    opacity: 0,
-                                    top: activeRect.top,
-                                    left: activeRect.left,
-                                    width: activeRect.width,
-                                    height: activeRect.height,
-                                }"
-                                :animate="{
-                                    opacity: 1,
-                                    top: activeRect.top,
-                                    left: activeRect.left,
-                                    width: activeRect.width,
-                                    height: activeRect.height,
-                                }"
-                                :exit="{ opacity: 0, transition: { duration: 0.06 } }"
-                                :transition="{ ...springs.fast, opacity: { duration: 0.08 } }"
-                            />
-                        </AnimatePresence>
-
-                        <!-- Selected-row backgrounds (merged contiguous) -->
-                        <AnimatePresence>
-                            <motion.div
-                                v-for="group in selectedGroups"
-                                :key="`selected-${group.id}`"
-                                aria-hidden
-                                :class="['bg-active pointer-events-none absolute', shape.bg]"
-                                :initial="false"
-                                :animate="{
-                                    top: itemRects[group.start]?.top ?? 0,
-                                    left: Math.min(
-                                        itemRects[group.start]?.left ?? 0,
-                                        itemRects[group.end]?.left ?? 0
-                                    ),
-                                    width: Math.max(
-                                        itemRects[group.start]?.width ?? 0,
-                                        itemRects[group.end]?.width ?? 0
-                                    ),
-                                    height:
-                                        (itemRects[group.end]?.top ?? 0) +
-                                        (itemRects[group.end]?.height ?? 0) -
-                                        (itemRects[group.start]?.top ?? 0),
-                                    opacity: isHoveringNonSelected ? 0.8 : 1,
-                                }"
-                                :exit="{ opacity: 0, transition: { duration: 0.12 } }"
-                                :transition="{ ...springs.moderate, opacity: { duration: 0.08 } }"
-                            />
-                        </AnimatePresence>
-
-                        <!-- Option rows -->
-                        <Row
-                            v-for="(opt, i) in options"
-                            :key="optionKey(opt, i)"
-                            :index="i"
-                            :register-item="registerItem"
-                            :role="isMulti ? 'checkbox' : 'radio'"
-                            :is-selected="selectedIds.includes(optionKey(opt, i))"
-                            :tab-index="
-                                isMulti
-                                    ? 0
-                                    : selectedIds[0] === optionKey(opt, i) ||
-                                        (!selectedIds.length && i === 0)
-                                      ? 0
-                                      : -1
-                            "
-                            :on-focus-visible="() => setActiveIndex(i)"
-                            :on-blur-any="
-                                () => setActiveIndex((prev) => (prev === i ? null : prev))
-                            "
-                            :on-click="
-                                () =>
-                                    isMulti
-                                        ? handleMultiToggle(optionKey(opt, i))
-                                        : handleSingleSelect(optionKey(opt, i))
-                            "
-                            :on-key-down="
-                                (e: KeyboardEvent) => {
-                                    if (
-                                        (e.key === ' ' || e.key === 'Enter') &&
-                                        !e.metaKey &&
-                                        !e.ctrlKey
-                                    ) {
-                                        e.preventDefault();
-                                        if (isMulti) handleMultiToggle(optionKey(opt, i));
-                                        else handleSingleSelect(optionKey(opt, i));
-                                    }
-                                }
-                            "
-                            :aria-checked="selectedIds.includes(optionKey(opt, i))"
-                            :chip-content="i + 1"
-                            :chip-filled="selectedIds.includes(optionKey(opt, i))"
-                            :is-multi="isMulti"
-                            :show-arrow="!isMulti && activeIndex === i"
-                            :body-layout="question?.layout === 'stacked' ? 'stacked' : 'inline'"
+            <!-- Morphing Q/A region -->
+            <motion.div
+                :animate="{ height: contentHeight }"
+                :initial="false"
+                :transition="springs.slow"
+                class="overflow-hidden"
+            >
+                <div
+                    ref="contentMeasureRef"
+                    :class="[
+                        'ask-content-x',
+                        total > 1 ? '' : 'pt-4',
+                        showFooter ? 'pb-1' : 'pb-3',
+                    ]"
+                >
+                    <div :key="qId" class="flex flex-col gap-3">
+                        <!-- Question title -->
+                        <h3
+                            :id="`${uid}-${qId}-title`"
+                            class="text-foreground pt-1 pb-1 text-[14px] leading-snug"
+                            :style="{ fontWeight: fontWeights.semibold }"
                         >
-                            <template v-if="question?.layout === 'stacked'">
-                                <span
-                                    class="text-foreground transition-colors duration-80"
-                                    :style="{
-                                        fontWeight: selectedIds.includes(optionKey(opt, i))
-                                            ? fontWeights.semibold
-                                            : fontWeights.medium,
+                            {{ question?.title }}
+                        </h3>
+
+                        <!-- Optional subtitle / reason -->
+                        <p
+                            v-if="question?.subtitle"
+                            class="text-muted-foreground -mt-2 text-[13px] leading-relaxed"
+                        >
+                            {{ question.subtitle }}
+                        </p>
+
+                        <!-- Optional command preview -->
+                        <pre
+                            v-if="question?.commandPreview"
+                            class="custom-scrollbar-thin border-border bg-accent/40 text-foreground -mt-1 max-h-[8rem] overflow-auto rounded-lg border px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap"
+                            >{{ question.commandPreview }}</pre
+                        >
+
+                        <!-- Options container -->
+                        <div
+                            ref="rowsContainerRef"
+                            :role="isMulti ? 'group' : 'radiogroup'"
+                            :aria-labelledby="`${uid}-${qId}-title`"
+                            class="ask-rows-extend relative flex flex-col gap-0.5"
+                            @mouseenter="handlers.onMouseEnter"
+                            @mousemove="handlers.onMouseMove"
+                            @mouseleave="handlers.onMouseLeave"
+                        >
+                            <!-- Other-row input hint (empty focused state) -->
+                            <AnimatePresence>
+                                <motion.div
+                                    v-if="
+                                        allowOther &&
+                                        itemRects[otherIndex] &&
+                                        focusedIndex === otherIndex &&
+                                        otherText.length === 0
+                                    "
+                                    key="other-input"
+                                    aria-hidden
+                                    :class="[
+                                        'bg-card ring-border pointer-events-none absolute ring-1 ring-inset',
+                                        shape.bg,
+                                    ]"
+                                    :initial="{
+                                        opacity: 0,
+                                        top: itemRects[otherIndex]?.top,
+                                        left: itemRects[otherIndex]?.left,
+                                        width: itemRects[otherIndex]?.width,
+                                        height: itemRects[otherIndex]?.height,
                                     }"
-                                >
-                                    {{ opt.title }}
-                                </span>
-                                <span
-                                    v-if="opt.description"
-                                    class="text-muted-foreground truncate text-[12px] leading-snug"
-                                >
-                                    {{ opt.description }}
-                                </span>
-                            </template>
-                            <template v-else>
-                                <span>
+                                    :animate="{
+                                        opacity: 1,
+                                        top: itemRects[otherIndex]?.top,
+                                        left: itemRects[otherIndex]?.left,
+                                        width: itemRects[otherIndex]?.width,
+                                        height: itemRects[otherIndex]?.height,
+                                    }"
+                                    :exit="{ opacity: 0, transition: { duration: 0.08 } }"
+                                    :transition="{ ...springs.fast, opacity: { duration: 0.08 } }"
+                                />
+                            </AnimatePresence>
+
+                            <!-- Single morphing hover indicator -->
+                            <AnimatePresence>
+                                <motion.div
+                                    v-if="activeRect"
+                                    :key="`hover-${sessionRef}`"
+                                    aria-hidden
+                                    :class="['bg-hover pointer-events-none absolute', shape.bg]"
+                                    :initial="{
+                                        opacity: 0,
+                                        top: activeRect.top,
+                                        left: activeRect.left,
+                                        width: activeRect.width,
+                                        height: activeRect.height,
+                                    }"
+                                    :animate="{
+                                        opacity: 1,
+                                        top: activeRect.top,
+                                        left: activeRect.left,
+                                        width: activeRect.width,
+                                        height: activeRect.height,
+                                    }"
+                                    :exit="{ opacity: 0, transition: { duration: 0.06 } }"
+                                    :transition="{ ...springs.fast, opacity: { duration: 0.08 } }"
+                                />
+                            </AnimatePresence>
+
+                            <!-- Selected-row backgrounds (merged contiguous) -->
+                            <AnimatePresence>
+                                <motion.div
+                                    v-for="group in selectedGroups"
+                                    :key="`selected-${group.id}`"
+                                    aria-hidden
+                                    :class="['bg-active pointer-events-none absolute', shape.bg]"
+                                    :initial="false"
+                                    :animate="{
+                                        top: itemRects[group.start]?.top ?? 0,
+                                        left: Math.min(
+                                            itemRects[group.start]?.left ?? 0,
+                                            itemRects[group.end]?.left ?? 0
+                                        ),
+                                        width: Math.max(
+                                            itemRects[group.start]?.width ?? 0,
+                                            itemRects[group.end]?.width ?? 0
+                                        ),
+                                        height:
+                                            (itemRects[group.end]?.top ?? 0) +
+                                            (itemRects[group.end]?.height ?? 0) -
+                                            (itemRects[group.start]?.top ?? 0),
+                                        opacity: isHoveringNonSelected ? 0.8 : 1,
+                                    }"
+                                    :exit="{ opacity: 0, transition: { duration: 0.12 } }"
+                                    :transition="{
+                                        ...springs.moderate,
+                                        opacity: { duration: 0.08 },
+                                    }"
+                                />
+                            </AnimatePresence>
+
+                            <!-- Option rows -->
+                            <Row
+                                v-for="(opt, i) in options"
+                                :key="optionKey(opt, i)"
+                                :index="i"
+                                :register-item="registerItem"
+                                :role="isMulti ? 'checkbox' : 'radio'"
+                                :is-selected="selectedIds.includes(optionKey(opt, i))"
+                                :tab-index="
+                                    isMulti
+                                        ? 0
+                                        : selectedIds[0] === optionKey(opt, i) ||
+                                            (!selectedIds.length && i === 0)
+                                          ? 0
+                                          : -1
+                                "
+                                :on-focus-visible="() => setActiveIndex(i)"
+                                :on-blur-any="
+                                    () => setActiveIndex((prev) => (prev === i ? null : prev))
+                                "
+                                :on-click="
+                                    () =>
+                                        isMulti
+                                            ? handleMultiToggle(optionKey(opt, i))
+                                            : handleSingleSelect(optionKey(opt, i))
+                                "
+                                :on-key-down="
+                                    (e: KeyboardEvent) => {
+                                        if (
+                                            (e.key === ' ' || e.key === 'Enter') &&
+                                            !e.metaKey &&
+                                            !e.ctrlKey
+                                        ) {
+                                            e.preventDefault();
+                                            if (isMulti) handleMultiToggle(optionKey(opt, i));
+                                            else handleSingleSelect(optionKey(opt, i));
+                                        }
+                                    }
+                                "
+                                :aria-checked="selectedIds.includes(optionKey(opt, i))"
+                                :chip-content="i + 1"
+                                :chip-filled="selectedIds.includes(optionKey(opt, i))"
+                                :is-multi="isMulti"
+                                :show-arrow="!isMulti && activeIndex === i"
+                                :body-layout="question?.layout === 'stacked' ? 'stacked' : 'inline'"
+                            >
+                                <template v-if="question?.layout === 'stacked'">
                                     <span
                                         class="text-foreground transition-colors duration-80"
                                         :style="{
@@ -241,177 +225,203 @@
                                     >
                                         {{ opt.title }}
                                     </span>
-                                    <template v-if="opt.description">
-                                        {{ ' ' }}
-                                        <span class="text-muted-foreground">
-                                            {{ opt.description }}
+                                    <span
+                                        v-if="opt.description"
+                                        class="text-muted-foreground truncate text-[12px] leading-snug"
+                                    >
+                                        {{ opt.description }}
+                                    </span>
+                                </template>
+                                <template v-else>
+                                    <span>
+                                        <span
+                                            class="text-foreground transition-colors duration-80"
+                                            :style="{
+                                                fontWeight: selectedIds.includes(optionKey(opt, i))
+                                                    ? fontWeights.semibold
+                                                    : fontWeights.medium,
+                                            }"
+                                        >
+                                            {{ opt.title }}
+                                        </span>
+                                        <template v-if="opt.description">
+                                            {{ ' ' }}
+                                            <span class="text-muted-foreground">
+                                                {{ opt.description }}
+                                            </span>
+                                        </template>
+                                    </span>
+                                </template>
+                            </Row>
+
+                            <!-- Other row -->
+                            <Row
+                                v-if="allowOther"
+                                :index="otherIndex"
+                                :register-item="registerItem"
+                                :role="null"
+                                :is-selected="otherText.length > 0"
+                                :tab-index="-1"
+                                :on-focus-visible="() => (focusedIndex = otherIndex)"
+                                :on-blur-any="
+                                    () => {
+                                        if (focusedIndex === otherIndex) focusedIndex = null;
+                                    }
+                                "
+                                :on-click="() => otherInputRef?.focus()"
+                                :aria-label="
+                                    question?.otherPlaceholder ?? 'Describe in your own words'
+                                "
+                                :chip-content="otherIndex + 1"
+                                :chip-filled="otherText.length > 0"
+                                :is-multi="isMulti"
+                                :show-arrow="
+                                    !isMulti &&
+                                    (focusedIndex === otherIndex || activeIndex === otherIndex) &&
+                                    otherText.trim().length > 0
+                                "
+                                :on-arrow-click="
+                                    !isMulti && otherText.trim().length > 0
+                                        ? handleOtherSubmit
+                                        : undefined
+                                "
+                            >
+                                <span class="inline-grid w-full">
+                                    <input
+                                        ref="otherInputRef"
+                                        type="text"
+                                        :value="otherText"
+                                        :placeholder="
+                                            question?.otherPlaceholder ??
+                                            'Describe in your own words…'
+                                        "
+                                        :aria-label="
+                                            question?.otherPlaceholder ??
+                                            'Describe in your own words'
+                                        "
+                                        class="text-foreground placeholder:text-muted-foreground col-start-1 row-start-1 w-full bg-transparent text-[13px] outline-none"
+                                        :style="{ fontWeight: fontWeights.medium }"
+                                        @input="
+                                            (e) =>
+                                                handleOtherChange(
+                                                    (e.target as HTMLInputElement).value
+                                                )
+                                        "
+                                        @focus="focusedIndex = otherIndex"
+                                        @blur="
+                                            () => {
+                                                if (focusedIndex === otherIndex)
+                                                    focusedIndex = null;
+                                            }
+                                        "
+                                        @keydown="
+                                            (e) => {
+                                                if (e.key === 'Enter' && !isMulti) {
+                                                    e.preventDefault();
+                                                    handleOtherSubmit();
+                                                }
+                                            }
+                                        "
+                                        @click.stop
+                                    />
+                                </span>
+                            </Row>
+                        </div>
+                    </div>
+                </div>
+            </motion.div>
+
+            <!-- Footer -->
+            <div v-if="showFooter" class="ask-footer-x pt-1 pb-2">
+                <div class="flex items-center justify-between gap-2">
+                    <!-- Left: Back button -->
+                    <div class="relative flex items-center gap-2">
+                        <AnimatePresence :initial="false">
+                            <motion.div
+                                v-if="showBack"
+                                key="back"
+                                layout="position"
+                                :initial="{ opacity: 0, scale: 0.85 }"
+                                :animate="{ opacity: 1, scale: 1 }"
+                                :exit="{ opacity: 0, scale: 0.85 }"
+                                :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
+                            >
+                                <AskButton variant="ghost" @click="handleBack">
+                                    <template #default>
+                                        <span class="inline-flex items-center gap-1.5">
+                                            <AppIcon
+                                                name="arrow-left"
+                                                class="hidden h-3.5 w-3.5 sm:block"
+                                            />
+                                            Back
                                         </span>
                                     </template>
-                                </span>
-                            </template>
-                        </Row>
+                                </AskButton>
+                            </motion.div>
+                        </AnimatePresence>
+                    </div>
 
-                        <!-- Other row -->
-                        <Row
-                            v-if="allowOther"
-                            :index="otherIndex"
-                            :register-item="registerItem"
-                            :role="null"
-                            :is-selected="otherText.length > 0"
-                            :tab-index="-1"
-                            :on-focus-visible="() => (focusedIndex = otherIndex)"
-                            :on-blur-any="
-                                () => {
-                                    if (focusedIndex === otherIndex) focusedIndex = null;
-                                }
-                            "
-                            :on-click="() => otherInputRef?.focus()"
-                            :aria-label="question?.otherPlaceholder ?? 'Describe in your own words'"
-                            :chip-content="otherIndex + 1"
-                            :chip-filled="otherText.length > 0"
-                            :is-multi="isMulti"
-                            :show-arrow="
-                                !isMulti &&
-                                (focusedIndex === otherIndex || activeIndex === otherIndex) &&
-                                otherText.trim().length > 0
-                            "
-                            :on-arrow-click="
-                                !isMulti && otherText.trim().length > 0
-                                    ? handleOtherSubmit
-                                    : undefined
-                            "
-                        >
-                            <span class="inline-grid w-full">
-                                <input
-                                    ref="otherInputRef"
-                                    type="text"
-                                    :value="otherText"
-                                    :placeholder="
-                                        question?.otherPlaceholder ?? 'Describe in your own words…'
+                    <!-- Right: Skip + Continue buttons -->
+                    <div class="relative flex items-center gap-2">
+                        <AnimatePresence :initial="false">
+                            <motion.div
+                                v-if="showSkip"
+                                key="skip"
+                                layout="position"
+                                :initial="{ opacity: 0, scale: 0.85 }"
+                                :animate="{ opacity: 1, scale: 1 }"
+                                :exit="{ opacity: 0, scale: 0.85 }"
+                                :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
+                            >
+                                <AskButton variant="ghost" @click="handleSkip">
+                                    <template #default>
+                                        <span class="inline-flex items-center gap-1.5">
+                                            {{ props.skipLabel }}
+                                            <AppIcon
+                                                name="arrow-right"
+                                                class="hidden h-3.5 w-3.5 sm:block"
+                                            />
+                                        </span>
+                                    </template>
+                                </AskButton>
+                            </motion.div>
+
+                            <motion.div
+                                v-if="isMulti"
+                                key="continue"
+                                layout="position"
+                                :initial="{ opacity: 0, scale: 0.85 }"
+                                :animate="{ opacity: 1, scale: 1 }"
+                                :exit="{ opacity: 0, scale: 0.85 }"
+                                :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
+                            >
+                                <AskButton
+                                    variant="primary"
+                                    :disabled="
+                                        selectedIds.length === 0 && otherText.trim().length === 0
                                     "
-                                    :aria-label="
-                                        question?.otherPlaceholder ?? 'Describe in your own words'
-                                    "
-                                    class="text-foreground placeholder:text-muted-foreground col-start-1 row-start-1 w-full bg-transparent text-[13px] outline-none"
-                                    :style="{ fontWeight: fontWeights.medium }"
-                                    @input="
-                                        (e) =>
-                                            handleOtherChange((e.target as HTMLInputElement).value)
-                                    "
-                                    @focus="focusedIndex = otherIndex"
-                                    @blur="
-                                        () => {
-                                            if (focusedIndex === otherIndex) focusedIndex = null;
-                                        }
-                                    "
-                                    @keydown="
-                                        (e) => {
-                                            if (e.key === 'Enter' && !isMulti) {
-                                                e.preventDefault();
-                                                handleOtherSubmit();
-                                            }
-                                        }
-                                    "
-                                    @click.stop
-                                />
-                            </span>
-                        </Row>
+                                    @click="handleMultiNext"
+                                >
+                                    <template #default>
+                                        <span class="inline-flex items-center gap-1.5">
+                                            {{
+                                                question?.nextLabel ??
+                                                (safeIndex >= total - 1 ? 'Finish' : 'Continue')
+                                            }}
+                                            <span class="hidden sm:contents">
+                                                <ShortcutChip tone="inverted">
+                                                    {{ modifierSymbol }}↵
+                                                </ShortcutChip>
+                                            </span>
+                                        </span>
+                                    </template>
+                                </AskButton>
+                            </motion.div>
+                        </AnimatePresence>
                     </div>
                 </div>
             </div>
-        </motion.div>
-
-        <!-- Footer -->
-        <div v-if="showFooter" class="ask-footer-x pt-1 pb-2">
-            <div class="flex items-center justify-between gap-2">
-                <!-- Left: Back button -->
-                <div class="relative flex items-center gap-2">
-                    <AnimatePresence :initial="false">
-                        <motion.div
-                            v-if="showBack"
-                            key="back"
-                            layout="position"
-                            :initial="{ opacity: 0, scale: 0.85 }"
-                            :animate="{ opacity: 1, scale: 1 }"
-                            :exit="{ opacity: 0, scale: 0.85 }"
-                            :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
-                        >
-                            <AskButton
-                                variant="ghost"
-                                @click="handleBack"
-                            >
-                                <template #default>
-                                    <span class="inline-flex items-center gap-1.5">
-                                        <AppIcon name="arrow-left" class="hidden h-3.5 w-3.5 sm:block" />
-                                        Back
-                                    </span>
-                                </template>
-                            </AskButton>
-                        </motion.div>
-                    </AnimatePresence>
-                </div>
-
-                <!-- Right: Skip + Continue buttons -->
-                <div class="relative flex items-center gap-2">
-                    <AnimatePresence :initial="false">
-                        <motion.div
-                            v-if="showSkip"
-                            key="skip"
-                            layout="position"
-                            :initial="{ opacity: 0, scale: 0.85 }"
-                            :animate="{ opacity: 1, scale: 1 }"
-                            :exit="{ opacity: 0, scale: 0.85 }"
-                            :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
-                        >
-                            <AskButton
-                                variant="ghost"
-                                @click="handleSkip"
-                            >
-                                <template #default>
-                                    <span class="inline-flex items-center gap-1.5">
-                                        {{ props.skipLabel }}
-                                        <AppIcon name="arrow-right" class="hidden h-3.5 w-3.5 sm:block" />
-                                    </span>
-                                </template>
-                            </AskButton>
-                        </motion.div>
-
-                        <motion.div
-                            v-if="isMulti"
-                            key="continue"
-                            layout="position"
-                            :initial="{ opacity: 0, scale: 0.85 }"
-                            :animate="{ opacity: 1, scale: 1 }"
-                            :exit="{ opacity: 0, scale: 0.85 }"
-                            :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
-                        >
-                            <AskButton
-                                variant="primary"
-                                :disabled="
-                                    selectedIds.length === 0 && otherText.trim().length === 0
-                                "
-                                @click="handleMultiNext"
-                            >
-                                <template #default>
-                                    <span class="inline-flex items-center gap-1.5">
-                                        {{
-                                            question?.nextLabel ??
-                                            (safeIndex >= total - 1 ? 'Finish' : 'Continue')
-                                        }}
-                                        <span class="hidden sm:contents">
-                                            <ShortcutChip tone="inverted">
-                                                {{ modifierSymbol }}↵
-                                            </ShortcutChip>
-                                        </span>
-                                    </span>
-                                </template>
-                            </AskButton>
-                        </motion.div>
-                    </AnimatePresence>
-                </div>
-            </div>
         </div>
-    </div>
     </div>
 </template>
 
@@ -782,7 +792,7 @@
             e.stopPropagation();
             if (e.key === 'ArrowLeft') {
                 if (safeIndex.value > 0) handleBack();
-            } else if (isSkippable.value && total.value > 1) {
+            } else if (isSkippable.value) {
                 handleSkip();
             }
             return;
@@ -872,7 +882,7 @@
     );
 
     const showBack = computed(() => total.value > 1 && safeIndex.value > 0);
-    const showSkip = computed(() => total.value > 1 && isSkippable.value);
+    const showSkip = computed(() => isSkippable.value);
     const showFooter = computed(() => showBack.value || showSkip.value || isMulti.value);
 
     const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform ?? '');
@@ -880,4 +890,3 @@
 
     defineExpose({ rootRef });
 </script>
-

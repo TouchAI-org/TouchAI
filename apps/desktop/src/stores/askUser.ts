@@ -92,11 +92,19 @@ export const useAskUserStore = defineStore('askUser', () => {
             (item) => item.kind === 'approval' && item.payload.callId === payload.callId
         );
         if (existingIndex >= 0) {
-            popAndResolve(existingIndex, (entry) => {
-                if (entry.kind === 'approval') {
-                    entry.resolve(false);
-                }
-            });
+            const existing = queue.value[existingIndex];
+            const existingResolver = existing ? resolvers.get(existing.id) : undefined;
+            if (existing && existingResolver?.kind === 'approval') {
+                const prev = existingResolver.resolve;
+                resolvers.set(existing.id, {
+                    kind: 'approval',
+                    resolve: (approved) => {
+                        prev(approved);
+                        resolve(approved);
+                    },
+                });
+                return existing.id;
+            }
         }
         const id = crypto.randomUUID();
         queue.value.push({

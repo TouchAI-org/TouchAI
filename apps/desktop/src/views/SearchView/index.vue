@@ -1088,6 +1088,13 @@
             if (approval) {
                 if (lastBridgedApprovalCallId === approval.callId) return;
                 lastBridgedApprovalCallId = approval.callId;
+                controller.closeQuickSearch();
+                void hideAllPopups().catch((error) => {
+                    console.error(
+                        '[SearchView] failed to hide popups before approval prompt',
+                        error
+                    );
+                });
                 askUserStore.enqueueApproval(
                     {
                         callId: approval.callId,
@@ -1131,6 +1138,13 @@
             if (question) {
                 if (lastBridgedQuestionCallId === question.callId) return;
                 lastBridgedQuestionCallId = question.callId;
+                controller.closeQuickSearch();
+                void hideAllPopups().catch((error) => {
+                    console.error(
+                        '[SearchView] failed to hide popups before question prompt',
+                        error
+                    );
+                });
                 askUserStore.enqueueQuestion(
                     question.questions,
                     (answers) => {

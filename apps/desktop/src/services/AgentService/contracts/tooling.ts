@@ -79,6 +79,7 @@ export interface AskUserQuestion {
     question: string;
     header: string;
     multiSelect?: boolean;
+    allowOther?: boolean;
     options: AskUserQuestionOption[];
 }
 
