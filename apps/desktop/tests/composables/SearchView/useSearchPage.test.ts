@@ -7,6 +7,7 @@ import { createSearchInteractionContext } from '@/views/SearchView/composables/s
 import {
     useSearchPageController,
     useSearchPageLifecycle,
+    useSearchWindowPin,
 } from '@/views/SearchView/composables/useSearchPage';
 
 const {
@@ -183,6 +184,40 @@ describe('useSearchPageController', () => {
         controller.closeQuickSearch();
 
         expect(quickSearchOpen.value).toBe(false);
+    });
+});
+
+describe('useSearchWindowPin', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        currentWindowMock.isAlwaysOnTop.mockResolvedValue(false);
+        currentWindowMock.setAlwaysOnTop.mockResolvedValue(undefined);
+    });
+
+    it('keeps the requested pinned state after toggling even when the platform reports false', async () => {
+        const { isPinned, toggleWindowPin, syncWindowPinState } = useSearchWindowPin();
+
+        await toggleWindowPin();
+
+        expect(currentWindowMock.setAlwaysOnTop).toHaveBeenCalledWith(true);
+        expect(isPinned.value).toBe(true);
+
+        const syncedState = await syncWindowPinState();
+
+        expect(syncedState).toBe(true);
+        expect(isPinned.value).toBe(true);
+        expect(currentWindowMock.isAlwaysOnTop).not.toHaveBeenCalled();
+    });
+
+    it('syncs from the native window state before the user changes the pin state', async () => {
+        currentWindowMock.isAlwaysOnTop.mockResolvedValue(true);
+
+        const { isPinned, syncWindowPinState } = useSearchWindowPin();
+
+        const syncedState = await syncWindowPinState();
+
+        expect(syncedState).toBe(true);
+        expect(isPinned.value).toBe(true);
     });
 });
 
