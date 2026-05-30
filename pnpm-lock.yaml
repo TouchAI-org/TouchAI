@@ -145,6 +145,9 @@ importers:
       croner:
         specifier: ^10.0.1
         version: 10.0.1
+      dompurify:
+        specifier: 3.4.2
+        version: 3.4.2
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.0)

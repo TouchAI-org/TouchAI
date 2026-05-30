@@ -99,6 +99,17 @@ function createController(
     };
 }
 
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+
+    return { promise, resolve, reject };
+}
+
 describe('AppUpdateController', () => {
     it('loads persisted settings before checking manually', async () => {
         const { controller, checkForUpdates, updateAppUpdateLastCheckedAt } = createController();
@@ -185,6 +196,56 @@ describe('AppUpdateController', () => {
         expect(downloadUpdate).toHaveBeenCalledTimes(1);
         expect(installUpdate).toHaveBeenCalledTimes(1);
         expect(controller.getState().status).toBe('installing');
+    });
+
+    it('does not let stale download completion overwrite a changed channel', async () => {
+        const deferredDownload = createDeferred<AppUpdateInfo>();
+        const { controller, downloadUpdate } = createController();
+        downloadUpdate.mockReturnValueOnce(deferredDownload.promise);
+
+        await controller.initialize();
+        await controller.checkNow('manual');
+        const downloadPromise = controller.download();
+        await Promise.resolve();
+
+        expect(controller.getState().status).toBe('downloading');
+        await controller.setChannel('nightly');
+
+        deferredDownload.resolve(availableUpdate);
+        await expect(downloadPromise).resolves.toBe(true);
+
+        expect(controller.getState()).toMatchObject({
+            status: 'idle',
+            channel: 'nightly',
+            downloadedUpdate: null,
+            downloadProgress: null,
+            error: null,
+        });
+    });
+
+    it('does not let stale download failure overwrite a changed channel', async () => {
+        const deferredDownload = createDeferred<AppUpdateInfo>();
+        const { controller, downloadUpdate } = createController();
+        downloadUpdate.mockReturnValueOnce(deferredDownload.promise);
+
+        await controller.initialize();
+        await controller.checkNow('manual');
+        const downloadPromise = controller.download();
+        await Promise.resolve();
+
+        expect(controller.getState().status).toBe('downloading');
+        await controller.setChannel('nightly');
+
+        deferredDownload.reject(new Error('download failed'));
+        await expect(downloadPromise).resolves.toBe(false);
+
+        expect(controller.getState()).toMatchObject({
+            status: 'idle',
+            channel: 'nightly',
+            downloadedUpdate: null,
+            downloadProgress: null,
+            error: null,
+        });
     });
 
     it('persists auto-check changes', async () => {
