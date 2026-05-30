@@ -211,7 +211,7 @@
 
         const modelId = Number(nextForm.modelId);
         const selectedModel = Number.isFinite(modelId)
-            ? models.value.find((model) => model.id === modelId)
+            ? models.value.find((model) => model.id === modelId && model.provider_enabled === 1)
             : null;
         if (!selectedModel) {
             alert.error(t('settings.general.modelPreferences.modelRequired'));

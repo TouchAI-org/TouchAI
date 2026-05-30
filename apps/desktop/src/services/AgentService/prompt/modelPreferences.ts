@@ -82,7 +82,7 @@ export async function buildModelPreferencesPrompt(): Promise<string[]> {
             '',
             'Use `builtin__upgrade_model` with `{ "role": "fast" }` for simple questions or lightweight utility tasks.',
             'Use `builtin__upgrade_model` with `{ "role": "general" }` for complex tasks when no custom scenario below clearly matches.',
-            'Use `builtin__upgrade_model` with `{ "restore": true }`, `{ "role": "entry" }`, or `{ "scenario": null }` to return to the entry model.',
+            'Use `builtin__upgrade_model` with `{ "restore": true }` or `{ "role": "entry" }` to return to the entry model.',
             '',
             'You can switch to a specialized model when the task clearly matches one of these user-configured scenarios.',
             'Call `builtin__upgrade_model` with `{ "scenario": "<Scenario>" }` to switch to that scenario model.',

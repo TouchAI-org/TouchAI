@@ -249,6 +249,32 @@ describe('SettingsGeneralSection', () => {
         expect(settingsStoreMock.settings.value.allowModelAutoSwitch).toBe(false);
     });
 
+    it('disables the automatic model switch toggle while saving', async () => {
+        let resolveSave!: () => void;
+        settingsStoreMock.updateAllowModelAutoSwitch.mockReturnValueOnce(
+            new Promise<void>((resolve) => {
+                resolveSave = resolve;
+            })
+        );
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+        const toggle = wrapper.get('[data-testid="settings-allow-model-auto-switch-toggle"]');
+        expect(toggle.attributes('type')).toBe('button');
+        expect(toggle.attributes('aria-label')).toBeTruthy();
+
+        await toggle.trigger('click');
+
+        expect(toggle.attributes('disabled')).toBeDefined();
+        await toggle.trigger('click');
+        expect(settingsStoreMock.updateAllowModelAutoSwitch).toHaveBeenCalledTimes(1);
+
+        resolveSave();
+        await flushPromises();
+
+        expect(toggle.attributes('disabled')).toBeUndefined();
+    });
+
     it('shows update details and delegates update actions', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.state,

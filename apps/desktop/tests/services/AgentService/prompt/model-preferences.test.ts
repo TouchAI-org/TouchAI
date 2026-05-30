@@ -72,6 +72,7 @@ describe('model preferences prompt', () => {
             '| 前端开发 | React、Vue、CSS、Tailwind | Anthropic / Claude Sonnet |'
         );
         expect(prompt).toContain('{ "scenario": "<Scenario>" }');
+        expect(prompt).not.toContain('{ "scenario": null }');
     });
 
     it('omits unusable scenario preferences without failing prompt construction', async () => {

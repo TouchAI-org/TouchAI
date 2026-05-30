@@ -76,6 +76,7 @@
 
     const shortcutInput = ref<HTMLInputElement | null>(null);
     const isSaving = ref(false);
+    const savingAllowModelAutoSwitch = ref(false);
     const isCapturing = ref(false);
     const hasCapturedShortcut = ref(false);
     const displayShortcut = ref('');
@@ -362,6 +363,11 @@
     };
 
     const saveAllowModelAutoSwitch = async (previousValue: boolean) => {
+        if (savingAllowModelAutoSwitch.value) {
+            return;
+        }
+
+        savingAllowModelAutoSwitch.value = true;
         try {
             await settingsStore.updateAllowModelAutoSwitch(settings.value.allowModelAutoSwitch);
             alertMessage.value?.success(t('common.saved'), 2000);
@@ -369,10 +375,16 @@
             settings.value.allowModelAutoSwitch = previousValue;
             console.error('Failed to save allow_model_auto_switch setting:', error);
             alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
+        } finally {
+            savingAllowModelAutoSwitch.value = false;
         }
     };
 
     const toggleAllowModelAutoSwitch = () => {
+        if (savingAllowModelAutoSwitch.value) {
+            return;
+        }
+
         const previousValue = settings.value.allowModelAutoSwitch;
         settings.value.allowModelAutoSwitch = !previousValue;
         void saveAllowModelAutoSwitch(previousValue);
@@ -668,6 +680,7 @@
                             </p>
                         </div>
                         <button
+                            type="button"
                             :class="[
                                 'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
                                 settings.allowModelAutoSwitch
@@ -675,7 +688,9 @@
                                     : 'bg-neutral-200',
                             ]"
                             data-testid="settings-allow-model-auto-switch-toggle"
+                            :aria-label="t('settings.general.allowModelAutoSwitch')"
                             :aria-pressed="settings.allowModelAutoSwitch"
+                            :disabled="savingAllowModelAutoSwitch"
                             @click="toggleAllowModelAutoSwitch"
                         >
                             <span
