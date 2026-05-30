@@ -1,21 +1,33 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 
 import { tt } from '@/i18n';
 
 import { type DatabaseExecutor, db } from '../index';
-import { models, providers } from '../schema';
+import { modelPreferences, models, providers } from '../schema';
 import type {
     FindModelsWithProviderPayload,
     ModelCreateData,
     ModelEntity,
+    ModelPreferenceCreateData,
+    ModelPreferenceEntity,
+    ModelPreferenceUpdateData,
+    ModelPreferenceWithModel,
     ModelUpdateData,
     ModelWithProvider,
     ProviderModelLookupPayload,
 } from '../types';
+import { getSettingValue, setSetting } from './settings';
 
 export type { ModelWithProvider } from '../types';
+
+export type ModelRole = 'entry' | 'fast' | 'general';
+
+const MODEL_ROLE_SETTING_KEYS: Record<Exclude<ModelRole, 'entry'>, string> = {
+    fast: 'model_role_fast_model_id',
+    general: 'model_role_general_model_id',
+};
 
 export const modelWithProviderSelection = {
     id: models.id,
@@ -46,6 +58,22 @@ export const modelWithProviderSelection = {
     provider_config_json: sql<string | null>`${providers.config_json}`.as('provider_config_json'),
     provider_enabled: sql<number>`${providers.enabled}`.as('provider_enabled'),
     provider_logo: sql<string>`${providers.logo}`.as('provider_logo'),
+};
+
+export const modelPreferenceWithModelSelection = {
+    id: modelPreferences.id,
+    name: modelPreferences.name,
+    description: modelPreferences.description,
+    provider_id: modelPreferences.provider_id,
+    model_id: modelPreferences.model_id,
+    priority: modelPreferences.priority,
+    created_at: modelPreferences.created_at,
+    updated_at: modelPreferences.updated_at,
+    model_name: sql<string | null>`${models.name}`.as('model_name'),
+    model_api_id: sql<string | null>`${models.model_id}`.as('model_api_id'),
+    model_provider_id: sql<number | null>`${models.provider_id}`.as('model_provider_id'),
+    provider_name: sql<string | null>`${providers.name}`.as('provider_name'),
+    provider_enabled: sql<number | null>`${providers.enabled}`.as('provider_enabled'),
 };
 
 /**
@@ -95,6 +123,108 @@ export const findModelsWithProvider = async (
 
     return (await query.orderBy(desc(models.is_default), models.id).all()) as ModelWithProvider[];
 };
+
+function normalizeModelPreferenceDraft<
+    T extends ModelPreferenceCreateData | ModelPreferenceUpdateData,
+>(draft: T): T {
+    return {
+        ...draft,
+        ...(draft.name !== undefined ? { name: draft.name.trim() } : {}),
+        ...(draft.description !== undefined ? { description: draft.description.trim() } : {}),
+        ...(draft.updated_at === undefined ? { updated_at: new Date().toISOString() } : {}),
+    };
+}
+
+export const listModelPreferences = async (): Promise<ModelPreferenceWithModel[]> =>
+    (await db
+        .select(modelPreferenceWithModelSelection)
+        .from(modelPreferences)
+        .leftJoin(models, eq(models.id, modelPreferences.model_id))
+        .leftJoin(providers, eq(providers.id, models.provider_id))
+        .orderBy(asc(modelPreferences.priority), asc(modelPreferences.id))
+        .all()) as ModelPreferenceWithModel[];
+
+export const findModelPreferenceByName = async (
+    name: string
+): Promise<ModelPreferenceWithModel | undefined> =>
+    (await db
+        .select(modelPreferenceWithModelSelection)
+        .from(modelPreferences)
+        .leftJoin(models, eq(models.id, modelPreferences.model_id))
+        .leftJoin(providers, eq(providers.id, models.provider_id))
+        .where(eq(modelPreferences.name, name.trim()))
+        .orderBy(asc(modelPreferences.priority), asc(modelPreferences.id))
+        .limit(1)
+        .get()) as ModelPreferenceWithModel | undefined;
+
+export const createModelPreference = async (
+    preferenceDraft: ModelPreferenceCreateData
+): Promise<ModelPreferenceEntity> => {
+    const normalizedDraft = normalizeModelPreferenceDraft(preferenceDraft);
+    if (!normalizedDraft.name?.trim()) {
+        throw new Error('Model preference name is required');
+    }
+    if (!normalizedDraft.description?.trim()) {
+        throw new Error('Model preference description is required');
+    }
+
+    const createdPreference = await db
+        .insert(modelPreferences)
+        .values(normalizedDraft)
+        .returning()
+        .get();
+
+    if (!createdPreference || createdPreference.id === undefined) {
+        throw new Error('Failed to create model preference');
+    }
+
+    return createdPreference;
+};
+
+export const updateModelPreference = async (
+    id: number,
+    preferencePatch: ModelPreferenceUpdateData
+): Promise<void> => {
+    const normalizedPatch = normalizeModelPreferenceDraft(preferencePatch);
+    if (normalizedPatch.name !== undefined && !normalizedPatch.name.trim()) {
+        throw new Error('Model preference name is required');
+    }
+    if (normalizedPatch.description !== undefined && !normalizedPatch.description.trim()) {
+        throw new Error('Model preference description is required');
+    }
+
+    await db.update(modelPreferences).set(normalizedPatch).where(eq(modelPreferences.id, id)).run();
+};
+
+export const deleteModelPreference = async (id: number): Promise<boolean> => {
+    await db.delete(modelPreferences).where(eq(modelPreferences.id, id)).run();
+    return true;
+};
+
+export const findModelByIdWithProvider = async (
+    id: number
+): Promise<ModelWithProvider | undefined> =>
+    (await db
+        .select(modelWithProviderSelection)
+        .from(models)
+        .innerJoin(providers, eq(providers.id, models.provider_id))
+        .where(eq(models.id, id))
+        .get()) as ModelWithProvider | undefined;
+
+async function requireEnabledModelById(id: number): Promise<ModelWithProvider> {
+    const model = await findModelByIdWithProvider(id);
+    if (!model) {
+        throw new Error('Model not found');
+    }
+    if (model.provider_enabled === 0) {
+        throw new Error(
+            tt('无法选择模型：服务商 "{provider}" 未启用', {
+                provider: model.provider_name,
+            })
+        );
+    }
+    return model;
+}
 
 /**
  * 创建模型。
@@ -176,6 +306,62 @@ export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise
         await tx.update(models).set({ is_default: 0 }).where(eq(models.is_default, 1)).run();
 
         await tx.update(models).set({ is_default: 1 }).where(eq(models.id, modelId)).run();
+    });
+};
+
+export const findModelRoleWithProvider = async (
+    role: ModelRole
+): Promise<ModelWithProvider | null> => {
+    if (role === 'entry') {
+        return findDefaultModelWithProvider();
+    }
+
+    const rawModelId = await getSettingValue({ key: MODEL_ROLE_SETTING_KEYS[role] });
+    const modelId = rawModelId ? Number(rawModelId) : NaN;
+    if (!Number.isFinite(modelId)) {
+        return null;
+    }
+
+    const model = await findModelByIdWithProvider(modelId);
+    if (!model || model.provider_enabled === 0) {
+        return null;
+    }
+
+    return model;
+};
+
+export const findEffectiveModelRoleWithProvider = async (
+    role: ModelRole
+): Promise<ModelWithProvider | null> => {
+    const roleModel = await findModelRoleWithProvider(role);
+    if (roleModel) {
+        return roleModel;
+    }
+    return findDefaultModelWithProvider();
+};
+
+export const setModelRole = async ({
+    role,
+    modelId,
+}: {
+    role: ModelRole;
+    modelId: number | null;
+}): Promise<void> => {
+    if (role === 'entry') {
+        if (modelId === null) {
+            throw new Error('Entry model is required');
+        }
+        await setDefaultModel({ modelId });
+        return;
+    }
+
+    if (modelId !== null) {
+        await requireEnabledModelById(modelId);
+    }
+
+    await setSetting({
+        key: MODEL_ROLE_SETTING_KEYS[role],
+        value: modelId === null ? '' : String(modelId),
     });
 };
 

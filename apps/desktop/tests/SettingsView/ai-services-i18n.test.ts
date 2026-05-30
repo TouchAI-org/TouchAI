@@ -182,19 +182,18 @@ describe('AiServices i18n and layout', () => {
         setLocale('zh-CN');
     });
 
-    it('renders provider list chrome and default badge in English with wrapping-safe classes', () => {
+    it('renders provider list chrome in English with wrapping-safe classes', () => {
         setLocale('en-US');
 
         const wrapper = mount(ProviderList, {
             props: {
                 providers: [createProvider({ is_builtin: 1 })],
                 selectedProviderId: 1,
-                defaultModelProviderIds: new Set([1]),
             },
         });
 
         expect(wrapper.text()).toContain('Add custom provider');
-        expect(wrapper.text()).toContain('Default');
+        expect(wrapper.text()).toContain('Built-in');
         expect(wrapper.text()).not.toContain('大模型服务');
 
         const addButton = wrapper.get('button');
@@ -209,7 +208,7 @@ describe('AiServices i18n and layout', () => {
             props: {
                 providerId: 1,
                 models: [createModel()],
-                defaultModelId: null,
+                entryModelId: null,
                 provider: createProvider(),
                 providerEnabled: true,
                 refreshing: false,
@@ -234,7 +233,7 @@ describe('AiServices i18n and layout', () => {
             props: {
                 providerId: 1,
                 models: [],
-                defaultModelId: null,
+                entryModelId: null,
                 provider: createProvider({ api_endpoint: '' }),
                 providerEnabled: true,
                 refreshing: false,
@@ -308,7 +307,6 @@ describe('AiServices i18n and layout', () => {
             props: {
                 providers: [createProvider({ name: '服务商', is_builtin: 1 })],
                 selectedProviderId: 1,
-                defaultModelProviderIds: new Set([1]),
             },
             attachTo: document.body,
         });
@@ -316,7 +314,7 @@ describe('AiServices i18n and layout', () => {
         const localizer = createDomLocalizer(document.body);
         localizer.translateNow();
 
-        expect(wrapper.text()).toContain('Default');
+        expect(wrapper.text()).toContain('Built-in');
         expect(wrapper.get('.provider-card h3').text()).toBe('服务商');
         expect(wrapper.get('.provider-card h3').attributes('data-no-i18n')).toBe('true');
 

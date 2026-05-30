@@ -56,6 +56,7 @@ describe('Settings navigation sidebar i18n', () => {
         expect(flattenSettingsNavigation().map((item) => item.label)).toEqual([
             'General',
             'Providers and models',
+            'Model settings',
             'Built-in tools',
             'MCP tools',
             'Data management',

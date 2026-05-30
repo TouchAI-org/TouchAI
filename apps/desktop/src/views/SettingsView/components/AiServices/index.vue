@@ -19,7 +19,6 @@
         findDefaultModel,
         findModelsWithProvider,
         findProviderById,
-        setDefaultModel,
         syncAllModelsMetadata,
         updateModel,
         updateProvider,
@@ -75,8 +74,8 @@
     const providers = ref<Provider[]>([]);
     const modelsCache = ref<Map<number, ModelWithProvider[]>>(new Map()); // 缓存每个服务商的模型
     const selectedProviderId = ref<number | null>(null);
-    const defaultModelId = ref<number | null>(null);
-    const defaultModelProviderId = ref<number | null>(null);
+    const entryModelId = ref<number | null>(null);
+    const entryModelProviderId = ref<number | null>(null);
     const loading = ref(true);
     const loadingModels = ref(false);
     const error = ref<string | null>(null);
@@ -127,17 +126,6 @@
         modelsCache.value = nextCache;
     }
 
-    function findCachedModel(modelId: number): ModelWithProvider | undefined {
-        for (const providerModels of modelsCache.value.values()) {
-            const model = providerModels.find((item) => item.id === modelId);
-            if (model) {
-                return model;
-            }
-        }
-
-        return undefined;
-    }
-
     function patchProvider(providerId: number, patch: Partial<Provider>) {
         providers.value = providers.value.map((provider) =>
             provider.id === providerId ? { ...provider, ...patch } : provider
@@ -173,15 +161,6 @@
         return modelsCache.value.get(selectedProviderId.value) || [];
     });
 
-    const defaultModelProviderIds = computed(() => {
-        const ids = new Set<number>();
-        if (defaultModelProviderId.value !== null) {
-            ids.add(defaultModelProviderId.value);
-            return ids;
-        }
-        return ids;
-    });
-
     // 加载服务商列表
     const loadProviders = async () => {
         try {
@@ -191,8 +170,8 @@
             providers.value = await findAllProvidersSorted();
 
             const defaultModel = await findDefaultModel();
-            defaultModelId.value = defaultModel?.id || null;
-            defaultModelProviderId.value = defaultModel?.provider_id || null;
+            entryModelId.value = defaultModel?.id || null;
+            entryModelProviderId.value = defaultModel?.provider_id || null;
 
             // 自动选择第一个服务商
             if (providers.value.length > 0 && !selectedProviderId.value) {
@@ -304,8 +283,10 @@
     }
 
     function assertProviderCanBeDisabled(provider: Provider) {
-        if (defaultModelProviderId.value === provider.id) {
-            throw new Error(t('settings.ai.cannotDisableProviderWithDefaultModel'));
+        if (entryModelProviderId.value === provider.id) {
+            throw new Error(
+                t('settings.general.modelPreferences.cannotDisableProviderWithEntryModel')
+            );
         }
     }
 
@@ -314,8 +295,10 @@
             throw new Error(t('settings.ai.cannotDeleteBuiltInProvider'));
         }
 
-        if (defaultModelProviderId.value === provider.id) {
-            throw new Error(t('settings.ai.cannotDeleteProviderWithDefaultModel'));
+        if (entryModelProviderId.value === provider.id) {
+            throw new Error(
+                t('settings.general.modelPreferences.cannotDeleteProviderWithEntryModel')
+            );
         }
     }
 
@@ -446,42 +429,15 @@
             await deleteModel({ id });
             removeCachedModel(id);
             await broadcastModelsUpdated();
-            if (defaultModelId.value === id) {
-                defaultModelId.value = null;
-                defaultModelProviderId.value = null;
+            if (entryModelId.value === id) {
+                entryModelId.value = null;
+                entryModelProviderId.value = null;
             }
             if (!silent) {
                 alert.success(t('settings.ai.deleteSucceeded'));
             }
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
-        }
-    };
-
-    const handleSetDefaultModel = async (id: number) => {
-        try {
-            const nextDefaultModel = findCachedModel(id);
-            await setDefaultModel({ modelId: id });
-            defaultModelId.value = id;
-            defaultModelProviderId.value =
-                nextDefaultModel?.provider_id ?? selectedProviderId.value ?? null;
-
-            const nextCache = new Map(modelsCache.value);
-            for (const [providerId, providerModels] of nextCache.entries()) {
-                nextCache.set(
-                    providerId,
-                    providerModels.map((model) => ({
-                        ...model,
-                        is_default: model.id === id ? 1 : 0,
-                    }))
-                );
-            }
-            modelsCache.value = nextCache;
-
-            await broadcastModelsUpdated();
-            alert.success(t('settings.ai.setSucceeded'));
-        } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.setFailed'));
         }
     };
 
@@ -529,10 +485,16 @@
                     errorMessage.includes('authentication') ||
                     errorMessage.includes('API key');
 
-                // 如果是认证错误且没有配置 key，提示用户
-                if (isAuthError && !provider.api_key) {
+                // 认证失败需要直接提示用户，避免只在控制台看到 401。
+                if (isAuthError) {
                     if (!silent) {
-                        alert.warning(t('settings.ai.providerNeedsApiKeyForModels'));
+                        alert.warning(
+                            t(
+                                provider.api_key
+                                    ? 'settings.ai.providerInvalidApiKeyForModels'
+                                    : 'settings.ai.providerNeedsApiKeyForModels'
+                            )
+                        );
                     }
                     return;
                 }
@@ -627,7 +589,6 @@
         <ProviderList
             :providers="providers"
             :selected-provider-id="selectedProviderId"
-            :default-model-provider-ids="defaultModelProviderIds"
             @select="selectProvider"
             @toggle-enabled="toggleProviderEnabled"
             @add-custom="handleAddCustomProvider"
@@ -701,14 +662,13 @@
                     <ModelList
                         :provider-id="selectedProvider.id"
                         :models="selectedProviderModels"
-                        :default-model-id="defaultModelId"
+                        :entry-model-id="entryModelId"
                         :provider="selectedProvider"
                         :provider-enabled="selectedProvider.enabled === 1"
                         :refreshing="refreshing"
                         @create="handleCreateModel"
                         @update="handleUpdateModel"
                         @delete="handleDeleteModel"
-                        @set-default="handleSetDefaultModel"
                         @refresh="handleRefreshModels"
                     />
                 </div>

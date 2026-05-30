@@ -4,6 +4,7 @@ import { type MessageKey, t } from '@/i18n';
 
 export type NavigationSection =
     | 'general'
+    | 'model-preferences'
     | 'ai-services'
     | 'built-in-tools'
     | 'mcp-tools'
@@ -50,9 +51,15 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
         items: [
             {
                 id: 'ai-services',
-                icon: 'llm',
+                icon: 'cloud',
                 labelKey: 'settings.nav.aiServices.label',
                 descriptionKey: 'settings.nav.aiServices.description',
+            },
+            {
+                id: 'model-preferences',
+                icon: 'llm',
+                labelKey: 'settings.nav.modelPreferences.label',
+                descriptionKey: 'settings.nav.modelPreferences.description',
             },
             {
                 id: 'built-in-tools',

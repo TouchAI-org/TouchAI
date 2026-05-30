@@ -74,6 +74,7 @@ export type GeneralSettingKey =
     | 'global_shortcut'
     | 'start_on_boot'
     | 'start_minimized'
+    | 'allow_model_auto_switch'
     | 'output_scroll_behavior'
     | 'search_window_size_preset'
     | 'language'

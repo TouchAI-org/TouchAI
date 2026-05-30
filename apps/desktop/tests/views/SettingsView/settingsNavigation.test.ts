@@ -15,6 +15,7 @@ describe('settingsNavigation', () => {
         expect(items.map((item) => item.label)).toEqual([
             '通用',
             '服务商与模型',
+            '模型设置',
             '内置工具',
             'MCP 工具',
             '数据管理',
@@ -30,6 +31,10 @@ describe('settingsNavigation', () => {
 
         expect(getSettingsNavigationItem('ai-services')).toMatchObject({
             label: '服务商与模型',
+            icon: 'cloud',
+        });
+        expect(getSettingsNavigationItem('model-preferences')).toMatchObject({
+            label: '模型设置',
             icon: 'llm',
         });
         expect(getSettingsNavigationItem('general')?.description).toContain('快捷键');

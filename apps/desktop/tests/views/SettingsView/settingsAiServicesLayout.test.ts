@@ -236,7 +236,7 @@ describe('SettingsAiServicesSection', () => {
         expect(wrapper.text()).toContain('Renamed Gateway');
     });
 
-    it('patches the default model locally without provider list reload', async () => {
+    it('patches model edits locally without provider list reload', async () => {
         const provider = {
             id: 2,
             name: 'Custom Gateway',
@@ -288,14 +288,14 @@ describe('SettingsAiServicesSection', () => {
                     ProviderList: true,
                     ProviderConfig: true,
                     ModelList: {
-                        props: ['defaultModelId'],
-                        emits: ['set-default'],
+                        props: ['entryModelId'],
+                        emits: ['update'],
                         template: `
                             <button
-                                data-testid="set-default-model"
-                                @click="$emit('set-default', 20)"
+                                data-testid="update-model"
+                                @click="$emit('update', 20, { name: 'Renamed Model' })"
                             >
-                                default: {{ defaultModelId }}
+                                entry: {{ entryModelId }}
                             </button>
                         `,
                     },
@@ -311,14 +311,16 @@ describe('SettingsAiServicesSection', () => {
 
         await flushPromises();
 
-        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 10');
+        expect(wrapper.get('[data-testid="update-model"]').text()).toContain('entry: 10');
 
-        await wrapper.get('[data-testid="set-default-model"]').trigger('click');
+        await wrapper.get('[data-testid="update-model"]').trigger('click');
         await flushPromises();
 
-        expect(queries.setDefaultModel).toHaveBeenCalledWith({ modelId: 20 });
+        expect(queries.updateModel).toHaveBeenCalledWith({
+            id: 20,
+            modelPatch: { name: 'Renamed Model' },
+        });
         expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
-        expect(alertMock.success).toHaveBeenCalledWith('设置成功');
-        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
+        expect(alertMock.success).toHaveBeenCalledWith('保存成功');
     });
 });

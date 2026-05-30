@@ -82,7 +82,7 @@ describe('ModelCard i18n', () => {
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel(),
-                isDefault: false,
+                isEntryModel: false,
                 providerEnabled: true,
             },
         });
@@ -98,15 +98,13 @@ describe('ModelCard i18n', () => {
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel(),
-                isDefault: false,
+                isEntryModel: false,
                 providerEnabled: false,
             },
         });
 
-        const defaultRadio = wrapper.get('input[type="radio"]');
         const buttons = wrapper.findAll('button');
 
-        expect(defaultRadio.attributes('title')).toBe('Enable this provider first');
         expect(buttons[0]?.attributes('title')).toBe('Edit');
         expect(buttons[1]?.attributes('title')).toBe('Delete');
 
@@ -121,13 +119,13 @@ describe('ModelCard i18n', () => {
         });
     });
 
-    it('localizes default-model delete validation in English', async () => {
+    it('localizes entry-model delete validation in English', async () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel(),
-                isDefault: true,
+                isEntryModel: true,
                 providerEnabled: true,
             },
         });
@@ -135,7 +133,7 @@ describe('ModelCard i18n', () => {
         await wrapper.findAll('button')[1]?.trigger('click');
 
         expect(alertErrorMock).toHaveBeenCalledWith(
-            'Cannot delete the default model. Set another model as default first.'
+            'Cannot delete the entry model. Select another entry model in General settings first.'
         );
     });
 
@@ -145,7 +143,7 @@ describe('ModelCard i18n', () => {
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel({ name: '设置' }),
-                isDefault: false,
+                isEntryModel: false,
                 providerEnabled: true,
             },
             attachTo: document.body,

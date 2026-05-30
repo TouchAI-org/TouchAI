@@ -14,7 +14,7 @@
     interface Props {
         providerId: number;
         models: Model[];
-        defaultModelId: number | null;
+        entryModelId: number | null;
         provider: Provider | undefined;
         providerEnabled: boolean;
         refreshing?: boolean;
@@ -24,7 +24,6 @@
         (e: 'create', data: NewModel): void;
         (e: 'update', id: number, data: Partial<Model>): void;
         (e: 'delete', id: number, silent?: boolean): void;
-        (e: 'set-default', id: number): void;
         (e: 'refresh'): void;
         (e: 'refreshing', value: boolean): void;
     }
@@ -57,9 +56,9 @@
         return groupKey;
     }
 
-    function groupModels(models: Model[], defaultModelId?: number | null): ModelGroupData[] {
+    function groupModels(models: Model[], entryModelId?: number | null): ModelGroupData[] {
         const groupMap = new Map<string, Model[]>();
-        let defaultModelGroupKey: string | null = null;
+        let entryModelGroupKey: string | null = null;
 
         for (const model of models) {
             const groupKey = extractGroupKey(model.model_id);
@@ -70,8 +69,8 @@
 
             groupMap.get(groupKey)!.push(model);
 
-            if (defaultModelId && model.id === defaultModelId) {
-                defaultModelGroupKey = groupKey;
+            if (entryModelId && model.id === entryModelId) {
+                entryModelGroupKey = groupKey;
             }
         }
 
@@ -79,8 +78,8 @@
 
         for (const [groupKey, groupModels] of groupMap.entries()) {
             const sortedModels = [...groupModels].sort((a, b) => {
-                if (defaultModelId && a.id === defaultModelId) return -1;
-                if (defaultModelId && b.id === defaultModelId) return 1;
+                if (entryModelId && a.id === entryModelId) return -1;
+                if (entryModelId && b.id === entryModelId) return 1;
                 return a.model_id.localeCompare(b.model_id);
             });
 
@@ -109,8 +108,8 @@
                 const allModels = groupsWithSameBase.flatMap((g) => g.models);
 
                 const sortedModels = allModels.sort((a, b) => {
-                    if (defaultModelId && a.id === defaultModelId) return -1;
-                    if (defaultModelId && b.id === defaultModelId) return 1;
+                    if (entryModelId && a.id === entryModelId) return -1;
+                    if (entryModelId && b.id === entryModelId) return 1;
                     return a.model_id.localeCompare(b.model_id);
                 });
 
@@ -120,8 +119,8 @@
                     models: sortedModels,
                 });
 
-                if (allModels.some((m) => m.id === defaultModelId)) {
-                    defaultModelGroupKey = baseKey;
+                if (allModels.some((m) => m.id === entryModelId)) {
+                    entryModelGroupKey = baseKey;
                 }
             } else {
                 const singleGroup = groupsWithSameBase[0];
@@ -134,8 +133,8 @@
         const finalGroups = [...multiModelGroups, ...mergedGroups];
 
         finalGroups.sort((a, b) => {
-            if (a.groupKey === defaultModelGroupKey) return -1;
-            if (b.groupKey === defaultModelGroupKey) return 1;
+            if (a.groupKey === entryModelGroupKey) return -1;
+            if (b.groupKey === entryModelGroupKey) return 1;
             return a.groupName.localeCompare(b.groupName);
         });
 
@@ -174,7 +173,7 @@
             );
         }
 
-        return groupModels(filteredModels, props.defaultModelId);
+        return groupModels(filteredModels, props.entryModelId);
     });
 
     const startCreate = () => {
@@ -317,12 +316,11 @@
                 v-for="(group, index) in modelGroups"
                 :key="provider?.id + group.groupKey + index"
                 :group="group"
-                :default-model-id="defaultModelId"
+                :entry-model-id="entryModelId"
                 :provider-enabled="providerEnabled"
                 @update="(id, data) => emit('update', id, data)"
                 @delete="(id) => emit('delete', id)"
                 @delete-group="handleDeleteGroup"
-                @set-default="(id: number) => emit('set-default', id)"
                 @edit="handleEdit"
             />
         </div>

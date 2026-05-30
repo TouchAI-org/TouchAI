@@ -64,19 +64,18 @@ describe('ModelGroup behavior', () => {
                     groupName: 'gpt',
                     models: [model],
                 },
-                defaultModelId: null,
+                entryModelId: null,
                 providerEnabled: true,
             },
             global: {
                 stubs: {
                     ModelCard: {
                         props: ['model'],
-                        emits: ['update', 'delete', 'set-default', 'edit'],
+                        emits: ['update', 'delete', 'edit'],
                         template: `
                             <div>
                                 <button data-testid="model-update" @click="$emit('update', { name: 'next' })">update</button>
                                 <button data-testid="model-delete" @click="$emit('delete')">delete</button>
-                                <button data-testid="model-default" @click="$emit('set-default')">default</button>
                                 <button data-testid="model-edit" @click="$emit('edit')">edit</button>
                             </div>
                         `,
@@ -95,16 +94,14 @@ describe('ModelGroup behavior', () => {
 
         await wrapper.get('[data-testid="model-update"]').trigger('click');
         await wrapper.get('[data-testid="model-delete"]').trigger('click');
-        await wrapper.get('[data-testid="model-default"]').trigger('click');
         await wrapper.get('[data-testid="model-edit"]').trigger('click');
 
         expect(wrapper.emitted('update')?.[0]).toEqual([7, { name: 'next' }]);
         expect(wrapper.emitted('delete')?.[0]).toEqual([7]);
-        expect(wrapper.emitted('set-default')?.[0]).toEqual([7]);
         expect(wrapper.emitted('edit')?.[0]).toEqual([model]);
     });
 
-    it('blocks deleting a group that contains the default model', async () => {
+    it('blocks deleting a group that contains the entry model', async () => {
         const wrapper = mount(ModelGroup, {
             props: {
                 group: {
@@ -112,7 +109,7 @@ describe('ModelGroup behavior', () => {
                     groupName: 'gpt',
                     models: [createModel(1, 'gpt-5')],
                 },
-                defaultModelId: 1,
+                entryModelId: 1,
                 providerEnabled: true,
             },
             global: {
@@ -125,7 +122,7 @@ describe('ModelGroup behavior', () => {
         await wrapper.find('button[title="删除分组"]').trigger('click');
         await flushPromises();
 
-        expect(warningMock).toHaveBeenCalledWith('该分组包含默认模型，无法批量删除');
+        expect(warningMock).toHaveBeenCalledWith('该分组包含入口模型，无法批量删除');
         expect(confirmMock).not.toHaveBeenCalled();
         expect(wrapper.emitted('delete-group')).toBeUndefined();
     });
@@ -139,7 +136,7 @@ describe('ModelGroup behavior', () => {
                     groupName: 'gpt',
                     models: [createModel(1, 'gpt-5')],
                 },
-                defaultModelId: null,
+                entryModelId: null,
                 providerEnabled: true,
             },
             global: {

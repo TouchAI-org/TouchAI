@@ -17,7 +17,7 @@
 
     interface Props {
         group: ModelGroup;
-        defaultModelId: number | null;
+        entryModelId: number | null;
         providerEnabled: boolean;
     }
 
@@ -25,7 +25,6 @@
         (e: 'update', id: number, data: Partial<Model>): void;
         (e: 'delete', id: number): void;
         (e: 'delete-group', groupKey: string): void;
-        (e: 'set-default', id: number): void;
         (e: 'edit', model: Model): void;
     }
 
@@ -42,13 +41,12 @@
 
     const handleDeleteGroup = async (groupKey: string, models: Model[]) => {
         // 检查分组内是否有默认模型
-        const hasDefaultModel = models.some((model) => model.id === props.defaultModelId);
+        const hasEntryModel = models.some((model) => model.id === props.entryModelId);
 
-        if (hasDefaultModel) {
-            // 如果分组内有默认模型，不允许删除
+        if (hasEntryModel) {
             const { useAlert } = await import('@composables/useAlert');
             const { warning } = useAlert();
-            warning(t('settings.ai.groupContainsDefaultModel'));
+            warning(t('settings.general.modelPreferences.groupContainsEntryModel'));
             return;
         }
 
@@ -107,11 +105,10 @@
                 v-for="model in group.models"
                 :key="model.id"
                 :model="model"
-                :is-default="model.id === defaultModelId"
+                :is-entry-model="model.id === entryModelId"
                 :provider-enabled="providerEnabled"
                 @update="(data) => emit('update', model.id, data)"
                 @delete="emit('delete', model.id)"
-                @set-default="emit('set-default', model.id)"
                 @edit="emit('edit', model)"
             />
         </div>

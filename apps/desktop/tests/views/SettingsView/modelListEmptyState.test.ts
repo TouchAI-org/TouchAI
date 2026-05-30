@@ -26,7 +26,7 @@ describe('ModelList empty state', () => {
             props: {
                 providerId: 1,
                 models: [],
-                defaultModelId: null,
+                entryModelId: null,
                 providerEnabled: true,
                 refreshing: false,
                 provider: {

@@ -24,6 +24,9 @@
     });
 
     const GeneralView = defineAsyncComponent(() => import('./components/General/index.vue'));
+    const ModelPreferencesView = defineAsyncComponent(
+        () => import('./components/ModelPreferences/index.vue')
+    );
     const AiServicesView = defineAsyncComponent(() => import('./components/AiServices/index.vue'));
     const BuiltInToolsView = defineAsyncComponent(
         () => import('./components/BuiltInTools/index.vue')
@@ -40,9 +43,11 @@
     const SETTINGS_ENTRY_LOADING_DELAY_MS = 180;
     let loadingDelayTimer: ReturnType<typeof setTimeout> | null = null;
     const generalScrollRef = ref<HTMLElement | null>(null);
+    const modelPreferencesScrollRef = ref<HTMLElement | null>(null);
     const dataScrollRef = ref<HTMLElement | null>(null);
     const isWindowMaximized = ref(false);
     useScrollbarStabilizer(generalScrollRef);
+    useScrollbarStabilizer(modelPreferencesScrollRef);
     useScrollbarStabilizer(dataScrollRef);
     const shellVisibilityClass = computed(() =>
         initialLoadingVisible.value ? 'opacity-0' : 'opacity-100'
@@ -247,6 +252,23 @@
                                 <template #fallback>
                                     <LoadingState
                                         :message="t('settings.loading.general')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
+                                </template>
+                            </Suspense>
+                        </div>
+
+                        <div
+                            v-else-if="activeSection === 'model-preferences'"
+                            ref="modelPreferencesScrollRef"
+                            :class="['settings-scrollbar', 'h-full w-full overflow-y-auto']"
+                        >
+                            <Suspense>
+                                <ModelPreferencesView />
+                                <template #fallback>
+                                    <LoadingState
+                                        :message="t('settings.loading.modelPreferences')"
                                         variant="brand"
                                         fill="min"
                                     />

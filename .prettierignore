@@ -52,6 +52,8 @@ temp/
 .worktrees/
 .e2e-runtime/
 .e2e-tools/
+.vite-cache/
+**/.vite-cache/
 .cargo-temp/
 rust-target/
 rust-temp/

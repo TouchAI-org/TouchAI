@@ -12,14 +12,13 @@
     import { formatDateTime } from '@/i18n/format';
     interface Props {
         model: Model;
-        isDefault: boolean;
+        isEntryModel: boolean;
         providerEnabled: boolean;
     }
 
     interface Emits {
         (e: 'update', data: Partial<Model>): void;
         (e: 'delete'): void;
-        (e: 'set-default'): void;
         (e: 'edit'): void;
     }
 
@@ -30,8 +29,8 @@
     const { confirm } = useConfirm();
 
     const handleDelete = async () => {
-        if (props.isDefault) {
-            alert.error(t('settings.ai.cannotDeleteDefaultModel'));
+        if (props.isEntryModel) {
+            alert.error(t('settings.general.modelPreferences.cannotDeleteEntryModel'));
             return;
         }
 
@@ -53,25 +52,6 @@
     <div class="rounded-lg border border-neutral-200 bg-white p-4">
         <div class="flex items-center gap-3">
             <div class="relative">
-                <input
-                    type="radio"
-                    name="default-model"
-                    :checked="isDefault"
-                    :disabled="!providerEnabled"
-                    :class="[
-                        'mt-1 h-4 w-4 text-neutral-950',
-                        !providerEnabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-                    ]"
-                    :title="
-                        !providerEnabled
-                            ? t('settings.ai.enableProviderFirst')
-                            : t('settings.ai.setDefaultModel')
-                    "
-                    @change="emit('set-default')"
-                />
-            </div>
-
-            <div :class="['relative', isDefault ? 'rounded-full border-2 border-neutral-950' : '']">
                 <ModelLogo :model-id="model.model_id" :name="model.name" />
             </div>
 

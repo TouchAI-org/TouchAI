@@ -28,6 +28,7 @@ export interface GeneralSettingsData {
     globalShortcut: string;
     startOnBoot: boolean;
     startMinimized: boolean;
+    allowModelAutoSwitch: boolean;
     outputScrollBehavior: OutputScrollBehavior;
     searchWindowSizePreset: SearchWindowSizePreset;
     searchWindowDefaultSize: SearchWindowDefaultSize;
@@ -41,6 +42,7 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     globalShortcut: 'Alt+Space',
     startOnBoot: false,
     startMinimized: true,
+    allowModelAutoSwitch: false,
     outputScrollBehavior: 'follow_output',
     searchWindowSizePreset: DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
     searchWindowDefaultSize: resolveSearchWindowDefaultSize(DEFAULT_SEARCH_WINDOW_SIZE_PRESET),
@@ -127,6 +129,10 @@ export const useSettingsStore = defineStore('settings', () => {
                 settings.value.startMinimized =
                     typeof value === 'boolean' ? value : String(value) === 'true';
                 break;
+            case 'allow_model_auto_switch':
+                settings.value.allowModelAutoSwitch =
+                    typeof value === 'boolean' ? value : String(value) === 'true';
+                break;
             case 'output_scroll_behavior':
                 settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(String(value));
                 break;
@@ -159,6 +165,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 return String(settings.value.startOnBoot);
             case 'start_minimized':
                 return String(settings.value.startMinimized);
+            case 'allow_model_auto_switch':
+                return String(settings.value.allowModelAutoSwitch);
             case 'output_scroll_behavior':
                 return settings.value.outputScrollBehavior;
             case 'search_window_size_preset':
@@ -184,6 +192,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.startOnBoot;
             case 'start_minimized':
                 return settings.value.startMinimized;
+            case 'allow_model_auto_switch':
+                return settings.value.allowModelAutoSwitch;
             case 'output_scroll_behavior':
                 return settings.value.outputScrollBehavior;
             case 'search_window_size_preset':
@@ -215,6 +225,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 globalShortcut,
                 startOnBoot,
                 startMinimized,
+                allowModelAutoSwitch,
                 outputScroll,
                 searchWindowSizePreset,
                 language,
@@ -225,6 +236,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 getSettingValue({ key: 'global_shortcut' }),
                 getSettingValue({ key: 'start_on_boot' }),
                 getSettingValue({ key: 'start_minimized' }),
+                getSettingValue({ key: 'allow_model_auto_switch' }),
                 getSettingValue({ key: 'output_scroll_behavior' }),
                 getSettingValue({ key: 'search_window_size_preset' }),
                 getSettingValue({ key: 'language' }),
@@ -243,6 +255,10 @@ export const useSettingsStore = defineStore('settings', () => {
                 startMinimized === null
                     ? DEFAULT_GENERAL_SETTINGS.startMinimized
                     : startMinimized === 'true';
+            settings.value.allowModelAutoSwitch =
+                allowModelAutoSwitch === null
+                    ? DEFAULT_GENERAL_SETTINGS.allowModelAutoSwitch
+                    : allowModelAutoSwitch === 'true';
             settings.value.outputScrollBehavior = normalizeOutputScrollBehavior(outputScroll);
             applySearchWindowSizePreset(normalizeSearchWindowSizePreset(searchWindowSizePreset));
             applyLanguage(resolvePersistedLanguage(language));
@@ -257,6 +273,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 persistDefaultIfMissing('global_shortcut', globalShortcut),
                 persistDefaultIfMissing('start_on_boot', startOnBoot),
                 persistDefaultIfMissing('start_minimized', startMinimized),
+                persistDefaultIfMissing('allow_model_auto_switch', allowModelAutoSwitch),
                 persistDefaultIfMissing('output_scroll_behavior', outputScroll),
                 persistDefaultIfMissing('search_window_size_preset', searchWindowSizePreset),
                 persistDefaultIfMissing('language', language),
@@ -365,6 +382,10 @@ export const useSettingsStore = defineStore('settings', () => {
         await updateSetting('start_minimized', enabled);
     }
 
+    async function updateAllowModelAutoSwitch(enabled: boolean) {
+        await updateSetting('allow_model_auto_switch', enabled);
+    }
+
     async function updateOutputScrollBehavior(mode: OutputScrollBehavior) {
         await updateSetting('output_scroll_behavior', mode);
     }
@@ -416,6 +437,7 @@ export const useSettingsStore = defineStore('settings', () => {
         updateGlobalShortcut,
         updateStartOnBoot,
         updateStartMinimized,
+        updateAllowModelAutoSwitch,
         updateOutputScrollBehavior,
         updateSearchWindowSizePreset,
         updateLanguage,

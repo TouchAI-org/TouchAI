@@ -14,6 +14,7 @@ const settingsStoreMock = vi.hoisted(() => ({
             outputScrollBehavior: 'follow_output',
             searchWindowSizePreset: 'normal',
             searchWindowDefaultSize: { width: 720, height: 520 },
+            allowModelAutoSwitch: false,
             appUpdateChannel: 'stable',
             appUpdateAutoCheck: true,
             appUpdateLastCheckedAt: null,
@@ -25,6 +26,7 @@ const settingsStoreMock = vi.hoisted(() => ({
     updateStartMinimized: vi.fn().mockResolvedValue(undefined),
     updateOutputScrollBehavior: vi.fn().mockResolvedValue(undefined),
     updateSearchWindowSizePreset: vi.fn().mockResolvedValue(undefined),
+    updateAllowModelAutoSwitch: vi.fn().mockResolvedValue(undefined),
     updateLanguage: vi.fn().mockResolvedValue(undefined),
     updateAppUpdateChannel: vi.fn().mockResolvedValue(undefined),
     updateAppUpdateAutoCheck: vi.fn().mockResolvedValue(undefined),
@@ -152,6 +154,8 @@ describe('SettingsGeneralSection', () => {
         appUpdateServiceMock.state = appUpdateServiceMock.createState();
         nativeMock.shortcut.getShortcutStatus.mockResolvedValue([false, null]);
         nativeMock.autostart.isAutostartEnabled.mockResolvedValue(false);
+        settingsStoreMock.settings.value.allowModelAutoSwitch = false;
+        settingsStoreMock.updateAllowModelAutoSwitch.mockResolvedValue(undefined);
     });
 
     it('renders the general settings groups and row controls', () => {
@@ -187,7 +191,7 @@ describe('SettingsGeneralSection', () => {
         expect(controls.length).toBeGreaterThanOrEqual(3);
 
         const rowLabels = wrapper.findAll('[data-testid="settings-general-row-label"]');
-        expect(rowLabels).toHaveLength(8);
+        expect(rowLabels).toHaveLength(9);
     });
 
     it('shows the current version in the latest update details', async () => {
@@ -227,6 +231,22 @@ describe('SettingsGeneralSection', () => {
         await wrapper.get('[data-testid="settings-update-auto-check-toggle"]').trigger('click');
 
         expect(appUpdateServiceMock.setAutoCheckEnabled).toHaveBeenCalledWith(false);
+    });
+
+    it('reverts the automatic model switch toggle when saving fails', async () => {
+        settingsStoreMock.updateAllowModelAutoSwitch.mockRejectedValueOnce(
+            new Error('write failed')
+        );
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+        await wrapper
+            .get('[data-testid="settings-allow-model-auto-switch-toggle"]')
+            .trigger('click');
+        await flushPromises();
+
+        expect(settingsStoreMock.updateAllowModelAutoSwitch).toHaveBeenCalledWith(true);
+        expect(settingsStoreMock.settings.value.allowModelAutoSwitch).toBe(false);
     });
 
     it('shows update details and delegates update actions', async () => {

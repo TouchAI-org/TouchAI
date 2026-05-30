@@ -8,6 +8,7 @@ import IconCheckCircle from '~icons/bx/check-circle';
 import IconChevronDown from '~icons/bx/chevron-down';
 import IconChevronRight from '~icons/bx/chevron-right';
 import IconChevronUp from '~icons/bx/chevron-up';
+import IconCloud from '~icons/bx/cloud';
 import IconCog from '~icons/bx/cog';
 import IconCopy from '~icons/bx/copy';
 import IconData from '~icons/bx/data';
@@ -37,6 +38,7 @@ import IconShow from '~icons/bx/show';
 import IconStop from '~icons/bx/stop';
 import IconTrash from '~icons/bx/trash';
 import IconTrashAlt from '~icons/bx/trash-alt';
+import IconRoute from '~icons/bx/trip';
 import IconWrench from '~icons/bx/wrench';
 import IconX from '~icons/bx/x';
 import IconXCircle from '~icons/bx/x-circle';
@@ -48,6 +50,7 @@ export const appIconMap = {
     'chevron-right': IconChevronRight,
     'chevron-up': IconChevronUp,
     close: IconX,
+    cloud: IconCloud,
     copy: IconCopy,
     database: IconData,
     delete: IconTrashAlt,
@@ -73,6 +76,7 @@ export const appIconMap = {
     play: IconPlay,
     plus: IconPlus,
     refresh: IconRefresh,
+    route: IconRoute,
     search: IconSearch,
     settings: IconCog,
     stop: IconStop,
