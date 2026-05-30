@@ -521,25 +521,22 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     // scripts after morphdom patching. Inline script content is stripped via the
     // uponSanitizeElement hook to prevent XSS. DOMPurify still strips event-handler
     // attributes (onclick, onerror, etc.) and javascript: URIs by default.
-    const purifyConfig = {
-        ADD_TAGS: ['script'],
-        hooks: {
-            uponSanitizeElement(node: Element, data: { tagName: string }) {
-                if (data.tagName === 'script' && !(node as HTMLScriptElement).src) {
-                    (node as HTMLScriptElement).textContent = '';
-                }
-            },
-        },
-    } as const;
+    const purifyInstance = DOMPurify(window);
+    purifyInstance.addHook('uponSanitizeElement', (node, data) => {
+        if (data.tagName === 'script' && !(node as HTMLScriptElement).src) {
+            (node as HTMLScriptElement).textContent = '';
+        }
+    });
+    const purifyConfig: DOMPurify.Config = { ADD_TAGS: ['script'] };
 
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
         template.innerHTML = String(
-            DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
+            purifyInstance.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
         );
     } else {
-        template.innerHTML = String(DOMPurify.sanitize(normalizedHtml, purifyConfig));
+        template.innerHTML = String(purifyInstance.sanitize(normalizedHtml, purifyConfig));
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
