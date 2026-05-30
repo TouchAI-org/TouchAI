@@ -94,6 +94,21 @@ describe('resolveCommandContext', () => {
         ).rejects.toThrow('Working directory is outside the allowed scope');
     });
 
+    it('rejects working directories that escape the allowlist with parent segments', async () => {
+        setLocale('en-US');
+        const config = {
+            ...baseConfig,
+            allowedWorkingDirectories: ['D:/allowed'],
+        };
+
+        await expect(
+            resolveCommandContext(
+                { command: 'dir', workingDirectory: 'D:/allowed/../other' },
+                config
+            )
+        ).rejects.toThrow('Working directory is outside the allowed scope');
+    });
+
     it('accepts command inside allowed directories', async () => {
         const config = {
             ...baseConfig,

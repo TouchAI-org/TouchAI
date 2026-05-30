@@ -16,7 +16,36 @@ import {
 } from './constants';
 
 function normalizeDirectoryPath(path: string): string {
-    return path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+    const normalizedSeparators = path.trim().replace(/\//g, '\\').replace(/\\+$/, '');
+    const driveMatch = /^([a-zA-Z]:)(?:\\(.*))?$/.exec(normalizedSeparators);
+    const hasRoot = normalizedSeparators.startsWith('\\');
+    const prefix = driveMatch?.[1]?.toLowerCase() ?? (hasRoot ? '\\' : '');
+    const body = driveMatch ? (driveMatch[2] ?? '') : normalizedSeparators.replace(/^\\+/, '');
+    const resolvedSegments: string[] = [];
+
+    for (const segment of body.split(/\\+/)) {
+        if (!segment || segment === '.') {
+            continue;
+        }
+
+        if (segment === '..') {
+            if (resolvedSegments.length > 0) {
+                resolvedSegments.pop();
+            } else if (!prefix) {
+                resolvedSegments.push(segment);
+            }
+            continue;
+        }
+
+        resolvedSegments.push(segment.toLowerCase());
+    }
+
+    const normalizedBody = resolvedSegments.join('\\');
+    if (!prefix) {
+        return normalizedBody;
+    }
+
+    return normalizedBody ? `${prefix}\\${normalizedBody}` : prefix;
 }
 
 function isWithinAllowedDirectory(path: string, allowlist: string[]): boolean {
