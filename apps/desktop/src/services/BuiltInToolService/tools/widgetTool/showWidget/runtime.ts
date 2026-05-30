@@ -520,14 +520,14 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     // Allow <script> tags so runInlineScripts can re-execute them after morphdom
     // patching. DOMPurify still strips event-handler attributes (onclick, onerror,
     // etc.) and javascript: URIs, which is the actual XSS vector we need to block.
-    const purifyConfig: DOMPurify.Config = { ADD_TAGS: ['script'] };
+    const purifyConfig = { ADD_TAGS: ['script'] } as const;
 
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
-        template.innerHTML = DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig);
+        template.innerHTML = String(DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig));
     } else {
-        template.innerHTML = DOMPurify.sanitize(normalizedHtml, purifyConfig);
+        template.innerHTML = String(DOMPurify.sanitize(normalizedHtml, purifyConfig));
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
