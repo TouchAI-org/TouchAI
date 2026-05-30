@@ -1,10 +1,11 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
     import settingsLogo from '@assets/logo.svg';
     import AppIcon from '@components/AppIcon.vue';
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     import { APP_PRODUCT_CONFIG, APP_VERSION } from '@/config/product';
+    import { t } from '@/i18n';
 
     import { flattenSettingsNavigation, type NavigationSection } from '../settingsNavigation';
     import {
@@ -29,6 +30,7 @@
     interface Emits {
         (e: 'navigate', section: NavigationSection): void;
         (e: 'ready'): void;
+        (e: 'show-update-settings'): void;
     }
 
     const props = defineProps<Props>();
@@ -183,6 +185,10 @@
 
     const handleNavigate = (section: NavigationSection) => {
         emit('navigate', section);
+    };
+
+    const showUpdateSettings = () => {
+        emit('show-update-settings');
     };
 
     const openExternalLink = async (url: string) => {
@@ -396,7 +402,7 @@
                 ]"
                 data-tauri-drag-region
             >
-                设置
+                {{ t('common.settings') }}
             </span>
         </div>
 
@@ -447,14 +453,17 @@
                 isCollapsed ? 'px-0' : 'px-2',
             ]"
         >
-            <p
+            <button
+                type="button"
                 :class="[
-                    'overflow-hidden text-xs leading-5 text-neutral-400 transition-all duration-200 ease-out',
+                    'max-w-full cursor-pointer overflow-hidden text-xs leading-5 text-neutral-400 transition-all duration-200 ease-out hover:text-neutral-700',
                     isLabelVisible ? 'max-h-5 opacity-100' : 'max-h-0 opacity-0',
                 ]"
+                data-testid="settings-sidebar-version"
+                @click="showUpdateSettings"
             >
                 TouchAI v{{ APP_VERSION }}
-            </p>
+            </button>
             <div class="mt-1.5 flex items-center justify-center gap-1">
                 <button
                     type="button"
@@ -463,7 +472,7 @@
                         'flex cursor-pointer items-center justify-center rounded-full text-neutral-400 transition-all duration-200 ease-out hover:bg-[#eeeeec] hover:text-neutral-700',
                         isCollapsed ? 'h-10 w-10' : 'h-7 w-7',
                     ]"
-                    title="GitHub 仓库"
+                    :title="t('settings.sidebar.githubRepository')"
                     @click="openExternalLink(repositoryLinks.url)"
                 >
                     <AppIcon
@@ -478,7 +487,7 @@
                         'flex h-7 cursor-pointer items-center justify-center overflow-hidden rounded-full text-neutral-400 transition-all duration-200 ease-out hover:bg-[#eeeeec] hover:text-neutral-700',
                         isLabelVisible ? 'w-7 opacity-100' : 'w-0 opacity-0',
                     ]"
-                    title="问题反馈"
+                    :title="t('settings.sidebar.feedback')"
                     @click="openExternalLink(repositoryLinks.issuesUrl)"
                 >
                     <AppIcon name="bug" class="h-3.5 w-3.5" />
@@ -498,7 +507,7 @@
             :aria-expanded="!isTargetCollapsed"
             tabindex="0"
             class="absolute top-0 right-[-3px] z-10 h-full w-1.5 cursor-col-resize transition-colors hover:bg-neutral-300/50"
-            title="点击折叠或展开侧边栏，拖动调整宽度"
+            :title="t('settings.sidebar.resizeHint')"
             @keydown="handleResizeKeyDown"
             @pointerdown="handleResizePointerDown"
         />

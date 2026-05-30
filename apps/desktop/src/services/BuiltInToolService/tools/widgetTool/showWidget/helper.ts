@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { tt } from '@/i18n';
 import type {
     ShowWidgetEventPayload,
     ShowWidgetMode,
@@ -29,21 +30,21 @@ export function readExternalResourceUrl(element: Element): string {
 export function buildShowWidgetSummary(payload: ShowWidgetEventPayload): string {
     if (payload.mode === 'remove') {
         return [
-            '自定义可视化已移除',
+            tt('自定义可视化已移除'),
             `Widget ID: ${payload.widgetId}`,
-            `标题: ${payload.title}`,
-            `说明: ${payload.description}`,
-            '完整 HTML 未写入工具结果，以免污染后续上下文。',
+            `${tt('标题')}: ${payload.title}`,
+            `${tt('说明')}: ${payload.description}`,
+            tt('完整 HTML 未写入工具结果，以免污染后续上下文。'),
         ].join('\n');
     }
 
     return [
-        '自定义可视化已渲染',
+        tt('自定义可视化已渲染'),
         `Widget ID: ${payload.widgetId}`,
-        `标题: ${payload.title}`,
-        payload.description ? `说明: ${payload.description}` : '',
-        `HTML 字符数: ${payload.html.length}`,
-        '接下来请继续自然解释这个可视化的重点，而不是重复输出 HTML 源码。',
+        `${tt('标题')}: ${payload.title}`,
+        payload.description ? `${tt('说明')}: ${payload.description}` : '',
+        `${tt('HTML 字符数')}: ${payload.html.length}`,
+        tt('接下来请继续自然解释这个可视化的重点，而不是重复输出 HTML 源码。'),
     ]
         .filter(Boolean)
         .join('\n');

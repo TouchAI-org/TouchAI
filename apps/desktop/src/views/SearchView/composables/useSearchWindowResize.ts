@@ -183,6 +183,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             return;
         }
 
+        if (newHeight === currentHeight.value) {
+            return;
+        }
+
         if (newHeight < currentHeight.value) {
             // 收缩前先下调原生最小高度约束，否则 Windows 会直接拒绝这次 shrink。
             await syncSearchWindowMinSizeConstraints(newHeight);
@@ -191,6 +195,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         await native.window.resizeWindowHeight({
             targetHeight: newHeight,
             center: true,
+            animate: false,
             respectManualOverride: searchWindowHeightPolicy.value.respectManualOverride,
         });
         currentHeight.value = newHeight;
@@ -295,6 +300,42 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         }
     }
 
+    /**
+     * 串行 resize 消费队列。
+     *
+     * CSS transition 期间 ResizeObserver 每帧触发，始终取最新高度串行调用 resize()。
+     * 同一时刻只允许一个 resize() 在执行，避免并发 IPC 导致窗口在多个高度之间跳变。
+     * resize() 内部的 currentHeight 去重确保已完成的高度不会重复调用。
+     */
+    let pendingHeight: number | null = null;
+    let isConsuming = false;
+
+    function scheduleObserverResize(height: number) {
+        pendingHeight = height;
+        consumeResizeQueue();
+    }
+
+    async function consumeResizeQueue() {
+        if (isConsuming) {
+            // 已有消费在运行，pendingHeight 会在当前循环的下一次迭代中被取走。
+            return;
+        }
+        isConsuming = true;
+        try {
+            while (pendingHeight !== null) {
+                const nextHeight = pendingHeight;
+                pendingHeight = null;
+                await resize(nextHeight);
+                // 等待一帧让 WebView2 完成重绘，避免透明闪烁。
+                // Rust animate=false 时 set_size 为同步调用，
+                // WebView2 buffer 需要一整帧来渲染新尺寸的内容。
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+            }
+        } finally {
+            isConsuming = false;
+        }
+    }
+
     function observeTarget(el: HTMLElement) {
         resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
@@ -304,9 +345,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                     target.scrollHeight,
                     target.getBoundingClientRect().height
                 );
-                resize(height).catch((error) => {
-                    reportError('apply observed height resize', error);
-                });
+                scheduleObserverResize(height);
             }
         });
         resizeObserver.observe(el);

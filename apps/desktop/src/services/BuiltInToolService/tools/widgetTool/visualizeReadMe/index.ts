@@ -1,5 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { tt } from '@/i18n';
+
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -64,7 +66,7 @@ class VisualizeReadMeTool extends BuiltInTool<Record<string, never>> {
         void args;
         const semantic: BuiltInToolConversationSemantic = {
             action: 'review',
-            target: '可视化规范',
+            target: tt('可视化规范'),
         };
         return semantic;
     }

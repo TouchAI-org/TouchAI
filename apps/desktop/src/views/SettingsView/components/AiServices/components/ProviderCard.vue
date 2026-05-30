@@ -4,12 +4,14 @@
     import type { Provider } from '@database/schema';
     import { computed } from 'vue';
 
-    import BadgedLogo from './BadgedLogo.vue';
+    import { t } from '@/i18n';
 
+    import BadgedLogo from './BadgedLogo.vue';
     interface Props {
         provider: Provider;
         isSelected: boolean;
         hasDefaultModel: boolean;
+        promoted?: boolean;
     }
 
     interface Emits {
@@ -19,7 +21,9 @@
         (e: 'context-menu', event: MouseEvent): void;
     }
 
-    const props = defineProps<Props>();
+    const props = withDefaults(defineProps<Props>(), {
+        promoted: false,
+    });
     const emit = defineEmits<Emits>();
 
     const isToggleDisabled = computed(() => {
@@ -32,7 +36,7 @@
         if (props.provider.enabled === 0) {
             // 检查 API 地址
             if (!props.provider.api_endpoint || props.provider.api_endpoint.trim() === '') {
-                emit('validation-error', '请先配置 API 地址后再启用服务商');
+                emit('validation-error', t('settings.ai.configureApiUrlBeforeEnable'));
                 return;
             }
         }
@@ -61,19 +65,24 @@
             :name="provider.name"
             size="small"
             :show-badge="provider.is_builtin === 1"
+            :promoted="promoted"
             class="shrink-0"
         />
 
         <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2">
-                <h3 class="min-w-0 flex-1 truncate text-[13px] font-normal text-neutral-950">
+                <h3
+                    class="min-w-0 flex-1 truncate text-[13px] font-normal text-neutral-950"
+                    data-no-i18n="true"
+                    translate="no"
+                >
                     {{ provider.name }}
                 </h3>
                 <span
                     v-if="hasDefaultModel"
                     class="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs whitespace-nowrap text-neutral-600 ring-1 ring-neutral-200"
                 >
-                    默认
+                    {{ t('common.default') }}
                 </span>
             </div>
         </div>

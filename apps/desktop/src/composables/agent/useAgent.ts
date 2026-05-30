@@ -5,6 +5,7 @@ import type { SessionTurn } from '@database/schema';
 import { notify } from '@services/NotificationService';
 import { computed, onUnmounted, ref } from 'vue';
 
+import { t } from '@/i18n';
 import { sessionTaskCenter } from '@/services/AgentService';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { type Index } from '@/services/AgentService/infrastructure/attachments';
@@ -188,7 +189,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         providerId?: number
     ) {
         if (!prompt.trim() && attachments.length === 0) {
-            error.value = new Error('Prompt cannot be empty');
+            error.value = new Error(t('search.error.promptEmpty'));
             return;
         }
 
@@ -245,15 +246,23 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 return;
             }
 
-            error.value = requestError;
+            error.value =
+                requestError instanceof AiError
+                    ? new Error(requestError.getDisplayMessage())
+                    : requestError;
 
             const isEmptyResponse =
                 requestError instanceof AiError && requestError.is(AiErrorCode.EMPTY_RESPONSE);
+            const displayMessage = AiError.getDisplayMessage(requestError);
 
             try {
                 notify({
-                    title: isEmptyResponse ? 'TouchAI - 空回复' : 'TouchAI - 请求失败',
-                    body: requestError.message || '未知错误',
+                    title: t(
+                        isEmptyResponse
+                            ? 'notification.search.emptyResponseTitle'
+                            : 'notification.search.requestFailedTitle'
+                    ),
+                    body: displayMessage || t('common.unknownError'),
                 });
             } catch (notificationError) {
                 console.error('[useAgent] Failed to send notification:', notificationError);

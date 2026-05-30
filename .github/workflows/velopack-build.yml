@@ -37,8 +37,7 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             release_name: ${{ steps.product.outputs.release_name }}
-            cloudflare_pages_project_name: ${{ steps.product.outputs.cloudflare_pages_project_name }}
-            cloudflare_pages_branch: ${{ steps.product.outputs.cloudflare_pages_branch }}
+            cloudflare_r2_bucket_name: ${{ steps.product.outputs.cloudflare_r2_bucket_name }}
             artifact_release_notes_name: ${{ steps.artifacts.outputs.release_notes_name }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -65,12 +64,18 @@ jobs:
                   if (!channelConfig) {
                     throw new Error(`Update channel ${channel} is missing from apps/desktop/product.json`);
                   }
+                  if (product?.services?.updates?.deployment?.provider !== 'cloudflare-r2') {
+                    throw new Error('services.updates.deployment.provider must be cloudflare-r2');
+                  }
+                  const bucketName = product?.services?.updates?.deployment?.bucketName;
+                  if (!bucketName) {
+                    throw new Error('services.updates.deployment.bucketName is missing from apps/desktop/product.json');
+                  }
 
                   const outputPath = process.env.GITHUB_OUTPUT;
                   const lines = [
                     `release_name=${product.displayName} v${version}`,
-                    `cloudflare_pages_project_name=${product.services.updates.deployment.projectName}`,
-                    `cloudflare_pages_branch=${product.services.updates.deployment.branch}`,
+                    `cloudflare_r2_bucket_name=${bucketName}`,
                   ];
                   fs.appendFileSync(outputPath, `${lines.join('\n')}\n`, 'utf8');
                   EOF
@@ -216,7 +221,6 @@ jobs:
                       Add-Content -LiteralPath $env:GITHUB_ENV -Value "$Name=$Value" -Encoding UTF8
                   }
 
-                  Add-GitHubEnv 'PRODUCT_REPOSITORY_URL' $product.repository.url
                   Add-GitHubEnv 'VELOPACK_PACK_ID' $product.identifier
                   Add-GitHubEnv 'VELOPACK_PACK_TITLE' $product.displayName
                   Add-GitHubEnv 'VELOPACK_MAIN_EXE' $product.packaging.mainExe
@@ -257,18 +261,11 @@ jobs:
                   New-Item -ItemType Directory -Force -Path $release | Out-Null
                   "VELOPACK_RELEASE=$release" >> $env:GITHUB_ENV
 
-            - name: Download previous Velopack release assets
-              continue-on-error: true
+            - name: Hydrate previous Velopack release assets
               shell: pwsh
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              working-directory: apps/desktop
               run: |
-                  vpk download github `
-                    --repoUrl "$env:PRODUCT_REPOSITORY_URL" `
-                    --token "$env:GITHUB_TOKEN" `
-                    --channel "${{ inputs.channel }}" `
-                    --pre "${{ inputs.prerelease }}" `
-                    --outputDir "$env:VELOPACK_RELEASE"
+                  node scripts/ci/hydrate-velopack-history.mjs "$env:VELOPACK_RELEASE" "${{ inputs.channel }}"
 
             - name: Pack Velopack release
               shell: pwsh
@@ -281,6 +278,9 @@ jobs:
                     --packVersion "${{ inputs.version }}" `
                     --packDir "$env:VELOPACK_STAGE" `
                     --mainExe "$env:VELOPACK_MAIN_EXE" `
+                    --noPortable `
+                    --msi `
+                    --instLocation Either `
                     --channel "${{ inputs.channel }}" `
                     --releaseNotes "$env:RELEASE_NOTES_PATH" `
                     --outputDir "$env:VELOPACK_RELEASE"
@@ -288,23 +288,6 @@ jobs:
             - name: Normalize Velopack release asset names
               working-directory: apps/desktop
               run: node scripts/ci/normalize-velopack-release-assets.mjs "$env:VELOPACK_RELEASE" "${{ inputs.channel }}" "${{ inputs.version }}"
-
-            - name: Publish Velopack release assets
-              shell: pwsh
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  vpk upload github `
-                    --repoUrl "$env:PRODUCT_REPOSITORY_URL" `
-                    --token "$env:GITHUB_TOKEN" `
-                    --releaseName "$env:RELEASE_NAME" `
-                    --tag "${{ inputs.tag }}" `
-                    --targetCommitish "${{ inputs.target-commitish }}" `
-                    --channel "${{ inputs.channel }}" `
-                    --pre "${{ inputs.prerelease }}" `
-                    --outputDir "$env:VELOPACK_RELEASE" `
-                    --merge True `
-                    --publish True
 
             - name: Sync GitHub release notes
               shell: pwsh
@@ -410,22 +393,6 @@ jobs:
             - name: Normalize macOS release asset names
               working-directory: apps/desktop
               run: node scripts/ci/normalize-tauri-bundle-assets.mjs "${{ runner.temp }}/touchai-macos-release" "${{ inputs.channel }}" "${{ inputs.version }}"
-
-            - name: Publish macOS release assets
-              shell: bash
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  RELEASE_TAG: ${{ inputs.tag }}
-              run: |
-                  set -euo pipefail
-                  release_dir="$RUNNER_TEMP/touchai-macos-release"
-                  shopt -s nullglob
-                  files=("$release_dir"/*)
-                  if [ ${#files[@]} -eq 0 ]; then
-                    echo "No macOS release assets found to upload." >&2
-                    exit 1
-                  fi
-                  gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
 
             - name: Upload macOS diagnostics artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -541,22 +508,6 @@ jobs:
               working-directory: apps/desktop
               run: node scripts/ci/normalize-tauri-bundle-assets.mjs "${{ runner.temp }}/touchai-linux-release" "${{ inputs.channel }}" "${{ inputs.version }}"
 
-            - name: Publish Linux release assets
-              shell: bash
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  RELEASE_TAG: ${{ inputs.tag }}
-              run: |
-                  set -euo pipefail
-                  release_dir="$RUNNER_TEMP/touchai-linux-release"
-                  shopt -s nullglob
-                  files=("$release_dir"/*)
-                  if [ ${#files[@]} -eq 0 ]; then
-                    echo "No Linux release assets found to upload." >&2
-                    exit 1
-                  fi
-                  gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
-
             - name: Upload Linux diagnostics artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
@@ -565,7 +516,7 @@ jobs:
                   if-no-files-found: error
 
     build-update-channels:
-        name: Build update channel JSON
+        name: Build update release feeds
         needs:
             - prepare-release
             - build-windows
@@ -591,28 +542,77 @@ jobs:
                   name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
                   path: ${{ runner.temp }}/release-notes
 
-            - name: Build update channel JSON
+            - name: Download Windows release assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: touchai-velopack-windows-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ runner.temp }}/release-assets/windows
+
+            - name: Download macOS release assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: touchai-macos-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ runner.temp }}/release-assets/macos
+
+            - name: Download Linux release assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: touchai-linux-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ runner.temp }}/release-assets/linux
+
+            - name: Stage release assets
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  release_dir="$RUNNER_TEMP/touchai-release-assets"
+                  rm -rf "$release_dir"
+                  mkdir -p "$release_dir"
+                  find "$RUNNER_TEMP/release-assets" -maxdepth 3 -type f -print0 |
+                    while IFS= read -r -d '' file; do
+                      cp "$file" "$release_dir/"
+                    done
+                  if ! compgen -G "$release_dir/*" >/dev/null; then
+                    echo "No release assets were staged." >&2
+                    exit 1
+                  fi
+
+            - name: Build update release feeds
               working-directory: apps/desktop
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   node scripts/ci/build-update-channels.mjs "$RUNNER_TEMP/touchai-update-dist" \
-                    --github-repository "$GITHUB_REPOSITORY" \
+                    --fetch-existing true \
                     --channel "${{ inputs.channel }}" \
                     --version "${{ inputs.version }}" \
                     --tag "${{ inputs.tag }}" \
                     --prerelease "${{ inputs.prerelease }}" \
-                    --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md"
+                    --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md" \
+                    --release-dir "$RUNNER_TEMP/touchai-release-assets"
 
-            - name: Upload update channel JSON artifact
+            - name: Upload public release assets to GitHub release
+              shell: bash
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+              run: |
+                  set -euo pipefail
+                  release_dir="$RUNNER_TEMP/touchai-release-assets"
+                  shopt -s nullglob
+                  assets=("$release_dir"/*)
+                  if [ ${#assets[@]} -eq 0 ]; then
+                    echo "No release assets were staged." >&2
+                    exit 1
+                  fi
+                  gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+
+            - name: Upload update release feeds artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  name: touchai-update-channels
+                  name: touchai-update-dist
                   path: ${{ runner.temp }}/touchai-update-dist
                   if-no-files-found: error
 
     deploy-update-channels:
-        name: Deploy update channel JSON
+        name: Deploy update release feeds
         if: ${{ inputs.deploy-production }}
         needs:
             - prepare-release
@@ -632,20 +632,63 @@ jobs:
                   node-version: 22
                   cache: pnpm
 
-            - name: Download update channel JSON artifact
+            - name: Download update release feeds artifact
               uses: actions/download-artifact@v4
               with:
-                  name: touchai-update-channels
+                  name: touchai-update-dist
                   path: ${{ runner.temp }}/touchai-update-dist
 
-            - name: Deploy update channel JSON to Cloudflare Pages
+            - name: Generate Cloudflare update proxy config
+              working-directory: apps/desktop
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  wrangler_config="$PWD/.wrangler-update-proxy.toml"
+                  node scripts/ci/write-cloudflare-update-worker-config.mjs "$wrangler_config"
+                  echo "WRANGLER_UPDATE_PROXY_CONFIG=$wrangler_config" >> "$GITHUB_ENV"
+
+            - name: Deploy Cloudflare update proxy Worker
+              working-directory: apps/desktop
               env:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-                  CLOUDFLARE_PAGES_PROJECT_NAME: ${{ needs.prepare-release.outputs.cloudflare_pages_project_name }}
-                  CLOUDFLARE_PAGES_BRANCH: ${{ needs.prepare-release.outputs.cloudflare_pages_branch }}
+              run: pnpm dlx wrangler@3.90.0 deploy --config "$WRANGLER_UPDATE_PROXY_CONFIG"
+
+            - name: Deploy update release feeds to Cloudflare R2
+              shell: bash
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
               run: |
+                  set -euo pipefail
                   update_dist="$RUNNER_TEMP/touchai-update-dist"
-                  pnpm dlx wrangler@3.90.0 pages deploy "$update_dist" \
-                    --project-name="$CLOUDFLARE_PAGES_PROJECT_NAME" \
-                    --branch="$CLOUDFLARE_PAGES_BRANCH"
+                  find "$update_dist" -type f -print0 |
+                    while IFS= read -r -d '' file; do
+                      key="${file#"$update_dist"/}"
+                      pnpm dlx wrangler@3.90.0 r2 object put "$CLOUDFLARE_R2_BUCKET_NAME/$key" --file "$file"
+                    done
+
+            - name: Prune archived R2 release assets
+              working-directory: apps/desktop
+              shell: bash
+              env:
+                  RELEASE_CHANNEL: ${{ inputs.channel }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
+              run: |
+                  set -euo pipefail
+                  prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"
+                  node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL" > "$prune_plan"
+                  if [ ! -s "$prune_plan" ]; then
+                    echo "No archived R2 release assets to prune."
+                    exit 0
+                  fi
+
+                  while IFS= read -r key; do
+                    if [ -n "$key" ]; then
+                      pnpm dlx wrangler@3.90.0 r2 object delete "$CLOUDFLARE_R2_BUCKET_NAME/$key"
+                    fi
+                  done < "$prune_plan"

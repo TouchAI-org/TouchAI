@@ -6,7 +6,7 @@ export type BuildUpdateChannelsLatest = {
     prerelease: boolean;
     releaseNotes?: string | null;
     downloads?: Array<{
-        kind: 'installer' | 'portable' | 'fullPackage' | 'deltaPackage' | 'asset';
+        kind: 'installer' | 'fullPackage' | 'deltaPackage' | 'updatePackage' | 'asset';
         name: string;
         url: string;
         sizeBytes: number | null;
@@ -14,8 +14,7 @@ export type BuildUpdateChannelsLatest = {
 };
 
 export type BuildUpdateChannelsOptions = {
-    githubRepository?: string | null;
-    githubToken?: string | null;
+    fetchExisting?: boolean;
     release?: {
         channel: string;
         version: string;

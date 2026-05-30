@@ -77,7 +77,7 @@ vi.mock('@/views/SettingsView/components/NavigationSidebar.vue', () => ({
     default: {
         name: 'NavigationSidebar',
         props: ['activeSection'],
-        emits: ['navigate', 'ready'],
+        emits: ['navigate', 'ready', 'show-update-settings'],
         mounted(this: { $emit: (event: 'ready') => void }) {
             this.$emit('ready');
         },
@@ -88,7 +88,7 @@ vi.mock('@/views/SettingsView/components/NavigationSidebar.vue', () => ({
 const navigationSidebarStub = {
     name: 'NavigationSidebar',
     props: ['activeSection'],
-    emits: ['navigate', 'ready'],
+    emits: ['navigate', 'ready', 'show-update-settings'],
     mounted(this: { $emit: (event: 'ready') => void }) {
         this.$emit('ready');
     },
@@ -196,7 +196,7 @@ describe('SettingsWindowView', () => {
 
         expect(loadingState().attributes('variant')).toBe('brand');
         expect(loadingState().attributes('fill')).toBe('min');
-        expect(loadingState().attributes('message')).toBeUndefined();
+        expect(loadingState().attributes('message')).toBe('正在加载常规设置...');
 
         nav.vm.$emit('navigate', 'ai-services');
         await flushPromises();
@@ -240,5 +240,30 @@ describe('SettingsWindowView', () => {
         nav.vm.$emit('navigate', 'data-management');
         await flushPromises();
         expect(wrapper.find('data-management-view-stub').exists()).toBe(true);
+    });
+
+    it('scrolls to the update section when the sidebar version is clicked', async () => {
+        const scrollIntoView = vi.fn();
+        const querySelectorSpy = vi.spyOn(document, 'querySelector').mockReturnValue({
+            scrollIntoView,
+        } as unknown as Element);
+        try {
+            const wrapper = mountSettingsWindow();
+
+            await vi.runAllTimersAsync();
+            await flushPromises();
+
+            wrapper.findComponent({ name: 'NavigationSidebar' }).vm.$emit('show-update-settings');
+            await flushPromises();
+            await vi.runOnlyPendingTimersAsync();
+
+            expect(querySelectorSpy).toHaveBeenCalledWith('[data-settings-update-section="true"]');
+            expect(scrollIntoView).toHaveBeenCalledWith({
+                block: 'start',
+                behavior: 'smooth',
+            });
+        } finally {
+            querySelectorSpy.mockRestore();
+        }
     });
 });

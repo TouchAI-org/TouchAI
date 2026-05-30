@@ -11,6 +11,8 @@
     import type { AcceptableValue } from 'reka-ui';
     import { computed, ref } from 'vue';
 
+    import { type MessageKey, t, tt } from '@/i18n';
+
     interface Option {
         label: string;
         value: T;
@@ -22,7 +24,9 @@
         modelValue: T;
         options: Option[];
         placeholder?: string;
+        placeholderKey?: MessageKey;
         disabled?: boolean;
+        protectOptionText?: boolean;
     }
 
     interface Emits {
@@ -30,8 +34,9 @@
     }
 
     const props = withDefaults(defineProps<Props>(), {
-        placeholder: '请选择',
+        placeholder: '',
         disabled: false,
+        protectOptionText: false,
     });
 
     const emit = defineEmits<Emits>();
@@ -40,6 +45,13 @@
 
     const selectedOption = computed(() => {
         return props.options.find((opt) => opt.value === props.modelValue);
+    });
+
+    const resolvedPlaceholder = computed(() => {
+        if (props.placeholderKey) {
+            return t(props.placeholderKey);
+        }
+        return props.placeholder ? tt(props.placeholder) : t('common.selectPlaceholder');
     });
 
     const selectOption = (value: T) => {
@@ -78,11 +90,19 @@
                         :src="selectedOption.iconSrc"
                         :alt="selectedOption.label"
                         class="h-4 w-4 shrink-0 rounded-sm object-contain"
+                        :data-no-i18n="protectOptionText ? 'true' : undefined"
+                        :translate="protectOptionText ? 'no' : undefined"
                     />
-                    <span class="line-clamp-1">{{ selectedOption.label }}</span>
+                    <span
+                        class="line-clamp-1"
+                        :data-no-i18n="protectOptionText ? 'true' : undefined"
+                        :translate="protectOptionText ? 'no' : undefined"
+                    >
+                        {{ selectedOption.label }}
+                    </span>
                 </div>
             </template>
-            <SelectValue v-else :placeholder="placeholder" />
+            <SelectValue v-else :placeholder="resolvedPlaceholder" />
         </SelectTrigger>
 
         <SelectContent
@@ -104,10 +124,23 @@
                         :src="option.iconSrc"
                         :alt="option.label"
                         class="h-4 w-4 shrink-0 rounded-sm object-contain"
+                        :data-no-i18n="protectOptionText ? 'true' : undefined"
+                        :translate="protectOptionText ? 'no' : undefined"
                     />
-                    <div class="min-w-0">
-                        <span class="block font-serif font-medium">{{ option.label }}</span>
-                        <span v-if="option.description" class="mt-0.5 block text-xs text-gray-400">
+                    <div class="min-w-0 flex-1">
+                        <span
+                            class="block truncate font-serif font-medium"
+                            :data-no-i18n="protectOptionText ? 'true' : undefined"
+                            :translate="protectOptionText ? 'no' : undefined"
+                        >
+                            {{ option.label }}
+                        </span>
+                        <span
+                            v-if="option.description"
+                            class="mt-0.5 block truncate text-xs text-gray-400"
+                            :data-no-i18n="protectOptionText ? 'true' : undefined"
+                            :translate="protectOptionText ? 'no' : undefined"
+                        >
                             {{ option.description }}
                         </span>
                     </div>

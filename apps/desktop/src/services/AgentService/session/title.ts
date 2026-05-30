@@ -1,5 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { tt } from '@/i18n';
 import { collapseWhitespace, truncateText } from '@/utils/text';
 
 /**
@@ -8,7 +9,7 @@ import { collapseWhitespace, truncateText } from '@/utils/text';
 export function buildSessionTitle(prompt: string): string {
     const normalized = collapseWhitespace(prompt);
     if (!normalized) {
-        return '新会话';
+        return tt('新会话');
     }
 
     return truncateText(normalized, 40);

@@ -5,6 +5,8 @@
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { ref } from 'vue';
 
+    import { t } from '@/i18n';
+
     defineOptions({
         name: 'SearchConversationToolbar',
     });
@@ -114,7 +116,7 @@
                 type="button"
                 class="toolbar-button"
                 :class="disabled ? 'toolbar-button--disabled' : ''"
-                aria-label="新建会话"
+                :aria-label="t('conversation.toolbar.newSession')"
                 data-drag-exclude="true"
                 @mousedown.stop
                 @click.stop="handleNewSession"
@@ -135,7 +137,7 @@
                         disabled ? 'toolbar-button--disabled' : '',
                         historyOpen ? 'toolbar-button--active' : '',
                     ]"
-                    aria-label="打开会话历史"
+                    :aria-label="t('conversation.toolbar.openHistory')"
                     data-drag-exclude="true"
                     data-history-trigger="true"
                     @mousedown.stop
@@ -150,7 +152,11 @@
                 type="button"
                 class="toolbar-button"
                 :class="disabled ? 'toolbar-button--disabled' : ''"
-                :aria-label="isMaximized ? '还原窗口' : '最大化窗口'"
+                :aria-label="
+                    isMaximized
+                        ? t('conversation.toolbar.restoreWindow')
+                        : t('conversation.toolbar.maximizeWindow')
+                "
                 :aria-pressed="isMaximized"
                 data-drag-exclude="true"
                 @mousedown.stop
@@ -164,7 +170,7 @@
                 type="button"
                 class="toolbar-button"
                 :class="isPinned ? 'toolbar-button--pinned' : ''"
-                aria-label="窗口置顶"
+                :aria-label="t('conversation.toolbar.pinWindow')"
                 :aria-pressed="isPinned"
                 data-drag-exclude="true"
                 @mousedown.stop

@@ -24,6 +24,7 @@ import IconHide from '~icons/bx/hide';
 import IconHistory from '~icons/bx/history';
 import IconInfoCircle from '~icons/bx/info-circle';
 import IconLeaf from '~icons/bx/leaf';
+import IconLinkExternal from '~icons/bx/link-external';
 import IconMenu from '~icons/bx/menu';
 import IconMinus from '~icons/bx/minus';
 import IconPin from '~icons/bx/pin';
@@ -65,6 +66,7 @@ export const appIconMap = {
     'information-circle': IconInfoCircle,
     llm: IconBrain,
     leaf: IconLeaf,
+    'external-link': IconLinkExternal,
     mcp: IconPlug,
     minimize: IconMinus,
     pin: IconPin,

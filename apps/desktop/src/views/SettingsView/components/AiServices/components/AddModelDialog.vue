@@ -8,6 +8,7 @@
     import type { NewModel } from '@database/schema';
     import { ref } from 'vue';
 
+    import { t } from '@/i18n';
     interface Props {
         providerId: number;
     }
@@ -34,7 +35,7 @@
 
     const handleSave = async () => {
         if (!form.value.name || !form.value.model_id) {
-            alert.error('请填写模型名称和模型 ID');
+            alert.error(t('settings.ai.enterModelNameAndId'));
             return;
         }
 
@@ -73,30 +74,38 @@
 
             emit('create', modelData);
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : '创建失败');
+            alert.error(err instanceof Error ? err.message : t('settings.ai.createFailed'));
         }
     };
 </script>
 
 <template>
     <DialogShell>
-        <h2 class="mb-5 text-base font-bold text-neutral-950">添加模型</h2>
+        <h2 class="mb-5 text-base font-bold text-neutral-950">
+            {{ t('settings.ai.addModelTitle') }}
+        </h2>
 
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-neutral-700">模型名称 *</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelNameRequired') }}
+                </label>
                 <Input v-model="form.name" class="mt-1.5" placeholder="GPT-4o" />
-                <p class="mt-1 text-xs text-neutral-400">用于显示的模型名称</p>
+                <p class="mt-1 text-xs text-neutral-400">{{ t('settings.ai.modelNameHelp') }}</p>
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-neutral-700">模型 ID *</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelIdRequired') }}
+                </label>
                 <Input v-model="form.model_id" class="mt-1.5" placeholder="gpt-4o" />
-                <p class="mt-1 text-xs text-neutral-400">API 调用时使用的模型标识符</p>
+                <p class="mt-1 text-xs text-neutral-400">{{ t('settings.ai.modelIdHelp') }}</p>
             </div>
 
             <div>
-                <label class="mb-2 block text-sm font-medium text-neutral-700">模型能力</label>
+                <label class="mb-2 block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.modelCapabilities') }}
+                </label>
                 <div class="flex flex-wrap gap-2">
                     <button
                         type="button"
@@ -108,7 +117,7 @@
                         ]"
                         @click="form.reasoning = !form.reasoning"
                     >
-                        推理
+                        {{ t('model.capability.reasoning') }}
                     </button>
                     <button
                         type="button"
@@ -120,7 +129,7 @@
                         ]"
                         @click="form.tool_call = !form.tool_call"
                     >
-                        工具
+                        {{ t('settings.mcp.tabs.tools') }}
                     </button>
                     <button
                         type="button"
@@ -132,7 +141,7 @@
                         ]"
                         @click="form.multimodal = !form.multimodal"
                     >
-                        多模态
+                        {{ t('model.capability.multimodal') }}
                     </button>
                     <button
                         type="button"
@@ -144,7 +153,7 @@
                         ]"
                         @click="form.attachment = !form.attachment"
                     >
-                        文件
+                        {{ t('model.capability.files') }}
                     </button>
                     <button
                         type="button"
@@ -156,7 +165,7 @@
                         ]"
                         @click="form.open_weights = !form.open_weights"
                     >
-                        开源
+                        {{ t('model.capability.openWeights') }}
                     </button>
                 </div>
             </div>
@@ -167,14 +176,14 @@
                 class="bg-primary-700 hover:bg-primary-600 flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors"
                 @click="handleSave"
             >
-                创建
+                {{ t('common.create') }}
             </Button>
             <Button
                 variant="outline"
                 class="flex-1 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 transition-colors hover:border-neutral-300"
                 @click="emit('cancel')"
             >
-                取消
+                {{ t('common.cancel') }}
             </Button>
         </div>
     </DialogShell>

@@ -9,6 +9,8 @@ export {
     parseUpgradeModelToolConfig,
     type UpgradeModelToolConfig,
 } from '@/services/BuiltInToolService/tools/upgradeModel/config';
+import { t } from '@/i18n';
+import { formatDateTime } from '@/i18n/format';
 
 export type BuiltInToolRiskLevel = 'low' | 'medium' | 'high';
 export type BuiltInToolLogStatus =
@@ -84,38 +86,38 @@ const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set(['visualize_read_me']);
 
 export function getBuiltInToolSummary(toolId: string, description?: string | null): string {
     if (toolId === 'bash') {
-        return '执行终端命令';
+        return t('settings.builtInTools.summary.bash');
     }
 
     if (toolId === 'file_search') {
-        return '搜索本机文件';
+        return t('settings.builtInTools.summary.fileSearch');
     }
 
     if (toolId === 'read') {
-        return '读取本地文件或目录，支持图片与 PDF';
+        return t('settings.builtInTools.summary.read');
     }
 
     if (toolId === 'setting') {
-        return '读取和修改应用设置';
+        return t('settings.builtInTools.summary.setting');
     }
 
     if (toolId === 'web_fetch') {
-        return '抓取网页并提取易读文本';
+        return t('settings.builtInTools.summary.webFetch');
     }
 
     if (toolId === 'upgrade_model') {
-        return '升级当前请求模型';
+        return t('settings.builtInTools.summary.upgradeModel');
     }
 
     if (toolId === 'show_widget') {
-        return '聊天内联可交互可视化';
+        return t('settings.builtInTools.summary.showWidget');
     }
 
     if (toolId === 'visualize_read_me') {
-        return '读取 ShowWidget 规范';
+        return t('settings.builtInTools.summary.visualizeReadMe');
     }
 
-    return description?.trim() || '暂无描述';
+    return description?.trim() || t('settings.builtInTools.summary.fallback');
 }
 
 export function isBuiltInToolVisibleInSettings(toolId: string): boolean {
@@ -128,10 +130,10 @@ export function usesBuiltInToolEmptyConfig(toolId: string): boolean {
 
 export function formatToolLastUsed(value: string | null): string {
     if (!value) {
-        return '尚未调用';
+        return t('settings.builtInTools.lastUsed.never');
     }
 
-    return new Date(value).toLocaleString('zh-CN');
+    return formatDateTime(value);
 }
 
 export async function loadBuiltInToolQueries(): Promise<BuiltInToolQueries> {

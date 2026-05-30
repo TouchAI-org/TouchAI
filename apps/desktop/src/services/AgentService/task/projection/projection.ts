@@ -8,6 +8,7 @@
  * 本文件只保留核心生命周期、消息管理和跨子关注点的编排逻辑。
  */
 
+import { tt } from '@/i18n';
 import {
     cloneInputHistorySnapshot,
     createInputHistorySnapshot,
@@ -17,6 +18,7 @@ import {
 } from '@/types/session';
 import { createTextPart } from '@/utils/session';
 
+import { AiError } from '../../contracts/errors';
 import type { AiStreamChunk } from '../../contracts/protocol';
 import type { ToolApprovalDecisionRequest, ToolEvent } from '../../contracts/tooling';
 import type { TurnEvent } from '../../execution';
@@ -126,7 +128,7 @@ export class SessionTaskProjection {
         return this.settlePendingApproval(targetCallId, false);
     }
 
-    clearPendingApprovals(reason = '请求已取消'): void {
+    clearPendingApprovals(reason = tt('请求已取消')): void {
         const results = this.approvals.clearAll(reason);
         const settledCallIds = new Set(results.map((result) => result.target.callId));
         for (const result of results) {
@@ -243,8 +245,8 @@ export class SessionTaskProjection {
         this.publish();
     }
 
-    markFailed(errorMessage: string): void {
-        const statusText = `请求失败: ${errorMessage}`;
+    markFailed(errorMessage: string, displayMessage = errorMessage): void {
+        const statusText = tt('请求失败: {error}', { error: displayMessage });
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
@@ -266,14 +268,15 @@ export class SessionTaskProjection {
             );
         }
         this.snapshot.status = 'failed';
-        this.snapshot.error = errorMessage;
+        this.snapshot.error = displayMessage;
         this.syncPendingApprovalState();
         this.touch();
         this.publish();
     }
 
     markCancelled(): void {
-        this.markActiveToolCallsCancelled('请求已取消');
+        const cancellationText = tt('请求已取消');
+        this.markActiveToolCallsCancelled(cancellationText);
 
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
@@ -283,14 +286,14 @@ export class SessionTaskProjection {
                 this.removeSessionMessageById(assistantMessage.id);
             } else {
                 assistantMessage.isStreaming = false;
-                attachStatusText(assistantMessage, '请求已取消');
+                attachStatusText(assistantMessage, cancellationText);
                 shouldCreateStandaloneStatus = false;
             }
         }
 
         if (shouldCreateStandaloneStatus && this.snapshot.sessionHistory.length > 0) {
             this.snapshot.sessionHistory.push(
-                createDerivedStatusMessage('请求已取消', {
+                createDerivedStatusMessage(cancellationText, {
                     isCancelled: true,
                 })
             );
@@ -346,7 +349,7 @@ export class SessionTaskProjection {
 
         if (event.type === 'task_failed') {
             this.snapshot.turnId = event.turnId;
-            this.markFailed(event.error);
+            this.markFailed(event.error, AiError.getKnownDefaultDisplayMessage(event.error));
             return;
         }
 
@@ -569,7 +572,8 @@ export class SessionTaskProjection {
     }
 
     private applyApprovalSettlement(result: ApprovalSettlementResult): void {
-        const { target, approved, resolutionText, isCancellationResolution } = result;
+        const { target, approved, isCancellationResolution } = result;
+        const resolutionText = isCancellationResolution ? tt('请求已取消') : result.resolutionText;
 
         updateToolCallStatus(
             this.snapshot.sessionHistory,

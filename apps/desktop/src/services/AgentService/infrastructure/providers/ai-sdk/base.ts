@@ -257,7 +257,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
         const result = streamText({
             model: this.createLanguageModel(options.model),
             messages,
-            tools: buildToolSet(options.tools),
+            tools: buildToolSet(options.tools, options.modelLanguageContext),
             abortSignal: options.signal,
             providerOptions: this.getStreamProviderOptions(options),
             includeRawChunks: this.shouldIncludeRawChunks(),

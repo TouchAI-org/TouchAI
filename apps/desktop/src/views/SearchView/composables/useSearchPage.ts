@@ -12,6 +12,7 @@ import { runStartupTasks } from '@services/StartupService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
+import { type MessageKey, type MessageParams, t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { isE2eTestMode } from '@/utils/runtimeMode';
 
@@ -523,19 +524,23 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             console.error('[SearchView] Failed to initialize global shortcut:', error);
 
             const errorStr = String(error);
-            let message = '注册快捷键失败';
+            let messageKey: MessageKey = 'notification.shortcutRegistrationFailed.generic';
+            let messageParams: MessageParams = { error: errorStr };
 
             if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
-                message = '快捷键已被其他应用占用，请在设置中更换';
+                messageKey = 'notification.shortcutRegistrationFailed.alreadyRegisteredInSettings';
+                messageParams = {};
             } else if (errorStr.includes('invalid') || errorStr.includes('无效')) {
-                message = '快捷键格式无效，请在设置中重新配置';
+                messageKey = 'notification.shortcutRegistrationFailed.invalidInSettings';
+                messageParams = {};
             } else if (errorStr.includes('Unknown key')) {
-                message = '不支持的按键，请在设置中更换';
+                messageKey = 'notification.shortcutRegistrationFailed.unsupportedInSettings';
+                messageParams = {};
             }
 
             notify({
-                title: 'TouchAI - 快捷键注册失败',
-                body: message,
+                title: t('notification.shortcutRegistrationFailed.title'),
+                body: t(messageKey, messageParams),
             });
         }
     }

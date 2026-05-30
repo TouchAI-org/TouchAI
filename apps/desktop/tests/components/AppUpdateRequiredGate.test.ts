@@ -1,10 +1,11 @@
-import type { AppUpdateState } from '@services/AppUpdateService/types';
+﻿import type { AppUpdateState } from '@services/AppUpdateService/types';
 import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
 import AppUpdateRequiredGate from '@/components/AppUpdateRequiredGate.vue';
 import { APP_PRODUCT_CONFIG } from '@/config/product';
+import { setLocale } from '@/i18n';
 
 const neutralRequirement = {
     required: false,
@@ -28,12 +29,12 @@ const latestUpdate = {
     releaseUrl: `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.1`,
     publishedAt: '2026-05-22T09:00:00.000Z',
     prerelease: false,
-    releaseNotes: 'Release notes from GitHub',
+    releaseNotes: '## 更新日志\n\n- 修复问题',
     downloads: [
         {
             kind: 'installer',
-            name: 'TouchAI-0.2.1-windows-Setup.exe',
-            url: `${APP_PRODUCT_CONFIG.repository.url}/releases/download/v0.2.1/TouchAI-0.2.1-windows-Setup.exe`,
+            name: 'TouchAI-0.2.1-windows.msi',
+            url: `${APP_PRODUCT_CONFIG.services.updates.baseUrl}/TouchAI-0.2.1-windows.msi`,
             sizeBytes: 12_000_000,
         },
     ],
@@ -85,6 +86,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 describe('AppUpdateRequiredGate', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setLocale('zh-CN');
         appUpdateServiceMock.state = { ...baseState };
     });
 
@@ -120,6 +122,8 @@ describe('AppUpdateRequiredGate', () => {
             '当前版本已不再受支持'
         );
         expect(wrapper.text()).toContain('可更新到 0.2.1');
+        expect(wrapper.text()).toContain('此版本存在关键问题，需要更新');
+        expect(wrapper.text()).not.toContain('Security update required');
         expect(wrapper.text()).toContain('Security fixes');
 
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
@@ -142,9 +146,23 @@ describe('AppUpdateRequiredGate', () => {
         const wrapper = mount(AppUpdateRequiredGate);
         await nextTick();
         expect(wrapper.text()).toContain('可更新到 0.2.1');
-        expect(wrapper.text()).toContain('Release notes from GitHub');
+        expect(wrapper.text()).toContain('修复问题');
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
 
         expect(openUrl).toHaveBeenCalledWith(latestUpdate.downloads[0]!.url);
+    });
+
+    it('renders raw update errors only as localized details', async () => {
+        appUpdateServiceMock.state = {
+            ...baseState,
+            status: 'failed',
+            error: 'download failed: 504',
+            updateRequirement: requiredRequirement,
+        };
+
+        const wrapper = mount(AppUpdateRequiredGate);
+        await nextTick();
+
+        expect(wrapper.text()).toContain('原因：download failed: 504');
     });
 });

@@ -9,6 +9,7 @@ import {
 } from '@tauri-apps/api/path';
 import { type DirEntry, open, readDir, readTextFileLines, stat } from '@tauri-apps/plugin-fs';
 
+import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { createAttachment } from '@/services/AgentService/infrastructure/attachments';
@@ -31,8 +32,6 @@ import {
 
 type ReadToolArgs = z.infer<typeof readArgsSchema>;
 type ReadTargetKind = 'directory' | 'image' | 'pdf' | 'file';
-
-const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`;
 
 function getPathLeaf(input: string): string {
     const normalized = input.trim().replace(/[\\/]+$/, '');
@@ -64,8 +63,11 @@ function formatDirectoryEntry(entry: DirEntry): string {
 }
 
 function truncateLine(text: string): string {
+    const maxLineSuffix = t('builtInTools.read.lineTruncated', {
+        maxChars: MAX_LINE_LENGTH,
+    });
     return text.length > MAX_LINE_LENGTH
-        ? `${text.slice(0, MAX_LINE_LENGTH)}${MAX_LINE_SUFFIX}`
+        ? `${text.slice(0, MAX_LINE_LENGTH)}${maxLineSuffix}`
         : text;
 }
 
@@ -107,14 +109,17 @@ async function createMissingPathMessage(path: string): Promise<string> {
             .slice(0, MAX_SUGGESTIONS);
 
         if (suggestions.length === 0) {
-            return `File not found: ${path}`;
+            return t('builtInTools.read.fileNotFound', { path });
         }
 
-        return [`File not found: ${path}`, '', 'Did you mean one of these?', ...suggestions].join(
-            '\n'
-        );
+        return [
+            t('builtInTools.read.fileNotFound', { path }),
+            '',
+            t('builtInTools.read.didYouMean'),
+            ...suggestions,
+        ].join('\n');
     } catch {
-        return `File not found: ${path}`;
+        return t('builtInTools.read.fileNotFound', { path });
     }
 }
 
@@ -166,8 +171,12 @@ async function readDirectoryContent(path: string, args: ReadToolArgs): Promise<s
         '<entries>',
         ...sliced,
         truncated
-            ? `\n(Showing ${sliced.length} of ${entries.length} entries. Use offset=${offset + sliced.length} to continue.)`
-            : `\n(${entries.length} entries)`,
+            ? `\n(${t('builtInTools.read.directoryMore', {
+                  shown: sliced.length,
+                  total: entries.length,
+                  nextOffset: offset + sliced.length,
+              })})`
+            : `\n(${t('builtInTools.read.directoryCount', { count: entries.length })})`,
         '</entries>',
     ].join('\n');
 }
@@ -197,7 +206,7 @@ async function readTextWindow(
 
     for await (const originalLine of iterator) {
         if (signal?.aborted) {
-            throw new Error('Request cancelled');
+            throw new Error(t('common.requestCancelled'));
         }
 
         count += 1;
@@ -231,7 +240,10 @@ function formatTextReadResult(
 ): string {
     if (window.count < window.offset && !(window.count === 0 && window.offset === 1)) {
         throw new Error(
-            `Offset ${window.offset} is out of range for this file (${window.count} lines)`
+            t('builtInTools.read.offsetOutOfRange', {
+                offset: window.offset,
+                total: window.count,
+            })
         );
     }
 
@@ -246,11 +258,21 @@ function formatTextReadResult(
     const nextOffset = lastLine + 1;
 
     if (window.cut) {
-        output += `\n\n(Output capped at ${MAX_READ_BYTES_LABEL}. Showing lines ${window.offset}-${lastLine}. Use offset=${nextOffset} to continue.)`;
+        output += `\n\n(${t('builtInTools.read.outputCapped', {
+            limit: MAX_READ_BYTES_LABEL,
+            start: window.offset,
+            end: lastLine,
+            nextOffset,
+        })})`;
     } else if (window.more) {
-        output += `\n\n(Showing lines ${window.offset}-${lastLine} of ${window.count}. Use offset=${nextOffset} to continue.)`;
+        output += `\n\n(${t('builtInTools.read.linesMore', {
+            start: window.offset,
+            end: lastLine,
+            total: window.count,
+            nextOffset,
+        })})`;
     } else {
-        output += `\n\n(End of file - total ${window.count} lines)`;
+        output += `\n\n(${t('builtInTools.read.endOfFile', { total: window.count })})`;
     }
 
     output += '\n</content>';
@@ -269,7 +291,9 @@ async function buildMediaReadResult(
             `<path>${path}</path>`,
             `<type>${label}</type>`,
             '<content>',
-            `${kind === 'image' ? 'Image' : 'PDF'} attached in tool result.`,
+            kind === 'image'
+                ? t('builtInTools.read.imageAttached')
+                : t('builtInTools.read.pdfAttached'),
             '</content>',
         ].join('\n'),
         attachments: [attachment],
@@ -282,7 +306,9 @@ export function buildReadConversationSemantic(
     const rawPath = normalizeOptionalString(args.filePath, { collapseWhitespace: true });
     return {
         action: 'read',
-        target: rawPath ? truncateText(getPathLeaf(rawPath), 120) : '本地文件',
+        target: rawPath
+            ? truncateText(getPathLeaf(rawPath), 120)
+            : t('builtInTools.read.localFileTarget'),
     };
 }
 
@@ -302,14 +328,14 @@ export async function buildReadApprovalRequest(
 
     const resolvedPath = await resolveReadPath(parsedArgs.filePath);
     return {
-        title: '读取本地内容确认',
+        title: tt('读取本地内容确认'),
         description: '',
         command: resolvedPath,
         riskLabel: '',
-        reason: '此操作会读取本地文件或目录内容，并将结果发送给模型。',
+        reason: tt('此操作会读取本地文件或目录内容，并将结果发送给模型。'),
         commandLabel: '',
-        approveLabel: '批准',
-        rejectLabel: '拒绝',
+        approveLabel: tt('批准'),
+        rejectLabel: tt('拒绝'),
         enterHint: 'Enter',
         escHint: 'Esc',
         keyboardApproveDelayMs: 450,
@@ -357,7 +383,7 @@ export async function executeReadFile(
 
     const isBinary = await sniffBinaryFile(path, info.size);
     if (isBinary) {
-        throw new Error(`Cannot read binary file: ${path}`);
+        throw new Error(t('builtInTools.read.binaryUnsupported', { path }));
     }
 
     return {

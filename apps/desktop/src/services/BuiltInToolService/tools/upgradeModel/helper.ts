@@ -2,6 +2,8 @@
 
 import type { ModelWithProvider } from '@database/queries/models';
 
+import { tt } from '@/i18n';
+
 import { parseToolArguments } from '../../utils/toolSchema';
 import { formatUpgradeModelChain, type UpgradeModelChainEntry } from './chain';
 import { UPGRADE_MODEL_TOOL_NAME, upgradeModelArgsSchema } from './constants';
@@ -16,7 +18,7 @@ function formatModelLabel(model: {
 }
 
 export function formatCurrentModelLabel(model?: ModelWithProvider): string {
-    return model ? formatModelLabel(model) : '未知';
+    return model ? formatModelLabel(model) : tt('未知');
 }
 
 export function buildUpgradeSummary(options: {
@@ -25,16 +27,16 @@ export function buildUpgradeSummary(options: {
     chainEntries: UpgradeModelChainEntry[];
 }): string {
     return [
-        '模型已升级',
-        `当前模型: ${formatCurrentModelLabel(options.currentModel)}`,
-        `目标模型: ${formatCurrentModelLabel(options.targetModel)}`,
-        `升级链: ${formatUpgradeModelChain(options.chainEntries)}`,
-        '系统将直接切换到新模型，并沿当前上下文继续后续问答。',
+        tt('模型已升级'),
+        `${tt('当前模型')}: ${formatCurrentModelLabel(options.currentModel)}`,
+        `${tt('目标模型')}: ${formatCurrentModelLabel(options.targetModel)}`,
+        `${tt('升级链')}: ${formatUpgradeModelChain(options.chainEntries)}`,
+        tt('系统将直接切换到新模型，并沿当前上下文继续后续问答。'),
     ].join('\n');
 }
 
 export function parseUpgradeTargetLabel(result?: string): string | null {
-    const matched = result?.match(/^目标模型:\s*(.+)$/m);
+    const matched = result?.match(/^(?:目标模型|Target model):\s*(.+)$/m);
     return matched?.[1]?.trim() || null;
 }
 

@@ -4,6 +4,8 @@ import { native, type QuickShortcutItem } from '@services/NativeService';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
+import { t } from '@/i18n';
+
 import {
     buildMatchTokens,
     type NameSegment,
@@ -16,10 +18,20 @@ import { useQuickSearchClickStats } from './useQuickSearchClickStats';
 const PAGE_SIZE = 60;
 const DEBOUNCE_MS = 80;
 
-const CONTEXT_MENU_ITEMS: ContextMenuItem[] = [
-    { key: 'open-folder', label: '打开所在文件夹', icon: 'folder-open' },
-    { key: 'copy-path', label: '复制路径', icon: 'copy' },
-];
+function createContextMenuItems(): ContextMenuItem[] {
+    return [
+        {
+            key: 'open-folder',
+            label: t('quickSearch.contextMenu.openContainingFolder'),
+            icon: 'folder-open',
+        },
+        {
+            key: 'copy-path',
+            label: t('quickSearch.contextMenu.copyPath'),
+            icon: 'copy',
+        },
+    ];
+}
 
 interface UseQuickSearchFlowOptions {
     searchQuery: Ref<string>;
@@ -365,7 +377,7 @@ function useQuickSearchFlow(
     const isContextMenuOpen = ref(false);
 
     const { open: openContextMenu, close: closeContextMenu } = useContextMenu<QuickShortcutItem>(
-        CONTEXT_MENU_ITEMS,
+        createContextMenuItems,
         async (key, item) => {
             isContextMenuOpen.value = false;
             await handleContextMenuAction(key, item);

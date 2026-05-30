@@ -9,12 +9,12 @@
     import type { Provider, ProviderDriver } from '@database/schema';
     import { computed, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import {
         getProviderDriverDefinition,
         providerDriverDefinitions,
     } from '@/services/AgentService/infrastructure/providers';
-
     interface Props {
         provider: Provider;
     }
@@ -91,7 +91,7 @@
 
     const handleSave = () => {
         if (!trimmedProviderName.value) {
-            alert.error('请填写服务商名称');
+            alert.error(t('settings.ai.enterProviderName'));
             return;
         }
 
@@ -105,16 +105,26 @@
 
 <template>
     <DialogShell>
-        <h2 class="mb-5 text-[15px] font-medium text-neutral-950">编辑服务商</h2>
+        <h2 class="mb-5 text-[15px] font-medium text-neutral-950">
+            {{ t('settings.ai.editProvider.title') }}
+        </h2>
 
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-neutral-700">服务商名称 *</label>
-                <Input v-model="form.name" class="mt-1.5" placeholder="My Custom Provider" />
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.providerNameRequired') }}
+                </label>
+                <Input
+                    v-model="form.name"
+                    class="mt-1.5"
+                    :placeholder="t('settings.ai.providerNamePlaceholder')"
+                />
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-neutral-700">服务商类型 *</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.ai.providerTypeRequired') }}
+                </label>
                 <CustomSelect
                     v-model="form.driver"
                     :options="driverOptions"
@@ -125,7 +135,7 @@
                     v-if="shouldShowGenerationApiPreview"
                     class="mt-1 text-xs break-all text-neutral-400"
                 >
-                    根地址预览：
+                    {{ t('settings.ai.providerBaseUrlPreview') }}
                     <span class="font-mono">
                         {{ generationApiPreview }}
                     </span>
@@ -138,14 +148,14 @@
                 class="bg-primary-700 hover:bg-primary-600 flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors"
                 @click="handleSave"
             >
-                保存
+                {{ t('common.save') }}
             </Button>
             <Button
                 variant="outline"
                 class="flex-1 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 transition-colors hover:border-neutral-300"
                 @click="emit('cancel')"
             >
-                取消
+                {{ t('common.cancel') }}
             </Button>
         </div>
     </DialogShell>

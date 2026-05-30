@@ -36,6 +36,7 @@ import type {
     AttachmentDeliveryManifestRequest,
 } from '../contracts/protocol';
 import type { AttemptCheckpoint } from '../execution/executor';
+import type { ModelLanguageContext } from '../languageContext';
 import type { PromptSnapshot } from '../prompt/types';
 import type { TaskExecutionMode } from '../task/types';
 
@@ -141,6 +142,7 @@ interface PersistedAttemptCheckpoint {
     reasoning: string;
     iteration: number;
     modelSwitchCount: number;
+    modelLanguageContext: ModelLanguageContext;
     executedBuiltInToolIds: AttemptCheckpoint['executedBuiltInToolIds'];
 }
 
@@ -211,6 +213,7 @@ function serializeCheckpoint(checkpoint: AttemptCheckpoint): string {
         reasoning: checkpoint.reasoning,
         iteration: checkpoint.iteration,
         modelSwitchCount: checkpoint.modelSwitchCount,
+        modelLanguageContext: checkpoint.modelLanguageContext,
         executedBuiltInToolIds: checkpoint.executedBuiltInToolIds,
     };
     return JSON.stringify(persisted);

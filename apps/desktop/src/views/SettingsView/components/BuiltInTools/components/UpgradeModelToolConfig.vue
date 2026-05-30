@@ -12,10 +12,10 @@
     import type { SortableEvent } from 'vue-draggable-plus';
     import { VueDraggable } from 'vue-draggable-plus';
 
+    import { t } from '@/i18n';
     import type { UpgradeModelChainEntry } from '@/services/BuiltInToolService/tools/upgradeModel/chain';
 
     import type { UpgradeModelToolConfig } from '../types';
-
     interface Props {
         modelValue: UpgradeModelToolConfig;
     }
@@ -196,7 +196,9 @@
             value: row.providerId,
             label: model?.provider_name ?? `Provider #${row.providerId}`,
             description:
-                model?.provider_enabled === 0 ? '当前已选服务商未启用' : '当前已选服务商不可用',
+                model?.provider_enabled === 0
+                    ? t('settings.builtInTools.upgradeModel.selectedProviderDisabled')
+                    : t('settings.builtInTools.upgradeModel.selectedProviderUnavailable'),
             searchText: `${model?.provider_name ?? ''} ${model?.provider_driver ?? ''}`,
             providerLogo: model?.provider_logo,
             providerName: model?.provider_name,
@@ -210,7 +212,9 @@
             value: row.modelId,
             label: model?.name ?? row.modelId,
             description:
-                model?.provider_enabled === 0 ? '当前已选模型所属服务商未启用' : row.modelId,
+                model?.provider_enabled === 0
+                    ? t('settings.builtInTools.upgradeModel.selectedModelProviderDisabled')
+                    : row.modelId,
             searchText: `${model?.provider_name ?? ''} ${row.modelId}`,
             modelIdForLogo: row.modelId,
             modelName: model?.name ?? row.modelId,
@@ -243,7 +247,9 @@
             providerMap.set(model.provider_id, {
                 value: model.provider_id,
                 label: model.provider_name,
-                description: `${providerModels.length} 个可选模型`,
+                description: t('settings.builtInTools.upgradeModel.availableModelCount', {
+                    count: providerModels.length,
+                }),
                 searchText: `${model.provider_name} ${model.provider_driver}`,
                 providerLogo: model.provider_logo,
                 providerName: model.provider_name,
@@ -415,7 +421,9 @@
     <div class="space-y-5">
         <div class="space-y-4">
             <div class="flex items-center justify-between gap-4">
-                <h4 class="text-sm font-semibold text-neutral-950">模型升级链</h4>
+                <h4 class="text-sm font-semibold text-neutral-950">
+                    {{ t('settings.builtInTools.upgradeModel.title') }}
+                </h4>
 
                 <button
                     type="button"
@@ -431,7 +439,11 @@
                 <div
                     class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-10 text-center text-sm text-neutral-500"
                 >
-                    {{ loading ? '正在加载模型...' : '暂未配置升级链' }}
+                    {{
+                        loading
+                            ? t('settings.builtInTools.upgradeModel.loadingModels')
+                            : t('settings.builtInTools.upgradeModel.emptyChain')
+                    }}
                 </div>
             </div>
 
@@ -465,7 +477,7 @@
                             : ''
                     "
                 >
-                    <div class="flex items-center gap-3">
+                    <div class="flex min-w-0 items-center gap-3">
                         <button
                             type="button"
                             class="upgrade-model-drag-handle inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-400 transition-colors hover:border-neutral-300 hover:text-neutral-700"
@@ -489,9 +501,10 @@
                                 :model-value="row.providerId"
                                 :options="getProviderOptions(row.uid)"
                                 :disabled="loading"
-                                placeholder="服务商"
-                                search-placeholder="搜索服务商"
-                                empty-text="没有可选服务商"
+                                placeholder-key="settings.builtInTools.upgradeModel.provider"
+                                search-placeholder-key="settings.builtInTools.upgradeModel.searchProvider"
+                                empty-text-key="settings.builtInTools.upgradeModel.emptyProviders"
+                                :protect-option-text="true"
                                 @update:model-value="updateProvider(row.uid, $event)"
                             >
                                 <template #selected="{ option }">
@@ -503,15 +516,27 @@
                                                 option?.providerName || option?.label || 'provider'
                                             "
                                             class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                            data-no-i18n="true"
+                                            translate="no"
                                         />
                                         <div
                                             v-else
                                             class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                            data-no-i18n="true"
+                                            translate="no"
                                         >
                                             {{ getProviderFallbackText(option) }}
                                         </div>
-                                        <span class="truncate">
-                                            {{ option?.label || '服务商' }}
+                                        <span
+                                            v-if="option"
+                                            class="truncate"
+                                            data-no-i18n="true"
+                                            translate="no"
+                                        >
+                                            {{ option.label }}
+                                        </span>
+                                        <span v-else class="truncate">
+                                            {{ t('settings.builtInTools.upgradeModel.provider') }}
                                         </span>
                                     </div>
                                 </template>
@@ -523,20 +548,30 @@
                                             :src="resolveProviderLogoPath(option.providerLogo)"
                                             :alt="option.providerName || option.label"
                                             class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                            data-no-i18n="true"
+                                            translate="no"
                                         />
                                         <div
                                             v-else
                                             class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                            data-no-i18n="true"
+                                            translate="no"
                                         >
                                             {{ getProviderFallbackText(option) }}
                                         </div>
                                         <div class="min-w-0 flex-1">
-                                            <div class="truncate text-sm font-medium">
+                                            <div
+                                                class="truncate text-sm font-medium"
+                                                data-no-i18n="true"
+                                                translate="no"
+                                            >
                                                 {{ option.label }}
                                             </div>
                                             <div
                                                 v-if="option.description"
                                                 class="mt-0.5 truncate text-xs text-neutral-500"
+                                                data-no-i18n="true"
+                                                translate="no"
                                             >
                                                 {{ option.description }}
                                             </div>
@@ -551,9 +586,10 @@
                                 :model-value="row.modelId"
                                 :options="getModelOptions(row.uid)"
                                 :disabled="loading"
-                                placeholder="模型"
-                                search-placeholder="搜索模型"
-                                empty-text="没有可选模型"
+                                placeholder-key="settings.builtInTools.upgradeModel.model"
+                                search-placeholder-key="settings.builtInTools.upgradeModel.searchModel"
+                                empty-text-key="settings.builtInTools.upgradeModel.emptyModels"
+                                :protect-option-text="true"
                                 @update:model-value="updateModel(row.uid, $event)"
                             >
                                 <template #selected="{ option }">
@@ -564,8 +600,16 @@
                                             :name="option.modelName || option.label"
                                             size="sm"
                                         />
-                                        <span class="truncate">
-                                            {{ option?.label || '模型' }}
+                                        <span
+                                            v-if="option"
+                                            class="truncate"
+                                            data-no-i18n="true"
+                                            translate="no"
+                                        >
+                                            {{ option.label }}
+                                        </span>
+                                        <span v-else class="truncate">
+                                            {{ t('settings.builtInTools.upgradeModel.model') }}
                                         </span>
                                     </div>
                                 </template>
@@ -579,7 +623,11 @@
                                             size="sm"
                                         />
                                         <div class="min-w-0 flex-1">
-                                            <div class="truncate text-sm font-medium">
+                                            <div
+                                                class="truncate text-sm font-medium"
+                                                data-no-i18n="true"
+                                                translate="no"
+                                            >
                                                 {{ option.label }}
                                             </div>
                                             <div class="mt-1">
@@ -597,6 +645,8 @@
                                                 <div
                                                     v-else-if="option.description"
                                                     class="truncate text-xs text-neutral-500"
+                                                    data-no-i18n="true"
+                                                    translate="no"
                                                 >
                                                     {{ option.description }}
                                                 </div>

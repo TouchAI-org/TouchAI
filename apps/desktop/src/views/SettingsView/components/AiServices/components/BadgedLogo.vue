@@ -3,16 +3,19 @@
 <script setup lang="ts">
     import { computed } from 'vue';
 
+    import { t } from '@/i18n';
     interface Props {
         logo: string;
         name: string;
         size?: 'small' | 'large';
         showBadge?: boolean;
+        promoted?: boolean;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         size: 'small',
         showBadge: false,
+        promoted: false,
     });
 
     // 使用 Vite 的 glob import 预加载所有提供商 logo，按文件名索引
@@ -56,10 +59,17 @@
         </div>
 
         <span
-            v-if="showBadge"
-            class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 rounded border border-neutral-300 bg-white px-1 py-0.5 text-[9px] leading-none text-neutral-600 shadow-sm"
+            v-if="promoted"
+            class="absolute top-0 right-0 min-w-max translate-x-1/2 -translate-y-1/2 rounded border border-amber-300 bg-gradient-to-r from-amber-400 to-yellow-500 px-1 py-0.5 text-[9px] leading-none font-medium whitespace-nowrap text-white shadow-sm"
         >
-            内置
+            {{ t('common.recommended') }}
+        </span>
+        <span
+            v-else-if="showBadge"
+            data-testid="provider-built-in-badge"
+            class="absolute top-0 right-0 min-w-max translate-x-1/2 -translate-y-1/2 rounded border border-neutral-300 bg-white px-1 py-0.5 text-[9px] leading-none whitespace-nowrap text-neutral-600 shadow-sm"
+        >
+            {{ t('common.builtIn') }}
         </span>
     </div>
 </template>

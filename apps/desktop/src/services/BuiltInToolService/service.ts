@@ -10,6 +10,7 @@ import {
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ToolLogKind } from '@database/schema';
 
+import { tt } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type {
     AiToolCall,
@@ -70,7 +71,7 @@ async function markCancelledToolLog(options: {
         await updateBuiltInToolLogByCallId(options.toolCallId, {
             status: 'cancelled',
             duration_ms: Date.now() - options.callStartTime,
-            error_message: 'Cancelled by user',
+            error_message: tt('请求已取消'),
         }).catch((error) => {
             console.error(
                 '[BuiltInToolService] Failed to update cancelled built-in tool log:',
@@ -107,7 +108,7 @@ class BuiltInToolService {
 
         const errorMessage = error instanceof Error ? error.message : String(error);
         return {
-            result: `Tool execution failed: ${errorMessage}`,
+            result: tt('工具执行失败：{error}', { error: errorMessage }),
             isError: true,
             status: 'error',
             errorMessage,
@@ -345,7 +346,9 @@ class BuiltInToolService {
                     toolLogId,
                     callStartTime,
                 });
-                const resolutionText = approved ? '已批准执行此命令' : '用户已拒绝执行此命令';
+                const resolutionText = approved
+                    ? tt('已批准执行此命令')
+                    : tt('用户已拒绝执行此命令');
 
                 options.emitToolEvent({
                     type: 'approval_resolved',

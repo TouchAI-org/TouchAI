@@ -42,10 +42,10 @@ function withExamples(description: string, ...examples: string[]): string {
 }
 
 export const READ_TOOL_DESCRIPTION = [
-    '读取本地文件或目录。',
-    '文本/代码文件按行返回，可用 offset 和 limit 分页。',
-    '图片和 PDF 会作为工具结果附件返回，不会强行转成纯文本。',
-    '优先传入来自 FileSearch 的绝对路径。',
+    'Read local files or directories.',
+    'Text and code files are returned by line; use offset and limit for pagination.',
+    'Images and PDFs are returned as tool-result attachments instead of being forced into plain text.',
+    'Prefer absolute paths returned by FileSearch.',
 ].join(' ');
 
 export const READ_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {

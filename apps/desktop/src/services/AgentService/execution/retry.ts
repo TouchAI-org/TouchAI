@@ -1,3 +1,5 @@
+import { tt } from '@/i18n';
+
 import { AiError, AiErrorCode } from '../contracts/errors';
 
 export interface RetryableRequestErrorInfo {
@@ -22,7 +24,7 @@ export function getRetryStatusMessage(
     attempt: number,
     maxRetries: number = MAX_REQUEST_RETRIES
 ): string {
-    return `重试中...(${attempt}/${maxRetries})`;
+    return tt('重试中...({attempt}/{maxRetries})', { attempt, maxRetries });
 }
 
 /**

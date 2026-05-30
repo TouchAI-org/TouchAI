@@ -1,5 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { type MessageKey, t } from '@/i18n';
+
 import { builtInToolRegistry } from './registry';
 import type {
     BuiltInToolConversationPresentation,
@@ -10,6 +12,56 @@ import type {
 } from './types';
 
 const BUILTIN_TOOL_PREFIX = 'builtin__';
+const BUILTIN_TOOL_VERB_KEYS: Record<
+    BuiltInToolConversationSemanticAction,
+    Record<'executing' | 'error' | 'completed', MessageKey>
+> = {
+    process: {
+        executing: 'builtInTools.presentation.process.executing',
+        error: 'builtInTools.presentation.process.error',
+        completed: 'builtInTools.presentation.process.completed',
+    },
+    run: {
+        executing: 'builtInTools.presentation.run.executing',
+        error: 'builtInTools.presentation.run.error',
+        completed: 'builtInTools.presentation.run.completed',
+    },
+    search: {
+        executing: 'builtInTools.presentation.search.executing',
+        error: 'builtInTools.presentation.search.error',
+        completed: 'builtInTools.presentation.search.completed',
+    },
+    read: {
+        executing: 'builtInTools.presentation.read.executing',
+        error: 'builtInTools.presentation.read.error',
+        completed: 'builtInTools.presentation.read.completed',
+    },
+    review: {
+        executing: 'builtInTools.presentation.review.executing',
+        error: 'builtInTools.presentation.review.error',
+        completed: 'builtInTools.presentation.review.completed',
+    },
+    update: {
+        executing: 'builtInTools.presentation.update.executing',
+        error: 'builtInTools.presentation.update.error',
+        completed: 'builtInTools.presentation.update.completed',
+    },
+    switch: {
+        executing: 'builtInTools.presentation.switch.executing',
+        error: 'builtInTools.presentation.switch.error',
+        completed: 'builtInTools.presentation.switch.completed',
+    },
+    render: {
+        executing: 'builtInTools.presentation.render.executing',
+        error: 'builtInTools.presentation.render.error',
+        completed: 'builtInTools.presentation.render.completed',
+    },
+    remove: {
+        executing: 'builtInTools.presentation.remove.executing',
+        error: 'builtInTools.presentation.remove.error',
+        completed: 'builtInTools.presentation.remove.completed',
+    },
+};
 
 function normalizeToolId(toolName: string): BuiltInToolId | null {
     const trimmed = toolName.trim();
@@ -42,37 +94,22 @@ function getBuiltInToolConversationVerb(
     status: BuiltInToolConversationStatus
 ): string {
     if (status === 'awaiting_approval') {
-        return '等待批准';
+        return t('builtInTools.presentation.pendingApproval');
     }
 
     if (status === 'rejected') {
-        return '已拒绝';
+        return t('common.rejected');
     }
 
     if (status === 'cancelled') {
-        return '已取消';
+        return t('common.cancelled');
     }
 
-    switch (action) {
-        case 'run':
-            return status === 'executing' ? '已启动' : status === 'error' ? '运行失败' : '已运行';
-        case 'search':
-            return status === 'executing' ? '正在搜索' : status === 'error' ? '搜索失败' : '已搜索';
-        case 'read':
-            return status === 'executing' ? '正在读取' : status === 'error' ? '读取失败' : '已读取';
-        case 'review':
-            return status === 'executing' ? '正在阅读' : status === 'error' ? '读取失败' : '已阅读';
-        case 'update':
-            return status === 'executing' ? '正在更新' : status === 'error' ? '更新失败' : '已更新';
-        case 'switch':
-            return status === 'executing' ? '正在切换' : status === 'error' ? '切换失败' : '已切换';
-        case 'render':
-            return status === 'executing' ? '正在渲染' : status === 'error' ? '渲染失败' : '已渲染';
-        case 'remove':
-            return status === 'executing' ? '正在移除' : status === 'error' ? '移除失败' : '已移除';
-        default:
-            return status === 'executing' ? '正在处理' : status === 'error' ? '处理失败' : '已处理';
-    }
+    const key =
+        BUILTIN_TOOL_VERB_KEYS[action][
+            status === 'executing' || status === 'error' ? status : 'completed'
+        ];
+    return t(key);
 }
 
 interface ResolveBuiltInToolConversationSemanticOptions {

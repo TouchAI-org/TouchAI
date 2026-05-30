@@ -1,11 +1,13 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { appUpdateService } from '@services/AppUpdateService';
+    import { getAppUpdateRequirementReasonText } from '@services/AppUpdateService/requirementText';
     import type { AppUpdateState } from '@services/AppUpdateService/types';
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
     import { APP_PRODUCT_CONFIG } from '@/config/product';
+    import { t } from '@/i18n';
     import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
 
     defineOptions({
@@ -46,24 +48,40 @@
     );
     const targetVersionText = computed(() => {
         if (visibleUpdate.value?.version) {
-            return `可更新到 ${visibleUpdate.value.version}`;
+            return t('settings.update.required.availableVersion', {
+                version: visibleUpdate.value.version,
+            });
         }
 
         if (latestUpdate.value?.version) {
-            return `可更新到 ${latestUpdate.value.version}`;
+            return t('settings.update.required.availableVersion', {
+                version: latestUpdate.value.version,
+            });
         }
 
         const minimumVersion = requirement.value?.minimumSupportedVersion;
-        return minimumVersion ? `需要 ${minimumVersion} 或更高版本` : '需要安装受支持的版本';
+        return minimumVersion
+            ? t('appUpdate.requiredGate.minimumVersion', { version: minimumVersion })
+            : t('appUpdate.requiredGate.supportedVersionRequired');
     });
+    const continueAfterUpdateText = computed(() =>
+        t('appUpdate.requiredGate.continueAfterUpdate', {
+            target: targetVersionText.value,
+            appName: APP_PRODUCT_CONFIG.displayName,
+        })
+    );
     const detailText = computed(() => {
         const parts = [
-            requirement.value?.requiredReason,
+            getAppUpdateRequirementReasonText(requirement.value),
             requirement.value?.minimumSupportedVersion
-                ? `最低支持版本 ${requirement.value.minimumSupportedVersion}`
+                ? t('settings.update.required.minimumSupportedVersion', {
+                      version: requirement.value.minimumSupportedVersion,
+                  })
                 : null,
             updateState.value.currentVersion
-                ? `当前版本 ${updateState.value.currentVersion}`
+                ? t('appUpdate.requiredGate.currentVersion', {
+                      version: updateState.value.currentVersion,
+                  })
                 : null,
         ].filter(Boolean);
 
@@ -71,26 +89,34 @@
     });
     const primaryActionText = computed(() => {
         if (isChecking.value) {
-            return '正在检查';
+            return t('settings.update.action.checking');
         }
 
         if (isDownloading.value) {
-            return `正在下载 ${updateState.value.downloadProgress ?? 0}%`;
+            return t('settings.update.action.downloading', {
+                progress: updateState.value.downloadProgress ?? 0,
+            });
         }
 
         if (isInstalling.value) {
-            return '正在安装';
+            return t('settings.update.action.installing');
         }
 
         if (canInstall.value) {
-            return '安装并重启';
+            return t('settings.update.action.installRestart');
         }
 
         if (canUseInAppUpdate.value) {
-            return '下载更新';
+            return t('settings.update.action.download');
         }
 
-        return directDownloadUrl.value ? '下载安装包' : '打开下载页';
+        return directDownloadUrl.value
+            ? t('settings.update.action.downloadInstaller')
+            : t('settings.update.action.downloadPage');
+    });
+    const errorDetailText = computed(() => {
+        const error = updateState.value.error?.trim();
+        return error ? t('settings.update.errorDetail', { error }) : '';
     });
 
     onMounted(async () => {
@@ -159,11 +185,10 @@
                         id="app-update-required-title"
                         class="font-serif text-xl font-semibold text-gray-950"
                     >
-                        当前版本已不再受支持
+                        {{ t('settings.update.required.unsupported') }}
                     </h1>
                     <p class="mt-2 font-serif text-sm leading-6 text-gray-600">
-                        {{ targetVersionText }}，安装更新后才能继续使用
-                        {{ APP_PRODUCT_CONFIG.displayName }}。
+                        {{ continueAfterUpdateText }}
                     </p>
                 </div>
             </div>
@@ -179,7 +204,7 @@
                 <div
                     v-if="isDownloading"
                     class="h-2 overflow-hidden rounded-full bg-gray-100"
-                    aria-label="下载进度"
+                    :aria-label="t('settings.update.downloadProgress')"
                 >
                     <div
                         class="bg-primary-600 h-full rounded-full transition-all"
@@ -191,17 +216,19 @@
                     v-if="releaseNotes"
                     class="max-h-44 overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-4"
                 >
-                    <div class="mb-2 font-serif text-sm font-medium text-gray-900">更新内容</div>
+                    <div class="mb-2 font-serif text-sm font-medium text-gray-900">
+                        {{ t('settings.update.releaseNotes') }}
+                    </div>
                     <pre class="font-serif text-xs leading-5 whitespace-pre-wrap text-gray-600">{{
                         releaseNotes
                     }}</pre>
                 </div>
 
                 <div
-                    v-if="updateState.error"
+                    v-if="errorDetailText"
                     class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 font-serif text-sm text-red-700"
                 >
-                    {{ updateState.error }}
+                    {{ errorDetailText }}
                 </div>
             </div>
 
@@ -213,7 +240,7 @@
                     @click="checkAgain"
                 >
                     <AppIcon name="refresh" class="h-4 w-4" />
-                    重新检查
+                    {{ t('settings.update.action.recheck') }}
                 </button>
                 <button
                     class="bg-primary-600 hover:bg-primary-700 inline-flex items-center gap-2 rounded-lg px-4 py-2 font-serif text-sm text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"

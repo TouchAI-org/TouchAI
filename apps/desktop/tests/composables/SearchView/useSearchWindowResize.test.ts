@@ -158,7 +158,7 @@ describe('useSearchWindowResize', () => {
         mounted.unmount();
     });
 
-    it('remeasures a managed panel and sends the measured height through the native resize contract', async () => {
+    it('remeasures a managed panel and only sends a native resize when the measured height changes', async () => {
         const target = createMeasuredElement(180);
         const ready = ref(false);
         const sessionCount = ref(1);
@@ -179,14 +179,20 @@ describe('useSearchWindowResize', () => {
 
         await mounted.result.remeasureTargetHeight();
 
+        expect(nativeMock.window.resizeWindowHeight).not.toHaveBeenCalled();
+
+        target.setHeight(220);
+        await mounted.result.remeasureTargetHeight();
+
         expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
-            targetHeight: 180,
+            targetHeight: 220,
             center: true,
+            animate: false,
             respectManualOverride: true,
         });
         expect(nativeMock.window.setSearchWindowMinSize).toHaveBeenLastCalledWith({
             minWidth: 750,
-            minHeight: 180,
+            minHeight: 220,
             maxHeight: null,
         });
 

@@ -1,5 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { tt } from '@/i18n';
+
 import { parseToolArguments } from '../../utils/toolSchema';
 import { FILE_SEARCH_TOOL_NAME, fileSearchArgsSchema } from './constants';
 
@@ -49,7 +51,7 @@ function formatResultItem(
     },
     index: number
 ): string {
-    return `${index + 1}. ${item.name}\n   路径: ${item.path}`;
+    return `${index + 1}. ${item.name}\n   ${tt('路径')}: ${item.path}`;
 }
 
 export function formatFileSearchResult(
@@ -62,14 +64,14 @@ export function formatFileSearchResult(
     }[]
 ): string {
     const header = [
-        '本机文件搜索',
-        `原始查询: ${query}`,
-        `Everything 查询: ${everythingQuery}`,
-        `返回: ${items.length} / ${limit}`,
+        tt('本机文件搜索'),
+        `${tt('原始查询')}: ${query}`,
+        `${tt('Everything 查询')}: ${everythingQuery}`,
+        `${tt('返回')}: ${items.length} / ${limit}`,
     ];
 
     if (items.length === 0) {
-        return [...header, '', '未找到匹配的文件。'].join('\n');
+        return [...header, '', tt('未找到匹配的文件。')].join('\n');
     }
 
     return [...header, '', ...items.map(formatResultItem)].join('\n');

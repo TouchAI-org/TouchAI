@@ -4,6 +4,8 @@
     import AppIcon from '@components/AppIcon.vue';
     import { getCurrentWindow } from '@tauri-apps/api/window';
 
+    import { t } from '@/i18n';
+
     interface Props {
         title?: string;
         showLogo?: boolean;
@@ -54,7 +56,8 @@
                 v-if="showMinimize"
                 data-tauri-drag-region="false"
                 class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
-                title="最小化"
+                :title="t('window.minimize')"
+                :aria-label="t('window.minimize')"
                 @click="handleMinimize"
             >
                 <AppIcon name="minimize" class="h-4 w-4" />
@@ -64,7 +67,8 @@
                 v-if="showClose"
                 data-tauri-drag-region="false"
                 class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                title="关闭"
+                :title="t('window.close')"
+                :aria-label="t('window.close')"
                 @click="handleClose"
             >
                 <AppIcon name="close" class="h-4 w-4" />
