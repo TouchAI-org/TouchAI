@@ -127,11 +127,17 @@ function buildWaitingApprovalBody(approval: PendingToolApproval): string {
     return `${summary}\n${commandPreview}`;
 }
 
+function buildWaitingUserQuestionBody(
+    question: NonNullable<SessionTaskSnapshot['pendingUserQuestion']>
+): string {
+    return summarizeReminderText(question.questions[0]?.question) ?? tt('任务正在等待用户回复');
+}
+
 /**
  * 根据任务快照构建状态提醒负载。
  * 仅在 completed、failed、waiting_approval 三种状态下生成提醒，其余返回 null。
  */
-function buildSessionStatusReminder(
+export function buildSessionStatusReminder(
     snapshot: SessionTaskSnapshot
 ): SessionStatusReminderPayload | null {
     if (snapshot.status === 'completed') {
@@ -161,7 +167,20 @@ function buildSessionStatusReminder(
         };
     }
 
-    if (snapshot.status !== 'waiting_approval' || !snapshot.pendingToolApproval) {
+    if (snapshot.status !== 'waiting_approval') {
+        return null;
+    }
+
+    if (snapshot.pendingUserQuestion && !snapshot.pendingToolApproval) {
+        return {
+            kind: 'waiting_approval',
+            title: tt('等待回复'),
+            body: buildWaitingUserQuestionBody(snapshot.pendingUserQuestion),
+            approval: null,
+        };
+    }
+
+    if (!snapshot.pendingToolApproval) {
         return null;
     }
 

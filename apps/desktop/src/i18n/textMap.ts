@@ -726,6 +726,8 @@ export const zhToEnTextMap = {
     任务已完成: 'Task completed',
     任务失败: 'Task failed',
     任务正在等待批准: 'Task is waiting for approval',
+    等待回复: 'Waiting for response',
+    任务正在等待用户回复: 'Task is waiting for a user response',
     '回复 TouchAI': 'Reply to TouchAI',
     回复: 'Reply',
 } as const;
