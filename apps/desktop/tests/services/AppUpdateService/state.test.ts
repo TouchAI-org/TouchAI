@@ -192,6 +192,27 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
+    it('ignores stale download progress after a download finishes', () => {
+        const downloaded = reduceAppUpdateState(
+            {
+                ...createInitialAppUpdateState(),
+                status: 'downloaded',
+                downloadedUpdate: availableUpdate.update,
+                downloadProgress: 100,
+            },
+            {
+                type: 'download-progress',
+                progress: 64,
+            }
+        );
+
+        expect(downloaded).toMatchObject({
+            status: 'downloaded',
+            downloadedUpdate: availableUpdate.update,
+            downloadProgress: 100,
+        });
+    });
+
     it('records installing and failed states', () => {
         const installing = reduceAppUpdateState(createInitialAppUpdateState(), {
             type: 'install-started',

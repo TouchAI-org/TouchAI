@@ -131,6 +131,10 @@ export function reduceAppUpdateState(
                 error: null,
             };
         case 'download-progress':
+            if (state.status !== 'downloading') {
+                return state;
+            }
+
             return {
                 ...state,
                 status: 'downloading',
