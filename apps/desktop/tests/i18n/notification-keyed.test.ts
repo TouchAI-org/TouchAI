@@ -10,8 +10,6 @@ const repoRoot = resolve(__dirname, '../..');
 
 const STATIC_NOTIFICATION_FILES = [
     'src/components/MarkdownContent.vue',
-    'src/views/SearchView/components/ConversationPanel/components/UserMessage.vue',
-    'src/views/SearchView/components/ConversationPanel/components/AssistantMessage.vue',
     'src/views/SearchView/index.vue',
     'src/views/SearchView/composables/useSearchPage.ts',
     'src/views/SettingsView/components/General/index.vue',
