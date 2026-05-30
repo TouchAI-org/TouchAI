@@ -1077,7 +1077,7 @@
         tabindex="-1"
         data-testid="search-view"
         :class="[
-            'search-view-container bg-background-primary relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl focus:outline-none',
+            'search-view-container bg-background-primary relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden backdrop-blur-xl focus:outline-none',
             fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
         ]"
         @paste.capture="handlePagePaste"

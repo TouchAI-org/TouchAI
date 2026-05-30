@@ -119,6 +119,8 @@
 
     #app {
         border: 1.5px solid var(--color-gray-300);
+        border-radius: 8px;
+        overflow: hidden;
     }
 
     body {
