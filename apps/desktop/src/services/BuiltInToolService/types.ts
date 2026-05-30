@@ -16,6 +16,7 @@ import type { AttachmentIndex } from '@/services/AgentService/infrastructure/att
  * 当前内置工具体系允许暴露给模型的稳定工具标识。
  */
 export type BuiltInToolId =
+    | 'apply_patch'
     | 'bash'
     | 'file_search'
     | 'read'
@@ -58,6 +59,7 @@ export type BuiltInToolControlSignal = UpgradeModelControlSignal;
  */
 export interface BuiltInToolExecutionResult {
     result: string;
+    displayResult?: string | null;
     isError: boolean;
     status: 'success' | 'error' | 'timeout';
     errorMessage?: string | null;

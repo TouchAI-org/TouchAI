@@ -1,9 +1,12 @@
 import type { BuiltInBashExecutionResponse } from '@services/NativeService';
-import { getLastTauriInvokeCall, mockTauriCommand } from '@tests/utils/tauri';
+import { getLastTauriInvokeCall, getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
-import { executeBashTool } from '@/services/BuiltInToolService/tools/bash/index';
+import {
+    createBashApprovalRequest,
+    executeBashTool,
+} from '@/services/BuiltInToolService/tools/bash/index';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
 
 vi.mock('@tauri-apps/api/path', () => ({
@@ -148,5 +151,62 @@ describe('executeBashTool request construction', () => {
                 rawOutput: true,
             },
         });
+    });
+
+    it('blocks file mutations by default before native execution', async () => {
+        const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
+        const result = await executeBashTool(
+            { command: 'Set-Content file.txt value' },
+            config,
+            fakeContext()
+        );
+
+        expect(result).toEqual(
+            expect.objectContaining({
+                isError: true,
+                status: 'error',
+                result: expect.stringContaining('Bash file mutation blocked'),
+            })
+        );
+        expect(getTauriInvokeCalls('built_in_tools_execute_bash')).toHaveLength(0);
+    });
+
+    it('allows file mutations when explicitly requested for Bash', async () => {
+        const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
+        await executeBashTool(
+            { command: 'Set-Content file.txt value', allowFileMutation: true },
+            config,
+            fakeContext()
+        );
+
+        const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
+        expect(call?.payload).toEqual({
+            request: expect.objectContaining({
+                command: 'Set-Content file.txt value',
+            }),
+        });
+    });
+});
+
+describe('createBashApprovalRequest file mutation guard', () => {
+    it('does not ask for Bash approval when file mutation should be handled by ApplyPatch', async () => {
+        const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
+        await expect(
+            createBashApprovalRequest({ command: 'Set-Content file.txt value' }, config)
+        ).resolves.toBeNull();
+    });
+
+    it('uses the existing high-risk approval when shell file mutation is explicitly allowed', async () => {
+        const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
+        const approval = await createBashApprovalRequest(
+            { command: 'Set-Content file.txt value', allowFileMutation: true },
+            config
+        );
+
+        expect(approval).toEqual(
+            expect.objectContaining({
+                command: 'Set-Content file.txt value',
+            })
+        );
     });
 });

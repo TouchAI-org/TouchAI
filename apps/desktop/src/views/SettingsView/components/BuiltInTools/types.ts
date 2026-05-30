@@ -74,6 +74,7 @@ export interface BuiltInToolQueries {
 }
 
 const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
+    'apply_patch',
     'file_search',
     'read',
     'setting',
@@ -85,6 +86,10 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
 const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set(['visualize_read_me']);
 
 export function getBuiltInToolSummary(toolId: string, description?: string | null): string {
+    if (toolId === 'apply_patch') {
+        return '使用补丁语法修改本地文件';
+    }
+
     if (toolId === 'bash') {
         return t('settings.builtInTools.summary.bash');
     }

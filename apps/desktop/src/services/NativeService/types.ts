@@ -35,6 +35,36 @@ export interface BuiltInBashExecutionResponse {
     compressed?: boolean;
 }
 
+export interface BuiltInApplyPatchExecutionRequest {
+    patch: string;
+    workingDirectory: string;
+}
+
+export type BuiltInApplyPatchOperation = 'add' | 'update' | 'delete' | 'move';
+
+export interface BuiltInApplyPatchFilePreview {
+    beforeContent: string | null;
+    afterContent: string | null;
+    beforeTruncated: boolean;
+    afterTruncated: boolean;
+    isBinary: boolean;
+    omitted: boolean;
+}
+
+export interface BuiltInApplyPatchFileChange {
+    path: string;
+    newPath: string | null;
+    operation: BuiltInApplyPatchOperation;
+    preview?: BuiltInApplyPatchFilePreview | null;
+}
+
+export interface BuiltInApplyPatchExecutionResponse {
+    success: boolean;
+    workingDirectory: string;
+    changedFiles: BuiltInApplyPatchFileChange[];
+    summary: string;
+}
+
 export interface ShowPopupWindowParams {
     x: number;
     y: number;

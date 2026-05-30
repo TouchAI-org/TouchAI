@@ -104,6 +104,17 @@ WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'bash');
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
+SELECT 'apply_patch', 'ApplyPatch', '使用补丁语法修改本地文件', 1, 'high', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'apply_patch');
+
+UPDATE built_in_tools
+SET description = '使用补丁语法修改本地文件'
+WHERE tool_id = 'apply_patch'
+  AND (description IS NULL OR description = 'Apply structured file edits with patch syntax');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
 SELECT 'file_search', 'FileSearch', '搜索本机文件', 1, 'low', NULL
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'file_search');
 

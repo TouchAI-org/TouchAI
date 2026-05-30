@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { setLocale } from '@/i18n';
 import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
 import {
+    detectBashFileMutation,
     formatBashToolResult,
     parseBashToolConfig,
     parseBashToolResult,
@@ -51,6 +52,19 @@ describe('resolveCommandContext', () => {
     it('returns rawOutput false when not provided', async () => {
         const ctx = await resolveCommandContext({ command: 'dir' }, baseConfig);
         expect(ctx.rawOutput).toBe(false);
+    });
+
+    it('returns allowFileMutation false when not provided', async () => {
+        const ctx = await resolveCommandContext({ command: 'dir' }, baseConfig);
+        expect(ctx.allowFileMutation).toBe(false);
+    });
+
+    it('returns allowFileMutation true when explicitly set', async () => {
+        const ctx = await resolveCommandContext(
+            { command: 'Set-Content file.txt value', allowFileMutation: true },
+            baseConfig
+        );
+        expect(ctx.allowFileMutation).toBe(true);
     });
 
     it('returns rawOutput true when explicitly set', async () => {
@@ -150,6 +164,7 @@ describe('formatBashToolResult', () => {
                 command: 'dir',
                 workingDirectory: 'D:/project',
                 rawOutput: false,
+                allowFileMutation: false,
             },
             12000
         );
@@ -167,6 +182,7 @@ describe('formatBashToolResult', () => {
                 command: 'dir',
                 workingDirectory: 'D:/project',
                 rawOutput: false,
+                allowFileMutation: false,
             },
             12000
         );
@@ -181,6 +197,7 @@ describe('formatBashToolResult', () => {
                 command: 'dir',
                 workingDirectory: 'D:/project',
                 rawOutput: false,
+                allowFileMutation: false,
             },
             12000
         );
@@ -240,7 +257,12 @@ describe('parseBashToolResult', () => {
         };
         const result = formatBashToolResult(
             compressedResponse,
-            { command: 'git status', workingDirectory: 'D:/project', rawOutput: false },
+            {
+                command: 'git status',
+                workingDirectory: 'D:/project',
+                rawOutput: false,
+                allowFileMutation: false,
+            },
             12000
         );
         expect(result).toContain('Compressed: true');
@@ -264,9 +286,57 @@ describe('parseBashToolResult', () => {
         };
         const result = formatBashToolResult(
             base,
-            { command: 'dir', workingDirectory: 'D:/project', rawOutput: false },
+            {
+                command: 'dir',
+                workingDirectory: 'D:/project',
+                rawOutput: false,
+                allowFileMutation: false,
+            },
             12000
         );
         expect(result).not.toContain('Compressed');
+    });
+});
+
+describe('detectBashFileMutation', () => {
+    it('allows read-only inspection commands', () => {
+        expect(detectBashFileMutation('Get-Content file.txt').isMutation).toBe(false);
+        expect(detectBashFileMutation('rg "oldValue" src').isMutation).toBe(false);
+        expect(detectBashFileMutation('git status --short').isMutation).toBe(false);
+    });
+
+    it('detects PowerShell file mutation cmdlets', () => {
+        expect(detectBashFileMutation('Set-Content file.txt value')).toEqual(
+            expect.objectContaining({ isMutation: true })
+        );
+        expect(detectBashFileMutation('Move-Item old.txt new.txt')).toEqual(
+            expect.objectContaining({ isMutation: true })
+        );
+        expect(detectBashFileMutation('Clear-Content file.txt')).toEqual(
+            expect.objectContaining({ isMutation: true })
+        );
+    });
+
+    it('detects shell redirection without blocking stderr merging', () => {
+        expect(detectBashFileMutation('Get-Content file.txt > out.txt')).toEqual(
+            expect.objectContaining({ isMutation: true })
+        );
+        expect(detectBashFileMutation('command *> all.log')).toEqual(
+            expect.objectContaining({ isMutation: true })
+        );
+        expect(detectBashFileMutation('command 2>&1').isMutation).toBe(false);
+    });
+
+    it('detects in-place editors and git working tree mutations', () => {
+        expect(detectBashFileMutation('sed -i "s/a/b/" file.txt')).toEqual(
+            expect.objectContaining({ isMutation: true })
+        );
+        expect(detectBashFileMutation('git mv old.ts new.ts')).toEqual(
+            expect.objectContaining({ isMutation: true })
+        );
+    });
+
+    it('ignores mutation words inside quoted search text', () => {
+        expect(detectBashFileMutation('rg "Set-Content" src').isMutation).toBe(false);
     });
 });

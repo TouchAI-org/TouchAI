@@ -27,7 +27,18 @@ import {
     type FormattedBashExecution,
     HIGH_RISK_RULES,
 } from './constants';
-import { formatBashToolResult, parseBashToolConfig, resolveCommandContext } from './helper';
+import {
+    detectBashFileMutation,
+    formatBashToolResult,
+    parseBashToolConfig,
+    resolveCommandContext,
+} from './helper';
+
+const FILE_MUTATION_BLOCKED_RESULT = [
+    'Bash file mutation blocked.',
+    'Use ApplyPatch for local workspace file mutations so the user can review structured changes.',
+    'Only retry with Bash if the user explicitly asked for shell-based file operations; set allowFileMutation to true in that case.',
+].join('\n');
 
 function buildBashConversationSemantic(
     args: Record<string, unknown>
@@ -110,6 +121,11 @@ export function createBashApprovalRequest(
     return resolveCommandContext(args, config).then((commandContext) => {
         const requestedReason =
             parsedApprovalPayload.reason ?? parsedApprovalPayload.description ?? '';
+        const mutationDetection = detectBashFileMutation(commandContext.command);
+        if (mutationDetection.isMutation && !commandContext.allowFileMutation) {
+            return null;
+        }
+
         if (config.approvalMode === 'never') {
             return null;
         }
@@ -153,6 +169,19 @@ export async function executeBashTool(
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
     const commandContext = await resolveCommandContext(args, config);
+    const mutationDetection = detectBashFileMutation(commandContext.command);
+    if (mutationDetection.isMutation && !commandContext.allowFileMutation) {
+        const result = mutationDetection.reason
+            ? `${FILE_MUTATION_BLOCKED_RESULT}\nDetected: ${mutationDetection.reason}`
+            : FILE_MUTATION_BLOCKED_RESULT;
+        return {
+            result,
+            isError: true,
+            status: 'error',
+            errorMessage: FILE_MUTATION_BLOCKED_RESULT,
+        };
+    }
+
     const response = await executeCancelableBash(
         {
             executionId: context.callId,
@@ -230,5 +259,5 @@ export const bashTool = new BashTool();
 export const builtInTools: BuiltInToolGroup = [bashTool];
 
 export { DEFAULT_BASH_TOOL_CONFIG } from './constants';
-export { parseBashToolConfig, parseBashToolResult } from './helper';
+export { detectBashFileMutation, parseBashToolConfig, parseBashToolResult } from './helper';
 export type { BashApprovalMode, BashCommandContext, BashToolConfig, FormattedBashExecution };

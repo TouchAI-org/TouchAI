@@ -1,7 +1,8 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <BuiltInBashToolCallItem
+    <component
+        :is="builtinCardComponent"
         v-if="builtinCardComponent"
         :tool-call="toolCall"
         :verb-text="builtinVerbText"
@@ -122,11 +123,13 @@
     import { t } from '@/i18n';
     import type { ToolCallInfo } from '@/types/session';
 
+    import BuiltInApplyPatchToolCallItem from './BuiltInApplyPatchToolCallItem.vue';
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
 
     const BUILTIN_ROOT_CLASS =
         'tool-call-log-wrapper paragraph-node touchai-markdown touchai-markdown--default';
     const BUILTIN_CARD_COMPONENTS: Record<string, Component> = {
+        applypatch: BuiltInApplyPatchToolCallItem,
         bash: BuiltInBashToolCallItem,
     };
 

@@ -4,6 +4,58 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Built-in ApplyPatch tool request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltInApplyPatchExecutionRequest {
+    /// Patch text using the supported apply_patch grammar.
+    pub patch: String,
+    /// Workspace root used to resolve relative patch paths.
+    pub working_directory: String,
+}
+
+/// File changed by a built-in ApplyPatch request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltInApplyPatchFilePreview {
+    pub before_content: Option<String>,
+    pub after_content: Option<String>,
+    pub before_truncated: bool,
+    pub after_truncated: bool,
+    pub is_binary: bool,
+    pub omitted: bool,
+}
+
+/// File changed by a built-in ApplyPatch request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltInApplyPatchFileChange {
+    pub path: String,
+    pub new_path: Option<String>,
+    pub operation: BuiltInApplyPatchOperation,
+    pub preview: Option<BuiltInApplyPatchFilePreview>,
+}
+
+/// Supported built-in ApplyPatch operations.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuiltInApplyPatchOperation {
+    Add,
+    Update,
+    Delete,
+    Move,
+}
+
+/// Built-in ApplyPatch tool response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltInApplyPatchExecutionResponse {
+    pub success: bool,
+    pub working_directory: String,
+    pub changed_files: Vec<BuiltInApplyPatchFileChange>,
+    pub summary: String,
+}
+
 /// 内置 Bash 工具的执行请求。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

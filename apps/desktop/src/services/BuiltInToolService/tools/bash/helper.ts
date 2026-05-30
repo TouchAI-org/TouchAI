@@ -15,6 +15,11 @@ import {
     DEFAULT_BASH_TOOL_CONFIG,
 } from './constants';
 
+export interface BashFileMutationDetection {
+    isMutation: boolean;
+    reason: string | null;
+}
+
 function normalizeDirectoryPath(path: string): string {
     return path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
 }
@@ -78,7 +83,112 @@ export async function resolveCommandContext(args: Record<string, unknown>, confi
         );
     }
 
-    return { command, workingDirectory, rawOutput: parsedArgs.rawOutput ?? false };
+    return {
+        command,
+        workingDirectory,
+        rawOutput: parsedArgs.rawOutput ?? false,
+        allowFileMutation: parsedArgs.allowFileMutation ?? false,
+    };
+}
+
+function stripQuotedPowerShellText(command: string): string {
+    let result = '';
+    let quote: "'" | '"' | null = null;
+
+    for (let index = 0; index < command.length; index += 1) {
+        const char = command[index];
+        if (quote) {
+            if (char === '`') {
+                result += ' ';
+                index += 1;
+                if (index < command.length) {
+                    result += ' ';
+                }
+                continue;
+            }
+
+            if (char === quote) {
+                if (quote === "'" && command[index + 1] === "'") {
+                    result += '  ';
+                    index += 1;
+                    continue;
+                }
+
+                quote = null;
+            }
+
+            result += ' ';
+            continue;
+        }
+
+        if (char === "'" || char === '"') {
+            quote = char;
+            result += ' ';
+            continue;
+        }
+
+        if (char === '`') {
+            result += ' ';
+            index += 1;
+            if (index < command.length) {
+                result += ' ';
+            }
+            continue;
+        }
+
+        result += char;
+    }
+
+    return result;
+}
+
+export function detectBashFileMutation(command: string): BashFileMutationDetection {
+    const unquotedCommand = stripQuotedPowerShellText(command);
+
+    if (
+        /\b(set-content|add-content|clear-content|out-file|new-item|remove-item|move-item|copy-item|rename-item)\b/i.test(
+            unquotedCommand
+        )
+    ) {
+        return { isMutation: true, reason: 'PowerShell file mutation cmdlet' };
+    }
+
+    if (
+        /\b(del|erase|rm|rmdir|rd|mv|move|copy|cp|ren|mkdir|md|ni|ri|mi|cpi|rni|sc|ac|clc)\b/i.test(
+            unquotedCommand
+        )
+    ) {
+        return { isMutation: true, reason: 'PowerShell file mutation alias' };
+    }
+
+    if (/(^|[\s;|&])(?:\d+|\*)?>>?\s*(?!&\d)\S/.test(unquotedCommand)) {
+        return { isMutation: true, reason: 'shell output redirection' };
+    }
+
+    if (/\bsed\b[\s\S]*?(^|\s)-i(\s|$)/i.test(unquotedCommand)) {
+        return { isMutation: true, reason: 'in-place sed edit' };
+    }
+
+    if (/\bperl\b[\s\S]*?(^|\s)-p?i(\s|$)/i.test(unquotedCommand)) {
+        return { isMutation: true, reason: 'in-place perl edit' };
+    }
+
+    if (
+        /\btee-object\b/i.test(unquotedCommand) ||
+        /\btee\b[\s\S]*?(^|\s)(-file(path)?|-a)\b/i.test(unquotedCommand)
+    ) {
+        return { isMutation: true, reason: 'tee file output' };
+    }
+
+    if (/\bgit\s+(mv|rm|restore|clean|reset)\b/i.test(unquotedCommand)) {
+        return { isMutation: true, reason: 'Git working tree mutation' };
+    }
+
+    if (/\bgit\s+checkout\s+--\s+\S/i.test(unquotedCommand)) {
+        return { isMutation: true, reason: 'Git working tree checkout' };
+    }
+
+    return { isMutation: false, reason: null };
 }
 
 export function truncateOutput(output: string, maxLength: number): string {

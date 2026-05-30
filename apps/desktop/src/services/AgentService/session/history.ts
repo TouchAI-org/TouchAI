@@ -269,7 +269,7 @@ async function buildPersistedEntries(
             const restoredStatus = mapPersistedToolResultStatus(row.tool_status, row.content);
             currentEntry.toolResult = {
                 callId: row.tool_call_id,
-                result: row.content,
+                result: row.tool_output ?? row.content,
                 status: restoredStatus,
                 durationMs: row.tool_duration_ms ?? undefined,
                 isError: isPersistedToolResultErrorStatus(row.tool_status, row.content),

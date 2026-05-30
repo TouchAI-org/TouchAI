@@ -2,6 +2,7 @@
     type AppUpdateCheckResult,
     type AppUpdateInfo,
     autostart,
+    type BuiltInApplyPatchExecutionResponse,
     type BuiltInBashExecutionResponse,
     builtInTools,
     clipboard,
@@ -814,9 +815,30 @@ describe('NativeService supporting boundaries', () => {
             stderr: '',
             combinedOutput: 'TouchAI',
         };
+        const applyPatchResponse: BuiltInApplyPatchExecutionResponse = {
+            success: true,
+            workingDirectory: 'D:/Project/TouchAI',
+            changedFiles: [
+                {
+                    path: 'src/example.ts',
+                    newPath: null,
+                    operation: 'update',
+                    preview: {
+                        beforeContent: 'before\n',
+                        afterContent: 'after\n',
+                        beforeTruncated: false,
+                        afterTruncated: false,
+                        isBinary: false,
+                        omitted: false,
+                    },
+                },
+            ],
+            summary: '已在 D:/Project/TouchAI 应用补丁\n- 修改 src/example.ts',
+        };
         mockTauriCommand('is_autostart_enabled', true);
         mockTauriCommand('get_app_directory_path', 'D:/TouchAI/data');
         mockTauriCommand('get_shortcut_status', [true, null]);
+        mockTauriCommand('built_in_tools_apply_patch', applyPatchResponse);
         mockTauriCommand('built_in_tools_execute_bash', bashResponse);
         mockTauriCommand('built_in_tools_cancel_bash', true);
 
@@ -833,6 +855,23 @@ describe('NativeService supporting boundaries', () => {
         await expect(
             callAndExpectInvoke(() => shortcut.getShortcutStatus(), 'get_shortcut_status')
         ).resolves.toEqual([true, null]);
+
+        await expect(
+            callAndExpectInvoke(
+                () =>
+                    builtInTools.applyPatch({
+                        patch: '*** Begin Patch\n*** End Patch',
+                        workingDirectory: 'D:/Project/TouchAI',
+                    }),
+                'built_in_tools_apply_patch',
+                {
+                    request: {
+                        patch: '*** Begin Patch\n*** End Patch',
+                        workingDirectory: 'D:/Project/TouchAI',
+                    },
+                }
+            )
+        ).resolves.toEqual(applyPatchResponse);
 
         await expect(
             callAndExpectInvoke(

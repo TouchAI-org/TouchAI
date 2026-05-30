@@ -738,7 +738,7 @@ export class SessionTaskProjection {
                 message.id,
                 toolEvent.callId,
                 (toolCall) => {
-                    toolCall.result = toolEvent.result;
+                    toolCall.result = toolEvent.displayResult || toolEvent.result;
                     toolCall.isError = toolEvent.isError;
                     if (toolEvent.finalStatus === 'rejected') {
                         toolCall.status = 'rejected';

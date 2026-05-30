@@ -37,6 +37,7 @@ export interface BashCommandContext {
     command: string;
     workingDirectory: string;
     rawOutput: boolean;
+    allowFileMutation: boolean;
 }
 
 /**
@@ -64,6 +65,7 @@ export const bashCommandContextSchema = z.object({
     command: nonEmptyTrimmedStringSchema,
     workingDirectory: optionalTrimmedStringSchema,
     rawOutput: z.boolean().optional(),
+    allowFileMutation: z.boolean().optional(),
 });
 
 export const bashApprovalPayloadSchema = bashCommandContextSchema.extend({
@@ -109,7 +111,8 @@ export const HIGH_RISK_RULES: Array<{ pattern: RegExp; reason: string }> = [
     { pattern: /\b(remove-item|del|erase|rm)\b/i, reason: '命令可能删除文件或目录。' },
     { pattern: /\b(git\s+reset|git\s+clean)\b/i, reason: '命令可能重置或清理 Git 工作区。' },
     {
-        pattern: /\b(copy-item|move-item|rename-item|new-item|set-content|add-content|out-file)\b/i,
+        pattern:
+            /\b(copy-item|move-item|rename-item|new-item|set-content|add-content|clear-content|out-file)\b/i,
         reason: '命令可能修改或覆盖文件内容。',
     },
     { pattern: />\s*[^>]/, reason: '命令包含输出重定向，可能覆写文件。' },
@@ -127,6 +130,9 @@ export const BASH_TOOL_DESCRIPTION = [
     'Platform: Windows.',
     'Shell: Windows PowerShell (`powershell.exe` run with `-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command`).',
     'Use PowerShell syntax, cmdlets, and Windows paths instead of bash/sh syntax.',
+    'Use this tool for inspection, search, command output, and verification.',
+    'Do not use this tool to create, edit, delete, rename, move, overwrite, or append local workspace files. Use ApplyPatch for local file mutations by default.',
+    'Only perform file mutations through Bash when the user explicitly asks for shell-based file operations, and set allowFileMutation to true.',
     'For multiline text in PowerShell, prefer here-strings such as `@\'...\'@` or `@"..."@` instead of `\\n` escape sequences.',
     '`rg` (ripgrep) is available on PATH. For content/code search, ALWAYS use `rg` instead of `Select-String`, `findstr`, or reading files manually — ripgrep is faster, respects .gitignore, and supports regex.',
     'Common rg examples: `rg "pattern" src/`, `rg -t ts "pattern"`, `rg --json "pattern" src/`, `rg -g "*.ts" "pattern"`.',
@@ -156,6 +162,12 @@ export const BASH_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
             type: 'boolean',
             description:
                 'Default false: command output is compressed to essential information. Set to true if the compressed output is missing information you need — this returns the raw, unfiltered result (WILL RERUN).',
+            default: false,
+        },
+        allowFileMutation: {
+            type: 'boolean',
+            description:
+                'Default false. Only set true when the user explicitly requested shell-based file operations. For normal local file creation, edits, deletion, rename, or move, use ApplyPatch instead.',
             default: false,
         },
     },

@@ -14,6 +14,7 @@ export interface ToolLogHistoryRow {
     tool_call_id: string;
     tool_name: string;
     tool_input: string;
+    tool_output: string | null;
     message_id: number | null;
     created_at: string;
     tool_status: PersistedToolLogStatus;
@@ -26,6 +27,7 @@ export interface MessageRow extends MessageEntity {
     tool_call_id: string | null;
     tool_name: string | null;
     tool_input: string | null;
+    tool_output: string | null;
     tool_log_ref_id: number | null;
     tool_status: PersistedToolLogStatus | null;
     tool_duration_ms: number | null;
@@ -57,6 +59,7 @@ function buildMessageRow(
         tool_call_id: toolLog?.tool_call_id ?? null,
         tool_name: toolLog ? toNamespacedToolName(toolLog) : null,
         tool_input: toolLog?.tool_input ?? null,
+        tool_output: toolLog?.tool_output ?? null,
         tool_log_ref_id: toolLog?.log_id ?? null,
         tool_status: toolLog?.tool_status ?? null,
         tool_duration_ms: toolLog?.tool_duration_ms ?? null,
@@ -208,6 +211,7 @@ export const findToolLogRowsBySessionId = async (
                 tool_call_id: mcpToolLogs.tool_call_id,
                 tool_name: mcpToolLogs.tool_name,
                 tool_input: mcpToolLogs.input,
+                tool_output: mcpToolLogs.output,
                 message_id: mcpToolLogs.message_id,
                 created_at: mcpToolLogs.created_at,
                 tool_status: mcpToolLogs.status,
@@ -223,6 +227,7 @@ export const findToolLogRowsBySessionId = async (
                 tool_call_id: builtInToolLogs.tool_call_id,
                 tool_name: builtInToolLogs.tool_id,
                 tool_input: builtInToolLogs.input,
+                tool_output: builtInToolLogs.output,
                 message_id: builtInToolLogs.message_id,
                 created_at: builtInToolLogs.created_at,
                 tool_status: builtInToolLogs.status,

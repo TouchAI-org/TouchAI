@@ -122,6 +122,7 @@ export type ToolEvent =
           type: 'call_end';
           callId: string;
           result: string;
+          displayResult?: string;
           isError: boolean;
           durationMs: number;
           finalStatus?: 'completed' | 'error' | 'rejected';

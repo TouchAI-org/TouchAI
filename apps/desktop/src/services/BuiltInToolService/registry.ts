@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { builtInTools as applyPatchTools } from './tools/applyPatch';
 import { builtInTools as bashTools } from './tools/bash';
 import { builtInTools as fileSearchTools } from './tools/fileSearch';
 import { builtInTools as readTools } from './tools/read';
@@ -53,6 +54,7 @@ class BuiltInToolRegistry {
 export const builtInToolRegistry = new BuiltInToolRegistry();
 
 builtInToolRegistry.register(bashTools);
+builtInToolRegistry.register(applyPatchTools);
 builtInToolRegistry.register(fileSearchTools);
 builtInToolRegistry.register(readTools);
 builtInToolRegistry.register(settingTools);

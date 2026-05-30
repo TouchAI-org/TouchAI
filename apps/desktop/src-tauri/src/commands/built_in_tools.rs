@@ -3,9 +3,18 @@
 //! 内置工具原生命令。
 
 use crate::core::built_in_tools::{
-    self, BashExecutionRegistry, BuiltInBashExecutionRequest, BuiltInBashExecutionResponse,
+    self, BashExecutionRegistry, BuiltInApplyPatchExecutionRequest,
+    BuiltInApplyPatchExecutionResponse, BuiltInBashExecutionRequest, BuiltInBashExecutionResponse,
 };
 use tauri::State;
+
+/// Apply a structured patch in the configured workspace.
+#[tauri::command]
+pub fn built_in_tools_apply_patch(
+    request: BuiltInApplyPatchExecutionRequest,
+) -> Result<BuiltInApplyPatchExecutionResponse, String> {
+    built_in_tools::apply_patch(request)
+}
 
 /// 执行内置 Bash 工具请求。
 ///

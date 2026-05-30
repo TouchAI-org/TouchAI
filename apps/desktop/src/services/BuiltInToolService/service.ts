@@ -437,13 +437,14 @@ class BuiltInToolService {
             type: 'call_end',
             callId: options.toolCall.id,
             result: toolResult.result,
+            ...(toolResult.displayResult ? { displayResult: toolResult.displayResult } : {}),
             isError: toolResult.isError,
             durationMs,
             finalStatus: toolResult.status === 'success' ? 'completed' : 'error',
         });
 
         await updateBuiltInToolLogByCallId(options.toolCall.id, {
-            output: toolResult.result,
+            output: toolResult.displayResult ?? toolResult.result,
             status:
                 toolResult.status === 'success'
                     ? 'success'

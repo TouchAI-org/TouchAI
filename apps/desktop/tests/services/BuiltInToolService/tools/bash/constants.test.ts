@@ -33,6 +33,11 @@ describe('BASH_TOOL_DESCRIPTION', () => {
         expect(BASH_TOOL_DESCRIPTION).toContain('PowerShell');
         expect(BASH_TOOL_DESCRIPTION).toContain('powershell.exe');
     });
+
+    it('directs file mutations to ApplyPatch by default', () => {
+        expect(BASH_TOOL_DESCRIPTION).toContain('Use ApplyPatch');
+        expect(BASH_TOOL_DESCRIPTION).toContain('allowFileMutation');
+    });
 });
 
 describe('DEFAULT_BASH_TOOL_CONFIG', () => {
@@ -63,11 +68,20 @@ describe('BASH_TOOL_INPUT_SCHEMA', () => {
         expect(typeof rawOutput.description).toBe('string');
     });
 
-    it('includes command, reason, workingDirectory, and rawOutput', () => {
+    it('defines allowFileMutation as an optional boolean parameter', () => {
+        const allowFileMutation = properties.allowFileMutation as Record<string, unknown>;
+        expect(allowFileMutation).toBeDefined();
+        expect(allowFileMutation.type).toBe('boolean');
+        expect(allowFileMutation.default).toBe(false);
+        expect(typeof allowFileMutation.description).toBe('string');
+    });
+
+    it('includes command, reason, workingDirectory, rawOutput, and allowFileMutation', () => {
         expect(properties).toHaveProperty('command');
         expect(properties).toHaveProperty('reason');
         expect(properties).toHaveProperty('workingDirectory');
         expect(properties).toHaveProperty('rawOutput');
+        expect(properties).toHaveProperty('allowFileMutation');
     });
 });
 
@@ -149,6 +163,27 @@ describe('bashCommandContextSchema', () => {
         expect(result.success).toBe(true);
         if (result.success) {
             expect(result.data.rawOutput).toBeUndefined();
+        }
+    });
+
+    it('accepts allowFileMutation true', () => {
+        const result = bashCommandContextSchema.safeParse({
+            command: 'Set-Content file.txt value',
+            allowFileMutation: true,
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.allowFileMutation).toBe(true);
+        }
+    });
+
+    it('accepts missing allowFileMutation as optional', () => {
+        const result = bashCommandContextSchema.safeParse({
+            command: 'git status',
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.allowFileMutation).toBeUndefined();
         }
     });
 
