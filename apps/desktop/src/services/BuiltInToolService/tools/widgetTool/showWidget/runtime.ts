@@ -537,7 +537,9 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
             })
         );
     } else {
-        template.innerHTML = String(purifyInstance.sanitize(normalizedHtml, { ADD_TAGS: ['script'] }));
+        template.innerHTML = String(
+            purifyInstance.sanitize(normalizedHtml, { ADD_TAGS: ['script'] })
+        );
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
