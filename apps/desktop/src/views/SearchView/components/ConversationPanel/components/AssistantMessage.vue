@@ -84,7 +84,10 @@
                     </div>
 
                     <!-- 流式响应加载指示器 -->
-                    <div v-if="message.isStreaming && !askUserStore.current" :class="streamingIndicatorClass">
+                    <div
+                        v-if="message.isStreaming && !askUserStore.current"
+                        :class="streamingIndicatorClass"
+                    >
                         <div class="flex items-center gap-1">
                             <span class="dot"></span>
                             <span class="dot"></span>
