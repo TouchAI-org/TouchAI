@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 use tauri::Emitter;
 use tauri::{AppHandle, Manager, Runtime};
 
@@ -167,7 +167,7 @@ impl SessionStatusReminderNotificationRuntime {
     pub fn clear_active_notifications(&self) {
         // No-op on Linux: notify-rust's NotificationHandle is consumed by
         // wait_for_action, so we cannot close notifications programmatically.
-        // Notifications with Timeout::Never persist until user interaction.
+        // Reminders auto-expire, which keeps residual notifications bounded.
     }
 }
 
@@ -175,6 +175,61 @@ impl Default for SessionStatusReminderNotificationRuntime {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn restore_search_window_from_status_reminder<R: Runtime>(
+    app_handle: AppHandle<R>,
+    payload: Option<SessionStatusReminderActionPayload>,
+) {
+    tauri::async_runtime::spawn(async move {
+        let task_handle = app_handle.clone();
+        if let Err(error) = app_handle.run_on_main_thread(move || {
+            if let Err(error) = crate::core::window::show_search_window(task_handle.clone()) {
+                log::warn!(
+                    "Failed to restore search window from session status notification: {}",
+                    error
+                );
+            }
+
+            let Some(payload) = payload.as_ref() else {
+                return;
+            };
+
+            if let Err(error) = task_handle
+                .emit(SESSION_STATUS_REMINDER_ACTION_EVENT, payload)
+                .map_err(|error| error.to_string())
+            {
+                log::warn!(
+                    "Failed to emit session status reminder action event: {}",
+                    error
+                );
+            }
+        }) {
+            log::warn!(
+                "Failed to queue session status reminder action on main thread: {}",
+                error
+            );
+        }
+    });
+}
+
+fn has_windows_installation_marker(exe_path: &std::path::Path) -> bool {
+    exe_path
+        .parent()
+        .map(|dir| dir.join("uninstall.exe").is_file())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+fn should_register_windows_notification_identity() -> bool {
+    if cfg!(debug_assertions) {
+        return false;
+    }
+
+    std::env::current_exe()
+        .map(|exe_path| has_windows_installation_marker(&exe_path))
+        .unwrap_or(false)
 }
 
 pub fn show_session_status_reminder_notification<R: Runtime>(
@@ -260,7 +315,6 @@ fn show_windows_status_reminder_notification<R: Runtime>(
     runtime: &SessionStatusReminderNotificationRuntime,
     payload: &SessionStatusReminderNotificationPayload,
 ) -> Result<(), String> {
-    use log::warn;
     use windows::core::{Interface, HSTRING};
     use windows::Foundation::TypedEventHandler;
     use windows::UI::Notifications::{
@@ -280,41 +334,11 @@ fn show_windows_status_reminder_notification<R: Runtime>(
     let app_handle = app.clone();
     let activated_handler = TypedEventHandler::new(
         move |_toast: &Option<ToastNotification>, args: &Option<windows::core::IInspectable>| {
-            let app_handle = app_handle.clone();
             let activation_payload = args
                 .as_ref()
                 .and_then(|value| value.cast::<ToastActivatedEventArgs>().ok())
                 .and_then(|activated| parse_activated_payload(&activated).ok());
-
-            tauri::async_runtime::spawn(async move {
-                let task_handle = app_handle.clone();
-                if let Err(error) = app_handle.run_on_main_thread(move || {
-                    if let Err(error) = crate::core::window::show_search_window(task_handle.clone())
-                    {
-                        warn!(
-                            "Failed to restore search window from session status notification: {}",
-                            error
-                        );
-                    }
-
-                    if let Some(payload) = activation_payload.as_ref() {
-                        if let Err(error) = task_handle
-                            .emit(SESSION_STATUS_REMINDER_ACTION_EVENT, payload)
-                            .map_err(|error| error.to_string())
-                        {
-                            warn!(
-                                "Failed to emit session status reminder action event: {}",
-                                error
-                            );
-                        }
-                    }
-                }) {
-                    warn!(
-                        "Failed to queue session status notification activation on main thread: {}",
-                        error
-                    );
-                }
-            });
+            restore_search_window_from_status_reminder(app_handle.clone(), activation_payload);
             Ok(())
         },
     );
@@ -370,12 +394,16 @@ fn clear_windows_status_reminder_notifications<R: Runtime>(
 }
 
 /// 设置当前进程的 AppUserModelId 并确保开始菜单存在快捷方式，
-/// 这样 Windows Toast 通知顶部会显示 "TouchAI" 而非 AUMID GUID。
-#[cfg(all(target_os = "windows", not(debug_assertions)))]
+/// 仅在正式安装版中启用，避免本地开发或直接运行 release 二进制污染通知身份。
+#[cfg(target_os = "windows")]
 pub fn ensure_windows_start_menu_shortcut(app_id: &str) -> Result<(), String> {
     use std::path::PathBuf;
     use windows::core::HSTRING;
     use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+
+    if !should_register_windows_notification_identity() {
+        return Ok(());
+    }
 
     let app_id_hstring = HSTRING::from(app_id);
     unsafe {
@@ -394,10 +422,6 @@ pub fn ensure_windows_start_menu_shortcut(app_id: &str) -> Result<(), String> {
             .join("TouchAI")
     };
     let shortcut_path = shortcut_dir.join("TouchAI.lnk");
-
-    if shortcut_path.exists() {
-        return Ok(());
-    }
 
     let exe_path = std::env::current_exe()
         .map_err(|error| format!("Failed to get current exe path: {error}"))?;
@@ -955,7 +979,10 @@ mod macos_notifications {
                 reply_text,
             );
 
-            let _ = app_handle.emit(SESSION_STATUS_REMINDER_ACTION_EVENT, &final_payload);
+            super::restore_search_window_from_status_reminder(
+                app_handle.clone(),
+                Some(final_payload),
+            );
         }));
 
         // Ensure the delegate is registered exactly once and held by the static
@@ -1032,14 +1059,37 @@ mod macos_notifications {
 
 #[cfg(target_os = "linux")]
 mod linux_notifications {
-    use log::warn;
     use notify_rust::{Notification, Timeout};
-    use tauri::{AppHandle, Emitter, Runtime};
+    use tauri::{AppHandle, Runtime};
 
     use super::{
         SessionStatusReminderAction, SessionStatusReminderActionPayload, SessionStatusReminderKind,
-        SessionStatusReminderNotificationPayload, SESSION_STATUS_REMINDER_ACTION_EVENT,
+        SessionStatusReminderNotificationPayload,
     };
+
+    const STANDARD_REMINDER_TIMEOUT_MS: u32 = 15_000;
+    const APPROVAL_REMINDER_TIMEOUT_MS: u32 = 300_000;
+
+    fn notification_timeout(kind: SessionStatusReminderKind) -> Timeout {
+        match kind {
+            SessionStatusReminderKind::WaitingApproval => {
+                Timeout::Milliseconds(APPROVAL_REMINDER_TIMEOUT_MS)
+            }
+            SessionStatusReminderKind::Completed | SessionStatusReminderKind::Failed => {
+                Timeout::Milliseconds(STANDARD_REMINDER_TIMEOUT_MS)
+            }
+        }
+    }
+
+    fn resolve_action(action_name: &str) -> Option<SessionStatusReminderAction> {
+        match action_name {
+            "approve" => Some(SessionStatusReminderAction::Approve),
+            "reject" => Some(SessionStatusReminderAction::Reject),
+            "open" => Some(SessionStatusReminderAction::Open),
+            "__closed" => None,
+            _ => Some(SessionStatusReminderAction::Open),
+        }
+    }
 
     /// Show a session status reminder notification through the D-Bus
     /// notification daemon (GNOME / KDE / XFCE).
@@ -1065,7 +1115,7 @@ mod linux_notifications {
             .summary(&payload.title)
             .body(&payload.body)
             .appname("TouchAI")
-            .timeout(Timeout::Never);
+            .timeout(notification_timeout(payload.kind));
 
         if payload.kind == SessionStatusReminderKind::WaitingApproval {
             notification.action("approve", approve_label);
@@ -1078,6 +1128,7 @@ mod linux_notifications {
             .show()
             .map_err(|error| format!("Failed to show Linux notification: {error}"))?;
 
+        let notification_id = handle.id();
         let app_handle = app.clone();
         let action_payload = SessionStatusReminderActionPayload {
             action: SessionStatusReminderAction::Open,
@@ -1088,46 +1139,48 @@ mod linux_notifications {
             reply_text: None,
         };
 
-        // wait_for_action consumes the handle and invokes the closure when the
-        // user interacts with the notification.
-        handle.wait_for_action(move |action_name| {
-            let resolved_action = match action_name {
-                "approve" => SessionStatusReminderAction::Approve,
-                "reject" => SessionStatusReminderAction::Reject,
-                "open" => SessionStatusReminderAction::Open,
-                _ => SessionStatusReminderAction::Open,
-            };
+        // wait_for_action blocks until the notification closes or the user acts,
+        // so it must run off the Tauri invoke thread.
+        std::thread::spawn(move || {
+            handle.wait_for_action(move |action_name| {
+                let Some(resolved_action) = resolve_action(action_name) else {
+                    return;
+                };
 
-            let final_payload = SessionStatusReminderActionPayload {
-                action: resolved_action,
-                ..action_payload
-            };
+                let final_payload = SessionStatusReminderActionPayload {
+                    action: resolved_action,
+                    ..action_payload
+                };
 
-            if let Err(error) =
-                app_handle.emit(SESSION_STATUS_REMINDER_ACTION_EVENT, &final_payload)
-            {
-                warn!(
-                    "Failed to emit Linux session status reminder action event: {}",
-                    error
+                super::restore_search_window_from_status_reminder(
+                    app_handle.clone(),
+                    Some(final_payload),
                 );
-            }
+            });
         });
 
-        runtime.track_active_notification(0);
+        runtime.track_active_notification(notification_id);
 
         Ok(())
     }
 
     /// Clear tracked Linux notifications.
     pub fn clear(runtime: &super::SessionStatusReminderNotificationRuntime) {
+        // Linux reminder notifications auto-expire, so clearing here is
+        // best-effort even though notify-rust does not expose a cross-desktop
+        // close primitive once action waiting is detached.
         runtime.clear_active_notifications();
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
     use super::{
-        finalize_activation_payload, SessionStatusReminderAction,
+        finalize_activation_payload, has_windows_installation_marker, SessionStatusReminderAction,
         SessionStatusReminderActionPayload, SessionStatusReminderKind,
     };
 
@@ -1165,6 +1218,18 @@ mod tests {
 
         assert_eq!(payload.action, SessionStatusReminderAction::Reply);
         assert_eq!(payload.reply_text.as_deref(), Some("follow up"));
+    }
+
+    #[test]
+    fn windows_installation_marker_requires_sibling_uninstall_exe() {
+        let dir = tempdir().expect("tempdir");
+        let exe_path = dir.path().join("TouchAI.exe");
+        fs::write(&exe_path, b"binary").expect("write exe");
+
+        assert!(!has_windows_installation_marker(&exe_path));
+
+        fs::write(dir.path().join("uninstall.exe"), b"stub").expect("write uninstall");
+        assert!(has_windows_installation_marker(&exe_path));
     }
 }
 

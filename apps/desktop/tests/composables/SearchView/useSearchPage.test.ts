@@ -351,14 +351,14 @@ describe('useSearchPageLifecycle', () => {
         expect(statusHandler).toBeDefined();
         await statusHandler!(
             createStatusChangedPayload('completed', {
-                title: '浠诲姟宸插畬鎴?',
+                title: '任务已完成',
                 body: 'done',
             })
         );
         await flushLifecycle();
 
         expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
-            title: '浠诲姟宸插畬鎴?',
+            title: '任务已完成',
             body: 'done',
             sessionId: 1,
             taskId: 'task-1',
