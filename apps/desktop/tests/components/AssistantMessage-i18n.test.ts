@@ -1,6 +1,7 @@
 import { notify } from '@services/NotificationService';
 import { mount } from '@vue/test-utils';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
 import { clipboardService } from '@/services/ClipboardService';
@@ -120,6 +121,10 @@ function createAssistantMessage(overrides: Partial<SessionMessage> = {}): Sessio
 }
 
 describe('AssistantMessage i18n boundaries', () => {
+    beforeEach(() => {
+        setActivePinia(createPinia());
+    });
+
     afterEach(() => {
         vi.useRealTimers();
     });

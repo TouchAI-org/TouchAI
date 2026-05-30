@@ -7,6 +7,7 @@ import { AppEvent, eventService } from '@services/EventService';
 import type { PopupKeydownPayload } from '@services/PopupService';
 import { computed, type ComputedRef, reactive, type Ref, ref, watch } from 'vue';
 
+import { useAskUserStore } from '@/stores/askUser';
 import {
     cloneInputHistorySnapshot,
     createInputHistorySnapshot,
@@ -1150,8 +1151,15 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         },
     });
 
+    const askUserStore = useAskUserStore();
+
     return async function handleKeyDown(event: KeyboardEvent) {
         if (!viewReady.value) {
+            return;
+        }
+
+        // AskUserPanel 接管所有键盘——面板自己在 window 上挂了 capture listener
+        if (askUserStore.current) {
             return;
         }
 

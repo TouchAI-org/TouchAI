@@ -5,6 +5,8 @@ import type { BuiltInToolEntity } from '@database/types';
 
 import type {
     AiToolDefinition,
+    AskUserAnswer,
+    AskUserQuestion,
     ToolApprovalRequest,
     ToolEvent,
     ToolEventBuiltInConversationSemantic,
@@ -23,7 +25,8 @@ export type BuiltInToolId =
     | 'web_fetch'
     | 'upgrade_model'
     | 'show_widget'
-    | 'visualize_read_me';
+    | 'visualize_read_me'
+    | 'ask_user_question';
 
 /**
  * 所有内置工具共享的最小运行时上下文。
@@ -34,9 +37,11 @@ export interface BaseBuiltInToolExecutionContext {
     callId: string;
     iteration: number;
     emitToolEvent?: (toolEvent: ToolEvent) => void;
-    // 由 request 编排层提供的只读查询能力，用来表达工具间的前置依赖，
-    // 但不把具体状态容器暴露给每个工具实现。
     hasExecutedBuiltInTool: (toolId: BuiltInToolId) => boolean;
+    requestUserQuestions?: (
+        callId: string,
+        questions: AskUserQuestion[]
+    ) => Promise<AskUserAnswer[] | null>;
 }
 
 /**
