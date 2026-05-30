@@ -67,8 +67,23 @@ export async function loadSessionTransportMessages(options: {
         toolLogByIdentity.set(`${toolLog.source}:${toolLog.log_id}`, toolLog);
     }
 
-    const takePendingResultToolCall = (toolCallId?: string | null): AiToolCall | undefined => {
+    const takePendingResultToolCall = (
+        toolCallId?: string | null,
+        resolvedToolName?: string | null
+    ): AiToolCall | undefined => {
         if (!toolCallId) {
+            // Try to match by resolved tool name first
+            if (resolvedToolName) {
+                const nameMatches = pendingResultToolCalls.filter(
+                    (toolCall) => toolCall.name === resolvedToolName
+                );
+                if (nameMatches.length === 1) {
+                    const pendingIndex = pendingResultToolCalls.indexOf(nameMatches[0]!);
+                    const [toolCall] = pendingResultToolCalls.splice(pendingIndex, 1);
+                    return toolCall;
+                }
+            }
+            // Fall back to FIFO if no unique name match
             return pendingResultToolCalls.shift();
         }
 
@@ -154,8 +169,11 @@ export async function loadSessionTransportMessages(options: {
                 row.tool_log_id !== null
                     ? toolLogByIdentity.get(`${toolSource}:${row.tool_log_id}`)
                     : undefined;
+            const resolvedToolName =
+                row.tool_name ?? (toolLog ? toTransportToolName(toolLog) : undefined);
             const pendingToolCall = takePendingResultToolCall(
-                row.tool_call_id ?? toolLog?.tool_call_id
+                row.tool_call_id ?? toolLog?.tool_call_id,
+                resolvedToolName
             );
 
             if (pendingToolCall) {
