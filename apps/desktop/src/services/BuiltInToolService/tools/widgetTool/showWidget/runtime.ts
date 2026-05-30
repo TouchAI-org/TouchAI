@@ -532,10 +532,12 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
         template.innerHTML = String(
-            purifyInstance.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
+            purifyInstance.sanitize(parsed.body.innerHTML || '<div></div>', {
+                ADD_TAGS: ['script'],
+            })
         );
     } else {
-        template.innerHTML = String(purifyInstance.sanitize(normalizedHtml, purifyConfig));
+        template.innerHTML = String(purifyInstance.sanitize(normalizedHtml, { ADD_TAGS: ['script'] }));
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
