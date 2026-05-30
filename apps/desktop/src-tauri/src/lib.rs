@@ -46,6 +46,28 @@ pub fn run() {
         .manage(McpClientManager::new())
         .manage(core::updater::AppUpdaterState::default())
         .on_window_event(|window, event| {
+            if matches!(window.label(), "main" | "settings")
+                && matches!(
+                    event,
+                    WindowEvent::Resized(_)
+                        | WindowEvent::Moved(_)
+                        | WindowEvent::ScaleFactorChanged { .. }
+                )
+            {
+                if let Some(webview_window) = window.app_handle().get_webview_window(window.label())
+                {
+                    if let Err(error) =
+                        core::window::rounded_corners::sync_window_rounded_region(&webview_window)
+                    {
+                        warn!(
+                            "Failed to sync rounded window region for '{}': {}",
+                            window.label(),
+                            error
+                        );
+                    }
+                }
+            }
+
             // 主窗口尺寸/位置变化时，记录到状态机用于区分程序化 resize 和用户操作。
             if window.label() == "main" {
                 match event {
