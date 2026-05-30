@@ -230,7 +230,7 @@ jobs:
               run: dotnet tool install --global vpk
 
             - name: Download release notes artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
                   path: ${{ runner.temp }}/release-notes
@@ -537,25 +537,25 @@ jobs:
                   cache: pnpm
 
             - name: Download release notes artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
                   path: ${{ runner.temp }}/release-notes
 
             - name: Download Windows release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-velopack-windows-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/windows
 
             - name: Download macOS release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-macos-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/macos
 
             - name: Download Linux release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-linux-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/linux
@@ -633,7 +633,7 @@ jobs:
                   cache: pnpm
 
             - name: Download update release feeds artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-update-dist
                   path: ${{ runner.temp }}/touchai-update-dist
