@@ -28,7 +28,7 @@ pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 
 /// 显示主搜索窗口并广播搜索窗口组已显示事件。
 pub fn show_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    surface::show_surface(&app, surface::SearchSurfaceShowSource::Shortcut)
+    surface::show_surface(&app, surface::SearchSurfaceShowSource::Notification)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

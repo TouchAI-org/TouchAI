@@ -62,6 +62,7 @@ export const zhToEnTextMap = {
         'This operation changes TouchAI application settings and affects future behavior immediately.',
     批准: 'Approve',
     拒绝: 'Reject',
+    打开: 'Open',
     批准执行: 'Approve execution',
     拒绝执行: 'Reject execution',
     设置已更新: 'Setting updated',
@@ -722,6 +723,11 @@ export const zhToEnTextMap = {
     'Anthropic 兼容': 'Anthropic compatible',
     阿里云百炼: 'Alibaba Cloud Bailian',
     智谱: 'Zhipu',
+    任务已完成: 'Task completed',
+    任务失败: 'Task failed',
+    任务正在等待批准: 'Task is waiting for approval',
+    '回复 TouchAI': 'Reply to TouchAI',
+    回复: 'Reply',
 } as const;
 
 export type SourceText = keyof typeof zhToEnTextMap;

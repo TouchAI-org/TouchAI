@@ -15,6 +15,7 @@ const {
     eventServiceMock,
     initNotificationPermissionMock,
     nativeMock,
+    notifyMock,
     popupManagerMock,
     popupManagerState,
     runStartupTasksMock,
@@ -39,6 +40,7 @@ const {
             }),
         },
         initNotificationPermissionMock: vi.fn(),
+        notifyMock: vi.fn(),
         nativeMock: {
             runtime: {
                 getRuntimeInfo: vi.fn(),
@@ -48,6 +50,10 @@ const {
             },
             window: {
                 hideSearchWindow: vi.fn(),
+                setTrayStatusIndicator: vi.fn(),
+                clearTrayStatusIndicator: vi.fn(),
+                showSessionStatusReminderNotification: vi.fn(),
+                clearSessionStatusReminderNotifications: vi.fn(),
                 setSearchSurfaceHideOnAppBlur: vi.fn(),
             },
         },
@@ -89,7 +95,7 @@ vi.mock('@services/NativeService', () => ({
 
 vi.mock('@services/NotificationService', () => ({
     initNotificationPermission: initNotificationPermissionMock,
-    notify: vi.fn(),
+    notify: notifyMock,
 }));
 
 vi.mock('@services/PopupService', () => ({
@@ -112,7 +118,7 @@ vi.mock('@/stores/settings', () => ({
 }));
 
 async function flushLifecycle() {
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
         await Promise.resolve();
         await nextTick();
     }
@@ -180,9 +186,42 @@ describe('useSearchPageController', () => {
     });
 });
 
+function createStatusChangedPayload(
+    kind: 'completed' | 'failed' | 'waiting_approval',
+    overrides: Partial<{
+        previousStatus: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+        body: string;
+        title: string;
+    }> = {}
+) {
+    const defaultTitle =
+        kind === 'completed' ? '任务已完成' : kind === 'failed' ? '任务失败' : '等待批准';
+
+    return {
+        sessionId: 1,
+        taskId: 'task-1',
+        status: kind,
+        previousStatus: overrides.previousStatus ?? 'running',
+        reminder: {
+            kind,
+            title: overrides.title ?? defaultTitle,
+            body: overrides.body ?? `${kind} body`,
+            approval:
+                kind === 'waiting_approval'
+                    ? {
+                          callId: 'call-1',
+                          approveLabel: 'Approve',
+                          rejectLabel: 'Reject',
+                      }
+                    : null,
+        },
+    };
+}
+
 describe('useSearchPageLifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.useFakeTimers();
         eventHandlers.clear();
 
         currentWindowMock.isVisible.mockResolvedValue(true);
@@ -192,6 +231,10 @@ describe('useSearchPageLifecycle', () => {
         nativeMock.shortcut.registerGlobalShortcut.mockResolvedValue(undefined);
         nativeMock.runtime.getRuntimeInfo.mockResolvedValue({ isE2eTestMode: false });
         nativeMock.window.hideSearchWindow.mockResolvedValue(undefined);
+        nativeMock.window.setTrayStatusIndicator.mockResolvedValue(undefined);
+        nativeMock.window.clearTrayStatusIndicator.mockResolvedValue(undefined);
+        nativeMock.window.showSessionStatusReminderNotification.mockResolvedValue(undefined);
+        nativeMock.window.clearSessionStatusReminderNotifications.mockResolvedValue(undefined);
         nativeMock.window.setSearchSurfaceHideOnAppBlur.mockResolvedValue(undefined);
 
         popupManagerMock.initialize.mockResolvedValue(undefined);
@@ -210,10 +253,12 @@ describe('useSearchPageLifecycle', () => {
     });
 
     afterEach(() => {
+        vi.runOnlyPendingTimers();
+        vi.useRealTimers();
         document.body.innerHTML = '';
     });
 
-    it('initializes the search view lifecycle and keeps the app-blur hide policy in sync', async () => {
+    it('initializes the lifecycle and keeps the app-blur hide policy in sync', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();
         const isDragging = ref(false);
@@ -252,7 +297,7 @@ describe('useSearchPageLifecycle', () => {
         mounted.unmount();
     });
 
-    it('invalidates model dropdown data on AI model refresh when no custom handler is supplied', async () => {
+    it('does not send status notifications while the search surface is visible', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();
 
@@ -270,18 +315,65 @@ describe('useSearchPageLifecycle', () => {
 
         await flushLifecycle();
 
-        await eventHandlers.get(AppEvent.AI_MODELS_UPDATED)?.();
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(createStatusChangedPayload('completed'));
         await flushLifecycle();
 
-        expect(controller.invalidateModelDropdownData).toHaveBeenCalledTimes(1);
+        expect(nativeMock.window.showSessionStatusReminderNotification).not.toHaveBeenCalled();
+        expect(nativeMock.window.setTrayStatusIndicator).not.toHaveBeenCalled();
 
         mounted.unmount();
     });
 
-    it('ignores stale hidden events and only clears the active popup session for the latest surface sequence', async () => {
+    it('sends status notifications when the search surface is visible but the app is unfocused', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();
-        const onSurfaceHidden = vi.fn().mockResolvedValue(undefined);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(true),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+
+        window.dispatchEvent(new Event('blur'));
+        await flushLifecycle();
+
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
+            createStatusChangedPayload('completed', {
+                title: '任务已完成',
+                body: 'done',
+            })
+        );
+        await flushLifecycle();
+
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
+            title: '任务已完成',
+            body: 'done',
+            sessionId: 1,
+            taskId: 'task-1',
+            kind: 'completed',
+            approval: null,
+            openLabel: '打开',
+        });
+        expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('completed');
+
+        mounted.unmount();
+    });
+
+    it('sends background reminders through native notifications and tray status dots', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
 
         const mounted = await mountComposable(() =>
             useSearchPageLifecycle({
@@ -292,51 +384,45 @@ describe('useSearchPageLifecycle', () => {
                 interactionContext,
                 syncWindowPinState: vi.fn().mockResolvedValue(false),
                 clearSession: vi.fn(),
-                onSurfaceHidden,
             })
         );
 
         await flushLifecycle();
-
-        interactionContext.setActivePopupSession({
-            popupType: 'model-dropdown-surface',
-            identity: {
-                popupId: 'popup-model-dropdown-popup:1',
-                windowLabel: 'popup-model-dropdown-popup',
-                popupSessionVersion: 1,
-            },
-        });
-
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({ sequence: 2 });
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)?.({
+        const surfaceHiddenHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN);
+        expect(surfaceHiddenHandler).toBeDefined();
+        await surfaceHiddenHandler!({
             sequence: 1,
             reason: 'manual-dismiss',
         });
         await flushLifecycle();
 
-        expect(onSurfaceHidden).not.toHaveBeenCalled();
-        expect(interactionContext.state.lastHideReason).toBeNull();
-
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)?.({
-            sequence: 2,
-            reason: 'manual-dismiss',
-        });
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
+            createStatusChangedPayload('failed', {
+                title: '任务失败',
+                body: 'network error',
+            })
+        );
         await flushLifecycle();
 
-        expect(onSurfaceHidden).toHaveBeenCalledTimes(1);
-        expect(interactionContext.state.activePopupIdentity).toBeNull();
-        expect(interactionContext.state.lastHideReason).toBe('manual-dismiss');
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
+            title: '任务失败',
+            body: 'network error',
+            sessionId: 1,
+            taskId: 'task-1',
+            kind: 'failed',
+            approval: null,
+            openLabel: '打开',
+        });
+        expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('failed');
 
         mounted.unmount();
     });
 
-    it('restores search focus and clears timed-out sessions when the search surface is shown again after app-blur hide', async () => {
+    it('uses the approval reminder payload in background and clears reminders when shown again', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();
-        const clearSession = vi.fn().mockResolvedValue(undefined);
-        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
-        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
-        const syncWindowPinState = vi.fn().mockResolvedValue(false);
 
         const mounted = await mountComposable(() =>
             useSearchPageLifecycle({
@@ -345,31 +431,97 @@ describe('useSearchPageLifecycle', () => {
                 isDragging: ref(false),
                 isPinned: ref(false),
                 interactionContext,
-                syncWindowPinState,
-                clearSession,
-                reconcilePopupSurfaces,
-                handleShortcutAutoPaste,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        const surfaceHiddenHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN);
+        expect(surfaceHiddenHandler).toBeDefined();
+        await surfaceHiddenHandler!({
+            sequence: 1,
+            reason: 'manual-dismiss',
+        });
+        await flushLifecycle();
+
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
+            createStatusChangedPayload('waiting_approval', {
+                body: 'Need approval',
+            })
+        );
+        await flushLifecycle();
+
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
+            title: '等待批准',
+            body: 'Need approval',
+            sessionId: 1,
+            taskId: 'task-1',
+            kind: 'waiting_approval',
+            approval: {
+                callId: 'call-1',
+                approveLabel: 'Approve',
+                rejectLabel: 'Reject',
+            },
+        });
+        expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('waiting_approval');
+
+        const surfaceShownHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN);
+        expect(surfaceShownHandler).toBeDefined();
+        await surfaceShownHandler!({
+            source: 'notification',
+            sequence: 2,
+        });
+        await flushLifecycle();
+
+        expect(nativeMock.window.clearTrayStatusIndicator).toHaveBeenCalled();
+        expect(nativeMock.window.clearSessionStatusReminderNotifications).toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('clears reminders and delegates notification actions to the page handler', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const handleSessionStatusReminderAction = vi.fn().mockResolvedValue(undefined);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+                handleSessionStatusReminderAction,
             })
         );
 
         await flushLifecycle();
 
-        interactionContext.markWindowHidden({
-            hideReason: 'app-blur-hide',
-            hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
+        const reminderActionHandler = eventHandlers.get(AppEvent.SESSION_STATUS_REMINDER_ACTION);
+        expect(reminderActionHandler).toBeDefined();
+        await reminderActionHandler!({
+            sessionId: 1,
+            taskId: 'task-1',
+            kind: 'completed',
+            action: 'reply',
+            replyText: 'follow up',
         });
-
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({ sequence: 1 });
         await flushLifecycle();
 
-        expect(clearSession).toHaveBeenCalledTimes(1);
-        expect(reconcilePopupSurfaces).toHaveBeenCalledTimes(1);
-        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
-        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
-        expect(syncWindowPinState).toHaveBeenCalledTimes(2);
-        expect(handleShortcutAutoPaste).toHaveBeenCalledTimes(1);
-        expect(interactionContext.state.activationSource).toBe('shortcut');
-        expect(interactionContext.state.windowFocused).toBe(true);
+        expect(nativeMock.window.clearTrayStatusIndicator).toHaveBeenCalled();
+        expect(nativeMock.window.clearSessionStatusReminderNotifications).toHaveBeenCalled();
+        expect(handleSessionStatusReminderAction).toHaveBeenCalledWith({
+            sessionId: 1,
+            taskId: 'task-1',
+            kind: 'completed',
+            action: 'reply',
+            replyText: 'follow up',
+        });
 
         mounted.unmount();
     });

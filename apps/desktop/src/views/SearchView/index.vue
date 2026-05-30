@@ -2,6 +2,7 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { useSessionStatus } from '@composables/useSessionStatus';
+    import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
     import type { QuickShortcutItem } from '@services/NativeService';
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
@@ -407,6 +408,7 @@
                 await handleToggleModelDropdownRequest();
             }
         },
+        handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste: tryShortcutAutoPaste,
     });
@@ -868,6 +870,56 @@
             });
 
             await controller.focusSearchInput();
+        }
+    }
+
+    async function submitStatusReminderReply(replyText: string) {
+        const normalizedReply = replyText.trim();
+        if (!normalizedReply) {
+            return;
+        }
+
+        const replySnapshot = createInputHistorySnapshot({
+            text: normalizedReply,
+            attachments: [],
+        });
+        await handleSubmit(normalizedReply, replySnapshot);
+    }
+
+    async function handleSessionStatusReminderAction(payload: SessionStatusReminderActionEvent) {
+        controller.closeQuickSearch();
+        await hideAllPopups();
+
+        const requiresSessionOpen =
+            currentSessionId.value !== payload.sessionId ||
+            (payload.callId && pendingToolApproval.value?.callId !== payload.callId);
+
+        if (requiresSessionOpen) {
+            await handleOpenSession(payload.sessionId);
+        }
+
+        if (currentSessionId.value !== payload.sessionId) {
+            return;
+        }
+
+        if (payload.action === 'approve') {
+            approvePendingToolApproval(payload.callId ?? undefined);
+            return;
+        }
+
+        if (payload.action === 'reject') {
+            rejectPendingToolApproval(payload.callId ?? undefined);
+            return;
+        }
+
+        if (payload.action === 'reply') {
+            await submitStatusReminderReply(payload.replyText ?? '');
+            return;
+        }
+
+        conversationPanel.value?.revealLatestContent();
+        if (payload.kind === 'waiting_approval') {
+            promptPendingToolApprovalAttention();
         }
     }
 

@@ -21,6 +21,10 @@ pub fn invoke_handler<R: tauri::Runtime>(
     tauri::generate_handler![
         window::hide_search_window,
         window::show_search_window,
+        window::set_tray_status_indicator,
+        window::clear_tray_status_indicator,
+        window::show_session_status_reminder_notification,
+        window::clear_session_status_reminder_notifications,
         window::set_search_surface_hide_on_app_blur,
         window::set_search_window_allow_height_override,
         window::show_popup_window,

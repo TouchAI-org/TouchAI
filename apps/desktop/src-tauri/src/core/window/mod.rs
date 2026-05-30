@@ -8,6 +8,7 @@ pub mod popup;
 pub mod resize;
 pub mod search;
 pub mod settings;
+pub mod status_reminder;
 pub mod tray;
 pub(crate) mod webview_defaults;
 

@@ -7,7 +7,9 @@ import type {
     SearchWindowDefaultSize,
     SearchWindowMinimumSize,
     SearchWindowState,
+    SessionStatusReminderNotificationPayload,
     ShowPopupWindowParams,
+    TrayStatusIndicator,
 } from './types';
 
 export const window = {
@@ -17,6 +19,24 @@ export const window = {
 
     showSearchWindow(): Promise<void> {
         return invoke('show_search_window');
+    },
+
+    setTrayStatusIndicator(status: TrayStatusIndicator): Promise<void> {
+        return invoke('set_tray_status_indicator', { status });
+    },
+
+    clearTrayStatusIndicator(): Promise<void> {
+        return invoke('clear_tray_status_indicator');
+    },
+
+    showSessionStatusReminderNotification(
+        payload: SessionStatusReminderNotificationPayload
+    ): Promise<void> {
+        return invoke('show_session_status_reminder_notification', { payload });
+    },
+
+    clearSessionStatusReminderNotifications(): Promise<void> {
+        return invoke('clear_session_status_reminder_notifications');
     },
 
     openSettingsWindow(): Promise<void> {
