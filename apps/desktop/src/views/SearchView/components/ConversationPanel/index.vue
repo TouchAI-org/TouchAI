@@ -4,22 +4,6 @@
 
 <template>
     <div class="relative w-full" :class="props.fillAvailableHeight ? 'h-full min-h-0' : ''">
-        <ConversationToolbar
-            ref="conversationToolbar"
-            :is-pinned="isPinned"
-            :is-maximized="isMaximized"
-            :can-pin="messages.length > 0"
-            :disabled="toolbarDisabled"
-            :history-open="historyOpen"
-            @pin-change="emit('pinChange', $event)"
-            @maximize-toggle="emit('maximizeToggle')"
-            @new-session="emit('newSession')"
-            @history-open-change="emit('historyOpenChange', $event)"
-            @history-prefetch="emit('historyPrefetch', $event)"
-            @wheel="scrollByDelta"
-            @drag-start="emit('dragStart')"
-            @drag-end="emit('dragEnd')"
-        />
         <div
             ref="conversationContainer"
             tabindex="0"
@@ -80,7 +64,6 @@
     import type { SessionMessage } from '@/types/session';
 
     import ConversationTimeline from './components/ConversationTimeline.vue';
-    import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
 
     defineOptions({
@@ -119,9 +102,6 @@
     }>();
 
     const conversationContainer = ref<HTMLElement | null>(null);
-    const conversationToolbar = ref<{
-        getHistoryAnchor: () => HTMLElement | null;
-    } | null>(null);
     const messageListRef = ref<HTMLElement | null>(null);
     const settingsStore = useSettingsStore();
     const { outputScrollBehavior } = storeToRefs(settingsStore);
@@ -177,7 +157,7 @@
     }
 
     function getHistoryAnchor() {
-        return conversationToolbar.value?.getHistoryAnchor() ?? null;
+        return null;
     }
 
     function isLatestContentVisible() {
@@ -193,6 +173,11 @@
     });
 
     function emitLatestContentVisibility() {
+        // 如果容器已经被隐藏，则不应该触发可见性变化事件，保持原有状态即可
+        // 这样可以防止窗口隐藏瞬间，因 clientHeight=0 导致的 `isLatestContentVisible()` 结果突变为 false 并触发 emit
+        if (!conversationContainer.value || conversationContainer.value.clientHeight === 0) {
+            return;
+        }
         emit('latestContentVisibilityChange', isLatestContentVisible());
     }
 
@@ -221,8 +206,14 @@
 
     // 检查是否滚动到底部
     function isScrolledToBottom(container: HTMLElement | null): boolean {
-        if (!container) return true;
+        if (!container) return false;
         const { scrollTop, scrollHeight, clientHeight } = container;
+
+        // 当容器被隐藏或无高度时，不可能看到底部
+        if (clientHeight === 0 || scrollHeight === 0) {
+            return false;
+        }
+
         // 允许 5px 的误差
         return scrollHeight - scrollTop - clientHeight < 5;
     }
@@ -275,6 +266,7 @@
         }
 
         lastScrollTop.value = currentScrollTop;
+
         emitLatestContentVisibility();
     }
 
@@ -283,6 +275,7 @@
         lastAutoScrollAt.value = Date.now();
         conversationContainer.value.scrollTop = conversationContainer.value.scrollHeight;
         lastScrollTop.value = conversationContainer.value.scrollTop;
+
         emitLatestContentVisibility();
     }
 
@@ -294,6 +287,7 @@
             behavior: 'smooth',
         });
         lastScrollTop.value = conversationContainer.value.scrollTop;
+
         emitLatestContentVisibility();
     }
 
@@ -308,6 +302,7 @@
 
         const atBottom = isScrolledToBottom(conversationContainer.value);
         showScrollToBottom.value = hasScrollbar() && !atBottom;
+
         emitLatestContentVisibility();
     }
 
