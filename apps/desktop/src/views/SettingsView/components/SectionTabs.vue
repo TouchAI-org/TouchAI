@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts" generic="T extends string">
     export interface SectionTabItem<TValue extends string = string> {
@@ -28,7 +28,7 @@
 
 <template>
     <div
-        class="border-b border-gray-200 bg-white px-6"
+        class="border-b border-neutral-200/80 bg-white/80 px-8"
         style="padding-bottom: 1px; padding-top: 1px"
     >
         <div class="flex gap-6">
@@ -37,10 +37,10 @@
                 :key="tab.value"
                 type="button"
                 :class="[
-                    'border-b-2 px-1 py-4 font-serif text-sm font-medium transition-colors',
+                    'border-b-2 px-1 py-4 text-sm font-medium transition-colors',
                     modelValue === tab.value
-                        ? 'border-primary-600 text-primary-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700',
+                        ? 'border-neutral-950 text-neutral-950'
+                        : 'border-transparent text-neutral-500 hover:text-neutral-800',
                 ]"
                 @click="handleSelect(tab.value)"
             >

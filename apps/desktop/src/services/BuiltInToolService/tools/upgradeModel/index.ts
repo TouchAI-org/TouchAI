@@ -3,6 +3,7 @@
 import { findModelByProviderAndModelId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
 
+import { tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 
 import {
@@ -70,7 +71,7 @@ function selectUpgradeTarget(
     chainTargets: ResolvedUpgradeTarget[]
 ): ResolvedUpgradeTarget {
     if (chainTargets.length === 0) {
-        throw new Error('请先在 UpgradeModel 配置中设置模型升级链。');
+        throw new Error(tt('请先在 UpgradeModel 配置中设置模型升级链。'));
     }
 
     if (!currentModel) {
@@ -90,7 +91,7 @@ function selectUpgradeTarget(
     if (currentIndex >= 0) {
         const nextTarget = chainTargets[currentIndex + 1];
         if (!nextTarget) {
-            throw new Error('当前模型已经位于升级链末尾，没有更高一级模型可用。');
+            throw new Error(tt('当前模型已经位于升级链末尾，没有更高一级模型可用。'));
         }
 
         return nextTarget;
@@ -104,7 +105,7 @@ function selectUpgradeTarget(
             target.model.model_id !== currentModel.model_id
     );
     if (!firstDifferentTarget) {
-        throw new Error('升级链中没有比当前模型不同的可用模型。');
+        throw new Error(tt('升级链中没有比当前模型不同的可用模型。'));
     }
 
     return firstDifferentTarget;
@@ -157,14 +158,17 @@ export async function buildUpgradeModelApprovalRequest(
         // 审批阶段只负责把即将发生的模型切换说清楚。
         // 真正的切换由 execute 返回 controlSignal 后再由上层统一落地，避免审批阶段产生副作用。
         return {
-            title: '模型切换确认',
-            description: `允许从 ${formatCurrentModelLabel(context.currentModel)} 切换到 ${formatCurrentModelLabel(target.model)}`,
+            title: tt('模型切换确认'),
+            description: tt('允许从 {currentModel} 切换到 {targetModel}', {
+                currentModel: formatCurrentModelLabel(context.currentModel),
+                targetModel: formatCurrentModelLabel(target.model),
+            }),
             command: `${formatCurrentModelLabel(context.currentModel)} -> ${formatCurrentModelLabel(target.model)}`,
             riskLabel: '',
-            reason: '这会修改当前问答后续使用的模型，并同步影响后续默认模型。',
+            reason: tt('这会修改当前问答后续使用的模型，并同步影响后续默认模型。'),
             commandLabel: '',
-            approveLabel: '批准',
-            rejectLabel: '拒绝',
+            approveLabel: tt('批准'),
+            rejectLabel: tt('拒绝'),
             enterHint: 'Enter',
             escHint: 'Esc',
             keyboardApproveDelayMs: 450,
@@ -212,10 +216,10 @@ export async function executeUpgradeModelTool(
         const errorMessage = error instanceof Error ? error.message : String(error);
         return {
             result: [
-                '模型升级失败',
-                `当前模型: ${formatCurrentModelLabel(context.currentModel)}`,
-                `升级链: ${formatUpgradeModelChain(config.chain)}`,
-                `原因: ${errorMessage}`,
+                tt('模型升级失败'),
+                `${tt('当前模型')}: ${formatCurrentModelLabel(context.currentModel)}`,
+                `${tt('升级链')}: ${formatUpgradeModelChain(config.chain)}`,
+                `${tt('原因')}: ${errorMessage}`,
             ].join('\n'),
             isError: true,
             status: 'error',
@@ -240,7 +244,7 @@ class UpgradeModelTool extends BuiltInTool<UpgradeModelToolConfig> {
 
     override buildConversationSemantic(args: Record<string, unknown>) {
         void args;
-        return buildUpgradeConversationSemantic('高一级模型');
+        return buildUpgradeConversationSemantic(tt('高一级模型'));
     }
 
     override async buildConversationSemanticWithContext(

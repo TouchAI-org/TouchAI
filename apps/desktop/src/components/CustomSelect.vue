@@ -11,6 +11,8 @@
     import type { AcceptableValue } from 'reka-ui';
     import { computed, ref } from 'vue';
 
+    import { type MessageKey, t, tt } from '@/i18n';
+
     interface Option {
         label: string;
         value: T;
@@ -22,7 +24,9 @@
         modelValue: T;
         options: Option[];
         placeholder?: string;
+        placeholderKey?: MessageKey;
         disabled?: boolean;
+        protectOptionText?: boolean;
     }
 
     interface Emits {
@@ -30,8 +34,9 @@
     }
 
     const props = withDefaults(defineProps<Props>(), {
-        placeholder: '请选择',
+        placeholder: '',
         disabled: false,
+        protectOptionText: false,
     });
 
     const emit = defineEmits<Emits>();
@@ -40,6 +45,13 @@
 
     const selectedOption = computed(() => {
         return props.options.find((opt) => opt.value === props.modelValue);
+    });
+
+    const resolvedPlaceholder = computed(() => {
+        if (props.placeholderKey) {
+            return t(props.placeholderKey);
+        }
+        return props.placeholder ? tt(props.placeholder) : t('common.selectPlaceholder');
     });
 
     const selectOption = (value: T) => {
@@ -62,11 +74,11 @@
         @update:open="isOpen = $event"
     >
         <SelectTrigger
-            class="w-full rounded-lg border px-3 py-2 text-left font-serif text-sm transition-colors"
+            class="w-full rounded-[10px] border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors"
             :class="{
-                'border-gray-200 bg-white text-gray-900 hover:border-gray-300': !disabled,
-                'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-400': disabled,
-                'border-primary-400': isOpen,
+                'border-transparent bg-[#f0f0ef] text-gray-900 hover:bg-[#ececea]': !disabled,
+                'cursor-not-allowed border-transparent bg-gray-50 text-gray-400': disabled,
+                'border-primary-300 bg-white': isOpen,
             }"
             :icon-class="isOpen ? 'rotate-180' : ''"
             :disabled="disabled"
@@ -78,15 +90,23 @@
                         :src="selectedOption.iconSrc"
                         :alt="selectedOption.label"
                         class="h-4 w-4 shrink-0 rounded-sm object-contain"
+                        :data-no-i18n="protectOptionText ? 'true' : undefined"
+                        :translate="protectOptionText ? 'no' : undefined"
                     />
-                    <span class="line-clamp-1">{{ selectedOption.label }}</span>
+                    <span
+                        class="line-clamp-1"
+                        :data-no-i18n="protectOptionText ? 'true' : undefined"
+                        :translate="protectOptionText ? 'no' : undefined"
+                    >
+                        {{ selectedOption.label }}
+                    </span>
                 </div>
             </template>
-            <SelectValue v-else :placeholder="placeholder" />
+            <SelectValue v-else :placeholder="resolvedPlaceholder" />
         </SelectTrigger>
 
         <SelectContent
-            class="w-[var(--reka-select-trigger-width)] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+            class="w-[var(--reka-select-trigger-width)] rounded-[10px] border border-gray-200 bg-white py-1 shadow-lg"
         >
             <SelectItem
                 v-for="option in options"
@@ -104,10 +124,23 @@
                         :src="option.iconSrc"
                         :alt="option.label"
                         class="h-4 w-4 shrink-0 rounded-sm object-contain"
+                        :data-no-i18n="protectOptionText ? 'true' : undefined"
+                        :translate="protectOptionText ? 'no' : undefined"
                     />
-                    <div class="min-w-0">
-                        <span class="block font-serif font-medium">{{ option.label }}</span>
-                        <span v-if="option.description" class="mt-0.5 block text-xs text-gray-400">
+                    <div class="min-w-0 flex-1">
+                        <span
+                            class="block truncate font-serif font-medium"
+                            :data-no-i18n="protectOptionText ? 'true' : undefined"
+                            :translate="protectOptionText ? 'no' : undefined"
+                        >
+                            {{ option.label }}
+                        </span>
+                        <span
+                            v-if="option.description"
+                            class="mt-0.5 block truncate text-xs text-gray-400"
+                            :data-no-i18n="protectOptionText ? 'true' : undefined"
+                            :translate="protectOptionText ? 'no' : undefined"
+                        >
                             {{ option.description }}
                         </span>
                     </div>

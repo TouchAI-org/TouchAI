@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -6,7 +6,13 @@
     import { useListFilter } from '@composables/useListFilter';
     import { onMounted, ref, watch } from 'vue';
 
-    import { getToolLogStatusText } from '../../common/toolLogStatus';
+    import { t } from '@/i18n';
+    import { formatDateTime } from '@/i18n/format';
+
+    import {
+        getBuiltInToolApprovalStateText,
+        getToolLogStatusText,
+    } from '../../common/toolLogStatus';
     import ToolLogStatusBadge from '../../common/ToolLogStatusBadge.vue';
     import {
         type BuiltInToolEntity,
@@ -38,7 +44,7 @@
     });
 
     function formatDate(value: string) {
-        return new Date(value).toLocaleString('zh-CN');
+        return formatDateTime(value);
     }
 
     async function loadLogs() {
@@ -100,8 +106,8 @@
 </script>
 
 <template>
-    <div class="p-6">
-        <div class="mx-auto max-w-6xl">
+    <div class="settings-page-wide">
+        <div>
             <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
                 <div class="flex flex-wrap gap-2">
                     <button
@@ -117,14 +123,14 @@
                         :key="status"
                         type="button"
                         :class="[
-                            'rounded-lg px-3 py-1.5 font-serif text-sm transition-colors',
+                            'rounded-[10px] px-3 py-1.5 text-sm transition-colors',
                             filterStatus === status
-                                ? 'bg-primary-600 text-white'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+                                ? 'bg-[#e9e9e7] text-neutral-950'
+                                : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
                         ]"
                         @click="filterStatus = status"
                     >
-                        {{ status === 'all' ? '全部' : getToolLogStatusText(status) }}
+                        {{ status === 'all' ? t('common.all') : getToolLogStatusText(status) }}
                     </button>
                 </div>
 
@@ -132,27 +138,27 @@
                     <input
                         v-model="searchQuery"
                         type="text"
-                        placeholder="搜索日志..."
-                        class="focus:border-primary-400 w-full rounded-lg border border-gray-200 py-1.5 pr-3 pl-9 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
+                        :placeholder="t('toolLog.searchPlaceholder')"
+                        class="settings-input w-full py-1.5 pr-3 pl-9"
                     />
                     <AppIcon
                         name="search"
-                        class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400"
+                        class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400"
                     />
                 </div>
             </div>
 
             <div v-if="loading" class="space-y-2">
-                <div v-for="i in 5" :key="i" class="h-16 animate-pulse rounded-lg bg-gray-100" />
+                <div v-for="i in 5" :key="i" class="h-16 animate-pulse rounded-lg bg-neutral-100" />
             </div>
 
             <div v-else-if="filteredLogs.length === 0" class="py-12 text-center">
-                <AppIcon name="document-text" class="mx-auto h-16 w-16 text-gray-300" />
-                <p class="mt-4 font-serif text-sm text-gray-500">
-                    {{ searchQuery ? '未找到匹配的日志' : '暂无日志' }}
+                <AppIcon name="document-text" class="mx-auto h-16 w-16 text-neutral-300" />
+                <p class="mt-4 text-sm text-neutral-500">
+                    {{ searchQuery ? t('toolLog.noMatches') : t('toolLog.empty') }}
                 </p>
-                <p v-if="searchQuery" class="mt-1 font-serif text-xs text-gray-400">
-                    尝试其他搜索关键词
+                <p v-if="searchQuery" class="mt-1 text-xs text-neutral-400">
+                    {{ t('toolLog.tryAnotherKeyword') }}
                 </p>
             </div>
 
@@ -160,29 +166,37 @@
                 <div
                     v-for="log in filteredLogs"
                     :key="log.id"
-                    class="rounded-lg border border-gray-200 bg-white"
+                    class="overflow-hidden rounded-[13px] border border-neutral-200/70 bg-white"
                 >
                     <button
                         type="button"
-                        class="w-full p-4 text-left transition-colors hover:bg-gray-50"
+                        class="w-full p-4 text-left transition-colors hover:bg-neutral-50/70"
                         @click="toggleExpand(log.id)"
                     >
                         <div class="flex items-start justify-between">
                             <div class="min-w-0 flex-1">
                                 <div class="flex flex-wrap items-center gap-2">
-                                    <span class="font-serif text-base font-medium text-gray-900">
+                                    <span
+                                        class="text-[15px] font-normal text-neutral-950"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
                                         {{ props.tool.display_name }}
                                     </span>
                                     <ToolLogStatusBadge :status="log.status" />
-                                    <span class="font-serif text-xs text-gray-500">
-                                        迭代 {{ log.iteration }}
+                                    <span class="text-xs text-neutral-500">
+                                        {{ t('toolLog.iteration') }} {{ log.iteration }}
                                     </span>
                                 </div>
                                 <div
-                                    class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 font-serif text-xs text-gray-500"
+                                    class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500"
                                 >
-                                    <span>{{ formatDate(log.created_at) }}</span>
-                                    <span v-if="log.duration_ms">{{ log.duration_ms }}ms</span>
+                                    <span data-no-i18n="true" translate="no">
+                                        {{ formatDate(log.created_at) }}
+                                    </span>
+                                    <span v-if="log.duration_ms" data-no-i18n="true" translate="no">
+                                        {{ log.duration_ms }}ms
+                                    </span>
                                 </div>
                             </div>
 
@@ -190,8 +204,8 @@
                                 name="chevron-right"
                                 :class="
                                     expandedLogs.has(log.id)
-                                        ? 'ml-4 h-5 w-5 flex-shrink-0 rotate-90 text-gray-400 transition-transform'
-                                        : 'ml-4 h-5 w-5 flex-shrink-0 text-gray-400 transition-transform'
+                                        ? 'ml-4 h-5 w-5 flex-shrink-0 rotate-90 text-neutral-400 transition-transform'
+                                        : 'ml-4 h-5 w-5 flex-shrink-0 text-neutral-400 transition-transform'
                                 "
                             />
                         </div>
@@ -199,7 +213,7 @@
 
                     <div
                         v-if="expandedLogs.has(log.id)"
-                        class="border-t border-gray-200 bg-gray-50 p-4"
+                        class="border-t border-neutral-200/70 bg-neutral-50/70 p-4"
                     >
                         <ToolLogContent
                             :input="log.input"
@@ -209,13 +223,21 @@
                         />
 
                         <div
-                            class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-200 pt-3 font-mono text-xs text-gray-500"
+                            class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-200 pt-3 font-mono text-xs break-words text-neutral-500"
+                            data-testid="built-in-tool-log-detail-metadata"
                         >
-                            <span>Call ID: {{ log.tool_call_id }}</span>
-                            <span v-if="log.session_id">Session: {{ log.session_id }}</span>
-                            <span v-if="log.message_id">Message: {{ log.message_id }}</span>
-                            <span v-if="log.approval_state">
-                                Approval: {{ log.approval_state }}
+                            <span data-no-i18n="true" translate="no">
+                                {{ t('toolLog.callIdLabel') }} {{ log.tool_call_id }}
+                            </span>
+                            <span v-if="log.session_id" data-no-i18n="true" translate="no">
+                                {{ t('toolLog.sessionLabel') }} {{ log.session_id }}
+                            </span>
+                            <span v-if="log.message_id" data-no-i18n="true" translate="no">
+                                {{ t('toolLog.messageLabel') }} {{ log.message_id }}
+                            </span>
+                            <span v-if="getBuiltInToolApprovalStateText(log.approval_state)">
+                                {{ t('toolLog.approvalLabel') }}
+                                {{ getBuiltInToolApprovalStateText(log.approval_state) }}
                             </span>
                         </div>
                     </div>
@@ -225,10 +247,10 @@
                     <button
                         type="button"
                         :disabled="loadingMore"
-                        class="rounded-lg bg-gray-100 px-4 py-2 font-serif text-sm text-gray-600 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        class="settings-button-secondary"
                         @click="loadMore"
                     >
-                        {{ loadingMore ? '加载中...' : '加载更多' }}
+                        {{ loadingMore ? t('common.loading') : t('common.loadMore') }}
                     </button>
                 </div>
             </div>

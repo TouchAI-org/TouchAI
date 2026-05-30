@@ -2,6 +2,8 @@ import type { Component } from 'vue';
 
 import IconBrain from '~icons/bx/brain';
 import IconBriefcase from '~icons/bx/briefcase-alt-2';
+import IconBug from '~icons/bx/bug-alt';
+import IconGithub from '~icons/bx/bxl-github';
 import IconCheckCircle from '~icons/bx/check-circle';
 import IconChevronDown from '~icons/bx/chevron-down';
 import IconChevronRight from '~icons/bx/chevron-right';
@@ -22,6 +24,7 @@ import IconHide from '~icons/bx/hide';
 import IconHistory from '~icons/bx/history';
 import IconInfoCircle from '~icons/bx/info-circle';
 import IconLeaf from '~icons/bx/leaf';
+import IconLinkExternal from '~icons/bx/link-external';
 import IconMenu from '~icons/bx/menu';
 import IconMinus from '~icons/bx/minus';
 import IconPin from '~icons/bx/pin';
@@ -56,12 +59,14 @@ export const appIconMap = {
     file: IconFile,
     'folder-open': IconFolderOpen,
     fullscreen: IconFullscreen,
+    github: IconGithub,
     'grid-alt': IconGridAlt,
     history: IconHistory,
     'list-ul': IconMenu,
     'information-circle': IconInfoCircle,
     llm: IconBrain,
     leaf: IconLeaf,
+    'external-link': IconLinkExternal,
     mcp: IconPlug,
     minimize: IconMinus,
     pin: IconPin,
@@ -73,6 +78,7 @@ export const appIconMap = {
     stop: IconStop,
     tool: IconBriefcase,
     trash: IconTrash,
+    bug: IconBug,
     wrench: IconWrench,
     x: IconX,
     'x-circle': IconXCircle,

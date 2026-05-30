@@ -3,6 +3,8 @@
 import { native } from '@services/NativeService';
 import { open, save } from '@tauri-apps/plugin-dialog';
 
+import { t } from '@/i18n';
+
 export type ImportMode = 'chat_only' | 'full';
 
 export enum DatabaseVersionStatus {
@@ -23,6 +25,26 @@ export interface ProgressCallback {
     (message: string, progress: number): void;
 }
 
+export class DatabaseBackupCancelledError extends Error {
+    readonly code = 'DATABASE_BACKUP_CANCELLED';
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'DatabaseBackupCancelledError';
+    }
+}
+
+export function isDatabaseBackupCancelledError(
+    error: unknown
+): error is DatabaseBackupCancelledError {
+    return (
+        error instanceof DatabaseBackupCancelledError ||
+        (typeof error === 'object' &&
+            error !== null &&
+            (error as { code?: unknown }).code === 'DATABASE_BACKUP_CANCELLED')
+    );
+}
+
 /**
  * 数据库备份服务。
  *
@@ -37,20 +59,20 @@ class DatabaseBackupService {
             defaultPath: this.buildBackupFileName(),
             filters: [
                 {
-                    name: '数据库备份文件',
+                    name: t('database.backup.dialog.filterName'),
                     extensions: ['db'],
                 },
             ],
-            title: '导出设置备份',
+            title: t('database.backup.dialog.exportTitle'),
         });
 
         if (!exportPath) {
-            throw new Error('已取消导出');
+            throw new DatabaseBackupCancelledError(t('database.backup.exportCancelled'));
         }
 
-        onProgress?.('正在导出数据库...', 30);
+        onProgress?.(t('database.backup.exporting'), 30);
         await native.database.exportBackup(exportPath);
-        onProgress?.('导出完成', 100);
+        onProgress?.(t('database.backup.exportComplete'), 100);
 
         return exportPath;
     }
@@ -62,11 +84,11 @@ class DatabaseBackupService {
         const sourcePath = await open({
             filters: [
                 {
-                    name: '数据库备份文件',
+                    name: t('database.backup.dialog.filterName'),
                     extensions: ['db'],
                 },
             ],
-            title: '导入设置备份',
+            title: t('database.backup.dialog.importTitle'),
             multiple: false,
             directory: false,
         });
@@ -81,12 +103,12 @@ class DatabaseBackupService {
             };
         }
 
-        onProgress?.('正在导入数据库...', 30);
+        onProgress?.(t('database.backup.importing'), 30);
         await native.database.importBackup({
             sourcePath,
             mode,
         });
-        onProgress?.('导入完成', 100);
+        onProgress?.(t('database.backup.importComplete'), 100);
 
         return {
             sourcePath,

@@ -117,9 +117,13 @@
         height: 100%;
     }
 
+    #app {
+        border: 1.5px solid var(--color-gray-300);
+    }
+
     body {
         overflow: hidden;
-        background: transparent;
+        background: var(--color-background-primary);
         font-family: var(--font-sans), system-ui;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
@@ -149,9 +153,152 @@
         -moz-user-select: text;
         -ms-user-select: text;
     }
+
+    *::-webkit-scrollbar-button,
+    *::-webkit-scrollbar-button:single-button,
+    *::-webkit-scrollbar-button:double-button,
+    *::-webkit-scrollbar-button:no-button,
+    *::-webkit-scrollbar-button:decrement,
+    *::-webkit-scrollbar-button:increment,
+    *::-webkit-scrollbar-button:start,
+    *::-webkit-scrollbar-button:end,
+    *::-webkit-scrollbar-button:start:decrement,
+    *::-webkit-scrollbar-button:start:increment,
+    *::-webkit-scrollbar-button:end:decrement,
+    *::-webkit-scrollbar-button:end:increment,
+    *::-webkit-scrollbar-button:vertical:decrement,
+    *::-webkit-scrollbar-button:vertical:increment,
+    *::-webkit-scrollbar-button:vertical:start,
+    *::-webkit-scrollbar-button:vertical:end,
+    *::-webkit-scrollbar-button:vertical:start:decrement,
+    *::-webkit-scrollbar-button:vertical:start:increment,
+    *::-webkit-scrollbar-button:vertical:end:decrement,
+    *::-webkit-scrollbar-button:vertical:end:increment,
+    *::-webkit-scrollbar-button:horizontal:decrement,
+    *::-webkit-scrollbar-button:horizontal:increment,
+    *::-webkit-scrollbar-button:horizontal:start,
+    *::-webkit-scrollbar-button:horizontal:end,
+    *::-webkit-scrollbar-button:horizontal:start:decrement,
+    *::-webkit-scrollbar-button:horizontal:start:increment,
+    *::-webkit-scrollbar-button:horizontal:end:decrement,
+    *::-webkit-scrollbar-button:horizontal:end:increment {
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
+        color: transparent !important;
+    }
+
+    *::-webkit-scrollbar-corner {
+        background: transparent !important;
+    }
+
+    *::-webkit-scrollbar-button {
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
+        color: transparent !important;
+    }
 }
 
 @layer components {
+    .settings-page {
+        @apply mr-14 ml-20 max-w-[1000px] min-w-0 px-0 pt-[112px] pb-12;
+    }
+
+    .settings-page-wide {
+        @apply w-full min-w-0 px-6 pt-6 pb-7;
+    }
+
+    .settings-section-stack {
+        @apply space-y-12;
+    }
+
+    .settings-page-header {
+        @apply mb-14 max-w-2xl;
+    }
+
+    .settings-page-title {
+        @apply text-[20px] leading-7 font-medium text-neutral-950;
+    }
+
+    .settings-section-title {
+        @apply text-[15px] leading-6 font-medium text-neutral-950;
+    }
+
+    .settings-section-description {
+        @apply mt-1.5 text-[12.5px] leading-6 text-neutral-500;
+    }
+
+    .settings-card {
+        @apply rounded-[11px] border border-neutral-200/80 bg-white p-4 shadow-none;
+    }
+
+    .settings-row-group {
+        @apply overflow-hidden rounded-[11px] border border-neutral-200/80 bg-white shadow-none;
+    }
+
+    .settings-input {
+        @apply focus:border-primary-300 rounded-[10px] border border-transparent bg-[#f0f0ef] px-3 py-2 text-[13px] text-neutral-900 shadow-none transition-colors hover:bg-[#ececea] focus:bg-white focus:shadow-none focus:outline-none;
+        box-shadow: none;
+    }
+
+    .settings-input:focus {
+        box-shadow: none;
+    }
+
+    .settings-side-panel {
+        @apply relative flex h-full shrink-0 flex-col border-r border-neutral-200/70 bg-[#f6f6f4];
+    }
+
+    .settings-side-panel-footer {
+        @apply p-3.5;
+    }
+
+    .settings-side-panel-resizer {
+        @apply absolute top-0 h-full w-1.5 cursor-col-resize transition-colors hover:bg-neutral-300/50;
+        right: -3px;
+    }
+
+    .settings-button-primary {
+        @apply bg-primary-700 hover:bg-primary-600 rounded-[9px] px-3.5 py-1.5 text-[12px] font-medium text-white shadow-none transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .settings-button-secondary {
+        @apply rounded-[9px] border border-neutral-200/80 bg-white px-3.5 py-1.5 text-[12px] font-medium text-neutral-700 shadow-none transition-colors hover:border-neutral-300/80 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .settings-button-danger {
+        @apply rounded-[9px] bg-red-600 px-3.5 py-1.5 text-[12px] font-medium text-white shadow-none transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .settings-icon-button {
+        @apply flex h-8 w-8 items-center justify-center rounded-[9px] text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700;
+    }
+
+    .settings-item-selected {
+        @apply border-transparent bg-[#e9e9e7] shadow-none;
+    }
+
+    .settings-item-unselected {
+        @apply border-transparent bg-transparent hover:border-transparent hover:bg-[#f1f1ef];
+    }
+
+    .settings-toggle-enabled {
+        @apply bg-primary-700;
+    }
+
     /* 全局滚动条样式 */
     .custom-scrollbar::-webkit-scrollbar {
         width: 6px;
@@ -173,11 +320,58 @@
     }
 
     .custom-scrollbar::-webkit-scrollbar-button,
-    .custom-scrollbar::-webkit-scrollbar-button:single-button {
-        display: none;
-        width: 0;
-        height: 0;
+    .custom-scrollbar::-webkit-scrollbar-button:single-button,
+    .custom-scrollbar::-webkit-scrollbar-button:start:decrement,
+    .custom-scrollbar::-webkit-scrollbar-button:end:increment,
+    .custom-scrollbar::-webkit-scrollbar-button:vertical:start:decrement,
+    .custom-scrollbar::-webkit-scrollbar-button:vertical:end:increment,
+    .custom-scrollbar::-webkit-scrollbar-button:horizontal:start:decrement,
+    .custom-scrollbar::-webkit-scrollbar-button:horizontal:end:increment {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
+    }
+
+    .settings-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .settings-scrollbar::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+
+    .settings-scrollbar::-webkit-scrollbar-track {
         background: transparent;
+        margin-block: 12px;
+    }
+
+    .settings-scrollbar::-webkit-scrollbar-thumb {
+        background: var(--color-scrollbar-thumb);
+        border-radius: 2px;
+    }
+
+    .settings-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: var(--color-scrollbar-thumb-hover);
+    }
+
+    .settings-scrollbar::-webkit-scrollbar-button,
+    .settings-scrollbar::-webkit-scrollbar-button:single-button,
+    .settings-scrollbar::-webkit-scrollbar-button:start:decrement,
+    .settings-scrollbar::-webkit-scrollbar-button:end:increment,
+    .settings-scrollbar::-webkit-scrollbar-button:vertical:start:decrement,
+    .settings-scrollbar::-webkit-scrollbar-button:vertical:end:increment,
+    .settings-scrollbar::-webkit-scrollbar-button:horizontal:start:decrement,
+    .settings-scrollbar::-webkit-scrollbar-button:horizontal:end:increment {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
     }
 
     /* 细滚动条变体（用于小区域） */
@@ -200,11 +394,18 @@
     }
 
     .custom-scrollbar-thin::-webkit-scrollbar-button,
-    .custom-scrollbar-thin::-webkit-scrollbar-button:single-button {
-        display: none;
-        width: 0;
-        height: 0;
-        background: transparent;
+    .custom-scrollbar-thin::-webkit-scrollbar-button:single-button,
+    .custom-scrollbar-thin::-webkit-scrollbar-button:start:decrement,
+    .custom-scrollbar-thin::-webkit-scrollbar-button:end:increment,
+    .custom-scrollbar-thin::-webkit-scrollbar-button:vertical:start:decrement,
+    .custom-scrollbar-thin::-webkit-scrollbar-button:vertical:end:increment,
+    .custom-scrollbar-thin::-webkit-scrollbar-button:horizontal:start:decrement,
+    .custom-scrollbar-thin::-webkit-scrollbar-button:horizontal:end:increment {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
     }
 
     /* 隐藏密码输入框的原生显示/隐藏按钮 */

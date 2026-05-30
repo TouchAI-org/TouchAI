@@ -32,6 +32,10 @@ import {
     resolveDeliveredInlineTransportMode,
 } from '@/services/AgentService/infrastructure/attachments';
 import { getProviderAttachmentCapabilities } from '@/services/AgentService/infrastructure/providers';
+import {
+    appendCurrentLanguageToolDescriptionContext,
+    type ModelLanguageContext,
+} from '@/services/AgentService/languageContext';
 import { safeParseJsonWithSchema, z } from '@/utils/zod';
 
 import type { ProviderAttachmentRemoteRef, ProviderAttachmentRequestContext } from './attachments';
@@ -642,10 +646,15 @@ export async function buildModelMessages(
             continue;
         }
 
-        if (toolCallParts.length === 0 && contentParts.length === 1) {
+        const onlyContentPart = contentParts[0];
+        if (
+            toolCallParts.length === 0 &&
+            contentParts.length === 1 &&
+            onlyContentPart?.type === 'text'
+        ) {
             mappedMessages.push({
                 role: 'assistant',
-                content: contentParts[0]!.text,
+                content: onlyContentPart.text,
             });
             continue;
         }
@@ -668,7 +677,10 @@ export async function buildModelMessages(
     };
 }
 
-export function buildToolSet(tools?: AiToolDefinition[]): ToolSet | undefined {
+export function buildToolSet(
+    tools?: AiToolDefinition[],
+    modelLanguageContext?: ModelLanguageContext
+): ToolSet | undefined {
     if (!tools || tools.length === 0) {
         return undefined;
     }
@@ -683,7 +695,10 @@ export function buildToolSet(tools?: AiToolDefinition[]): ToolSet | undefined {
             return [
                 toolDefinition.name,
                 tool({
-                    description: toolDefinition.description,
+                    description: appendCurrentLanguageToolDescriptionContext(
+                        toolDefinition.description,
+                        modelLanguageContext
+                    ),
                     inputSchema: jsonSchema(inputSchema),
                 }),
             ];

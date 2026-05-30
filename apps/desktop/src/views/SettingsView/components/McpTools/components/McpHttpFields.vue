@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
 
+    import { t } from '@/i18n';
     interface Props {
         url: string;
         headers: { key: string; value: string }[];
@@ -44,15 +45,15 @@
 <template>
     <div class="space-y-4">
         <div>
-            <label class="block font-serif text-sm font-medium text-gray-600">
+            <label class="block text-sm font-medium text-neutral-700">
                 URL
                 <span class="text-red-500">*</span>
             </label>
             <input
                 :value="url"
                 type="text"
-                class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
-                placeholder="例如: https://example.com/mcp"
+                class="settings-input mt-1.5 w-full font-mono"
+                :placeholder="t('settings.mcp.config.urlPlaceholder')"
                 @input="emit('update:url', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
             />
@@ -60,9 +61,11 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block font-serif text-sm font-medium text-gray-600">请求头</label>
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.mcp.config.headers') }}
+                </label>
                 <button
-                    class="text-gray-400 transition-colors hover:text-gray-600"
+                    class="text-neutral-400 transition-colors hover:text-neutral-700"
                     @click="addHeader"
                 >
                     <AppIcon name="plus" class="h-5 w-5" />
@@ -73,21 +76,21 @@
                     <input
                         :value="header.key"
                         type="text"
-                        class="focus:border-primary-400 w-1/3 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
-                        placeholder="请求头名称"
+                        class="settings-input w-1/3 px-4 py-2.5 font-mono"
+                        :placeholder="t('settings.mcp.config.headerNamePlaceholder')"
                         @input="updateHeaderKey(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
                     <input
                         :value="header.value"
                         type="text"
-                        class="focus:border-primary-400 flex-1 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
-                        placeholder="请求头值"
+                        class="settings-input flex-1 px-4 py-2.5 font-mono"
+                        :placeholder="t('settings.mcp.config.headerValuePlaceholder')"
                         @input="updateHeaderValue(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
                     <button
-                        class="text-gray-400 transition-colors hover:text-red-600"
+                        class="text-neutral-400 transition-colors hover:text-red-600"
                         @click="removeHeader(index)"
                     >
                         <AppIcon name="x" class="h-5 w-5" />

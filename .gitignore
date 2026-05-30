@@ -9,11 +9,18 @@ lerna-debug.log*
 
 node_modules
 .worktrees/
+.tmp/
+.vite-cache/
 dist
 apps/*/dist
 dist-ssr
 *.local
 *.tsbuildinfo
+
+# Environment files (keep .env.example committed)
+.env
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*
@@ -27,9 +34,9 @@ dist-ssr
 *.sw?
 
 assets/**/*
-data/**/*
+apps/desktop/data/
 nul
-cache/**/*
+apps/desktop/cache/
 .e2e-runtime/
 .e2e-tools/
 coverage/

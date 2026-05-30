@@ -1,13 +1,13 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import type { McpServerEntity } from '@database/types';
     import { computed, onMounted, ref } from 'vue';
 
+    import { t } from '@/i18n';
     import { useMcpStore } from '@/stores/mcp';
 
     import McpServerCard from './McpServerCard.vue';
-
     interface Props {
         selectedServer: McpServerEntity | null;
         togglingServers: Set<number>;
@@ -116,21 +116,25 @@
 </script>
 
 <template>
-    <div class="custom-scrollbar flex-1 space-y-2 overflow-y-auto p-3">
+    <div class="settings-scrollbar flex-1 space-y-2 overflow-y-auto p-4">
         <div v-if="loading" class="space-y-2">
-            <div v-for="i in 3" :key="i" class="h-20 animate-pulse rounded-lg bg-gray-100" />
+            <div v-for="i in 3" :key="i" class="h-20 animate-pulse rounded-lg bg-neutral-100" />
         </div>
 
         <div v-else-if="servers.length === 0 && !newServer" class="py-8 text-center">
-            <p class="font-serif text-sm text-gray-500">暂无服务器</p>
-            <p class="mt-1 font-serif text-xs text-gray-400">点击下方按钮添加服务器</p>
+            <p class="text-sm text-neutral-500">{{ t('settings.mcp.servers.empty') }}</p>
+            <p class="mt-1 text-xs text-neutral-400">{{ t('settings.mcp.servers.addHint') }}</p>
         </div>
 
         <div v-else class="space-y-2">
             <!-- 新服务器编辑卡片 -->
-            <div v-if="newServer" class="border-primary-400 bg-primary-50 rounded-lg border-2 p-4">
-                <p class="font-serif text-sm font-medium text-gray-900">新建服务器</p>
-                <p class="mt-1 font-serif text-xs text-gray-500">请在右侧填写服务器配置</p>
+            <div v-if="newServer" class="settings-item-selected rounded-lg border p-4">
+                <p class="text-[15px] font-normal text-neutral-950">
+                    {{ t('settings.mcp.servers.new') }}
+                </p>
+                <p class="mt-1 text-xs text-neutral-500">
+                    {{ t('settings.mcp.servers.fillConfigOnRight') }}
+                </p>
             </div>
 
             <!-- 现有服务器列表 -->

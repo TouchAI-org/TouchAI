@@ -1,7 +1,11 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
-import { AppEvent } from '@/services/EventService/types';
+import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
+import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import { getSessionStatusReminderContent } from '@/utils/session';
+import { collapseWhitespace } from '@/utils/text';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import type { ConversationRuntimeEnvironment, TurnEvent } from '../execution';
@@ -31,18 +35,149 @@ interface MutableSessionTask {
     releaseTimer: ReturnType<typeof setTimeout> | null;
     lastPublishedStatus: SessionTaskStatus | null;
     lastPublishedSessionId: number | null;
+    lastPublishedReminderKey: string | null;
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
+const STATUS_REMINDER_MAX_BODY_CHARS = 220;
+const STATUS_REMINDER_MAX_COMMAND_CHARS = 160;
 
+/** 深拷贝任务快照，确保外部订阅者无法直接修改内部状态。 */
 function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
     return cloneTaskValue(snapshot);
 }
 
+/**
+ * 将 reminder 质量化为稳定字符串键，用于变更检测。
+ * 包含 kind、title、body 和 approvalCallId，确保任何字段变化都能触发重新发布。
+ */
+function getReminderPublishKey(reminder: SessionStatusReminderPayload | null): string | null {
+    if (!reminder) {
+        return null;
+    }
+
+    return JSON.stringify({
+        kind: reminder.kind,
+        title: reminder.title,
+        body: reminder.body,
+        approvalCallId: reminder.approval?.callId ?? null,
+    });
+}
+
+/** 判断任务是否已进入终态（完成、失败或已取消）。 */
 function isTerminalStatus(status: SessionTaskSnapshot['status']): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
+/** 将文本截断到指定字符数，超出部分以省略号结尾。 */
+function truncateReminderText(value: string, maxChars: number): string {
+    if (value.length <= maxChars) {
+        return value;
+    }
+
+    return `${value.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+/** 规范化空白并截断文本，空字符串返回 null。 */
+function summarizeReminderText(
+    value: string | null | undefined,
+    maxChars = STATUS_REMINDER_MAX_BODY_CHARS
+) {
+    const normalized = collapseWhitespace(value ?? '');
+    if (!normalized) {
+        return null;
+    }
+
+    return truncateReminderText(normalized, maxChars);
+}
+
+/** 从会话历史中提取最后一条 assistant 消息的摘要。 */
+function summarizeLatestAssistantResponse(history: SessionMessage[]): string | null {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+        const message = history[index];
+        if (message?.role !== 'assistant') {
+            continue;
+        }
+
+        const summary = summarizeReminderText(message.content);
+        if (summary) {
+            return summary;
+        }
+    }
+
+    return null;
+}
+
+/** 为等待审批状态构建通知正文，包含摘要和命令预览。 */
+function buildWaitingApprovalBody(approval: PendingToolApproval): string {
+    const summary =
+        summarizeReminderText(approval.reason) ??
+        summarizeReminderText(approval.description) ??
+        summarizeReminderText(approval.title) ??
+        getSessionStatusReminderContent('waiting_approval');
+    const commandPreview = summarizeReminderText(
+        approval.command,
+        STATUS_REMINDER_MAX_COMMAND_CHARS
+    );
+
+    if (!commandPreview || commandPreview === summary) {
+        return summary;
+    }
+
+    return `${summary}\n${commandPreview}`;
+}
+
+/**
+ * 根据任务快照构建状态提醒负载。
+ * 仅在 completed、failed、waiting_approval 三种状态下生成提醒，其余返回 null。
+ */
+function buildSessionStatusReminder(
+    snapshot: SessionTaskSnapshot
+): SessionStatusReminderPayload | null {
+    if (snapshot.status === 'completed') {
+        return {
+            kind: 'completed',
+            title: tt('任务已完成'),
+            body:
+                summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
+                getSessionStatusReminderContent('completed'),
+            approval: null,
+            replyPlaceholder: tt('回复 TouchAI'),
+            replyLabel: tt('回复'),
+        };
+    }
+
+    if (snapshot.status === 'failed') {
+        return {
+            kind: 'failed',
+            title: tt('任务失败'),
+            body:
+                summarizeReminderText(snapshot.error) ??
+                summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
+                getSessionStatusReminderContent('failed'),
+            approval: null,
+            replyPlaceholder: tt('回复 TouchAI'),
+            replyLabel: tt('回复'),
+        };
+    }
+
+    if (snapshot.status !== 'waiting_approval' || !snapshot.pendingToolApproval) {
+        return null;
+    }
+
+    return {
+        kind: 'waiting_approval',
+        title: tt('等待批准'),
+        body: buildWaitingApprovalBody(snapshot.pendingToolApproval),
+        approval: {
+            callId: snapshot.pendingToolApproval.callId,
+            approveLabel: tt('批准'),
+            rejectLabel: tt('拒绝'),
+        },
+    };
+}
+
+/** 将外部 AbortSignal 的取消事件中继到内部 AbortController，返回清理函数。 */
 function relayAbortSignal(source: AbortSignal | undefined, target: AbortController): () => void {
     if (!source) {
         return () => {};
@@ -87,6 +222,10 @@ class SessionTaskCenter {
     private readonly sessionActiveTaskIndex = new Map<number, string>();
     private readonly executor = new AiRequestExecutor();
 
+    /**
+     * 注册并启动一个新的会话任务。
+     * 加载历史记录、创建运行时并开始执行，返回任务 ID 和完成 Promise。
+     */
     async startTask(options: StartSessionTaskOptions): Promise<StartedSessionTask> {
         this.ensureSessionSlotAvailable(options.sessionId ?? null);
 
@@ -126,6 +265,7 @@ class SessionTaskCenter {
             releaseTimer: null,
             lastPublishedStatus: null,
             lastPublishedSessionId: null,
+            lastPublishedReminderKey: null,
         };
 
         this.tasks.set(taskId, task);
@@ -218,6 +358,7 @@ class SessionTaskCenter {
         });
     }
 
+    /** 取消指定任务，中止其 AbortController 并清除待审批项。 */
     cancelTask(taskId: string): boolean {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -225,10 +366,11 @@ class SessionTaskCenter {
         }
 
         task.abortController.abort();
-        task.projection.clearPendingApprovals('任务已取消');
+        task.projection.clearPendingApprovals(tt('请求已取消'));
         return true;
     }
 
+    /** 批准任务中指定的工具调用（按 callId 匹配，不传则批准第一个）。 */
     approveTaskToolCall(taskId: string, callId?: string): boolean {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -238,6 +380,7 @@ class SessionTaskCenter {
         return task.projection.approvePendingToolApproval(callId);
     }
 
+    /** 拒绝任务中指定的工具调用（按 callId 匹配，不传则拒绝第一个）。 */
     rejectTaskToolCall(taskId: string, callId?: string): boolean {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -247,6 +390,10 @@ class SessionTaskCenter {
         return task.projection.rejectPendingToolApproval(callId);
     }
 
+    /**
+     * 将页面层绑定到指定会话的活跃任务，返回任务 ID 和当前快照的只读副本。
+     * 若该会话没有活跃任务则返回 null。
+     */
     attachSessionView(sessionId: number): { taskId: string; snapshot: SessionTaskSnapshot } | null {
         const taskId = this.sessionActiveTaskIndex.get(sessionId);
         if (!taskId) {
@@ -265,6 +412,7 @@ class SessionTaskCenter {
         };
     }
 
+    /** 订阅任务快照变更，立即推送当前快照，返回取消订阅函数。 */
     subscribeTask(taskId: string, listener: TaskSnapshotListener): () => void {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -279,6 +427,7 @@ class SessionTaskCenter {
         };
     }
 
+    /** 取消订阅任务快照变更。 */
     unsubscribeTask(taskId: string, listener: TaskSnapshotListener): void {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -288,11 +437,13 @@ class SessionTaskCenter {
         task.subscribers.delete(listener);
     }
 
+    /** 获取指定任务当前快照的只读副本，任务不存在则返回 null。 */
     getTaskSnapshot(taskId: string): SessionTaskSnapshot | null {
         const task = this.tasks.get(taskId);
         return task ? cloneTaskSnapshot(task.snapshot) : null;
     }
 
+    /** 查询指定会话当前绑定的任务状态，无活跃任务则返回 null。 */
     getSessionStatus(sessionId: number): {
         status: SessionTaskStatus;
         taskId: string;
@@ -314,12 +465,14 @@ class SessionTaskCenter {
         };
     }
 
+    /** 列出所有非终态的活跃任务快照。 */
     listActiveTasks(): SessionTaskSnapshot[] {
         return Array.from(this.tasks.values())
             .filter((task) => !isTerminalStatus(task.snapshot.status))
             .map((task) => cloneTaskSnapshot(task.snapshot));
     }
 
+    /** 执行任务运行时，处理完成/取消/失败的终态转换。 */
     private async runTask(
         taskId: string,
         runtime: AiConversationRuntime
@@ -333,7 +486,7 @@ class SessionTaskCenter {
                 if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
                     task.projection.markCancelled();
                 } else {
-                    task.projection.markFailed(aiError.message);
+                    task.projection.markFailed(aiError.message, aiError.getDisplayMessage());
                 }
                 this.finalizeTaskLifecycle(taskId);
             }
@@ -346,6 +499,7 @@ class SessionTaskCenter {
         }
     }
 
+    /** 确保指定会话没有正在运行的任务，否则抛出 SESSION_ACTIVE_TASK_EXISTS 错误。 */
     private ensureSessionSlotAvailable(sessionId: number | null): void {
         if (sessionId === null) {
             return;
@@ -362,13 +516,13 @@ class SessionTaskCenter {
             return;
         }
 
-        throw new AiError(
-            AiErrorCode.SESSION_ACTIVE_TASK_EXISTS,
-            { sessionId, activeTaskId: existingTaskId },
-            '当前会话已有正在运行的任务，请等待完成、先取消，或切换到其他会话'
-        );
+        throw new AiError(AiErrorCode.SESSION_ACTIVE_TASK_EXISTS, {
+            sessionId,
+            activeTaskId: existingTaskId,
+        });
     }
 
+    /** 处理运行时发出的回合事件，同步会话绑定和终态生命周期。 */
     private handleTaskEvent(taskId: string, event: TurnEvent): void {
         if (!this.tasks.has(taskId)) {
             return;
@@ -388,6 +542,7 @@ class SessionTaskCenter {
         }
     }
 
+    /** 将任务绑定到指定会话，更新双向索引。 */
     private bindTaskToSession(taskId: string, sessionId: number | null): void {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -409,6 +564,7 @@ class SessionTaskCenter {
         }
     }
 
+    /** 任务进入终态后清理会话索引、断开信号中继并安排延迟释放。 */
     private finalizeTaskLifecycle(taskId: string): void {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -440,6 +596,7 @@ class SessionTaskCenter {
         }, TERMINAL_TASK_RETENTION_MS);
     }
 
+    /** 立即释放任务资源，从内存中移除任务及其会话索引。 */
     private releaseTask(taskId: string): void {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -462,6 +619,7 @@ class SessionTaskCenter {
         this.tasks.delete(taskId);
     }
 
+    /** 向所有订阅者推送任务快照的只读副本，并在需要时发布状态事件。 */
     private notifySubscribers(taskId: string): void {
         const task = this.tasks.get(taskId);
         if (!task) {
@@ -487,21 +645,26 @@ class SessionTaskCenter {
             return;
         }
 
+        const reminder = buildSessionStatusReminder(task.snapshot);
         const sessionChanged = task.lastPublishedSessionId !== task.sessionId;
         const statusChanged = task.lastPublishedStatus !== task.snapshot.status;
-        if (!sessionChanged && !statusChanged) {
+        const reminderKey = getReminderPublishKey(reminder);
+        const reminderChanged = task.lastPublishedReminderKey !== reminderKey;
+        if (!sessionChanged && !statusChanged && !reminderChanged) {
             return;
         }
 
         const previousStatus = sessionChanged ? null : task.lastPublishedStatus;
         task.lastPublishedSessionId = task.sessionId;
         task.lastPublishedStatus = task.snapshot.status;
+        task.lastPublishedReminderKey = reminderKey;
 
         void eventService.emit(AppEvent.SESSION_TASK_STATUS_CHANGED, {
             sessionId: task.sessionId,
             taskId: task.taskId,
             status: task.snapshot.status,
             previousStatus,
+            reminder,
         });
     }
 }

@@ -5,13 +5,24 @@
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
     import { storeToRefs } from 'pinia';
-    import { onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import {
         resolveSearchWindowDefaultSize,
         type SearchWindowSizePreset,
     } from '@/config/searchWindow';
+    import {
+        type AppLocale,
+        LOCALE_LABELS,
+        type MessageKey,
+        type MessageParams,
+        SUPPORTED_LOCALES,
+        t,
+    } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
+
+    import { resolveShortcutCaptureCompletion } from './shortcutCapture';
+    import UpdateSettingsSection from './UpdateSettingsSection.vue';
 
     defineOptions({
         name: 'SettingsGeneralSection',
@@ -20,33 +31,58 @@
     const settingsStore = useSettingsStore();
     const { settings } = storeToRefs(settingsStore);
 
-    const outputScrollBehaviorOptions: Array<{
-        value: OutputScrollBehavior;
-        label: string;
-        description: string;
-    }> = [
-        { value: 'follow_output', label: '跟踪输出', description: '输出时自动滚动到最新内容' },
-        { value: 'stay_position', label: '保持原位', description: '输出时不改变当前滚动位置' },
-        { value: 'jump_to_top', label: '跳转到开头', description: '输出时自动跳到会话顶部' },
-    ];
+    const outputScrollBehaviorOptions = computed(
+        (): Array<{
+            value: OutputScrollBehavior;
+            label: string;
+            description: string;
+        }> => [
+            {
+                value: 'follow_output',
+                label: t('settings.general.outputScroll.follow'),
+                description: t('settings.general.outputScroll.followDescription'),
+            },
+            {
+                value: 'stay_position',
+                label: t('settings.general.outputScroll.stay'),
+                description: t('settings.general.outputScroll.stayDescription'),
+            },
+            {
+                value: 'jump_to_top',
+                label: t('settings.general.outputScroll.jumpToTop'),
+                description: t('settings.general.outputScroll.jumpToTopDescription'),
+            },
+        ]
+    );
 
-    const searchWindowSizeOptions: Array<{
-        value: SearchWindowSizePreset;
+    const searchWindowSizeOptions = computed(
+        (): Array<{
+            value: SearchWindowSizePreset;
+            label: string;
+        }> => [
+            { value: 'small', label: t('settings.general.size.small') },
+            { value: 'normal', label: t('settings.general.size.normal') },
+            { value: 'large', label: t('settings.general.size.large') },
+        ]
+    );
+
+    const languageOptions: Array<{
+        value: AppLocale;
         label: string;
-    }> = [
-        { value: 'small', label: '小' },
-        { value: 'normal', label: '常规' },
-        { value: 'large', label: '大' },
-    ];
+    }> = SUPPORTED_LOCALES.map((value) => ({
+        value,
+        label: LOCALE_LABELS[value],
+    }));
 
     const shortcutInput = ref<HTMLInputElement | null>(null);
     const isSaving = ref(false);
     const isCapturing = ref(false);
+    const hasCapturedShortcut = ref(false);
     const displayShortcut = ref('');
+    const shortcutCapturePrompt = computed(() => t('settings.general.shortcutCapturePrompt'));
+    const pendingLanguage = ref<AppLocale>(settings.value.language);
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const shortcutRegistrationFailed = ref(false);
-    const pendingShortcut = ref(''); // 内存中的待注册快捷键
-    const isInitialFailure = ref(false); // 是否是初始化时就失败的快捷键
 
     // 键名映射表
     const keyNameMap: Record<string, string> = {
@@ -74,7 +110,7 @@
 
         // 不支持 Win 键组合
         if (event.metaKey) {
-            alertMessage.value?.warning('不支持 Win 键组合，请使用 Ctrl、Alt、Shift', 3000);
+            alertMessage.value?.warning(t('settings.general.winKeyUnsupported'), 3000);
             return;
         }
 
@@ -98,12 +134,14 @@
         // 组合快捷键字符串
         const shortcut = [...modifiers, keyName].join('+');
         displayShortcut.value = shortcut;
+        hasCapturedShortcut.value = true;
     };
 
     // 开始捕获（输入框获得焦点）
     const startCapture = () => {
         isCapturing.value = true;
-        displayShortcut.value = '请按下快捷键...';
+        hasCapturedShortcut.value = false;
+        displayShortcut.value = shortcutCapturePrompt.value;
     };
 
     // 停止捕获并保存（输入框失去焦点）
@@ -112,40 +150,32 @@
 
         isCapturing.value = false;
 
-        // 如果没有捕获到有效快捷键，恢复原值
-        if (!displayShortcut.value || displayShortcut.value === '请按下快捷键...') {
-            displayShortcut.value = settings.value.globalShortcut;
-            return;
-        }
+        const completion = resolveShortcutCaptureCompletion({
+            currentShortcut: settings.value.globalShortcut,
+            displayShortcut: displayShortcut.value,
+            hasCapturedShortcut: hasCapturedShortcut.value,
+        });
 
-        // 如果快捷键没有变化，不需要保存
-        if (displayShortcut.value === settings.value.globalShortcut) {
+        displayShortcut.value = completion.displayShortcut;
+        if (completion.action !== 'save') {
             return;
         }
 
         // 保存新快捷键
-        await saveNewShortcut(displayShortcut.value);
+        await saveNewShortcut(completion.shortcut);
     };
 
     // 保存新快捷键的通用函数
     const saveNewShortcut = async (newShortcut: string) => {
         isSaving.value = true;
-        const wasInitialFailure = isInitialFailure.value; // 保存初始失败状态
         shortcutRegistrationFailed.value = false;
 
         try {
             // 先注册到 Rust 端
             const registered = await registerShortcut(newShortcut);
             if (!registered) {
-                // 注册失败，保存到内存中，不写入数据库
                 shortcutRegistrationFailed.value = true;
-                pendingShortcut.value = newShortcut;
                 displayShortcut.value = newShortcut;
-                // 如果之前是初始失败，重试失败后仍然保持初始失败状态
-                // 只有用户主动更换快捷键（不同于原快捷键）时才清除初始失败状态
-                if (!wasInitialFailure || newShortcut !== settings.value.globalShortcut) {
-                    isInitialFailure.value = false;
-                }
                 return;
             }
 
@@ -155,16 +185,13 @@
             // 更新本地状态
             settings.value.globalShortcut = newShortcut;
             displayShortcut.value = newShortcut;
-            pendingShortcut.value = '';
-            isInitialFailure.value = false;
-            alertMessage.value?.success('快捷键保存成功', 3000);
+            alertMessage.value?.success(t('settings.general.shortcutSaved'), 3000);
         } catch (error) {
             console.error('Failed to save shortcut:', error);
-            alertMessage.value?.error('保存快捷键到数据库失败', 3000);
+            alertMessage.value?.error(t('settings.general.saveShortcutFailed'), 3000);
             // 恢复原值
             displayShortcut.value = settings.value.globalShortcut;
             shortcutRegistrationFailed.value = false;
-            isInitialFailure.value = false;
         } finally {
             isSaving.value = false;
         }
@@ -185,20 +212,6 @@
         await saveNewShortcut(shortcut);
     };
 
-    // 重试注册快捷键
-    const retryRegistration = async () => {
-        if (!pendingShortcut.value) return;
-        await saveNewShortcut(pendingShortcut.value);
-    };
-
-    // 取消注册，恢复原值
-    const cancelRegistration = () => {
-        shortcutRegistrationFailed.value = false;
-        pendingShortcut.value = '';
-        displayShortcut.value = settings.value.globalShortcut;
-        isInitialFailure.value = false;
-    };
-
     // 监听 isCapturing 状态，添加/移除全局键盘监听
     watch(isCapturing, (newValue) => {
         if (newValue) {
@@ -217,6 +230,14 @@
         }
     );
 
+    watch(
+        () => settings.value.language,
+        (language) => {
+            pendingLanguage.value = language;
+        },
+        { immediate: true }
+    );
+
     // 从 store 加载设置
     const loadSettings = async () => {
         try {
@@ -227,13 +248,11 @@
             const [failed, error] = await native.shortcut.getShortcutStatus();
             if (failed) {
                 shortcutRegistrationFailed.value = true;
-                pendingShortcut.value = settings.value.globalShortcut;
-                isInitialFailure.value = true; // 标记为初始化失败
                 console.warn('[GeneralView] Shortcut registration failed:', error);
             }
         } catch (error) {
             console.error('Failed to load settings:', error);
-            alertMessage.value?.error('加载设置失败', 3000);
+            alertMessage.value?.error(t('settings.general.loadSettingsFailed'), 3000);
         }
     };
 
@@ -246,41 +265,64 @@
             console.error('Failed to register shortcut:', error);
 
             const errorStr = String(error);
-            const shortcutErrorMessage = (() => {
+            const shortcutErrorMessage: {
+                friendlyMessageKey: MessageKey;
+                notificationBodyKey: MessageKey;
+                params?: MessageParams;
+            } = (():
+                | {
+                      friendlyMessageKey: MessageKey;
+                      notificationBodyKey: MessageKey;
+                      params: MessageParams;
+                  }
+                | {
+                      friendlyMessageKey: MessageKey;
+                      notificationBodyKey: MessageKey;
+                      params?: never;
+                  } => {
                 if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
                     return {
-                        friendlyMessage: `快捷键 ${shortcut} 已被其他应用占用，请尝试其他组合`,
-                        notificationBody: `快捷键 ${shortcut} 已被其他应用占用`,
+                        friendlyMessageKey:
+                            'notification.shortcutRegistrationFailed.alreadyRegistered',
+                        notificationBodyKey:
+                            'notification.shortcutRegistrationFailed.alreadyRegisteredBody',
+                        params: { shortcut },
                     };
                 }
 
                 if (errorStr.includes('invalid') || errorStr.includes('无效')) {
                     return {
-                        friendlyMessage: `快捷键 ${shortcut} 格式无效，请重新设置`,
-                        notificationBody: `快捷键 ${shortcut} 格式无效`,
+                        friendlyMessageKey: 'notification.shortcutRegistrationFailed.invalid',
+                        notificationBodyKey: 'notification.shortcutRegistrationFailed.invalidBody',
+                        params: { shortcut },
                     };
                 }
 
                 if (errorStr.includes('Unknown key')) {
                     return {
-                        friendlyMessage: '不支持的按键，请使用常规按键组合',
-                        notificationBody: '不支持的按键',
+                        friendlyMessageKey: 'notification.shortcutRegistrationFailed.unsupported',
+                        notificationBodyKey:
+                            'notification.shortcutRegistrationFailed.unsupportedBody',
                     };
                 }
 
                 return {
-                    friendlyMessage: `注册快捷键失败：${errorStr}`,
-                    notificationBody: `注册快捷键失败：${errorStr}`,
+                    friendlyMessageKey: 'notification.shortcutRegistrationFailed.generic',
+                    notificationBodyKey: 'notification.shortcutRegistrationFailed.generic',
+                    params: { error: errorStr },
                 };
             })();
 
             // 发送系统通知
             notify({
-                title: 'TouchAI - 快捷键注册失败',
-                body: shortcutErrorMessage.notificationBody,
+                title: t('notification.shortcutRegistrationFailed.title'),
+                body: t(shortcutErrorMessage.notificationBodyKey, shortcutErrorMessage.params),
             });
 
-            alertMessage.value?.error(shortcutErrorMessage.friendlyMessage, 4000);
+            alertMessage.value?.error(
+                t(shortcutErrorMessage.friendlyMessageKey, shortcutErrorMessage.params),
+                4000
+            );
             return false;
         }
     };
@@ -306,7 +348,7 @@
             await settingsStore.updateStartOnBoot(settings.value.startOnBoot);
         } catch (error) {
             console.error('Failed to save start_on_boot setting:', error);
-            alertMessage.value?.error('保存开机自启动设置失败', 3000);
+            alertMessage.value?.error(t('settings.general.saveStartOnBootFailed'), 3000);
         }
     };
 
@@ -315,17 +357,17 @@
             await settingsStore.updateStartMinimized(settings.value.startMinimized);
         } catch (error) {
             console.error('Failed to save start_minimized setting:', error);
-            alertMessage.value?.error('保存设置失败', 3000);
+            alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
         }
     };
 
     const saveOutputScrollBehavior = async () => {
         try {
             await settingsStore.updateOutputScrollBehavior(settings.value.outputScrollBehavior);
-            alertMessage.value?.success('保存成功', 2000);
+            alertMessage.value?.success(t('common.saved'), 2000);
         } catch (error) {
             console.error('Failed to save output_scroll_behavior setting:', error);
-            alertMessage.value?.error('保存设置失败', 3000);
+            alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
         }
     };
 
@@ -336,10 +378,22 @@
             await settingsStore.updateSearchWindowSizePreset(preset);
             await native.window.setSearchWindowDefaults(size);
 
-            alertMessage.value?.success('搜索窗口尺寸已更新', 2000);
+            alertMessage.value?.success(t('settings.general.searchWindowSizeUpdated'), 2000);
         } catch (error) {
             console.error('Failed to save search window size preset:', error);
-            alertMessage.value?.error('保存搜索窗口尺寸失败', 3000);
+            alertMessage.value?.error(t('settings.general.saveSearchWindowSizeFailed'), 3000);
+        }
+    };
+
+    const saveLanguage = async (language: AppLocale) => {
+        try {
+            await settingsStore.updateLanguage(language);
+            pendingLanguage.value = settings.value.language;
+            alertMessage.value?.success(t('common.saved'), 2000);
+        } catch (error) {
+            console.error('Failed to save language setting:', error);
+            alertMessage.value?.error(t('settings.general.saveLanguageFailed'), 3000);
+            pendingLanguage.value = settings.value.language;
         }
     };
 
@@ -367,122 +421,138 @@
 <template>
     <AlertMessage ref="alertMessage" />
 
-    <div class="p-6" data-testid="settings-general-section">
-        <div class="mx-auto max-w-4xl space-y-6">
-            <div class="rounded-lg border border-gray-200 bg-white p-6">
-                <div class="flex items-center gap-4">
-                    <div
-                        class="bg-primary-50 text-primary-600 flex h-16 w-16 items-center justify-center rounded-lg"
-                    >
-                        <AppIcon name="settings" class="h-6 w-6" />
-                    </div>
+    <div class="settings-page" data-testid="settings-general-section">
+        <div data-testid="settings-general-layout" class="settings-section-stack">
+            <header class="settings-page-header">
+                <h1 class="settings-page-title">{{ t('settings.nav.general.label') }}</h1>
+            </header>
 
-                    <div class="flex-1">
-                        <h2 class="font-serif text-xl font-semibold text-gray-900">常规设置</h2>
-                        <p class="mt-1 font-serif text-sm text-gray-600">
-                            配置应用的基本行为和外观
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="font-serif text-lg font-semibold text-gray-900">全局快捷键</h2>
-                <div class="space-y-2">
-                    <label class="block font-serif text-sm font-medium text-gray-700">
-                        唤起快捷键
-                    </label>
-                    <input
-                        ref="shortcutInput"
-                        v-model="displayShortcut"
-                        data-testid="settings-global-shortcut-input"
-                        type="text"
-                        readonly
-                        :class="[
-                            'w-full rounded-lg border px-4 py-2 font-mono transition-colors focus:ring-2 focus:outline-none',
-                            shortcutRegistrationFailed
-                                ? 'border-red-500 bg-red-50 text-red-600 focus:ring-red-500'
-                                : isCapturing
-                                  ? 'border-primary-600 bg-primary-50 text-primary-600 focus:ring-primary-500'
-                                  : 'focus:border-primary-600 focus:ring-primary-500 border-gray-200 bg-gray-50 text-gray-900',
-                            isSaving ? 'cursor-wait opacity-50' : 'cursor-pointer',
-                        ]"
-                        :disabled="isSaving"
-                        placeholder="点击输入框设置快捷键"
-                        @focus="startCapture"
-                        @blur="stopCaptureAndSave"
-                    />
-
-                    <!-- 注册失败提示和操作 -->
-                    <div
-                        v-if="shortcutRegistrationFailed"
-                        class="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3"
-                    >
-                        <div class="flex items-center gap-2">
-                            <AppIcon name="exclamation-triangle" class="h-4 w-4 text-red-600" />
-                            <span class="font-serif text-sm text-red-600">
-                                快捷键注册失败，可能已被其他应用占用
-                            </span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <button
-                                class="rounded-lg bg-red-600 px-3 py-1 font-serif text-xs text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                :disabled="isSaving"
-                                @click="retryRegistration"
-                            >
-                                重试
-                            </button>
-                            <button
-                                v-if="!isInitialFailure"
-                                class="rounded-lg border border-red-300 bg-white px-3 py-1 font-serif text-xs text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                :disabled="isSaving"
-                                @click="cancelRegistration"
-                            >
-                                取消
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                        <span class="font-serif text-xs text-gray-500">建议：</span>
-                        <button
-                            class="text-primary-600 hover:text-primary-700 font-mono text-xs underline transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                            :disabled="isSaving"
-                            @click="useSuggestedShortcut('Alt+Space')"
-                        >
-                            Alt+Space
-                        </button>
-                        <span class="text-gray-300">|</span>
-                        <button
-                            class="text-primary-600 hover:text-primary-700 font-mono text-xs underline transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                            :disabled="isSaving"
-                            @click="useSuggestedShortcut('Ctrl+Space')"
-                        >
-                            Ctrl+Space
-                        </button>
-                    </div>
-                    <p class="font-serif text-xs text-gray-500">
-                        点击输入框后按下您想要设置的快捷键组合。支持的修饰键：Ctrl、Alt、Shift
+            <section class="space-y-4">
+                <div>
+                    <h2 class="settings-section-title">
+                        {{ t('settings.general.shortcuts') }}
+                    </h2>
+                    <p class="settings-section-description">
+                        {{ t('settings.general.shortcutsDescription') }}
                     </p>
                 </div>
-            </div>
 
-            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="font-serif text-lg font-semibold text-gray-900">启动设置</h2>
-                <div class="space-y-4">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <div class="font-serif text-sm font-medium text-gray-900">
-                                开机自启动
+                <div
+                    data-testid="settings-general-card-shortcut"
+                    class="settings-row-group divide-y divide-neutral-200/70"
+                >
+                    <div
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_360px] sm:items-center"
+                    >
+                        <label
+                            data-testid="settings-general-row-label"
+                            class="text-[13px] leading-6 font-normal text-neutral-900"
+                        >
+                            {{ t('settings.general.activationShortcut') }}
+                        </label>
+                        <div class="min-w-0 justify-self-end">
+                            <div
+                                data-testid="settings-shortcut-control-row"
+                                class="flex min-w-0 items-center justify-end gap-3 text-[11px]"
+                            >
+                                <div
+                                    data-testid="settings-shortcut-suggestions"
+                                    class="shrink-0 text-left whitespace-nowrap"
+                                >
+                                    <span class="text-[11px] text-neutral-400">
+                                        {{ t('settings.general.suggestionsShort') }}
+                                    </span>
+                                    <button
+                                        class="text-primary-700 decoration-primary-300 hover:text-primary-600 ml-2 font-mono text-[11px] underline underline-offset-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                        :disabled="isSaving"
+                                        @click="useSuggestedShortcut('Alt+Space')"
+                                    >
+                                        Alt+Space
+                                    </button>
+                                    <span class="mx-1.5 text-neutral-300">|</span>
+                                    <button
+                                        class="text-primary-700 decoration-primary-300 hover:text-primary-600 font-mono text-[11px] underline underline-offset-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                        :disabled="isSaving"
+                                        @click="useSuggestedShortcut('Ctrl+Space')"
+                                    >
+                                        Ctrl+Space
+                                    </button>
+                                </div>
+                                <div data-testid="settings-general-control" class="w-[180px]">
+                                    <div
+                                        data-testid="settings-general-shortcut-input-wrap"
+                                        class="relative ml-auto w-[180px] shrink-0"
+                                    >
+                                        <input
+                                            ref="shortcutInput"
+                                            v-model="displayShortcut"
+                                            data-testid="settings-global-shortcut-input"
+                                            type="text"
+                                            readonly
+                                            :class="[
+                                                'w-full rounded-[10px] border px-3 py-2 text-center font-mono text-[12px] shadow-none [box-shadow:none] transition-colors focus:shadow-none focus:[box-shadow:none] focus:outline-none',
+                                                shortcutRegistrationFailed
+                                                    ? 'border-red-300 bg-red-50 text-red-600'
+                                                    : isCapturing
+                                                      ? 'border-primary-300 bg-white text-neutral-950'
+                                                      : 'focus:border-primary-300 border-transparent bg-[#f0f0ef] text-neutral-900 hover:bg-[#ececea]',
+                                                isSaving
+                                                    ? 'cursor-wait opacity-50'
+                                                    : 'cursor-pointer',
+                                            ]"
+                                            :disabled="isSaving"
+                                            :placeholder="t('settings.general.shortcutPlaceholder')"
+                                            @focus="startCapture"
+                                            @blur="stopCaptureAndSave"
+                                        />
+                                        <span
+                                            v-if="shortcutRegistrationFailed"
+                                            data-testid="settings-shortcut-occupied-indicator"
+                                            class="absolute top-1/2 right-2.5 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-red-500"
+                                            :title="
+                                                t('settings.general.shortcutRegistrationFailed')
+                                            "
+                                        >
+                                            <AppIcon
+                                                name="exclamation-triangle"
+                                                class="h-3.5 w-3.5"
+                                            />
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="font-serif text-xs text-gray-500">
-                                系统启动时自动运行TouchAI
-                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="space-y-4">
+                <div>
+                    <h2 class="settings-section-title">
+                        {{ t('settings.general.startupAndWindow') }}
+                    </h2>
+                    <p class="settings-section-description">
+                        {{ t('settings.general.startupAndWindowDescription') }}
+                    </p>
+                </div>
+
+                <div
+                    data-testid="settings-general-card-launch"
+                    class="settings-row-group divide-y divide-neutral-200/70"
+                >
+                    <div
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                    >
+                        <div
+                            data-testid="settings-general-row-label"
+                            class="text-[13px] leading-6 font-normal text-neutral-900"
+                        >
+                            {{ t('settings.general.startOnBoot') }}
                         </div>
                         <button
                             :class="[
-                                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                                settings.startOnBoot ? 'bg-primary-600' : 'bg-gray-200',
+                                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+                                settings.startOnBoot ? 'settings-toggle-enabled' : 'bg-neutral-200',
                             ]"
                             @click="
                                 settings.startOnBoot = !settings.startOnBoot;
@@ -491,24 +561,28 @@
                         >
                             <span
                                 :class="[
-                                    'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                                    settings.startOnBoot ? 'translate-x-6' : 'translate-x-1',
+                                    'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                                    settings.startOnBoot ? 'translate-x-[18px]' : 'translate-x-1',
                                 ]"
                             />
                         </button>
                     </div>
 
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <div class="font-serif text-sm font-medium text-gray-900">
-                                启动时最小化
-                            </div>
-                            <div class="font-serif text-xs text-gray-500">启动后隐藏到系统托盘</div>
+                    <div
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                    >
+                        <div
+                            data-testid="settings-general-row-label"
+                            class="text-[13px] leading-6 font-normal text-neutral-900"
+                        >
+                            {{ t('settings.general.startMinimized') }}
                         </div>
                         <button
                             :class="[
-                                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                                settings.startMinimized ? 'bg-primary-600' : 'bg-gray-200',
+                                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+                                settings.startMinimized
+                                    ? 'settings-toggle-enabled'
+                                    : 'bg-neutral-200',
                             ]"
                             data-testid="settings-start-minimized-toggle"
                             :aria-pressed="settings.startMinimized"
@@ -519,51 +593,97 @@
                         >
                             <span
                                 :class="[
-                                    'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                                    settings.startMinimized ? 'translate-x-6' : 'translate-x-1',
+                                    'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                                    settings.startMinimized
+                                        ? 'translate-x-[18px]'
+                                        : 'translate-x-1',
                                 ]"
                             />
                         </button>
                     </div>
-                </div>
-            </div>
 
-            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="font-serif text-lg font-semibold text-gray-900">对话设置</h2>
-                <div class="space-y-5">
-                    <div class="space-y-2">
-                        <label class="block font-serif text-sm font-medium text-gray-700">
-                            输出时滚动策略
+                    <div
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
+                    >
+                        <label
+                            data-testid="settings-general-row-label"
+                            class="block text-[13px] leading-6 font-normal text-neutral-900"
+                        >
+                            {{ t('settings.general.windowSize') }}
                         </label>
-                        <CustomSelect
-                            v-model="settings.outputScrollBehavior"
-                            :options="outputScrollBehaviorOptions"
-                            @update:model-value="saveOutputScrollBehavior"
-                        />
-                        <p class="font-serif text-xs text-gray-500">
-                            {{
-                                outputScrollBehaviorOptions.find(
-                                    (option) => option.value === settings.outputScrollBehavior
-                                )?.description
-                            }}
-                        </p>
+                        <div data-testid="settings-general-control" class="ml-auto w-[180px]">
+                            <CustomSelect
+                                v-model="settings.searchWindowSizePreset"
+                                :options="searchWindowSizeOptions"
+                                @update:model-value="saveSearchWindowSizePreset"
+                            />
+                        </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="font-serif text-lg font-semibold text-gray-900">搜索窗口</h2>
-                <div class="space-y-2">
-                    <label class="block font-serif text-sm font-medium text-gray-700">
-                        默认尺寸
-                    </label>
-                    <CustomSelect
-                        v-model="settings.searchWindowSizePreset"
-                        :options="searchWindowSizeOptions"
-                        @update:model-value="saveSearchWindowSizePreset"
-                    />
+            <section class="space-y-4">
+                <div>
+                    <h2 class="settings-section-title">
+                        {{ t('settings.general.conversationExperience') }}
+                    </h2>
+                    <p class="settings-section-description">
+                        {{ t('settings.general.conversationExperienceDescription') }}
+                    </p>
                 </div>
-            </div>
+
+                <div data-testid="settings-general-card-conversation" class="settings-row-group">
+                    <div
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
+                    >
+                        <label
+                            data-testid="settings-general-row-label"
+                            class="block text-[13px] leading-6 font-normal text-neutral-900"
+                        >
+                            {{ t('settings.general.outputScrollBehavior') }}
+                        </label>
+                        <div data-testid="settings-general-control" class="ml-auto w-[180px]">
+                            <CustomSelect
+                                v-model="settings.outputScrollBehavior"
+                                :options="outputScrollBehaviorOptions"
+                                @update:model-value="saveOutputScrollBehavior"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="space-y-4">
+                <div>
+                    <h2 class="settings-section-title">{{ t('settings.general.language') }}</h2>
+                    <p class="settings-section-description">
+                        {{ t('settings.general.languageDescription') }}
+                    </p>
+                </div>
+
+                <div data-testid="settings-language-section" class="settings-row-group">
+                    <div
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
+                    >
+                        <label
+                            data-testid="settings-general-row-label"
+                            class="block text-[13px] leading-6 font-normal text-neutral-900"
+                        >
+                            {{ t('settings.general.interfaceLanguage') }}
+                        </label>
+                        <div data-testid="settings-general-control" class="ml-auto w-[180px]">
+                            <CustomSelect
+                                v-model="pendingLanguage"
+                                :options="languageOptions"
+                                protect-option-text
+                                @update:model-value="saveLanguage"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <UpdateSettingsSection />
         </div>
     </div>
 </template>

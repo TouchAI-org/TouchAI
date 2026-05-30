@@ -1,0 +1,694 @@
+name: Velopack Build
+
+on:
+    workflow_call:
+        inputs:
+            channel:
+                required: true
+                type: string
+            version:
+                required: true
+                type: string
+            tag:
+                required: true
+                type: string
+            prerelease:
+                required: true
+                type: string
+            target-commitish:
+                required: true
+                type: string
+            deploy-production:
+                required: false
+                type: boolean
+                default: false
+            deployment-environment:
+                required: false
+                type: string
+                default: release
+
+permissions:
+    contents: write
+    deployments: write
+
+jobs:
+    prepare-release:
+        name: Prepare release metadata
+        runs-on: ubuntu-latest
+        outputs:
+            release_name: ${{ steps.product.outputs.release_name }}
+            cloudflare_r2_bucket_name: ${{ steps.product.outputs.cloudflare_r2_bucket_name }}
+            artifact_release_notes_name: ${{ steps.artifacts.outputs.release_notes_name }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.target-commitish }}
+                  fetch-depth: 0
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 22
+
+            - name: Resolve product release config
+              id: product
+              env:
+                  INPUT_CHANNEL: ${{ inputs.channel }}
+                  INPUT_VERSION: ${{ inputs.version }}
+              run: |
+                  node <<'EOF'
+                  const fs = require('node:fs');
+                  const product = JSON.parse(fs.readFileSync('apps/desktop/product.json', 'utf8'));
+                  const channel = process.env.INPUT_CHANNEL;
+                  const version = process.env.INPUT_VERSION;
+                  const channelConfig = product?.services?.updates?.channels?.[channel];
+                  if (!channelConfig) {
+                    throw new Error(`Update channel ${channel} is missing from apps/desktop/product.json`);
+                  }
+                  if (product?.services?.updates?.deployment?.provider !== 'cloudflare-r2') {
+                    throw new Error('services.updates.deployment.provider must be cloudflare-r2');
+                  }
+                  const bucketName = product?.services?.updates?.deployment?.bucketName;
+                  if (!bucketName) {
+                    throw new Error('services.updates.deployment.bucketName is missing from apps/desktop/product.json');
+                  }
+
+                  const outputPath = process.env.GITHUB_OUTPUT;
+                  const lines = [
+                    `release_name=${product.displayName} v${version}`,
+                    `cloudflare_r2_bucket_name=${bucketName}`,
+                  ];
+                  fs.appendFileSync(outputPath, `${lines.join('\n')}\n`, 'utf8');
+                  EOF
+
+            - name: Prepare release notes
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+                  RELEASE_NAME: ${{ steps.product.outputs.release_name }}
+                  RELEASE_CHANNEL: ${{ inputs.channel }}
+                  RELEASE_VERSION: ${{ inputs.version }}
+                  TARGET_COMMITISH: ${{ inputs.target-commitish }}
+              run: |
+                  notes_path="$RUNNER_TEMP/release-notes.md"
+                  body=""
+
+                  if body="$(gh release view "$RELEASE_TAG" --json body -q '.body' 2>/dev/null)"; then
+                    :
+                  else
+                    body=""
+                  fi
+
+                  if [ -z "$body" ]; then
+                    if body="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+                      -f "tag_name=$RELEASE_TAG" \
+                      -f "target_commitish=$TARGET_COMMITISH" \
+                      --jq '.body' 2>/dev/null)"; then
+                      :
+                    else
+                      body=""
+                    fi
+                  fi
+
+                  if [ -z "$body" ]; then
+                    body=$'## '"$RELEASE_NAME"$'\n\nChannel: '"$RELEASE_CHANNEL"$'\nVersion: '"$RELEASE_VERSION"
+                  fi
+
+                  printf '%s\n' "$body" > "$notes_path"
+
+            - name: Ensure GitHub release exists
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+                  RELEASE_NAME: ${{ steps.product.outputs.release_name }}
+                  TARGET_COMMITISH: ${{ inputs.target-commitish }}
+                  RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
+                  RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+              run: |
+                  if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+                    gh release edit "$RELEASE_TAG" \
+                      --title "$RELEASE_NAME" \
+                      --notes-file "$RELEASE_NOTES_PATH"
+                    exit 0
+                  fi
+
+                  if [ "${RELEASE_PRERELEASE,,}" = "true" ]; then
+                    gh release create "$RELEASE_TAG" \
+                      --target "$TARGET_COMMITISH" \
+                      --title "$RELEASE_NAME" \
+                      --notes-file "$RELEASE_NOTES_PATH" \
+                      --prerelease
+                  else
+                    gh release create "$RELEASE_TAG" \
+                      --target "$TARGET_COMMITISH" \
+                      --title "$RELEASE_NAME" \
+                      --notes-file "$RELEASE_NOTES_PATH"
+                  fi
+
+            - name: Resolve artifact names
+              id: artifacts
+              env:
+                  INPUT_CHANNEL: ${{ inputs.channel }}
+                  INPUT_VERSION: ${{ inputs.version }}
+              run: |
+                  release_notes_name="touchai-release-notes-${INPUT_CHANNEL}-${INPUT_VERSION}"
+                  echo "release_notes_name=$release_notes_name" >> "$GITHUB_OUTPUT"
+
+            - name: Upload release notes artifact
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: ${{ steps.artifacts.outputs.release_notes_name }}
+                  path: ${{ runner.temp }}/release-notes.md
+                  if-no-files-found: error
+
+    build-windows:
+        name: Build Windows Velopack release
+        needs: prepare-release
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.target-commitish }}
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - name: Install .NET SDK
+              uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5
+              with:
+                  dotnet-version: 8.0.x
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Install frontend dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Validate checked-in version policy
+              working-directory: apps/desktop
+              run: node scripts/ci/version-policy-check.mjs --skip-tag
+
+            - name: Set release version
+              working-directory: apps/desktop
+              run: node scripts/ci/set-release-version.mjs "${{ inputs.version }}"
+
+            - name: Validate release version policy
+              working-directory: apps/desktop
+              env:
+                  GITHUB_REF_TYPE: tag
+                  GITHUB_REF_NAME: ${{ inputs.tag }}
+              run: node scripts/ci/version-policy-check.mjs
+
+            - name: Resolve product release config
+              id: product
+              shell: pwsh
+              run: |
+                  $product = Get-Content -LiteralPath 'apps/desktop/product.json' -Raw | ConvertFrom-Json
+
+                  function Add-GitHubEnv([string] $Name, [string] $Value) {
+                      if ([string]::IsNullOrWhiteSpace($Value)) {
+                          throw "$Name is missing from apps/desktop/product.json"
+                      }
+                      Add-Content -LiteralPath $env:GITHUB_ENV -Value "$Name=$Value" -Encoding UTF8
+                  }
+
+                  Add-GitHubEnv 'VELOPACK_PACK_ID' $product.identifier
+                  Add-GitHubEnv 'VELOPACK_PACK_TITLE' $product.displayName
+                  Add-GitHubEnv 'VELOPACK_MAIN_EXE' $product.packaging.mainExe
+                  Add-GitHubEnv 'RELEASE_NAME' '${{ needs.prepare-release.outputs.release_name }}'
+
+            - name: Install Velopack CLI
+              run: dotnet tool install --global vpk
+
+            - name: Download release notes artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
+                  path: ${{ runner.temp }}/release-notes
+
+            - name: Build Tauri executable
+              working-directory: apps/desktop
+              run: pnpm tauri build --no-bundle --ci
+
+            - name: Stage Velopack input directory
+              shell: pwsh
+              run: |
+                  $stage = Join-Path $env:RUNNER_TEMP 'touchai-velopack-stage'
+                  if (Test-Path $stage) {
+                      Remove-Item -LiteralPath $stage -Recurse -Force
+                  }
+                  New-Item -ItemType Directory -Force -Path $stage | Out-Null
+                  $mainExePath = Join-Path 'apps/desktop/src-tauri/target/release' $env:VELOPACK_MAIN_EXE
+                  Copy-Item -LiteralPath $mainExePath -Destination $stage
+                  "VELOPACK_STAGE=$stage" >> $env:GITHUB_ENV
+
+            - name: Prepare Velopack release directory
+              shell: pwsh
+              run: |
+                  $release = Join-Path $env:RUNNER_TEMP 'touchai-velopack-release'
+                  if (Test-Path $release) {
+                      Remove-Item -LiteralPath $release -Recurse -Force
+                  }
+                  New-Item -ItemType Directory -Force -Path $release | Out-Null
+                  "VELOPACK_RELEASE=$release" >> $env:GITHUB_ENV
+
+            - name: Hydrate previous Velopack release assets
+              shell: pwsh
+              working-directory: apps/desktop
+              run: |
+                  node scripts/ci/hydrate-velopack-history.mjs "$env:VELOPACK_RELEASE" "${{ inputs.channel }}"
+
+            - name: Pack Velopack release
+              shell: pwsh
+              env:
+                  RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes/release-notes.md
+              run: |
+                  vpk pack `
+                    --packId "$env:VELOPACK_PACK_ID" `
+                    --packTitle "$env:VELOPACK_PACK_TITLE" `
+                    --packVersion "${{ inputs.version }}" `
+                    --packDir "$env:VELOPACK_STAGE" `
+                    --mainExe "$env:VELOPACK_MAIN_EXE" `
+                    --noPortable `
+                    --msi `
+                    --instLocation Either `
+                    --channel "${{ inputs.channel }}" `
+                    --releaseNotes "$env:RELEASE_NOTES_PATH" `
+                    --outputDir "$env:VELOPACK_RELEASE"
+
+            - name: Normalize Velopack release asset names
+              working-directory: apps/desktop
+              run: node scripts/ci/normalize-velopack-release-assets.mjs "$env:VELOPACK_RELEASE" "${{ inputs.channel }}" "${{ inputs.version }}"
+
+            - name: Sync GitHub release notes
+              shell: pwsh
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+                  RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes/release-notes.md
+              run: |
+                  gh release edit "$env:RELEASE_TAG" `
+                    --title "$env:RELEASE_NAME" `
+                    --notes-file "$env:RELEASE_NOTES_PATH"
+
+            - name: Upload Velopack diagnostics artifact
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: touchai-velopack-windows-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ env.VELOPACK_RELEASE }}
+                  if-no-files-found: error
+
+    build-macos:
+        name: Build macOS release assets
+        needs: prepare-release
+        runs-on: macos-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.target-commitish }}
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Install frontend dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Validate checked-in version policy
+              working-directory: apps/desktop
+              run: node scripts/ci/version-policy-check.mjs --skip-tag
+
+            - name: Set release version
+              working-directory: apps/desktop
+              run: node scripts/ci/set-release-version.mjs "${{ inputs.version }}"
+
+            - name: Validate release version policy
+              working-directory: apps/desktop
+              env:
+                  GITHUB_REF_TYPE: tag
+                  GITHUB_REF_NAME: ${{ inputs.tag }}
+              run: node scripts/ci/version-policy-check.mjs
+
+            - name: Build macOS bundles
+              working-directory: apps/desktop
+              run: pnpm tauri build --bundles app,dmg --ci
+
+            - name: Stage macOS release assets
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  release_dir="$RUNNER_TEMP/touchai-macos-release"
+                  bundle_dir="apps/desktop/src-tauri/target/release/bundle"
+                  rm -rf "$release_dir"
+                  mkdir -p "$release_dir"
+
+                  shopt -s nullglob
+                  dmg_files=("$bundle_dir/dmg/"*.dmg)
+                  for file in "${dmg_files[@]}"; do
+                    cp "$file" "$release_dir/"
+                  done
+
+                  updater_tarballs=("$bundle_dir/macos/"*.app.tar.gz)
+                  if [ ${#updater_tarballs[@]} -gt 0 ]; then
+                    for file in "${updater_tarballs[@]}"; do
+                      cp "$file" "$release_dir/"
+                    done
+                  else
+                    app_bundles=("$bundle_dir/macos/"*.app)
+                    if [ ${#app_bundles[@]} -eq 0 ]; then
+                      echo "No macOS app bundle found under $bundle_dir/macos" >&2
+                      exit 1
+                    fi
+                    app_bundle="${app_bundles[0]}"
+                    app_name="$(basename "$app_bundle")"
+                    tar -C "$(dirname "$app_bundle")" -czf "$release_dir/$app_name.tar.gz" "$app_name"
+                  fi
+
+                  if ! compgen -G "$release_dir/*" >/dev/null; then
+                    echo "No macOS release assets were staged." >&2
+                    exit 1
+                  fi
+
+            - name: Normalize macOS release asset names
+              working-directory: apps/desktop
+              run: node scripts/ci/normalize-tauri-bundle-assets.mjs "${{ runner.temp }}/touchai-macos-release" "${{ inputs.channel }}" "${{ inputs.version }}"
+
+            - name: Upload macOS diagnostics artifact
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: touchai-macos-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ runner.temp }}/touchai-macos-release
+                  if-no-files-found: error
+
+    build-linux:
+        name: Build Linux release assets
+        needs: prepare-release
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.target-commitish }}
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Linux system dependencies
+              run: |
+                  sudo apt update
+                  sudo apt install -y \
+                    build-essential \
+                    curl \
+                    file \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
+                    pkg-config \
+                    wget
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - name: Rust cache
+              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Install frontend dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Validate checked-in version policy
+              working-directory: apps/desktop
+              run: node scripts/ci/version-policy-check.mjs --skip-tag
+
+            - name: Set release version
+              working-directory: apps/desktop
+              run: node scripts/ci/set-release-version.mjs "${{ inputs.version }}"
+
+            - name: Validate release version policy
+              working-directory: apps/desktop
+              env:
+                  GITHUB_REF_TYPE: tag
+                  GITHUB_REF_NAME: ${{ inputs.tag }}
+              run: node scripts/ci/version-policy-check.mjs
+
+            - name: Build Linux bundles
+              working-directory: apps/desktop
+              run: pnpm tauri build --bundles appimage,deb,rpm --ci
+
+            - name: Stage Linux release assets
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  release_dir="$RUNNER_TEMP/touchai-linux-release"
+                  bundle_dir="apps/desktop/src-tauri/target/release/bundle"
+                  rm -rf "$release_dir"
+                  mkdir -p "$release_dir"
+
+                  shopt -s nullglob
+                  appimages=("$bundle_dir/appimage/"*.AppImage)
+                  debs=("$bundle_dir/deb/"*.deb)
+                  rpms=("$bundle_dir/rpm/"*.rpm)
+
+                  for file in "${appimages[@]}" "${debs[@]}" "${rpms[@]}"; do
+                    if [ -f "$file" ]; then
+                      cp "$file" "$release_dir/"
+                    fi
+                  done
+
+                  updater_tarballs=("$bundle_dir/appimage/"*.AppImage.tar.gz)
+                  if [ ${#updater_tarballs[@]} -gt 0 ]; then
+                    for file in "${updater_tarballs[@]}"; do
+                      cp "$file" "$release_dir/"
+                    done
+                  else
+                    if [ ${#appimages[@]} -eq 0 ]; then
+                      echo "No AppImage bundle found under $bundle_dir/appimage" >&2
+                      exit 1
+                    fi
+                    appimage="${appimages[0]}"
+                    appimage_name="$(basename "$appimage")"
+                    tar -C "$(dirname "$appimage")" -czf "$release_dir/$appimage_name.tar.gz" "$appimage_name"
+                  fi
+
+                  if ! compgen -G "$release_dir/*" >/dev/null; then
+                    echo "No Linux release assets were staged." >&2
+                    exit 1
+                  fi
+
+            - name: Normalize Linux release asset names
+              working-directory: apps/desktop
+              run: node scripts/ci/normalize-tauri-bundle-assets.mjs "${{ runner.temp }}/touchai-linux-release" "${{ inputs.channel }}" "${{ inputs.version }}"
+
+            - name: Upload Linux diagnostics artifact
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: touchai-linux-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ runner.temp }}/touchai-linux-release
+                  if-no-files-found: error
+
+    build-update-channels:
+        name: Build update release feeds
+        needs:
+            - prepare-release
+            - build-windows
+            - build-macos
+            - build-linux
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.target-commitish }}
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Download release notes artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
+                  path: ${{ runner.temp }}/release-notes
+
+            - name: Download Windows release assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: touchai-velopack-windows-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ runner.temp }}/release-assets/windows
+
+            - name: Download macOS release assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: touchai-macos-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ runner.temp }}/release-assets/macos
+
+            - name: Download Linux release assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: touchai-linux-${{ inputs.channel }}-${{ inputs.version }}
+                  path: ${{ runner.temp }}/release-assets/linux
+
+            - name: Stage release assets
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  release_dir="$RUNNER_TEMP/touchai-release-assets"
+                  rm -rf "$release_dir"
+                  mkdir -p "$release_dir"
+                  find "$RUNNER_TEMP/release-assets" -maxdepth 3 -type f -print0 |
+                    while IFS= read -r -d '' file; do
+                      cp "$file" "$release_dir/"
+                    done
+                  if ! compgen -G "$release_dir/*" >/dev/null; then
+                    echo "No release assets were staged." >&2
+                    exit 1
+                  fi
+
+            - name: Build update release feeds
+              working-directory: apps/desktop
+              run: |
+                  node scripts/ci/build-update-channels.mjs "$RUNNER_TEMP/touchai-update-dist" \
+                    --fetch-existing true \
+                    --channel "${{ inputs.channel }}" \
+                    --version "${{ inputs.version }}" \
+                    --tag "${{ inputs.tag }}" \
+                    --prerelease "${{ inputs.prerelease }}" \
+                    --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md" \
+                    --release-dir "$RUNNER_TEMP/touchai-release-assets"
+
+            - name: Upload public release assets to GitHub release
+              shell: bash
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RELEASE_TAG: ${{ inputs.tag }}
+              run: |
+                  set -euo pipefail
+                  release_dir="$RUNNER_TEMP/touchai-release-assets"
+                  shopt -s nullglob
+                  assets=("$release_dir"/*)
+                  if [ ${#assets[@]} -eq 0 ]; then
+                    echo "No release assets were staged." >&2
+                    exit 1
+                  fi
+                  gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+
+            - name: Upload update release feeds artifact
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: touchai-update-dist
+                  path: ${{ runner.temp }}/touchai-update-dist
+                  if-no-files-found: error
+
+    deploy-update-channels:
+        name: Deploy update release feeds
+        if: ${{ inputs.deploy-production }}
+        needs:
+            - prepare-release
+            - build-update-channels
+        runs-on: ubuntu-latest
+        environment: ${{ inputs.deployment-environment }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.target-commitish }}
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Download update release feeds artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: touchai-update-dist
+                  path: ${{ runner.temp }}/touchai-update-dist
+
+            - name: Generate Cloudflare update proxy config
+              working-directory: apps/desktop
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  wrangler_config="$PWD/.wrangler-update-proxy.toml"
+                  node scripts/ci/write-cloudflare-update-worker-config.mjs "$wrangler_config"
+                  echo "WRANGLER_UPDATE_PROXY_CONFIG=$wrangler_config" >> "$GITHUB_ENV"
+
+            - name: Deploy Cloudflare update proxy Worker
+              working-directory: apps/desktop
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+              run: pnpm dlx wrangler@3.90.0 deploy --config "$WRANGLER_UPDATE_PROXY_CONFIG"
+
+            - name: Deploy update release feeds to Cloudflare R2
+              shell: bash
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
+              run: |
+                  set -euo pipefail
+                  update_dist="$RUNNER_TEMP/touchai-update-dist"
+                  find "$update_dist" -type f -print0 |
+                    while IFS= read -r -d '' file; do
+                      key="${file#"$update_dist"/}"
+                      pnpm dlx wrangler@3.90.0 r2 object put "$CLOUDFLARE_R2_BUCKET_NAME/$key" --file "$file"
+                    done
+
+            - name: Prune archived R2 release assets
+              working-directory: apps/desktop
+              shell: bash
+              env:
+                  RELEASE_CHANNEL: ${{ inputs.channel }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
+              run: |
+                  set -euo pipefail
+                  prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"
+                  node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL" > "$prune_plan"
+                  if [ ! -s "$prune_plan" ]; then
+                    echo "No archived R2 release assets to prune."
+                    exit 0
+                  fi
+
+                  while IFS= read -r key; do
+                    if [ -n "$key" ]; then
+                      pnpm dlx wrangler@3.90.0 r2 object delete "$CLOUDFLARE_R2_BUCKET_NAME/$key"
+                    fi
+                  done < "$prune_plan"

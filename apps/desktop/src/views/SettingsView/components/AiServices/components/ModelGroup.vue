@@ -6,8 +6,9 @@
     import type { Model } from '@database/schema';
     import { ref } from 'vue';
 
-    import ModelCard from './ModelCard.vue';
+    import { t } from '@/i18n';
 
+    import ModelCard from './ModelCard.vue';
     interface ModelGroup {
         groupKey: string;
         groupName: string;
@@ -47,16 +48,16 @@
             // 如果分组内有默认模型，不允许删除
             const { useAlert } = await import('@composables/useAlert');
             const { warning } = useAlert();
-            warning('该分组包含默认模型，无法批量删除');
+            warning(t('settings.ai.groupContainsDefaultModel'));
             return;
         }
 
         const confirmed = await confirm({
-            title: '确认删除',
-            message: '确定要删除该分组下的所有模型吗？',
+            title: t('settings.ai.confirmDeleteTitle'),
+            message: t('settings.ai.confirmDeleteGroup'),
             type: 'danger',
-            confirmText: '删除',
-            cancelText: '取消',
+            confirmText: t('common.delete'),
+            cancelText: t('common.cancel'),
         });
 
         if (confirmed) {
@@ -66,38 +67,42 @@
 </script>
 
 <template>
-    <div class="model-group">
+    <div class="model-group border-b border-neutral-100 py-2 last:border-b-0">
         <div class="flex items-center gap-2">
             <button
-                class="flex flex-1 items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-gray-50"
+                class="flex flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-neutral-50"
                 @click="toggleExpand"
             >
                 <AppIcon
                     name="chevron-right"
                     :class="
                         isExpanded
-                            ? 'h-4 w-4 rotate-90 text-gray-400 transition-transform'
-                            : 'h-4 w-4 text-gray-400 transition-transform'
+                            ? 'h-4 w-4 rotate-90 text-neutral-400 transition-transform'
+                            : 'h-4 w-4 text-neutral-400 transition-transform'
                     "
                 />
 
-                <span class="font-serif text-sm font-medium text-gray-700">
+                <span class="text-sm font-medium text-neutral-800">
                     {{ group.groupName }}
                 </span>
 
-                <span class="text-xs text-gray-400">({{ group.models.length }})</span>
+                <span class="text-xs text-neutral-400">({{ group.models.length }})</span>
             </button>
 
             <button
-                class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                title="删除分组"
+                class="flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-50 hover:text-neutral-700"
+                :title="t('settings.ai.deleteGroup')"
                 @click="handleDeleteGroup(group.groupKey, group.models)"
             >
                 <AppIcon name="trash" class="h-4 w-4" />
             </button>
         </div>
 
-        <div v-show="isExpanded" class="mt-2 ml-6 space-y-2">
+        <div
+            v-show="isExpanded"
+            data-testid="settings-model-group-models"
+            class="mt-2 ml-6 space-y-2"
+        >
             <ModelCard
                 v-for="model in group.models"
                 :key="model.id"

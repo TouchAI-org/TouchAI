@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { tt } from '@/i18n';
 import { parseJsonWithSchema } from '@/utils/zod';
 
 import { nonEmptyTrimmedStringSchema, z } from '../../utils/toolSchema';
@@ -33,7 +34,7 @@ export function isUpgradeModelChainEntry(value: unknown): value is UpgradeModelC
 export function normalizeUpgradeModelChainEntry(value: unknown): UpgradeModelChainEntry {
     const result = upgradeModelChainEntrySchema.safeParse(value);
     if (!result.success) {
-        throw new Error('升级链条中的每一项都必须包含 providerId 和非空 modelId。');
+        throw new Error(tt('升级链条中的每一项都必须包含 providerId 和非空 modelId。'));
     }
 
     return result.data;
@@ -50,17 +51,17 @@ export function normalizeUpgradeModelChain(value: unknown): UpgradeModelChainEnt
     const rawEntries =
         typeof value === 'string'
             ? parseJsonWithSchema(
-                  z.array(z.unknown()),
+                  z.unknown(),
                   value,
-                  '升级链条必须是数组或可解析为数组的 JSON 字符串。'
+                  tt('升级链条必须是数组或可解析为数组的 JSON 字符串。')
               )
             : value;
 
     if (!Array.isArray(rawEntries)) {
-        throw new Error('升级链条必须是数组或可解析为数组的 JSON 字符串。');
+        throw new Error(tt('升级链条必须是数组或可解析为数组的 JSON 字符串。'));
     }
 
-    const normalizedEntries = z.array(upgradeModelChainEntrySchema).parse(rawEntries);
+    const normalizedEntries = rawEntries.map((entry) => normalizeUpgradeModelChainEntry(entry));
     const seen = new Set<string>();
 
     return normalizedEntries.filter((entry) => {
@@ -95,7 +96,7 @@ export function isSameUpgradeModelChainEntry(
  */
 export function formatUpgradeModelChain(entries: UpgradeModelChainEntry[]): string {
     if (entries.length === 0) {
-        return '未配置';
+        return tt('未配置');
     }
 
     return entries.map((entry) => `${entry.providerId}:${entry.modelId}`).join(' -> ');

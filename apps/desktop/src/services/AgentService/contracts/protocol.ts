@@ -2,6 +2,7 @@
 
 import type { ProviderDriver } from '@database/schema';
 
+import type { ModelLanguageContext } from '../languageContext';
 import type { AiToolCall, AiToolCallDelta, AiToolDefinition, ToolEvent } from './tooling';
 
 export type AttachmentTransportMode =
@@ -146,6 +147,7 @@ export interface AiRequestOptions {
     stream?: boolean;
     signal?: AbortSignal;
     tools?: AiToolDefinition[];
+    modelLanguageContext?: ModelLanguageContext;
     attachmentRequestIndex?: number;
     onAttachmentManifestResolved?: (
         request: AttachmentDeliveryManifestRequest

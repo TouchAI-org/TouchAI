@@ -60,7 +60,7 @@
         :autocomplete="autocomplete"
         :class="
             cn(
-                'focus:border-primary-400 flex h-9 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 transition-colors focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400',
+                'focus:border-primary-400 flex h-9 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 shadow-none [box-shadow:none] transition-colors focus:shadow-none focus:[box-shadow:none] focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400',
                 props.class
             )
         "

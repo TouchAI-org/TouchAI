@@ -11,6 +11,10 @@ import type {
     PopupSessionSearchQueryChangePayload,
 } from '@services/PopupService/types';
 
+import type { SessionStatusReminderKind } from '@/utils/session';
+
+export type { SessionStatusReminderKind } from '@/utils/session';
+
 /**
  * 事件类型定义
  *
@@ -51,6 +55,7 @@ export enum AppEvent {
     SEARCH_SURFACE_HIDDEN = 'search-surface-hidden',
     SEARCH_SURFACE_COMMAND = 'search-surface-command',
     SESSION_TASK_STATUS_CHANGED = 'session:task:status-changed',
+    SESSION_STATUS_REMINDER_ACTION = 'session-status-reminder:action',
 }
 
 // ==================== MCP 事件 ====================
@@ -70,13 +75,17 @@ export type GeneralSettingKey =
     | 'start_on_boot'
     | 'start_minimized'
     | 'output_scroll_behavior'
-    | 'search_window_size_preset';
+    | 'search_window_size_preset'
+    | 'language'
+    | 'app_update_channel'
+    | 'app_update_auto_check'
+    | 'app_update_last_checked_at';
 
 export interface SettingsGeneralUpdatedEvent {
     sourceId: string;
     windowLabel: string;
     key: GeneralSettingKey;
-    value: string | number | boolean;
+    value: string | number | boolean | null;
 }
 
 export interface AiModelsUpdatedEvent {
@@ -97,7 +106,7 @@ export interface WindowResizeEvent {
 }
 
 export interface SearchSurfaceShownEvent {
-    source: 'shortcut';
+    source: 'shortcut' | 'notification';
     sequence?: number;
 }
 
@@ -109,6 +118,30 @@ export interface SearchSurfaceHiddenEvent {
 export interface SearchSurfaceCommandEvent {
     command: 'toggle-model-dropdown';
     source: 'webview2-accelerator';
+}
+
+export interface SessionStatusReminderApprovalActionPayload {
+    callId: string;
+    approveLabel: string;
+    rejectLabel: string;
+}
+
+export interface SessionStatusReminderPayload {
+    kind: SessionStatusReminderKind;
+    title: string;
+    body: string;
+    approval?: SessionStatusReminderApprovalActionPayload | null;
+    replyPlaceholder?: string | null;
+    replyLabel?: string | null;
+}
+
+export interface SessionStatusReminderActionEvent {
+    sessionId: number;
+    taskId: string;
+    kind: SessionStatusReminderKind;
+    action: 'open' | 'approve' | 'reject' | 'reply';
+    callId?: string | null;
+    replyText?: string | null;
 }
 
 // ==================== 资源事件 ====================
@@ -123,6 +156,7 @@ export interface SessionTaskStatusChangedEvent {
     taskId: string;
     status: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
     previousStatus: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled' | null;
+    reminder: SessionStatusReminderPayload | null;
 }
 
 // ==================== 事件映射 ====================
@@ -158,6 +192,7 @@ export interface AppEventMap {
     [AppEvent.SEARCH_SURFACE_HIDDEN]: SearchSurfaceHiddenEvent;
     [AppEvent.SEARCH_SURFACE_COMMAND]: SearchSurfaceCommandEvent;
     [AppEvent.SESSION_TASK_STATUS_CHANGED]: SessionTaskStatusChangedEvent;
+    [AppEvent.SESSION_STATUS_REMINDER_ACTION]: SessionStatusReminderActionEvent;
 }
 
 export type AppEventName = keyof AppEventMap;

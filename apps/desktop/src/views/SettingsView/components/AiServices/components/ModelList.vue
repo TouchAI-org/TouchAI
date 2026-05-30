@@ -6,10 +6,11 @@
     import type { Model, NewModel, Provider } from '@database/schema';
     import { computed, ref } from 'vue';
 
+    import { t, tp } from '@/i18n';
+
     import AddModelDialog from './AddModelDialog.vue';
     import EditModelDialog from './EditModelDialog.vue';
     import ModelGroup from './ModelGroup.vue';
-
     interface Props {
         providerId: number;
         models: Model[];
@@ -154,9 +155,9 @@
     // 计算 placeholder 文本
     const searchPlaceholder = computed(() => {
         if (props.models.length > 0) {
-            return `搜索${props.models.length}个模型...`;
+            return tp('settings.ai.modelSearchPlaceholder', props.models.length);
         }
-        return '搜索模型...';
+        return t('settings.ai.modelSearchGenericPlaceholder');
     });
 
     // 计算分组后的模型
@@ -206,12 +207,12 @@
     const handleRefresh = () => {
         // 检查是否已配置地址
         if (!props.provider) {
-            alert.error('服务商信息不存在');
+            alert.error(t('settings.ai.providerInfoMissing'));
             return;
         }
 
         if (!props.provider.api_endpoint) {
-            alert.warning('请先配置 API 地址');
+            alert.warning(t('settings.ai.configureApiUrlFirst'));
             return;
         }
 
@@ -237,103 +238,77 @@
     <div class="space-y-4">
         <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-5">
-                <h3 class="flex-shrink-0 font-serif text-sm font-semibold text-gray-900">
-                    模型列表
-                </h3>
+                <h2 class="flex-shrink-0 text-[15px] font-medium text-neutral-950">
+                    {{ t('settings.ai.modelListTitle') }}
+                </h2>
 
                 <div class="relative flex-1">
                     <AppIcon
                         name="search"
-                        class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400"
+                        class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400"
                     />
                     <input
                         v-model="searchQuery"
                         type="text"
                         :placeholder="searchPlaceholder"
-                        class="focus:border-primary-400 w-full rounded-lg border border-gray-200 py-1.5 pr-3 pl-9 text-sm text-gray-900 transition-colors focus:outline-none"
+                        class="settings-input w-full py-1.5 pr-3 pl-9"
                     />
                 </div>
             </div>
 
             <div class="flex flex-shrink-0 gap-2">
                 <button
-                    class="flex-shrink-0 rounded-lg border px-3 py-1.5 font-serif text-sm font-medium transition-colors"
+                    class="flex-shrink-0 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors"
                     :class="{
-                        'border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-700':
+                        'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:text-neutral-900':
                             !refreshing,
-                        'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400': refreshing,
+                        'cursor-not-allowed border-neutral-200 bg-neutral-50 text-neutral-400':
+                            refreshing,
                     }"
                     :disabled="refreshing"
-                    title="从服务商刷新模型列表"
+                    :title="t('settings.ai.refreshModelsTitle')"
                     @click="handleRefresh"
                 >
                     <span v-if="refreshing" class="inline-flex items-center gap-1.5">
                         <AppIcon name="refresh" class="h-4 w-4 animate-spin" />
-                        刷新中...
+                        {{ t('settings.ai.refreshing') }}
                     </span>
-                    <span v-else>刷新</span>
+                    <span v-else>{{ t('settings.ai.refresh') }}</span>
                 </button>
                 <button
-                    class="bg-primary-500 hover:bg-primary-600 flex-shrink-0 rounded-lg px-3 py-1.5 font-serif text-sm font-medium text-white transition-colors"
+                    class="settings-button-primary flex-shrink-0 px-3 py-1.5"
                     @click="startCreate"
                 >
-                    + 添加模型
+                    {{ t('settings.ai.addModelTitle') }}
                 </button>
             </div>
         </div>
 
         <div
             v-if="models.length > 0 && modelGroups.length === 0"
-            class="rounded-lg border border-gray-200 bg-white p-8 text-center"
+            class="settings-card p-8 text-center"
         >
             <div class="mx-auto max-w-sm">
-                <AppIcon name="search" class="mx-auto h-10 w-10 text-gray-300" />
-                <h3 class="mt-3 font-serif text-base font-medium text-gray-900">
-                    未找到匹配的模型
+                <AppIcon name="search" class="mx-auto h-10 w-10 text-neutral-300" />
+                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">
+                    {{ t('settings.ai.noMatchingModels') }}
                 </h3>
-                <p class="mt-1 text-xs text-gray-500">
-                    没有找到与 "{{ searchQuery }}" 匹配的模型，请尝试其他关键词
+                <p class="mt-1 text-xs text-neutral-500">
+                    {{ t('settings.ai.noMatchingModelsDescription', { query: searchQuery }) }}
                 </p>
             </div>
         </div>
 
         <div
             v-if="models.length === 0"
-            class="rounded-lg border border-gray-200 bg-white p-8 text-center"
+            class="settings-card p-8 text-center"
+            data-testid="settings-model-empty-state"
         >
             <div class="mx-auto max-w-sm">
-                <AppIcon name="llm" class="mx-auto h-10 w-10 text-gray-300" />
-                <h3 class="mt-3 font-serif text-base font-medium text-gray-900">暂无模型</h3>
-                <p class="mt-1 text-xs text-gray-500">
-                    <template v-if="!provider?.api_endpoint">
-                        请先在上方配置 API 地址，然后点击下方按钮获取模型列表
-                    </template>
-                    <template v-else>点击下方按钮从服务商获取模型列表，或手动添加模型</template>
-                </p>
-                <div class="mt-5 flex justify-center gap-3">
-                    <button
-                        class="inline-flex items-center rounded-lg px-4 py-2 font-serif text-sm font-medium text-white transition-colors"
-                        :class="{
-                            'bg-primary-500 hover:bg-primary-600': !refreshing,
-                            'cursor-not-allowed bg-gray-400': refreshing,
-                        }"
-                        :disabled="refreshing"
-                        @click="handleRefresh"
-                    >
-                        <AppIcon
-                            name="refresh"
-                            :class="refreshing ? 'mr-1.5 h-4 w-4 animate-spin' : 'mr-1.5 h-4 w-4'"
-                        />
-                        {{ refreshing ? '获取中...' : '获取模型列表' }}
-                    </button>
-                    <button
-                        class="inline-flex items-center rounded-lg border border-gray-200 px-4 py-2 font-serif text-sm font-medium text-gray-600 transition-colors hover:border-gray-300"
-                        @click="startCreate"
-                    >
-                        <AppIcon name="plus" class="mr-1.5 h-4 w-4" />
-                        手动添加
-                    </button>
-                </div>
+                <AppIcon name="llm" class="mx-auto h-10 w-10 text-neutral-300" />
+                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">
+                    {{ t('settings.ai.noModels') }}
+                </h3>
             </div>
         </div>
 

@@ -2,6 +2,8 @@
 
 import type morphdom from 'morphdom';
 
+import { tt } from '@/i18n';
+
 import {
     SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS,
     SHOW_WIDGET_COLOR_RAMPS,
@@ -198,8 +200,8 @@ export function buildShowWidgetDraftFromArgumentsBuffer(
     return {
         callId,
         widgetId: draft.widgetId || callId,
-        title: draft.title || draft.widgetId || '生成中的可视化',
-        description: draft.description || '模型正在按已加载规范流式生成内联可视化内容。',
+        title: draft.title || draft.widgetId || tt('生成中的可视化'),
+        description: draft.description || tt('模型正在按已加载规范流式生成内联可视化内容。'),
         html: draft.html || '',
         mode: draft.mode || 'render',
         phase: 'draft',
@@ -762,6 +764,8 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
     };
 
     hostElement.dataset.touchaiWidgetHost = scopeId;
+    hostElement.setAttribute('data-no-i18n', 'true');
+    hostElement.setAttribute('translate', 'no');
     hostElement.dataset.widgetPhase = 'draft';
     ensureShowWidgetThemeVariables(hostElement);
 
@@ -771,6 +775,8 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
 
     const widgetRoot = document.createElement('div');
     widgetRoot.setAttribute('data-touchai-widget-root', 'true');
+    widgetRoot.setAttribute('data-no-i18n', 'true');
+    widgetRoot.setAttribute('translate', 'no');
     hostElement.replaceChildren(baseStyleElement, widgetRoot);
     applyShowWidgetLayoutGuards(hostElement, widgetRoot);
 

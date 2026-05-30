@@ -72,6 +72,15 @@ pub fn invoke_command_err(
     invoke_command(webview, command, payload).expect_err(&format!("Expected '{command}' to fail"))
 }
 
+#[allow(dead_code)]
+pub fn invoke_command_result(
+    webview: &WebviewWindow<MockRuntime>,
+    command: &str,
+    payload: impl serde::Serialize,
+) -> Result<InvokeResponseBody, serde_json::Value> {
+    invoke_command(webview, command, payload)
+}
+
 fn invoke_command(
     webview: &WebviewWindow<MockRuntime>,
     command: &str,

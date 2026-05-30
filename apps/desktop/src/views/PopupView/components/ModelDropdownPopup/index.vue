@@ -18,7 +18,7 @@
                     :value="localSearchQuery"
                     type="text"
                     autofocus
-                    placeholder="搜索模型名称、ID 或供应商"
+                    :placeholder="t('popup.modelDropdown.searchPlaceholder')"
                     class="w-full border-0 bg-transparent text-xs text-stone-700 outline-none placeholder:text-stone-400"
                     @input="handleSearchInput"
                 />
@@ -44,35 +44,49 @@
                 @mouseenter="highlightedIndex = index"
                 @click="handleSelect(model.id)"
             >
-                <div class="relative">
+                <div class="shrink-0">
                     <ModelLogo :model-id="model.modelId" :name="model.name" size="sm" />
-                    <div
-                        class="absolute top-full left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 whitespace-nowrap"
-                    >
-                        <span
-                            v-if="
-                                model.modelId === selectedModelId &&
-                                model.providerId === selectedProviderId
-                            "
-                            class="rounded border border-gray-300 bg-white px-1 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm"
-                        >
-                            当前
-                        </span>
-                        <span
-                            v-if="
-                                model.modelId === activeModelId &&
-                                model.providerId === activeProviderId
-                            "
-                            class="rounded border border-gray-300 bg-white px-1 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm"
-                        >
-                            默认
-                        </span>
-                    </div>
                 </div>
                 <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-xs font-medium text-stone-900">{{ model.name }}</span>
-                        <span class="text-[11px] text-stone-500">{{ model.providerName }}</span>
+                    <div class="flex min-w-0 items-start justify-between gap-2">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex min-w-0 items-baseline gap-2">
+                                <span
+                                    class="min-w-0 truncate text-xs font-medium text-stone-900"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ model.name }}
+                                </span>
+                                <span
+                                    class="min-w-0 truncate text-[11px] text-stone-500"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ model.providerName }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex min-w-[3.5rem] shrink-0 flex-col items-end gap-1">
+                            <span
+                                v-if="
+                                    model.modelId === selectedModelId &&
+                                    model.providerId === selectedProviderId
+                                "
+                                class="model-dropdown-state-badge inline-flex min-w-[3.25rem] justify-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] leading-tight whitespace-nowrap text-gray-600 shadow-sm"
+                            >
+                                {{ t('common.current') }}
+                            </span>
+                            <span
+                                v-if="
+                                    model.modelId === activeModelId &&
+                                    model.providerId === activeProviderId
+                                "
+                                class="model-dropdown-state-badge inline-flex min-w-[3.25rem] justify-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] leading-tight whitespace-nowrap text-gray-600 shadow-sm"
+                            >
+                                {{ t('common.default') }}
+                            </span>
+                        </div>
                     </div>
                     <div class="mt-1">
                         <ModelCapabilityTags :model="model" size="sm" />
@@ -89,17 +103,19 @@
                     {{ emptyStateMessage }}
                 </p>
                 <p class="text-[11px] leading-4 text-stone-500">
-                    <span v-if="effectiveSearchQuery">可以尝试更短的关键词重新搜索</span>
+                    <span v-if="effectiveSearchQuery">
+                        {{ t('popup.modelDropdown.empty.tryShorter') }}
+                    </span>
                     <span v-else class="inline-flex items-baseline">
-                        <span>请先在</span>
+                        <span>{{ emptySettingsPrompt.prefix }}</span>
                         <button
                             type="button"
                             class="text-primary-600 hover:text-primary-700 decoration-primary-300 cursor-pointer font-medium underline underline-offset-2 transition-colors"
                             @click="openSettingsFromEmptyState"
                         >
-                            设置中心
+                            {{ t('popup.modelDropdown.settingsCenter') }}
                         </button>
-                        <span>配置模型</span>
+                        <span>{{ emptySettingsPrompt.suffix }}</span>
                     </span>
                 </p>
             </div>
@@ -120,6 +136,8 @@
         PopupSessionIdentity,
     } from '@services/PopupService';
     import { computed, nextTick, ref, watch } from 'vue';
+
+    import { t } from '@/i18n';
 
     defineOptions({
         name: 'PopupModelDropdown',
@@ -161,7 +179,16 @@
     });
 
     const emptyStateMessage = computed(() => {
-        return effectiveSearchQuery.value ? '没有找到匹配的模型' : '还没有可用模型';
+        return effectiveSearchQuery.value
+            ? t('popup.modelDropdown.empty.noMatches')
+            : t('popup.modelDropdown.empty.noModels');
+    });
+
+    const emptySettingsPrompt = computed(() => {
+        return {
+            prefix: t('popup.modelDropdown.emptySetupPrefix'),
+            suffix: t('popup.modelDropdown.emptySetupSuffix'),
+        };
     });
 
     async function handleSelect(modelDbId: number) {

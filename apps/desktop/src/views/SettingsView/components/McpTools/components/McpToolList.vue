@@ -7,13 +7,13 @@
     import type { McpServerEntity, McpToolEntity } from '@database/types';
     import { computed, onMounted, ref } from 'vue';
 
+    import { t } from '@/i18n';
     import { useMcpStore } from '@/stores/mcp';
     import {
         type McpToolProperty,
         type McpToolSchema,
         parseMcpToolSchemaJson,
     } from '@/utils/mcpSchemas';
-
     interface Props {
         server: McpServerEntity;
     }
@@ -107,44 +107,44 @@
 </script>
 
 <template>
-    <div class="p-6">
-        <div class="mx-auto max-w-4xl">
+    <div class="settings-page-wide">
+        <div>
             <!-- 筛选和搜索栏 -->
             <div class="mb-4 flex items-center justify-between gap-4">
                 <!-- 筛选标签 -->
                 <div class="flex gap-2">
                     <button
                         :class="[
-                            'rounded-lg px-3 py-1.5 font-serif text-sm transition-colors',
+                            'rounded-[10px] px-3 py-1.5 text-sm transition-colors',
                             filterStatus === 'all'
-                                ? 'bg-primary-600 text-white'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+                                ? 'bg-[#e9e9e7] text-neutral-950'
+                                : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
                         ]"
                         @click="filterStatus = 'all'"
                     >
-                        全部
+                        {{ t('common.all') }}
                     </button>
                     <button
                         :class="[
-                            'rounded-lg px-3 py-1.5 font-serif text-sm transition-colors',
+                            'rounded-[10px] px-3 py-1.5 text-sm transition-colors',
                             filterStatus === 'enabled'
-                                ? 'bg-primary-600 text-white'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+                                ? 'bg-[#e9e9e7] text-neutral-950'
+                                : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
                         ]"
                         @click="filterStatus = 'enabled'"
                     >
-                        已启用
+                        {{ t('common.enabled') }}
                     </button>
                     <button
                         :class="[
-                            'rounded-lg px-3 py-1.5 font-serif text-sm transition-colors',
+                            'rounded-[10px] px-3 py-1.5 text-sm transition-colors',
                             filterStatus === 'disabled'
-                                ? 'bg-primary-600 text-white'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+                                ? 'bg-[#e9e9e7] text-neutral-950'
+                                : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
                         ]"
                         @click="filterStatus = 'disabled'"
                     >
-                        已禁用
+                        {{ t('common.disabled') }}
                     </button>
                 </div>
 
@@ -153,27 +153,35 @@
                     <input
                         v-model="searchQuery"
                         type="text"
-                        placeholder="搜索工具..."
-                        class="focus:border-primary-400 w-full rounded-lg border border-gray-200 py-1.5 pr-3 pl-9 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
+                        :placeholder="t('settings.mcp.tools.searchPlaceholder')"
+                        class="settings-input w-full py-1.5 pr-3 pl-9"
                     />
                     <AppIcon
                         name="search"
-                        class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400"
+                        class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400"
                     />
                 </div>
             </div>
 
             <div v-if="loading" class="space-y-3">
-                <div v-for="i in 3" :key="i" class="h-24 animate-pulse rounded-lg bg-gray-100" />
+                <div v-for="i in 3" :key="i" class="h-24 animate-pulse rounded-lg bg-neutral-100" />
             </div>
 
             <div v-else-if="filteredTools.length === 0" class="py-12 text-center">
-                <AppIcon name="mcp" class="mx-auto h-16 w-16 text-gray-300" />
-                <p class="mt-4 font-serif text-sm text-gray-500">
-                    {{ searchQuery ? '未找到匹配的工具' : '暂无工具' }}
+                <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
+                <p class="mt-4 text-sm text-neutral-500">
+                    {{
+                        searchQuery
+                            ? t('settings.mcp.tools.noMatches')
+                            : t('settings.mcp.tools.empty')
+                    }}
                 </p>
-                <p class="mt-1 font-serif text-xs text-gray-400">
-                    {{ searchQuery ? '尝试其他搜索关键词' : '连接服务器后将自动发现工具' }}
+                <p class="mt-1 text-xs text-neutral-400">
+                    {{
+                        searchQuery
+                            ? t('toolLog.tryAnotherKeyword')
+                            : t('settings.mcp.tools.discoverAfterConnect')
+                    }}
                 </p>
             </div>
 
@@ -181,22 +189,26 @@
                 <div
                     v-for="tool in filteredTools"
                     :key="tool.id"
-                    class="rounded-lg border border-gray-200 bg-white"
+                    class="overflow-hidden rounded-[13px] border border-neutral-200/70 bg-white"
                 >
                     <button
-                        class="w-full p-4 text-left transition-colors hover:bg-gray-50"
+                        class="w-full p-4 text-left transition-colors hover:bg-neutral-50/70"
                         @click="toggleExpand(tool.id)"
                     >
                         <div class="flex items-start justify-between">
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center gap-2">
-                                    <h3 class="font-serif text-base font-semibold text-gray-900">
+                                    <h3
+                                        class="text-[15px] font-medium break-words text-neutral-950"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
                                         {{ tool.name }}
                                     </h3>
                                     <button
                                         :class="[
                                             'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
-                                            tool.enabled ? 'bg-primary-600' : 'bg-gray-200',
+                                            tool.enabled ? 'bg-primary-700' : 'bg-neutral-200',
                                         ]"
                                         @click="toggleEnabled(tool, $event)"
                                     >
@@ -211,9 +223,11 @@
                                 <p
                                     v-if="tool.description"
                                     :class="[
-                                        'mt-1 font-serif text-xs text-gray-500',
+                                        'mt-1 text-xs break-words text-gray-500',
                                         !expandedTools.has(tool.id) && 'line-clamp-2',
                                     ]"
+                                    data-no-i18n="true"
+                                    translate="no"
                                 >
                                     {{ tool.description }}
                                 </p>
@@ -223,8 +237,8 @@
                                 name="chevron-right"
                                 :class="
                                     expandedTools.has(tool.id)
-                                        ? 'ml-4 h-5 w-5 flex-shrink-0 rotate-90 text-gray-400 transition-transform'
-                                        : 'ml-4 h-5 w-5 flex-shrink-0 text-gray-400 transition-transform'
+                                        ? 'ml-4 h-5 w-5 flex-shrink-0 rotate-90 text-neutral-400 transition-transform'
+                                        : 'ml-4 h-5 w-5 flex-shrink-0 text-neutral-400 transition-transform'
                                 "
                             />
                         </div>
@@ -232,9 +246,11 @@
 
                     <div
                         v-if="expandedTools.has(tool.id)"
-                        class="border-t border-gray-200 bg-gray-50 p-4"
+                        class="border-t border-neutral-200/70 bg-neutral-50/70 p-4"
                     >
-                        <h4 class="mb-2 font-serif text-xs font-medium text-gray-700">输入参数</h4>
+                        <h4 class="mb-2 text-xs font-medium text-neutral-700">
+                            {{ t('settings.mcp.tools.inputParameters') }}
+                        </h4>
 
                         <template v-if="getToolSchema(tool.id)">
                             <template v-if="getSchemaProperties(getToolSchema(tool.id))">
@@ -243,36 +259,36 @@
                                         Object.keys(getSchemaProperties(getToolSchema(tool.id))!)
                                             .length === 0
                                     "
-                                    class="rounded-lg bg-white p-3 text-center font-serif text-xs text-gray-500"
+                                    class="rounded-lg bg-white p-3 text-center text-xs text-neutral-500"
                                 >
-                                    无参数
+                                    {{ t('settings.mcp.tools.noParameters') }}
                                 </div>
                                 <div
                                     v-else
-                                    class="overflow-hidden rounded-lg border border-gray-200 bg-white"
+                                    class="overflow-x-auto rounded-lg border border-neutral-200 bg-white"
                                 >
-                                    <table class="w-full">
-                                        <thead class="bg-gray-50">
+                                    <table class="min-w-full">
+                                        <thead class="bg-neutral-50">
                                             <tr>
                                                 <th
-                                                    class="border-b border-gray-200 px-3 py-2 text-left font-serif text-xs font-medium text-gray-700"
+                                                    class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                 >
-                                                    参数名
+                                                    {{ t('settings.mcp.tools.parameterName') }}
                                                 </th>
                                                 <th
-                                                    class="border-b border-gray-200 px-3 py-2 text-left font-serif text-xs font-medium text-gray-700"
+                                                    class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                 >
-                                                    类型
+                                                    {{ t('common.type') }}
                                                 </th>
                                                 <th
-                                                    class="border-b border-gray-200 px-3 py-2 text-left font-serif text-xs font-medium text-gray-700"
+                                                    class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                 >
-                                                    必填
+                                                    {{ t('settings.mcp.tools.required') }}
                                                 </th>
                                                 <th
-                                                    class="border-b border-gray-200 px-3 py-2 text-left font-serif text-xs font-medium text-gray-700"
+                                                    class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                 >
-                                                    描述
+                                                    {{ t('common.description') }}
                                                 </th>
                                             </tr>
                                         </thead>
@@ -282,19 +298,23 @@
                                                     getToolSchema(tool.id)
                                                 )"
                                                 :key="propName"
-                                                class="border-b border-gray-100 last:border-0"
+                                                class="border-b border-neutral-100 last:border-0"
                                             >
                                                 <td
-                                                    class="px-3 py-2 font-mono text-xs text-gray-900"
+                                                    class="px-3 py-2 font-mono text-xs break-all text-neutral-950"
+                                                    data-no-i18n="true"
+                                                    translate="no"
                                                 >
                                                     {{ propName }}
                                                 </td>
                                                 <td
-                                                    class="px-3 py-2 font-mono text-xs text-gray-600"
+                                                    class="px-3 py-2 font-mono text-xs break-all text-neutral-600"
+                                                    data-no-i18n="true"
+                                                    translate="no"
                                                 >
                                                     {{ getPropertyType(prop) }}
                                                 </td>
-                                                <td class="px-3 py-2 font-serif text-xs">
+                                                <td class="px-3 py-2 text-xs">
                                                     <span
                                                         v-if="
                                                             isRequired(
@@ -304,12 +324,16 @@
                                                         "
                                                         class="rounded bg-red-100 px-1.5 py-0.5 text-red-700"
                                                     >
-                                                        是
+                                                        {{ t('common.yes') }}
                                                     </span>
-                                                    <span v-else class="text-gray-400">否</span>
+                                                    <span v-else class="text-gray-400">
+                                                        {{ t('common.no') }}
+                                                    </span>
                                                 </td>
                                                 <td
-                                                    class="px-3 py-2 font-serif text-xs text-gray-600"
+                                                    class="px-3 py-2 text-xs break-words text-neutral-600"
+                                                    data-no-i18n="true"
+                                                    translate="no"
                                                 >
                                                     {{ prop.description || '-' }}
                                                 </td>
@@ -320,13 +344,13 @@
                             </template>
                             <pre
                                 v-else
-                                class="overflow-x-auto rounded-lg bg-white p-3 font-mono text-xs text-gray-900"
+                                class="overflow-x-auto rounded-lg bg-white p-3 font-mono text-xs text-neutral-950"
                                 >{{ JSON.stringify(getToolSchema(tool.id), null, 2) }}</pre
                             >
                         </template>
                         <pre
                             v-else
-                            class="overflow-x-auto rounded-lg bg-white p-3 font-mono text-xs text-gray-900"
+                            class="overflow-x-auto rounded-lg bg-white p-3 font-mono text-xs text-neutral-950"
                             >{{ tool.input_schema }}</pre
                         >
                     </div>

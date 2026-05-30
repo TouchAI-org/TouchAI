@@ -18,7 +18,13 @@
         contenteditable="false"
     >
         <span class="search-tag-content">
-            <span class="search-tag-label search-tag-label--model">{{ node.attrs.modelName }}</span>
+            <span
+                class="search-tag-label search-tag-label--model"
+                data-no-i18n="true"
+                translate="no"
+            >
+                {{ node.attrs.modelName }}
+            </span>
             <button
                 class="search-tag-close search-tag-close--model"
                 data-tag-close

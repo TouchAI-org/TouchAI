@@ -13,6 +13,7 @@
         position="top-center"
         :duration="3000"
         :close-button="true"
+        :offset="{ top: 56 }"
         :toast-options="{
             class: 'rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm font-serif text-sm text-gray-900',
             classes: {

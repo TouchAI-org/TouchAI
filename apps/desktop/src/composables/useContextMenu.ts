@@ -11,8 +11,10 @@ export interface ContextMenuItem {
     danger?: boolean;
 }
 
+type ContextMenuItemsSource = ContextMenuItem[] | (() => ContextMenuItem[]);
+
 export function useContextMenu<T = void>(
-    items: ContextMenuItem[],
+    items: ContextMenuItemsSource,
     onSelect: (key: string, context: T) => void
 ) {
     const context = ref<T | undefined>(undefined) as { value: T | undefined };
@@ -70,6 +72,10 @@ export function useContextMenu<T = void>(
         el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }
 
+    function resolveItems(): ContextMenuItem[] {
+        return typeof items === 'function' ? items() : items;
+    }
+
     const open = (event: MouseEvent, ctx?: T) => {
         event.preventDefault();
         cleanup();
@@ -82,7 +88,7 @@ export function useContextMenu<T = void>(
         mountedApp = createApp(ContextMenuVue, {
             x: event.clientX,
             y: event.clientY,
-            items,
+            items: resolveItems(),
             onSelect: (key: string) => {
                 if (context.value !== undefined) {
                     onSelect(key, context.value);

@@ -30,7 +30,7 @@ const createNodeModulesGroup = (
 }
 
 const chunkGroups = [
-  createNodeModulesGroup('vendor-framework', ['vue', 'vue-router', 'pinia'], 70),
+  createNodeModulesGroup('vendor-framework', ['vue', 'vue-router', 'pinia', 'vue-i18n'], 70),
   createNodeModulesGroup('vendor-ui', ['reka-ui', 'vue-sonner'], 60),
   createNodeModulesGroup(
     'vendor-ai',
@@ -68,6 +68,31 @@ const chunkGroups = [
 ] as const
 
 export default defineConfig({
+  cacheDir: resolve(__dirname, '.vite-cache'),
+  optimizeDeps: {
+    include: [
+      '@tauri-apps/api/app',
+      '@tauri-apps/api/core',
+      '@tauri-apps/api/event',
+      '@tauri-apps/api/path',
+      '@tauri-apps/api/webviewWindow',
+      '@tauri-apps/api/window',
+      '@tauri-apps/plugin-dialog',
+      '@tauri-apps/plugin-fs',
+      '@tauri-apps/plugin-http',
+      '@tauri-apps/plugin-notification',
+      '@tauri-apps/plugin-opener',
+      '@tauri-apps/plugin-process',
+      'katex',
+      'mermaid',
+      'pinia',
+      'reka-ui',
+      'vue',
+      'vue-i18n',
+      'vue-router',
+      'vue-sonner',
+    ],
+  },
   plugins: [
     monacoEditorEsmPlugin({
       languageWorkers: [],
@@ -85,6 +110,7 @@ export default defineConfig({
     vue(),
   ],
   resolve: {
+    dedupe: ['vue'],
     alias: {
       // vue-draggable-plus 0.6.1 的 ESM bundle 会被当前 Rolldown RC 错误 tree-shake，
       // 运行时改走该包自带 CJS 入口，保留拖拽功能并避开 Bt_mounted 未定义问题。
@@ -92,6 +118,7 @@ export default defineConfig({
         __dirname,
         './node_modules/vue-draggable-plus/dist/vue-draggable-plus.cjs',
       ),
+      '@product-config': resolve(__dirname, './product.json'),
       '@': resolve(__dirname, './src'),
       '@assets': resolve(__dirname, './src/assets'),
       '@components': resolve(__dirname, './src/components'),

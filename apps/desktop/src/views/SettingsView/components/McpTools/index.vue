@@ -7,7 +7,7 @@
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { deleteMcpServer, updateMcpServer } from '@database/queries';
     import type { McpServerEntity } from '@database/types';
-    import { onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import { useMcpStore } from '@/stores/mcp';
@@ -17,13 +17,22 @@
     defineOptions({
         name: 'SettingsMcpToolsSection',
     });
+    import { t } from '@/i18n';
 
+    import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';
     import McpServerConfig from './components/McpServerConfig.vue';
     import McpServerList from './components/McpServerList.vue';
     import McpToolList from './components/McpToolList.vue';
     import McpToolLogViewer from './components/McpToolLogViewer.vue';
-
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
+    const {
+        handleResizeKeyDown,
+        handleResizePointerDown,
+        panelMaxWidth,
+        panelMinWidth,
+        panelStyle,
+        panelWidth,
+    } = useSettingsResizablePanel();
     const selectedServer = ref<McpServerEntity | null>(null);
     const activeTab = ref<'config' | 'tools' | 'logs'>('config');
     const serverListRef = ref<InstanceType<typeof McpServerList> | null>(null);
@@ -31,11 +40,11 @@
     useScrollbarStabilizer(tabContentRef);
     const togglingServers = ref<Set<number>>(new Set());
     const activeCleanups = new Set<() => void>();
-    const tabs: SectionTabItem<'config' | 'tools' | 'logs'>[] = [
-        { value: 'config', label: '配置' },
-        { value: 'tools', label: '工具' },
-        { value: 'logs', label: '日志' },
-    ];
+    const tabs = computed<SectionTabItem<'config' | 'tools' | 'logs'>[]>(() => [
+        { value: 'config', label: t('settings.builtInTools.tabs.config') },
+        { value: 'tools', label: t('settings.mcp.tabs.tools') },
+        { value: 'logs', label: t('settings.mcp.tabs.logs') },
+    ]);
 
     // 组件卸载时清理所有活跃的侦听器，避免内存泄漏。
     onUnmounted(() => {
@@ -48,7 +57,10 @@
     const mcpStore = useMcpStore();
     const { getServerStatus } = mcpStore;
 
-    const getErrorMessage = (error: unknown, fallback = '未知错误'): string => {
+    const getErrorMessage = (
+        error: unknown,
+        fallback = t('settings.mcp.status.unknown')
+    ): string => {
         const message = error instanceof Error ? error.message : String(error);
         return message && message !== '[object Object]' ? message : fallback;
     };
@@ -65,12 +77,15 @@
             await mcpStore.initialize();
         } catch (error) {
             console.error('[McpToolsView] Failed to initialize MCP store:', error);
-            alertMessage.value?.error(getErrorMessage(error, '加载 MCP 数据失败'), 6000);
+            alertMessage.value?.error(
+                getErrorMessage(error, t('settings.mcp.messages.loadFailed')),
+                6000
+            );
         }
     };
 
     const { open: openServerMenu } = useContextMenu<number>(
-        [{ key: 'delete', label: '删除', icon: 'trash', danger: true }],
+        () => [{ key: 'delete', label: t('common.delete'), icon: 'trash', danger: true }],
         (key, serverId) => {
             if (key === 'delete') {
                 handleDeleteServer(serverId);
@@ -174,14 +189,16 @@
                 } catch (error) {
                     console.error('Failed to auto-connect new server:', error);
                     alertMessage.value?.error(
-                        `自动连接服务器失败: ${getErrorMessage(error)}`,
+                        t('settings.mcp.messages.autoConnectFailed', {
+                            error: getErrorMessage(error),
+                        }),
                         6000
                     );
                     togglingServers.value.delete(newServer.id);
                 }
             }
         } else {
-            alertMessage.value?.success('服务器配置已更新', 3000);
+            alertMessage.value?.success(t('settings.mcp.messages.configUpdated'), 3000);
         }
     };
 
@@ -191,15 +208,15 @@
 
     const handleServerDeleted = () => {
         selectedServer.value = null;
-        alertMessage.value?.success('服务器已删除', 3000);
+        alertMessage.value?.success(t('settings.mcp.messages.serverDeleted'), 3000);
         serverListRef.value?.loadServers();
     };
 
-    const handleShowAlert = (message: string, type: 'success' | 'error') => {
-        if (type === 'success') {
-            alertMessage.value?.success(message, 3000);
-        } else {
+    const handleShowAlert = (message: string, type: 'error' | 'success') => {
+        if (type === 'error') {
             alertMessage.value?.error(message, 6000);
+        } else {
+            alertMessage.value?.success(message, 3000);
         }
     };
 
@@ -225,7 +242,12 @@
                     await mcpManager.connectServer(server);
                 } catch (error) {
                     console.error('Failed to connect server:', error);
-                    alertMessage.value?.error(`连接服务器失败: ${getErrorMessage(error)}`, 6000);
+                    alertMessage.value?.error(
+                        t('settings.mcp.messages.connectFailed', {
+                            error: getErrorMessage(error),
+                        }),
+                        6000
+                    );
                     togglingServers.value.delete(serverId);
                 }
             } else {
@@ -235,7 +257,10 @@
                         await mcpManager.disconnectServer(serverId);
                     } catch (error) {
                         console.error('Failed to disconnect server:', error);
-                        alertMessage.value?.error('断开服务器失败', 3000);
+                        alertMessage.value?.error(
+                            t('settings.mcp.messages.disconnectFailed'),
+                            3000
+                        );
                         togglingServers.value.delete(serverId);
                     }
                 } else {
@@ -251,14 +276,17 @@
                         }
                     } catch (error) {
                         console.error('Failed to update server:', error);
-                        alertMessage.value?.error('更新服务器状态失败', 3000);
+                        alertMessage.value?.error(
+                            t('settings.mcp.messages.updateStatusFailed'),
+                            3000
+                        );
                     }
                     togglingServers.value.delete(serverId);
                 }
             }
         } catch (error) {
             console.error('Failed to toggle server:', error);
-            alertMessage.value?.error('切换服务器状态失败', 3000);
+            alertMessage.value?.error(t('settings.mcp.messages.toggleStatusFailed'), 3000);
             togglingServers.value.delete(serverId);
         }
     };
@@ -285,7 +313,7 @@
 
             const timeoutId = setTimeout(() => {
                 cleanup();
-                reject(new Error('等待服务器断开超时'));
+                reject(new Error(t('settings.mcp.messages.disconnectTimeout')));
             }, timeoutMs);
 
             const unwatch = watch(
@@ -318,12 +346,12 @@
                 selectedServer.value = null;
             }
 
-            alertMessage.value?.success('服务器已删除', 3000);
+            alertMessage.value?.success(t('settings.mcp.messages.serverDeleted'), 3000);
             await mcpStore.loadServers();
             serverListRef.value?.loadServers();
         } catch (error) {
             console.error('Failed to delete server:', error);
-            alertMessage.value?.error('删除服务器失败', 3000);
+            alertMessage.value?.error(t('settings.mcp.messages.deleteFailed'), 3000);
         }
     };
 
@@ -339,13 +367,14 @@
 <template>
     <AlertMessage ref="alertMessage" />
 
-    <div class="flex h-full">
+    <div class="flex h-full bg-white">
         <!-- 左侧面板：服务器列表 -->
-        <div class="flex h-full w-72 flex-col border-r border-gray-200 bg-white/60">
-            <div class="border-b border-gray-200 bg-white/80 p-4">
-                <h2 class="font-serif text-base font-semibold text-gray-900">MCP 服务器</h2>
-            </div>
-
+        <div
+            class="settings-side-panel"
+            :style="panelStyle"
+            data-settings-secondary-panel="true"
+            data-testid="settings-mcp-tools-panel"
+        >
             <McpServerList
                 ref="serverListRef"
                 :selected-server="selectedServer"
@@ -356,22 +385,35 @@
                 @context-menu="handleServerContextMenu"
             />
 
-            <div class="border-t border-gray-200 bg-white/80 p-3">
-                <button
-                    class="bg-primary-500 hover:bg-primary-600 w-full rounded-lg px-4 py-2 font-serif text-sm font-medium text-white transition-colors"
-                    @click="handleAddServer"
-                >
-                    + 添加 MCP 服务器
+            <div class="settings-side-panel-footer">
+                <button class="settings-button-primary w-full" @click="handleAddServer">
+                    {{ t('settings.mcp.servers.add') }}
                 </button>
             </div>
+
+            <div
+                data-testid="settings-mcp-tools-panel-resizer"
+                role="separator"
+                aria-orientation="vertical"
+                :aria-valuemin="panelMinWidth"
+                :aria-valuemax="panelMaxWidth"
+                :aria-valuenow="panelWidth"
+                tabindex="0"
+                class="settings-side-panel-resizer"
+                :title="t('settings.mcp.resizeServerList')"
+                @keydown="handleResizeKeyDown"
+                @pointerdown="handleResizePointerDown"
+            />
         </div>
 
         <!-- 右侧面板：服务器详情 -->
-        <div class="flex flex-1 flex-col overflow-hidden">
+        <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div v-if="!selectedServer" class="flex h-full items-center justify-center">
                 <div class="text-center">
-                    <AppIcon name="mcp" class="mx-auto h-16 w-16 text-gray-300" />
-                    <p class="mt-4 font-serif text-sm text-gray-500">选择一个服务器查看详情</p>
+                    <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
+                    <p class="mt-4 text-sm text-neutral-500">
+                        {{ t('settings.mcp.servers.selectPrompt') }}
+                    </p>
                 </div>
             </div>
 
@@ -379,7 +421,7 @@
                 <SectionTabs v-model="activeTab" :tabs="tabs" />
 
                 <!-- 标签页内容 -->
-                <div ref="tabContentRef" class="custom-scrollbar flex-1 overflow-y-auto">
+                <div ref="tabContentRef" class="settings-scrollbar flex-1 overflow-y-auto">
                     <McpServerConfig
                         v-if="activeTab === 'config'"
                         :server="selectedServer"

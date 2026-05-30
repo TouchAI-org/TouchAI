@@ -2,6 +2,8 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { APP_PRODUCT_CONFIG } from '@/config/product';
+
 import {
     resolveE2eAppBinaryPath,
     resolveE2eCargoProfile,
@@ -15,7 +17,7 @@ describe('E2E WDIO build paths', () => {
         expect(resolveE2eCargoProfile(env)).toBeUndefined();
         expect(resolveTauriBuildArgs(env)).toEqual(['tauri', 'build', '--debug', '--no-bundle']);
         expect(resolveE2eAppBinaryPath('D:\\target\\e2e', 'win32', env)).toBe(
-            path.resolve('D:\\target\\e2e', 'debug', 'TouchAI.exe')
+            path.resolve('D:\\target\\e2e', 'debug', APP_PRODUCT_CONFIG.packaging.mainExe)
         );
     });
 
@@ -35,7 +37,7 @@ describe('E2E WDIO build paths', () => {
             'ci-check',
         ]);
         expect(resolveE2eAppBinaryPath('D:\\target\\e2e', 'win32', env)).toBe(
-            path.resolve('D:\\target\\e2e', 'ci-check', 'TouchAI.exe')
+            path.resolve('D:\\target\\e2e', 'ci-check', APP_PRODUCT_CONFIG.packaging.mainExe)
         );
     });
 });

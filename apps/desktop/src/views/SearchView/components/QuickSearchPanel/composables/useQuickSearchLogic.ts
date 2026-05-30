@@ -4,6 +4,8 @@ import { native, type QuickShortcutItem } from '@services/NativeService';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
+import { t } from '@/i18n';
+
 import {
     buildMatchTokens,
     type NameSegment,
@@ -16,10 +18,20 @@ import { useQuickSearchClickStats } from './useQuickSearchClickStats';
 const PAGE_SIZE = 60;
 const DEBOUNCE_MS = 80;
 
-const CONTEXT_MENU_ITEMS: ContextMenuItem[] = [
-    { key: 'open-folder', label: '打开所在文件夹', icon: 'folder-open' },
-    { key: 'copy-path', label: '复制路径', icon: 'copy' },
-];
+function createContextMenuItems(): ContextMenuItem[] {
+    return [
+        {
+            key: 'open-folder',
+            label: t('quickSearch.contextMenu.openContainingFolder'),
+            icon: 'folder-open',
+        },
+        {
+            key: 'copy-path',
+            label: t('quickSearch.contextMenu.copyPath'),
+            icon: 'copy',
+        },
+    ];
+}
 
 interface UseQuickSearchFlowOptions {
     searchQuery: Ref<string>;
@@ -57,6 +69,26 @@ const DEFAULT_DEPS: UseQuickSearchDeps = {
     window: native.window,
     openPath,
 };
+
+type E2EQuickSearchBridge = Window & {
+    __TOUCHAI_E2E__?: {
+        getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[] | null | undefined;
+    };
+};
+
+function resolveE2eQuickSearchFallbackResults(query: string): QuickShortcutItem[] {
+    const bridgeWindow = window as E2EQuickSearchBridge;
+    const fallbackResults = bridgeWindow.__TOUCHAI_E2E__?.getQuickSearchFallbackResults?.(query);
+
+    if (!Array.isArray(fallbackResults)) {
+        return [];
+    }
+
+    return fallbackResults.filter(
+        (item): item is QuickShortcutItem =>
+            Boolean(item?.name) && Boolean(item?.path) && Boolean(item?.source)
+    );
+}
 
 interface UseQuickSearchLogicOptions {
     open: Ref<boolean>;
@@ -194,18 +226,25 @@ function useQuickSearchFlow(
                 if (reqId !== requestId.value) return;
             }
 
-            const mergedResults = [...rankedShortcuts, ...searchResult.files];
+            let mergedResults = [...rankedShortcuts, ...searchResult.files];
 
             if (mergedResults.length === 0) {
-                close();
-                return;
+                mergedResults = resolveE2eQuickSearchFallbackResults(trimmedQuery);
+                if (mergedResults.length === 0) {
+                    close();
+                    return;
+                }
             }
 
             emitOpenUpdate(true);
             results.value = mergedResults;
             lastSearchedQuery = trimmedQuery;
-            totalFiles.value = searchResult.total_files;
-            totalResults.value = searchResult.total_results;
+            totalFiles.value =
+                searchResult.total_files > 0
+                    ? searchResult.total_files
+                    : mergedResults.filter((item) => item.source === 'file').length;
+            totalResults.value =
+                searchResult.total_results > 0 ? searchResult.total_results : mergedResults.length;
             nextOffset.value = searchResult.next_offset;
             currentPage.value = 0;
             itemRefs.value = [];
@@ -338,7 +377,7 @@ function useQuickSearchFlow(
     const isContextMenuOpen = ref(false);
 
     const { open: openContextMenu, close: closeContextMenu } = useContextMenu<QuickShortcutItem>(
-        CONTEXT_MENU_ITEMS,
+        createContextMenuItems,
         async (key, item) => {
             isContextMenuOpen.value = false;
             await handleContextMenuAction(key, item);

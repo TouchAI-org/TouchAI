@@ -4,6 +4,7 @@
 
 <template>
     <div
+        v-if="results.length > 0"
         data-testid="quick-search-panel"
         class="quick-search-panel mt-1.5 w-full rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur"
         @click.self="handleBlankSurfaceClick"
@@ -35,6 +36,8 @@
                     "
                     type="button"
                     :title="getItemHoverTitle(item)"
+                    data-no-i18n="true"
+                    translate="no"
                     :class="[
                         'flex h-[88px] w-[88px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl p-1 outline-none',
                         index === highlightedIndex ? 'bg-primary-100' : 'hover:bg-gray-100',
@@ -115,7 +118,7 @@
             <button
                 type="button"
                 class="quick-search-view-toggle flex h-4 w-4 items-center justify-center text-gray-400 outline-none hover:text-gray-600"
-                :title="viewMode === 'grid' ? '切换列表视图' : '切换网格视图'"
+                :title="viewToggleTitle"
                 @click="toggleViewMode"
             >
                 <AppIcon :name="viewMode === 'grid' ? 'list-ul' : 'grid-alt'" class="h-3.5 w-3.5" />
@@ -128,6 +131,8 @@
     import AppIcon from '@components/AppIcon.vue';
     import type { ComponentPublicInstance } from 'vue';
     import { computed, toRef } from 'vue';
+
+    import { t } from '@/i18n';
 
     import { useQuickSearchLogic } from './composables/useQuickSearchLogic';
     import QuickSearchListItem from './QuickSearchListItem.vue';
@@ -209,7 +214,16 @@
             highlightedIndex.value >= 0
                 ? Math.floor(highlightedIndex.value / 60) + 1
                 : currentPage.value + 1;
-        return `第 ${currentPageNum}/${totalPages} 页 · 共 ${total} 条`;
+        return t('quickSearch.status.pageSummary', {
+            current: currentPageNum,
+            totalPages,
+            total,
+        });
+    });
+    const viewToggleTitle = computed(() => {
+        return viewMode.value === 'grid'
+            ? t('quickSearch.view.switchToList')
+            : t('quickSearch.view.switchToGrid');
     });
 
     defineExpose({

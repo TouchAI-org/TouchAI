@@ -1,8 +1,11 @@
 ﻿<script setup lang="ts">
-    import AppIcon from '@components/AppIcon.vue';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
-    import { databaseBackup, type ImportMode } from '@database/backup';
+    import {
+        databaseBackup,
+        type ImportMode,
+        isDatabaseBackupCancelledError,
+    } from '@database/backup';
     import {
         countMessages,
         countSessions,
@@ -17,7 +20,10 @@
     import { relaunch } from '@tauri-apps/plugin-process';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
+    import { t, tt } from '@/i18n';
+    import { formatDateTime } from '@/i18n/format';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
+    import { serializeImportSuccessStartupPayload } from '@/services/StartupService';
 
     defineOptions({
         name: 'SettingsDataManagementSection',
@@ -58,18 +64,22 @@
 
     const modelMetadataUpdatedText = computed(() => {
         if (!modelMetadataLastUpdatedAt.value) {
-            return '最近更新：暂无记录';
+            return t('settings.dataManagement.lastUpdatedNone');
         }
 
         const date = new Date(modelMetadataLastUpdatedAt.value);
         if (Number.isNaN(date.getTime())) {
-            return `最近更新：${modelMetadataLastUpdatedAt.value}`;
+            return t('settings.dataManagement.lastUpdated', {
+                time: modelMetadataLastUpdatedAt.value,
+            });
         }
 
-        return `最近更新：${date.toLocaleString('zh-CN', {
-            hour12: false,
-        })}`;
+        return t('settings.dataManagement.lastUpdated', {
+            time: formatDateTime(date),
+        });
     });
+
+    const translateDataManagementMessage = (text: string) => tt(text);
 
     const loadMetadataUpdatedAt = async () => {
         const value = await getStatistic({
@@ -93,7 +103,7 @@
             };
         } catch (error) {
             console.error('Failed to load stats:', error);
-            alert.error('加载统计数据失败');
+            alert.error(t('settings.dataManagement.loadStatsFailed'));
         }
     };
 
@@ -110,8 +120,8 @@
 
     const handleClearSessions = async () => {
         const confirmed = await confirm({
-            title: '清除所有对话历史',
-            message: '此操作将删除所有对话会话及其消息，且无法恢复。确定要继续吗？',
+            title: t('settings.dataManagement.clearAllSessions'),
+            message: t('settings.dataManagement.clearAllSessionsConfirm'),
             type: 'danger',
         });
 
@@ -119,11 +129,11 @@
             try {
                 isLoading.value = true;
                 await deleteAllSessions();
-                alert.success('已成功删除所有会话');
+                alert.success(t('settings.dataManagement.clearSessionsSuccess'));
                 await loadStats();
             } catch (error) {
                 console.error('Failed to clear sessions:', error);
-                alert.error('清除对话历史失败');
+                alert.error(t('settings.dataManagement.clearSessionsFailed'));
             } finally {
                 isLoading.value = false;
             }
@@ -132,8 +142,8 @@
 
     const handleClearMessages = async () => {
         const confirmed = await confirm({
-            title: '清除所有消息',
-            message: '此操作将删除所有消息记录，但保留会话。确定要继续吗？',
+            title: t('settings.dataManagement.clearAllMessages'),
+            message: t('settings.dataManagement.clearAllMessagesConfirm'),
             type: 'danger',
         });
 
@@ -141,11 +151,11 @@
             try {
                 isLoading.value = true;
                 await deleteAllMessages();
-                alert.success('已成功删除所有消息');
+                alert.success(t('settings.dataManagement.clearMessagesSuccess'));
                 await loadStats();
             } catch (error) {
                 console.error('Failed to clear messages:', error);
-                alert.error('清除消息失败');
+                alert.error(t('settings.dataManagement.clearMessagesFailed'));
             } finally {
                 isLoading.value = false;
             }
@@ -154,8 +164,8 @@
 
     const handleClearSessionTurns = async () => {
         const confirmed = await confirm({
-            title: '清除对话记录',
-            message: '此操作将删除所有对话记录。确定要继续吗？',
+            title: t('settings.dataManagement.clearSessionTurns'),
+            message: t('settings.dataManagement.clearSessionTurnsConfirm'),
             type: 'danger',
         });
 
@@ -163,11 +173,11 @@
             try {
                 isLoading.value = true;
                 await deleteAllSessionTurns();
-                alert.success('已成功删除所有对话记录');
+                alert.success(t('settings.dataManagement.clearSessionTurnsSuccess'));
                 await loadStats();
             } catch (error) {
                 console.error('Failed to clear session turns:', error);
-                alert.error('清除对话记录失败');
+                alert.error(t('settings.dataManagement.clearSessionTurnsFailed'));
             } finally {
                 isLoading.value = false;
             }
@@ -176,14 +186,14 @@
 
     // 更新进度弹窗
     const updateProgress = (message: string, progress: number = 0) => {
-        progressMessage.value = message;
+        progressMessage.value = translateDataManagementMessage(message);
         progressValue.value = progress;
     };
 
     const handleExportSettings = async () => {
         try {
             isLoading.value = true;
-            progressTitle.value = '正在导出';
+            progressTitle.value = t('settings.dataManagement.exporting');
             progressStatus.value = 'loading';
 
             const exportedPath = await databaseBackup.exportDatabase((msg, prog) => {
@@ -194,14 +204,15 @@
             });
 
             showProgressDialog.value = false;
-            alert.success(`数据库已导出：${exportedPath}`);
+            alert.success(t('settings.dataManagement.exported', { path: exportedPath }));
         } catch (error) {
             console.error('Failed to export settings:', error);
             showProgressDialog.value = false;
 
-            const message = error instanceof Error ? error.message : '导出设置失败';
-            if (message !== '已取消导出') {
-                alert.error(message);
+            const message =
+                error instanceof Error ? error.message : t('settings.dataManagement.exportFailed');
+            if (!isDatabaseBackupCancelledError(error)) {
+                alert.error(translateDataManagementMessage(message));
             }
         } finally {
             isLoading.value = false;
@@ -214,14 +225,18 @@
 
     const startRestartCountdown = async () => {
         progressStatus.value = 'success';
-        progressTitle.value = '导入成功';
+        progressTitle.value = t('settings.dataManagement.importSuccess');
         restartCountdown.value = 3;
-        progressMessage.value = `应用即将在 ${restartCountdown.value} 秒后重启以应用更改...`;
+        progressMessage.value = t('settings.dataManagement.restartCountdown', {
+            seconds: restartCountdown.value,
+        });
 
         countdownTimer = setInterval(() => {
             if (restartCountdown.value !== null && restartCountdown.value > 0) {
                 restartCountdown.value--;
-                progressMessage.value = `应用即将在 ${restartCountdown.value} 秒后重启以应用更改...`;
+                progressMessage.value = t('settings.dataManagement.restartCountdown', {
+                    seconds: restartCountdown.value,
+                });
             } else {
                 if (countdownTimer) {
                     clearInterval(countdownTimer);
@@ -237,7 +252,7 @@
 
         try {
             isLoading.value = true;
-            progressTitle.value = '正在导入';
+            progressTitle.value = t('settings.dataManagement.importing');
             progressStatus.value = 'loading';
             restartCountdown.value = null;
 
@@ -253,13 +268,11 @@
                 return;
             }
 
-            const modeText =
-                result.importMode === 'chat_only' ? '仅导入对话数据' : '覆盖设置，差量导入对话数据';
-
-            let message = `数据导入成功（${modeText}）`;
-
-            // 保存成功消息到元数据，以便重启后显示
-            await setMeta({ key: MetaKey.IMPORT_SUCCESS, value: message });
+            // 保存源数据而不是当前语言文案；重启后按导入后的语言显示通知。
+            await setMeta({
+                key: MetaKey.IMPORT_SUCCESS,
+                value: serializeImportSuccessStartupPayload(result.importMode),
+            });
 
             // 开始重启倒计时
             await startRestartCountdown();
@@ -268,9 +281,10 @@
 
             showProgressDialog.value = false;
 
-            const message = error instanceof Error ? error.message : '导入设置失败';
-            if (message !== '已取消导入') {
-                alert.error(message);
+            const message =
+                error instanceof Error ? error.message : t('settings.dataManagement.importFailed');
+            if (!isDatabaseBackupCancelledError(error)) {
+                alert.error(translateDataManagementMessage(message));
             }
         } finally {
             isLoading.value = false;
@@ -283,10 +297,10 @@
 
             await updateModelMetadata();
             await loadMetadataUpdatedAt();
-            alert.success('大模型数据库已更新');
+            alert.success(t('settings.dataManagement.modelDatabaseUpdated'));
         } catch (error) {
             console.error('Failed to update model metadata:', error);
-            alert.error('更新大模型数据库失败');
+            alert.error(t('settings.dataManagement.updateModelDatabaseFailed'));
         } finally {
             isLoading.value = false;
         }
@@ -294,168 +308,195 @@
 </script>
 
 <template>
-    <div class="p-6">
-        <div class="mx-auto max-w-4xl space-y-6">
-            <div class="rounded-lg border border-gray-200 bg-white p-6">
-                <div class="flex items-center gap-4">
-                    <div
-                        class="bg-primary-50 text-primary-600 flex h-16 w-16 items-center justify-center rounded-lg"
-                    >
-                        <AppIcon name="database" class="h-6 w-6" />
-                    </div>
+    <div class="settings-page">
+        <div class="settings-section-stack">
+            <header class="settings-page-header">
+                <h1 class="settings-page-title">{{ t('settings.nav.dataManagement.label') }}</h1>
+            </header>
 
-                    <div class="flex-1">
-                        <h2 class="font-serif text-xl font-semibold text-gray-900">数据管理</h2>
-                        <p class="mt-1 font-serif text-sm text-gray-600">管理应用数据和设置备份</p>
-                    </div>
-                </div>
-            </div>
+            <section class="space-y-4">
+                <h2 class="settings-section-title">{{ t('settings.dataManagement.stats') }}</h2>
 
-            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="font-serif text-lg font-semibold text-gray-900">数据统计</h2>
-                <div class="grid grid-cols-3 gap-4">
-                    <div class="rounded-lg bg-gray-50 p-4 text-center">
-                        <div class="text-primary-600 font-serif text-3xl font-bold">
-                            {{ stats.sessions }}
-                        </div>
-                        <div class="mt-1 font-serif text-sm text-gray-600">对话会话数</div>
-                    </div>
-                    <div class="rounded-lg bg-gray-50 p-4 text-center">
-                        <div class="text-primary-600 font-serif text-3xl font-bold">
-                            {{ stats.messages }}
-                        </div>
-                        <div class="mt-1 font-serif text-sm text-gray-600">消息总数</div>
-                    </div>
-                    <div class="rounded-lg bg-gray-50 p-4 text-center">
-                        <div class="text-primary-600 font-serif text-3xl font-bold">
-                            {{ stats.sessionTurns }}
-                        </div>
-                        <div class="mt-1 font-serif text-sm text-gray-600">对话轮次数</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="font-serif text-lg font-semibold text-gray-900">历史记录</h2>
-                <div class="space-y-3">
-                    <div class="flex items-center justify-between rounded-lg bg-gray-50 p-4">
-                        <div>
-                            <div class="font-serif text-sm font-medium text-gray-900">
-                                清除所有对话历史
+                <div class="settings-row-group p-4">
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                            <div class="text-lg font-semibold text-neutral-950">
+                                {{ stats.sessions }}
                             </div>
-                            <div class="mt-1 font-serif text-xs text-gray-500">
-                                删除所有会话及其消息，此操作不可恢复
+                            <div class="mt-1.5 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.sessions') }}
+                            </div>
+                        </div>
+                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                            <div class="text-lg font-semibold text-neutral-950">
+                                {{ stats.messages }}
+                            </div>
+                            <div class="mt-1.5 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.messages') }}
+                            </div>
+                        </div>
+                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                            <div class="text-lg font-semibold text-neutral-950">
+                                {{ stats.sessionTurns }}
+                            </div>
+                            <div class="mt-1.5 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.sessionTurns') }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="space-y-4">
+                <h2 class="settings-section-title">{{ t('settings.dataManagement.history') }}</h2>
+                <div
+                    data-testid="settings-data-history-list"
+                    class="settings-row-group divide-y divide-neutral-200/70"
+                >
+                    <div
+                        data-testid="settings-data-history-item"
+                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
+                    >
+                        <div>
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.clearAllSessions') }}
+                            </div>
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.clearAllSessionsDescription') }}
                             </div>
                         </div>
                         <button
-                            class="rounded-lg bg-red-600 px-4 py-2 font-serif text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            class="settings-button-danger"
                             :disabled="isLoading || stats.sessions === 0"
                             @click="handleClearSessions"
                         >
-                            清除
+                            {{ t('common.clear') }}
                         </button>
                     </div>
 
-                    <div class="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+                    <div
+                        data-testid="settings-data-history-item"
+                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
+                    >
                         <div>
-                            <div class="font-serif text-sm font-medium text-gray-900">
-                                清除所有消息
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.clearAllMessages') }}
                             </div>
-                            <div class="mt-1 font-serif text-xs text-gray-500">
-                                删除所有消息记录，但保留会话
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.clearAllMessagesDescription') }}
                             </div>
                         </div>
                         <button
-                            class="rounded-lg bg-red-600 px-4 py-2 font-serif text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            class="settings-button-danger"
                             :disabled="isLoading || stats.messages === 0"
                             @click="handleClearMessages"
                         >
-                            清除
+                            {{ t('common.clear') }}
                         </button>
                     </div>
 
-                    <div class="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+                    <div
+                        data-testid="settings-data-history-item"
+                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
+                    >
                         <div>
-                            <div class="font-serif text-sm font-medium text-gray-900">
-                                清除对话记录
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.clearSessionTurns') }}
                             </div>
-                            <div class="mt-1 font-serif text-xs text-gray-500">
-                                删除所有对话历史记录
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.clearSessionTurnsDescription') }}
                             </div>
                         </div>
                         <button
-                            class="rounded-lg bg-red-600 px-4 py-2 font-serif text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            class="settings-button-danger"
                             :disabled="isLoading || stats.sessionTurns === 0"
                             @click="handleClearSessionTurns"
                         >
-                            清除
+                            {{ t('common.clear') }}
                         </button>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="font-serif text-lg font-semibold text-gray-900">数据更新</h2>
-                <div class="space-y-3">
-                    <div class="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+            <section class="space-y-4">
+                <h2 class="settings-section-title">
+                    {{ t('settings.dataManagement.dataUpdates') }}
+                </h2>
+                <div class="settings-row-group">
+                    <div
+                        data-testid="settings-data-plain-row"
+                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
+                    >
                         <div>
-                            <div class="font-serif text-sm font-medium text-gray-900">
-                                大模型数据库
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.modelDatabase') }}
                             </div>
-                            <div class="mt-1 font-serif text-xs text-gray-500">
-                                从远程数据库同步大模型能力数据
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.modelDatabaseDescription') }}
                             </div>
-                            <div class="mt-1 font-serif text-xs text-gray-500">
+                            <div class="mt-1 text-xs text-neutral-500">
                                 {{ modelMetadataUpdatedText }}
                             </div>
                         </div>
                         <button
-                            class="bg-primary-600 hover:bg-primary-700 rounded-lg px-4 py-2 font-serif text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            class="settings-button-primary"
                             :disabled="isLoading"
                             @click="handleUpdateModelMetadata"
                         >
-                            更新
+                            {{ t('common.update') }}
                         </button>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 class="font-serif text-lg font-semibold text-gray-900">设置备份</h2>
-                <div class="space-y-3">
-                    <div class="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+            <section class="space-y-4">
+                <h2 class="settings-section-title">
+                    {{ t('settings.dataManagement.settingsBackup') }}
+                </h2>
+                <div class="settings-row-group divide-y divide-neutral-200/70">
+                    <div
+                        data-testid="settings-data-plain-row"
+                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
+                    >
                         <div>
-                            <div class="font-serif text-sm font-medium text-gray-900">导出设置</div>
-                            <div class="mt-1 font-serif text-xs text-gray-500">
-                                将当前数据导出为 .db 数据库备份文件
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.exportSettings') }}
+                            </div>
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.exportSettingsDescription') }}
                             </div>
                         </div>
                         <button
-                            class="bg-primary-600 hover:bg-primary-700 rounded-lg px-4 py-2 font-serif text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            class="settings-button-primary"
                             :disabled="isLoading"
                             @click="handleExportSettings"
                         >
-                            导出
+                            {{ t('common.export') }}
                         </button>
                     </div>
 
-                    <div class="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+                    <div
+                        data-testid="settings-data-plain-row"
+                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
+                    >
                         <div>
-                            <div class="font-serif text-sm font-medium text-gray-900">导入设置</div>
-                            <div class="mt-1 font-serif text-xs text-gray-500">
-                                从 .db 备份文件恢复数据（将先询问导入模式）
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.importSettings') }}
+                            </div>
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.importSettingsDescription') }}
                             </div>
                         </div>
                         <button
-                            class="bg-primary-600 hover:bg-primary-700 rounded-lg px-4 py-2 font-serif text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            class="settings-button-primary"
                             :disabled="isLoading"
                             @click="openImportModeDialog"
                         >
-                            导入
+                            {{ t('common.import') }}
                         </button>
                     </div>
                 </div>
-            </div>
+            </section>
 
             <ImportModeDialog
                 v-if="showImportModeDialog"

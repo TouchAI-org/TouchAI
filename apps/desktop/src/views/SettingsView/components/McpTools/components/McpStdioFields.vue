@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
 
+    import { t } from '@/i18n';
     interface Props {
         command: string;
         args: string[];
@@ -65,15 +66,15 @@
 <template>
     <div class="space-y-4">
         <div>
-            <label class="block font-serif text-sm font-medium text-gray-600">
-                命令
+            <label class="block text-sm font-medium text-neutral-700">
+                {{ t('settings.mcp.config.command') }}
                 <span class="text-red-500">*</span>
             </label>
             <input
                 :value="command"
                 type="text"
-                class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
-                placeholder="例如: npx"
+                class="settings-input mt-1.5 w-full font-mono"
+                :placeholder="t('settings.mcp.config.commandPlaceholder')"
                 @input="emit('update:command', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
             />
@@ -81,8 +82,13 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block font-serif text-sm font-medium text-gray-600">参数</label>
-                <button class="text-gray-400 transition-colors hover:text-gray-600" @click="addArg">
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('common.parameters') }}
+                </label>
+                <button
+                    class="text-neutral-400 transition-colors hover:text-neutral-700"
+                    @click="addArg"
+                >
                     <AppIcon name="plus" class="h-5 w-5" />
                 </button>
             </div>
@@ -91,13 +97,13 @@
                     <input
                         :value="arg"
                         type="text"
-                        class="focus:border-primary-400 flex-1 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
-                        placeholder="参数值"
+                        class="settings-input flex-1 px-4 py-2.5 font-mono"
+                        :placeholder="t('settings.mcp.config.argPlaceholder')"
                         @input="updateArg(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
                     <button
-                        class="text-gray-400 transition-colors hover:text-red-600"
+                        class="text-neutral-400 transition-colors hover:text-red-600"
                         @click="removeArg(index)"
                     >
                         <AppIcon name="x" class="h-5 w-5" />
@@ -107,12 +113,14 @@
         </div>
 
         <div>
-            <label class="block font-serif text-sm font-medium text-gray-600">工作目录</label>
+            <label class="block text-sm font-medium text-neutral-700">
+                {{ t('settings.mcp.config.cwd') }}
+            </label>
             <input
                 :value="cwd"
                 type="text"
-                class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
-                placeholder="例如: /path/to/directory"
+                class="settings-input mt-1.5 w-full font-mono"
+                :placeholder="t('settings.mcp.config.cwdPlaceholder')"
                 @input="emit('update:cwd', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
             />
@@ -120,8 +128,13 @@
 
         <div>
             <div class="flex items-center justify-between">
-                <label class="block font-serif text-sm font-medium text-gray-600">环境变量</label>
-                <button class="text-gray-400 transition-colors hover:text-gray-600" @click="addEnv">
+                <label class="block text-sm font-medium text-neutral-700">
+                    {{ t('settings.mcp.config.env') }}
+                </label>
+                <button
+                    class="text-neutral-400 transition-colors hover:text-neutral-700"
+                    @click="addEnv"
+                >
                     <AppIcon name="plus" class="h-5 w-5" />
                 </button>
             </div>
@@ -130,21 +143,21 @@
                     <input
                         :value="envItem.key"
                         type="text"
-                        class="focus:border-primary-400 w-1/3 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
-                        placeholder="变量名"
+                        class="settings-input w-1/3 px-4 py-2.5 font-mono"
+                        :placeholder="t('settings.mcp.config.envKeyPlaceholder')"
                         @input="updateEnvKey(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
                     <input
                         :value="envItem.value"
                         type="text"
-                        class="focus:border-primary-400 flex-1 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none"
-                        placeholder="变量值"
+                        class="settings-input flex-1 px-4 py-2.5 font-mono"
+                        :placeholder="t('settings.mcp.config.envValuePlaceholder')"
                         @input="updateEnvValue(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
                     <button
-                        class="text-gray-400 transition-colors hover:text-red-600"
+                        class="text-neutral-400 transition-colors hover:text-red-600"
                         @click="removeEnv(index)"
                     >
                         <AppIcon name="x" class="h-5 w-5" />

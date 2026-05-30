@@ -4,6 +4,7 @@
  */
 import { useAlert } from '@composables/useAlert';
 import { AppEvent, eventService } from '@services/EventService';
+import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
 import { native } from '@services/NativeService';
 import { initNotificationPermission, notify } from '@services/NotificationService';
 import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
@@ -12,11 +13,13 @@ import { runStartupTasks } from '@services/StartupService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
+import { type MessageKey, type MessageParams, t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { isE2eTestMode } from '@/utils/runtimeMode';
 
 import type {
     ConversationPanelHandle,
+    QuickSearchHandle,
     SearchBarHandle,
     SearchModelDropdownContext,
     SearchModelDropdownState,
@@ -26,6 +29,7 @@ import type {
 import type { SearchOverlayCommand, SearchPopupSessionIdentity } from './searchInteraction';
 import type { createSearchInteractionContext, UseSearchKeyboardOptions } from './searchInteraction';
 import { createSearchKeydownHandler } from './searchInteraction';
+import { createSessionStatusReminderCoordinator } from './sessionStatusReminder';
 import { useModelDropdownPopup } from './useModelDropdownPopup';
 
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -176,26 +180,7 @@ function isModelDropdownSubsequence(needle: string, haystack: string) {
 export function useSearchPageController(options: {
     searchBar: Ref<SearchBarHandle | undefined>;
     quickSearchOpen: Ref<boolean>;
-    quickSearchPanel: Ref<
-        | {
-              open: () => void;
-              syncClosedState: () => void;
-              moveSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
-              getHighlightedItem: () => unknown | null;
-              openHighlightedItem: () => Promise<void>;
-              triggerSearch: (query: string) => void;
-              goToPage: (page: number) => void;
-              goToNextPage: () => void;
-              goToPreviousPage: () => void;
-              openContextMenuForItem: (index: number) => void;
-              openContextMenuForHighlightedItem: () => void;
-              toggleViewMode: () => void;
-              collapseToDefault: () => void;
-              isContextMenuOpen: boolean;
-              closeContextMenu: () => void;
-          }
-        | undefined
-    >;
+    quickSearchPanel: Ref<QuickSearchHandle | undefined>;
     conversationPanel: Ref<ConversationPanelHandle | undefined>;
 }): SearchPageController {
     const { searchBar, quickSearchOpen, quickSearchPanel, conversationPanel } = options;
@@ -266,6 +251,11 @@ export function useSearchPageController(options: {
     }
 
     function closeQuickSearch() {
+        if (quickSearchPanel.value) {
+            quickSearchPanel.value.close();
+            return;
+        }
+
         quickSearchOpen.value = false;
     }
 
@@ -396,6 +386,9 @@ interface UseSearchPageLifecycleOptions {
         command: 'toggle-model-dropdown';
         source: 'webview2-accelerator';
     }) => void | Promise<void>;
+    handleSessionStatusReminderAction?: (
+        payload: SessionStatusReminderActionEvent
+    ) => void | Promise<void>;
     handleAiModelsUpdated?: () => void | Promise<void>;
     handleShortcutAutoPaste?: () => void | Promise<void>;
 }
@@ -413,6 +406,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         reconcilePopupSurfaces,
         onSurfaceHidden,
         handleSearchSurfaceCommand,
+        handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste,
     } = options;
@@ -423,11 +417,24 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let unlistenSearchSurfaceShown: (() => void) | null = null;
     let unlistenSearchSurfaceHidden: (() => void) | null = null;
     let unlistenSearchSurfaceCommand: (() => void) | null = null;
+    let unlistenSessionTaskStatusChanged: (() => void) | null = null;
+    let unlistenSessionStatusReminderAction: (() => void) | null = null;
     let stopReadyWatch: (() => void) | null = null;
     let stopPinnedWatch: (() => void) | null = null;
     let lifecycleInitialized = false;
-    let restoredShortcutActivationEpoch: number | null = null;
+    let restoredActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
+    const sessionStatusReminderCoordinator = createSessionStatusReminderCoordinator({
+        isSearchSurfaceForegrounded: () =>
+            interactionContext.state.windowVisible &&
+            interactionContext.state.windowFocused &&
+            interactionContext.state.appFocused,
+        onReminderAction: handleSessionStatusReminderAction,
+    });
+
+    function handleReminderSurfaceVisible() {
+        sessionStatusReminderCoordinator.handleSurfaceVisible();
+    }
 
     async function hideSearchWindow() {
         await native.window.hideSearchWindow();
@@ -477,12 +484,16 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await reconcilePopupSurfaces?.();
     }
 
-    async function restoreSearchWindowAfterActivation() {
+    async function restoreSearchWindowAfterActivation(surfaceSource: 'shortcut' | 'notification') {
         await nextTick();
         await reconcilePopupSurfacesAfterActivation();
         await controller.focusSearchInput();
         await controller.loadActiveModel();
         await syncWindowPinStateSafely('focus');
+
+        if (surfaceSource !== 'shortcut') {
+            return;
+        }
 
         try {
             await handleShortcutAutoPaste?.();
@@ -491,10 +502,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
     }
 
-    async function handleSearchWindowActivated() {
-        interactionContext.recordActivation('shortcut');
+    async function handleSearchWindowActivated(surfaceSource: 'shortcut' | 'notification') {
+        interactionContext.recordActivation(surfaceSource === 'shortcut' ? 'shortcut' : 'manual');
         if (hasActivePopupWindowFocus()) {
-            restoredShortcutActivationEpoch = interactionContext.state.activationEpoch;
+            restoredActivationEpoch = interactionContext.state.activationEpoch;
             return;
         }
 
@@ -511,13 +522,13 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
 
         const activationEpoch = interactionContext.state.activationEpoch;
-        if (restoredShortcutActivationEpoch === activationEpoch) {
+        if (restoredActivationEpoch === activationEpoch) {
             await reconcilePopupSurfacesAfterActivation();
             return;
         }
-        restoredShortcutActivationEpoch = activationEpoch;
+        restoredActivationEpoch = activationEpoch;
 
-        await restoreSearchWindowAfterActivation();
+        await restoreSearchWindowAfterActivation(surfaceSource);
     }
 
     async function initializeGlobalShortcut() {
@@ -532,19 +543,23 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             console.error('[SearchView] Failed to initialize global shortcut:', error);
 
             const errorStr = String(error);
-            let message = '注册快捷键失败';
+            let messageKey: MessageKey = 'notification.shortcutRegistrationFailed.generic';
+            let messageParams: MessageParams = { error: errorStr };
 
             if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
-                message = '快捷键已被其他应用占用，请在设置中更换';
+                messageKey = 'notification.shortcutRegistrationFailed.alreadyRegisteredInSettings';
+                messageParams = {};
             } else if (errorStr.includes('invalid') || errorStr.includes('无效')) {
-                message = '快捷键格式无效，请在设置中重新配置';
+                messageKey = 'notification.shortcutRegistrationFailed.invalidInSettings';
+                messageParams = {};
             } else if (errorStr.includes('Unknown key')) {
-                message = '不支持的按键，请在设置中更换';
+                messageKey = 'notification.shortcutRegistrationFailed.unsupportedInSettings';
+                messageParams = {};
             }
 
             notify({
-                title: 'TouchAI - 快捷键注册失败',
-                body: message,
+                title: t('notification.shortcutRegistrationFailed.title'),
+                body: t(messageKey, messageParams),
             });
         }
     }
@@ -577,6 +592,11 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext.state.windowVisible = await getCurrentWindow()
             .isVisible()
             .catch(() => true);
+        interactionContext.setWindowFocused(interactionContext.state.windowVisible);
+        interactionContext.setAppFocused(interactionContext.state.windowVisible);
+        if (interactionContext.state.windowVisible) {
+            handleReminderSurfaceVisible();
+        }
         await syncWindowPinStateSafely('initialize');
         await initFocusListener();
         if (!(await isE2eTestMode())) {
@@ -604,7 +624,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             AppEvent.SEARCH_SURFACE_SHOWN,
             async (payload) => {
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
-                await handleSearchWindowActivated();
+                interactionContext.markWindowVisible();
+                handleReminderSurfaceVisible();
+                await handleSearchWindowActivated(payload.source ?? 'shortcut');
             }
         );
 
@@ -627,6 +649,16 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             }
         );
 
+        unlistenSessionTaskStatusChanged = await eventService.on(
+            AppEvent.SESSION_TASK_STATUS_CHANGED,
+            sessionStatusReminderCoordinator.handleTaskStatusChanged
+        );
+
+        unlistenSessionStatusReminderAction = await eventService.on(
+            AppEvent.SESSION_STATUS_REMINDER_ACTION,
+            sessionStatusReminderCoordinator.handleReminderAction
+        );
+
         unlistenSearchSurfaceCommand = await eventService.on(
             AppEvent.SEARCH_SURFACE_COMMAND,
             async (payload) => {
@@ -637,7 +669,34 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         );
     }
 
+    const handleWindowFocus = () => {
+        interactionContext.markWindowVisible();
+        interactionContext.setWindowFocused(true);
+        interactionContext.setAppFocused(true);
+        handleReminderSurfaceVisible();
+    };
+    const handleWindowBlur = () => {
+        interactionContext.setWindowFocused(false);
+    };
+    const handleVisibilityChange = () => {
+        const isVisible = document.visibilityState !== 'hidden';
+        if (isVisible) {
+            interactionContext.markWindowVisible();
+        }
+        interactionContext.setAppFocused(isVisible);
+        if (!isVisible) {
+            interactionContext.setWindowFocused(false);
+            return;
+        }
+
+        handleReminderSurfaceVisible();
+    };
+
     onMounted(() => {
+        window.addEventListener('focus', handleWindowFocus);
+        window.addEventListener('blur', handleWindowBlur);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         stopPinnedWatch = watch(
             [isPinned, isDragging, () => Boolean(isMaximized?.value)],
             ([nextPinned, dragging, maximized]) => {
@@ -675,6 +734,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     });
 
     onUnmounted(() => {
+        window.removeEventListener('focus', handleWindowFocus);
+        window.removeEventListener('blur', handleWindowBlur);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         stopReadyWatch?.();
         stopReadyWatch = null;
         stopPinnedWatch?.();
@@ -685,6 +747,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         unlistenSearchSurfaceShown = null;
         unlistenSearchSurfaceHidden?.();
         unlistenSearchSurfaceHidden = null;
+        unlistenSessionTaskStatusChanged?.();
+        unlistenSessionTaskStatusChanged = null;
+        unlistenSessionStatusReminderAction?.();
+        unlistenSessionStatusReminderAction = null;
         unlistenSearchSurfaceCommand?.();
         unlistenSearchSurfaceCommand = null;
     });

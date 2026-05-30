@@ -35,7 +35,7 @@ export const webFetchArgsSchema = z.object({
 /**
  * 暴露给模型的 WebFetch 工具说明。
  */
-export const WEB_FETCH_TOOL_DESCRIPTION = '抓取网页并提取易读文本';
+export const WEB_FETCH_TOOL_DESCRIPTION = 'Fetch web pages and extract readable text.';
 
 function withExamples(description: string, ...examples: string[]): string {
     return `${description} Examples: ${examples.join(' | ')}.`;

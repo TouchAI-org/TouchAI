@@ -5,6 +5,7 @@ import type { JSONContent } from '@tiptap/core';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 
 import type { AttachmentDerivedKind, AttachmentSemanticIntent } from '../contracts/protocol';
+import type { ModelLanguageContext } from '../languageContext';
 import type { TaskExecutionMode } from '../task/types';
 
 /**
@@ -55,6 +56,7 @@ export interface PromptSnapshotAttachmentSummary {
  */
 export interface PromptAssembly {
     executionMode: TaskExecutionMode;
+    modelLanguageContext: ModelLanguageContext;
     fragments: PromptFragment[];
     userPrompt: string;
     attachments: PromptSnapshotAttachmentSummary[];

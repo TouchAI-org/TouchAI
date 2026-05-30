@@ -1,15 +1,17 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import type { Provider } from '@database/schema';
     import { computed } from 'vue';
 
-    import BadgedLogo from './BadgedLogo.vue';
+    import { t } from '@/i18n';
 
+    import BadgedLogo from './BadgedLogo.vue';
     interface Props {
         provider: Provider;
         isSelected: boolean;
         hasDefaultModel: boolean;
+        promoted?: boolean;
     }
 
     interface Emits {
@@ -19,7 +21,9 @@
         (e: 'context-menu', event: MouseEvent): void;
     }
 
-    const props = defineProps<Props>();
+    const props = withDefaults(defineProps<Props>(), {
+        promoted: false,
+    });
     const emit = defineEmits<Emits>();
 
     const isToggleDisabled = computed(() => {
@@ -32,7 +36,7 @@
         if (props.provider.enabled === 0) {
             // 检查 API 地址
             if (!props.provider.api_endpoint || props.provider.api_endpoint.trim() === '') {
-                emit('validation-error', '请先配置 API 地址后再启用服务商');
+                emit('validation-error', t('settings.ai.configureApiUrlBeforeEnable'));
                 return;
             }
         }
@@ -51,11 +55,8 @@
 
 <template>
     <div
-        class="provider-card flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-all"
-        :class="{
-            'border-primary-300 bg-primary-50/50': isSelected,
-            'border-gray-200 bg-white hover:border-gray-300': !isSelected,
-        }"
+        class="provider-card flex cursor-pointer items-center gap-2.5 rounded-[11px] border px-3 py-2.5 transition-colors"
+        :class="isSelected ? 'settings-item-selected' : 'settings-item-unselected'"
         @click="emit('select')"
         @contextmenu="handleContextMenu"
     >
@@ -64,19 +65,24 @@
             :name="provider.name"
             size="small"
             :show-badge="provider.is_builtin === 1"
+            :promoted="promoted"
             class="shrink-0"
         />
 
         <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2">
-                <h3 class="min-w-0 flex-1 truncate font-serif text-sm font-medium text-gray-900">
+                <h3
+                    class="min-w-0 flex-1 truncate text-[13px] font-normal text-neutral-950"
+                    data-no-i18n="true"
+                    translate="no"
+                >
                     {{ provider.name }}
                 </h3>
                 <span
                     v-if="hasDefaultModel"
-                    class="bg-primary-50 text-primary-600 shrink-0 rounded-full px-2 py-0.5 text-xs whitespace-nowrap"
+                    class="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs whitespace-nowrap text-neutral-600 ring-1 ring-neutral-200"
                 >
-                    默认
+                    {{ t('common.default') }}
                 </span>
             </div>
         </div>
@@ -92,8 +98,8 @@
             <div
                 class="peer h-5 w-9 rounded-full transition-colors"
                 :class="{
-                    'bg-primary-500': provider.enabled === 1,
-                    'bg-gray-200': provider.enabled === 0,
+                    'bg-primary-700': provider.enabled === 1,
+                    'bg-neutral-200': provider.enabled === 0,
                     'cursor-not-allowed opacity-50': isToggleDisabled,
                 }"
             >

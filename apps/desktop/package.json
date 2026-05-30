@@ -78,6 +78,7 @@
         "vercel-minimax-ai-provider": "^0.0.2",
         "vue": "^3.5.34",
         "vue-draggable-plus": "^0.6.1",
+        "vue-i18n": "11.4.4",
         "vue-router": "5",
         "vue-sonner": "^2.0.9",
         "zhipu-ai-provider": "^0.3.1",

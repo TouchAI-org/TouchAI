@@ -1,11 +1,12 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { open } from '@tauri-apps/plugin-dialog';
 
-    import type { BashApprovalMode, BashToolConfig } from '../types';
+    import { t } from '@/i18n';
 
+    import type { BashApprovalMode, BashToolConfig } from '../types';
     interface Props {
         modelValue: BashToolConfig;
         disabled?: boolean;
@@ -24,15 +25,15 @@
     }> = [
         {
             value: 'high_risk',
-            title: '自动',
+            title: t('settings.builtInTools.bash.approvalMode.auto'),
         },
         {
             value: 'always',
-            title: '每次询问',
+            title: t('settings.builtInTools.bash.approvalMode.askEachTime'),
         },
         {
             value: 'never',
-            title: '完全访问',
+            title: t('settings.builtInTools.bash.approvalMode.fullAccess'),
         },
     ];
 
@@ -49,7 +50,7 @@
                 directory: true,
                 multiple: false,
                 defaultPath: defaultPath?.trim() || undefined,
-                title: '选择目录',
+                title: t('settings.builtInTools.bash.chooseDirectory'),
             });
             return typeof picked === 'string' ? picked : null;
         } catch (error) {
@@ -112,10 +113,12 @@
 
 <template>
     <div class="space-y-5">
-        <section class="rounded-xl border border-gray-200 bg-white p-5">
+        <div class="space-y-5">
             <div class="flex items-start justify-between gap-4">
                 <div>
-                    <h4 class="font-serif text-sm font-semibold text-gray-900">执行与审批</h4>
+                    <h4 class="text-sm font-semibold text-neutral-950">
+                        {{ t('settings.builtInTools.bash.executionAndApproval') }}
+                    </h4>
                 </div>
             </div>
 
@@ -126,14 +129,14 @@
                     type="button"
                     :disabled="disabled"
                     :class="[
-                        'rounded-xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                        'rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                         modelValue.approvalMode === option.value
-                            ? 'border-primary-300 bg-primary-50'
-                            : 'border-gray-200 bg-gray-50/70 hover:border-gray-300 hover:bg-white',
+                            ? 'border-transparent bg-[#e9e9e7] shadow-none'
+                            : 'border-transparent bg-transparent hover:bg-[#f1f1ef]',
                     ]"
                     @click="patch({ approvalMode: option.value })"
                 >
-                    <p class="font-serif text-sm font-semibold text-gray-900">
+                    <p class="text-sm font-semibold text-neutral-950">
                         {{ option.title }}
                     </p>
                 </button>
@@ -141,8 +144,8 @@
 
             <div class="mt-5 space-y-4">
                 <div>
-                    <label class="block font-serif text-sm font-medium text-gray-600">
-                        默认工作目录
+                    <label class="block text-sm font-medium text-neutral-700">
+                        {{ t('settings.builtInTools.bash.defaultWorkingDirectory') }}
                     </label>
                     <div class="mt-1.5 flex gap-2">
                         <input
@@ -151,15 +154,17 @@
                             readonly
                             type="text"
                             spellcheck="false"
-                            class="focus:border-primary-400 flex-1 rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-gray-900 transition-colors focus:outline-none disabled:bg-gray-50"
-                            placeholder="未设置时运行时默认桌面"
+                            class="settings-input flex-1 font-mono disabled:bg-neutral-50"
+                            :placeholder="
+                                t('settings.builtInTools.bash.defaultWorkingDirectoryPlaceholder')
+                            "
                         />
                         <button
                             type="button"
                             :disabled="disabled"
-                            class="text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
-                            title="选择目录"
-                            aria-label="选择目录"
+                            class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            :title="t('settings.builtInTools.bash.chooseDirectory')"
+                            :aria-label="t('settings.builtInTools.bash.chooseDirectory')"
                             @click="pickDefaultWorkingDirectory"
                         >
                             <AppIcon name="folder-open" class="h-5 w-5" />
@@ -169,13 +174,13 @@
 
                 <div>
                     <div class="flex items-center justify-between">
-                        <label class="block font-serif text-sm font-medium text-gray-600">
-                            允许工作目录
+                        <label class="block text-sm font-medium text-neutral-700">
+                            {{ t('settings.builtInTools.bash.allowedWorkingDirectories') }}
                         </label>
                         <button
                             type="button"
                             :disabled="disabled"
-                            class="text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+                            class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
                             @click="addAllowedWorkingDirectory"
                         >
                             <AppIcon name="plus" class="h-5 w-5" />
@@ -197,15 +202,15 @@
                                 readonly
                                 type="text"
                                 spellcheck="false"
-                                class="focus:border-primary-400 flex-1 rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm text-gray-900 transition-colors focus:outline-none disabled:bg-gray-50"
+                                class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
                                 placeholder="D:\\Project\\TouchAI"
                             />
                             <button
                                 type="button"
                                 :disabled="disabled"
-                                class="text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
-                                title="选择目录"
-                                aria-label="选择目录"
+                                class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                :title="t('settings.builtInTools.bash.chooseDirectory')"
+                                :aria-label="t('settings.builtInTools.bash.chooseDirectory')"
                                 @click="pickAllowedWorkingDirectory(index)"
                             >
                                 <AppIcon name="folder-open" class="h-5 w-5" />
@@ -213,7 +218,7 @@
                             <button
                                 type="button"
                                 :disabled="disabled"
-                                class="text-gray-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                class="text-neutral-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                                 @click="removeAllowedWorkingDirectory(index)"
                             >
                                 <AppIcon name="x" class="h-5 w-5" />
@@ -222,15 +227,15 @@
                     </div>
                     <div
                         v-else
-                        class="mt-2 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-3 font-serif text-sm text-gray-500"
+                        class="mt-2 rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-500"
                     >
-                        未设置时运行时允许全部路径
+                        {{ t('settings.builtInTools.bash.allowAllDirectoriesWhenEmpty') }}
                     </div>
                 </div>
 
                 <div>
-                    <label class="block font-serif text-sm font-medium text-gray-600">
-                        超时上限（毫秒）
+                    <label class="block text-sm font-medium text-neutral-700">
+                        {{ t('settings.builtInTools.bash.timeoutMs') }}
                     </label>
                     <input
                         :value="modelValue.timeoutMs"
@@ -238,7 +243,7 @@
                         type="number"
                         min="1000"
                         max="120000"
-                        class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-serif text-sm text-gray-900 transition-colors focus:outline-none disabled:bg-gray-50"
+                        class="settings-input mt-1.5 w-full disabled:bg-neutral-50"
                         @input="
                             patch({
                                 timeoutMs: Number(($event.target as HTMLInputElement).value || 0),
@@ -248,8 +253,8 @@
                 </div>
 
                 <div>
-                    <label class="block font-serif text-sm font-medium text-gray-600">
-                        输出上限（字符）
+                    <label class="block text-sm font-medium text-neutral-700">
+                        {{ t('settings.builtInTools.bash.outputLimitChars') }}
                     </label>
                     <input
                         :value="modelValue.maxOutputChars"
@@ -257,7 +262,7 @@
                         type="number"
                         min="1000"
                         max="50000"
-                        class="focus:border-primary-400 mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-2 font-serif text-sm text-gray-900 transition-colors focus:outline-none disabled:bg-gray-50"
+                        class="settings-input mt-1.5 w-full disabled:bg-neutral-50"
                         @input="
                             patch({
                                 maxOutputChars: Number(
@@ -270,10 +275,10 @@
 
                 <div>
                     <label class="block font-serif text-sm font-medium text-gray-600">
-                        压缩命令输出
+                        {{ t('settings.builtInTools.bash.compactOutput') }}
                     </label>
                     <p class="mt-0.5 font-serif text-xs text-gray-400">
-                        开启后命令输出会自动压缩，大幅降低 Token 消耗。
+                        {{ t('settings.builtInTools.bash.compactOutputDescription') }}
                     </p>
                     <label class="relative mt-1.5 inline-flex shrink-0 cursor-pointer items-center">
                         <input
@@ -302,6 +307,6 @@
                     </label>
                 </div>
             </div>
-        </section>
+        </div>
     </div>
 </template>

@@ -9,7 +9,11 @@ use crate::{
     commands,
     core::{
         database::DatabaseRuntime,
-        window::{popup::PopupRegistry, search::surface::SearchSurfaceRuntime},
+        updater::AppUpdaterState,
+        window::{
+            popup::PopupRegistry, search::surface::SearchSurfaceRuntime,
+            status_reminder::SessionStatusReminderNotificationRuntime, tray::TrayStatusRuntime,
+        },
     },
 };
 
@@ -24,6 +28,9 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .invoke_handler(commands::invoke_handler::<MockRuntime>())
         .manage(PopupRegistry::new())
         .manage(SearchSurfaceRuntime::new())
+        .manage(SessionStatusReminderNotificationRuntime::for_tests())
+        .manage(TrayStatusRuntime::new())
+        .manage(AppUpdaterState::default())
 }
 
 pub fn attach_test_database_runtime(
@@ -45,4 +52,27 @@ pub fn search_surface_policies<R: Runtime>(app: &App<R>) -> SearchSurfacePolicyS
         hide_on_app_blur: runtime.should_hide_on_app_blur(),
         allow_height_override: runtime.should_allow_height_override(),
     }
+}
+
+pub fn tray_status_indicator<R: Runtime>(app: &App<R>) -> Option<String> {
+    app.state::<TrayStatusRuntime>()
+        .status()
+        .map(|status| match status {
+            crate::core::window::tray::TrayStatusIndicator::Completed => "completed",
+            crate::core::window::tray::TrayStatusIndicator::Failed => "failed",
+            crate::core::window::tray::TrayStatusIndicator::WaitingApproval => "waiting_approval",
+        })
+        .map(str::to_string)
+}
+
+pub fn session_status_reminder_notifications<R: Runtime>(
+    app: &App<R>,
+) -> Vec<crate::core::window::status_reminder::SessionStatusReminderNotificationPayload> {
+    app.state::<SessionStatusReminderNotificationRuntime>()
+        .records()
+}
+
+pub fn session_status_reminder_clear_count<R: Runtime>(app: &App<R>) -> usize {
+    app.state::<SessionStatusReminderNotificationRuntime>()
+        .clear_count()
 }

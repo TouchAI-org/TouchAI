@@ -1,8 +1,9 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import { onUnmounted, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { serializeUpgradeModelToolConfig } from '@/services/BuiltInToolService/tools/upgradeModel/config';
 
     import type { BuiltInToolEntity, BuiltInToolUpdateData } from '../types';
@@ -15,7 +16,6 @@
     } from '../types';
     import BashToolConfig from './BashToolConfig.vue';
     import UpgradeModelToolConfig from './UpgradeModelToolConfig.vue';
-
     interface Props {
         tool: BuiltInToolEntity;
         saving?: boolean;
@@ -117,7 +117,7 @@
 </script>
 
 <template>
-    <div class="space-y-4 p-6">
+    <div class="settings-page-wide space-y-4">
         <BashToolConfig v-if="tool.tool_id === 'bash'" v-model="bashConfig" />
         <UpgradeModelToolConfig
             v-else-if="tool.tool_id === 'upgrade_model'"
@@ -125,16 +125,18 @@
         />
         <div
             v-else-if="usesBuiltInToolEmptyConfig(tool.tool_id)"
-            class="rounded-xl border border-dashed border-gray-200 bg-white px-5 py-12 text-center"
+            class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-5 py-12 text-center"
         >
-            <p class="font-serif text-sm text-gray-500">该工具无需在此配置</p>
+            <p class="text-sm text-neutral-500">{{ t('settings.builtInTools.noConfig') }}</p>
         </div>
 
         <div
             v-else
-            class="rounded-xl border border-dashed border-gray-200 bg-white px-5 py-10 text-center"
+            class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-5 py-10 text-center"
         >
-            <p class="font-serif text-sm text-gray-500">该工具的配置表单将在后续批次接入。</p>
+            <p class="text-sm text-neutral-500">
+                {{ t('settings.builtInTools.configComingSoon') }}
+            </p>
         </div>
     </div>
 </template>

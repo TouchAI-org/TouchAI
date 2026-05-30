@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { tt } from '@/i18n';
 import type { ShowWidgetEventPayload } from '@/services/AgentService/contracts/tooling';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
@@ -28,7 +29,7 @@ function buildShowWidgetConversationSemantic(
         target: truncateText(
             normalizeOptionalString(args.title, { collapseWhitespace: true }) ||
                 normalizeOptionalString(args.widgetId, { collapseWhitespace: true }) ||
-                '可视化',
+                tt('可视化'),
             80
         ),
     };

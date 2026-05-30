@@ -1,0 +1,65 @@
+name: Pages
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - apps/site/**
+            - package.json
+            - pnpm-lock.yaml
+            - pnpm-workspace.yaml
+            - .github/workflows/pages.yml
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+concurrency:
+    group: pages
+    cancel-in-progress: false
+
+jobs:
+    build:
+        name: Build site
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Configure GitHub Pages
+              uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build site
+              env:
+                  PUBLIC_CLARITY_ID: ${{ secrets.SITE_CLARITY_ID }}
+                  PUBLIC_WAITLIST_ENDPOINT: ${{ secrets.SITE_WAITLIST_ENDPOINT }}
+              run: pnpm site:build
+
+            - name: Upload Pages artifact
+              uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+              with:
+                  path: apps/site/dist
+
+    deploy:
+        name: Deploy to GitHub Pages
+        needs: build
+        runs-on: ubuntu-latest
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        steps:
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
