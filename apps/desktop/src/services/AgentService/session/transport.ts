@@ -36,6 +36,14 @@ function buildAssistantTransportContent(row: {
     ];
 }
 
+function buildMissingToolResultPlaceholder(toolCall: AiToolCall): string {
+    return [
+        `Tool result is missing for historical tool call ${toolCall.id}.`,
+        `Tool name: ${toolCall.name || 'unknown_tool'}.`,
+        'TouchAI inserted this placeholder result so the conversation can continue. Treat the original tool output as unavailable.',
+    ].join('\n');
+}
+
 /**
  * 将会话历史重组为下一轮请求可继续复用的模型消息。
  */
@@ -53,6 +61,7 @@ export async function loadSessionTransportMessages(options: {
     const messages: AiMessage[] = [];
     const toolLogsByMessageId = new Map<number, ToolLogHistoryRow[]>();
     const toolLogByIdentity = new Map<string, ToolLogHistoryRow>();
+    const pendingResultToolCalls: AiToolCall[] = [];
 
     for (const toolLog of toolLogs) {
         if (toolLog.message_id !== null) {
@@ -64,10 +73,40 @@ export async function loadSessionTransportMessages(options: {
         toolLogByIdentity.set(`${toolLog.source}:${toolLog.log_id}`, toolLog);
     }
 
+    const takePendingResultToolCall = (toolCallId?: string | null): AiToolCall | undefined => {
+        if (!toolCallId) {
+            return pendingResultToolCalls.shift();
+        }
+
+        const pendingIndex = pendingResultToolCalls.findIndex(
+            (toolCall) => toolCall.id === toolCallId
+        );
+        if (pendingIndex < 0) {
+            return undefined;
+        }
+
+        const [toolCall] = pendingResultToolCalls.splice(pendingIndex, 1);
+        return toolCall;
+    };
+
+    const flushMissingToolResults = (): void => {
+        while (pendingResultToolCalls.length > 0) {
+            const toolCall = pendingResultToolCalls.shift()!;
+            messages.push({
+                role: 'tool',
+                content: buildMissingToolResultPlaceholder(toolCall),
+                tool_call_id: toolCall.id,
+                name: toolCall.name,
+            });
+        }
+    };
+
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
         const row = rows[rowIndex]!;
 
         if (row.role === 'tool_call') {
+            flushMissingToolResults();
+
             if (row.tool_call_id) {
                 const pendingToolCalls: AiToolCall[] = [];
 
@@ -95,6 +134,7 @@ export async function loadSessionTransportMessages(options: {
                     content: buildAssistantTransportContent(row),
                     tool_calls: pendingToolCalls,
                 });
+                pendingResultToolCalls.push(...pendingToolCalls);
                 continue;
             }
 
@@ -110,6 +150,7 @@ export async function loadSessionTransportMessages(options: {
                 content: buildAssistantTransportContent(row),
                 tool_calls: pendingToolCalls,
             });
+            pendingResultToolCalls.push(...pendingToolCalls);
             continue;
         }
 
@@ -119,8 +160,11 @@ export async function loadSessionTransportMessages(options: {
                 row.tool_log_id !== null
                     ? toolLogByIdentity.get(`${toolSource}:${row.tool_log_id}`)
                     : undefined;
+            const pendingToolCall = takePendingResultToolCall(
+                row.tool_call_id ?? toolLog?.tool_call_id
+            );
 
-            if (toolLog) {
+            if (pendingToolCall) {
                 const attachments = supportsAttachments
                     ? await hydratePersistedAttachments(row.attachments)
                     : [];
@@ -139,8 +183,10 @@ export async function loadSessionTransportMessages(options: {
                                   ...attachmentParts,
                               ] as AiContentPart[])
                             : row.content,
-                    tool_call_id: row.tool_call_id ?? toolLog.tool_call_id,
-                    name: row.tool_name ?? toTransportToolName(toolLog),
+                    tool_call_id: pendingToolCall.id,
+                    name:
+                        row.tool_name ??
+                        (toolLog ? toTransportToolName(toolLog) : pendingToolCall.name),
                 });
             } else {
                 console.warn(
@@ -152,6 +198,8 @@ export async function loadSessionTransportMessages(options: {
         }
 
         if (row.role === 'user') {
+            flushMissingToolResults();
+
             const attachments = supportsAttachments
                 ? await hydratePersistedAttachments(row.attachments)
                 : [];
@@ -171,11 +219,15 @@ export async function loadSessionTransportMessages(options: {
             continue;
         }
 
+        flushMissingToolResults();
+
         messages.push({
             role: row.role as 'user' | 'assistant' | 'system',
             content: row.role === 'assistant' ? buildAssistantTransportContent(row) : row.content,
         });
     }
+
+    flushMissingToolResults();
 
     return messages;
 }
