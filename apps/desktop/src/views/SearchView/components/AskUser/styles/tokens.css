@@ -1,0 +1,128 @@
+/*
+ * Bridges shadcn-style CSS variables (used by the upstream ask-user-questions
+ * component) to neutral defaults that match the upstream visual identity.
+ *
+ * Scoped to .ask-user-panel so it does not leak globally.
+ */
+
+.ask-user-divider {
+    height: 0;
+    box-shadow:
+        0 4px 6px -2px rgba(60, 50, 40, 0.35),
+        0 14px 24px -4px rgba(60, 50, 40, 0.25);
+}
+
+.ask-user-panel {
+    --background: #ffffff;
+    --foreground: var(--color-primary-700);
+    --muted-foreground: var(--color-primary-400);
+    --card: transparent;
+    --border: var(--color-primary-200);
+    --accent: var(--color-primary-100);
+    --hover: rgba(107, 95, 84, 0.06);
+    --active: rgba(107, 95, 84, 0.12);
+    --ring: var(--color-primary-300);
+
+    /* Single source of truth for inner alignment.
+       --ask-content-x: distance from card border to title/body text.
+       --ask-row-inset: how far the row highlight extends outward past the text.
+       Row text x = ask-content-x; highlight x = ask-content-x - ask-row-inset. */
+    --ask-content-x: 1.25rem;
+    --ask-row-inset: 0.75rem;
+
+    color: var(--foreground);
+    font-family: var(--font-serif);
+    letter-spacing: -0.005em;
+}
+
+.ask-user-panel .ask-content-x {
+    padding-left: var(--ask-content-x);
+    padding-right: var(--ask-content-x);
+}
+.ask-user-panel .ask-content-mx {
+    margin-left: var(--ask-content-x);
+    margin-right: var(--ask-content-x);
+}
+.ask-user-panel .ask-rows-extend {
+    margin-left: calc(var(--ask-row-inset) * -1);
+    margin-right: calc(var(--ask-row-inset) * -1);
+}
+.ask-user-panel .ask-row-pad {
+    padding-left: var(--ask-row-inset);
+    padding-right: var(--ask-row-inset);
+}
+.ask-user-panel .ask-footer-x {
+    /* Footer wrapper sits flush so AskButton's own px-3 lines its text up
+       with the title text (button px-3 == ask-content-x - 8px on default). */
+    padding-left: calc(var(--ask-content-x) - 0.75rem);
+    padding-right: calc(var(--ask-content-x) - 0.75rem);
+}
+
+.ask-user-panel .bg-card {
+    background: var(--card);
+}
+.ask-user-panel .bg-hover {
+    background: var(--hover);
+}
+.ask-user-panel .bg-active {
+    background: var(--active);
+}
+.ask-user-panel .bg-foreground {
+    background: var(--foreground);
+}
+.ask-user-panel .bg-background {
+    background: var(--background);
+}
+.ask-user-panel .bg-accent {
+    background: var(--accent);
+}
+.ask-user-panel .bg-transparent {
+    background: transparent;
+}
+
+.ask-user-panel .text-foreground {
+    color: var(--foreground);
+}
+.ask-user-panel .text-muted-foreground {
+    color: var(--muted-foreground);
+}
+.ask-user-panel .text-background {
+    color: var(--background);
+}
+
+.ask-user-panel .border-border {
+    border-color: var(--border);
+}
+.ask-user-panel .ring-border {
+    --tw-ring-color: var(--border);
+}
+
+.ask-user-panel .focus-visible-ring:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px var(--ring);
+}
+
+.ask-user-panel .bg-foreground\/10 {
+    background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+.ask-user-panel .bg-foreground\/80 {
+    background: color-mix(in srgb, var(--foreground) 80%, transparent);
+}
+.ask-user-panel .bg-foreground\/90 {
+    background: color-mix(in srgb, var(--foreground) 90%, transparent);
+}
+.ask-user-panel .bg-background\/15 {
+    background: color-mix(in srgb, var(--background) 15%, transparent);
+}
+.ask-user-panel .group:hover .group-hover\:bg-hover {
+    background: var(--hover);
+}
+.ask-user-panel .group:active .group-active\:bg-active {
+    background: var(--active);
+}
+.ask-user-panel .group:hover .group-hover\:bg-foreground\/90 {
+    background: color-mix(in srgb, var(--foreground) 90%, transparent);
+}
+.ask-user-panel .group:active .group-active\:bg-foreground\/80 {
+    background: color-mix(in srgb, var(--foreground) 80%, transparent);
+}

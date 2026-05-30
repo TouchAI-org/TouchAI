@@ -18,6 +18,7 @@
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
+    import { useAskUserStore } from '@/stores/askUser';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
     import {
@@ -27,6 +28,7 @@
     } from '@/types/session';
     import { isE2eTestMode } from '@/utils/runtimeMode';
 
+    import AskUserPanel from './components/AskUser/AskUserPanel.vue';
     import ConversationPanel from './components/ConversationPanel/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
     import SearchBar from './components/SearchBar/index.vue';
@@ -122,6 +124,9 @@
     const searchEntryPolicy = createSearchEntryPolicy();
     const popupSurfaceCoordinator = createPopupSurfaceCoordinator(searchInteractionContext);
     const suppressQuickSearchAutoOpenOnce = ref(false);
+    const askUserStore = useAskUserStore();
+    let lastBridgedApprovalCallId: string | null = null;
+    let lastBridgedQuestionCallId: string | null = null;
 
     function buildCurrentInputHistorySnapshot(query = queryText.value): InputHistorySnapshot {
         const capturedSnapshot = searchBar.value?.captureInputHistorySnapshot();
@@ -223,8 +228,10 @@
         startNewSession,
         openSession,
         pendingToolApproval,
+        pendingUserQuestion,
         approvePendingToolApproval,
         rejectPendingToolApproval,
+        settleUserQuestion,
         handleSubmit,
         clearAll,
         cancelRequest,
@@ -1074,6 +1081,87 @@
         { flush: 'post' }
     );
 
+    // Bridge: sync pendingToolApproval from projection into askUser store
+    watch(
+        pendingToolApproval,
+        (approval) => {
+            if (approval) {
+                if (lastBridgedApprovalCallId === approval.callId) return;
+                lastBridgedApprovalCallId = approval.callId;
+                controller.closeQuickSearch();
+                void hideAllPopups().catch((error) => {
+                    console.error(
+                        '[SearchView] failed to hide popups before approval prompt',
+                        error
+                    );
+                });
+                askUserStore.enqueueApproval(
+                    {
+                        callId: approval.callId,
+                        title: approval.title,
+                        description: approval.description,
+                        command: approval.command,
+                        riskLabel: approval.riskLabel,
+                        reason: approval.reason,
+                        commandLabel: '命令预览',
+                        approveLabel: approval.approveLabel,
+                        rejectLabel: approval.rejectLabel,
+                        enterHint: approval.enterHint,
+                        escHint: approval.escHint,
+                        keyboardApproveDelayMs: approval.keyboardApproveAt
+                            ? Math.max(0, approval.keyboardApproveAt - Date.now())
+                            : 450,
+                    },
+                    (approved) => {
+                        if (approved) {
+                            approvePendingToolApproval(approval.callId);
+                        } else {
+                            rejectPendingToolApproval(approval.callId);
+                        }
+                    }
+                );
+            } else {
+                // Approval resolved externally (e.g. task cancelled)
+                if (lastBridgedApprovalCallId) {
+                    askUserStore.cancelByApprovalCallId(lastBridgedApprovalCallId);
+                    lastBridgedApprovalCallId = null;
+                }
+            }
+        },
+        { flush: 'post' }
+    );
+
+    // Bridge: sync pendingUserQuestion from projection into askUser store
+    watch(
+        pendingUserQuestion,
+        (question) => {
+            if (question) {
+                if (lastBridgedQuestionCallId === question.callId) return;
+                lastBridgedQuestionCallId = question.callId;
+                controller.closeQuickSearch();
+                void hideAllPopups().catch((error) => {
+                    console.error(
+                        '[SearchView] failed to hide popups before question prompt',
+                        error
+                    );
+                });
+                askUserStore.enqueueQuestion(
+                    question.questions,
+                    (answers) => {
+                        settleUserQuestion(question.callId, answers);
+                    },
+                    { sourceCallId: question.callId }
+                );
+            } else {
+                if (lastBridgedQuestionCallId) {
+                    askUserStore.cancelByQuestionCallId(lastBridgedQuestionCallId);
+                    lastBridgedQuestionCallId = null;
+                }
+            }
+        },
+        { flush: 'post' }
+    );
+
     watch(
         sessionList,
         (sessions) => {
@@ -1131,7 +1219,7 @@
         :class="[
             'search-view-container bg-background-primary relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl focus:outline-none',
             fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
-            isLoading ? 'loading' : '',
+            isLoading && !askUserStore.current ? 'loading' : '',
         ]"
         @paste.capture="handlePagePaste"
     >
@@ -1151,24 +1239,27 @@
                 :is-maximized="isMaximized"
                 :fill-available-height="fillConversationAvailableHeight"
                 :history-open="sessionHistoryPopupOpen"
-                :approval-attention-token="approvalAttentionToken"
                 @pin-change="handlePinChange"
                 @maximize-toggle="handleToggleMaximize"
                 @new-session="handleStartNewSession"
                 @history-open-change="handleHistoryOpenChange"
                 @history-prefetch="handleHistoryPrefetch"
-                @approve-tool-approval="approvePendingToolApproval"
-                @reject-tool-approval="rejectPendingToolApproval"
                 @drag-start="isDragging = true"
                 @drag-end="isDragging = false"
                 @regenerate-message="handleRegenerateMessage"
             />
         </div>
         <div
-            v-if="searchViewContentReady && sessionHistory.length > 0"
+            v-if="searchViewContentReady && sessionHistory.length > 0 && !askUserStore.current"
             class="w-full border-t-[0.5px] border-gray-300/80"
         ></div>
-        <div v-if="searchViewContentReady" class="relative w-full">
+        <div
+            v-if="searchViewContentReady && askUserStore.current"
+            aria-hidden="true"
+            class="ask-user-divider relative z-10 w-full"
+        ></div>
+        <AskUserPanel v-if="searchViewContentReady && askUserStore.current" />
+        <div v-if="searchViewContentReady && !askUserStore.current" class="relative w-full">
             <SearchBar
                 ref="searchBar"
                 :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"

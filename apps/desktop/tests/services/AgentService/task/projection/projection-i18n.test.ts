@@ -15,6 +15,7 @@ function createSnapshot(): SessionTaskSnapshot {
         sessionHistory: [],
         pendingToolApproval: null,
         pendingApprovals: [],
+        pendingUserQuestion: null,
         error: null,
         currentModel: null,
         promptSnapshot: null,
