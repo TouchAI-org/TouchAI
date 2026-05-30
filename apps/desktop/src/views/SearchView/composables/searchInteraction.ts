@@ -392,15 +392,8 @@ export function createSearchInteractionContext() {
         state.activationSource = 'unknown';
         state.entryCheckArmedVisibilityEpoch = state.visibilityEpoch;
         state.lastEntryCheckedVisibilityEpoch = null;
-
-        if (input.hideReason === 'app-blur-hide') {
-            state.timeoutClearArmedVisibilityEpoch = state.visibilityEpoch;
-            state.lastHideAt = input.hiddenAt;
-            return;
-        }
-
-        state.timeoutClearArmedVisibilityEpoch = null;
-        state.lastHideAt = null;
+        state.timeoutClearArmedVisibilityEpoch = state.visibilityEpoch;
+        state.lastHideAt = input.hiddenAt;
     }
 
     function markWindowVisible() {

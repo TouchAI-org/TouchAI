@@ -15,6 +15,10 @@ export const window = {
         return invoke('hide_search_window');
     },
 
+    showSearchWindow(): Promise<void> {
+        return invoke('show_search_window');
+    },
+
     openSettingsWindow(): Promise<void> {
         return invoke('open_settings_window');
     },

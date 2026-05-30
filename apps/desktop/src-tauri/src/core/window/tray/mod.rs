@@ -35,9 +35,8 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::er
                 ..
             } => {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                if let Err(e) = crate::core::window::show_search_window(app.clone()) {
+                    warn!("Failed to show main window from tray icon: {}", e);
                 }
             }
             _ => {}

@@ -70,6 +70,12 @@ describe('NativeService window boundary', () => {
             payload: undefined,
         },
         {
+            name: 'shows the search window',
+            call: () => windowCommands.showSearchWindow(),
+            cmd: 'show_search_window',
+            payload: undefined,
+        },
+        {
             name: 'opens the settings window',
             call: () => windowCommands.openSettingsWindow(),
             cmd: 'open_settings_window',

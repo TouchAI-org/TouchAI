@@ -68,6 +68,11 @@ pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn show_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::core::window::show_search_window(app)
+}
+
+#[tauri::command]
 pub async fn open_settings_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     crate::core::window::build_settings_window(&app).await
 }
