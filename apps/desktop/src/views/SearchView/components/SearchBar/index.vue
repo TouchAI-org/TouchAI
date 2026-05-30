@@ -6,12 +6,12 @@
     <div
         ref="searchBarContainerRef"
         data-testid="search-bar"
-        class="search-bar-container relative flex h-full min-h-14 w-full items-center gap-2 p-3 transition-all duration-180 ease-[cubic-bezier(0.33,0,0.67,1)]"
+        class="search-bar-container relative flex h-full min-h-14 w-full items-start gap-2 p-3 transition-all duration-180 ease-[cubic-bezier(0.33,0,0.67,1)]"
         @mousedown="handleContainerMouseDown"
     >
         <div
             :ref="assignLogoContainerRef"
-            class="logo-container flex shrink-0 cursor-pointer items-center justify-center self-center"
+            class="logo-container flex shrink-0 cursor-pointer items-center justify-center"
             data-tauri-drag-region="false"
             @mouseenter="handleModelDropdownPrefetchRequest"
             @mousedown.stop.prevent="handleModelDropdownToggleRequest"
