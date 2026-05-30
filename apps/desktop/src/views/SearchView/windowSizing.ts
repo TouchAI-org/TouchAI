@@ -80,7 +80,9 @@ export type SearchWindowDefaultSizeApplyAction =
 /**
  * 根据会话状态计算高度策略。
  *
- * - 空态（无会话、QuickSearch 关闭）：禁用自动 resize，启用空态默认高度强制。
+ * - 空态（无会话、QuickSearch 关闭）：允许内容驱动的自动 resize（让 SearchBar 多行
+ *   时窗口跟随扩展），但禁止手动覆盖；状态切换时由 shouldEnforceIdleDefaultBounds
+ *   保证回到默认高度。
  * - 对话态：启用自动 resize，允许手动覆盖，遵循 ManualOverride。
  * - QuickSearch 打开但无会话：启用自动 resize，但不允许手动覆盖。
  */
@@ -92,7 +94,7 @@ export function resolveSearchWindowHeightPolicy(
 
     return {
         hasManagedPanel,
-        autoResizeEnabled: hasManagedPanel,
+        autoResizeEnabled: true,
         respectManualOverride: hasConversationPanel,
         allowHeightOverride: hasConversationPanel,
         shouldEnforceIdleDefaultHeight: !hasManagedPanel,

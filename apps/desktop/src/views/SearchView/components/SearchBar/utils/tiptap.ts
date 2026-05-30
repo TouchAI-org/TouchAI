@@ -340,6 +340,43 @@ function moveCursorToPosition(editor: Editor, position: number) {
     });
 }
 
+/**
+ * 在当前段落后插入一个新的空段落，并将光标放到新段落开头。
+ * 仅用于恢复“空内容时 Shift+Enter 可换行”的行为。
+ */
+function insertEmptyParagraphAfterSelection(editor: Editor) {
+    const inserted = editor.commands.command(({ state, tr, dispatch }) => {
+        const paragraph = state.schema.nodes.paragraph?.create();
+        if (!paragraph) {
+            return false;
+        }
+
+        let paragraphDepth: number | null = null;
+        for (let depth = state.selection.$from.depth; depth > 0; depth -= 1) {
+            if (state.selection.$from.node(depth).type.name === 'paragraph') {
+                paragraphDepth = depth;
+                break;
+            }
+        }
+
+        if (paragraphDepth === null) {
+            return false;
+        }
+
+        const insertPos = state.selection.$from.after(paragraphDepth);
+        tr.insert(insertPos, paragraph);
+        tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
+        dispatch?.(tr.scrollIntoView());
+        return true;
+    });
+
+    if (inserted) {
+        editor.view.focus();
+    }
+
+    return inserted;
+}
+
 function isAtVisualLineStartForArrowUp(editor: Editor): boolean {
     try {
         return editor.view.endOfTextblock('up');
@@ -400,6 +437,10 @@ const SearchKeyboard = Extension.create({
                 return true;
             },
             'Shift-Enter': ({ editor }: { editor: Editor }) => {
+                // 恢复空内容下的换行能力：显式插入一个新的空段落。
+                if (!getEditorText(editor).trim()) {
+                    return insertEmptyParagraphAfterSelection(editor);
+                }
                 return editor.commands.setHardBreak();
             },
             Backspace: ({ editor }: { editor: Editor }) => {

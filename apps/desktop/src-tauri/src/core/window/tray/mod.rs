@@ -1,18 +1,26 @@
-// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 //! 系统托盘模块。
 
 use log::warn;
 use std::sync::Mutex;
+#[cfg(target_os = "linux")]
+use tauri::menu::MenuBuilder;
 use tauri::{
     image::Image,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, PhysicalPosition, Runtime, WebviewUrl, WebviewWindowBuilder,
 };
 
-const TRAY_ID: &str = "touchai-tray";
 const TRAY_MENU_ROUTE: &str = "#/tray-menu";
+const TRAY_ID: &str = "touchai-main";
 const TRAY_TOOLTIP: &str = "TouchAI";
+#[cfg(target_os = "linux")]
+const TRAY_MENU_SHOW: &str = "show-main-window";
+#[cfg(target_os = "linux")]
+const TRAY_MENU_SETTINGS: &str = "open-settings";
+#[cfg(target_os = "linux")]
+const TRAY_MENU_QUIT: &str = "quit";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -48,13 +56,60 @@ impl Default for TrayStatusRuntime {
     }
 }
 
+struct TouchAiTray<R: Runtime> {
+    _tray: tauri::tray::TrayIcon<R>,
+}
+
 pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
     let status = app
         .try_state::<TrayStatusRuntime>()
         .and_then(|runtime| runtime.status());
     let icon = load_tray_icon(status)?;
 
-    let _tray = TrayIconBuilder::with_id(TRAY_ID)
+    let tray = build_tray_builder(app, icon)?.build(app)?;
+    app.manage(TouchAiTray { _tray: tray });
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn build_tray_builder<R: Runtime>(
+    app: &AppHandle<R>,
+    icon: Image<'static>,
+) -> Result<TrayIconBuilder<R>, Box<dyn std::error::Error>> {
+    let menu = MenuBuilder::new(app)
+        .text(TRAY_MENU_SHOW, "显示窗口")
+        .text(TRAY_MENU_SETTINGS, "设置")
+        .separator()
+        .text(TRAY_MENU_QUIT, "退出")
+        .build()?;
+
+    Ok(TrayIconBuilder::with_id(TRAY_ID)
+        .icon(icon)
+        .tooltip(TRAY_TOOLTIP)
+        .temp_dir_path(resolve_linux_tray_icon_dir(app)?)
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            TRAY_MENU_SHOW => show_main_window(app),
+            TRAY_MENU_SETTINGS => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = crate::core::window::build_settings_window(&app).await {
+                        warn!("Failed to open settings from tray menu: {}", error);
+                    }
+                });
+            }
+            TRAY_MENU_QUIT => app.exit(0),
+            _ => {}
+        }))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn build_tray_builder<R: Runtime>(
+    _app: &AppHandle<R>,
+    icon: Image<'static>,
+) -> Result<TrayIconBuilder<R>, Box<dyn std::error::Error>> {
+    Ok(TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .tooltip(TRAY_TOOLTIP)
         .on_tray_icon_event(|tray, event| match event {
@@ -75,16 +130,19 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::er
                 ..
             } => {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_main_window(app);
             }
             _ => {}
-        })
-        .build(app)?;
+        }))
+}
 
-    Ok(())
+#[cfg(target_os = "linux")]
+fn resolve_linux_tray_icon_dir<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let icon_dir = app.path().app_cache_dir()?.join("tray-icons");
+    std::fs::create_dir_all(&icon_dir)?;
+    Ok(icon_dir)
 }
 
 pub fn set_tray_status_indicator<R: Runtime>(
@@ -192,6 +250,25 @@ fn apply_tray_status<R: Runtime>(
         }
     })
     .map_err(|error| error.to_string())
+}
+
+fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    let Some(window) = app.get_webview_window("main") else {
+        warn!("Main window not found while showing from tray");
+        return;
+    };
+
+    if let Err(error) = window.unminimize() {
+        warn!("Failed to unminimize main window from tray: {}", error);
+    }
+
+    if let Err(error) = window.show() {
+        warn!("Failed to show main window from tray: {}", error);
+    }
+
+    if let Err(error) = window.set_focus() {
+        warn!("Failed to focus main window from tray: {}", error);
+    }
 }
 
 fn show_tray_menu<R: Runtime>(

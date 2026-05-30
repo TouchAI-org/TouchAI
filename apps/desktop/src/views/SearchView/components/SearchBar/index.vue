@@ -38,7 +38,14 @@
             @mousedown.capture="handleEditorSelectionMouseDown"
             @mousedown="handleEditorMouseDown"
         >
-            <EditorContent v-if="editor" :editor="editor" />
+            <!--
+              Keep the mounted Tiptap wrapper stretchable in the flex host.
+              Without this, an empty line can collapse to ~0px and the caret becomes invisible
+              until the user types a real character.
+            -->
+            <div class="search-bar-editor-content w-full min-w-0 flex-1">
+                <EditorContent v-if="editor" :editor="editor" />
+            </div>
         </div>
     </div>
 </template>
