@@ -12,16 +12,6 @@ export default defineConfig({
 			title: 'TouchAI',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/TouchAI-org/TouchAI' }],
 			sidebar: [
-				{
-					label: 'Guides',
-					items: [
-						{ label: 'Example Guide', slug: 'guides/example' },
-					],
-				},
-				{
-					label: 'Reference',
-					items: [{ autogenerate: { directory: 'reference' } }],
-				},
 			],
 		}),
 	],
