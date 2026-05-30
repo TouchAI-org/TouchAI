@@ -18,6 +18,8 @@ import type { AiMessage, AiStreamChunk } from '../contracts/protocol';
 import type {
     AiToolCall,
     AiToolDefinition,
+    AskUserAnswer,
+    AskUserQuestion,
     ToolApprovalDecisionRequest,
     ToolEventModelSummary,
 } from '../contracts/tooling';
@@ -66,6 +68,10 @@ export interface RequestExecutionCallbacks {
         request: import('../contracts/protocol').AttachmentDeliveryManifestRequest
     ) => Promise<void> | void;
     requestToolApproval?: (payload: ToolApprovalDecisionRequest) => Promise<boolean>;
+    requestUserQuestions?: (
+        callId: string,
+        questions: AskUserQuestion[]
+    ) => Promise<AskUserAnswer[] | null>;
 }
 
 export interface AttemptCheckpoint {
@@ -717,6 +723,7 @@ export class AiRequestExecutor {
             toolCallMessageId: options.toolCallMessageId,
             sessionId: options.persister.getSessionId(),
             requestToolApproval: options.requestToolApproval,
+            requestUserQuestions: options.requestUserQuestions,
             emitToolEvent: (toolEvent) => this.emitToolEvent(options.onChunk, toolEvent),
         });
 
@@ -769,6 +776,7 @@ export class AiRequestExecutor {
                     signal: options.signal,
                     onChunk: options.onChunk,
                     requestToolApproval: options.requestToolApproval,
+                    requestUserQuestions: options.requestUserQuestions,
                 })
             )
         );
@@ -879,6 +887,7 @@ export class AiRequestExecutor {
                     signal: options.signal,
                     onChunk: options.onChunk,
                     requestToolApproval: options.requestToolApproval,
+                    requestUserQuestions: options.requestUserQuestions,
                 });
 
                 runtime.iteration += 1;
