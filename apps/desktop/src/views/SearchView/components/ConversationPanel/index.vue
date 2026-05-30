@@ -40,15 +40,10 @@
                     :data-message-id="message.id"
                     :data-message-role="message.role"
                 >
-                    <MessageItem
-                        :message="message"
-                        :approval-attention-token="approvalAttentionToken"
-                        @regenerate="handleRegenerateMessage"
-                        @approve-tool-approval="handleApproveToolApproval"
-                        @reject-tool-approval="handleRejectToolApproval"
-                    />
+                    <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
                 </div>
             </div>
+
 
             <!-- 对话时间轴 -->
             <ConversationTimeline
@@ -103,13 +98,11 @@
         historyOpen: boolean;
         toolbarDisabled?: boolean;
         maxHeight?: number;
-        approvalAttentionToken?: number;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         maxHeight: 600,
         toolbarDisabled: false,
-        approvalAttentionToken: 0,
         isMaximized: false,
         fillAvailableHeight: false,
     });
@@ -121,8 +114,6 @@
         newSession: [];
         historyOpenChange: [payload: { open: boolean; anchorElement: HTMLElement | null }];
         historyPrefetch: [anchorElement: HTMLElement | null];
-        approveToolApproval: [callId: string];
-        rejectToolApproval: [callId: string];
         dragStart: [];
         dragEnd: [];
     }>();
@@ -198,14 +189,6 @@
 
     function handleRegenerateMessage(messageId: string) {
         emit('regenerateMessage', messageId);
-    }
-
-    function handleApproveToolApproval(callId: string) {
-        emit('approveToolApproval', callId);
-    }
-
-    function handleRejectToolApproval(callId: string) {
-        emit('rejectToolApproval', callId);
     }
 
     function shouldAutoScrollOnOutput(): boolean {

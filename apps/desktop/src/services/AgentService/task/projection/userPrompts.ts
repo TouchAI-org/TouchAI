@@ -1,15 +1,19 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 /**
- * 工具审批队列投影。
+ * 用户提示队列投影。
  *
- * 持有待决审批队列与 Promise resolver 映射，
+ * 维护待决审批和待决结构化提问的队列与 Promise resolver 映射，
  * 负责审批卡片在会话消息中的创建、更新与清理。
  */
 
 import type { PendingToolApproval, SessionMessage, ToolApprovalInfo } from '@/types/session';
 
-import type { ToolApprovalDecisionRequest } from '../../contracts/tooling';
+import type {
+    AskUserAnswer,
+    AskUserQuestion,
+    ToolApprovalDecisionRequest,
+} from '../../contracts/tooling';
 import { isCancellationStatusText } from './helpers';
 
 const APP_OWNED_APPROVAL_SOURCE_TEXT_BY_TRANSLATION = new Map<string, string>([
@@ -94,7 +98,6 @@ function ensureAssistantApprovals(message: SessionMessage): ToolApprovalInfo[] {
     if (!message.approvals) {
         message.approvals = [];
     }
-
     return message.approvals;
 }
 
@@ -102,7 +105,6 @@ function ensureApprovalPart(message: SessionMessage, callId: string): void {
     const hasPart = message.parts.some(
         (part) => part.type === 'approval' && part.callId === callId
     );
-
     if (!hasPart) {
         message.parts.push({
             id: crypto.randomUUID(),
@@ -120,7 +122,6 @@ export function updateToolApproval(
 ): void {
     const message = history.find((item) => item.id === messageId && item.role === 'assistant');
     const approval = message?.approvals?.find((item) => item.callId === callId);
-
     if (approval) {
         updater(approval);
     }
@@ -135,17 +136,13 @@ export function removeToolApproval(
     if (!message) {
         return;
     }
-
     if (message.approvals) {
         message.approvals = message.approvals.filter((item) => item.callId !== callId);
     }
-
     message.parts = message.parts.filter(
         (part) => !(part.type === 'approval' && part.callId === callId)
     );
 }
-
-// ────────────────────── 审批结算结果 ──────────────────────
 
 export interface ApprovalSettlementResult {
     target: PendingToolApproval;
@@ -154,33 +151,47 @@ export interface ApprovalSettlementResult {
     isCancellationResolution: boolean;
 }
 
-// ────────────────────── ProjectionApprovals ──────────────────────
+export interface PendingUserQuestion {
+    callId: string;
+    sourceMessageId: string;
+    questions: AskUserQuestion[];
+    createdAt: number;
+}
 
 /**
- * 审批队列投影状态管理器。
+ * 用户提示队列投影。
  *
- * 维护待决审批队列和 resolver 映射，
- * 提供审批展示、结算和清理操作。
+ * 同时管理审批队列与结构化提问队列。
  */
-export class ProjectionApprovals {
-    private readonly queue: PendingToolApproval[] = [];
-    private readonly resolvers = new Map<string, (approved: boolean) => void>();
+export class ProjectionUserPrompts {
+    private readonly approvalQueue: PendingToolApproval[] = [];
+    private readonly approvalResolvers = new Map<string, (approved: boolean) => void>();
+    private readonly questionQueue: PendingUserQuestion[] = [];
+    private readonly questionResolvers = new Map<
+        string,
+        (answers: AskUserAnswer[] | null) => void
+    >();
 
-    get pendingQueue(): readonly PendingToolApproval[] {
-        return this.queue;
+    get pendingApprovalQueue(): readonly PendingToolApproval[] {
+        return this.approvalQueue;
+    }
+
+    get pendingQuestionQueue(): readonly PendingUserQuestion[] {
+        return this.questionQueue;
     }
 
     get hasPending(): boolean {
-        return this.queue.length > 0;
+        return this.approvalQueue.length > 0 || this.questionQueue.length > 0;
     }
 
-    getPending(): PendingToolApproval | null {
-        return this.queue[0] ?? null;
+    getPendingApproval(): PendingToolApproval | null {
+        return this.approvalQueue[0] ?? null;
     }
 
-    /**
-     * 在会话消息中创建审批卡片。
-     */
+    getPendingQuestion(): PendingUserQuestion | null {
+        return this.questionQueue[0] ?? null;
+    }
+
     presentApproval(
         history: SessionMessage[],
         messageId: string,
@@ -224,9 +235,6 @@ export class ProjectionApprovals {
         return approval;
     }
 
-    /**
-     * 注册审批请求并返回等待用户决策的 Promise。
-     */
     requestApproval(
         history: SessionMessage[],
         messageId: string,
@@ -237,55 +245,66 @@ export class ProjectionApprovals {
             return null;
         }
 
-        const existingResolver = this.resolvers.get(payload.callId);
+        const existingResolver = this.approvalResolvers.get(payload.callId);
         if (existingResolver) {
             return new Promise<boolean>((resolve) => {
-                this.resolvers.set(payload.callId, (approved) => {
+                this.approvalResolvers.set(payload.callId, (approved) => {
                     existingResolver(approved);
                     resolve(approved);
                 });
             });
         }
 
-        this.queue.splice(
-            0,
-            this.queue.length,
-            ...this.queue.filter((item) => item.callId !== payload.callId),
-            {
-                callId: payload.callId,
-                messageId,
-                title: approval.title,
-                description: approval.description,
-                command: approval.command,
-                riskLabel: approval.riskLabel,
-                reason: approval.reason,
-                approveLabel: approval.approveLabel,
-                rejectLabel: approval.rejectLabel,
-                enterHint: approval.enterHint,
-                escHint: approval.escHint,
-                keyboardApproveAt: approval.keyboardApproveAt,
-            }
-        );
+        const filtered = this.approvalQueue.filter((item) => item.callId !== payload.callId);
+        this.approvalQueue.splice(0, this.approvalQueue.length, ...filtered, {
+            callId: payload.callId,
+            messageId,
+            title: approval.title,
+            description: approval.description,
+            command: approval.command,
+            riskLabel: approval.riskLabel,
+            reason: approval.reason,
+            approveLabel: approval.approveLabel,
+            rejectLabel: approval.rejectLabel,
+            enterHint: approval.enterHint,
+            escHint: approval.escHint,
+            keyboardApproveAt: approval.keyboardApproveAt,
+        });
 
         return new Promise<boolean>((resolve) => {
-            this.resolvers.set(payload.callId, resolve);
+            this.approvalResolvers.set(payload.callId, resolve);
         });
     }
 
-    /**
-     * 结算指定审批。
-     *
-     * 从队列中移除审批条目、获取 resolver 并触发 Promise 结算，
-     * 返回结算结果供主投影器同步工具调用状态和审批卡片 UI。
-     */
-    settle(
+    requestQuestion(
+        callId: string,
+        sourceMessageId: string,
+        questions: AskUserQuestion[]
+    ): Promise<AskUserAnswer[] | null> | null {
+        if (this.questionResolvers.has(callId)) {
+            return null;
+        }
+
+        this.questionQueue.push({
+            callId,
+            sourceMessageId,
+            questions,
+            createdAt: Date.now(),
+        });
+
+        return new Promise<AskUserAnswer[] | null>((resolve) => {
+            this.questionResolvers.set(callId, resolve);
+        });
+    }
+
+    settleApproval(
         callId: string,
         approved: boolean,
         options: { resolutionText?: string } = {}
     ): ApprovalSettlementResult | null {
-        const target = this.dequeue(callId);
-        const resolver = this.resolvers.get(callId);
-        this.resolvers.delete(callId);
+        const target = this.dequeueApproval(callId);
+        const resolver = this.approvalResolvers.get(callId);
+        this.approvalResolvers.delete(callId);
 
         if (!target || !resolver) {
             return null;
@@ -306,38 +325,62 @@ export class ProjectionApprovals {
         };
     }
 
-    /**
-     * 清空所有待决审批，返回每个审批的结算结果。
-     */
-    clearAll(reason = '请求已取消'): ApprovalSettlementResult[] {
-        const callIds = [...this.resolvers.keys()];
-        const results: ApprovalSettlementResult[] = [];
-        for (const callId of callIds) {
-            const result = this.settle(callId, false, { resolutionText: reason });
+    settleQuestion(callId: string, answers: AskUserAnswer[] | null): boolean {
+        const resolver = this.questionResolvers.get(callId);
+        if (!resolver) {
+            return false;
+        }
+
+        this.questionResolvers.delete(callId);
+        const index = this.questionQueue.findIndex((item) => item.callId === callId);
+        if (index >= 0) {
+            this.questionQueue.splice(index, 1);
+        }
+
+        resolver(answers);
+        return true;
+    }
+
+    clearAll(reason = '请求已取消'): {
+        approvals: ApprovalSettlementResult[];
+        cancelledQuestionCallIds: string[];
+    } {
+        const approvalCallIds = [...this.approvalResolvers.keys()];
+        const approvalResults: ApprovalSettlementResult[] = [];
+        for (const callId of approvalCallIds) {
+            const result = this.settleApproval(callId, false, { resolutionText: reason });
             if (result) {
-                results.push(result);
+                approvalResults.push(result);
             }
         }
-        this.queue.length = 0;
-        return results;
+        this.approvalQueue.length = 0;
+
+        const questionCallIds = [...this.questionResolvers.keys()];
+        for (const callId of questionCallIds) {
+            this.settleQuestion(callId, null);
+        }
+
+        return { approvals: approvalResults, cancelledQuestionCallIds: questionCallIds };
     }
 
-    /**
-     * 仅清理指定 callId 的队列条目和 resolver，不触发结算。
-     */
     cleanup(callId: string): void {
-        this.dequeue(callId);
-        this.resolvers.delete(callId);
+        this.dequeueApproval(callId);
+        this.approvalResolvers.delete(callId);
+        const index = this.questionQueue.findIndex((item) => item.callId === callId);
+        if (index >= 0) {
+            this.questionQueue.splice(index, 1);
+        }
+        this.questionResolvers.delete(callId);
     }
 
-    private dequeue(callId: string): PendingToolApproval | null {
-        const target = this.queue.find((approval) => approval.callId === callId);
+    private dequeueApproval(callId: string): PendingToolApproval | null {
+        const target = this.approvalQueue.find((approval) => approval.callId === callId);
         if (!target) {
             return null;
         }
 
-        const nextQueue = this.queue.filter((approval) => approval.callId !== callId);
-        this.queue.splice(0, this.queue.length, ...nextQueue);
+        const nextQueue = this.approvalQueue.filter((approval) => approval.callId !== callId);
+        this.approvalQueue.splice(0, this.approvalQueue.length, ...nextQueue);
         return target;
     }
 }

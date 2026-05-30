@@ -64,6 +64,34 @@ export interface ToolApprovalDecisionRequest extends ToolApprovalRequest {
     callId: string;
 }
 
+/**
+ * 单个结构化提问选项。
+ */
+export interface AskUserQuestionOption {
+    label: string;
+    description?: string;
+}
+
+/**
+ * LLM 通过 ask_user_question 工具发起的单个结构化提问。
+ */
+export interface AskUserQuestion {
+    question: string;
+    header: string;
+    multiSelect?: boolean;
+    options: AskUserQuestionOption[];
+}
+
+/**
+ * 单题作答结果，整体取消时上层返回 null。
+ */
+export interface AskUserAnswer {
+    questionIndex: number;
+    selectedLabels: string[];
+    otherText?: string;
+    skipped: boolean;
+}
+
 export interface ToolEventModelSummary {
     providerId: number;
     providerName: string;
@@ -80,7 +108,8 @@ export type ToolEventBuiltInConversationSemanticAction =
     | 'update'
     | 'switch'
     | 'render'
-    | 'remove';
+    | 'remove'
+    | 'ask';
 
 export interface ToolEventBuiltInConversationSemantic {
     action: ToolEventBuiltInConversationSemanticAction;

@@ -20,16 +20,15 @@ import { createTextPart } from '@/utils/session';
 
 import { AiError } from '../../contracts/errors';
 import type { AiStreamChunk } from '../../contracts/protocol';
-import type { ToolApprovalDecisionRequest, ToolEvent } from '../../contracts/tooling';
+import type {
+    AskUserAnswer,
+    AskUserQuestion,
+    ToolApprovalDecisionRequest,
+    ToolEvent,
+} from '../../contracts/tooling';
 import type { TurnEvent } from '../../execution';
 import { getRetryStatusMessage } from '../../execution/retry';
 import type { SessionTaskSnapshot, StartSessionTaskOptions } from '../types';
-import {
-    type ApprovalSettlementResult,
-    ProjectionApprovals,
-    removeToolApproval,
-    updateToolApproval,
-} from './approvals';
 import {
     attachStatusText,
     cloneValue,
@@ -44,6 +43,12 @@ import {
     updateToolCallStatus,
     upsertToolCall,
 } from './toolCalls';
+import {
+    type ApprovalSettlementResult,
+    ProjectionUserPrompts,
+    removeToolApproval,
+    updateToolApproval,
+} from './userPrompts';
 import { ProjectionWidgets } from './widgets';
 
 interface CheckpointPresentation {
@@ -66,7 +71,7 @@ export class SessionTaskProjection {
     private lastCheckpointPresentation: CheckpointPresentation | null = null;
 
     private readonly widgets = new ProjectionWidgets();
-    private readonly approvals = new ProjectionApprovals();
+    private readonly userPrompts = new ProjectionUserPrompts();
 
     constructor(
         private readonly snapshot: SessionTaskSnapshot,
@@ -107,11 +112,11 @@ export class SessionTaskProjection {
     }
 
     getPendingToolApproval(): PendingToolApproval | null {
-        return this.approvals.getPending();
+        return this.userPrompts.getPendingApproval();
     }
 
     approvePendingToolApproval(callId?: string): boolean {
-        const targetCallId = callId ?? this.approvals.getPending()?.callId;
+        const targetCallId = callId ?? this.userPrompts.getPendingApproval()?.callId;
         if (!targetCallId) {
             return false;
         }
@@ -120,7 +125,7 @@ export class SessionTaskProjection {
     }
 
     rejectPendingToolApproval(callId?: string): boolean {
-        const targetCallId = callId ?? this.approvals.getPending()?.callId;
+        const targetCallId = callId ?? this.userPrompts.getPendingApproval()?.callId;
         if (!targetCallId) {
             return false;
         }
@@ -129,7 +134,7 @@ export class SessionTaskProjection {
     }
 
     clearPendingApprovals(reason = tt('请求已取消')): void {
-        const results = this.approvals.clearAll(reason);
+        const { approvals: results } = this.userPrompts.clearAll(reason);
         const settledCallIds = new Set(results.map((result) => result.target.callId));
         for (const result of results) {
             this.applyApprovalSettlement(result);
@@ -153,7 +158,7 @@ export class SessionTaskProjection {
             return Promise.resolve(false);
         }
 
-        const promise = this.approvals.requestApproval(
+        const promise = this.userPrompts.requestApproval(
             this.snapshot.sessionHistory,
             assistantMessage.id,
             payload
@@ -176,6 +181,51 @@ export class SessionTaskProjection {
         this.publish();
 
         return promise;
+    }
+
+    requestUserQuestions(
+        callId: string,
+        questions: AskUserQuestion[]
+    ): Promise<AskUserAnswer[] | null> {
+        const assistantMessage = this.getActiveAssistantMessage();
+        if (!assistantMessage) {
+            return Promise.resolve(null);
+        }
+
+        const promise = this.userPrompts.requestQuestion(callId, assistantMessage.id, questions);
+        if (!promise) {
+            return Promise.resolve(null);
+        }
+
+        updateToolCallStatus(
+            this.snapshot.sessionHistory,
+            assistantMessage.id,
+            callId,
+            (toolCall) => {
+                toolCall.status = 'awaiting_approval';
+            }
+        );
+
+        this.syncPendingApprovalState();
+        this.touch();
+        this.publish();
+
+        return promise;
+    }
+
+    getPendingUserQuestion() {
+        return this.userPrompts.getPendingQuestion();
+    }
+
+    settleUserQuestion(callId: string, answers: AskUserAnswer[] | null): boolean {
+        const settled = this.userPrompts.settleQuestion(callId, answers);
+        if (!settled) {
+            return false;
+        }
+        this.syncPendingApprovalState();
+        this.touch();
+        this.publish();
+        return true;
     }
 
     handleChunk(chunk: AiStreamChunk): void {
@@ -311,7 +361,7 @@ export class SessionTaskProjection {
             this.snapshot.turnId = event.turnId;
             this.snapshot.currentModel = event.model;
             this.snapshot.error = null;
-            this.snapshot.status = this.approvals.hasPending ? 'waiting_approval' : 'running';
+            this.snapshot.status = this.userPrompts.hasPending ? 'waiting_approval' : 'running';
             this.touch();
             this.publish();
             return;
@@ -334,7 +384,7 @@ export class SessionTaskProjection {
 
         if (event.type === 'retry_scheduled') {
             this.snapshot.lastCheckpoint = cloneValue(event.checkpoint);
-            this.snapshot.status = this.approvals.hasPending ? 'waiting_approval' : 'running';
+            this.snapshot.status = this.userPrompts.hasPending ? 'waiting_approval' : 'running';
             this.touch();
             this.publish();
             return;
@@ -475,8 +525,9 @@ export class SessionTaskProjection {
     // ────────────────────── 状态同步 ──────────────────────
 
     private touch(): void {
-        this.snapshot.pendingToolApproval = cloneValue(this.approvals.getPending());
-        this.snapshot.pendingApprovals = cloneValue([...this.approvals.pendingQueue]);
+        this.snapshot.pendingToolApproval = cloneValue(this.userPrompts.getPendingApproval());
+        this.snapshot.pendingApprovals = cloneValue([...this.userPrompts.pendingApprovalQueue]);
+        this.snapshot.pendingUserQuestion = cloneValue(this.userPrompts.getPendingQuestion());
         this.snapshot.updatedAt = Date.now();
     }
 
@@ -485,7 +536,7 @@ export class SessionTaskProjection {
             return;
         }
 
-        this.snapshot.status = this.approvals.hasPending ? 'waiting_approval' : 'running';
+        this.snapshot.status = this.userPrompts.hasPending ? 'waiting_approval' : 'running';
     }
 
     // ────────────────────── 跨关注点编排 ──────────────────────
@@ -493,7 +544,7 @@ export class SessionTaskProjection {
     /**
      * 结算审批并同步工具调用状态。
      *
-     * 审批队列状态由 `ProjectionApprovals` 管理，
+     * 审批队列状态由 `ProjectionUserPrompts` 管理，
      * 工具调用状态和消息中的审批卡片由本方法跨模块协调。
      */
     private settlePendingApproval(callId: string, approved: boolean): boolean {
@@ -511,7 +562,7 @@ export class SessionTaskProjection {
         approved: boolean,
         options: { resolutionText?: string } = {}
     ): boolean {
-        const result = this.approvals.settle(callId, approved, options);
+        const result = this.userPrompts.settleApproval(callId, approved, options);
         if (!result) {
             return false;
         }
@@ -691,7 +742,7 @@ export class SessionTaskProjection {
         }
 
         if (toolEvent.type === 'approval_required') {
-            this.approvals.presentApproval(this.snapshot.sessionHistory, message.id, {
+            this.userPrompts.presentApproval(this.snapshot.sessionHistory, message.id, {
                 callId: toolEvent.callId,
                 title: toolEvent.title,
                 description: toolEvent.description,
@@ -748,7 +799,7 @@ export class SessionTaskProjection {
                     toolCall.durationMs = toolEvent.durationMs;
                 }
             );
-            this.approvals.cleanup(toolEvent.callId);
+            this.userPrompts.cleanup(toolEvent.callId);
             this.syncPendingApprovalState();
             return;
         }

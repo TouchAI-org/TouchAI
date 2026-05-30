@@ -104,6 +104,7 @@ class SessionTaskCenter {
             sessionHistory: [],
             pendingToolApproval: null,
             pendingApprovals: [],
+            pendingUserQuestion: null,
             error: null,
             currentModel: null,
             promptSnapshot: null,
@@ -183,6 +184,9 @@ class SessionTaskCenter {
                 requestToolApproval: (payload) => {
                     return projection.requestToolApproval(payload);
                 },
+                requestUserQuestions: (callId, questions) => {
+                    return projection.requestUserQuestions(callId, questions);
+                },
             });
 
             const completion = this.runTask(taskId, runtime);
@@ -246,6 +250,19 @@ class SessionTaskCenter {
         }
 
         return task.projection.rejectPendingToolApproval(callId);
+    }
+
+    settleTaskUserQuestion(
+        taskId: string,
+        callId: string,
+        answers: import('../contracts/tooling').AskUserAnswer[] | null
+    ): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task) {
+            return false;
+        }
+
+        return task.projection.settleUserQuestion(callId, answers);
     }
 
     attachSessionView(sessionId: number): { taskId: string; snapshot: SessionTaskSnapshot } | null {
