@@ -20,7 +20,7 @@ WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'search_window_size_preset'
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )
-SELECT 'OpenAI', 'openai', 'https://api.openai.com', NULL, NULL, 'openai.png', 1, 1
+SELECT 'OpenAI', 'openai', 'https://api.openai.com', NULL, NULL, 'openai.png', 0, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'OpenAI');
 
 INSERT INTO providers (
@@ -86,7 +86,7 @@ WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = '智谱');
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )
-SELECT 'Xiaomi MiMo', 'mimo', 'https://token-plan-cn.xiaomimimo.com/v1', NULL, NULL, 'mimo.png', 0, 1
+SELECT 'Xiaomi MiMo', 'mimo', 'https://token-plan-cn.xiaomimimo.com/v1', NULL, NULL, 'mimo.png', 1, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'Xiaomi MiMo');
 
 INSERT INTO built_in_tools (

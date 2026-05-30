@@ -532,35 +532,38 @@ fn build_toast_document(
         .map_err(|error| error.to_string())?;
 
     if payload.kind == SessionStatusReminderKind::WaitingApproval {
-        let Some(approval) = payload.approval.as_ref() else {
-            return Err("waiting_approval reminder requires approval payload".to_string());
-        };
+        if let Some(approval) = payload.approval.as_ref() {
+            let approve_arguments = serialize_activation_payload(
+                payload,
+                SessionStatusReminderAction::Approve,
+                Some(approval.call_id.clone()),
+            )?;
+            let reject_arguments = serialize_activation_payload(
+                payload,
+                SessionStatusReminderAction::Reject,
+                Some(approval.call_id.clone()),
+            )?;
 
-        let approve_arguments = serialize_activation_payload(
-            payload,
-            SessionStatusReminderAction::Approve,
-            Some(approval.call_id.clone()),
-        )?;
-        let reject_arguments = serialize_activation_payload(
-            payload,
-            SessionStatusReminderAction::Reject,
-            Some(approval.call_id.clone()),
-        )?;
-
-        append_action_element(
-            &doc,
-            &actions_element,
-            &approval.approve_label,
-            &approve_arguments,
-            None,
-        )?;
-        append_action_element(
-            &doc,
-            &actions_element,
-            &approval.reject_label,
-            &reject_arguments,
-            None,
-        )?;
+            append_action_element(
+                &doc,
+                &actions_element,
+                &approval.approve_label,
+                &approve_arguments,
+                None,
+            )?;
+            append_action_element(
+                &doc,
+                &actions_element,
+                &approval.reject_label,
+                &reject_arguments,
+                None,
+            )?;
+        } else {
+            let open_arguments =
+                serialize_activation_payload(payload, SessionStatusReminderAction::Open, None)?;
+            let label = payload.open_label.as_deref().unwrap_or("Open");
+            append_action_element(&doc, &actions_element, label, &open_arguments, None)?;
+        }
     } else {
         let reply_arguments =
             serialize_activation_payload(payload, SessionStatusReminderAction::Reply, None)?;
@@ -853,7 +856,8 @@ mod macos_notifications {
 
         let existing_categories = center.notificationCategories();
 
-        if payload.kind == SessionStatusReminderKind::WaitingApproval {
+        if payload.kind == SessionStatusReminderKind::WaitingApproval && payload.approval.is_some()
+        {
             let approve_action = UNNotificationAction::actionWithIdentifier_title_options(
                 &NSString::from_str("approve"),
                 &NSString::from_str(approve_label),
@@ -876,6 +880,28 @@ mod macos_notifications {
                 .to_vec()
                 .into_iter()
                 .filter(|category| category.identifier().to_string() != "touchai-waiting-approval")
+                .collect();
+            all.push(category);
+            center.setNotificationCategories(&NSArray::from_vec(all));
+        } else if payload.kind == SessionStatusReminderKind::WaitingApproval {
+            let open_label = payload.open_label.as_deref().unwrap_or("Open");
+            let open_action = UNNotificationAction::actionWithIdentifier_title_options(
+                &NSString::from_str("open"),
+                &NSString::from_str(open_label),
+                objc2_user_notifications::UNNotificationActionOptions::Foreground,
+            );
+            let actions = NSArray::from_vec(vec![open_action]);
+            let category =
+                UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                    &NSString::from_str("touchai-open-only"),
+                    &actions,
+                    &NSArray::new(),
+                    objc2_user_notifications::UNNotificationCategoryOptions::empty(),
+                );
+            let mut all: Vec<UNNotificationCategory> = existing_categories
+                .to_vec()
+                .into_iter()
+                .filter(|category| category.identifier().to_string() != "touchai-open-only")
                 .collect();
             all.push(category);
             center.setNotificationCategories(&NSArray::from_vec(all));
@@ -996,8 +1022,12 @@ mod macos_notifications {
         content.setTitle(&NSString::from_str(&payload.title));
         content.setBody(&NSString::from_str(&payload.body));
 
-        let category_id = if payload.kind == SessionStatusReminderKind::WaitingApproval {
+        let category_id = if payload.kind == SessionStatusReminderKind::WaitingApproval
+            && payload.approval.is_some()
+        {
             "touchai-waiting-approval"
+        } else if payload.kind == SessionStatusReminderKind::WaitingApproval {
+            "touchai-open-only"
         } else {
             "touchai-completed-failed"
         };
@@ -1117,7 +1147,8 @@ mod linux_notifications {
             .appname("TouchAI")
             .timeout(notification_timeout(payload.kind));
 
-        if payload.kind == SessionStatusReminderKind::WaitingApproval {
+        if payload.kind == SessionStatusReminderKind::WaitingApproval && payload.approval.is_some()
+        {
             notification.action("approve", approve_label);
             notification.action("reject", reject_label);
         } else {
@@ -1285,5 +1316,27 @@ mod tests_windows {
         assert!(xml.contains("Approve"));
         assert!(xml.contains("Reject"));
         assert!(!xml.contains("Reply to TouchAI"));
+    }
+
+    #[test]
+    fn build_toast_xml_opens_waiting_reminder_without_approval_payload() {
+        let xml = build_toast_xml(&SessionStatusReminderNotificationPayload {
+            title: "Waiting for response".to_string(),
+            body: "Pick the deployment target".to_string(),
+            session_id: 11,
+            task_id: "task-question".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            approval: None,
+            open_label: Some("Open".to_string()),
+            reply_placeholder: None,
+            reply_label: None,
+        })
+        .expect("toast xml");
+
+        assert!(xml.contains("<actions>"));
+        assert!(xml.contains("Open"));
+        assert!(!xml.contains("Approve"));
+        assert!(!xml.contains("Reject"));
+        assert!(!xml.contains("input"));
     }
 }
