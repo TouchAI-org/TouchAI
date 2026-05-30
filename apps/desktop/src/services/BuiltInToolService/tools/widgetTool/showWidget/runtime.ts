@@ -517,15 +517,27 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     const normalizedHtml = sanitizedHtml || '<div></div>';
     const isFullDocument = /<(?:!doctype|html|head|body)\b/i.test(normalizedHtml);
 
-    // Allow <script> tags so runInlineScripts can re-execute them after morphdom
-    // patching. DOMPurify still strips event-handler attributes (onclick, onerror,
-    // etc.) and javascript: URIs, which is the actual XSS vector we need to block.
-    const purifyConfig = { ADD_TAGS: ['script'] } as const;
+    // Allow <script src="..."> tags so runInlineScripts can re-execute external
+    // scripts after morphdom patching. Inline script content is stripped via the
+    // uponSanitizeElement hook to prevent XSS. DOMPurify still strips event-handler
+    // attributes (onclick, onerror, etc.) and javascript: URIs by default.
+    const purifyConfig = {
+        ADD_TAGS: ['script'],
+        hooks: {
+            uponSanitizeElement(node: Element, data: { tagName: string }) {
+                if (data.tagName === 'script' && !(node as HTMLScriptElement).src) {
+                    (node as HTMLScriptElement).textContent = '';
+                }
+            },
+        },
+    } as const;
 
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
-        template.innerHTML = String(DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig));
+        template.innerHTML = String(
+            DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
+        );
     } else {
         template.innerHTML = String(DOMPurify.sanitize(normalizedHtml, purifyConfig));
         if (!template.content.childNodes.length) {
