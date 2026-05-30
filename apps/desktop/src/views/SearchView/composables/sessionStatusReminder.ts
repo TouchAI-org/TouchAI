@@ -88,12 +88,15 @@ export function createSessionStatusReminderCoordinator(
 
         clearReminderState();
 
+        const hasInlineApprovalActions =
+            payload.reminder.kind === 'waiting_approval' && Boolean(payload.reminder.approval);
+
         showNativeStatusReminderNotification({
             ...payload.reminder,
             sessionId: payload.sessionId,
             taskId: payload.taskId,
             approval: payload.reminder.approval ?? null,
-            ...(payload.reminder.kind === 'waiting_approval' ? {} : { openLabel: tt('打开') }),
+            ...(hasInlineApprovalActions ? {} : { openLabel: tt('打开') }),
         });
         setTrayStatusIndicator(payload.reminder.kind);
         hasActiveReminder = true;
