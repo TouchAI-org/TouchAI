@@ -58,31 +58,71 @@
     padding-right: calc(var(--ask-content-x) - 0.75rem);
 }
 
-.ask-user-panel .bg-card { background: var(--card); }
-.ask-user-panel .bg-hover { background: var(--hover); }
-.ask-user-panel .bg-active { background: var(--active); }
-.ask-user-panel .bg-foreground { background: var(--foreground); }
-.ask-user-panel .bg-background { background: var(--background); }
-.ask-user-panel .bg-accent { background: var(--accent); }
-.ask-user-panel .bg-transparent { background: transparent; }
+.ask-user-panel .bg-card {
+    background: var(--card);
+}
+.ask-user-panel .bg-hover {
+    background: var(--hover);
+}
+.ask-user-panel .bg-active {
+    background: var(--active);
+}
+.ask-user-panel .bg-foreground {
+    background: var(--foreground);
+}
+.ask-user-panel .bg-background {
+    background: var(--background);
+}
+.ask-user-panel .bg-accent {
+    background: var(--accent);
+}
+.ask-user-panel .bg-transparent {
+    background: transparent;
+}
 
-.ask-user-panel .text-foreground { color: var(--foreground); }
-.ask-user-panel .text-muted-foreground { color: var(--muted-foreground); }
-.ask-user-panel .text-background { color: var(--background); }
+.ask-user-panel .text-foreground {
+    color: var(--foreground);
+}
+.ask-user-panel .text-muted-foreground {
+    color: var(--muted-foreground);
+}
+.ask-user-panel .text-background {
+    color: var(--background);
+}
 
-.ask-user-panel .border-border { border-color: var(--border); }
-.ask-user-panel .ring-border { --tw-ring-color: var(--border); }
+.ask-user-panel .border-border {
+    border-color: var(--border);
+}
+.ask-user-panel .ring-border {
+    --tw-ring-color: var(--border);
+}
 
 .ask-user-panel .focus-visible-ring:focus-visible {
     outline: none;
     box-shadow: 0 0 0 1px var(--ring);
 }
 
-.ask-user-panel .bg-foreground\/10 { background: color-mix(in srgb, var(--foreground) 10%, transparent); }
-.ask-user-panel .bg-foreground\/80 { background: color-mix(in srgb, var(--foreground) 80%, transparent); }
-.ask-user-panel .bg-foreground\/90 { background: color-mix(in srgb, var(--foreground) 90%, transparent); }
-.ask-user-panel .bg-background\/15 { background: color-mix(in srgb, var(--background) 15%, transparent); }
-.ask-user-panel .group:hover .group-hover\:bg-hover { background: var(--hover); }
-.ask-user-panel .group:active .group-active\:bg-active { background: var(--active); }
-.ask-user-panel .group:hover .group-hover\:bg-foreground\/90 { background: color-mix(in srgb, var(--foreground) 90%, transparent); }
-.ask-user-panel .group:active .group-active\:bg-foreground\/80 { background: color-mix(in srgb, var(--foreground) 80%, transparent); }
+.ask-user-panel .bg-foreground\/10 {
+    background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+.ask-user-panel .bg-foreground\/80 {
+    background: color-mix(in srgb, var(--foreground) 80%, transparent);
+}
+.ask-user-panel .bg-foreground\/90 {
+    background: color-mix(in srgb, var(--foreground) 90%, transparent);
+}
+.ask-user-panel .bg-background\/15 {
+    background: color-mix(in srgb, var(--background) 15%, transparent);
+}
+.ask-user-panel .group:hover .group-hover\:bg-hover {
+    background: var(--hover);
+}
+.ask-user-panel .group:active .group-active\:bg-active {
+    background: var(--active);
+}
+.ask-user-panel .group:hover .group-hover\:bg-foreground\/90 {
+    background: color-mix(in srgb, var(--foreground) 90%, transparent);
+}
+.ask-user-panel .group:active .group-active\:bg-foreground\/80 {
+    background: color-mix(in srgb, var(--foreground) 80%, transparent);
+}
