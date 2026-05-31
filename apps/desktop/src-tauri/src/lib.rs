@@ -5,7 +5,7 @@ mod core;
 #[doc(hidden)]
 pub mod testing;
 
-use core::built_in_tools::BuiltInProcessExecutionRegistry;
+use core::built_in_tools::{BuiltInProcessExecutionRegistry, WebViewSessionManager};
 use core::database::DatabaseRuntime;
 use core::mcp::McpClientManager;
 use core::setup;
@@ -109,6 +109,7 @@ pub fn run() {
 
     let app_result = builder
         .setup(|app| {
+            app.manage(WebViewSessionManager::new(app.handle().clone()));
             if let Err(err) = setup::setup_app(app) {
                 return Err(Box::new(std::io::Error::other(err)));
             }

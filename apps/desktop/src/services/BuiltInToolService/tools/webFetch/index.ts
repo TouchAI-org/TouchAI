@@ -12,11 +12,11 @@ import {
     type BuiltInToolGroup,
 } from '../../types';
 import {
-    DEFAULT_ACCEPT_HEADER,
     WEB_FETCH_TOOL_DESCRIPTION,
     WEB_FETCH_TOOL_INPUT_SCHEMA,
 } from './constants';
 import {
+    buildBrowserHeaders,
     createRequestSignal,
     extractHtmlContent,
     formatFetchResult,
@@ -76,9 +76,7 @@ export async function executeWebFetchTool(
     try {
         const response = await tauriFetch(request.url.toString(), {
             method: 'GET',
-            headers: {
-                Accept: DEFAULT_ACCEPT_HEADER,
-            },
+            headers: buildBrowserHeaders(request.url.toString()),
             signal,
         });
         const contentType = getContentType(response);

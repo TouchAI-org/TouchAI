@@ -128,6 +128,12 @@ WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'web_fetch');
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
+SELECT 'web_browse', 'WebBrowse', '浏览交互式网页，支持 JavaScript 渲染和页面交互', 1, 'low', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'web_browse');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
 SELECT 'upgrade_model', 'UpgradeModel', '升级当前请求模型', 1, 'medium', '{"chain":[]}'
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'upgrade_model');
 

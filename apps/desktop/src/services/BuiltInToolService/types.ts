@@ -23,6 +23,7 @@ export type BuiltInToolId =
     | 'read'
     | 'setting'
     | 'web_fetch'
+    | 'web_browse'
     | 'upgrade_model'
     | 'show_widget'
     | 'visualize_read_me'

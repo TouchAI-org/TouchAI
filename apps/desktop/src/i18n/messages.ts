@@ -348,6 +348,7 @@ const zhCNMessages = {
     'settings.builtInTools.summary.read': '读取本地文件或目录，支持图片与 PDF',
     'settings.builtInTools.summary.setting': '读取和修改应用设置',
     'settings.builtInTools.summary.webFetch': '抓取网页并提取易读文本',
+    'settings.builtInTools.summary.webBrowse': '浏览交互式网页，支持 JS 渲染和页面交互',
     'settings.builtInTools.summary.upgradeModel': '升级当前请求模型',
     'settings.builtInTools.summary.showWidget': '聊天内联可交互可视化',
     'settings.builtInTools.summary.visualizeReadMe': '读取 ShowWidget 规范',
@@ -698,6 +699,13 @@ const zhCNMessages = {
     'builtInTools.webFetch.error.timeout': 'WebFetch 在 {timeoutMs}ms 后超时',
     'builtInTools.webFetch.target': '网页',
     'builtInTools.webFetch.imageAltFallback': '[图片：{altText}]',
+    'builtInTools.webBrowse.target': '网页浏览',
+    'builtInTools.webBrowse.error.missingUrl': 'open 命令缺少 url 参数。',
+    'builtInTools.webBrowse.error.missingSelector': 'click/find 命令缺少 selector 参数。',
+    'builtInTools.webBrowse.error.missingScript': 'evaluate 命令缺少 script 参数。',
+    'builtInTools.webBrowse.error.invalidUrl': 'WebBrowse 收到了无效 URL：{url}',
+    'builtInTools.webBrowse.error.blockedHost':
+        'WebBrowse 会阻止 localhost、私有网络和单标签主机名。',
     'builtInTools.setting.error.invalidValue': '设置工具收到无效值：{key}',
     'builtInTools.setting.error.invalidValueDetail': '设置值格式无效。',
     'database.backup.exportCancelled': '已取消导出',
@@ -1102,6 +1110,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.builtInTools.summary.read': 'Read local files or folders, including images and PDFs',
     'settings.builtInTools.summary.setting': 'Read and modify application settings',
     'settings.builtInTools.summary.webFetch': 'Fetch web pages and extract readable text',
+    'settings.builtInTools.summary.webBrowse':
+        'Browse interactive web pages with JS rendering and page interaction',
     'settings.builtInTools.summary.upgradeModel': 'Upgrade the current request model',
     'settings.builtInTools.summary.showWidget': 'Inline interactive visualization in chat',
     'settings.builtInTools.summary.visualizeReadMe': 'Read the ShowWidget specification',
@@ -1472,6 +1482,15 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'builtInTools.webFetch.error.timeout': 'WebFetch timed out after {timeoutMs}ms',
     'builtInTools.webFetch.target': 'web page',
     'builtInTools.webFetch.imageAltFallback': '[Image: {altText}]',
+    'builtInTools.webBrowse.target': 'web browsing',
+    'builtInTools.webBrowse.error.missingUrl': 'The open command requires a url parameter.',
+    'builtInTools.webBrowse.error.missingSelector':
+        'The click/find command requires a selector parameter.',
+    'builtInTools.webBrowse.error.missingScript':
+        'The evaluate command requires a script parameter.',
+    'builtInTools.webBrowse.error.invalidUrl': 'WebBrowse received an invalid URL: {url}',
+    'builtInTools.webBrowse.error.blockedHost':
+        'WebBrowse blocks localhost, private-network and single-label hostnames.',
     'builtInTools.setting.error.invalidValue':
         'Setting tool received an invalid value for "{key}".',
     'builtInTools.setting.error.invalidValueDetail': 'Setting value format is invalid.',

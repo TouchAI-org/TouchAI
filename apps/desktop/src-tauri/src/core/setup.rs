@@ -171,6 +171,10 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     app.manage(clipboard_runtime);
     info!("Clipboard runtime initialized.");
 
+    let web_browse_manager = crate::core::built_in_tools::WebViewSessionManager::new(app.handle().clone());
+    app.manage(web_browse_manager);
+    info!("WebView browse session manager initialized.");
+
     let app_handle = app.handle().clone();
     if crate::core::system::runtime::is_e2e_test_mode() {
         info!("Skipping font initialization in E2E test mode.");

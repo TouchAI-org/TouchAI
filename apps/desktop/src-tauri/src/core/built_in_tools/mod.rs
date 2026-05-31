@@ -7,7 +7,9 @@ mod bash;
 mod process_utils;
 mod registry;
 mod types;
+pub mod web_browse;
 
 pub use bash::execute_bash;
 pub use registry::{BashExecutionRegistry, BuiltInProcessExecutionRegistry};
 pub use types::{BuiltInBashExecutionRequest, BuiltInBashExecutionResponse};
+pub use web_browse::WebViewSessionManager;

@@ -78,6 +78,7 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'read',
     'setting',
     'web_fetch',
+    'web_browse',
     'show_widget',
     'visualize_read_me',
 ]);
@@ -103,6 +104,10 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
 
     if (toolId === 'web_fetch') {
         return t('settings.builtInTools.summary.webFetch');
+    }
+
+    if (toolId === 'web_browse') {
+        return t('settings.builtInTools.summary.webBrowse');
     }
 
     if (toolId === 'upgrade_model') {

@@ -35,6 +35,31 @@ export interface BuiltInBashExecutionResponse {
     compressed?: boolean;
 }
 
+/**
+ * WebView 浏览请求（发送到 Rust 侧 WebViewSessionManager）。
+ */
+export interface WebBrowseNativeRequest {
+    command: string;
+    url?: string;
+    selector?: string;
+    direction?: string;
+    pixels?: number;
+    mode?: string;
+    maxChars?: number;
+    script?: string;
+    timeoutMs?: number;
+}
+
+/**
+ * WebView 浏览响应（Rust 侧返回）。
+ */
+export interface WebBrowseNativeResponse {
+    currentUrl: string;
+    content: string;
+    title?: string;
+    truncated: boolean;
+}
+
 export interface ShowPopupWindowParams {
     x: number;
     y: number;

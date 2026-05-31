@@ -4,6 +4,8 @@
 
 use crate::core::built_in_tools::{
     self, BashExecutionRegistry, BuiltInBashExecutionRequest, BuiltInBashExecutionResponse,
+    WebViewSessionManager,
+    web_browse::{WebBrowseRequest, WebBrowseResponse},
 };
 use tauri::State;
 
@@ -29,4 +31,15 @@ pub fn built_in_tools_cancel_bash(
     registry: State<'_, BashExecutionRegistry>,
 ) -> Result<bool, String> {
     Ok(registry.cancel(&execution_id))
+}
+
+/// 执行内置 WebView 浏览请求。
+///
+/// 委托给 WebViewSessionManager 处理，支持 open / click / find / scroll / extract / evaluate 命令。
+#[tauri::command]
+pub async fn built_in_tools_web_browse(
+    request: WebBrowseRequest,
+    manager: State<'_, WebViewSessionManager>,
+) -> Result<WebBrowseResponse, String> {
+    built_in_tools::web_browse::execute_browse_command(request, manager.inner()).await
 }

@@ -8,6 +8,7 @@ import { normalizeOptionalString } from '@/utils/text';
 
 import { parseToolArguments } from '../../utils/toolSchema';
 import {
+    DEFAULT_ACCEPT_HEADER,
     DEFAULT_SOURCE_CHAR_LIMIT,
     DEFAULT_TIMEOUT_MS,
     SUPPORTED_PROTOCOLS,
@@ -18,6 +19,38 @@ import {
 
 const turndownService = createTurndownService();
 const BLOCKED_RESOURCE_PROTOCOLS = new Set(['data:', 'javascript:', 'vbscript:']);
+
+const USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:134.0) Gecko/20100101 Firefox/134.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+];
+
+/**
+ * 构造浏览器级请求 headers，用于绕过基础反爬检测。
+ *
+ * User-Agent 按分钟粒度轮换，同一分钟内的请求复用相同 UA，避免频繁变动被识别为异常。
+ *
+ * @param url 目标 URL，用于生成 Referer。
+ * @returns headers 对象，可直接传入 fetch / tauriFetch。
+ */
+export function buildBrowserHeaders(url: string): Record<string, string> {
+    const uaIndex = Math.floor(Date.now() / 60_000) % USER_AGENTS.length;
+    const origin = new URL(url).origin;
+
+    return {
+        'User-Agent': USER_AGENTS[uaIndex]!,
+        Accept: DEFAULT_ACCEPT_HEADER,
+        'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'no-cache',
+        Referer: origin,
+    };
+}
 
 interface WebFetchRequest {
     url: URL;
