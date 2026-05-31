@@ -458,6 +458,27 @@ jobs:
                   fi
 
                   failed=0
+                  observed=(
+                    "changes:$CHANGES_RESULT"
+                    "conventional-commits:$CONVENTIONAL_COMMITS_RESULT"
+                    "dependency-review:$DEPENDENCY_REVIEW_RESULT"
+                    "frontend-quality:$FRONTEND_QUALITY_RESULT"
+                    "frontend-tests:$FRONTEND_TESTS_RESULT"
+                    "site-build:$SITE_BUILD_RESULT"
+                    "rust-checks:$RUST_CHECKS_RESULT"
+                    "build-windows:$BUILD_WINDOWS_RESULT"
+                  )
+
+                  for check in "${observed[@]}"; do
+                    name="${check%%:*}"
+                    result="${check#*:}"
+
+                    if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+                      echo "$name unexpectedly ended with $result."
+                      failed=1
+                    fi
+                  done
+
                   for check in "${required[@]}"; do
                     name="${check%%:*}"
                     result="${check#*:}"
