@@ -44,6 +44,26 @@ function toNamespacedToolName(toolLog: ToolLogHistoryRow): string {
     return toolLog.tool_name;
 }
 
+export function findUnambiguousToolLogByStoredReference(
+    toolLogByIdentity: ReadonlyMap<string, ToolLogHistoryRow>,
+    toolLogId: number | null,
+    toolLogKind?: ToolLogHistoryRow['source'] | null
+): ToolLogHistoryRow | undefined {
+    if (toolLogId === null) {
+        return undefined;
+    }
+
+    if (toolLogKind) {
+        return toolLogByIdentity.get(`${toolLogKind}:${toolLogId}`);
+    }
+
+    const matches = (['mcp', 'builtin'] as const)
+        .map((source) => toolLogByIdentity.get(`${source}:${toolLogId}`))
+        .filter((toolLog): toolLog is ToolLogHistoryRow => Boolean(toolLog));
+
+    return matches.length === 1 ? matches[0] : undefined;
+}
+
 function buildMessageRow(
     row: MessageEntity,
     attachments: MessageAttachmentRow[],
@@ -168,11 +188,11 @@ export const findMessagesBySessionId = async (sessionId: number): Promise<Messag
         }
 
         if (row.role === 'tool_result') {
-            const toolSource = row.tool_log_kind ?? 'mcp';
-            const resolvedById =
-                row.tool_log_id !== null
-                    ? toolLogByIdentity.get(`${toolSource}:${row.tool_log_id}`)
-                    : undefined;
+            const resolvedById = findUnambiguousToolLogByStoredReference(
+                toolLogByIdentity,
+                row.tool_log_id,
+                row.tool_log_kind
+            );
             if (resolvedById) {
                 removeQueuedToolLog(resolvedById);
             }
