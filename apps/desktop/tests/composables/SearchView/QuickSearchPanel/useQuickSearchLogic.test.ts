@@ -5,36 +5,60 @@ import { ref } from 'vue';
 
 import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 
-const { assetLoaderMock, clickStatsMock, layoutMock } = vi.hoisted(() => ({
-    assetLoaderMock: {
-        iconMap: { value: {} as Record<string, string> },
-        imagePreviewMap: { value: {} as Record<string, string> },
-        isImageItem: vi.fn(() => false),
-        getItemHoverTitle: vi.fn((item: QuickShortcutItem) => item.path),
-        handleScroll: vi.fn(),
-        scheduleIconLoad: vi.fn(),
-        scheduleImageLoad: vi.fn(),
-        flushPendingLoads: vi.fn(),
-        resetLoadingState: vi.fn(),
-        pruneIconMaps: vi.fn(),
-    },
-    clickStatsMock: {
-        rankResults: vi.fn(async (_query: string, items: QuickShortcutItem[]) => items),
-        recordClick: vi.fn(),
-    },
-    layoutMock: {
-        scrollStyle: { value: {} },
-        gridStyle: { value: {} },
-        gridColumns: { value: 3 },
-        gridGap: { value: 8 },
-        selectionMaxHeight: { value: 320 },
-        moveSelection: vi.fn(),
-        setVisibleRows: vi.fn(),
-        syncLayout: vi.fn().mockResolvedValue(undefined),
-        updateLayout: vi.fn(),
-        resetLayoutState: vi.fn(),
-    },
-}));
+const {
+    assetLoaderMock,
+    clickStatsMock,
+    contextMenuCloseHandler,
+    contextMenuOpenMock,
+    layoutMock,
+    useContextMenuMock,
+} = vi.hoisted(() => {
+    const closeHandler = {
+        current: null as null | (() => void),
+    };
+    const openMock = vi.fn();
+    const closeMock = vi.fn();
+
+    return {
+        assetLoaderMock: {
+            iconMap: { value: {} as Record<string, string> },
+            imagePreviewMap: { value: {} as Record<string, string> },
+            isImageItem: vi.fn(() => false),
+            getItemHoverTitle: vi.fn((item: QuickShortcutItem) => item.path),
+            handleScroll: vi.fn(),
+            scheduleIconLoad: vi.fn(),
+            scheduleImageLoad: vi.fn(),
+            flushPendingLoads: vi.fn(),
+            resetLoadingState: vi.fn(),
+            pruneIconMaps: vi.fn(),
+        },
+        clickStatsMock: {
+            rankResults: vi.fn(async (_query: string, items: QuickShortcutItem[]) => items),
+            recordClick: vi.fn(),
+        },
+        layoutMock: {
+            scrollStyle: { value: {} },
+            gridStyle: { value: {} },
+            gridColumns: { value: 3 },
+            gridGap: { value: 8 },
+            selectionMaxHeight: { value: 320 },
+            moveSelection: vi.fn(),
+            setVisibleRows: vi.fn(),
+            syncLayout: vi.fn().mockResolvedValue(undefined),
+            updateLayout: vi.fn(),
+            resetLayoutState: vi.fn(),
+        },
+        contextMenuCloseHandler: closeHandler,
+        contextMenuOpenMock: openMock,
+        useContextMenuMock: vi.fn((_items: unknown, _onSelect: unknown, onClose?: () => void) => {
+            closeHandler.current = onClose ?? null;
+            return {
+                open: openMock,
+                close: closeMock,
+            };
+        }),
+    };
+});
 
 vi.mock('@/views/SearchView/components/QuickSearchPanel/composables/useAssetLoader', () => ({
     useAssetLoader: vi.fn(() => assetLoaderMock),
@@ -51,6 +75,10 @@ vi.mock(
         useQuickSearchClickStats: vi.fn(() => clickStatsMock),
     })
 );
+
+vi.mock('@composables/useContextMenu', () => ({
+    useContextMenu: useContextMenuMock,
+}));
 
 function createShortcut(name: string, path = `D:/${name}.lnk`): QuickShortcutItem {
     return {
@@ -96,6 +124,7 @@ describe('useQuickSearchLogic', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
+        contextMenuCloseHandler.current = null;
         clickStatsMock.rankResults.mockImplementation(async (_query, items) => items);
         delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
     });
@@ -661,6 +690,67 @@ describe('useQuickSearchLogic', () => {
         mounted.result.handleContextMenu(event, 0);
 
         expect(mounted.result.highlightedIndex.value).toBe(0);
+
+        mounted.unmount();
+    });
+
+    it('resets context menu state when the shared menu closes itself', async () => {
+        const open = ref(false);
+        const searchQuery = ref('');
+        const quickSearchDeps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('App')])),
+            },
+            window: {
+                hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                quickSearchDeps
+            )
+        );
+
+        searchQuery.value = 'app';
+        mounted.result.triggerSearch('app');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        mounted.result.handleContextMenu(
+            new MouseEvent('contextmenu', {
+                clientX: 100,
+                clientY: 100,
+                bubbles: true,
+            }),
+            0
+        );
+
+        expect(mounted.result.isContextMenuOpen.value).toBe(true);
+        expect(contextMenuOpenMock).toHaveBeenCalled();
+
+        contextMenuCloseHandler.current?.();
+
+        expect(mounted.result.isContextMenuOpen.value).toBe(false);
 
         mounted.unmount();
     });
