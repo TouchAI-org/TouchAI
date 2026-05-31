@@ -617,10 +617,7 @@ function waitForExternalScript(
     oldNode: HTMLScriptElement
 ): Promise<void> {
     return new Promise<void>((resolve) => {
-        const timeoutId = window.setTimeout(
-            settle,
-            SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS
-        );
+        const timeoutId = window.setTimeout(settle, SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS);
 
         function settle(): void {
             window.clearTimeout(timeoutId);
