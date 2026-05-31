@@ -303,7 +303,10 @@
         }
     }
 
-    function updatePreferenceProvider(preference: ModelPreferenceWithModel, value: string | number) {
+    function updatePreferenceProvider(
+        preference: ModelPreferenceWithModel,
+        value: string | number
+    ) {
         const providerId = Number(value);
         if (!Number.isInteger(providerId)) {
             return;
@@ -684,7 +687,10 @@
             {{ t('settings.general.modelPreferences.empty') }}
         </div>
 
-        <div v-else class="settings-row-group relative z-0 divide-y divide-neutral-200/70 overflow-visible">
+        <div
+            v-else
+            class="settings-row-group relative z-0 divide-y divide-neutral-200/70 overflow-visible"
+        >
             <div
                 v-for="preference in preferences"
                 :key="preference.id"
