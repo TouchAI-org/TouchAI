@@ -74,7 +74,7 @@ describe('NavigationSidebar', () => {
             },
         });
 
-        expect(wrapper.text()).toContain('TouchAI v0.1.0');
+        expect(wrapper.text()).toContain('TouchAI v1.0.0');
         expect(wrapper.find('[data-testid="settings-sidebar-github"]').exists()).toBe(true);
         expect(wrapper.find('[data-testid="settings-sidebar-issues"]').exists()).toBe(true);
 
