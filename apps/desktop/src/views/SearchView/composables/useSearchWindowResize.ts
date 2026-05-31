@@ -303,13 +303,12 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     /**
      * 串行 resize 消费队列。
      *
-     * CSS transition 期间 ResizeObserver 每帧触发，始终取最新高度串行调用 resize()。
+     * ResizeObserver 连续触发时，始终取最新高度串行调用 resize()。
      * 同一时刻只允许一个 resize() 在执行，避免并发 IPC 导致窗口在多个高度之间跳变。
      * resize() 内部的 currentHeight 去重确保已完成的高度不会重复调用。
      *
-     * 中间帧合并：观测到高度连续变化时，只取“稳定后”的最终值再驱动窗口，
-     * 避免输入框换行 / 面板展开等 CSS transition 过程中产生的 1-2px 微跳动每帧打到原生窗口，
-     * 在 Windows WebView2 上表现为可见的边缘卡顿。
+     * 增高立即跟随，避免输入框内容先长高而 #app 外框滞后；
+     * 收缩和微小抖动继续合并，降低 Windows WebView2 高频 resize 卡顿。
      */
     let pendingHeight: number | null = null;
     let isConsuming = false;
@@ -319,10 +318,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     function scheduleObserverResize(height: number) {
         pendingHeight = height;
 
-        // 大跨度变化（>32px）立即驱动一次，保证首帧跟手；之后再等稳定值。
-        // 32px ≈ 2 行文本，刚好划分“小幅长高”和“面板切换”两类场景。
-        const shouldFlushImmediately =
-            currentHeight.value === 0 || Math.abs(height - currentHeight.value) > 32;
+        // 增高时立即驱动窗口跟随输入内容，避免 #app 外框落后于 SearchBar。
+        // 收缩和 1px 级抖动继续合并，防止 WebView2 高频 resize 卡顿。
+        const shouldFlushImmediately = currentHeight.value === 0 || height > currentHeight.value;
 
         if (coalesceTimer !== null) {
             clearTimeout(coalesceTimer);

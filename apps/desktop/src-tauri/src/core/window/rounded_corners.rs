@@ -26,7 +26,7 @@ mod win {
     };
 
     const DWMWCP_ROUND: u32 = 2;
-    const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
+    const DWM_BORDER_COLOR_GRAY_300: u32 = 0x00DBD5D1;
 
     fn should_manage_window(window: &WebviewWindow<impl Runtime>) -> bool {
         matches!(window.label(), "main" | "settings")
@@ -57,10 +57,10 @@ mod win {
             DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_BORDER_COLOR,
-                &DWMWA_COLOR_NONE as *const _ as *const _,
+                &DWM_BORDER_COLOR_GRAY_300 as *const _ as *const _,
                 std::mem::size_of::<u32>() as u32,
             )
-            .map_err(|error| format!("Failed to remove DWM border color: {}", error))?;
+            .map_err(|error| format!("Failed to set DWM border color: {}", error))?;
         }
 
         Ok(())
