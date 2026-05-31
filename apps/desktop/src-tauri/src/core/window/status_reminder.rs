@@ -706,8 +706,8 @@ mod macos_notifications {
     use std::sync::{Mutex, OnceLock};
 
     use log::warn;
-    use objc2::declare_class;
-    use objc2_foundation::{NSArray, NSObject, NSString};
+    use objc2::{define_class, msg_send, rc::Retained, runtime::ProtocolObject, MainThreadOnly};
+    use objc2_foundation::{MainThreadMarker, NSArray, NSObject, NSObjectProtocol, NSString};
     use objc2_user_notifications::{
         UNMutableNotificationContent, UNNotificationAction, UNNotificationCategory,
         UNNotificationRequest, UNNotificationResponse, UNTextInputNotificationResponse,
@@ -724,7 +724,7 @@ mod macos_notifications {
     type ActionCallback = Box<dyn Fn(&str) + Send>;
 
     static ACTION_CALLBACK: OnceLock<Mutex<Option<ActionCallback>>> = OnceLock::new();
-    static DELEGATE_INSTANCE: OnceLock<TouchAINotificationDelegate> = OnceLock::new();
+    static DELEGATE_INSTANCE: OnceLock<Retained<TouchAINotificationDelegate>> = OnceLock::new();
 
     /// Register the callback invoked from the notification-center delegate when
     /// the user interacts with a delivered notification.
@@ -740,7 +740,7 @@ mod macos_notifications {
     fn ensure_delegate_registered(center: &UNUserNotificationCenter) {
         DELEGATE_INSTANCE.get_or_init(|| {
             let delegate = TouchAINotificationDelegate::new();
-            center.setDelegate(&delegate);
+            center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
             delegate
         });
     }
@@ -748,20 +748,22 @@ mod macos_notifications {
     /// Objective-C delegate that translates `UNUserNotificationCenter` action
     /// responses into serialised Rust payloads and forwards them through the
     /// registered callback.
-    declare_class!(
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
         pub(crate) struct TouchAINotificationDelegate;
 
-        unsafe impl ClassType for TouchAINotificationDelegate {
-            type Super = NSObject;
-        }
+        unsafe impl NSObjectProtocol for TouchAINotificationDelegate {}
 
         unsafe impl UNUserNotificationCenterDelegate for TouchAINotificationDelegate {
-            #[method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:)]
+            #[unsafe(method(
+                userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:
+            ))]
             fn did_receive_response(
                 &self,
                 _center: &UNUserNotificationCenter,
                 response: &UNNotificationResponse,
-                completion_handler: &objc2_foundation::Block<dyn Fn()>,
+                completion_handler: &block2::DynBlock<dyn Fn()>,
             ) {
                 let action_id = response.actionIdentifier().to_string();
                 let request = response.notification().request();
@@ -797,10 +799,19 @@ mod macos_notifications {
                     }
                 }
 
-                completion_handler.call();
+                completion_handler.call(());
             }
         }
     );
+
+    impl TouchAINotificationDelegate {
+        fn new() -> Retained<Self> {
+            let mtm = MainThreadMarker::new()
+                .expect("macOS notification delegate must be created on the main thread");
+            let delegate = Self::alloc(mtm);
+            unsafe { msg_send![delegate, init] }
+        }
+    }
 
     /// Enrich the base payload JSON with the action identifier and optional
     /// reply text so that the frontend receives a complete action payload.
