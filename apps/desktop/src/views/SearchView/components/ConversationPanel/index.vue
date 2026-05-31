@@ -1,4 +1,4 @@
-﻿﻿<!--
+﻿<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -24,7 +24,7 @@
                     :data-message-id="message.id"
                     :data-message-role="message.role"
                 >
-                    <MessageItem :message="message" @regenerate=handleRegenerateMessage as any)" />
+                    <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
                 </div>
             </div>
 
@@ -55,20 +55,14 @@
 </template>
 
 <script setup lang="ts">
-    mport AppIcon from '@components/AppIcon.vue';
-    i
-mport { computed,,nextTick,,onMounted,,onUnmounted,,ref } from 'vue';
-
+    import AppIcon from '@components/AppIcon.vue';
+    import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 
     import { useSettingsStore } from '@/stores/settings';
-    i
-mport type { SessionMessage } from '@/types/session';
-
+    import type { SessionMessage } from '@/types/session';
 
     import ConversationTimeline from './components/ConversationTimeline.vue';
-    i
-mport MessageItem from './components/MessageItem.vue';
-
+    import MessageItem from './components/MessageItem.vue';
 
     defineOptions({
         name: 'SearchConversationPanel',
@@ -100,7 +94,7 @@ mport MessageItem from './components/MessageItem.vue';
         openSettings: [];
         togglePin: [];
         toggleMaximize: [];
-        regenerateMessage: [message: SessionMessage];
+        regenerateMessage: [messageId: string];
         latestContentVisibilityChange: [visible: boolean];
     }>();
 
@@ -108,7 +102,7 @@ mport MessageItem from './components/MessageItem.vue';
 
     const conversationContainerStyle = computed(() => ({
         maxHeight: props.fillAvailableHeight ? 'none' : `${props.maxHeight}px`,
-        overflowY: 'auto' as any,
+        overflowY: 'auto' as const,
     }));
 
     function isLatestContentVisible(): boolean {
@@ -235,17 +229,17 @@ mport MessageItem from './components/MessageItem.vue';
     }
 
     function handleTimelineJump(messageId: string) {
-        const element = conversationContainer.value?.querySelector
+        const element = conversationContainer.value?.querySelector(
             `[data-message-id="${messageId}"]`
-        `);
+        );
         if (element) {
             element.scrollIntoView({ behavior: 'smooth', block: 'start' });
             markUserScrollIntent();
         }
     }
 
-    function handleRegenerateMessage(message: SessionMessage) {
-        emit('regenerateMessage', message);
+    function handleRegenerateMessage(messageId: string) {
+        emit('regenerateMessage', messageId);
     }
 
     function scrollToBottom() {
@@ -274,9 +268,7 @@ mport MessageItem from './components/MessageItem.vue';
     const scrollTop = ref(0);
 
     const settingsStore = useSettingsStore();
-    const outputScrollBehavior = computed
-        () => (settingsStore as any).preferences.behavior.outputScroll
-    l);
+    const outputScrollBehavior = computed(() => settingsStore.settings.outputScrollBehavior);
 
     function focus() {
         emit('focus');
