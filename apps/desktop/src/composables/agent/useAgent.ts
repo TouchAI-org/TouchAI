@@ -98,6 +98,15 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         isStartingTask.value = false;
     }
 
+    function abortTaskStartPending() {
+        const controller = startupAbortController;
+
+        startingRequestId = null;
+        startupAbortController = null;
+        isStartingTask.value = false;
+        controller?.abort();
+    }
+
     /**
      * 让当前页面停止接收旧请求的后续结果。
      */
@@ -105,9 +114,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         // 页面一旦切会话、清空或卸载，旧请求后续即使完成，
         // 也不应该再驱动当前页面的 onComplete / onError 链路。
         requestId += 1;
-        startingRequestId = null;
-        startupAbortController = null;
-        isStartingTask.value = false;
+        abortTaskStartPending();
         currentTurn.value = null;
     }
 
@@ -288,7 +295,8 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     function cancel() {
         if (!attachedTaskId.value) {
             if (startupAbortController) {
-                startupAbortController.abort();
+                requestId += 1;
+                abortTaskStartPending();
             }
             return;
         }
