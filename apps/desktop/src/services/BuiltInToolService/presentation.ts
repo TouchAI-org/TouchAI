@@ -61,6 +61,11 @@ const BUILTIN_TOOL_VERB_KEYS: Record<
         error: 'builtInTools.presentation.remove.error',
         completed: 'builtInTools.presentation.remove.completed',
     },
+    ask: {
+        executing: 'builtInTools.presentation.ask.executing',
+        error: 'builtInTools.presentation.ask.error',
+        completed: 'builtInTools.presentation.ask.completed',
+    },
 };
 
 function normalizeToolId(toolName: string): BuiltInToolId | null {

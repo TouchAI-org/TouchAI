@@ -62,6 +62,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     const currentModel = ref<SessionTaskSnapshot['currentModel']>(null);
     const pendingToolApproval = ref<SessionTaskSnapshot['pendingToolApproval']>(null);
     const pendingApprovalQueue = ref<SessionTaskSnapshot['pendingApprovals']>([]);
+    const pendingUserQuestion = ref<SessionTaskSnapshot['pendingUserQuestion']>(null);
     const hasError = computed(() => error.value !== null);
     const hasResponse = computed(() => response.value.length > 0);
 
@@ -76,6 +77,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         currentModel.value = null;
         pendingToolApproval.value = null;
         pendingApprovalQueue.value = [];
+        pendingUserQuestion.value = null;
         lastObservedModelSwitchCount = 0;
         lastObservedTurnId = null;
         isLoading.value = false;
@@ -97,6 +99,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         sessionHistory.value = snapshot.sessionHistory;
         pendingToolApproval.value = snapshot.pendingToolApproval;
         pendingApprovalQueue.value = snapshot.pendingApprovals;
+        pendingUserQuestion.value = snapshot.pendingUserQuestion;
         taskStatus.value = snapshot.status;
         currentModel.value = snapshot.currentModel;
         isLoading.value = snapshot.status === 'running' || snapshot.status === 'waiting_approval';
@@ -208,6 +211,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         currentModel,
         pendingToolApproval,
         pendingApprovalQueue,
+        pendingUserQuestion,
         attachTaskView,
         detachTaskView,
         resetTaskViewState,

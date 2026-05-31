@@ -3,10 +3,18 @@
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import type { InputHistorySnapshot, PendingToolApproval, SessionMessage } from '@/types/session';
 
+import type { AskUserQuestion } from '../contracts/tooling';
 import type { TaskModelSummary } from '../execution';
 import type { AttemptCheckpoint } from '../execution/executor';
 import type { ExecuteRequestResult } from '../execution/runtime';
 import type { PromptSnapshot } from '../prompt/types';
+
+export interface PendingUserQuestionView {
+    callId: string;
+    sourceMessageId: string;
+    questions: AskUserQuestion[];
+    createdAt: number;
+}
 
 /**
  * 任务执行模式。
@@ -62,6 +70,7 @@ export interface SessionTaskSnapshot {
     sessionHistory: SessionMessage[];
     pendingToolApproval: PendingToolApproval | null;
     pendingApprovals: PendingToolApproval[];
+    pendingUserQuestion: PendingUserQuestionView | null;
     error: string | null;
     currentModel: TaskModelSummary | null;
     promptSnapshot: PromptSnapshot | null;

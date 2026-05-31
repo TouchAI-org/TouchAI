@@ -6,6 +6,7 @@ import { showWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/s
 import { buildShowWidgetSummary } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/helper';
 import { buildShowWidgetDraftFromArgumentsBuffer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 import { visualizeReadMeTool } from '@/services/BuiltInToolService/tools/widgetTool/visualizeReadMe';
+import { readShowWidgetGuidelines } from '@/services/BuiltInToolService/tools/widgetTool/visualizeReadMe/guidelines';
 
 function createPayload(overrides: Partial<ShowWidgetEventPayload> = {}): ShowWidgetEventPayload {
     return {
@@ -85,5 +86,12 @@ describe('ShowWidget generated summaries i18n', () => {
             action: 'render',
             target: 'Visualization',
         });
+    });
+
+    it('does not instruct Chart.js widgets to rely on stripped onload attributes', () => {
+        const guidelines = readShowWidgetGuidelines(['chart']);
+
+        expect(guidelines.markdown).toContain('Chart.js');
+        expect(guidelines.markdown).not.toContain('onload=');
     });
 });

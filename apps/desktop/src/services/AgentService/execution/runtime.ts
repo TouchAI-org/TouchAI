@@ -398,6 +398,7 @@ export class AiConversationRuntime {
                     onChunk: this.options.onChunk,
                     onTurnEvent: this.options.onTurnEvent,
                     requestToolApproval: this.options.requestToolApproval,
+                    requestUserQuestions: this.options.requestUserQuestions,
                 });
 
                 await context.requestStartRecordPromise;

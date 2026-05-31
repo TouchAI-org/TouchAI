@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import DOMPurify from 'dompurify';
 import type morphdom from 'morphdom';
 
 import { tt } from '@/i18n';
@@ -50,6 +51,7 @@ export interface WidgetRenderer {
 }
 
 type MorphdomFunction = typeof morphdom;
+const SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS = 8000;
 type ShowWidgetRenderPayload = Pick<
     ShowWidgetPayload,
     'widgetId' | 'title' | 'description' | 'html' | 'phase'
@@ -516,12 +518,19 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     const normalizedHtml = sanitizedHtml || '<div></div>';
     const isFullDocument = /<(?:!doctype|html|head|body)\b/i.test(normalizedHtml);
 
+    // Explicit <script> blocks are executable widget code. DOMPurify still
+    // sanitizes surrounding markup, event-handler attributes, and javascript:
+    // URIs before runInlineScripts re-inserts scripts in document order.
+    const purifyConfig = { ADD_TAGS: ['script'] };
+
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
-        template.innerHTML = parsed.body.innerHTML || '<div></div>';
+        template.innerHTML = String(
+            DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
+        );
     } else {
-        template.innerHTML = normalizedHtml;
+        template.innerHTML = String(DOMPurify.sanitize(normalizedHtml, purifyConfig));
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
@@ -602,6 +611,27 @@ function copyScriptAttributes(source: HTMLScriptElement, target: HTMLScriptEleme
     }
 }
 
+function waitForExternalScript(
+    node: HTMLScriptElement,
+    parent: Node,
+    oldNode: HTMLScriptElement
+): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const timeoutId = window.setTimeout(settle, SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS);
+
+        function settle(): void {
+            window.clearTimeout(timeoutId);
+            node.removeEventListener('load', settle);
+            node.removeEventListener('error', settle);
+            resolve();
+        }
+
+        node.addEventListener('load', settle);
+        node.addEventListener('error', settle);
+        parent.replaceChild(node, oldNode);
+    });
+}
+
 /**
  * 简化后的脚本执行策略直接重新插入 `<script>` 节点。
  *
@@ -639,11 +669,7 @@ async function runInlineScripts(
         }
 
         if (oldNode.src) {
-            await new Promise<void>((resolve) => {
-                newNode.addEventListener('load', () => resolve(), { once: true });
-                newNode.addEventListener('error', () => resolve(), { once: true });
-                parent.replaceChild(newNode, oldNode);
-            });
+            await waitForExternalScript(newNode, parent, oldNode);
             continue;
         }
 

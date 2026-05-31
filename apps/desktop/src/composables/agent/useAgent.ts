@@ -51,6 +51,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         attachedTaskId,
         pendingToolApproval,
         pendingApprovalQueue,
+        pendingUserQuestion,
         attachTaskView,
         detachTaskView,
         resetTaskViewState,
@@ -97,6 +98,15 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         isStartingTask.value = false;
     }
 
+    function abortTaskStartPending() {
+        const controller = startupAbortController;
+
+        startingRequestId = null;
+        startupAbortController = null;
+        isStartingTask.value = false;
+        controller?.abort();
+    }
+
     /**
      * 让当前页面停止接收旧请求的后续结果。
      */
@@ -104,9 +114,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         // 页面一旦切会话、清空或卸载，旧请求后续即使完成，
         // 也不应该再驱动当前页面的 onComplete / onError 链路。
         requestId += 1;
-        startingRequestId = null;
-        startupAbortController = null;
-        isStartingTask.value = false;
+        abortTaskStartPending();
         currentTurn.value = null;
     }
 
@@ -287,7 +295,8 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     function cancel() {
         if (!attachedTaskId.value) {
             if (startupAbortController) {
-                startupAbortController.abort();
+                requestId += 1;
+                abortTaskStartPending();
             }
             return;
         }
@@ -317,6 +326,16 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         return sessionTaskCenter.rejectTaskToolCall(attachedTaskId.value, callId);
     }
 
+    function settleUserQuestion(
+        callId: string,
+        answers: import('@/services/AgentService/contracts/tooling').AskUserAnswer[] | null
+    ): boolean {
+        if (!attachedTaskId.value) {
+            return false;
+        }
+        return sessionTaskCenter.settleTaskUserQuestion(attachedTaskId.value, callId, answers);
+    }
+
     onUnmounted(() => {
         invalidateRequestObservation();
         detachTaskView();
@@ -338,7 +357,9 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         clearSession,
         pendingToolApproval,
         pendingApprovalQueue,
+        pendingUserQuestion,
         approvePendingToolApproval,
         rejectPendingToolApproval,
+        settleUserQuestion,
     };
 }

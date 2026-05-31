@@ -5,13 +5,16 @@ on:
         branches:
             - main
     pull_request:
+    merge_group:
+        types:
+            - checks_requested
 
 permissions:
     contents: read
     pull-requests: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
     cancel-in-progress: true
 
 jobs:
@@ -396,3 +399,97 @@ jobs:
                   name: touchai-installer-windows-${{ steps.sha.outputs.short }}
                   path: apps/desktop/src-tauri/target/release/bundle/msi/*.msi
                   if-no-files-found: warn
+
+    ci-required:
+        name: CI Required
+        if: always()
+        needs:
+            - changes
+            - conventional-commits
+            - dependency-review
+            - frontend-quality
+            - frontend-tests
+            - site-build
+            - rust-checks
+            - build-windows
+        runs-on: ubuntu-latest
+        steps:
+            - name: Verify required CI jobs
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+                  DESKTOP_CHANGED: ${{ needs.changes.outputs.desktop_changed }}
+                  SITE_CHANGED: ${{ needs.changes.outputs.site_changed }}
+                  CHANGES_RESULT: ${{ needs.changes.result }}
+                  CONVENTIONAL_COMMITS_RESULT: ${{ needs['conventional-commits'].result }}
+                  DEPENDENCY_REVIEW_RESULT: ${{ needs['dependency-review'].result }}
+                  FRONTEND_QUALITY_RESULT: ${{ needs['frontend-quality'].result }}
+                  FRONTEND_TESTS_RESULT: ${{ needs['frontend-tests'].result }}
+                  SITE_BUILD_RESULT: ${{ needs['site-build'].result }}
+                  RUST_CHECKS_RESULT: ${{ needs['rust-checks'].result }}
+                  BUILD_WINDOWS_RESULT: ${{ needs['build-windows'].result }}
+              run: |
+                  required=()
+
+                  required+=("changes:$CHANGES_RESULT")
+
+                  if [ "$EVENT_NAME" = "pull_request" ]; then
+                    required+=("conventional-commits:$CONVENTIONAL_COMMITS_RESULT")
+                  fi
+
+                  if [ "$DOCS_ONLY" != "true" ]; then
+                    if [ "$EVENT_NAME" = "pull_request" ]; then
+                      required+=("dependency-review:$DEPENDENCY_REVIEW_RESULT")
+                    fi
+
+                    if [ "$DESKTOP_CHANGED" = "true" ]; then
+                      required+=("frontend-quality:$FRONTEND_QUALITY_RESULT")
+                      required+=("frontend-tests:$FRONTEND_TESTS_RESULT")
+                      required+=("rust-checks:$RUST_CHECKS_RESULT")
+                    fi
+
+                    if [ "$SITE_CHANGED" = "true" ]; then
+                      required+=("site-build:$SITE_BUILD_RESULT")
+                    fi
+
+                    if [ "$EVENT_NAME" = "push" ] && [ "$DESKTOP_CHANGED" = "true" ]; then
+                      required+=("build-windows:$BUILD_WINDOWS_RESULT")
+                    fi
+                  fi
+
+                  failed=0
+                  observed=(
+                    "changes:$CHANGES_RESULT"
+                    "conventional-commits:$CONVENTIONAL_COMMITS_RESULT"
+                    "dependency-review:$DEPENDENCY_REVIEW_RESULT"
+                    "frontend-quality:$FRONTEND_QUALITY_RESULT"
+                    "frontend-tests:$FRONTEND_TESTS_RESULT"
+                    "site-build:$SITE_BUILD_RESULT"
+                    "rust-checks:$RUST_CHECKS_RESULT"
+                    "build-windows:$BUILD_WINDOWS_RESULT"
+                  )
+
+                  for check in "${observed[@]}"; do
+                    name="${check%%:*}"
+                    result="${check#*:}"
+
+                    if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+                      echo "$name unexpectedly ended with $result."
+                      failed=1
+                    fi
+                  done
+
+                  for check in "${required[@]}"; do
+                    name="${check%%:*}"
+                    result="${check#*:}"
+                    echo "$name -> $result"
+
+                    if [ "$result" != "success" ]; then
+                      failed=1
+                    fi
+                  done
+
+                  if [ "$failed" -ne 0 ]; then
+                    echo "One or more required CI jobs did not pass."
+                    exit 1
+                  fi
