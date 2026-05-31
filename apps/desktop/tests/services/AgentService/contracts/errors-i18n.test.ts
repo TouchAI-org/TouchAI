@@ -42,4 +42,10 @@ describe('AiError display localization', () => {
             'No available AI model is configured. Add a model in Settings.'
         );
     });
+
+    it('classifies localized cancellation messages as request cancellation', () => {
+        const error = AiError.fromError(new Error('\u8bf7\u6c42\u5df2\u53d6\u6d88'));
+
+        expect(error.is(AiErrorCode.REQUEST_CANCELLED)).toBe(true);
+    });
 });
