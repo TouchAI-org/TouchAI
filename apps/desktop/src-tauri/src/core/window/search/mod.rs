@@ -106,9 +106,9 @@ pub(super) fn show_and_activate_search_window<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
     let _ = window.unminimize();
-    crate::core::window::rounded_corners::sync_window_rounded_region(window)?;
+    crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     window.show().map_err(|e| e.to_string())?;
-    crate::core::window::rounded_corners::sync_window_rounded_region(window)?;
+    crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     reactivate_search_window_input(window)
 }
 

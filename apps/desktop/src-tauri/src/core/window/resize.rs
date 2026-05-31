@@ -103,7 +103,7 @@ fn apply_window_size<R: Runtime>(
             height: logical_height,
         }))
         .map_err(|e| e.to_string())?;
-    crate::core::window::rounded_corners::sync_window_rounded_region(window)?;
+    crate::core::window::rounded_corners::sync_window_corner_style(window)?;
 
     if center {
         if let (Some(logical_x), Some(base_logical_y)) = (logical_x, base_logical_y) {
@@ -120,7 +120,7 @@ fn apply_window_size<R: Runtime>(
                     y: adjusted_y,
                 }))
                 .map_err(|e| e.to_string())?;
-            crate::core::window::rounded_corners::sync_window_rounded_region(window)?;
+            crate::core::window::rounded_corners::sync_window_corner_style(window)?;
         }
     }
 
@@ -282,7 +282,7 @@ pub fn reset_search_window_to_defaults<R: Runtime>(
         window
             .center()
             .map_err(|e| format!("Failed to center search window: {}", e))?;
-        crate::core::window::rounded_corners::sync_window_rounded_region(window)?;
+        crate::core::window::rounded_corners::sync_window_corner_style(window)?;
         runtime.window_state().apply_programmatic_size(
             Some(snapshot.current_width),
             Some(snapshot.current_height),

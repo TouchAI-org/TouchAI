@@ -57,10 +57,10 @@ pub fn run() {
                 if let Some(webview_window) = window.app_handle().get_webview_window(window.label())
                 {
                     if let Err(error) =
-                        core::window::rounded_corners::sync_window_rounded_region(&webview_window)
+                        core::window::rounded_corners::sync_window_corner_style(&webview_window)
                     {
                         warn!(
-                            "Failed to sync rounded window region for '{}': {}",
+                            "Failed to sync rounded window corner style for '{}': {}",
                             window.label(),
                             error
                         );
