@@ -253,21 +253,8 @@ fn apply_tray_status<R: Runtime>(
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    let Some(window) = app.get_webview_window("main") else {
-        warn!("Main window not found while showing from tray");
-        return;
-    };
-
-    if let Err(error) = window.unminimize() {
-        warn!("Failed to unminimize main window from tray: {}", error);
-    }
-
-    if let Err(error) = window.show() {
-        warn!("Failed to show main window from tray: {}", error);
-    }
-
-    if let Err(error) = window.set_focus() {
-        warn!("Failed to focus main window from tray: {}", error);
+    if let Err(e) = crate::core::window::show_search_window(app.clone()) {
+        warn!("Failed to show main window from tray icon: {}", e);
     }
 }
 

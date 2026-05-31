@@ -381,6 +381,9 @@ function useQuickSearchFlow(
         async (key, item) => {
             isContextMenuOpen.value = false;
             await handleContextMenuAction(key, item);
+        },
+        () => {
+            isContextMenuOpen.value = false;
         }
     );
 

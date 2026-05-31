@@ -557,18 +557,27 @@ export const builtInToolLogs = sqliteTable('built_in_tool_logs', {
 /**
  * 快速搜索点击统计表
  */
-export const quickSearchClickStats = sqliteTable('quick_search_click_stats', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    query_norm: text('query_norm').notNull(),
-    path_norm: text('path_norm').notNull(),
-    click_count: integer('click_count').notNull().default(0),
-    created_at: text('created_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-    updated_at: text('updated_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-});
+export const quickSearchClickStats = sqliteTable(
+    'quick_search_click_stats',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        query_norm: text('query_norm').notNull(),
+        path_norm: text('path_norm').notNull(),
+        click_count: integer('click_count').notNull().default(0),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        uniqueIndex('quick_search_click_stats_query_path_unique').on(
+            table.query_norm,
+            table.path_norm
+        ),
+    ]
+);
 
 // ==================== 类型别名 ====================
 

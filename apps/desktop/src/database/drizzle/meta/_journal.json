@@ -19,8 +19,15 @@
     {
       "idx": 2,
       "version": "7",
+      "when": 1780185600000,
+      "tag": "0002_quick_search_click_stats_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
       "when": 1780051200000,
-      "tag": "0002_model_preferences",
+      "tag": "0003_model_preferences",
       "breakpoints": true
     }
   ]

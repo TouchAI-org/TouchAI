@@ -25,6 +25,7 @@ import IconHide from '~icons/bx/hide';
 import IconHistory from '~icons/bx/history';
 import IconInfoCircle from '~icons/bx/info-circle';
 import IconLeaf from '~icons/bx/leaf';
+import IconArrowLeft from '~icons/bx/left-arrow-alt';
 import IconLinkExternal from '~icons/bx/link-external';
 import IconMenu from '~icons/bx/menu';
 import IconMinus from '~icons/bx/minus';
@@ -33,6 +34,7 @@ import IconPlay from '~icons/bx/play';
 import IconPlug from '~icons/bx/plug';
 import IconPlus from '~icons/bx/plus';
 import IconRefresh from '~icons/bx/refresh';
+import IconArrowRight from '~icons/bx/right-arrow-alt';
 import IconSearch from '~icons/bx/search';
 import IconShow from '~icons/bx/show';
 import IconStop from '~icons/bx/stop';
@@ -45,6 +47,8 @@ import IconXCircle from '~icons/bx/x-circle';
 
 export const appIconMap = {
     'arrow-down': IconArrowDown,
+    'arrow-left': IconArrowLeft,
+    'arrow-right': IconArrowRight,
     'check-circle': IconCheckCircle,
     'chevron-down': IconChevronDown,
     'chevron-right': IconChevronRight,

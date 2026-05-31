@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { builtInTools as askUserTools } from './tools/askUser';
 import { builtInTools as bashTools } from './tools/bash';
 import { builtInTools as fileSearchTools } from './tools/fileSearch';
 import { builtInTools as readTools } from './tools/read';
@@ -52,6 +53,7 @@ class BuiltInToolRegistry {
 
 export const builtInToolRegistry = new BuiltInToolRegistry();
 
+builtInToolRegistry.register(askUserTools);
 builtInToolRegistry.register(bashTools);
 builtInToolRegistry.register(fileSearchTools);
 builtInToolRegistry.register(readTools);

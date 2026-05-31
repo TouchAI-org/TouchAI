@@ -75,6 +75,31 @@ export const modelPreferenceWithModelSelection = {
     provider_name: sql<string | null>`${providers.name}`.as('provider_name'),
     provider_enabled: sql<number | null>`${providers.enabled}`.as('provider_enabled'),
 };
+const metadataMatchCondition = `
+                (
+                    lower(m2.model_id) = lower(models.model_id)
+                    OR (
+                        length(models.model_id) > 0
+                        AND length(m2.model_id) > length(models.model_id)
+                        AND substr(lower(m2.model_id), 1, length(models.model_id)) = lower(models.model_id)
+                        AND (
+                            substr(m2.model_id, length(models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9]'
+                            OR substr(m2.model_id, length(models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9][0-9][0-9]'
+                            OR substr(m2.model_id, length(models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+                            OR substr(m2.model_id, length(models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+                            OR lower(substr(m2.model_id, length(models.model_id) + 1)) = '-latest'
+                        )
+                    )
+                )
+`;
+
+const metadataMatchOrder = `
+                    CASE WHEN lower(m2.model_id) = lower(models.model_id) THEN 1 ELSE 0 END DESC,
+                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
+                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
+                    ) DESC,
+                    length(m2.model_id) DESC
+`;
 
 /**
  * 查找全局默认模型。
@@ -397,111 +422,81 @@ export const syncAllModelsMetadata = async (database: DatabaseExecutor = db): Pr
             attachment = COALESCE((
                 SELECT m2.attachment
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), attachment),
             modalities = COALESCE((
                 SELECT m2.modalities
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), modalities),
             open_weights = COALESCE((
                 SELECT m2.open_weights
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), open_weights),
             reasoning = COALESCE((
                 SELECT m2.reasoning
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), reasoning),
             release_date = COALESCE((
                 SELECT m2.release_date
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), release_date),
             temperature = COALESCE((
                 SELECT m2.temperature
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), temperature),
             tool_call = COALESCE((
                 SELECT m2.tool_call
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), tool_call),
             knowledge = COALESCE((
                 SELECT m2.knowledge
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), knowledge),
             context_limit = COALESCE((
                 SELECT json_extract(m2."limit", '$.context')
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), context_limit),
             output_limit = COALESCE((
                 SELECT json_extract(m2."limit", '$.output')
                 FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+                WHERE ${metadataMatchCondition}
                 ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
+                    ${metadataMatchOrder}
                 LIMIT 1
             ), output_limit),
             updated_at = datetime('now')
@@ -509,7 +504,7 @@ export const syncAllModelsMetadata = async (database: DatabaseExecutor = db): Pr
           AND EXISTS (
             SELECT 1
             FROM llm_metadata AS m2
-            WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+            WHERE ${metadataMatchCondition}
         )
     `);
 

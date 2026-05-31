@@ -132,8 +132,10 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         clearSession,
         openSession: openStoredSession,
         pendingToolApproval,
+        pendingUserQuestion,
         approvePendingToolApproval,
         rejectPendingToolApproval,
+        settleUserQuestion,
     } = useAgent({
         onComplete: async () => {
             invalidateSessionListCache({
@@ -461,8 +463,10 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         startNewSession,
         openSession,
         pendingToolApproval,
+        pendingUserQuestion,
         approvePendingToolApproval,
         rejectPendingToolApproval,
+        settleUserQuestion,
         handleSubmit,
         clearAll,
         cancelRequest,
