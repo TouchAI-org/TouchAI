@@ -134,23 +134,22 @@ function parseRawData(rawData: RawModelData): NewLlmMetadata[] {
 }
 
 /**
- * 去重同一模型 ID 的元数据。
+ * 去重并合并包含关系的元数据。
  */
 function deduplicateMetadata(metadataList: NewLlmMetadata[]): NewLlmMetadata[] {
-    const metadataMap = new Map<string, NewLlmMetadata>();
+    const sortedByLength = [...metadataList].sort((a, b) => b.model_id.length - a.model_id.length);
+    const filteredList: NewLlmMetadata[] = [];
 
-    for (const item of metadataList) {
-        const key = item.model_id.toLowerCase();
-        const existing = metadataMap.get(key);
-        if (existing) {
-            mergeCapabilities(existing, item);
-            continue;
+    for (const item of sortedByLength) {
+        const target = filteredList.find((existing) => existing.model_id.includes(item.model_id));
+        if (!target) {
+            filteredList.push(item);
+        } else {
+            mergeCapabilities(target, item);
         }
-
-        metadataMap.set(key, { ...item });
     }
 
-    return Array.from(metadataMap.values());
+    return filteredList;
 }
 
 /**
