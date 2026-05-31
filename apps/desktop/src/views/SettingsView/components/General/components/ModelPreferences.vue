@@ -2,7 +2,9 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import CustomSelect from '@components/CustomSelect.vue';
+    import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
+    import ModelLogo from '@components/ModelLogo.vue';
+    import SearchableSelect from '@components/SearchableSelect.vue';
     import { useAlert } from '@composables/useAlert';
     import {
         createModelPreference,
@@ -32,10 +34,20 @@
         modelId: string;
     }
 
-    interface ModelSelectOption {
+    interface ModelPreferenceSelectOption {
+        value: string | number;
         label: string;
-        value: string;
         description?: string;
+        searchText?: string;
+        providerLogo?: string;
+        providerName?: string;
+        modelIdForLogo?: string;
+        modelName?: string;
+        attachment?: number | null;
+        modalities?: string | null;
+        open_weights?: number | null;
+        reasoning?: number | null;
+        tool_call?: number | null;
     }
 
     const alert = useAlert();
@@ -48,8 +60,23 @@
         fast: '',
         general: '',
     });
+    const roleProviderIds = ref<Record<ModelRole, number | null>>({
+        entry: null,
+        fast: null,
+        general: null,
+    });
     const form = ref<PreferenceForm | null>(null);
     const UNSET_MODEL_VALUE = '__touchai_unset_model__';
+    const rawProviderLogos = import.meta.glob<{ default: string }>('@assets/logos/providers/*', {
+        eager: true,
+    });
+    const providerLogos: Record<string, string> = {};
+    for (const [path, mod] of Object.entries(rawProviderLogos)) {
+        const fileName = path.split('/').pop();
+        if (fileName && mod.default) {
+            providerLogos[fileName] = mod.default;
+        }
+    }
 
     const modelRoles: Array<{
         role: ModelRole;
@@ -81,54 +108,138 @@
         },
     ];
 
-    const sortedModels = computed(() =>
-        [...models.value].sort(
-            (left, right) =>
-                left.provider_name.localeCompare(right.provider_name) ||
-                left.name.localeCompare(right.name) ||
-                left.model_id.localeCompare(right.model_id)
-        )
-    );
-
-    const modelSelectOptions = computed<ModelSelectOption[]>(() =>
-        sortedModels.value
+    const enabledModels = computed(() =>
+        [...models.value]
+            .sort(
+                (left, right) =>
+                    left.provider_name.localeCompare(right.provider_name) ||
+                    left.name.localeCompare(right.name) ||
+                    left.model_id.localeCompare(right.model_id)
+            )
             .filter((model) => model.provider_enabled === 1)
-            .map((model) => ({
-                label: formatModelOption(model),
-                value: String(model.id),
-                description: model.model_id,
-            }))
     );
 
     function formatPreferenceModel(preference: ModelPreferenceWithModel): string {
         return [preference.provider_name, preference.model_name].filter(Boolean).join(' / ');
     }
 
-    function formatModelOption(model: ModelWithProvider): string {
-        return `${model.provider_name} / ${model.name}`;
-    }
+    function getProviderOptions(
+        modelRole: (typeof modelRoles)[number]
+    ): ModelPreferenceSelectOption[] {
+        const providerMap = new Map<number, ModelPreferenceSelectOption>();
 
-    function getRoleModelOptions(modelRole: (typeof modelRoles)[number]): ModelSelectOption[] {
+        for (const model of enabledModels.value) {
+            if (providerMap.has(model.provider_id)) {
+                continue;
+            }
+
+            const providerModelCount = enabledModels.value.filter(
+                (item) => item.provider_id === model.provider_id
+            ).length;
+            providerMap.set(model.provider_id, {
+                value: model.provider_id,
+                label: model.provider_name,
+                description: t('settings.builtInTools.upgradeModel.availableModelCount', {
+                    count: providerModelCount,
+                }),
+                searchText: `${model.provider_name} ${model.provider_driver}`,
+                providerLogo: model.provider_logo,
+                providerName: model.provider_name,
+            });
+        }
+
+        const options = [...providerMap.values()];
         if (modelRole.required) {
-            return modelSelectOptions.value;
+            return options;
         }
 
         return [
             {
-                label: t(modelRole.placeholderKey),
                 value: UNSET_MODEL_VALUE,
+                label: t(modelRole.placeholderKey),
             },
-            ...modelSelectOptions.value,
+            ...options,
         ];
     }
 
-    function getRoleModelValue(modelRole: (typeof modelRoles)[number]): string {
-        const value = roleModelIds.value[modelRole.role];
-        return modelRole.required || value ? value : UNSET_MODEL_VALUE;
+    function getRoleProviderValue(modelRole: (typeof modelRoles)[number]): string | number | null {
+        const providerId = roleProviderIds.value[modelRole.role];
+        if (!modelRole.required && !roleModelIds.value[modelRole.role]) {
+            return UNSET_MODEL_VALUE;
+        }
+
+        return providerId;
     }
 
-    function updateRoleModel(role: ModelRole, value: string) {
-        roleModelIds.value[role] = value === UNSET_MODEL_VALUE ? '' : value;
+    function getRoleModelOptions(role: ModelRole): ModelPreferenceSelectOption[] {
+        const providerId = roleProviderIds.value[role];
+        if (providerId === null) {
+            return [];
+        }
+
+        return enabledModels.value
+            .filter((model) => model.provider_id === providerId)
+            .map((model) => ({
+                value: String(model.id),
+                label: model.name,
+                description: model.model_id,
+                searchText: `${model.provider_name} ${model.name} ${model.model_id}`,
+                modelIdForLogo: model.model_id,
+                modelName: model.name,
+                providerName: model.provider_name,
+                attachment: model.attachment,
+                modalities: model.modalities,
+                open_weights: model.open_weights,
+                reasoning: model.reasoning,
+                tool_call: model.tool_call,
+            }));
+    }
+
+    function getRoleModelValue(role: ModelRole): string | null {
+        return roleModelIds.value[role] || null;
+    }
+
+    function resolveProviderLogoPath(logo?: string): string {
+        return (logo && providerLogos[logo]) || '';
+    }
+
+    function getProviderFallbackText(option: ModelPreferenceSelectOption | null): string {
+        return option?.label?.charAt(0) || '?';
+    }
+
+    function updateRoleProvider(modelRole: (typeof modelRoles)[number], value: string | number) {
+        if (!modelRole.required && value === UNSET_MODEL_VALUE) {
+            roleProviderIds.value[modelRole.role] = null;
+            roleModelIds.value[modelRole.role] = '';
+            void saveModelRole(modelRole.role);
+            return;
+        }
+
+        const providerId = Number(value);
+        if (!Number.isInteger(providerId)) {
+            return;
+        }
+
+        roleProviderIds.value[modelRole.role] = providerId;
+
+        const currentModel = enabledModels.value.find(
+            (model) =>
+                String(model.id) === roleModelIds.value[modelRole.role] &&
+                model.provider_id === providerId
+        );
+        const nextModel =
+            currentModel ?? enabledModels.value.find((model) => model.provider_id === providerId);
+
+        roleModelIds.value[modelRole.role] = nextModel ? String(nextModel.id) : '';
+        void saveModelRole(modelRole.role);
+    }
+
+    function updateRoleModel(role: ModelRole, value: string | number) {
+        roleModelIds.value[role] = String(value);
+        const selectedModel = enabledModels.value.find(
+            (model) => String(model.id) === String(value)
+        );
+        roleProviderIds.value[role] = selectedModel?.provider_id ?? roleProviderIds.value[role];
         void saveModelRole(role);
     }
 
@@ -158,6 +269,11 @@
                 entry: entryModel ? String(entryModel.id) : '',
                 fast: fastModel ? String(fastModel.id) : '',
                 general: generalModel ? String(generalModel.id) : '',
+            };
+            roleProviderIds.value = {
+                entry: entryModel?.provider_id ?? null,
+                fast: fastModel?.provider_id ?? null,
+                general: generalModel?.provider_id ?? null,
             };
         } catch (error) {
             console.error('[ModelPreferences] Failed to load data:', error);
@@ -271,11 +387,13 @@
             </p>
         </div>
 
-        <div class="settings-row-group divide-y divide-neutral-200/70">
+        <div
+            class="settings-row-group relative z-10 divide-y divide-neutral-200/70 overflow-visible"
+        >
             <div
                 v-for="modelRole in modelRoles"
                 :key="modelRole.role"
-                class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                class="grid min-w-0 gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,520px)] md:items-center"
             >
                 <div class="min-w-0">
                     <div class="text-[13px] leading-6 font-normal text-neutral-900">
@@ -286,20 +404,176 @@
                     </p>
                 </div>
 
-                <div class="ml-auto w-full">
-                    <CustomSelect
-                        :model-value="getRoleModelValue(modelRole)"
-                        :options="getRoleModelOptions(modelRole)"
-                        :placeholder="t(modelRole.placeholderKey)"
+                <div
+                    class="ml-auto grid w-full min-w-0 gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)]"
+                >
+                    <SearchableSelect
+                        :model-value="getRoleProviderValue(modelRole)"
+                        :options="getProviderOptions(modelRole)"
+                        placeholder-key="settings.builtInTools.upgradeModel.provider"
+                        search-placeholder-key="settings.builtInTools.upgradeModel.searchProvider"
+                        empty-text-key="settings.builtInTools.upgradeModel.emptyProviders"
+                        protect-option-text
+                        @update:model-value="updateRoleProvider(modelRole, $event)"
+                    >
+                        <template #selected="{ option }">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <img
+                                    v-if="resolveProviderLogoPath(option?.providerLogo)"
+                                    :src="resolveProviderLogoPath(option?.providerLogo)"
+                                    :alt="option?.providerName || option?.label || 'provider'"
+                                    class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                />
+                                <div
+                                    v-else-if="option?.value !== UNSET_MODEL_VALUE"
+                                    class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ getProviderFallbackText(option) }}
+                                </div>
+                                <span
+                                    v-if="option"
+                                    class="truncate"
+                                    :data-no-i18n="
+                                        option.value === UNSET_MODEL_VALUE ? undefined : 'true'
+                                    "
+                                    :translate="
+                                        option.value === UNSET_MODEL_VALUE ? undefined : 'no'
+                                    "
+                                >
+                                    {{ option.label }}
+                                </span>
+                                <span v-else class="truncate">
+                                    {{ t('settings.builtInTools.upgradeModel.provider') }}
+                                </span>
+                            </div>
+                        </template>
+
+                        <template #option="{ option }">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <img
+                                    v-if="resolveProviderLogoPath(option.providerLogo)"
+                                    :src="resolveProviderLogoPath(option.providerLogo)"
+                                    :alt="option.providerName || option.label"
+                                    class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                />
+                                <div
+                                    v-else-if="option.value !== UNSET_MODEL_VALUE"
+                                    class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ getProviderFallbackText(option) }}
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <div
+                                        class="truncate text-sm font-medium"
+                                        :data-no-i18n="
+                                            option.value === UNSET_MODEL_VALUE ? undefined : 'true'
+                                        "
+                                        :translate="
+                                            option.value === UNSET_MODEL_VALUE ? undefined : 'no'
+                                        "
+                                    >
+                                        {{ option.label }}
+                                    </div>
+                                    <div
+                                        v-if="option.description"
+                                        class="mt-0.5 truncate text-xs text-neutral-500"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ option.description }}
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </SearchableSelect>
+
+                    <SearchableSelect
+                        :model-value="getRoleModelValue(modelRole.role)"
+                        :options="getRoleModelOptions(modelRole.role)"
+                        :disabled="!roleProviderIds[modelRole.role]"
+                        placeholder-key="settings.builtInTools.upgradeModel.model"
+                        search-placeholder-key="settings.builtInTools.upgradeModel.searchModel"
+                        empty-text-key="settings.builtInTools.upgradeModel.emptyModels"
                         protect-option-text
                         @update:model-value="updateRoleModel(modelRole.role, $event)"
-                    />
+                    >
+                        <template #selected="{ option }">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <ModelLogo
+                                    v-if="option?.modelIdForLogo"
+                                    :model-id="option.modelIdForLogo"
+                                    :name="option.modelName || option.label"
+                                    size="sm"
+                                />
+                                <span
+                                    v-if="option"
+                                    class="truncate"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ option.label }}
+                                </span>
+                                <span v-else class="truncate">
+                                    {{ t('settings.builtInTools.upgradeModel.model') }}
+                                </span>
+                            </div>
+                        </template>
+
+                        <template #option="{ option }">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <ModelLogo
+                                    v-if="option.modelIdForLogo"
+                                    :model-id="option.modelIdForLogo"
+                                    :name="option.modelName || option.label"
+                                    size="sm"
+                                />
+                                <div class="min-w-0 flex-1">
+                                    <div
+                                        class="truncate text-sm font-medium"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ option.label }}
+                                    </div>
+                                    <div class="mt-1">
+                                        <ModelCapabilityTags
+                                            v-if="
+                                                option.reasoning !== undefined ||
+                                                option.tool_call !== undefined ||
+                                                option.modalities !== undefined ||
+                                                option.attachment !== undefined ||
+                                                option.open_weights !== undefined
+                                            "
+                                            :model="option"
+                                            size="sm"
+                                        />
+                                        <div
+                                            v-else-if="option.description"
+                                            class="truncate text-xs text-neutral-500"
+                                            data-no-i18n="true"
+                                            translate="no"
+                                        >
+                                            {{ option.description }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </SearchableSelect>
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="space-y-4 border-t border-neutral-200 pt-8">
+    <section class="space-y-4 pt-5">
         <div class="flex items-start justify-between gap-4">
             <div>
                 <h2 class="text-[15px] font-medium text-neutral-950">

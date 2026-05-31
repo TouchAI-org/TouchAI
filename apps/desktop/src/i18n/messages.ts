@@ -290,7 +290,7 @@ const zhCNMessages = {
     'settings.general.modelPreferences.fastModel': '快速模型',
     'settings.general.modelPreferences.fastModelDescription': '用于会话命名和简单问答。',
     'settings.general.modelPreferences.generalModel': '通用模型',
-    'settings.general.modelPreferences.generalModelDescription': '用于未命中特定场景的复杂任务。',
+    'settings.general.modelPreferences.generalModelDescription': '用于未命中特定场景的任务。',
     'settings.general.modelPreferences.selectEntryModel': '选择入口模型',
     'settings.general.modelPreferences.useEntryModel': '不设置',
     'settings.general.modelPreferences.entryModelRequired': '请选择入口模型',
@@ -1097,7 +1097,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.modelPreferences.fastModelDescription': 'For session naming and simple Q&A.',
     'settings.general.modelPreferences.generalModel': 'General model',
     'settings.general.modelPreferences.generalModelDescription':
-        'For complex tasks without a scenario match.',
+        'For tasks without a scenario match.',
     'settings.general.modelPreferences.selectEntryModel': 'Select entry model',
     'settings.general.modelPreferences.useEntryModel': 'Not set',
     'settings.general.modelPreferences.entryModelRequired': 'Select an entry model',
