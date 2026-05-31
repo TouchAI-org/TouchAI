@@ -583,6 +583,63 @@ describe('useSearchPageLifecycle', () => {
         mounted.unmount();
     });
 
+    it('ignores stale surface shown events after a newer hidden event', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                reconcilePopupSurfaces,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
+
+        const surfaceShownHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN);
+        const surfaceHiddenHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN);
+        expect(surfaceShownHandler).toBeDefined();
+        expect(surfaceHiddenHandler).toBeDefined();
+
+        await surfaceShownHandler!({ source: 'shortcut', sequence: 2 });
+        await flushLifecycle();
+        await surfaceHiddenHandler!({ sequence: 3, reason: 'manual-dismiss' });
+        await flushLifecycle();
+
+        expect(interactionContext.state.windowVisible).toBe(false);
+
+        controller.focusSearchInput.mockClear();
+        controller.loadActiveModel.mockClear();
+        clearSession.mockClear();
+        reconcilePopupSurfaces.mockClear();
+        handleShortcutAutoPaste.mockClear();
+        syncWindowPinState.mockClear();
+
+        await surfaceShownHandler!({ source: 'shortcut', sequence: 2 });
+        await flushLifecycle();
+
+        expect(interactionContext.state.windowVisible).toBe(false);
+        expect(controller.focusSearchInput).not.toHaveBeenCalled();
+        expect(controller.loadActiveModel).not.toHaveBeenCalled();
+        expect(clearSession).not.toHaveBeenCalled();
+        expect(reconcilePopupSurfaces).not.toHaveBeenCalled();
+        expect(handleShortcutAutoPaste).not.toHaveBeenCalled();
+        expect(syncWindowPinState).not.toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
     it('clears timed-out sessions when the search surface is reopened after manual dismiss', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();

@@ -627,7 +627,12 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         unlistenSearchSurfaceShown = await eventService.on(
             AppEvent.SEARCH_SURFACE_SHOWN,
             async (payload) => {
-                latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
+                const sequence = payload.sequence ?? 0;
+                if (sequence > 0 && sequence < latestSurfaceSequence) {
+                    return;
+                }
+
+                latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
                 interactionContext.markWindowVisible();
                 handleReminderSurfaceVisible();
                 await handleSearchWindowActivated(payload.source ?? 'shortcut');

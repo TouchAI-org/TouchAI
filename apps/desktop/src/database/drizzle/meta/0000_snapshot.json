@@ -1389,7 +1389,16 @@
           "default": "(datetime('now'))"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "quick_search_click_stats_query_path_unique": {
+          "name": "quick_search_click_stats_query_path_unique",
+          "columns": [
+            "query_norm",
+            "path_norm"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
