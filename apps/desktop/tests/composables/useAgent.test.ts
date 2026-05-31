@@ -2,8 +2,10 @@ import { mountComposable } from '@tests/utils/composables';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAgent } from '@/composables/agent/useAgent';
+import type { SessionTaskSnapshot } from '@/services/AgentService';
 
-const { notifyMock, sessionTaskCenterMock } = vi.hoisted(() => ({
+const { findSessionByIdMock, notifyMock, sessionTaskCenterMock } = vi.hoisted(() => ({
+    findSessionByIdMock: vi.fn(),
     notifyMock: vi.fn(),
     sessionTaskCenterMock: {
         attachSessionView: vi.fn(),
@@ -13,6 +15,10 @@ const { notifyMock, sessionTaskCenterMock } = vi.hoisted(() => ({
         startTask: vi.fn(),
         subscribeTask: vi.fn(),
     },
+}));
+
+vi.mock('@database/queries/sessions', () => ({
+    findSessionById: findSessionByIdMock,
 }));
 
 vi.mock('@services/NotificationService', () => ({
@@ -28,8 +34,11 @@ vi.mock('@/services/AgentService', async () => {
     };
 });
 
-function createTaskSnapshot(taskId: string) {
-    return {
+function createTaskSnapshot(
+    taskId: string,
+    overrides: Partial<SessionTaskSnapshot> = {}
+): SessionTaskSnapshot {
+    const snapshot: SessionTaskSnapshot = {
         taskId,
         sessionId: 1,
         turnId: 1,
@@ -39,6 +48,7 @@ function createTaskSnapshot(taskId: string) {
         sessionHistory: [],
         pendingToolApproval: null,
         pendingApprovals: [],
+        pendingUserQuestion: null,
         error: null,
         currentModel: null,
         promptSnapshot: null,
@@ -47,6 +57,8 @@ function createTaskSnapshot(taskId: string) {
         updatedAt: 1,
         modelSwitchCount: 0,
     };
+
+    return Object.assign(snapshot, overrides);
 }
 
 function deferred<T>() {
@@ -67,6 +79,7 @@ function deferred<T>() {
 describe('useAgent', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
         sessionTaskCenterMock.attachSessionView.mockReturnValue(null);
         sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
             listener(createTaskSnapshot('task-1'));
@@ -87,6 +100,45 @@ describe('useAgent', () => {
 
         expect(notifyMock).not.toHaveBeenCalled();
         expect(mounted.result.error.value?.message).toBe('task failed');
+
+        mounted.unmount();
+    });
+
+    it('syncs the selected model when reopening an active session after a model switch', async () => {
+        const switchedSnapshot = createTaskSnapshot('task-1', {
+            currentModel: {
+                modelDbId: 7,
+                providerId: 9,
+                providerName: 'Provider',
+                modelId: 'upgraded-model',
+                modelName: 'Upgraded Model',
+            },
+            modelSwitchCount: 1,
+        });
+        const onModelSelected = vi.fn();
+
+        sessionTaskCenterMock.attachSessionView.mockReturnValue({
+            taskId: 'task-1',
+            snapshot: switchedSnapshot,
+        });
+        sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
+            listener(switchedSnapshot);
+            return () => undefined;
+        });
+
+        const mounted = await mountComposable(() => useAgent({ onModelSelected }));
+
+        const loadedSession = await mounted.result.openSession(1);
+
+        expect(loadedSession).toMatchObject({
+            modelId: 'upgraded-model',
+            providerId: 9,
+        });
+        expect(onModelSelected).toHaveBeenCalledTimes(1);
+        expect(onModelSelected).toHaveBeenCalledWith({
+            modelId: 'upgraded-model',
+            providerId: 9,
+        });
 
         mounted.unmount();
     });
