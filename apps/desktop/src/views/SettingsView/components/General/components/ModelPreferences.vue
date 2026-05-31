@@ -55,6 +55,7 @@
     const saving = ref(false);
     const preferences = ref<ModelPreferenceWithModel[]>([]);
     const models = ref<ModelWithProvider[]>([]);
+    const savingPreferenceIds = ref<Set<number>>(new Set());
     const roleModelIds = ref<Record<ModelRole, string>>({
         entry: '',
         fast: '',
@@ -119,13 +120,7 @@
             .filter((model) => model.provider_enabled === 1)
     );
 
-    function formatPreferenceModel(preference: ModelPreferenceWithModel): string {
-        return [preference.provider_name, preference.model_name].filter(Boolean).join(' / ');
-    }
-
-    function getProviderOptions(
-        modelRole: (typeof modelRoles)[number]
-    ): ModelPreferenceSelectOption[] {
+    const providerOptions = computed<ModelPreferenceSelectOption[]>(() => {
         const providerMap = new Map<number, ModelPreferenceSelectOption>();
 
         for (const model of enabledModels.value) {
@@ -148,9 +143,14 @@
             });
         }
 
-        const options = [...providerMap.values()];
+        return [...providerMap.values()];
+    });
+
+    function getRoleProviderOptions(
+        modelRole: (typeof modelRoles)[number]
+    ): ModelPreferenceSelectOption[] {
         if (modelRole.required) {
-            return options;
+            return providerOptions.value;
         }
 
         return [
@@ -158,7 +158,7 @@
                 value: UNSET_MODEL_VALUE,
                 label: t(modelRole.placeholderKey),
             },
-            ...options,
+            ...providerOptions.value,
         ];
     }
 
@@ -177,6 +177,10 @@
             return [];
         }
 
+        return getModelOptionsForProvider(providerId);
+    }
+
+    function getModelOptionsForProvider(providerId: number): ModelPreferenceSelectOption[] {
         return enabledModels.value
             .filter((model) => model.provider_id === providerId)
             .map((model) => ({
@@ -241,6 +245,85 @@
         );
         roleProviderIds.value[role] = selectedModel?.provider_id ?? roleProviderIds.value[role];
         void saveModelRole(role);
+    }
+
+    function getPreferenceProviderValue(preference: ModelPreferenceWithModel): number | null {
+        return preference.model_provider_id ?? preference.provider_id ?? null;
+    }
+
+    function getPreferenceModelValue(preference: ModelPreferenceWithModel): string | null {
+        return preference.model_id === null ? null : String(preference.model_id);
+    }
+
+    function getPreferenceModelOptions(preference: ModelPreferenceWithModel) {
+        const providerId = getPreferenceProviderValue(preference);
+        return providerId === null ? [] : getModelOptionsForProvider(providerId);
+    }
+
+    function isPreferenceSaving(preferenceId: number): boolean {
+        return savingPreferenceIds.value.has(preferenceId);
+    }
+
+    function setPreferenceSaving(preferenceId: number, nextSaving: boolean) {
+        const nextIds = new Set(savingPreferenceIds.value);
+        if (nextSaving) {
+            nextIds.add(preferenceId);
+        } else {
+            nextIds.delete(preferenceId);
+        }
+        savingPreferenceIds.value = nextIds;
+    }
+
+    async function updatePreferenceModel(preference: ModelPreferenceWithModel, modelId: string) {
+        if (isPreferenceSaving(preference.id)) {
+            return;
+        }
+
+        const selectedModel = enabledModels.value.find((model) => String(model.id) === modelId);
+        if (!selectedModel) {
+            alert.error(t('settings.general.modelPreferences.modelRequired'));
+            await loadData();
+            return;
+        }
+
+        setPreferenceSaving(preference.id, true);
+        try {
+            await updateModelPreference(preference.id, {
+                provider_id: selectedModel.provider_id,
+                model_id: selectedModel.id,
+            });
+            await loadData();
+            alert.success(t('common.saved'));
+        } catch (error) {
+            console.error('[ModelPreferences] Failed to update preference model:', error);
+            alert.error(t('settings.general.modelPreferences.saveFailed'));
+            await loadData();
+        } finally {
+            setPreferenceSaving(preference.id, false);
+        }
+    }
+
+    function updatePreferenceProvider(preference: ModelPreferenceWithModel, value: string | number) {
+        const providerId = Number(value);
+        if (!Number.isInteger(providerId)) {
+            return;
+        }
+
+        const currentModel = enabledModels.value.find(
+            (model) =>
+                preference.model_id !== null &&
+                model.id === preference.model_id &&
+                model.provider_id === providerId
+        );
+        const nextModel =
+            currentModel ?? enabledModels.value.find((model) => model.provider_id === providerId);
+
+        if (!nextModel) {
+            alert.error(t('settings.general.modelPreferences.modelRequired'));
+            return;
+        }
+
+        void updatePreferenceModel(preference, String(nextModel.id));
     }
 
     function createEmptyForm(): PreferenceForm {
@@ -409,7 +492,7 @@
                 >
                     <SearchableSelect
                         :model-value="getRoleProviderValue(modelRole)"
-                        :options="getProviderOptions(modelRole)"
+                        :options="getRoleProviderOptions(modelRole)"
                         placeholder-key="settings.builtInTools.upgradeModel.provider"
                         search-placeholder-key="settings.builtInTools.upgradeModel.searchProvider"
                         empty-text-key="settings.builtInTools.upgradeModel.emptyProviders"
@@ -601,49 +684,203 @@
             {{ t('settings.general.modelPreferences.empty') }}
         </div>
 
-        <div v-else class="settings-row-group divide-y divide-neutral-200/70">
+        <div v-else class="settings-row-group relative z-0 divide-y divide-neutral-200/70 overflow-visible">
             <div
                 v-for="preference in preferences"
                 :key="preference.id"
-                class="flex items-start justify-between gap-4 px-4 py-3 transition-colors hover:bg-neutral-50/70"
+                class="grid min-w-0 gap-4 px-4 py-3 transition-colors hover:bg-neutral-50/70 md:grid-cols-[minmax(0,1fr)_minmax(0,520px)] md:items-center"
             >
                 <div class="min-w-0">
-                    <h3 class="text-[13px] leading-5 font-medium text-neutral-950">
-                        {{ preference.name }}
-                    </h3>
+                    <div class="flex min-w-0 items-center gap-1.5">
+                        <h3 class="truncate text-[13px] leading-5 font-medium text-neutral-950">
+                            {{ preference.name }}
+                        </h3>
+                        <button
+                            class="settings-icon-button h-6 w-6 rounded-md"
+                            :title="t('common.edit')"
+                            @click="startEdit(preference)"
+                        >
+                            <AppIcon name="edit" class="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                            class="settings-icon-button h-6 w-6 rounded-md"
+                            :title="t('common.delete')"
+                            @click="removePreference(preference)"
+                        >
+                            <AppIcon name="delete" class="h-3.5 w-3.5" />
+                        </button>
+                    </div>
                     <p class="mt-0.5 text-xs leading-5 text-neutral-600">
                         {{ preference.description }}
                     </p>
                     <p
-                        :class="[
-                            'mt-1 text-[11px] leading-4',
-                            preference.provider_enabled === 1 && preference.model_id !== null
-                                ? 'text-neutral-500'
-                                : 'text-red-500',
-                        ]"
+                        v-if="preference.provider_enabled !== 1 || preference.model_id === null"
+                        class="mt-1 text-[11px] leading-4 text-red-500"
                     >
-                        {{
-                            formatPreferenceModel(preference) ||
-                            t('settings.general.modelPreferences.unavailableModel')
-                        }}
+                        {{ t('settings.general.modelPreferences.unavailableModel') }}
                     </p>
                 </div>
 
-                <div class="flex shrink-0 gap-1 pt-0.5">
-                    <button
-                        class="settings-icon-button h-7 w-7 rounded-md"
-                        :title="t('common.edit')"
-                        @click="startEdit(preference)"
+                <div
+                    class="ml-auto grid w-full min-w-0 gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)]"
+                >
+                    <SearchableSelect
+                        :model-value="getPreferenceProviderValue(preference)"
+                        :options="providerOptions"
+                        :disabled="isPreferenceSaving(preference.id)"
+                        placeholder-key="settings.builtInTools.upgradeModel.provider"
+                        search-placeholder-key="settings.builtInTools.upgradeModel.searchProvider"
+                        empty-text-key="settings.builtInTools.upgradeModel.emptyProviders"
+                        protect-option-text
+                        @update:model-value="updatePreferenceProvider(preference, $event)"
                     >
-                        <AppIcon name="edit" class="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                        class="settings-icon-button h-7 w-7 rounded-md"
-                        :title="t('common.delete')"
-                        @click="removePreference(preference)"
+                        <template #selected="{ option }">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <img
+                                    v-if="resolveProviderLogoPath(option?.providerLogo)"
+                                    :src="resolveProviderLogoPath(option?.providerLogo)"
+                                    :alt="option?.providerName || option?.label || 'provider'"
+                                    class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                />
+                                <div
+                                    v-else
+                                    class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ getProviderFallbackText(option) }}
+                                </div>
+                                <span
+                                    v-if="option"
+                                    class="truncate"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ option.label }}
+                                </span>
+                                <span v-else class="truncate">
+                                    {{ t('settings.builtInTools.upgradeModel.provider') }}
+                                </span>
+                            </div>
+                        </template>
+
+                        <template #option="{ option }">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <img
+                                    v-if="resolveProviderLogoPath(option.providerLogo)"
+                                    :src="resolveProviderLogoPath(option.providerLogo)"
+                                    :alt="option.providerName || option.label"
+                                    class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                />
+                                <div
+                                    v-else
+                                    class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ getProviderFallbackText(option) }}
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <div
+                                        class="truncate text-sm font-medium"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ option.label }}
+                                    </div>
+                                    <div
+                                        v-if="option.description"
+                                        class="mt-0.5 truncate text-xs text-neutral-500"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ option.description }}
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </SearchableSelect>
+
+                    <SearchableSelect
+                        :model-value="getPreferenceModelValue(preference)"
+                        :options="getPreferenceModelOptions(preference)"
+                        :disabled="
+                            isPreferenceSaving(preference.id) ||
+                            getPreferenceProviderValue(preference) === null
+                        "
+                        placeholder-key="settings.builtInTools.upgradeModel.model"
+                        search-placeholder-key="settings.builtInTools.upgradeModel.searchModel"
+                        empty-text-key="settings.builtInTools.upgradeModel.emptyModels"
+                        protect-option-text
+                        @update:model-value="updatePreferenceModel(preference, String($event))"
                     >
-                        <AppIcon name="delete" class="h-3.5 w-3.5" />
-                    </button>
+                        <template #selected="{ option }">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <ModelLogo
+                                    v-if="option?.modelIdForLogo"
+                                    :model-id="option.modelIdForLogo"
+                                    :name="option.modelName || option.label"
+                                    size="sm"
+                                />
+                                <span
+                                    v-if="option"
+                                    class="truncate"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ option.label }}
+                                </span>
+                                <span v-else class="truncate">
+                                    {{ t('settings.builtInTools.upgradeModel.model') }}
+                                </span>
+                            </div>
+                        </template>
+
+                        <template #option="{ option }">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <ModelLogo
+                                    v-if="option.modelIdForLogo"
+                                    :model-id="option.modelIdForLogo"
+                                    :name="option.modelName || option.label"
+                                    size="sm"
+                                />
+                                <div class="min-w-0 flex-1">
+                                    <div
+                                        class="truncate text-sm font-medium"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ option.label }}
+                                    </div>
+                                    <div class="mt-1">
+                                        <ModelCapabilityTags
+                                            v-if="
+                                                option.reasoning !== undefined ||
+                                                option.tool_call !== undefined ||
+                                                option.modalities !== undefined ||
+                                                option.attachment !== undefined ||
+                                                option.open_weights !== undefined
+                                            "
+                                            :model="option"
+                                            size="sm"
+                                        />
+                                        <div
+                                            v-else-if="option.description"
+                                            class="truncate text-xs text-neutral-500"
+                                            data-no-i18n="true"
+                                            translate="no"
+                                        >
+                                            {{ option.description }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </SearchableSelect>
                 </div>
             </div>
         </div>

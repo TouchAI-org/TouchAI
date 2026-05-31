@@ -1,4 +1,4 @@
-CREATE TABLE `model_preferences` (
+CREATE TABLE IF NOT EXISTS `model_preferences` (
     `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
     `name` text NOT NULL,
     `description` text NOT NULL,
@@ -11,10 +11,10 @@ CREATE TABLE `model_preferences` (
     FOREIGN KEY (`model_id`) REFERENCES `models`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
-CREATE INDEX `model_preferences_priority_idx` ON `model_preferences` (`priority`);
+CREATE INDEX IF NOT EXISTS `model_preferences_priority_idx` ON `model_preferences` (`priority`);
 --> statement-breakpoint
-CREATE UNIQUE INDEX `model_preferences_name_unique` ON `model_preferences` (`name`);
+CREATE UNIQUE INDEX IF NOT EXISTS `model_preferences_name_unique` ON `model_preferences` (`name`);
 --> statement-breakpoint
-CREATE INDEX `model_preferences_model_id_idx` ON `model_preferences` (`model_id`);
+CREATE INDEX IF NOT EXISTS `model_preferences_model_id_idx` ON `model_preferences` (`model_id`);
 --> statement-breakpoint
-CREATE INDEX `model_preferences_provider_id_idx` ON `model_preferences` (`provider_id`);
+CREATE INDEX IF NOT EXISTS `model_preferences_provider_id_idx` ON `model_preferences` (`provider_id`);
