@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import NavigationSidebar from '@/views/SettingsView/components/NavigationSidebar.vue';
@@ -24,6 +24,8 @@ vi.mock('@components/AppIcon.vue', () => ({
 vi.mock('@tauri-apps/plugin-opener', () => ({
     openUrl: openUrlMock,
 }));
+
+enableAutoUnmount(afterEach);
 
 function createPointerEvent(type: string, clientX: number, pointerId = 11) {
     const event = new Event(type, { bubbles: true, cancelable: true });
