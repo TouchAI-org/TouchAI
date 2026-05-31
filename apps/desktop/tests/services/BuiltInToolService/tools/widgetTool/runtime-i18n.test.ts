@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createWidgetRenderer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 
+const nativeReplaceChild = Node.prototype.replaceChild;
+
 async function waitForWidgetRender(): Promise<void> {
     for (let attempt = 0; attempt < 20; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 0));
@@ -9,8 +11,6 @@ async function waitForWidgetRender(): Promise<void> {
 }
 
 function installScriptExecutionMock(): void {
-    const nativeReplaceChild = Node.prototype.replaceChild;
-
     vi.spyOn(Node.prototype, 'replaceChild').mockImplementation(function (
         this: Node,
         newChild: Node,
@@ -41,6 +41,8 @@ function installScriptExecutionMock(): void {
 
 describe('show widget renderer i18n opt-out', () => {
     afterEach(() => {
+        vi.restoreAllMocks();
+        Node.prototype.replaceChild = nativeReplaceChild;
         document.body.innerHTML = '';
         delete (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan;
         delete (window as Window & { Chart?: unknown }).Chart;

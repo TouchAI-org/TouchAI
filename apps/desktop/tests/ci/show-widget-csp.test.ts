@@ -12,9 +12,10 @@ describe('ShowWidget CSP', () => {
             app?: { security?: { csp?: { 'script-src'?: string } } };
         };
         const scriptSrc = tauriConfig.app?.security?.csp?.['script-src'] ?? '';
+        const scriptSrcTokens = new Set(scriptSrc.split(/\s+/).filter(Boolean));
 
         for (const host of SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS) {
-            expect(scriptSrc).toContain(`https://${host}`);
+            expect(scriptSrcTokens.has(`https://${host}`)).toBe(true);
         }
     });
 });

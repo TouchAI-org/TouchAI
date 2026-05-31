@@ -51,6 +51,7 @@ export interface WidgetRenderer {
 }
 
 type MorphdomFunction = typeof morphdom;
+const SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS = 8000;
 type ShowWidgetRenderPayload = Pick<
     ShowWidgetPayload,
     'widgetId' | 'title' | 'description' | 'html' | 'phase'
@@ -610,6 +611,30 @@ function copyScriptAttributes(source: HTMLScriptElement, target: HTMLScriptEleme
     }
 }
 
+function waitForExternalScript(
+    node: HTMLScriptElement,
+    parent: Node,
+    oldNode: HTMLScriptElement
+): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const timeoutId = window.setTimeout(
+            settle,
+            SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS
+        );
+
+        function settle(): void {
+            window.clearTimeout(timeoutId);
+            node.removeEventListener('load', settle);
+            node.removeEventListener('error', settle);
+            resolve();
+        }
+
+        node.addEventListener('load', settle);
+        node.addEventListener('error', settle);
+        parent.replaceChild(node, oldNode);
+    });
+}
+
 /**
  * 简化后的脚本执行策略直接重新插入 `<script>` 节点。
  *
@@ -647,11 +672,7 @@ async function runInlineScripts(
         }
 
         if (oldNode.src) {
-            await new Promise<void>((resolve) => {
-                newNode.addEventListener('load', () => resolve(), { once: true });
-                newNode.addEventListener('error', () => resolve(), { once: true });
-                parent.replaceChild(newNode, oldNode);
-            });
+            await waitForExternalScript(newNode, parent, oldNode);
             continue;
         }
 
