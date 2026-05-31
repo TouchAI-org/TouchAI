@@ -112,6 +112,15 @@ export const useSettingsStore = defineStore('settings', () => {
         };
     }
 
+    function cloneSettingsSnapshot(): GeneralSettingsData {
+        return {
+            ...settings.value,
+            searchWindowDefaultSize: {
+                ...settings.value.searchWindowDefaultSize,
+            },
+        };
+    }
+
     function applySetting(key: GeneralSettingKey, value: GeneralSettingValue): void {
         switch (key) {
             case 'global_shortcut':
@@ -293,8 +302,14 @@ export const useSettingsStore = defineStore('settings', () => {
             return;
         }
 
+        const previousSettings = cloneSettingsSnapshot();
         applySetting(key, value);
-        await setSetting({ key, value: serializeSetting(key) });
+        try {
+            await setSetting({ key, value: serializeSetting(key) });
+        } catch (error) {
+            settings.value = previousSettings;
+            throw error;
+        }
         if (broadcast) {
             await broadcastUpdate(key);
         }
