@@ -517,29 +517,19 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     const normalizedHtml = sanitizedHtml || '<div></div>';
     const isFullDocument = /<(?:!doctype|html|head|body)\b/i.test(normalizedHtml);
 
-    // Allow <script src="..."> tags so runInlineScripts can re-execute external
-    // scripts after morphdom patching. Inline script content is stripped via the
-    // uponSanitizeElement hook to prevent XSS. DOMPurify still strips event-handler
-    // attributes (onclick, onerror, etc.) and javascript: URIs by default.
-    const purifyInstance = DOMPurify(window);
-    purifyInstance.addHook('uponSanitizeElement', (node, data) => {
-        if (data.tagName === 'script' && !(node as HTMLScriptElement).src) {
-            (node as HTMLScriptElement).textContent = '';
-        }
-    });
+    // Explicit <script> blocks are executable widget code. DOMPurify still
+    // sanitizes surrounding markup, event-handler attributes, and javascript:
+    // URIs before runInlineScripts re-inserts scripts in document order.
+    const purifyConfig = { ADD_TAGS: ['script'] };
 
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
         template.innerHTML = String(
-            purifyInstance.sanitize(parsed.body.innerHTML || '<div></div>', {
-                ADD_TAGS: ['script'],
-            })
+            DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
         );
     } else {
-        template.innerHTML = String(
-            purifyInstance.sanitize(normalizedHtml, { ADD_TAGS: ['script'] })
-        );
+        template.innerHTML = String(DOMPurify.sanitize(normalizedHtml, purifyConfig));
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
