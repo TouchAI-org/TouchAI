@@ -75,11 +75,20 @@ export interface WidgetMessagePart {
     widgetId: string;
 }
 
+export interface ReasoningMessagePart {
+    id: string;
+    type: 'reasoning';
+    content: string;
+    startedAt?: number;
+    durationMs?: number;
+}
+
 export type SessionPart =
     | TextMessagePart
     | ToolCallMessagePart
     | ApprovalMessagePart
-    | WidgetMessagePart;
+    | WidgetMessagePart
+    | ReasoningMessagePart;
 
 /**
  * 会话区里真正被渲染出来的 widget 实体。

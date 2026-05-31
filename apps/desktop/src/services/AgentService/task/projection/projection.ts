@@ -16,7 +16,7 @@ import {
     type SessionMessage,
     type ToolApprovalInfo,
 } from '@/types/session';
-import { createTextPart } from '@/utils/session';
+import { createReasoningPart, createTextPart } from '@/utils/session';
 
 import { AiError } from '../../contracts/errors';
 import type { AiStreamChunk } from '../../contracts/protocol';
@@ -63,6 +63,7 @@ export class SessionTaskProjection {
     private response = '';
     private reasoning = '';
     private activeAssistantMessageId: string | null = null;
+    private activeReasoningPartId: string | null = null;
     private lastCheckpointPresentation: CheckpointPresentation | null = null;
 
     private readonly widgets = new ProjectionWidgets();
@@ -192,9 +193,19 @@ export class SessionTaskProjection {
         if (chunk.reasoning) {
             this.reasoning += chunk.reasoning;
             assistantMessage.reasoning = this.reasoning;
+
+            const lastPart = assistantMessage.parts[assistantMessage.parts.length - 1];
+            if (lastPart && lastPart.type === 'reasoning') {
+                lastPart.content += chunk.reasoning;
+            } else {
+                const part = createReasoningPart(chunk.reasoning);
+                assistantMessage.parts.push(part);
+                this.activeReasoningPartId = part.id;
+            }
         }
 
         if (chunk.content) {
+            this.freezeActiveReasoningPart();
             this.response += chunk.content;
             assistantMessage.content = this.response;
             const lastPart = assistantMessage.parts[assistantMessage.parts.length - 1];
@@ -234,6 +245,7 @@ export class SessionTaskProjection {
     }
 
     markCompleted(): void {
+        this.freezeActiveReasoningPart();
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
             assistantMessage.isStreaming = false;
@@ -246,6 +258,7 @@ export class SessionTaskProjection {
     }
 
     markFailed(errorMessage: string, displayMessage = errorMessage): void {
+        this.freezeActiveReasoningPart();
         const statusText = tt('请求失败: {error}', { error: displayMessage });
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
@@ -275,6 +288,7 @@ export class SessionTaskProjection {
     }
 
     markCancelled(): void {
+        this.freezeActiveReasoningPart();
         const cancellationText = tt('请求已取消');
         this.markActiveToolCallsCancelled(cancellationText);
 
@@ -399,6 +413,7 @@ export class SessionTaskProjection {
 
         this.snapshot.sessionHistory.push(message);
         this.activeAssistantMessageId = message.id;
+        this.activeReasoningPartId = null;
         return message;
     }
 
@@ -434,6 +449,26 @@ export class SessionTaskProjection {
         }
     }
 
+    private freezeActiveReasoningPart(): void {
+        if (!this.activeReasoningPartId) {
+            return;
+        }
+
+        const msg = this.getActiveAssistantMessage();
+        if (!msg) {
+            this.activeReasoningPartId = null;
+            return;
+        }
+
+        const part = msg.parts.find(
+            (p) => p.id === this.activeReasoningPartId && p.type === 'reasoning'
+        );
+        if (part && part.type === 'reasoning' && !part.durationMs) {
+            part.durationMs = Date.now() - (part.startedAt ?? Date.now());
+        }
+        this.activeReasoningPartId = null;
+    }
+
     private hasVisibleAssistantContent(message: SessionMessage): boolean {
         if (message.content.trim() || message.reasoning?.trim()) {
             return true;
@@ -452,6 +487,10 @@ export class SessionTaskProjection {
 
         return message.parts.some((part) => {
             if (part.type === 'text') {
+                return !!part.content.trim();
+            }
+
+            if (part.type === 'reasoning') {
                 return !!part.content.trim();
             }
 
@@ -674,6 +713,7 @@ export class SessionTaskProjection {
 
         this.response = '';
         this.reasoning = '';
+        this.activeReasoningPartId = null;
         this.snapshot.sessionHistory.push(retryStatusMessage);
         this.createStreamingAssistantMessage();
         this.snapshot.status = 'running';

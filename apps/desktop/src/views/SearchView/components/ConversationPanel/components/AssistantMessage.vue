@@ -14,8 +14,8 @@
 
                 <!-- 正常 AI 消息 -->
                 <template v-else>
-                    <!-- 推理过程显示（如果存在）-->
-                    <div v-if="message.reasoning" class="reasoning-section mb-4 w-full">
+                    <!-- 推理过程显示（兼容老消息：没有 reasoning parts 时）-->
+                    <div v-if="message.reasoning && !hasReasoningParts" class="reasoning-section mb-4 w-full">
                         <button
                             class="flex w-full items-center gap-2 px-1 py-2 text-left text-sm font-normal text-gray-700 transition-colors hover:text-gray-900"
                             @click="toggleReasoning"
@@ -67,6 +67,11 @@
                             <ToolCallItem
                                 v-else-if="part.type === 'tool_call'"
                                 :tool-call="part.toolCall"
+                            />
+                            <ReasoningPartItem
+                                v-else-if="part.type === 'reasoning'"
+                                :part="part.part"
+                                :is-streaming="!!message.isStreaming"
                             />
                             <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
                             <ToolApprovalCard
@@ -131,12 +136,14 @@
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
     import type {
+        ReasoningMessagePart,
         SessionMessage,
         ToolApprovalInfo,
         ToolCallInfo,
         WidgetInfo,
     } from '@/types/session';
 
+    import ReasoningPartItem from './ReasoningPartItem.vue';
     import ToolApprovalCard from './ToolApprovalCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
     import WidgetFrame from './WidgetFrame.vue';
@@ -161,6 +168,11 @@
               id: string;
               type: 'text';
               content: string;
+          }
+        | {
+              id: string;
+              type: 'reasoning';
+              part: ReasoningMessagePart;
           }
         | {
               id: string;
@@ -249,6 +261,9 @@
     const isRequestStateMessage = computed(() => {
         return !!(props.message.isCancelled || props.message.isRetrying || props.message.isError);
     });
+    const hasReasoningParts = computed(() =>
+        props.message.parts.some((p) => p.type === 'reasoning')
+    );
     const renderedParts = computed<RenderedPart[]>(() => {
         const toolCallMap = new Map(
             (props.message.toolCalls ?? []).map((toolCall) => [toolCall.id, toolCall])
@@ -271,6 +286,17 @@
                         id: part.id,
                         type: 'text',
                         content: part.content,
+                    });
+                }
+                continue;
+            }
+
+            if (part.type === 'reasoning') {
+                if (part.content) {
+                    parts.push({
+                        id: part.id,
+                        type: 'reasoning',
+                        part,
                     });
                 }
                 continue;
@@ -329,11 +355,11 @@
         isReasoningExpanded.value = !isReasoningExpanded.value;
     }
 
-    // 当 content 开始出现时，自动收缩 reasoning
+    // 当 content 开始出现时，自动收缩 reasoning（仅兼容老消息）
     watch(
         () => props.message.content,
         (newContent, oldContent) => {
-            if (newContent && !oldContent && props.message.reasoning) {
+            if (newContent && !oldContent && props.message.reasoning && !hasReasoningParts.value) {
                 isReasoningExpanded.value = false;
             }
         }

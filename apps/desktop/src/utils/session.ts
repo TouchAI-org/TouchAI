@@ -1,16 +1,22 @@
 import { tt } from '@/i18n';
-import type { TextMessagePart } from '@/types/session';
+import type { ReasoningMessagePart, TextMessagePart } from '@/types/session';
 
 export type SessionStatusReminderKind = 'completed' | 'failed' | 'waiting_approval';
 
-/**
- * 创建带唯一 ID 的文本消息片段。
- */
 export function createTextPart(content: string): TextMessagePart {
     return {
         id: crypto.randomUUID(),
         type: 'text',
         content,
+    };
+}
+
+export function createReasoningPart(content: string): ReasoningMessagePart {
+    return {
+        id: crypto.randomUUID(),
+        type: 'reasoning',
+        content,
+        startedAt: Date.now(),
     };
 }
 
