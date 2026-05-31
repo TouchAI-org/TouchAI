@@ -1,4 +1,4 @@
-import { setDefaultModel } from '@database/queries/models';
+import { setDefaultModel, syncAllModelsMetadata } from '@database/queries/models';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it } from 'vitest';
@@ -58,5 +58,58 @@ describe('model database queries', () => {
             [0, 1],
             [1, 211],
         ]);
+    });
+
+    it('does not sync metadata from unrelated prefix model ids', async () => {
+        interceptTauriInvoke((call) => {
+            if (call.cmd === 'database_query') {
+                return { rows: [], rowsAffected: 1, lastInsertId: null };
+            }
+
+            return undefined;
+        });
+
+        await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
+
+        const request = getTauriInvokeCalls('database_query')
+            .map((call) => getRequest(call.payload))
+            .find((candidate) => candidate?.method === 'run');
+        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
+
+        expect(normalizedSql).toContain(
+            'CASE WHEN lower(m2.model_id) = lower(source_models.model_id) THEN 1 ELSE 0 END DESC'
+        );
+        expect(normalizedSql).toContain(
+            "substr(m2.model_id, length(source_models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9]'"
+        );
+        expect(normalizedSql).toContain(
+            "lower(substr(m2.model_id, length(source_models.model_id) + 1)) = '-latest'"
+        );
+        expect(normalizedSql).not.toContain(
+            "lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'"
+        );
+    });
+
+    it('uses only sqlite-safe model metadata matching SQL', async () => {
+        interceptTauriInvoke((call) => {
+            if (call.cmd === 'database_query') {
+                return { rows: [], rowsAffected: 1, lastInsertId: null };
+            }
+
+            return undefined;
+        });
+
+        await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
+
+        const request = getTauriInvokeCalls('database_query')
+            .map((call) => getRequest(call.payload))
+            .find((candidate) => candidate?.method === 'run');
+        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
+
+        expect(normalizedSql).not.toContain('lower(models.model_id)');
+        expect(normalizedSql).not.toContain('length(models.model_id)');
+        expect(normalizedSql).toContain(
+            'substr(lower(m2.model_id), 1, length(source_models.model_id))'
+        );
     });
 });
