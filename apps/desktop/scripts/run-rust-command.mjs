@@ -57,7 +57,6 @@ function main() {
             TEMP: tempDir,
             TMP: tempDir,
         },
-        shell: true,
         stdio: 'inherit',
     });
 

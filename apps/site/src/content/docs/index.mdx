@@ -1,0 +1,84 @@
+---
+title: TouchAI
+description: 一触即达的桌面 AI 助手，帮助你在当前工作流里继续处理任务
+template: splash
+hero:
+  tagline: 快速唤起 · 当前上下文 · 内置能力 · MCP 扩展
+  image:
+    file: ../../assets/houston.webp
+  actions:
+    - text: 立即体验
+      link: /getting-started/installation/
+      icon: right-arrow
+    - text: GitHub
+      link: https://github.com/TouchAI-org/TouchAI
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## TouchAI 是什么
+
+TouchAI 是一个桌面 AI 助手，强调 **“一触即达、不中断当前工作流”**。
+
+你可以通过快捷键快速唤起它，在当前任务里直接提问、整理资料、处理文件、继续思考，而不用频繁切换窗口或把上下文重新讲一遍。
+
+### 你可以获得的体验
+
+<CardGrid stagger>
+	<Card title="快速唤起" icon="bolt">
+		按 `Alt+Space` 立即开始，把 AI 放进你正在进行的任务里。
+	</Card>
+	<Card title="当前上下文" icon="monitor">
+		围绕文件、屏幕、剪贴板和当前内容继续处理，不必每次从头描述背景。
+	</Card>
+	<Card title="键盘优先" icon="keyboard">
+		不用频繁切换鼠标和窗口，更自然地融入桌面工作流。
+	</Card>
+	<Card title="内置能力" icon="wrench">
+		搜索文件、读取内容、执行命令、修改文件，把任务继续推进下去。
+	</Card>
+	<Card title="模型选择" icon="key">
+		自由配置模型提供商和模型，根据任务选择更适合的能力与成本组合。
+	</Card>
+	<Card title="扩展服务" icon="search">
+		通过 MCP 扩展接入更多外部服务，让 TouchAI 能处理更完整的真实任务。
+	</Card>
+</CardGrid>
+
+## 技术栈
+
+- **前端框架**: Vue 3.5 + Vite 8 + TypeScript
+- **UI 库**: Tailwind CSS 4 + Reka UI + TipTap
+- **状态管理**: Pinia
+- **后端框架**: Tauri 2 (Rust)
+- **数据库**: SQLite + Drizzle ORM
+- **AI SDK**: @ai-sdk (支持 OpenAI, Anthropic, Google 等)
+- **包管理器**: pnpm
+
+## 快速导航
+
+<CardGrid stagger>
+	<Card title="安装与上手" icon="rocket">
+		先完成安装，再开始第一次使用。详见[安装指南](/getting-started/installation/)和[快速开始](/getting-started/quickstart/)。
+	</Card>
+	<Card title="核心能力" icon="bolt">
+		了解 TouchAI 如何在当前任务里继续处理内容。详见[内置工具](/features/built-in-tools/)与[MCP 扩展](/extensions/mcp-tools/)。
+	</Card>
+	<Card title="设置与配置" icon="setting">
+		查看模型配置、常用设置和数据管理相关内容。详见[模型配置](/settings/model-configuration/)。
+	</Card>
+</CardGrid>
+
+## 许可证
+
+TouchAI 采用 [GPL-3.0-or-later](https://github.com/TouchAI-org/TouchAI/blob/main/COPYING) 开源许可证。外部代码贡献需要完成 CLA 签署。
+
+## 社区
+
+加入我们的社区：
+
+- [讨论区](https://github.com/TouchAI-org/TouchAI/discussions)
+- [问题反馈](https://github.com/TouchAI-org/TouchAI/issues)
+- [版本发布](https://github.com/TouchAI-org/TouchAI/releases)
