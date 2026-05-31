@@ -30,6 +30,7 @@
 
             <!-- 对话时间轴 -->
             <ConversationTimeline
+                ref="timelineRef"
                 :messages="messages"
                 :container-height="maxHeight"
                 :scroll-top="scrollTop"
@@ -94,6 +95,13 @@
         openSettings: [];
         togglePin: [];
         toggleMaximize: [];
+        'pin-change': [value: boolean];
+        'maximize-toggle': [];
+        'new-session': [];
+        'history-open-change': [payload: { open: boolean; anchorElement: HTMLElement | null }];
+        'history-prefetch': [anchorElement: HTMLElement | null];
+        'drag-start': [];
+        'drag-end': [];
         regenerateMessage: [messageId: string];
         latestContentVisibilityChange: [visible: boolean];
     }>();
@@ -251,9 +259,7 @@
     }
 
     const messageListRef = ref<HTMLElement | null>(null);
-    const timelineRef = ref<{
-        scrollToBottom: () => void;
-    } | null>(null);
+    const timelineRef = ref<InstanceType<typeof ConversationTimeline> | null>(null);
     let messageListObserver: ResizeObserver | null = null;
 
     // TODO: refactor auto scroll logic to be more robust
@@ -271,7 +277,22 @@
     const outputScrollBehavior = computed(() => settingsStore.settings.outputScrollBehavior);
 
     function focus() {
-        emit('focus');
+        conversationContainer.value?.focus();
+    }
+
+    function togglePin() {
+        emit('togglePin');
+        emit('pin-change', !props.isPinned);
+    }
+
+    function toggleMaximize() {
+        emit('toggleMaximize');
+        emit('maximize-toggle');
+    }
+
+    function clearSession() {
+        emit('clearSession');
+        emit('new-session');
     }
 
     function revealLatestContent() {
@@ -320,9 +341,13 @@
     // 暴露方法给父组件
     defineExpose({
         focus,
+        togglePin,
+        toggleMaximize,
+        clearSession,
         revealLatestContent,
         scrollByDelta,
         getHistoryAnchor,
+        isLatestContentVisible,
     });
 </script>
 
