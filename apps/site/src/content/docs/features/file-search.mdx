@@ -1,9 +1,26 @@
 ---
-title: 文件搜索与读取
+title: 文件搜索
 description: 用文件搜索和读取能力，继续处理本地资料与内容
 ---
 
-这一页讲的是 TouchAI 如何通过 `file_search` 和 `read` 两个工具，继续处理本地资料。
+这一页讲的是 TouchAI 如何通过 `file_search` 和 `read` 两个工具，处理本地资料。
+
+## 使用前提
+
+TouchAI 的文件搜索能力依赖 **Everything**。如果你希望更快、更稳定地搜索本地文件，建议先在 **Windows** 上安装并启动 Everything。
+
+### 如何安装 Everything
+
+1. 前往 [Everything 官方网站](https://www.voidtools.com/zh-cn/downloads/ ) 下载安装包。
+2. 完成安装后，首次 Everything。
+3. 等待 Everything 建立文件索引；如果本地文件很多，初次建立索引可能需要几分钟。
+4. 保持 Everything 处于运行状态后，再回到 TouchAI 使用文件搜索。
+
+### 使用前建议
+
+- 如果搜索结果为空，先确认 Everything 是否已经启动。
+- 如果刚安装 Everything，索引尚未完成时，搜索结果可能不完整。
+- 该能力目前更适合 Windows 本地文件搜索场景。
 
 ## 文件搜索
 
@@ -31,3 +48,4 @@ description: 用文件搜索和读取能力，继续处理本地资料与内容
 - 找文件 → 读内容 → 总结重点
 - 找资料 → 提炼信息 → 继续追问
 - 找目录 → 确认范围 → 再读取具体内容
+![搜索本地文件](/features/file-search/file-search.png)
