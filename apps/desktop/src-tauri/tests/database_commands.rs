@@ -112,6 +112,58 @@ fn database_transaction_commands_persist_changes_after_commit() {
 }
 
 #[test]
+fn quick_search_click_stats_upsert_uses_declared_conflict_target() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let upsert_sql = "INSERT INTO quick_search_click_stats (query_norm, path_norm, click_count) \
+        VALUES (?, ?, 1) \
+        ON CONFLICT(query_norm, path_norm) DO UPDATE SET \
+        click_count = quick_search_click_stats.click_count + 1";
+
+    for _ in 0..2 {
+        let response: serde_json::Value = invoke_command_ok(
+            &test_app.main_webview,
+            "database_query",
+            json!({
+                "request": {
+                    "sql": upsert_sql,
+                    "params": ["touch ai", "d:\\tool.lnk"],
+                    "method": "run"
+                }
+            }),
+        );
+
+        assert_eq!(response["rowsAffected"], 1);
+    }
+
+    let row: serde_json::Value = invoke_command_ok(
+        &test_app.main_webview,
+        "database_query",
+        json!({
+            "request": {
+                "sql": "SELECT query_norm, path_norm, click_count FROM quick_search_click_stats WHERE query_norm = ? AND path_norm = ?",
+                "params": ["touch ai", "d:\\tool.lnk"],
+                "method": "get"
+            }
+        }),
+    );
+
+    assert_eq!(
+        row,
+        json!({
+            "rows": [
+                {
+                    "query_norm": "touch ai",
+                    "path_norm": "d:\\tool.lnk",
+                    "click_count": 2
+                }
+            ],
+            "rowsAffected": 0,
+            "lastInsertId": null
+        })
+    );
+}
+
+#[test]
 fn database_tx_query_reports_missing_transactions() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
 
