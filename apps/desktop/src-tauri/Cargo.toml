@@ -1,7 +1,7 @@
 [package]
 name = "touchai"
 version = "1.0.0"
-description = "TouchAI - 一款桌面 AI 工具，愿景是 AI 一触即达"
+description = "Your desktop agent, one shortcut away."
 authors = ["QianCheng"]
 edition = "2021"
 
