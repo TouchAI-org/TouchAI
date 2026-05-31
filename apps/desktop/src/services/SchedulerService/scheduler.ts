@@ -34,7 +34,11 @@ export interface UpdateScheduledTaskInput {
 
 function cloneValue<T>(value: T): T {
     if (typeof structuredClone === 'function') {
-        return structuredClone(value);
+        try {
+            return structuredClone(value);
+        } catch {
+            // Scheduler inputs can come from Vue state; JSON fallback handles serializable proxies.
+        }
     }
 
     return JSON.parse(JSON.stringify(value)) as T;
