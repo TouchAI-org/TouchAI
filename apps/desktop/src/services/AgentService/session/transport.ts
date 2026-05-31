@@ -3,6 +3,7 @@
 import {
     findMessagesBySessionId,
     findToolLogRowsBySessionId,
+    findUnambiguousToolLogByStoredReference,
     type ToolLogHistoryRow,
 } from '@database/queries/messages';
 
@@ -164,11 +165,11 @@ export async function loadSessionTransportMessages(options: {
         }
 
         if (row.role === 'tool_result') {
-            const toolSource = row.tool_log_kind ?? 'mcp';
-            const toolLog =
-                row.tool_log_id !== null
-                    ? toolLogByIdentity.get(`${toolSource}:${row.tool_log_id}`)
-                    : undefined;
+            const toolLog = findUnambiguousToolLogByStoredReference(
+                toolLogByIdentity,
+                row.tool_log_id,
+                row.tool_log_kind
+            );
             const resolvedToolName =
                 row.tool_name ?? (toolLog ? toTransportToolName(toolLog) : undefined);
             const pendingToolCall = takePendingResultToolCall(
