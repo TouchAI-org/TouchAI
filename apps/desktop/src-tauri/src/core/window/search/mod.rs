@@ -14,7 +14,6 @@ use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_MOVE_FOCUS_REASO
 #[cfg(target_os = "windows")]
 use windows::Win32::{
     Foundation::HWND,
-    Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE},
     UI::{
         Input::KeyboardAndMouse::SetFocus,
         WindowsAndMessaging::{GetWindow, GW_CHILD},
@@ -107,7 +106,9 @@ pub(super) fn show_and_activate_search_window<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
     let _ = window.unminimize();
+    crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     window.show().map_err(|e| e.to_string())?;
+    crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     reactivate_search_window_input(window)
 }
 
@@ -240,11 +241,6 @@ pub(super) fn focus_search_webview_content<R: Runtime>(
 }
 
 #[cfg(target_os = "windows")]
-const DWMWCP_ROUND: u32 = 2;
-#[cfg(target_os = "windows")]
-const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
-
-#[cfg(target_os = "windows")]
 /// 获取 Tauri WebviewWindow 对应的 Win32 HWND。
 fn get_window_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String> {
     let window_handle = window
@@ -255,38 +251,4 @@ fn get_window_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String
         raw_window_handle::RawWindowHandle::Win32(handle) => Ok(HWND(handle.hwnd.get() as _)),
         _ => Err("Not a Win32 window".to_string()),
     }
-}
-
-#[cfg(target_os = "windows")]
-/// 设置 Windows 搜索窗口圆角和边框样式。
-pub fn set_search_window_style<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    let hwnd = get_window_hwnd(window)?;
-
-    unsafe {
-        // 圆角
-        DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_WINDOW_CORNER_PREFERENCE,
-            &DWMWCP_ROUND as *const _ as *const _,
-            std::mem::size_of::<u32>() as u32,
-        )
-        .map_err(|e| format!("Failed to set rounded corners: {}", e))?;
-
-        // 边框
-        DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_BORDER_COLOR,
-            &DWMWA_COLOR_NONE as *const _ as *const _,
-            std::mem::size_of::<u32>() as u32,
-        )
-        .map_err(|e| format!("Failed to remove border: {}", e))?;
-    }
-
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-/// 在非 Windows 平台跳过搜索窗口样式设置。
-pub fn set_search_window_style<R: Runtime>(_window: &WebviewWindow<R>) -> Result<(), String> {
-    Ok(())
 }
