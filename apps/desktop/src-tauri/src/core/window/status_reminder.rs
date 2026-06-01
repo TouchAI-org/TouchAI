@@ -705,9 +705,11 @@ fn extract_reply_text(
 mod macos_notifications {
     use std::sync::{Mutex, OnceLock};
 
+    use block2::RcBlock;
+    use dispatch2::{run_on_main, MainThreadBound};
     use log::warn;
     use objc2::{define_class, msg_send, rc::Retained, runtime::ProtocolObject, MainThreadOnly};
-    use objc2_foundation::{MainThreadMarker, NSArray, NSObject, NSObjectProtocol, NSString};
+    use objc2_foundation::{NSArray, NSDictionary, NSObject, NSObjectProtocol, NSSet, NSString};
     use objc2_user_notifications::{
         UNMutableNotificationContent, UNNotificationAction, UNNotificationCategory,
         UNNotificationRequest, UNNotificationResponse, UNTextInputNotificationResponse,
@@ -724,7 +726,8 @@ mod macos_notifications {
     type ActionCallback = Box<dyn Fn(&str) + Send>;
 
     static ACTION_CALLBACK: OnceLock<Mutex<Option<ActionCallback>>> = OnceLock::new();
-    static DELEGATE_INSTANCE: OnceLock<Retained<TouchAINotificationDelegate>> = OnceLock::new();
+    static DELEGATE_INSTANCE: OnceLock<MainThreadBound<Retained<TouchAINotificationDelegate>>> =
+        OnceLock::new();
 
     /// Register the callback invoked from the notification-center delegate when
     /// the user interacts with a delivered notification.
@@ -737,11 +740,14 @@ mod macos_notifications {
     /// entire process lifetime. `UNUserNotificationCenter.delegate` is a weak
     /// property, so the delegate object must be held in a static to prevent
     /// deallocation.
-    fn ensure_delegate_registered(center: &UNUserNotificationCenter) {
-        DELEGATE_INSTANCE.get_or_init(|| {
-            let delegate = TouchAINotificationDelegate::new();
-            center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-            delegate
+    fn ensure_delegate_registered() {
+        run_on_main(|mtm| {
+            let center = UNUserNotificationCenter::currentNotificationCenter();
+            let delegate = DELEGATE_INSTANCE.get_or_init(|| {
+                let delegate = TouchAINotificationDelegate::new(mtm);
+                MainThreadBound::new(delegate, mtm)
+            });
+            center.setDelegate(Some(ProtocolObject::from_ref(&**delegate.get(mtm))));
         });
     }
 
@@ -767,16 +773,16 @@ mod macos_notifications {
             ) {
                 let action_id = response.actionIdentifier().to_string();
                 let request = response.notification().request();
-                let raw_payload = request
-                    .content()
-                    .userInfo()
-                    .and_then(|dict| dict.objectForKey(&NSString::from_str("touchai_payload")))
+                let payload_key = NSString::from_str("touchai_payload");
+                let user_info = request.content().userInfo();
+                let raw_payload = unsafe { user_info.cast_unchecked::<NSString, NSString>() }
+                    .objectForKey(&payload_key)
                     .map(|obj| obj.to_string());
 
                 let reply_text = if let Some(text_response) =
                     response.downcast_ref::<UNTextInputNotificationResponse>()
                 {
-                    text_response.userText().map(|s| s.to_string())
+                    Some(text_response.userText().to_string())
                 } else {
                     None
                 };
@@ -805,9 +811,7 @@ mod macos_notifications {
     );
 
     impl TouchAINotificationDelegate {
-        fn new() -> Retained<Self> {
-            let mtm = MainThreadMarker::new()
-                .expect("macOS notification delegate must be created on the main thread");
+        fn new(mtm: objc2::MainThreadMarker) -> Retained<Self> {
             let delegate = Self::alloc(mtm);
             unsafe { msg_send![delegate, init] }
         }
@@ -821,7 +825,7 @@ mod macos_notifications {
         reply_text: Option<&str>,
     ) -> Option<String> {
         let mut base: serde_json::Value = serde_json::from_str(base_json).ok()?;
-        if let obj @ serde_json::Value::Object(_) = &mut base {
+        if let serde_json::Value::Object(obj) = &mut base {
             obj.insert(
                 "action".to_string(),
                 serde_json::Value::String(action_id.to_string()),
@@ -852,94 +856,73 @@ mod macos_notifications {
         let approve_label = payload
             .approval
             .as_ref()
-            .map(|a| a.approve_label.as_str())
+            .map(|approval| approval.approve_label.as_str())
             .unwrap_or("Approve");
         let reject_label = payload
             .approval
             .as_ref()
-            .map(|a| a.reject_label.as_str())
+            .map(|approval| approval.reject_label.as_str())
             .unwrap_or("Reject");
+        let open_label = payload.open_label.as_deref().unwrap_or("Open");
         let reply_label = payload.reply_label.as_deref().unwrap_or("Reply");
         let reply_placeholder = payload
             .reply_placeholder
             .as_deref()
             .unwrap_or("Reply to TouchAI");
+        let empty_intents = NSArray::from_slice(&[]);
 
-        let existing_categories = center.notificationCategories();
+        let approve_action = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("approve"),
+            &NSString::from_str(approve_label),
+            objc2_user_notifications::UNNotificationActionOptions::Foreground,
+        );
+        let reject_action = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("reject"),
+            &NSString::from_str(reject_label),
+            objc2_user_notifications::UNNotificationActionOptions::Destructive,
+        );
+        let waiting_actions = NSArray::from_retained_slice(&[approve_action, reject_action]);
+        let waiting_category =
+            UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                &NSString::from_str("touchai-waiting-approval"),
+                &waiting_actions,
+                &empty_intents,
+                objc2_user_notifications::UNNotificationCategoryOptions::empty(),
+            );
 
-        if payload.kind == SessionStatusReminderKind::WaitingApproval && payload.approval.is_some()
-        {
-            let approve_action = UNNotificationAction::actionWithIdentifier_title_options(
-                &NSString::from_str("approve"),
-                &NSString::from_str(approve_label),
-                objc2_user_notifications::UNNotificationActionOptions::Foreground,
+        let open_action = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("open"),
+            &NSString::from_str(open_label),
+            objc2_user_notifications::UNNotificationActionOptions::Foreground,
+        );
+        let open_actions = NSArray::from_retained_slice(&[open_action]);
+        let open_category =
+            UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                &NSString::from_str("touchai-open-only"),
+                &open_actions,
+                &empty_intents,
+                objc2_user_notifications::UNNotificationCategoryOptions::empty(),
             );
-            let reject_action = UNNotificationAction::actionWithIdentifier_title_options(
-                &NSString::from_str("reject"),
-                &NSString::from_str(reject_label),
-                objc2_user_notifications::UNNotificationActionOptions::Destructive,
+
+        let reply_action = objc2_user_notifications::UNTextInputNotificationAction::actionWithIdentifier_title_options_textInputButtonTitle_textInputPlaceholder(
+            &NSString::from_str("reply"),
+            &NSString::from_str(reply_label),
+            objc2_user_notifications::UNNotificationActionOptions::Foreground,
+            &NSString::from_str(reply_label),
+            &NSString::from_str(reply_placeholder),
+        );
+        let reply_actions = NSArray::from_retained_slice(&[reply_action.into_super()]);
+        let reply_category =
+            UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                &NSString::from_str("touchai-completed-failed"),
+                &reply_actions,
+                &empty_intents,
+                objc2_user_notifications::UNNotificationCategoryOptions::empty(),
             );
-            let actions = NSArray::from_vec(vec![approve_action, reject_action]);
-            let category =
-                UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
-                    &NSString::from_str("touchai-waiting-approval"),
-                    &actions,
-                    &NSArray::new(),
-                    objc2_user_notifications::UNNotificationCategoryOptions::empty(),
-                );
-            let mut all: Vec<UNNotificationCategory> = existing_categories
-                .to_vec()
-                .into_iter()
-                .filter(|category| category.identifier().to_string() != "touchai-waiting-approval")
-                .collect();
-            all.push(category);
-            center.setNotificationCategories(&NSArray::from_vec(all));
-        } else if payload.kind == SessionStatusReminderKind::WaitingApproval {
-            let open_label = payload.open_label.as_deref().unwrap_or("Open");
-            let open_action = UNNotificationAction::actionWithIdentifier_title_options(
-                &NSString::from_str("open"),
-                &NSString::from_str(open_label),
-                objc2_user_notifications::UNNotificationActionOptions::Foreground,
-            );
-            let actions = NSArray::from_vec(vec![open_action]);
-            let category =
-                UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
-                    &NSString::from_str("touchai-open-only"),
-                    &actions,
-                    &NSArray::new(),
-                    objc2_user_notifications::UNNotificationCategoryOptions::empty(),
-                );
-            let mut all: Vec<UNNotificationCategory> = existing_categories
-                .to_vec()
-                .into_iter()
-                .filter(|category| category.identifier().to_string() != "touchai-open-only")
-                .collect();
-            all.push(category);
-            center.setNotificationCategories(&NSArray::from_vec(all));
-        } else {
-            let reply_action = objc2_user_notifications::UNTextInputNotificationAction::actionWithIdentifier_title_options_textInputButtonTitle_textInputPlaceholder(
-                &NSString::from_str("reply"),
-                &NSString::from_str(reply_label),
-                objc2_user_notifications::UNNotificationActionOptions::Foreground,
-                &NSString::from_str(reply_label),
-                &NSString::from_str(reply_placeholder),
-            );
-            let actions = NSArray::from_vec(vec![reply_action]);
-            let category =
-                UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
-                    &NSString::from_str("touchai-completed-failed"),
-                    &actions,
-                    &NSArray::new(),
-                    objc2_user_notifications::UNNotificationCategoryOptions::empty(),
-                );
-            let mut all: Vec<UNNotificationCategory> = existing_categories
-                .to_vec()
-                .into_iter()
-                .filter(|category| category.identifier().to_string() != "touchai-completed-failed")
-                .collect();
-            all.push(category);
-            center.setNotificationCategories(&NSArray::from_vec(all));
-        }
+
+        let categories =
+            NSSet::from_retained_slice(&[waiting_category, open_category, reply_category]);
+        center.setNotificationCategories(&categories);
     }
 
     /// Show a session status reminder notification through the macOS
@@ -956,7 +939,7 @@ mod macos_notifications {
         center.requestAuthorizationWithOptions_completionHandler(
             objc2_user_notifications::UNAuthorizationOptions::Alert
                 | objc2_user_notifications::UNAuthorizationOptions::Sound,
-            &objc2_foundation::Block::new(|_granted, _error| {}),
+            &RcBlock::new(|_granted, _error| {}),
         );
 
         // Persist an action callback that captures the producing app handle so
@@ -1024,7 +1007,7 @@ mod macos_notifications {
 
         // Ensure the delegate is registered exactly once and held by the static
         // so it lives for the process lifetime.
-        ensure_delegate_registered(&center);
+        ensure_delegate_registered();
 
         // Register the appropriate category (actions) for this notification.
         ensure_categories_registered(&center, payload);
@@ -1053,11 +1036,15 @@ mod macos_notifications {
         )
         .map_err(|e| format!("Failed to serialize activation payload: {e}"))?;
 
-        let keys = NSArray::from_vec(vec![NSString::from_str("touchai_payload")]);
-        let values = NSArray::from_vec(vec![NSString::from_str(&base_payload)]);
-        let user_info =
-            objc2_foundation::NSDictionary::dictionaryWithObjects_forKeys(&values, &keys);
-        content.setUserInfo(&user_info);
+        let key = NSString::from_str("touchai_payload");
+        let value = NSString::from_str(&base_payload);
+        let user_info = NSDictionary::from_slices(&[&*key], &[&*value]);
+        let user_info = unsafe {
+            user_info.cast_unchecked::<objc2::runtime::AnyObject, objc2::runtime::AnyObject>()
+        };
+        unsafe {
+            content.setUserInfo(user_info);
+        }
 
         let identifier = make_notification_identifier(payload);
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
@@ -1068,7 +1055,7 @@ mod macos_notifications {
 
         center.addNotificationRequest_withCompletionHandler(
             &request,
-            &objc2_foundation::Block::new(|_error| {}),
+            Some(&RcBlock::new(|_error| {})),
         );
 
         runtime.track_active_notification(identifier);
@@ -1089,8 +1076,10 @@ mod macos_notifications {
         if ids.is_empty() {
             return;
         }
-        let identifiers: Vec<NSString> = ids.iter().map(|id| NSString::from_str(id)).collect();
-        center.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_vec(identifiers));
+        let identifiers: Vec<Retained<NSString>> =
+            ids.iter().map(|id| NSString::from_str(id)).collect();
+        let identifier_array = NSArray::from_retained_slice(&identifiers);
+        center.removeDeliveredNotificationsWithIdentifiers(&identifier_array);
     }
 }
 
