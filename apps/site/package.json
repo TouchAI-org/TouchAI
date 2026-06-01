@@ -2,7 +2,7 @@
     "name": "@touchai/site",
     "private": true,
     "type": "module",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "scripts": {
         "dev": "astro dev",
         "start": "astro dev",

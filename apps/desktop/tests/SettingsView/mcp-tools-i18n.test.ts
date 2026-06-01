@@ -301,6 +301,15 @@ describe('MCP settings i18n and long text layout', () => {
         expect(wrapper.text()).toContain('Success');
         expect(wrapper.text()).toContain('Pending');
         expect(wrapper.find('input[placeholder="Search logs..."]').exists()).toBe(true);
+        expect(wrapper.get('[data-testid="mcp-tool-log-toolbar"]').classes()).toContain(
+            'flex-wrap'
+        );
+        expect(wrapper.get('[data-testid="mcp-tool-log-filters"]').classes()).toContain(
+            'flex-wrap'
+        );
+        expect(wrapper.get('[data-testid="mcp-tool-log-search"]').classes()).toEqual(
+            expect.arrayContaining(['w-full', 'max-w-xs', 'md:w-64'])
+        );
         expect(wrapper.get('[data-testid="mcp-tool-log-header"]').classes()).toContain('flex-wrap');
         expect(wrapper.get('[data-testid="mcp-tool-log-name"]').text()).toBe('工具');
         expect(wrapper.get('[data-testid="mcp-tool-log-name"]').attributes('data-no-i18n')).toBe(

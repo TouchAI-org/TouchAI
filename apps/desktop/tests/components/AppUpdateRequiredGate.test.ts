@@ -131,11 +131,15 @@ describe('AppUpdateRequiredGate', () => {
         expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
     });
 
-    it('opens the direct installer when the channel has no satisfying update', async () => {
+    it('opens the release page when no direct download is selected', async () => {
+        const latestUpdateWithoutDirectDownload = {
+            ...latestUpdate,
+            downloads: [],
+        };
         appUpdateServiceMock.state = {
             ...baseState,
             status: 'not_available',
-            latestUpdate,
+            latestUpdate: latestUpdateWithoutDirectDownload,
             updateRequirement: {
                 ...requiredRequirement,
                 targetSatisfiesRequirement: false,
@@ -149,7 +153,7 @@ describe('AppUpdateRequiredGate', () => {
         expect(wrapper.text()).toContain('修复问题');
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
 
-        expect(openUrl).toHaveBeenCalledWith(latestUpdate.downloads[0]!.url);
+        expect(openUrl).toHaveBeenCalledWith(latestUpdateWithoutDirectDownload.releaseUrl);
     });
 
     it('renders raw update errors only as localized details', async () => {

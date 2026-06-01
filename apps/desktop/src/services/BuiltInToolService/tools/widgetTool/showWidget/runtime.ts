@@ -51,6 +51,7 @@ export interface WidgetRenderer {
 }
 
 type MorphdomFunction = typeof morphdom;
+const SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS = 8000;
 type ShowWidgetRenderPayload = Pick<
     ShowWidgetPayload,
     'widgetId' | 'title' | 'description' | 'html' | 'phase'
@@ -517,29 +518,19 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     const normalizedHtml = sanitizedHtml || '<div></div>';
     const isFullDocument = /<(?:!doctype|html|head|body)\b/i.test(normalizedHtml);
 
-    // Allow <script src="..."> tags so runInlineScripts can re-execute external
-    // scripts after morphdom patching. Inline script content is stripped via the
-    // uponSanitizeElement hook to prevent XSS. DOMPurify still strips event-handler
-    // attributes (onclick, onerror, etc.) and javascript: URIs by default.
-    const purifyInstance = DOMPurify(window);
-    purifyInstance.addHook('uponSanitizeElement', (node, data) => {
-        if (data.tagName === 'script' && !(node as HTMLScriptElement).src) {
-            (node as HTMLScriptElement).textContent = '';
-        }
-    });
+    // Explicit <script> blocks are executable widget code. DOMPurify still
+    // sanitizes surrounding markup, event-handler attributes, and javascript:
+    // URIs before runInlineScripts re-inserts scripts in document order.
+    const purifyConfig = { ADD_TAGS: ['script'] };
 
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
         template.innerHTML = String(
-            purifyInstance.sanitize(parsed.body.innerHTML || '<div></div>', {
-                ADD_TAGS: ['script'],
-            })
+            DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
         );
     } else {
-        template.innerHTML = String(
-            purifyInstance.sanitize(normalizedHtml, { ADD_TAGS: ['script'] })
-        );
+        template.innerHTML = String(DOMPurify.sanitize(normalizedHtml, purifyConfig));
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
@@ -620,6 +611,27 @@ function copyScriptAttributes(source: HTMLScriptElement, target: HTMLScriptEleme
     }
 }
 
+function waitForExternalScript(
+    node: HTMLScriptElement,
+    parent: Node,
+    oldNode: HTMLScriptElement
+): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const timeoutId = window.setTimeout(settle, SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS);
+
+        function settle(): void {
+            window.clearTimeout(timeoutId);
+            node.removeEventListener('load', settle);
+            node.removeEventListener('error', settle);
+            resolve();
+        }
+
+        node.addEventListener('load', settle);
+        node.addEventListener('error', settle);
+        parent.replaceChild(node, oldNode);
+    });
+}
+
 /**
  * 简化后的脚本执行策略直接重新插入 `<script>` 节点。
  *
@@ -657,11 +669,7 @@ async function runInlineScripts(
         }
 
         if (oldNode.src) {
-            await new Promise<void>((resolve) => {
-                newNode.addEventListener('load', () => resolve(), { once: true });
-                newNode.addEventListener('error', () => resolve(), { once: true });
-                parent.replaceChild(newNode, oldNode);
-            });
+            await waitForExternalScript(newNode, parent, oldNode);
             continue;
         }
 
