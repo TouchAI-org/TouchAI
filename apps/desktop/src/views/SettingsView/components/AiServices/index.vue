@@ -27,7 +27,10 @@
     import { isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
-    import { consumeManagedSettingsFocusRequest, peekManagedSettingsFocusRequest } from '@services/AuthService/managedSettingsFocus';
+    import {
+        consumeManagedSettingsFocusRequest,
+        peekManagedSettingsFocusRequest,
+    } from '@services/AuthService/managedSettingsFocus';
     import { AppEvent, eventService } from '@services/EventService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
@@ -307,7 +310,9 @@
             return;
         }
 
-        const stillVisible = nextProviders.some((provider) => provider.id === selectedProviderId.value);
+        const stillVisible = nextProviders.some(
+            (provider) => provider.id === selectedProviderId.value
+        );
         if (stillVisible) {
             return;
         }
@@ -651,13 +656,12 @@
                     return;
                 }
 
-                const didInvalidateManagedAuth =
-                    isManagedTouchAiProvider(provider)
-                        ? await invalidateManagedAuthForError({
-                              providerId: provider.id,
-                              error,
-                          })
-                        : false;
+                const didInvalidateManagedAuth = isManagedTouchAiProvider(provider)
+                    ? await invalidateManagedAuthForError({
+                          providerId: provider.id,
+                          error,
+                      })
+                    : false;
 
                 if (didInvalidateManagedAuth) {
                     removeCachedModels(provider.id);

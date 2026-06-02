@@ -56,8 +56,7 @@
     const otherProviders = computed(() =>
         props.providers.filter(
             (provider) =>
-                !PROMOTED_PROVIDER_DRIVERS.has(provider.driver) &&
-                !PRIMARY_NAMES.has(provider.name)
+                !PROMOTED_PROVIDER_DRIVERS.has(provider.driver) && !PRIMARY_NAMES.has(provider.name)
         )
     );
 

@@ -47,7 +47,8 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => ({
         logo: 'mimo.png',
         placeholder: 'https://token-plan-cn.xiaomimimo.com/v1',
     }),
-    parseProviderConfigJson: (configJson: string | null) => (configJson ? JSON.parse(configJson) : {}),
+    parseProviderConfigJson: (configJson: string | null) =>
+        configJson ? JSON.parse(configJson) : {},
     isTouchAiManagedMode: (config: { touchAiMode?: 'managed' | 'custom' }, baseUrl: string) =>
         config.touchAiMode === 'custom'
             ? false
@@ -129,11 +130,13 @@ describe('ProviderConfig managed TouchAI activity provider', () => {
 
         await flushPromises();
 
-        expect(wrapper.find('[data-testid="settings-managed-activity-status"]').exists()).toBe(true);
-        expect(wrapper.find('[data-testid="settings-managed-activity-copy"]').exists()).toBe(false);
-        expect(wrapper.find('[data-testid="settings-managed-activity-logout-button"]').exists()).toBe(
-            false
+        expect(wrapper.find('[data-testid="settings-managed-activity-status"]').exists()).toBe(
+            true
         );
+        expect(wrapper.find('[data-testid="settings-managed-activity-copy"]').exists()).toBe(false);
+        expect(
+            wrapper.find('[data-testid="settings-managed-activity-logout-button"]').exists()
+        ).toBe(false);
     });
 
     it('opens the managed TouchAI Hub login flow', async () => {
@@ -168,9 +171,9 @@ describe('ProviderConfig managed TouchAI activity provider', () => {
         expect(wrapper.get('[data-testid="settings-managed-activity-status"]').text()).toContain(
             'octocat'
         );
-        expect(wrapper.get('[data-testid="settings-managed-activity-page-button"]').text()).not.toBe(
-            ''
-        );
+        expect(
+            wrapper.get('[data-testid="settings-managed-activity-page-button"]').text()
+        ).not.toBe('');
         expect(wrapper.get('[data-testid="settings-managed-activity-cancel-button"]').text()).toBe(
             '取消授权'
         );
@@ -231,13 +234,15 @@ describe('ProviderConfig managed TouchAI activity provider', () => {
         });
 
         await flushPromises();
-        await wrapper.get('[data-testid="settings-managed-activity-cancel-button"]').trigger('click');
+        await wrapper
+            .get('[data-testid="settings-managed-activity-cancel-button"]')
+            .trigger('click');
         await flushPromises();
 
         expect(authServiceMock.logoutManagedAuth).toHaveBeenCalledTimes(1);
-        expect(wrapper.find('[data-testid="settings-managed-activity-cancel-button"]').exists()).toBe(
-            false
-        );
+        expect(
+            wrapper.find('[data-testid="settings-managed-activity-cancel-button"]').exists()
+        ).toBe(false);
         expect(wrapper.get('[data-testid="settings-managed-activity-status"]').text()).toContain(
             '未授权'
         );

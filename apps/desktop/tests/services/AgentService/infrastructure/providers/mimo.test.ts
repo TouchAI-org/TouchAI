@@ -217,12 +217,12 @@ describe('MiMoProviderAdapter', () => {
             },
         });
 
-        expect(() =>
-            asTestableProvider(provider).createLanguageModel('gpt-4.1')
-        ).toThrowError(AiError);
-        expect(() =>
-            asTestableProvider(provider).createLanguageModel('gpt-4.1')
-        ).toThrow('TouchAI Hub only supports mimo-v2.5 and mimo-v2.5-pro.');
+        expect(() => asTestableProvider(provider).createLanguageModel('gpt-4.1')).toThrowError(
+            AiError
+        );
+        expect(() => asTestableProvider(provider).createLanguageModel('gpt-4.1')).toThrow(
+            'TouchAI Hub only supports mimo-v2.5 and mimo-v2.5-pro.'
+        );
         expect(chatModelMock).not.toHaveBeenCalled();
     });
 });

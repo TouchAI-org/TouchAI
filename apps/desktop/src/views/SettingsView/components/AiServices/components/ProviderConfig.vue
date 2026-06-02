@@ -14,7 +14,11 @@
         parseProviderConfigJson,
     } from '@/services/AgentService/infrastructure/providers';
     import type { ProviderConfigJson } from '@/services/AgentService/infrastructure/providers/types';
-    import { getManagedAuthState, logoutManagedAuth, openManagedLogin } from '@/services/AuthService';
+    import {
+        getManagedAuthState,
+        logoutManagedAuth,
+        openManagedLogin,
+    } from '@/services/AuthService';
 
     interface Props {
         provider: Provider;
@@ -50,7 +54,9 @@
     const isManagedMode = computed(
         () => isManagedTouchAiActivityProvider.value && managedConfigMode.value === 'managed'
     );
-    const touchAiProviderConfig = computed(() => parseProviderConfigJson(props.provider.config_json));
+    const touchAiProviderConfig = computed(() =>
+        parseProviderConfigJson(props.provider.config_json)
+    );
     const activeApiEndpoint = computed(() =>
         isManagedTouchAiActivityProvider.value && managedConfigMode.value === 'custom'
             ? touchAiCustomForm.value.api_endpoint.trim()

@@ -94,7 +94,8 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => ({
         logo: 'openai.png',
         placeholder: 'https://api.openai.com',
     }),
-    parseProviderConfigJson: (configJson: string | null) => (configJson ? JSON.parse(configJson) : {}),
+    parseProviderConfigJson: (configJson: string | null) =>
+        configJson ? JSON.parse(configJson) : {},
     isTouchAiManagedMode: (config: { touchAiMode?: 'managed' | 'custom' }, baseUrl: string) =>
         config.touchAiMode === 'custom'
             ? false
