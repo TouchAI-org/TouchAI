@@ -1,4 +1,4 @@
-﻿type TouchAiHost = HTMLElement & {
+type TouchAiHost = HTMLElement & {
     __touchaiMounted?: boolean;
     __touchaiReady?: boolean;
     __touchaiLoadVersion?: number;
@@ -45,8 +45,8 @@ touchai-component-demo[data-demo-id="${id}"] {
 }
 
 touchai-component-demo[data-demo-id="${id}"].component-frame {
-    width: min(60vw, 680px) !important;
-    max-width: 680px;
+    width: min(60vw, 680px, 100%) !important;
+    max-width: min(680px, 100%);
     justify-self: center;
     overflow: visible !important;
 }
@@ -162,8 +162,8 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete 
 
 @media (max-width: 560px) {
     touchai-component-demo[data-demo-id="${id}"].component-frame {
-        width: min(calc(100vw - 56px), 360px) !important;
-        max-width: min(calc(100vw - 56px), 360px) !important;
+        width: min(calc(100vw - 56px), 360px, 100%) !important;
+        max-width: min(calc(100vw - 56px), 360px, 100%) !important;
         height: 560px !important;
         min-height: 560px !important;
         overflow: visible !important;
