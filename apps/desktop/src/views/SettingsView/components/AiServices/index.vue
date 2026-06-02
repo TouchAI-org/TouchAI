@@ -100,6 +100,28 @@
     let unlistenSettingsAiServicesFocusProvider: (() => void) | null = null;
     let lastHandledSettingsFocusRequestAt = 0;
 
+    interface RefreshModelsNotificationOptions {
+        success?: boolean;
+        failure?: boolean;
+        empty?: boolean;
+        missingCredentials?: boolean;
+        sessionExpired?: boolean;
+    }
+
+    const DEFAULT_REFRESH_MODELS_NOTIFICATIONS: Required<RefreshModelsNotificationOptions> = {
+        success: true,
+        failure: true,
+        empty: true,
+        missingCredentials: true,
+        sessionExpired: true,
+    };
+
+    const AUTO_REFRESH_MODELS_NOTIFICATIONS: RefreshModelsNotificationOptions = {
+        success: false,
+        empty: false,
+        missingCredentials: false,
+    };
+
     async function broadcastModelsUpdated() {
         await eventService.emit(AppEvent.AI_MODELS_UPDATED, {
             updatedAt: Date.now(),
@@ -300,6 +322,7 @@
 
         await selectProvider(targetProvider.id);
         await ensureTouchAiProviderMode(targetProvider, payload.mode);
+        await refreshSelectedProviderModelsAfterConfigChange();
         consumeManagedSettingsFocusRequest();
     }
 
@@ -469,7 +492,7 @@
                 providerPatch: normalizedProviderPatch,
             });
             patchProvider(selectedProviderId.value, normalizedProviderPatch);
-            alert.success(t('common.saved'));
+            await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
         }
@@ -495,9 +518,8 @@
             });
             providers.value = [...providers.value, createdProvider];
             selectedProviderId.value = createdProvider.id;
-            await loadModelsForProvider(createdProvider.id, true);
             showAddDialog.value = false;
-            alert.success(t('settings.ai.createSucceeded'));
+            await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.createFailed'));
         }
@@ -514,7 +536,7 @@
             });
             patchProvider(selectedProviderId.value, normalizedProviderPatch);
             showEditDialog.value = false;
-            alert.success(t('common.saved'));
+            await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
         }
@@ -615,10 +637,36 @@
         }
     };
 
+    function resolveRefreshModelsNotifications(
+        options: boolean | RefreshModelsNotificationOptions
+    ): Required<RefreshModelsNotificationOptions> {
+        if (typeof options === 'boolean') {
+            return {
+                success: !options,
+                failure: !options,
+                empty: !options,
+                missingCredentials: !options,
+                sessionExpired: !options,
+            };
+        }
+
+        return {
+            ...DEFAULT_REFRESH_MODELS_NOTIFICATIONS,
+            ...options,
+        };
+    }
+
+    async function refreshSelectedProviderModelsAfterConfigChange(): Promise<void> {
+        await handleRefreshModels(AUTO_REFRESH_MODELS_NOTIFICATIONS);
+    }
+
     // 刷新模型列表
-    const handleRefreshModels = async (silent = false) => {
+    const handleRefreshModels = async (
+        options: boolean | RefreshModelsNotificationOptions = {}
+    ) => {
         if (!selectedProviderId.value) return;
 
+        const notifications = resolveRefreshModelsNotifications(options);
         const currentProviderId = selectedProviderId.value;
         refreshingProviderId.value = currentProviderId;
 
@@ -626,7 +674,7 @@
             refreshing.value = true;
             const provider = await findProviderById({ id: currentProviderId });
             if (!provider) {
-                if (!silent) alert.error(t('settings.ai.providerNotFound'));
+                if (notifications.failure) alert.error(t('settings.ai.providerNotFound'));
                 return;
             }
 
@@ -635,7 +683,7 @@
             }
 
             if (isManagedTouchAiProvider(provider) && !provider.api_key) {
-                if (!silent) {
+                if (notifications.missingCredentials) {
                     alert.warning(t('settings.ai.providerNeedsApiKeyForModels'));
                 }
                 return;
@@ -666,7 +714,7 @@
                 if (didInvalidateManagedAuth) {
                     removeCachedModels(provider.id);
                     await loadProviders();
-                    if (!silent) {
+                    if (notifications.sessionExpired) {
                         alert.warning(t('settings.ai.managedActivity.sessionExpired'));
                     }
                     return;
@@ -681,7 +729,7 @@
             }
 
             if (fetchedModels.length === 0) {
-                if (!silent) alert.info(t('settings.ai.noModelsFetched'));
+                if (notifications.empty) alert.info(t('settings.ai.noModelsFetched'));
                 return;
             }
 
@@ -719,7 +767,7 @@
 
             await loadModelsForProvider(currentProviderId, true); // 强制刷新缓存
             await broadcastModelsUpdated();
-            if (!silent) {
+            if (notifications.success) {
                 alert.success(t('settings.ai.refreshModelsSucceeded', { count: newModels.length }));
             }
         } catch (err) {
@@ -728,7 +776,7 @@
             }
 
             console.error('Failed to refresh models:', err);
-            if (!silent) {
+            if (notifications.failure) {
                 alert.error(t('settings.ai.refreshModelsFailed', { error: String(err) }));
             }
         } finally {
