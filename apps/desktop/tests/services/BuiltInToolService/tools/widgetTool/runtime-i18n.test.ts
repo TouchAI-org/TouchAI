@@ -13,6 +13,18 @@ async function waitForWidgetRender(): Promise<void> {
     }
 }
 
+async function waitForCondition(condition: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (condition()) {
+            return;
+        }
+
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+
+    throw new Error('Timed out waiting for widget condition');
+}
+
 function installExternalScriptLoadMock(): void {
     vi.spyOn(Node.prototype, 'replaceChild').mockImplementation(function (
         this: Node,
@@ -342,6 +354,57 @@ describe('show widget renderer i18n opt-out', () => {
         expect(host.querySelector('#steps')?.textContent).toBe('done');
 
         renderer.destroy();
+    });
+
+    it('binds duplicate-id widget scripts to their own rendered root', async () => {
+        const firstHost = document.createElement('div');
+        const secondHost = document.createElement('div');
+        document.body.append(firstHost, secondHost);
+
+        const firstRenderer = createWidgetRenderer(firstHost);
+        const secondRenderer = createWidgetRenderer(secondHost);
+        const duplicateIdHtml = [
+            '<button id="btn-s" type="button">Next</button>',
+            '<span id="st">idle</span>',
+            '<script>',
+            'window.document.getElementById("btn-s").onclick = function() {',
+            'window.document.getElementById("st").textContent = "clicked";',
+            '};',
+            '</script>',
+        ].join('');
+
+        firstRenderer.render({
+            widgetId: 'first-duplicate-id-widget',
+            title: 'First duplicate id widget',
+            description: '',
+            phase: 'ready',
+            html: duplicateIdHtml,
+        });
+        await waitForCondition(() => firstHost.querySelector('[id="st"]')?.textContent === 'idle');
+
+        secondRenderer.render({
+            widgetId: 'second-duplicate-id-widget',
+            title: 'Second duplicate id widget',
+            description: '',
+            phase: 'ready',
+            html: duplicateIdHtml,
+        });
+
+        await waitForCondition(
+            () =>
+                firstHost.querySelector('[id="st"]')?.textContent === 'idle' &&
+                secondHost.querySelector('[id="st"]')?.textContent === 'idle'
+        );
+
+        secondHost
+            .querySelector('[id="btn-s"]')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        expect(firstHost.querySelector('[id="st"]')?.textContent).toBe('idle');
+        expect(secondHost.querySelector('[id="st"]')?.textContent).toBe('clicked');
+
+        firstRenderer.destroy();
+        secondRenderer.destroy();
     });
 
     it('does not execute non-classic inline script payloads', async () => {

@@ -972,14 +972,69 @@ function replaceInlineScriptWithInertNode(
     return newNode;
 }
 
-function executeInlineWidgetScript(source: string): void {
+function escapeWidgetDocumentIdSelectorValue(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function createWidgetScopedDocument(root: HTMLElement): Document {
+    return new Proxy(document, {
+        get(target, property, receiver) {
+            if (property === 'getElementById') {
+                return (elementId: string) =>
+                    root.querySelector(`[id="${escapeWidgetDocumentIdSelectorValue(elementId)}"]`);
+            }
+
+            if (property === 'querySelector') {
+                return root.querySelector.bind(root);
+            }
+
+            if (property === 'querySelectorAll') {
+                return root.querySelectorAll.bind(root);
+            }
+
+            if (property === 'getElementsByClassName') {
+                return root.getElementsByClassName.bind(root);
+            }
+
+            if (property === 'getElementsByTagName') {
+                return root.getElementsByTagName.bind(root);
+            }
+
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+        },
+    }) as Document;
+}
+
+function createWidgetScopedWindow(scopedDocument: Document): Window & typeof globalThis {
+    return new Proxy(window, {
+        get(target, property, receiver) {
+            if (property === 'document') {
+                return scopedDocument;
+            }
+
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+        },
+        set(target, property, value, receiver) {
+            return Reflect.set(target, property, value, receiver);
+        },
+    });
+}
+
+function executeInlineWidgetScript(source: string, root: HTMLElement): void {
     if (!source.trim()) {
         return;
     }
 
     try {
-        const execute = window.Function(`${source}\n//# sourceURL=touchai-widget-inline.js`);
-        execute.call(window);
+        const scopedDocument = createWidgetScopedDocument(root);
+        const execute = window.Function(
+            'window',
+            'document',
+            `${source}\n//# sourceURL=touchai-widget-inline.js`
+        );
+        execute.call(window, createWidgetScopedWindow(scopedDocument), scopedDocument);
     } catch (error) {
         console.error('[ShowWidget] Failed to execute inline script:', error);
     }
@@ -1033,7 +1088,7 @@ async function runInlineScripts(
 
         const source = oldNode.textContent ?? '';
         replaceInlineScriptWithInertNode(oldNode, parent);
-        executeInlineWidgetScript(source);
+        executeInlineWidgetScript(source, root);
     }
 }
 
