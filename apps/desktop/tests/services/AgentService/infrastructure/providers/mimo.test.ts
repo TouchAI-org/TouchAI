@@ -11,6 +11,11 @@ const createOpenAiCompatibleMock = vi.hoisted(() =>
     }))
 );
 
+type TestableMiMoProviderAdapter = MiMoProviderAdapter & {
+    gatewayFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    createLanguageModel: (modelId: string) => unknown;
+};
+
 vi.mock('@ai-sdk/openai-compatible', () => ({
     createOpenAICompatible: createOpenAiCompatibleMock,
 }));
@@ -71,15 +76,12 @@ describe('MiMoProviderAdapter', () => {
         await expect(provider.listModels()).resolves.toEqual([
             { id: 'mimo-v2.5', name: 'mimo-v2.5' },
         ]);
-        expect(fetchMock).toHaveBeenCalledWith(
-            'https://token-plan-cn.xiaomimimo.com/v1/models',
-            {
-                method: 'GET',
-                headers: {
-                    Authorization: 'Bearer tp-provider-key',
-                },
-            }
-        );
+        expect(fetchMock).toHaveBeenCalledWith('https://token-plan-cn.xiaomimimo.com/v1/models', {
+            method: 'GET',
+            headers: {
+                Authorization: 'Bearer tp-provider-key',
+            },
+        });
     });
 
     it('uses the custom endpoint and key stored in config_json when the user switches builtin MiMo to custom mode', async () => {
@@ -113,15 +115,12 @@ describe('MiMoProviderAdapter', () => {
         await expect(provider.listModels()).resolves.toEqual([
             { id: 'mimo-v2.5-pro', name: 'mimo-v2.5-pro' },
         ]);
-        expect(fetchMock).toHaveBeenCalledWith(
-            'https://openrouter.ai/api/v1/models',
-            {
-                method: 'GET',
-                headers: {
-                    Authorization: 'Bearer sk-custom-key',
-                },
-            }
-        );
+        expect(fetchMock).toHaveBeenCalledWith('https://openrouter.ai/api/v1/models', {
+            method: 'GET',
+            headers: {
+                Authorization: 'Bearer sk-custom-key',
+            },
+        });
     });
 
     it('signs managed gateway requests with the TouchAI desktop auth headers', async () => {
@@ -135,13 +134,16 @@ describe('MiMoProviderAdapter', () => {
             },
         });
 
-        await (provider as any).gatewayFetch('https://hub.touch-ai.org/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-            },
-            body: JSON.stringify({ model: 'mimo-v2.5' }),
-        });
+        await (provider as TestableMiMoProviderAdapter).gatewayFetch(
+            'https://hub.touch-ai.org/api/v1/chat/completions',
+            {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                },
+                body: JSON.stringify({ model: 'mimo-v2.5' }),
+            }
+        );
 
         const [target, init] = fetchMock.mock.calls[0] as [string, RequestInit];
         const headers = new Headers(init.headers);
@@ -199,7 +201,7 @@ describe('MiMoProviderAdapter', () => {
         expect(rateLimitError?.code).toBe(AiErrorCode.RATE_LIMIT);
         expect((rateLimitError as AiError).details).toMatchObject({
             gatewayCode: 'rate_limited',
-            requiresRelogin: true,
+            requiresRelogin: false,
         });
     });
 
@@ -212,10 +214,12 @@ describe('MiMoProviderAdapter', () => {
             },
         });
 
-        expect(() => (provider as any).createLanguageModel('gpt-4.1')).toThrowError(AiError);
-        expect(() => (provider as any).createLanguageModel('gpt-4.1')).toThrow(
-            'TouchAI Hub only supports mimo-v2.5 and mimo-v2.5-pro.'
-        );
+        expect(() =>
+            (provider as TestableMiMoProviderAdapter).createLanguageModel('gpt-4.1')
+        ).toThrowError(AiError);
+        expect(() =>
+            (provider as TestableMiMoProviderAdapter).createLanguageModel('gpt-4.1')
+        ).toThrow('TouchAI Hub only supports mimo-v2.5 and mimo-v2.5-pro.');
         expect(chatModelMock).not.toHaveBeenCalled();
     });
 });

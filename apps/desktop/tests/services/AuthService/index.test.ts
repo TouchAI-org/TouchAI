@@ -10,8 +10,12 @@ const eventServiceMock = vi.hoisted(() => ({
 }));
 
 const queriesMock = vi.hoisted(() => ({
-    deleteProvider: vi.fn(),
+    createModels: vi.fn(),
     findAllProvidersSorted: vi.fn(),
+    findDefaultModel: vi.fn(),
+    findModelsWithProvider: vi.fn(),
+    reassignModelsAndDeleteProvider: vi.fn(),
+    setDefaultModel: vi.fn(),
     updateProvider: vi.fn(),
 }));
 
@@ -50,8 +54,12 @@ describe('AuthService managed TouchAI Hub flow', () => {
                 updated_at: '',
             },
         ]);
+        queriesMock.findDefaultModel.mockResolvedValue(null);
+        queriesMock.findModelsWithProvider.mockResolvedValue([]);
+        queriesMock.createModels.mockResolvedValue(undefined);
+        queriesMock.reassignModelsAndDeleteProvider.mockResolvedValue(true);
+        queriesMock.setDefaultModel.mockResolvedValue(undefined);
         queriesMock.updateProvider.mockResolvedValue(undefined);
-        queriesMock.deleteProvider.mockResolvedValue(true);
         openUrlMock.mockResolvedValue(undefined);
         window.sessionStorage.clear();
     });
@@ -108,7 +116,10 @@ describe('AuthService managed TouchAI Hub flow', () => {
         const { initializeManagedProviderState } = await import('@/services/AuthService');
         await initializeManagedProviderState();
 
-        expect(queriesMock.deleteProvider).toHaveBeenCalledWith({ id: 321 });
+        expect(queriesMock.reassignModelsAndDeleteProvider).toHaveBeenCalledWith({
+            sourceProviderId: 321,
+            targetProviderId: 320,
+        });
         expect(queriesMock.updateProvider).toHaveBeenCalledWith({
             id: 320,
             providerPatch: {
@@ -126,6 +137,20 @@ describe('AuthService managed TouchAI Hub flow', () => {
                 enabled: 1,
             },
         });
+        expect(queriesMock.createModels).toHaveBeenCalledWith([
+            {
+                provider_id: 320,
+                name: 'mimo-v2.5',
+                model_id: 'mimo-v2.5',
+                is_default: 0,
+            },
+            {
+                provider_id: 320,
+                name: 'mimo-v2.5-pro',
+                model_id: 'mimo-v2.5-pro',
+                is_default: 0,
+            },
+        ]);
     });
 
     it('clears the managed provider token on logout', async () => {

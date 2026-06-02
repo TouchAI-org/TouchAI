@@ -37,7 +37,9 @@ fn focus_single_instance_activation_window<R: tauri::Runtime>(
         app.get_webview_window("settings").is_some(),
         app.get_webview_window("main").is_some(),
     )
-    .ok_or_else(|| "No activation window found while handling second-instance activation".to_string())?;
+    .ok_or_else(|| {
+        "No activation window found while handling second-instance activation".to_string()
+    })?;
 
     let window = app
         .get_webview_window(label)
@@ -202,7 +204,10 @@ mod tests {
 
     #[test]
     fn single_instance_activation_errors_when_no_window_exists() {
-        assert_eq!(resolve_single_instance_activation_window_label(false, false), None);
+        assert_eq!(
+            resolve_single_instance_activation_window_label(false, false),
+            None
+        );
     }
 
     #[test]
@@ -210,6 +215,8 @@ mod tests {
         assert!(should_activate_settings_for_args(&[
             "touchai://hub/auth/callback?code=test".to_string(),
         ]));
-        assert!(!should_activate_settings_for_args(&["--minimized".to_string()]));
+        assert!(!should_activate_settings_for_args(&[
+            "--minimized".to_string()
+        ]));
     }
 }

@@ -41,7 +41,6 @@ function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvi
         api_key: 'tai-long-lived-key',
         provider_config_json: null,
         provider_enabled: 1,
-        provider_is_builtin: 1,
         provider_logo: 'mimo.png',
         ...overrides,
     };
@@ -52,13 +51,10 @@ describe('AgentService catalog provider creation', () => {
         const provider = createProviderForModel(createModel());
 
         expect(provider.driver).toBe('mimo');
-        expect(providerRegistryMock.createProviderFromRegistry).toHaveBeenCalledWith(
-            'mimo',
-            {
-                apiEndpoint: 'https://hub.touch-ai.org/api/v1',
-                apiKey: 'tai-long-lived-key',
-                config: { headers: {} },
-            },
-        );
+        expect(providerRegistryMock.createProviderFromRegistry).toHaveBeenCalledWith('mimo', {
+            apiEndpoint: 'https://hub.touch-ai.org/api/v1',
+            apiKey: 'tai-long-lived-key',
+            config: { headers: {} },
+        });
     });
 });
