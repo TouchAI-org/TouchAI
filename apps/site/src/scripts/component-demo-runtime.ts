@@ -160,18 +160,35 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete 
     height: 100% !important;
 }
 
+@media (max-width: 900px) {
+    touchai-component-demo[data-demo-id="${id}"].component-frame {
+        width: min(60vw, 520px, 100%) !important;
+        height: auto !important;
+        min-height: 0 !important;
+        aspect-ratio: 760 / 657 !important;
+        max-height: min(62vh, 657px) !important;
+    }
+
+    touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
+        height: 100% !important;
+        min-height: 0 !important;
+    }
+}
+
 @media (max-width: 560px) {
     touchai-component-demo[data-demo-id="${id}"].component-frame {
         width: min(calc(100vw - 56px), 360px, 100%) !important;
         max-width: min(calc(100vw - 56px), 360px, 100%) !important;
-        height: 560px !important;
-        min-height: 560px !important;
+        height: auto !important;
+        min-height: 0 !important;
+        aspect-ratio: 760 / 657 !important;
+        max-height: min(58vh, 420px) !important;
         overflow: visible !important;
     }
 
     touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
-        min-height: 560px !important;
-        height: 560px !important;
+        min-height: 0 !important;
+        height: 100% !important;
         padding: 0 !important;
         align-items: center !important;
         justify-content: center !important;

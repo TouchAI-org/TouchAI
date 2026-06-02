@@ -1144,6 +1144,33 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     padding: 28px 18px 34px;
                 }
 
+                .visual-section {
+                    min-height: auto;
+                    padding: 48px 0 64px;
+                }
+
+                .visual-shell {
+                    min-height: auto;
+                    display: block;
+                    padding: 24px 0;
+                }
+
+                .visual-stage {
+                    height: auto;
+                    min-height: auto;
+                    display: grid;
+                    place-items: center;
+                    overflow: visible;
+                }
+
+                .component-frame {
+                    width: min(60vw, 520px, 100%);
+                    height: auto;
+                    aspect-ratio: 760 / 657;
+                    max-height: min(62vh, 657px);
+                    min-height: 0;
+                }
+
                 .feature-block-shell,
                 .scenario-grid,
                 .quote-row {
@@ -1296,7 +1323,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 .visual-stage {
                     height: auto;
-                    min-height: 560px;
+                    min-height: auto;
                     display: grid;
                     place-items: center;
                     overflow: visible;
@@ -1304,8 +1331,10 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 .component-frame {
                     width: min(100%, 360px);
-                    height: 560px;
-                    min-height: 560px;
+                    height: auto;
+                    aspect-ratio: 760 / 657;
+                    max-height: min(58vh, 420px);
+                    min-height: 0;
                     max-width: 360px;
                 }
 
@@ -2378,64 +2407,26 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     });
                 });
 
-                document.querySelectorAll('a.interactive-click').forEach((target) => {
-                    target.addEventListener('click', (event) => {
-                        const href = target.getAttribute('href');
-                        if (!href || target.dataset.glimmSkip === 'true') return;
-                        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-                            return;
-                        event.preventDefault();
-                        target.classList.remove('is-pressing');
-
-                        const isExternal = target.target === '_blank' || /^https?:\/\//.test(href);
-                        playGlimmSweep(() => {
-                            if (href.startsWith('#')) {
-                                const destination = document.querySelector(href);
-                                if (destination) {
-                                    destination.scrollIntoView({
-                                        behavior: 'smooth',
-                                        block: 'start',
-                                    });
-                                }
-                                if (history.replaceState) {
-                                    history.replaceState(null, '', href);
-                                }
-                                return;
-                            }
-                            if (isExternal) {
-                                window.open(href, target.target || '_blank', 'noopener,noreferrer');
-                                return;
-                            }
-                            window.location.href = href;
-                        });
-                    });
-                });
-
-                document.querySelectorAll('button.interactive-click').forEach((target) => {
+                document.querySelectorAll('.theme-toggle, .lang-toggle').forEach((target) => {
                     target.addEventListener(
                         'click',
                         (event) => {
-                            if (target.dataset.glimmBound === 'true') return;
-                            if (target.closest('.theme-toggle') || target.closest('.lang-toggle')) {
-                                event.stopImmediatePropagation();
-                                event.preventDefault();
-                                target.classList.remove('is-pressing');
-                                playGlimmSweep(() => {
-                                    if (target.classList.contains('theme-toggle')) {
-                                        setTheme(
-                                            document.documentElement.dataset.theme === 'dark'
-                                                ? 'light'
-                                                : 'dark'
-                                        );
-                                        return;
-                                    }
-                                    if (target.classList.contains('lang-toggle')) {
-                                        const nextLanguage =
-                                            document.documentElement.lang === 'en' ? 'zh' : 'en';
-                                        setLanguage(nextLanguage);
-                                    }
-                                });
-                            }
+                            event.stopImmediatePropagation();
+                            event.preventDefault();
+                            target.classList.remove('is-pressing');
+                            playGlimmSweep(() => {
+                                if (target.classList.contains('theme-toggle')) {
+                                    setTheme(
+                                        document.documentElement.dataset.theme === 'dark'
+                                            ? 'light'
+                                            : 'dark'
+                                    );
+                                    return;
+                                }
+                                const nextLanguage =
+                                    document.documentElement.lang === 'en' ? 'zh' : 'en';
+                                setLanguage(nextLanguage);
+                            });
                         },
                         true
                     );
