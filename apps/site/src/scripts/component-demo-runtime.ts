@@ -529,7 +529,9 @@ const applyDocument = async (
         loadExternalStyle(resolveUrl(href, componentUrl.href));
     });
 
-    host.innerHTML = doc.body.innerHTML.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+    const bodyContent = doc.body.cloneNode(true) as HTMLElement;
+    bodyContent.querySelectorAll('script').forEach((script) => script.remove());
+    host.replaceChildren(...Array.from(bodyContent.childNodes));
     updateResolvedSources(host, componentUrl.href);
 
     for (const script of [...doc.querySelectorAll('script')]) {
