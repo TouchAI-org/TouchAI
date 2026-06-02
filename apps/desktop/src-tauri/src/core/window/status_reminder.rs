@@ -185,11 +185,13 @@ fn restore_search_window_from_status_reminder<R: Runtime>(
     tauri::async_runtime::spawn(async move {
         let task_handle = app_handle.clone();
         if let Err(error) = app_handle.run_on_main_thread(move || {
-            if let Err(error) = crate::core::window::show_search_window(task_handle.clone()) {
-                log::warn!(
-                    "Failed to restore search window from session status notification: {}",
-                    error
-                );
+            if should_restore_search_window_from_status_reminder(payload.as_ref()) {
+                if let Err(error) = crate::core::window::show_search_window(task_handle.clone()) {
+                    log::warn!(
+                        "Failed to restore search window from session status notification: {}",
+                        error
+                    );
+                }
             }
 
             let Some(payload) = payload.as_ref() else {
@@ -212,6 +214,17 @@ fn restore_search_window_from_status_reminder<R: Runtime>(
             );
         }
     });
+}
+
+fn should_restore_search_window_from_status_reminder(
+    payload: Option<&SessionStatusReminderActionPayload>,
+) -> bool {
+    !matches!(
+        payload,
+        Some(payload)
+            if payload.kind == SessionStatusReminderKind::WaitingApproval
+                && payload.action == SessionStatusReminderAction::Approve
+    )
 }
 
 fn has_windows_installation_marker(exe_path: &std::path::Path) -> bool {
@@ -490,6 +503,11 @@ fn build_toast_document(
     toast
         .SetAttribute(&HSTRING::from("launch"), &HSTRING::from(&launch))
         .map_err(|error| error.to_string())?;
+    if payload.kind == SessionStatusReminderKind::WaitingApproval && payload.approval.is_some() {
+        toast
+            .SetAttribute(&HSTRING::from("scenario"), &HSTRING::from("reminder"))
+            .map_err(|error| error.to_string())?;
+    }
 
     let visual = doc
         .CreateElement(&HSTRING::from("visual"))
@@ -1098,13 +1116,9 @@ mod linux_notifications {
     };
 
     const STANDARD_REMINDER_TIMEOUT_MS: u32 = 15_000;
-    const APPROVAL_REMINDER_TIMEOUT_MS: u32 = 300_000;
-
     fn notification_timeout(kind: SessionStatusReminderKind) -> Timeout {
         match kind {
-            SessionStatusReminderKind::WaitingApproval => {
-                Timeout::Milliseconds(APPROVAL_REMINDER_TIMEOUT_MS)
-            }
+            SessionStatusReminderKind::WaitingApproval => Timeout::Never,
             SessionStatusReminderKind::Completed | SessionStatusReminderKind::Failed => {
                 Timeout::Milliseconds(STANDARD_REMINDER_TIMEOUT_MS)
             }
@@ -1211,7 +1225,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        finalize_activation_payload, has_windows_installation_marker, SessionStatusReminderAction,
+        finalize_activation_payload, has_windows_installation_marker,
+        should_restore_search_window_from_status_reminder, SessionStatusReminderAction,
         SessionStatusReminderActionPayload, SessionStatusReminderKind,
     };
 
@@ -1261,6 +1276,50 @@ mod tests {
 
         fs::write(dir.path().join("uninstall.exe"), b"stub").expect("write uninstall");
         assert!(has_windows_installation_marker(&exe_path));
+    }
+
+    #[test]
+    fn waiting_approval_approve_does_not_restore_search_window() {
+        let payload = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Approve,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            call_id: Some("call-1".to_string()),
+            reply_text: None,
+        };
+
+        assert!(!should_restore_search_window_from_status_reminder(Some(
+            &payload
+        )));
+    }
+
+    #[test]
+    fn other_status_reminder_actions_still_restore_search_window() {
+        let approve_completed = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Approve,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::Completed,
+            call_id: None,
+            reply_text: None,
+        };
+        let reject_waiting = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Reject,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            call_id: Some("call-1".to_string()),
+            reply_text: None,
+        };
+
+        assert!(should_restore_search_window_from_status_reminder(None));
+        assert!(should_restore_search_window_from_status_reminder(Some(
+            &approve_completed
+        )));
+        assert!(should_restore_search_window_from_status_reminder(Some(
+            &reject_waiting
+        )));
     }
 }
 
@@ -1313,6 +1372,7 @@ mod tests_windows {
         .expect("toast xml");
 
         assert!(xml.contains("<actions>"));
+        assert!(xml.contains("scenario=\"reminder\""));
         assert!(xml.contains("Approve"));
         assert!(xml.contains("Reject"));
         assert!(!xml.contains("Reply to TouchAI"));
