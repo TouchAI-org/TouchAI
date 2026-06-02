@@ -1,51 +1,36 @@
----
-import ToastProvider from '../components/ToastProvider';
+﻿---
+import ComponentDemo from '../components/ComponentDemo.astro';
 
-// Public runtime config — values are injected at build time from env vars.
-// Set in apps/site/.env.local for local dev; set as GitHub Actions secrets for CI.
-// Empty values disable the corresponding feature gracefully.
 const CLARITY_ID = import.meta.env.PUBLIC_CLARITY_ID ?? '';
 const WAITLIST_ENDPOINT = import.meta.env.PUBLIC_WAITLIST_ENDPOINT ?? '';
+const releasesUrl = 'https://github.com/TouchAI-org/TouchAI/releases';
+const repoUrl = 'https://github.com/TouchAI-org/TouchAI';
+const docsUrl = 'https://touch-ai.org/getting-started';
 ---
 
 <!doctype html>
-<html lang="zh-CN" id="htmlRoot">
+<html lang="zh-CN">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title
-            data-zh="TouchAI：一触即达的桌面效率 Agent"
-            data-en="TouchAI: A Desktop Efficiency Agent at Your Fingertips"
-        >
-            TouchAI：一触即达的桌面效率 Agent
-        </title>
+        <title>TouchAI</title>
         <meta
             name="description"
-            data-zh="一触即达的桌面效率 Agent——随时待命，做您触手可及的AI入口"
-            data-en="Your desktop AI agent, always ready — your touch-accessible AI gateway"
+            content="TouchAI 是一款桌面效率 Agent，连接文件、上下文、命令和工具，让工作流更顺手。"
         />
-        <meta name="keywords" content="TouchAI, AI, desktop agent, 触控, 效率工具, 桌面助手" />
+        <meta name="keywords" content="TouchAI, 桌面 AI, AI 助手, MCP, BYOK, 效率工具" />
         <meta name="author" content="TouchAI" />
         <meta property="og:type" content="website" />
         <meta property="og:title" content="TouchAI" />
-        <meta
-            property="og:description"
-            data-zh="一触即达的桌面效率 Agent——随时待命，做您触手可及的AI入口"
-            data-en="Your desktop AI agent, always ready — your touch-accessible AI gateway"
-        />
+        <meta property="og:description" content="一触即达的桌面效率Agent" />
         <meta property="og:url" content="https://touch-ai.org/" />
         <meta property="og:site_name" content="TouchAI" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="TouchAI" />
-        <meta
-            name="twitter:description"
-            data-zh="一触即达的桌面效率 Agent——随时待命，做您触手可及的AI入口"
-            data-en="Your desktop AI agent, always ready — your touch-accessible AI gateway"
-        />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <link rel="apple-touch-icon" href="/favicon.svg" />
-        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)" />
+        <meta name="twitter:description" content="一触即达的桌面效率Agent" />
+        <link rel="icon" type="image/svg+xml" href="/touchai-wordmark.svg" />
+        <link rel="apple-touch-icon" href="/touchai-wordmark.svg" />
+        <meta name="theme-color" content="#ffffff" />
         {
             CLARITY_ID && (
                 <script
@@ -54,1245 +39,2590 @@ const WAITLIST_ENDPOINT = import.meta.env.PUBLIC_WAITLIST_ENDPOINT ?? '';
                 />
             )
         }
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@500&display=swap"
-            rel="stylesheet"
-        />
         <style is:global>
             :root {
                 --bg: #ffffff;
-                --fg: #09090b;
-                --muted: #71717a;
-                --sep: #d4d4d8;
-                --cell-bg: #f4f4f5;
-                --cell-border: #e4e4e7;
+                --ink: #111111;
+                --muted: #5f5f5f;
+                --line: #e4e4e7;
+                --soft: #f4f4f5;
+                --soft-2: #fffefa;
+                --nav-bg: transparent;
+                --dark: #101014;
+                --feature-copy-surface: linear-gradient(180deg, #e9ebef 0%, #dfe3e8 100%);
+                --feature-media-surface: linear-gradient(180deg, #fbfcfd 0%, #f1f3f6 100%);
+                --feature-component-bg:
+                    radial-gradient(circle at 18% 24%, rgba(74, 156, 255, 0.16), transparent 42%),
+                    radial-gradient(circle at 78% 22%, rgba(255, 105, 180, 0.12), transparent 44%),
+                    radial-gradient(circle at 52% 82%, rgba(255, 210, 92, 0.14), transparent 48%),
+                    linear-gradient(135deg, #ffffff 0%, #f8fbff 50%, #fff8fb 100%);
+                --feature-shell-bg: linear-gradient(132deg, #ffffff 0%, #fffefa 46%, #f3faff 100%);
+                --component-stage-bg:
+                    radial-gradient(circle at 19% 71%, rgba(74, 156, 255, 0.2), transparent 28%),
+                    radial-gradient(circle at 72% 12%, rgba(74, 156, 255, 0.14), transparent 25%),
+                    linear-gradient(132deg, #ffffff 0%, #fffefa 46%, #f3faff 100%);
+                --max: 1180px;
+                --font-serif:
+                    'Source Han Serif SC', 'Source Han Serif CN', 'Noto Serif SC', 'Songti SC',
+                    'SimSun', serif;
+                --text-nav: 15px;
+                --text-button: 15px;
+                --text-caption: 15px;
+                --text-body: 18px;
+                --text-body-lg: 20px;
+                --text-card-title: 27px;
             }
-            .dark {
+
+            html[data-theme='dark'] {
                 --bg: #09090b;
-                --fg: #fafafa;
+                --ink: #fafafa;
                 --muted: #a1a1aa;
-                --sep: #3f3f46;
-                --cell-bg: #18181b;
-                --cell-border: #27272a;
+                --line: #27272a;
+                --soft: #18181b;
+                --soft-2: #27272a;
+                --nav-bg: transparent;
+                --feature-copy-surface: linear-gradient(180deg, #2f3137 0%, #24262b 100%);
+                --feature-media-surface: linear-gradient(180deg, #eef0f3 0%, #dfe3e8 100%);
+                --feature-component-bg:
+                    radial-gradient(circle at 18% 24%, rgba(74, 156, 255, 0.14), transparent 42%),
+                    radial-gradient(circle at 78% 22%, rgba(255, 105, 180, 0.1), transparent 44%),
+                    radial-gradient(circle at 52% 82%, rgba(255, 210, 92, 0.08), transparent 48%),
+                    linear-gradient(135deg, #09090b 0%, #0d1118 50%, #120d14 100%);
+                --feature-shell-bg: linear-gradient(132deg, #09090b 0%, #0a0b0f 52%, #0f1318 100%);
+                --component-stage-bg:
+                    radial-gradient(circle at 19% 71%, rgba(70, 86, 105, 0.14), transparent 29%),
+                    radial-gradient(circle at 72% 12%, rgba(54, 68, 84, 0.1), transparent 25%),
+                    linear-gradient(132deg, #09090b 0%, #0a0b0f 52%, #0f1318 100%);
+                color-scheme: dark;
             }
+
             * {
-                margin: 0;
-                padding: 0;
                 box-sizing: border-box;
             }
-            html,
-            body {
-                width: 100%;
-                min-height: 100vh;
+
+            [hidden] {
+                display: none !important;
             }
+
+            html {
+                scroll-behavior: auto;
+            }
+
+            section[id] {
+                scroll-margin-top: 92px;
+            }
+
             body {
-                font-family:
-                    'Inter',
-                    -apple-system,
-                    BlinkMacSystemFont,
-                    sans-serif;
+                margin: 0;
                 background: var(--bg);
-                color: var(--fg);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                min-height: 100vh;
+                color: var(--ink);
+                font-family: var(--font-serif);
                 -webkit-font-smoothing: antialiased;
+                text-rendering: optimizeLegibility;
             }
-            .wrap {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 3rem;
-                padding: 2rem;
-                overflow: visible;
+
+            a {
+                color: inherit;
+                text-decoration: none;
             }
-            .logo-light {
-                width: 180px;
-                height: auto;
-            }
-            .logo-dark {
-                display: none;
-                width: 180px;
-                height: auto;
-            }
-            .dark .logo-light {
-                display: none;
-            }
-            .dark .logo-dark {
+
+            img {
                 display: block;
-            }
-            .info {
-                text-align: center;
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-                min-height: 5.5rem;
-                justify-content: center;
-            }
-            .title {
-                font-size: 2.25rem;
-                font-weight: 500;
-                color: var(--fg);
-                letter-spacing: -0.01em;
-            }
-            .subtitle {
-                font-size: 1rem;
-                color: var(--muted);
-                font-weight: 400;
-                letter-spacing: 0.005em;
-            }
-            .countdown {
-                display: flex;
-                flex-wrap: wrap;
-                justify-content: center;
-                align-items: center;
-                gap: 0.6rem;
-                min-height: 2.6rem;
-            }
-            .cd-pair {
-                display: flex;
-                gap: 0.8rem;
-            }
-            .cd-group {
-                display: flex;
-                align-items: center;
-                gap: 0.35rem;
-            }
-            .roll-cell {
-                width: 1.8rem;
-                height: 2.6rem;
-                overflow: hidden;
-                position: relative;
-                background: var(--cell-bg);
-                border: 1px solid var(--cell-border);
-                border-radius: 0.375rem;
-            }
-            .roll-strip {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                transition: transform 0.4s cubic-bezier(0.33, 1, 0.68, 1);
-            }
-            .roll-digit {
-                width: 100%;
-                height: 2.6rem;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.125rem;
-                font-weight: 500;
-                font-variant-numeric: tabular-nums;
-                color: var(--fg);
-                user-select: none;
-            }
-            .sep {
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.8rem;
-                font-weight: 500;
-                color: var(--sep);
-                line-height: 2.6rem;
-                text-align: center;
-                user-select: none;
-            }
-            .waitlist {
-                display: flex;
-                flex-direction: column;
-                align-items: stretch;
-                gap: 0.4rem;
-                width: 100%;
                 max-width: 100%;
-                overflow: hidden;
-                transition:
-                    opacity 0.4s ease,
-                    transform 0.4s ease,
-                    max-height 0.5s ease 0.05s,
-                    margin 0.5s ease 0.05s;
-                max-height: 200px;
             }
-            .waitlist.hide {
-                opacity: 0;
-                transform: translateY(-8px);
-                max-height: 0;
-                margin: -1.5rem 0;
-                pointer-events: none;
-            }
-            .waitlist.gone {
-                display: none;
-            }
-            .waitlist-row {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 0.5rem;
+
+            .nav {
+                position: sticky;
+                top: 0;
+                z-index: 20;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                align-items: center;
                 width: 100%;
-            }
-            .waitlist input {
-                flex: 1;
-                min-width: 0;
-                padding: 0.6rem 0.9rem;
-                border: 1px solid var(--cell-border);
-                border-radius: 0.5rem;
-                background: var(--cell-bg);
-                color: var(--fg);
-                font-family: inherit;
-                font-size: 0.875rem;
-                outline: none;
+                min-height: 72px;
+                margin: 0 auto;
+                padding: 0 24px;
+                background: var(--nav-bg);
+                backdrop-filter: none;
                 transition:
-                    border-color 0.2s,
-                    background 0.2s;
+                    background-color 0.2s ease,
+                    box-shadow 0.2s ease,
+                    backdrop-filter 0.2s ease;
             }
-            .waitlist input::placeholder {
-                color: var(--muted);
-                opacity: 0.7;
-            }
-            .waitlist input:focus {
-                border-color: var(--muted);
-            }
-            .waitlist button {
-                padding: 0.6rem 1.1rem;
-                border: 1px solid var(--cell-border);
-                border-radius: 0.5rem;
-                background: var(--fg);
-                color: var(--bg);
-                font-family: inherit;
-                font-size: 0.875rem;
-                font-weight: 500;
-                cursor: pointer;
-                white-space: nowrap;
-                transition:
-                    opacity 0.2s,
-                    transform 0.1s;
-            }
-            .waitlist button:hover:not(:disabled) {
-                opacity: 0.85;
-            }
-            .waitlist button:active:not(:disabled) {
-                transform: scale(0.98);
-            }
-            .waitlist button:disabled {
-                opacity: 0.5;
-                cursor: not-allowed;
-            }
-            .waitlist button {
-                position: relative;
-            }
-            .waitlist button .btn-label {
-                transition: opacity 0.2s ease;
-            }
-            .waitlist button .btn-check {
-                position: absolute;
-                inset: 0;
-                margin: auto;
-                width: 18px;
-                height: 18px;
-                color: #fff;
-                opacity: 0;
-                pointer-events: none;
-            }
-            .waitlist button .btn-check path {
-                stroke-dasharray: 30;
-                stroke-dashoffset: 30;
-            }
-            .waitlist button.loading .btn-label {
-                opacity: 0;
-            }
-            .waitlist button.loading::after {
+
+            .nav::after {
                 content: '';
                 position: absolute;
-                inset: 0;
-                margin: auto;
-                width: 14px;
-                height: 14px;
-                border: 2px solid rgba(255, 255, 255, 0.3);
-                border-top-color: #fff;
-                border-radius: 50%;
-                animation: spin 0.6s linear infinite;
-            }
-            .waitlist button.success {
-                background: #16a34a;
-                border-color: #16a34a;
-            }
-            .waitlist button.success .btn-label {
-                opacity: 0;
-            }
-            .waitlist button.success .btn-check {
-                opacity: 1;
-            }
-            .waitlist button.success .btn-check path {
-                animation: drawCheck 0.45s cubic-bezier(0.65, 0, 0.45, 1) forwards;
-            }
-            .waitlist-row {
-                overflow: hidden;
-                transition:
-                    opacity 0.4s ease,
-                    transform 0.4s ease,
-                    max-height 0.5s ease 0.1s,
-                    margin 0.5s ease 0.1s,
-                    padding 0.5s ease 0.1s;
-                max-height: 200px;
-            }
-            .waitlist-row.hide {
-                opacity: 0;
-                transform: translateY(-8px);
-                max-height: 0;
-                margin: 0;
-                padding: 0;
+                left: 0;
+                right: 0;
+                bottom: -24px;
+                height: 24px;
                 pointer-events: none;
-            }
-            @keyframes spin {
-                to {
-                    transform: rotate(360deg);
-                }
-            }
-            @keyframes drawCheck {
-                to {
-                    stroke-dashoffset: 0;
-                }
-            }
-            .waitlist-msg {
-                font-size: 0.78rem;
-                color: var(--muted);
-                min-height: 1.1em;
-                text-align: center;
-            }
-            .waitlist-msg.ok {
-                color: #16a34a;
-            }
-            .waitlist-msg.err {
-                color: #ef4444;
-            }
-            .gh {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 32px;
-                height: 32px;
-                border-radius: 50%;
-                color: var(--sep);
-                text-decoration: none;
-                transition: color 0.2s;
-            }
-            .gh:hover {
-                color: var(--fg);
-            }
-            .gh svg {
-                width: 16px;
-                height: 16px;
-            }
-            .controls {
-                position: fixed;
-                top: 1rem;
-                right: 1rem;
-                display: flex;
-                gap: 0.5rem;
-                z-index: 10;
-                min-height: 36px;
-            }
-            .controls button {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 36px;
-                height: 36px;
-                border: 1px solid var(--cell-border);
-                border-radius: 0.5rem;
-                background: var(--cell-bg);
-                color: var(--fg);
-                font-size: 0.8rem;
-                font-weight: 500;
-                cursor: pointer;
-                transition:
-                    background 0.2s,
-                    border-color 0.2s,
-                    color 0.2s;
-                line-height: 1;
-            }
-            .controls button:hover {
-                border-color: var(--muted);
-            }
-            .controls button svg {
-                width: 16px;
-                height: 16px;
-                fill: currentColor;
-            }
-            @media (max-width: 480px) {
-                .wrap {
-                    gap: 2rem;
-                    padding: 1.25rem;
-                }
-                .logo-light,
-                .logo-dark {
-                    width: 140px;
-                }
-                .title {
-                    font-size: 1.75rem;
-                }
-                .subtitle {
-                    font-size: 0.875rem;
-                }
-                .countdown {
-                    gap: 0.4rem;
-                }
-                .roll-cell {
-                    width: 1.5rem;
-                }
-                .roll-digit {
-                    font-size: 1rem;
-                }
-                .sep {
-                    font-size: 0.7rem;
-                }
-                .waitlist {
-                    max-width: 100%;
-                }
-                .waitlist input,
-                .waitlist button {
-                    font-size: 0.8rem;
-                    padding: 0.55rem 0.8rem;
-                }
-            }
-        </style>
-        <script is:inline>
-            (function () {
-                var t = localStorage.getItem('ta_theme');
-                if (
-                    t === 'dark' ||
-                    (!t &&
-                        window.matchMedia &&
-                        window.matchMedia('(prefers-color-scheme: dark)').matches)
-                ) {
-                    document.documentElement.classList.add('dark');
-                }
-            })();
-        </script>
-    </head>
-    <body>
-        <div class="controls" id="controls"></div>
-        <div class="wrap">
-            <svg
-                class="logo-light"
-                xmlns="http://www.w3.org/2000/svg"
-                xmlns:xlink="http://www.w3.org/1999/xlink"
-                width="421"
-                height="109"
-                viewBox="0 0 421 109"
-                fill="none"
-                style="width:180px;height:auto"
-            >
-                <path
-                    d="M84.1863 15.0937C79.4863 11.3937 74.6863 8.29372 65.5863 6.29372C52.7863 3.69372 38.9863 5.49372 28.2863 13.3937C18.7863 20.0937 11.4863 30.9937 9.78628 43.8937C8.68628 52.9937 9.58628 68.6937 17.2863 78.4937L18.5863 80.9937C20.9863 88.8937 28.8863 95.9937 38.2863 97.9937L38.9863 98.0937C46.6863 102.194 53.1863 103.694 61.0863 103.294C75.2863 102.794 81.9863 104.594 88.2863 103.394C96.7863 101.794 105.986 93.9937 105.886 79.6937C105.886 72.4937 105.186 65.6937 105.186 65.6937C105.186 65.6937 107.686 59.3937 107.586 50.3937C107.486 37.8937 101.086 21.0937 84.1863 15.3937L84.1863 15.0937Z"
-                    fill="url(#linear_fill_4_39)"
-                >
-                </path><path
-                    d="M83.8908 14.8955C87.3908 18.3955 89.3908 24.1955 91.8908 29.3955C95.1908 36.1955 101.691 45.2955 103.691 53.8955C104.391 57.0955 104.891 60.6955 105.191 65.6955C106.391 62.1955 107.591 57.1955 107.491 50.2955C107.291 37.9955 100.591 20.0955 83.8908 14.8955Z"
-                    fill="url(#linear_fill_4_40)"
-                >
-                </path><path
-                    d="M104.656 65.1955C104.056 60.0955 103.656 56.8955 102.956 53.8955C101.056 46.2955 96.6558 35.5955 93.2558 28.5955C91.0558 23.7955 87.9858 18.7955 83.8858 14.8955C80.9858 14.0955 77.3558 13.3955 72.0558 13.3955C57.3558 13.3955 45.1558 19.8955 37.1558 32.2955C35.6558 34.7955 33.0558 39.5955 33.0558 39.5955C33.0558 39.5955 27.0558 48.3955 26.3558 49.8955C22.8558 56.4955 18.1558 64.2955 17.4558 72.4955C17.2558 75.2955 17.4558 77.8955 18.0558 80.5955C20.1558 87.6955 27.0558 94.5955 37.6558 97.4955L38.3558 97.5955C44.4558 100.796 51.0558 102.996 60.3558 102.796C65.1558 102.296 70.2558 101.396 77.4558 98.0955C86.9558 93.4955 95.3558 85.4955 101.456 74.4955C102.656 72.4955 104.056 69.3955 104.656 67.3955L104.656 65.1955Z"
-                    fill="url(#linear_fill_4_41)"
-                >
-                </path><path
-                    d="M105.191 65.6956C104.491 67.8956 103.191 70.7956 101.991 72.7956C95.6908 83.9956 87.2908 91.9956 77.9908 97.9956C81.2908 100.596 85.4908 103.696 88.3908 103.396C96.8908 101.996 105.891 94.3956 105.891 79.8956C105.891 75.4956 105.291 67.4956 105.191 65.6956Z"
-                    fill="url(#linear_fill_4_42)"
-                >
-                </path><path
-                    d="M38.8808 98.0955C32.3808 94.3955 27.5808 90.3955 25.4808 83.2955C21.9808 71.9955 20.7908 60.3955 26.8908 48.8955L23.3908 53.8955C19.8887 59.8955 17.8808 66.4955 17.3808 73.8955C16.8808 84.4955 25.4808 95.0955 38.1808 97.9955L38.8808 98.0955Z"
-                    fill="url(#linear_fill_4_43)"
-                >
-                </path><path
-                    d="M69.1908 75.7955C69.9908 84.7955 71.4908 92.5955 77.9908 97.8955C85.2908 94.1955 94.7908 87.9955 102.491 73.2955C103.191 71.8955 104.791 68.7955 105.191 65.6955C104.791 59.8955 104.491 55.8955 103.891 53.3955C101.391 44.8955 98.2908 35.4955 94.3908 27.8955C92.6908 24.3955 88.8908 18.8955 84.1908 15.2955C81.2908 14.4955 77.8908 13.8955 72.5908 13.8955C58.5908 13.8955 45.8908 18.5955 37.3908 31.8955C39.9908 28.0955 47.8908 16.2955 69.1908 75.7955Z"
-                    fill="url(#linear_fill_4_44)"
-                >
-                </path><g filter="url(#filter_4_45)">
-                    <path
-                        d="M37.8905 51.0926L73.9905 35.2926C78.9905 33.0926 82.5905 36.0926 81.2905 40.9926L68.3905 78.2926C65.9905 82.9926 60.9905 82.8926 59.4905 78.5926L54.8905 64.7926C54.4905 63.6926 53.7905 62.7926 52.5905 62.4926C47.9905 61.3926 41.0905 59.2926 38.3905 58.2926C34.8905 57.3926 33.8905 52.9926 37.8905 51.0926Z"
-                        fill="url(#linear_fill_4_45)"
-                    >
-                    </path>
-                </g><g>
-                    <path
-                        fill="#2B364A"
-                        d="M160.466 38.912L146.858 38.912L146.858 80.6L137.426 80.6L137.426 38.912L123.89 38.912L123.89 30.632L160.466 30.632L160.466 38.912ZM184.938 81.32Q180.474 81.32 177.018 80.384Q173.562 79.448 171.186 77.144Q168.81 74.84 167.55 70.952Q166.29 67.064 166.29 61.16Q166.29 55.256 167.55 51.368Q168.81 47.48 171.186 45.176Q173.562 42.872 177.018 41.936Q180.474 41 184.938 41Q189.402 41 192.894 41.936Q196.386 42.872 198.762 45.176Q201.138 47.48 202.398 51.368Q203.658 55.256 203.658 61.16Q203.658 67.064 202.398 70.952Q201.138 74.84 198.762 77.144Q196.386 79.448 192.894 80.384Q189.402 81.32 184.938 81.32ZM184.938 74.336Q187.674 74.336 189.474 73.688Q191.274 73.04 192.354 71.528Q193.434 70.016 193.902 67.496Q194.37 64.976 194.37 61.16Q194.37 57.416 193.902 54.86Q193.434 52.304 192.318 50.756Q191.202 49.208 189.402 48.56Q187.602 47.912 184.938 47.912Q182.274 47.912 180.474 48.56Q178.674 49.208 177.594 50.756Q176.514 52.304 176.046 54.86Q175.578 57.416 175.578 61.16Q175.578 64.976 176.046 67.496Q176.514 70.016 177.63 71.528Q178.746 73.04 180.546 73.688Q182.346 74.336 184.938 74.336ZM247.57 41.72L247.57 80.6L239.506 80.6L238.714 75.632Q237.058 78.8 233.926 80.06Q230.794 81.32 226.69 81.32Q223.018 81.32 220.534 80.456Q218.05 79.592 216.502 77.936Q214.954 76.28 214.306 73.868Q213.658 71.456 213.658 68.432L213.658 41.72L222.658 41.72L222.658 65.84Q222.658 67.856 222.946 69.368Q223.234 70.88 223.99 71.852Q224.746 72.824 226.042 73.328Q227.338 73.832 229.426 73.832Q232.666 73.832 235.042 72.608Q237.418 71.384 238.57 67.64L238.57 41.72L247.57 41.72ZM276.65 81.32Q272.186 81.32 268.694 80.384Q265.202 79.448 262.79 77.144Q260.378 74.84 259.118 70.952Q257.858 67.064 257.858 61.16Q257.858 55.256 259.118 51.368Q260.378 47.48 262.79 45.176Q265.202 42.872 268.694 41.936Q272.186 41 276.65 41Q279.674 41 282.302 41.36Q284.93 41.72 286.73 42.296L286.73 50Q284.642 49.208 282.41 48.848Q280.178 48.488 277.586 48.488Q274.778 48.488 272.798 49.1Q270.818 49.712 269.558 51.152Q268.298 52.592 267.722 55.04Q267.146 57.488 267.146 61.232Q267.146 64.904 267.722 67.316Q268.298 69.728 269.558 71.168Q270.818 72.608 272.834 73.184Q274.85 73.76 277.73 73.76Q280.178 73.76 282.554 73.4Q284.93 73.04 287.018 72.248L287.018 79.88Q286.154 80.168 284.966 80.42Q283.778 80.672 282.374 80.888Q280.97 81.104 279.494 81.212Q278.018 81.32 276.65 81.32ZM318.042 41Q321.714 41 324.198 41.864Q326.682 42.728 328.194 44.384Q329.706 46.04 330.354 48.452Q331.002 50.864 331.002 53.96L331.002 80.6L322.002 80.6L322.002 56.48Q322.002 52.376 320.67 50.432Q319.338 48.488 315.306 48.488Q311.922 48.488 309.402 49.82Q306.882 51.152 305.802 54.896L305.802 80.6L296.802 80.6L296.802 25.88L305.802 25.88L305.802 46.76Q307.458 43.664 310.734 42.332Q314.01 41 318.042 41Z"
-                    >
-                    </path><path
-                        fill="url(#linear_fill_4_47_0)"
-                        d="M373.258 67.352L352.378 67.352L347.626 80.6L337.906 80.6L356.626 30.632L369.298 30.632L387.874 80.6L377.866 80.6L373.258 67.352ZM370.45 59.432L363.322 39.056L362.458 39.056L355.186 59.432L370.45 59.432ZM395.138 30.632L404.57 30.632L404.57 80.6L395.138 80.6L395.138 30.632Z"
-                    >
-                    </path>
-                </g><defs>
-                    <linearGradient
-                        id="linear_fill_4_39"
-                        x1="26.008"
-                        y1="27.923"
-                        x2="80.391"
-                        y2="103.816"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#BFDFFF" stop-opacity="0.78"></stop><stop
-                            offset="0.5509"
-                            stop-color="#3392FF"
-                        >
-                        </stop><stop offset="1" stop-color="#89BEFA" stop-opacity="0.74"></stop>
-                    </linearGradient><linearGradient
-                        id="linear_fill_4_40"
-                        x1="100.171"
-                        y1="22.896"
-                        x2="100.171"
-                        y2="66.016"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#1E99FC"></stop><stop
-                            offset="1"
-                            stop-color="#0756FB"
-                        >
-                        </stop>
-                    </linearGradient><linearGradient
-                        id="linear_fill_4_41"
-                        x1="45.256"
-                        y1="31.885"
-                        x2="54.156"
-                        y2="100.146"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#338EFD"></stop><stop
-                            offset="0.4946"
-                            stop-color="#2E7EFB"
-                        >
-                        </stop><stop offset="1" stop-color="#81BDFA"></stop>
-                    </linearGradient><linearGradient
-                        id="linear_fill_4_42"
-                        x1="77.571"
-                        y1="62.546"
-                        x2="105.781"
-                        y2="92.566"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#2D78FB"></stop><stop
-                            offset="1"
-                            stop-color="#509CFC"
-                        >
-                        </stop>
-                    </linearGradient><linearGradient
-                        id="linear_fill_4_43"
-                        x1="24.972"
-                        y1="86.297"
-                        x2="24.972"
-                        y2="58.199"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#3086FD"></stop><stop
-                            offset="1"
-                            stop-color="#3594FC"
-                        >
-                        </stop>
-                    </linearGradient><linearGradient
-                        id="linear_fill_4_44"
-                        x1="67.701"
-                        y1="14.233"
-                        x2="93.381"
-                        y2="70.676"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#3896FD"></stop><stop
-                            offset="0.3244"
-                            stop-color="#2C81FC"
-                        >
-                        </stop><stop offset="0.8357" stop-color="#295EFF"></stop><stop
-                            offset="1"
-                            stop-color="#356EFC"
-                        >
-                        </stop>
-                    </linearGradient><linearGradient
-                        id="linear_fill_4_45"
-                        x1="47.32"
-                        y1="61.566"
-                        x2="81.558"
-                        y2="39.003"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#E3E3E3"></stop><stop
-                            offset="1"
-                            stop-color="#FFFFFF"
-                        >
-                        </stop>
-                    </linearGradient><filter
-                        id="filter_4_45"
-                        x="29.891"
-                        y="31.093"
-                        width="56.7"
-                        height="57.9"
-                        filterUnits="userSpaceOnUse"
-                        color-interpolation-filters="sRGB"
-                    >
-                        <feFlood flood-opacity="0" result="feFloodId_4_45"></feFlood><feColorMatrix
-                            in="SourceAlpha"
-                            type="matrix"
-                            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-                            result="hardAlpha_4_45"
-                        >
-                        </feColorMatrix><feOffset dx="0" dy="2"></feOffset><feGaussianBlur
-                            stdDeviation="2"
-                        >
-                        </feGaussianBlur><feComposite in2="hardAlpha_4_45" operator="out">
-                        </feComposite><feColorMatrix
-                            type="matrix"
-                            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"
-                        >
-                        </feColorMatrix><feBlend
-                            mode="normal"
-                            in2="feFloodId_4_45"
-                            result="dropShadow_1_4_45"
-                        >
-                        </feBlend><feBlend
-                            mode="normal"
-                            in="SourceGraphic"
-                            in2="dropShadow_1_4_45"
-                            result="shape_4_45"
-                        >
-                        </feBlend>
-                    </filter><linearGradient
-                        id="linear_fill_4_47_0"
-                        x1="122.594"
-                        y1="54.5"
-                        x2="411.594"
-                        y2="54.5"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#0451E0"></stop><stop
-                            offset="1"
-                            stop-color="#7AB8FF"
-                        >
-                        </stop>
-                    </linearGradient>
-                </defs>
-            </svg>
-            <svg
-                class="logo-dark"
-                xmlns="http://www.w3.org/2000/svg"
-                xmlns:xlink="http://www.w3.org/1999/xlink"
-                width="421"
-                height="109"
-                viewBox="0 0 421 109"
-                fill="none"
-                style="width:180px;height:auto"
-            >
-                <path
-                    d="M84.1863 15.0937C79.4863 11.3937 74.6863 8.29372 65.5863 6.29372C52.7863 3.69372 38.9863 5.49372 28.2863 13.3937C18.7863 20.0937 11.4863 30.9937 9.78628 43.8937C8.68628 52.9937 9.58628 68.6937 17.2863 78.4937L18.5863 80.9937C20.9863 88.8937 28.8863 95.9937 38.2863 97.9937L38.9863 98.0937C46.6863 102.194 53.1863 103.694 61.0863 103.294C75.2863 102.794 81.9863 104.594 88.2863 103.394C96.7863 101.794 105.986 93.9937 105.886 79.6937C105.886 72.4937 105.186 65.6937 105.186 65.6937C105.186 65.6937 107.686 59.3937 107.586 50.3937C107.486 37.8937 101.086 21.0937 84.1863 15.3937L84.1863 15.0937Z"
-                    fill="url(#dl_fill_1)"
-                >
-                </path><path
-                    d="M83.8908 14.8955C87.3908 18.3955 89.3908 24.1955 91.8908 29.3955C95.1908 36.1955 101.691 45.2955 103.691 53.8955C104.391 57.0955 104.891 60.6955 105.191 65.6955C106.391 62.1955 107.591 57.1955 107.491 50.2955C107.291 37.9955 100.591 20.0955 83.8908 14.8955Z"
-                    fill="url(#dl_fill_2)"
-                >
-                </path><path
-                    d="M104.656 65.1955C104.056 60.0955 103.656 56.8955 102.956 53.8955C101.056 46.2955 96.6558 35.5955 93.2558 28.5955C91.0558 23.7955 87.9858 18.7955 83.8858 14.8955C80.9858 14.0955 77.3558 13.3955 72.0558 13.3955C57.3558 13.3955 45.1558 19.8955 37.1558 32.2955C35.6558 34.7955 33.0558 39.5955 33.0558 39.5955C33.0558 39.5955 27.0558 48.3955 26.3558 49.8955C22.8558 56.4955 18.1558 64.2955 17.4558 72.4955C17.2558 75.2955 17.4558 77.8955 18.0558 80.5955C20.1558 87.6955 27.0558 94.5955 37.6558 97.4955L38.3558 97.5955C44.4558 100.796 51.0558 102.996 60.3558 102.796C65.1558 102.296 70.2558 101.396 77.4558 98.0955C86.9558 93.4955 95.3558 85.4955 101.456 74.4955C102.656 72.4955 104.056 69.3955 104.656 67.3955L104.656 65.1955Z"
-                    fill="url(#dl_fill_3)"
-                >
-                </path><path
-                    d="M105.191 65.6956C104.491 67.8956 103.191 70.7956 101.991 72.7956C95.6908 83.9956 87.2908 91.9956 77.9908 97.9956C81.2908 100.596 85.4908 103.696 88.3908 103.396C96.8908 101.996 105.891 94.3956 105.891 79.8956C105.891 75.4956 105.291 67.4956 105.191 65.6956Z"
-                    fill="url(#dl_fill_4)"
-                >
-                </path><path
-                    d="M38.8808 98.0955C32.3808 94.3955 27.5808 90.3955 25.4808 83.2955C21.9808 71.9955 20.7908 60.3955 26.8908 48.8955L23.3908 53.8955C19.8887 59.8955 17.8808 66.4955 17.3808 73.8955C16.8808 84.4955 25.4808 95.0955 38.1808 97.9955L38.8808 98.0955Z"
-                    fill="url(#dl_fill_5)"
-                >
-                </path><path
-                    d="M69.1908 75.7955C69.9908 84.7955 71.4908 92.5955 77.9908 97.8955C85.2908 94.1955 94.7908 87.9955 102.491 73.2955C103.191 71.8955 104.791 68.7955 105.191 65.6955C104.791 59.8955 104.491 55.8955 103.891 53.3955C101.391 44.8955 98.2908 35.4955 94.3908 27.8955C92.6908 24.3955 88.8908 18.8955 84.1908 15.2955C81.2908 14.4955 77.8908 13.8955 72.5908 13.8955C58.5908 13.8955 45.8908 18.5955 37.3908 31.8955C39.9908 28.0955 47.8908 16.2955 69.1908 75.7955Z"
-                    fill="url(#dl_fill_6)"
-                >
-                </path><g filter="url(#dl_filter)">
-                    <path
-                        d="M37.8905 51.0926L73.9905 35.2926C78.9905 33.0926 82.5905 36.0926 81.2905 40.9926L68.3905 78.2926C65.9905 82.9926 60.9905 82.8926 59.4905 78.5926L54.8905 64.7926C54.4905 63.6926 53.7905 62.7926 52.5905 62.4926C47.9905 61.3926 41.0905 59.2926 38.3905 58.2926C34.8905 57.3926 33.8905 52.9926 37.8905 51.0926Z"
-                        fill="url(#dl_fill_7)"
-                    >
-                    </path>
-                </g><g>
-                    <path
-                        fill="#FFFFFF"
-                        d="M160.466 38.912L146.858 38.912L146.858 80.6L137.426 80.6L137.426 38.912L123.89 38.912L123.89 30.632L160.466 30.632L160.466 38.912ZM184.938 81.32Q180.474 81.32 177.018 80.384Q173.562 79.448 171.186 77.144Q168.81 74.84 167.55 70.952Q166.29 67.064 166.29 61.16Q166.29 55.256 167.55 51.368Q168.81 47.48 171.186 45.176Q173.562 42.872 177.018 41.936Q180.474 41 184.938 41Q189.402 41 192.894 41.936Q196.386 42.872 198.762 45.176Q201.138 47.48 202.398 51.368Q203.658 55.256 203.658 61.16Q203.658 67.064 202.398 70.952Q201.138 74.84 198.762 77.144Q196.386 79.448 192.894 80.384Q189.402 81.32 184.938 81.32ZM184.938 74.336Q187.674 74.336 189.474 73.688Q191.274 73.04 192.354 71.528Q193.434 70.016 193.902 67.496Q194.37 64.976 194.37 61.16Q194.37 57.416 193.902 54.86Q193.434 52.304 192.318 50.756Q191.202 49.208 189.402 48.56Q187.602 47.912 184.938 47.912Q182.274 47.912 180.474 48.56Q178.674 49.208 177.594 50.756Q176.514 52.304 176.046 54.86Q175.578 57.416 175.578 61.16Q175.578 64.976 176.046 67.496Q176.514 70.016 177.63 71.528Q178.746 73.04 180.546 73.688Q182.346 74.336 184.938 74.336ZM247.57 41.72L247.57 80.6L239.506 80.6L238.714 75.632Q237.058 78.8 233.926 80.06Q230.794 81.32 226.69 81.32Q223.018 81.32 220.534 80.456Q218.05 79.592 216.502 77.936Q214.954 76.28 214.306 73.868Q213.658 71.456 213.658 68.432L213.658 41.72L222.658 41.72L222.658 65.84Q222.658 67.856 222.946 69.368Q223.234 70.88 223.99 71.852Q224.746 72.824 226.042 73.328Q227.338 73.832 229.426 73.832Q232.666 73.832 235.042 72.608Q237.418 71.384 238.57 67.64L238.57 41.72L247.57 41.72ZM276.65 81.32Q272.186 81.32 268.694 80.384Q265.202 79.448 262.79 77.144Q260.378 74.84 259.118 70.952Q257.858 67.064 257.858 61.16Q257.858 55.256 259.118 51.368Q260.378 47.48 262.79 45.176Q265.202 42.872 268.694 41.936Q272.186 41 276.65 41Q279.674 41 282.302 41.36Q284.93 41.72 286.73 42.296L286.73 50Q284.642 49.208 282.41 48.848Q280.178 48.488 277.586 48.488Q274.778 48.488 272.798 49.1Q270.818 49.712 269.558 51.152Q268.298 52.592 267.722 55.04Q267.146 57.488 267.146 61.232Q267.146 64.904 267.722 67.316Q268.298 69.728 269.558 71.168Q270.818 72.608 272.834 73.184Q274.85 73.76 277.73 73.76Q280.178 73.76 282.554 73.4Q284.93 73.04 287.018 72.248L287.018 79.88Q286.154 80.168 284.966 80.42Q283.778 80.672 282.374 80.888Q280.97 81.104 279.494 81.212Q278.018 81.32 276.65 81.32ZM318.042 41Q321.714 41 324.198 41.864Q326.682 42.728 328.194 44.384Q329.706 46.04 330.354 48.452Q331.002 50.864 331.002 53.96L331.002 80.6L322.002 80.6L322.002 56.48Q322.002 52.376 320.67 50.432Q319.338 48.488 315.306 48.488Q311.922 48.488 309.402 49.82Q306.882 51.152 305.802 54.896L305.802 80.6L296.802 80.6L296.802 25.88L305.802 25.88L305.802 46.76Q307.458 43.664 310.734 42.332Q314.01 41 318.042 41Z"
-                    >
-                    </path><path
-                        fill="url(#dl_fill_8)"
-                        d="M373.258 67.352L352.378 67.352L347.626 80.6L337.906 80.6L356.626 30.632L369.298 30.632L387.874 80.6L377.866 80.6L373.258 67.352ZM370.45 59.432L363.322 39.056L362.458 39.056L355.186 59.432L370.45 59.432ZM395.138 30.632L404.57 30.632L404.57 80.6L395.138 80.6L395.138 30.632Z"
-                    >
-                    </path>
-                </g><defs>
-                    <linearGradient
-                        id="dl_fill_1"
-                        x1="26.008"
-                        y1="27.923"
-                        x2="80.391"
-                        y2="103.816"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#BFDFFF" stop-opacity="0.78"></stop><stop
-                            offset="0.5509"
-                            stop-color="#3392FF"
-                        >
-                        </stop><stop offset="1" stop-color="#89BEFA" stop-opacity="0.74"></stop>
-                    </linearGradient><linearGradient
-                        id="dl_fill_2"
-                        x1="100.171"
-                        y1="22.896"
-                        x2="100.171"
-                        y2="66.016"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#1E99FC"></stop><stop
-                            offset="1"
-                            stop-color="#0756FB"
-                        >
-                        </stop>
-                    </linearGradient><linearGradient
-                        id="dl_fill_3"
-                        x1="45.256"
-                        y1="31.885"
-                        x2="54.156"
-                        y2="100.146"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#338EFD"></stop><stop
-                            offset="0.4946"
-                            stop-color="#2E7EFB"
-                        >
-                        </stop><stop offset="1" stop-color="#81BDFA"></stop>
-                    </linearGradient><linearGradient
-                        id="dl_fill_4"
-                        x1="77.571"
-                        y1="62.546"
-                        x2="105.781"
-                        y2="92.566"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#2D78FB"></stop><stop
-                            offset="1"
-                            stop-color="#509CFC"
-                        >
-                        </stop>
-                    </linearGradient><linearGradient
-                        id="dl_fill_5"
-                        x1="24.972"
-                        y1="86.297"
-                        x2="24.972"
-                        y2="58.199"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#3086FD"></stop><stop
-                            offset="1"
-                            stop-color="#3594FC"
-                        >
-                        </stop>
-                    </linearGradient><linearGradient
-                        id="dl_fill_6"
-                        x1="67.701"
-                        y1="14.233"
-                        x2="93.381"
-                        y2="70.676"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#3896FD"></stop><stop
-                            offset="0.3244"
-                            stop-color="#2C81FC"
-                        >
-                        </stop><stop offset="0.8357" stop-color="#295EFF"></stop><stop
-                            offset="1"
-                            stop-color="#356EFC"
-                        >
-                        </stop>
-                    </linearGradient><linearGradient
-                        id="dl_fill_7"
-                        x1="47.32"
-                        y1="61.566"
-                        x2="81.558"
-                        y2="39.003"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#E3E3E3"></stop><stop
-                            offset="1"
-                            stop-color="#FFFFFF"
-                        >
-                        </stop>
-                    </linearGradient><filter
-                        id="dl_filter"
-                        x="29.891"
-                        y="31.093"
-                        width="56.7"
-                        height="57.9"
-                        filterUnits="userSpaceOnUse"
-                        color-interpolation-filters="sRGB"
-                    >
-                        <feFlood flood-opacity="0" result="feFloodId_dl"></feFlood><feColorMatrix
-                            in="SourceAlpha"
-                            type="matrix"
-                            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-                            result="hardAlpha_dl"
-                        >
-                        </feColorMatrix><feOffset dx="0" dy="2"></feOffset><feGaussianBlur
-                            stdDeviation="2"
-                        >
-                        </feGaussianBlur><feComposite in2="hardAlpha_dl" operator="out">
-                        </feComposite><feColorMatrix
-                            type="matrix"
-                            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"
-                        >
-                        </feColorMatrix><feBlend
-                            mode="normal"
-                            in2="feFloodId_dl"
-                            result="dropShadow_dl"
-                        >
-                        </feBlend><feBlend
-                            mode="normal"
-                            in="SourceGraphic"
-                            in2="dropShadow_dl"
-                            result="shape_dl"
-                        >
-                        </feBlend>
-                    </filter><linearGradient
-                        id="dl_fill_8"
-                        x1="122.594"
-                        y1="54.5"
-                        x2="411.594"
-                        y2="54.5"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop offset="0" stop-color="#0451E0"></stop><stop
-                            offset="1"
-                            stop-color="#7AB8FF"
-                        >
-                        </stop>
-                    </linearGradient>
-                </defs>
-            </svg>
-            <div class="info">
-                <h1 class="title" data-zh="正在施工中" data-en="Under Construction">正在施工中</h1>
-                <p
-                    class="subtitle"
-                    data-zh="2026.6.1 (UTC+8) 正式发布，敬请期待"
-                    data-en="Launching June 1, 2026 (UTC+8). Stay tuned."
-                >
-                    2026.6.1 (UTC+8) 正式发布，敬请期待
-                </p>
-            </div>
-            <div class="countdown" id="cd"></div>
-            <form class="waitlist" id="waitlistForm" novalidate>
-                <div class="waitlist-row">
-                    <input
-                        type="email"
-                        id="waitlistEmail"
-                        autocomplete="email"
-                        required
-                        data-zh-placeholder="输入邮箱，发布时第一时间通知您"
-                        data-en-placeholder="Enter your email for launch notification"
-                        placeholder="输入邮箱，发布时第一时间通知您"
-                    />
-                    <button type="submit" id="waitlistSubmit">
-                        <span class="btn-label" data-zh="加入等候" data-en="Join">加入等候</span>
-                        <svg
-                            class="btn-check"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                        >
-                            <path d="M5 12.5l4.5 4.5L19 7.5"></path>
-                        </svg>
-                    </button>
-                </div>
-                <p class="waitlist-msg" id="waitlistMsg" aria-live="polite"></p>
-            </form>
-            <a
-                href="https://github.com/TouchAI-org/TouchAI"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="gh"
-            >
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                    <path
-                        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
-                    >
-                    </path>
-                </svg>
-            </a>
-        </div>
-        <script type="module" define:vars={{ WAITLIST_ENDPOINT }}>
-            import { createShader, playSweep as glimmPlaySweep } from '/glimm.js';
-
-            console.log(
-                '%c🎁 Easter Egg: Screenshot this and email support@touch-ai.org to claim your reward. Limited quantity, first come first served!',
-                'color: #ef4444; font-size: 14px; font-weight: bold;'
-            );
-
-            var prefersDark =
-                window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-            var lang =
-                localStorage.getItem('ta_lang') ||
-                ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
-            var isDark = localStorage.getItem('ta_theme')
-                ? localStorage.getItem('ta_theme') === 'dark'
-                : prefersDark;
-            var labels = { zh: ['天', '时', '分', '秒'], en: ['d', 'h', 'm', 's'] };
-
-            var shader = null;
-            var playSweep = null;
-            var sweeping = false;
-
-            try {
-                shader = createShader();
-                playSweep = glimmPlaySweep;
-                if (shader && shader.canvas) {
-                    var c = shader.canvas;
-                    c.style.cssText =
-                        'position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;display:block;pointer-events:none;z-index:9999;';
-                    document.body.appendChild(c);
-                }
-            } catch (e) {
-                console.warn('glimm WebGL init failed, transitions disabled:', e);
+                opacity: 0;
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.28) 0%,
+                    rgba(255, 255, 255, 0) 100%
+                );
+                transition: opacity 0.2s ease;
             }
 
-            function withSweep(callback) {
-                if (!shader || !playSweep) {
-                    callback();
-                    return;
-                }
-                if (sweeping) return;
-                sweeping = true;
-                playSweep(shader, {
-                    palette: 'prism',
-                    onMidpoint: function () {
-                        callback();
-                    },
-                    onComplete: function () {
-                        sweeping = false;
-                    },
-                });
+            .nav.is-scrolled {
+                background: rgba(255, 255, 255, 0.94);
+                backdrop-filter: blur(14px);
+                box-shadow: none;
             }
 
-            function applyTheme() {
-                document.documentElement.classList.toggle('dark', isDark);
-                localStorage.setItem('ta_theme', isDark ? 'dark' : 'light');
-                updateThemeBtn();
+            html[data-theme='dark'] .nav.is-scrolled {
+                background: rgba(9, 9, 11, 0.94);
             }
-            function updateThemeBtn() {
-                var btn = document.getElementById('themeBtn');
-                if (!btn) return;
-                btn.innerHTML = isDark
-                    ? '<svg viewBox="0 0 24 24" fill-rule="evenodd" clip-rule="evenodd"><path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zm11.394-5.834a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 101.06 1.061l1.591-1.59zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zm-3.916 6.894a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 10-1.061 1.06l1.59 1.591zM12 18a.75.75 0 01.75.75V21a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 18zm-4.242-.697a.75.75 0 00-1.061-1.06l-1.591 1.59a.75.75 0 001.06 1.061l1.591-1.59zM6 12a.75.75 0 01-.75.75H3a.75.75 0 010-1.5h2.25A.75.75 0 016 12zm.697-4.243a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 00-1.061 1.06l1.59 1.591z"/></svg>'
-                    : '<svg viewBox="0 0 24 24"><path d="M21.752 15.002A9.72 9.72 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>';
-                btn.setAttribute(
-                    'aria-label',
-                    isDark ? 'Switch to light mode' : 'Switch to dark mode'
+
+            html[data-theme='dark'] .nav::after {
+                background: linear-gradient(
+                    180deg,
+                    rgba(9, 9, 11, 0.72) 0%,
+                    rgba(9, 9, 11, 0) 100%
                 );
             }
 
-            function applyLang() {
-                var htmlRoot = document.getElementById('htmlRoot');
-                if (htmlRoot) {
-                    htmlRoot.setAttribute('lang', lang === 'zh' ? 'zh-CN' : 'en');
+            .nav.is-scrolled::after {
+                opacity: 1;
+            }
+
+            .logo-link {
+                display: inline-flex;
+                align-items: center;
+                justify-self: start;
+                justify-content: flex-start;
+                width: max-content;
+            }
+
+            .wordmark {
+                width: 150px;
+                height: auto;
+            }
+
+            html[data-theme='dark'] .wordmark {
+                content: url('/touchai-wordmark-light.svg');
+            }
+
+            .nav-actions {
+                display: flex;
+                align-items: center;
+                gap: 26px;
+                font-size: var(--text-nav);
+                font-weight: 600;
+                line-height: 1;
+            }
+
+            .nav-actions {
+                justify-content: flex-end;
+            }
+
+            .nav-icon-link {
+                width: 28px;
+                height: 28px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                transition: transform 0.16s ease;
+                will-change: transform;
+            }
+
+            .nav-icon-link svg {
+                width: 20px;
+                height: 20px;
+                stroke-width: 1.9;
+            }
+
+            .lang-toggle {
+                position: relative;
+                width: 28px;
+                height: 28px;
+                border: 0;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0;
+                color: var(--ink);
+                background: transparent;
+                font: inherit;
+                font-weight: 600;
+                line-height: 1;
+                cursor: pointer;
+                transition: transform 0.16s ease;
+                will-change: transform;
+            }
+
+            .theme-toggle {
+                width: 28px;
+                height: 28px;
+                border: 0;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--ink);
+                background: transparent;
+                cursor: pointer;
+                transition: transform 0.16s ease;
+                will-change: transform;
+            }
+
+            .theme-toggle svg {
+                width: 20px;
+                height: 20px;
+                stroke-width: 1.9;
+            }
+
+            .theme-toggle .sun-icon {
+                display: none;
+            }
+
+            html[data-theme='dark'] .theme-toggle .moon-icon {
+                display: none;
+            }
+
+            html[data-theme='dark'] .theme-toggle .sun-icon {
+                display: block;
+            }
+
+            .lang-toggle svg {
+                width: 18px;
+                height: 18px;
+                stroke-width: 1.8;
+            }
+
+            .lang-toggle span {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+            }
+
+            .lang-toggle:hover,
+            .theme-toggle:hover {
+                text-decoration: underline;
+                text-underline-offset: 5px;
+            }
+
+            .nav a:hover {
+                text-decoration: underline;
+                text-underline-offset: 5px;
+            }
+
+            .hero {
+                position: relative;
+                isolation: isolate;
+                overflow: hidden;
+                width: 100%;
+                max-width: none;
+                margin: 0;
+                min-height: calc(100dvh - 72px);
+                padding: 32px 24px 40px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                text-align: center;
+                background: var(--bg);
+                background-image: none;
+            }
+
+            .hero::before,
+            .hero::after {
+                content: none !important;
+                display: none !important;
+            }
+
+            .hero h1 {
+                margin: 0;
+                line-height: 1;
+            }
+
+            .hero-wordmark {
+                width: min(72vw, 640px);
+                height: auto;
+                margin: 0 auto;
+            }
+
+            html[data-theme='dark'] .hero-wordmark {
+                content: url('/touch-ai-hero-dark.svg?v=3');
+            }
+
+            .hero-subtitle {
+                max-width: 820px;
+                margin: 24px auto 0;
+                color: var(--ink);
+                font-size: clamp(28px, 3.1vw, 42px);
+                font-weight: 500;
+                line-height: 1.22;
+                letter-spacing: 0;
+            }
+
+            .hero-actions {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 14px;
+                margin-top: 28px;
+            }
+
+            .button {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 46px;
+                padding: 0 22px;
+                border: 1px solid var(--ink);
+                border-radius: 999px;
+                background: var(--ink);
+                color: var(--bg);
+                font-family: var(--font-serif);
+                font-size: var(--text-button);
+                font-weight: 600;
+                line-height: 1;
+                white-space: nowrap;
+                overflow: hidden;
+                transition:
+                    background 0.2s ease,
+                    color 0.2s ease,
+                    border-color 0.2s ease,
+                    transform 0.16s ease;
+                will-change: transform;
+            }
+
+            .interactive-click {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                isolation: isolate;
+                transition:
+                    color 0.2s ease,
+                    background 0.2s ease,
+                    border-color 0.2s ease,
+                    transform 0.16s ease;
+                will-change: transform;
+            }
+
+            .logo-link.interactive-click {
+                justify-content: flex-start;
+                width: max-content;
+            }
+
+            .nav-icon-link,
+            .lang-toggle,
+            .theme-toggle {
+                position: relative;
+                overflow: hidden;
+                border-radius: 999px;
+            }
+
+            .interactive-click > * {
+                position: relative;
+                z-index: 1;
+            }
+
+            .button:hover {
+                transform: translateY(-1px);
+            }
+
+            .interactive-click.is-pressing {
+                transform: scale(0.94);
+            }
+
+            .button.secondary {
+                background: var(--bg);
+                color: var(--ink);
+            }
+
+            .glimm-click-layer {
+                position: fixed;
+                inset: 0;
+                z-index: 9999;
+                width: 100vw;
+                height: 100vh;
+                pointer-events: none;
+            }
+
+            body.is-glimm-transitioning .interactive-click {
+                pointer-events: none;
+            }
+
+            .visual-section {
+                width: min(calc(100% - 48px), var(--max));
+                margin: 0 auto;
+                min-height: 100svh;
+            }
+
+            .visual-shell {
+                position: relative;
+                overflow: visible;
+                border-radius: 14px;
+                background: var(--bg);
+                box-shadow: none;
+                min-height: 100svh;
+                display: grid;
+                align-items: center;
+            }
+
+            .visual-stage {
+                width: 100%;
+                height: 100svh;
+                min-height: 780px;
+                background: var(--bg);
+                display: grid;
+                align-items: center;
+                justify-items: center;
+                overflow: visible;
+            }
+
+            .visual-shell,
+            .visual-stage,
+            .component-frame {
+                transition: background-color 0.2s ease;
+            }
+
+            .visual-stage-inner {
+                width: 100%;
+                height: 100%;
+            }
+
+            touchai-component-demo {
+                --page-bg: var(--component-stage-bg);
+            }
+
+            .component-frame {
+                --page-bg: transparent;
+                display: block;
+                width: min(60vw, 100%);
+                height: 100%;
+                min-height: 0;
+                border: 0;
+                background: transparent;
+                justify-self: center;
+            }
+
+            .section {
+                width: min(calc(100% - 48px), var(--max));
+                margin: 0 auto;
+                padding: 92px 0;
+            }
+
+            .section-title {
+                max-width: 900px;
+                margin: 0 0 46px;
+                font-size: clamp(38px, 5.8vw, 72px);
+                font-weight: 600;
+                line-height: 1.12;
+                letter-spacing: 0;
+            }
+
+            .feature-stack {
+                display: grid;
+                gap: 20px;
+            }
+
+            .feature-block {
+                position: relative;
+                min-height: clamp(1500px, 220vh, 2100px);
+            }
+
+            .feature-block-shell {
+                position: sticky;
+                top: calc(50vh - 280px);
+                display: grid;
+                grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+                min-height: 560px;
+                overflow: visible;
+                border-radius: 28px;
+                background: transparent;
+                align-items: stretch;
+            }
+
+            .feature-block.reverse .feature-block-shell {
+                grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+            }
+
+            .feature-copy {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 38px;
+                padding: clamp(24px, 4vw, 40px);
+                min-height: 560px;
+                background: var(--feature-copy-surface);
+                overflow: hidden;
+            }
+
+            .feature-block .feature-copy:first-child,
+            .feature-block .feature-media:first-child {
+                border-radius: 28px 0 0 28px;
+            }
+
+            .feature-block .feature-copy:last-child,
+            .feature-block .feature-media:last-child {
+                border-radius: 0 28px 28px 0;
+            }
+
+            .feature-copy h3 {
+                width: 100%;
+                max-width: 500px;
+                margin: 0;
+                font-size: clamp(28px, 3.5vw, 44px);
+                font-weight: 600;
+                line-height: 1.18;
+                text-align: left;
+                letter-spacing: 0;
+            }
+
+            .feature-copy p {
+                width: 100%;
+                max-width: 500px;
+                margin: 0;
+                color: var(--muted);
+                font-size: var(--text-body);
+                line-height: 1.7;
+                text-align: justify;
+                text-align-last: left;
+                letter-spacing: 0;
+            }
+
+            html[lang='en'] .feature-copy p {
+                text-align: left;
+            }
+
+            .feature-media {
+                display: grid;
+                place-items: center;
+                min-height: 560px;
+                padding: 18px;
+                background: var(--feature-media-surface);
+                overflow: visible;
+            }
+
+            .feature-media.solver-media {
+                padding: 0;
+            }
+
+            .feature-media.work-media,
+            .feature-media.reminder-media {
+                padding: 0;
+            }
+
+            .feature-block.reverse .feature-copy {
+                background: var(--feature-media-surface);
+                color: #111111;
+            }
+
+            .feature-block.reverse .feature-copy p {
+                color: #5f6368;
+            }
+
+            .feature-block.reverse .feature-media {
+                background: var(--feature-copy-surface);
+            }
+
+            .phone-card,
+            .code-card {
+                width: min(100%, 520px);
+                border: 0;
+                border-radius: 18px;
+                background: transparent;
+                box-shadow: none;
+                overflow: hidden;
+            }
+
+            .feature-component-card {
+                --component-scale: 0.62;
+                --component-shell-height: 657px;
+                --embedded-frame-height: var(--component-shell-height);
+                --page-bg: var(--feature-shell-bg);
+                width: min(100%, calc(760px * var(--component-scale)));
+                height: calc(var(--component-shell-height) * var(--component-scale));
+                padding: 0;
+                border: 0;
+                position: relative;
+                border-radius: 0;
+                background: transparent;
+                box-shadow: none;
+                overflow: visible;
+                justify-self: center;
+                align-self: center;
+                cursor: pointer;
+            }
+
+            .feature-component-frame {
+                --embedded-frame-height: 657px;
+                display: block;
+                width: 760px;
+                height: 657px !important;
+                min-height: 657px !important;
+                max-height: 657px !important;
+                border: 0;
+                background: transparent !important;
+                position: absolute;
+                z-index: 0;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(var(--component-scale));
+                transform-origin: center center;
+                border-radius: 0;
+                pointer-events: none;
+            }
+
+            .feature-work-card {
+                --component-scale: 0.62;
+                --component-shell-height: 657px;
+                --embedded-frame-height: var(--component-shell-height);
+                --page-bg: var(--feature-shell-bg);
+                width: min(100%, calc(760px * var(--component-scale)));
+                height: calc(var(--component-shell-height) * var(--component-scale));
+                padding: 0;
+                border: 0;
+                position: relative;
+                border-radius: 0;
+                background: transparent;
+                box-shadow: none;
+                overflow: visible;
+                justify-self: center;
+                align-self: center;
+                cursor: pointer;
+            }
+
+            .feature-work-frame {
+                --embedded-frame-height: 657px;
+                display: block;
+                width: 760px;
+                height: 657px !important;
+                min-height: 657px !important;
+                max-height: 657px !important;
+                border: 0;
+                background: transparent !important;
+                position: absolute;
+                z-index: 0;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(var(--component-scale));
+                transform-origin: center center;
+                border-radius: 0;
+                pointer-events: none;
+            }
+
+            .feature-reminder-card {
+                --component-scale: 0.62;
+                --component-shell-height: 657px;
+                --embedded-frame-height: var(--component-shell-height);
+                --page-bg: var(--feature-shell-bg);
+                width: min(100%, calc(760px * var(--component-scale)));
+                height: calc(var(--component-shell-height) * var(--component-scale));
+                padding: 0;
+                border: 0;
+                position: relative;
+                border-radius: 0;
+                background: transparent;
+                box-shadow: none;
+                overflow: visible;
+                justify-self: center;
+                align-self: center;
+                cursor: pointer;
+            }
+
+            .feature-reminder-frame {
+                --embedded-frame-height: 657px;
+                display: block;
+                width: 760px;
+                height: 657px !important;
+                min-height: 657px !important;
+                max-height: 657px !important;
+                border: 0;
+                background: transparent !important;
+                position: absolute;
+                z-index: 0;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(var(--component-scale));
+                transform-origin: center center;
+                border-radius: 0;
+                pointer-events: none;
+            }
+
+            .code-card {
+                padding: 24px;
+                background: rgba(12, 12, 15, 0.88);
+                color: #e8e8e8;
+                font-size: 15px;
+                line-height: 1.8;
+            }
+
+            .code-card span {
+                color: #8ab4ff;
+            }
+
+            .scenario-grid {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 16px;
+                perspective: 1100px;
+            }
+
+            .scenario-card {
+                position: relative;
+                min-height: 360px;
+                padding: 28px;
+                border-radius: 28px;
+                background: #eeece6;
+                color: #151515;
+                overflow: hidden;
+                transform-style: preserve-3d;
+                will-change: transform, opacity;
+                transition:
+                    background-color 0.28s ease,
+                    color 0.28s ease,
+                    box-shadow 0.28s ease;
+            }
+
+            html[data-theme='dark'] .scenario-card {
+                background: #eeece6;
+                color: #151515;
+            }
+
+            .scenario-grid .scenario-card:hover {
+                background: #eeece6;
+                color: #151515;
+                box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+            }
+
+            .scenario-grid:hover .scenario-card:not(:hover) {
+                background: #eeece6;
+                color: #151515;
+                box-shadow: none;
+            }
+
+            html[data-theme='dark'] .scenario-grid .scenario-card:hover {
+                background: #eeece6;
+                color: #151515;
+                box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+            }
+
+            html[data-theme='dark'] .scenario-grid:hover .scenario-card:not(:hover) {
+                background: #eeece6;
+                color: #151515;
+                box-shadow: none;
+            }
+
+            .scenario-card::before {
+                content: '';
+                position: absolute;
+                inset: -1px;
+                z-index: 0;
+                border-radius: inherit;
+                opacity: var(--scenario-glow-opacity, 0);
+                background:
+                    radial-gradient(
+                        circle at var(--scenario-glow-x, 50%) var(--scenario-glow-y, 50%),
+                        rgba(118, 179, 255, 0.34),
+                        transparent 34%
+                    ),
+                    linear-gradient(135deg, rgba(255, 255, 255, 0.22), transparent 42%);
+                transition: opacity 0.24s ease;
+                pointer-events: none;
+            }
+
+            .scenario-card::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                z-index: 0;
+                border-radius: inherit;
+                opacity: var(--scenario-shine-opacity, 0);
+                background: linear-gradient(
+                    110deg,
+                    transparent 0%,
+                    rgba(255, 255, 255, 0.34) 43%,
+                    rgba(255, 255, 255, 0.12) 50%,
+                    transparent 58%
+                );
+                transform: translateX(var(--scenario-shine-x, -120%));
+                pointer-events: none;
+            }
+
+            .scenario-card > * {
+                position: relative;
+                z-index: 1;
+            }
+
+            .scenario-card h3 {
+                margin: 0 0 18px;
+                font-size: var(--text-card-title);
+                font-weight: 600;
+                line-height: 1.26;
+                letter-spacing: 0;
+            }
+
+            .scenario-card p {
+                margin: 0;
+                color: #55514c;
+                font-size: var(--text-body);
+                line-height: 1.7;
+                transition: color 0.28s ease;
+            }
+
+            .scenario-grid .scenario-card:hover p {
+                color: #55514c;
+            }
+
+            html[data-theme='dark'] .scenario-card p {
+                color: #55514c;
+            }
+
+            html[data-theme='dark'] .scenario-grid .scenario-card:hover p {
+                color: #55514c;
+            }
+
+            html[data-theme='dark'] .scenario-grid:hover .scenario-card:not(:hover) p {
+                color: #55514c;
+            }
+
+            .github-feedback-head {
+                display: flex;
+                align-items: end;
+                justify-content: space-between;
+                gap: 28px;
+                margin-bottom: 46px;
+            }
+
+            .github-feedback-head .section-title {
+                margin: 0;
+            }
+
+            .github-stats {
+                display: flex;
+                gap: 10px;
+                flex-wrap: nowrap;
+                justify-content: flex-end;
+                align-items: stretch;
+            }
+
+            .github-stat {
+                min-width: 96px;
+                padding: 12px 14px;
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                background: var(--soft);
+            }
+
+            .github-stat strong {
+                display: block;
+                font-size: 22px;
+                line-height: 1;
+            }
+
+            .github-stat span {
+                display: block;
+                margin-top: 8px;
+                color: var(--muted);
+                font-size: 13px;
+                line-height: 1.2;
+            }
+
+            .quote-row.review-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 14px;
+            }
+
+            .review-card {
+                position: relative;
+                min-height: 240px;
+                padding: 18px;
+                border: 1px solid var(--line);
+                border-radius: 18px;
+                background: var(--soft);
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.06);
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                gap: 14px;
+                overflow: hidden;
+            }
+
+            html[data-theme='dark'] .review-card {
+                background: var(--soft);
+                border-color: rgba(255, 255, 255, 0.07);
+            }
+
+            .review-card-content {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                height: 100%;
+            }
+
+            .review-card-top {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .review-avatar-link {
+                flex: 0 0 auto;
+                border-radius: 50%;
+            }
+
+            .review-avatar {
+                width: 38px;
+                height: 38px;
+                flex: 0 0 auto;
+                border-radius: 50%;
+                border: 1px solid var(--line);
+                object-fit: cover;
+                background: #fff;
+            }
+
+            .review-avatar-link:hover .review-avatar,
+            .review-avatar-link:focus-visible .review-avatar {
+                border-color: var(--ink);
+            }
+
+            .review-title-block {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                min-width: 0;
+                align-items: flex-start;
+            }
+
+            .review-title-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 14px;
+                line-height: 1.2;
+            }
+
+            .review-title-row strong {
+                color: var(--ink);
+                font-size: 15px;
+                font-weight: 600;
+            }
+
+            .review-author-link:hover,
+            .review-author-link:focus-visible {
+                text-decoration: underline;
+                text-underline-offset: 4px;
+            }
+
+            .review-handle,
+            .review-platform {
+                color: var(--muted);
+                font-size: 12px;
+            }
+
+            .review-handle {
+                display: block;
+                text-align: left;
+            }
+
+            .review-divider {
+                display: none;
+            }
+
+            .review-card p {
+                margin: 0;
+                font-size: 18px;
+                line-height: 1.65;
+                letter-spacing: 0;
+                color: var(--ink);
+            }
+
+            @media (max-width: 1120px) {
+                .quote-row.review-grid {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
-                document.querySelectorAll('[data-zh]').forEach(function (el) {
-                    var val = el.getAttribute('data-' + lang);
-                    if (el.tagName === 'META') {
-                        el.setAttribute('content', val);
-                    } else {
-                        el.textContent = val;
-                    }
-                });
-                document.querySelectorAll('[data-zh-placeholder]').forEach(function (el) {
-                    var val = el.getAttribute('data-' + lang + '-placeholder');
-                    if (val) el.setAttribute('placeholder', val);
-                });
-                localStorage.setItem('ta_lang', lang);
-                var sps = document.querySelectorAll('.sep');
-                sps.forEach(function (sp, i) {
-                    sp.textContent = labels[lang][i];
-                });
-                updateLangBtn();
-            }
-            function updateLangBtn() {
-                var btn = document.getElementById('langBtn');
-                if (btn) btn.textContent = lang === 'zh' ? 'EN' : '中';
             }
 
-            var ctrl = document.getElementById('controls');
-            var langBtn = document.createElement('button');
-            langBtn.id = 'langBtn';
-            langBtn.title = 'Switch language';
-            langBtn.onclick = function () {
-                if (sweeping) return;
-                lang = lang === 'zh' ? 'en' : 'zh';
-                withSweep(function () {
-                    applyLang();
-                });
-            };
-            ctrl.appendChild(langBtn);
-            var themeBtn = document.createElement('button');
-            themeBtn.id = 'themeBtn';
-            themeBtn.title = 'Toggle dark mode';
-            themeBtn.setAttribute(
-                'aria-label',
-                isDark ? 'Switch to light mode' : 'Switch to dark mode'
-            );
-            themeBtn.onclick = function () {
-                if (sweeping) return;
-                isDark = !isDark;
-                withSweep(function () {
-                    applyTheme();
-                });
-            };
-            ctrl.appendChild(themeBtn);
-
-            applyTheme();
-            applyLang();
-
-            // --- Countdown ---
-            var target = new Date('2026-06-01T00:00:00+08:00').getTime();
-            var cellH = 41.6;
-
-            function makeCell() {
-                var cell = document.createElement('div');
-                cell.className = 'roll-cell';
-                var strip = document.createElement('div');
-                strip.className = 'roll-strip';
-                for (var i = 0; i <= 9; i++) {
-                    var d = document.createElement('div');
-                    d.className = 'roll-digit';
-                    d.textContent = i;
-                    strip.appendChild(d);
+            @media (max-width: 720px) {
+                .quote-row.review-grid {
+                    grid-template-columns: 1fr;
                 }
-                cell.appendChild(strip);
-                return { el: cell, strip: strip, cur: -1 };
             }
 
-            var cells = [];
-            var container = document.getElementById('cd');
-            var defs = [
-                { label: 0, pairs: [0, 1] },
-                { label: 2, pairs: [2, 3] },
-            ];
-            defs.forEach(function (def) {
-                var pair = document.createElement('div');
-                pair.className = 'cd-pair';
-                def.pairs.forEach(function (gi) {
-                    var grp = document.createElement('div');
-                    grp.className = 'cd-group';
-                    for (var i = 0; i < 2; i++) {
-                        var c = makeCell();
-                        grp.appendChild(c.el);
-                        cells.push(c);
-                    }
-                    var sp = document.createElement('span');
-                    sp.className = 'sep';
-                    sp.textContent = labels[lang][gi];
-                    grp.appendChild(sp);
-                    pair.appendChild(grp);
-                });
-                container.appendChild(pair);
-            });
-
-            function setCell(c, digit) {
-                if (c.cur === digit) return;
-                c.cur = digit;
-                c.strip.style.transform = 'translateY(' + -digit * cellH + 'px)';
+            .cta {
+                width: min(calc(100% - 48px), 920px);
+                margin: 0 auto 72px;
+                padding: clamp(38px, 6vw, 68px);
+                border-radius: 24px;
+                background: var(--ink);
+                color: var(--bg);
+                text-align: center;
             }
 
-            function tick() {
-                var diff = target - Date.now();
-                if (diff <= 0) {
-                    cells.forEach(function (c) {
-                        setCell(c, 0);
-                    });
-                    return;
+            .cta h2 {
+                max-width: 900px;
+                margin: 0 auto;
+                font-size: clamp(38px, 6.6vw, 82px);
+                font-weight: 600;
+                line-height: 1.12;
+                letter-spacing: 0;
+            }
+
+            .cta p {
+                max-width: 680px;
+                margin: 28px auto 0;
+                color: #d0d0d0;
+                font-size: var(--text-body-lg);
+                line-height: 1.6;
+            }
+
+            html[data-theme='dark'] .cta p {
+                color: rgba(17, 17, 17, 0.68);
+            }
+
+            .cta .button {
+                margin-top: 34px;
+                border-color: var(--bg);
+            }
+
+            .footer {
+                width: min(calc(100% - 48px), var(--max));
+                margin: 0 auto;
+                padding: 32px 0;
+                border-top: 1px solid var(--line);
+                color: var(--muted);
+                font-size: 14px;
+                line-height: 1.6;
+                text-align: center;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .footer-links {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 22px;
+                color: var(--muted);
+                font-size: 14px;
+                line-height: 1.4;
+            }
+
+            .footer-links a {
+                color: var(--muted);
+            }
+
+            .footer-links a:hover,
+            .footer-links a:focus-visible {
+                text-decoration: underline;
+                text-underline-offset: 4px;
+            }
+
+            @media (max-width: 900px) {
+                .nav {
+                    grid-template-columns: 1fr;
+                    justify-items: start;
+                    gap: 16px;
+                    padding: 18px 24px;
                 }
-                var sec = Math.floor(diff / 1000);
-                var d = Math.floor(sec / 86400),
-                    h = Math.floor((sec % 86400) / 3600);
-                var m = Math.floor((sec % 3600) / 60),
-                    s = sec % 60;
-                var pad = function (n) {
-                    return [Math.floor(n / 10), n % 10];
+
+                .nav-actions {
+                    flex-wrap: wrap;
+                    gap: 16px;
+                }
+
+                .hero {
+                    min-height: calc(100dvh - 116px);
+                    padding: 28px 24px 36px;
+                }
+
+                .feature-block-shell,
+                .scenario-grid,
+                .quote-row {
+                    grid-template-columns: 1fr;
+                }
+
+                .feature-block {
+                    min-height: auto;
+                }
+
+                .feature-block-shell {
+                    position: static;
+                    top: auto;
+                    min-height: auto;
+                }
+
+                .feature-block.reverse .feature-media {
+                    order: 2;
+                }
+
+                .feature-block.reverse .feature-copy {
+                    order: 1;
+                }
+
+                .feature-copy,
+                .feature-media {
+                    min-height: auto;
+                }
+
+                .feature-component-card {
+                    --component-scale: min(0.68, calc((100vw - 84px) / 760));
+                    width: min(100%, calc(760px * var(--component-scale) + 24px));
+                    height: calc(657px * var(--component-scale) + 24px);
+                }
+
+                .feature-work-card {
+                    --component-scale: min(0.68, calc((100vw - 84px) / 760));
+                    width: min(100%, calc(760px * var(--component-scale) + 24px));
+                    height: calc(657px * var(--component-scale) + 24px);
+                }
+
+                .feature-reminder-card {
+                    --component-scale: min(0.68, calc((100vw - 84px) / 760));
+                    width: min(100%, calc(760px * var(--component-scale) + 24px));
+                    height: calc(657px * var(--component-scale) + 24px);
+                }
+
+                .section {
+                    padding: 84px 0;
+                }
+            }
+
+            @media (max-width: 560px) {
+                .nav,
+                .hero,
+                .visual-section,
+                .section,
+                .cta,
+                .footer {
+                    width: min(calc(100% - 28px), var(--max));
+                }
+
+                .wordmark {
+                    width: 136px;
+                }
+
+                .hero h1 {
+                    line-height: 1;
+                }
+
+                .hero-wordmark {
+                    width: min(86vw, 360px);
+                }
+
+                .hero-subtitle {
+                    font-size: 24px;
+                }
+
+                .visual-stage,
+                .component-frame {
+                    height: 100svh;
+                    min-height: 720px;
+                }
+
+                .component-frame {
+                    height: 100%;
+                    min-height: 0;
+                }
+
+                .feature-copy p,
+                .scenario-card p,
+                .quote p,
+                .cta p {
+                    font-size: 17px;
+                }
+            }
+        </style>
+    </head>
+    <body data-waitlist-endpoint={WAITLIST_ENDPOINT}>
+        <header class="nav" aria-label="主导航">
+            <a class="logo-link" href="#top" aria-label="TouchAI 首页">
+                <img class="wordmark" src="/touchai-wordmark.svg" alt="TouchAI" />
+            </a>
+            <div class="nav-actions">
+                <a
+                    class="nav-icon-link"
+                    href={repoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="GitHub"
+                    title="GitHub"
+                >
+                    <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path
+                            d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"
+                        >
+                        </path>
+                        <path d="M9 18c-4.51 2-5-2-7-2"></path>
+                    </svg>
+                </a>
+                <button
+                    class="lang-toggle"
+                    type="button"
+                    aria-label="Switch language"
+                    aria-pressed="false"
+                >
+                    <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M2 12h20"></path>
+                        <path d="M12 2a15.3 15.3 0 0 1 0 20"></path>
+                        <path d="M12 2a15.3 15.3 0 0 0 0 20"></path>
+                    </svg>
+                    <span>中</span>
+                </button>
+                <button
+                    class="theme-toggle"
+                    type="button"
+                    aria-label="切换黑夜模式"
+                    aria-pressed="false"
+                    title="切换黑夜模式"
+                >
+                    <svg
+                        class="moon-icon"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M12 3a6.6 6.6 0 0 0 8.9 8.9A9 9 0 1 1 12 3Z"></path>
+                    </svg>
+                    <svg
+                        class="sun-icon"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <circle cx="12" cy="12" r="4"></circle>
+                        <path d="M12 2v2"></path>
+                        <path d="M12 20v2"></path>
+                        <path d="m4.93 4.93 1.41 1.41"></path>
+                        <path d="m17.66 17.66 1.41 1.41"></path>
+                        <path d="M2 12h2"></path>
+                        <path d="M20 12h2"></path>
+                        <path d="m6.34 17.66-1.41 1.41"></path>
+                        <path d="m19.07 4.93-1.41 1.41"></path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main id="top">
+            <section class="hero">
+                <h1>
+                    <img class="hero-wordmark" src="/touch-ai-hero-light.svg?v=3" alt="TouchAI" />
+                </h1>
+                <p class="hero-subtitle" data-i18n="hero.subtitle">一触即达的桌面效率 Agent</p>
+                <div class="hero-actions">
+                    <a
+                        class="button"
+                        href={releasesUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        data-i18n="hero.download"
+                    >
+                        下载 TouchAI
+                    </a>
+                    <a class="button secondary" href={docsUrl} data-i18n="hero.docs" hidden>
+                        使用文档
+                    </a>
+                </div>
+            </section>
+
+            <section class="visual-section" aria-label="TouchAI 产品界面">
+                <div class="visual-shell">
+                    <div class="visual-stage">
+                        <ComponentDemo
+                            className="component-frame"
+                            src="/touchai-intro/touchai-components.html?v=7"
+                            title="TouchAI 介绍组件演示"
+                        />
+                    </div>
+                </div>
+            </section>
+
+            <section class="section" id="features">
+                <h2 class="section-title" data-i18n="features.title">自然融入你的工作流</h2>
+                <div class="feature-stack">
+                    <article class="feature-block">
+                        <div class="feature-block-shell">
+                            <div class="feature-copy">
+                                <h3 data-i18n="features.one.title">把题目交给桌面 AI</h3>
+                                <p data-i18n="features.one.copy">
+                                    截图、公式和上下文可以一起进入对话。TouchAI
+                                    会理解题面，逐步展开推导，并把关键结论整理成可继续使用的答案。
+                                </p>
+                            </div>
+                            <div class="feature-media solver-media">
+                                <div class="phone-card feature-component-card">
+                                    <ComponentDemo
+                                        className="feature-component-frame"
+                                        src="/feature-solver/touchai-components.html?v=17"
+                                        title="TouchAI 解题组件演示"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="feature-block reverse work-feature">
+                        <div class="feature-block-shell">
+                            <div class="feature-media dark work-media">
+                                <div class="feature-work-card">
+                                    <ComponentDemo
+                                        className="feature-work-frame"
+                                        src="/feature-work-organizer/touchai-components.html?v=13"
+                                        title="TouchAI 工作整理组件演示"
+                                    />
+                                </div>
+                            </div>
+                            <div class="feature-copy">
+                                <h3 data-i18n="features.two.title">整理你的复杂工作</h3>
+                                <p data-i18n="features.two.copy">
+                                    随时把你混乱的任务丢给TouchAI，让他帮你整理归档，专注更有价值的创造
+                                </p>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="feature-block">
+                        <div class="feature-block-shell">
+                            <div class="feature-copy">
+                                <h3 data-i18n="features.three.title">让世界近在咫尺</h3>
+                                <p data-i18n="features.three.copy">
+                                    随时呼起，一句自然语言，迅速调用外部工具，无负担无打扰
+                                </p>
+                            </div>
+                            <div class="feature-media reminder-media">
+                                <div class="feature-reminder-card">
+                                    <ComponentDemo
+                                        className="feature-reminder-frame"
+                                        src="/feature-reminder/touchai-components.html?v=5"
+                                        title="TouchAI MCP 工具调用组件演示"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section class="section" id="workflow">
+                <h2 class="section-title" data-i18n="workflow.title">丰富的功能特性</h2>
+                <div class="scenario-grid">
+                    <article class="scenario-card">
+                        <h3 data-i18n="workflow.one.title">支持BYOK</h3>
+                        <p data-i18n="workflow.one.copy">
+                            无厂商锁定，接入你自己的模型，用任意模型驱动TouchAI。
+                        </p>
+                    </article>
+                    <article class="scenario-card">
+                        <h3 data-i18n="workflow.two.title">桌面上下文理解</h3>
+                        <p data-i18n="workflow.two.copy">
+                            围绕当前窗口、剪贴板、文件理解你的桌面上下文，让连续任务自然接上下一步。
+                        </p>
+                    </article>
+                    <article class="scenario-card">
+                        <h3 data-i18n="workflow.three.title">桌面操控与执行</h3>
+                        <p data-i18n="workflow.three.copy">
+                            直接操控电脑、打开应用、查询信息、整理文件并执行桌面动作，让AI帮你操作。
+                        </p>
+                    </article>
+                </div>
+            </section>
+
+            <section class="section" id="teams">
+                <div class="github-feedback-head">
+                    <h2 class="section-title" data-i18n="teams.title">用户反馈</h2>
+                    <div class="github-stats" aria-label="GitHub project stats">
+                        <div class="github-stat">
+                            <strong data-github-stat="stars" aria-live="polite">23</strong>
+                            <span data-i18n="teams.stats.stars">Stars</span>
+                        </div>
+                        <div class="github-stat">
+                            <strong data-github-stat="forks" aria-live="polite">22</strong>
+                            <span data-i18n="teams.stats.forks">Forks</span>
+                        </div>
+                        <div class="github-stat">
+                            <strong data-github-stat="issues" aria-live="polite">82</strong>
+                            <span data-i18n="teams.stats.issues">Open issues</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="quote-row review-grid">
+                    <article class="review-card">
+                        <div class="review-card-content">
+                            <div class="review-card-top">
+                                <a
+                                    class="review-avatar-link"
+                                    href="https://github.com/sakukae"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    aria-label="Open sakukae GitHub profile"
+                                >
+                                    <img
+                                        class="review-avatar"
+                                        src="/review-avatars/sakukae.png"
+                                        alt=""
+                                        loading="lazy"
+                                    />
+                                </a>
+                                <div class="review-title-block">
+                                    <div class="review-title-row">
+                                        <a
+                                            class="review-author-link"
+                                            href="https://github.com/sakukae"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                        >
+                                            <strong>sakukae</strong>
+                                        </a>
+                                        <span class="review-platform">GitHub</span>
+                                    </div>
+                                    <a
+                                        class="review-author-link review-handle"
+                                        href="https://github.com/sakukae"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        @sakukae
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="review-divider" aria-hidden="true"></div>
+                            <p data-i18n="teams.review.alpha">
+                                “在阅读技术文档的时候，使用 TouchAI
+                                一键帮我生成可视化学习架构，帮助我快速理解技术难点，对我来说是一个高效办公的好工具。”
+                            </p>
+                        </div>
+                    </article>
+                    <article class="review-card">
+                        <div class="review-card-content">
+                            <div class="review-card-top">
+                                <a
+                                    class="review-avatar-link"
+                                    href="https://github.com/ARCJ137442"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    aria-label="Open ARCJ137442 GitHub profile"
+                                >
+                                    <img
+                                        class="review-avatar"
+                                        src="/review-avatars/arcj137442.png"
+                                        alt=""
+                                        loading="lazy"
+                                    />
+                                </a>
+                                <div class="review-title-block">
+                                    <div class="review-title-row">
+                                        <a
+                                            class="review-author-link"
+                                            href="https://github.com/ARCJ137442"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                        >
+                                            <strong>ARCJ137442</strong>
+                                        </a>
+                                        <span class="review-platform">GitHub</span>
+                                    </div>
+                                    <a
+                                        class="review-author-link review-handle"
+                                        href="https://github.com/ARCJ137442"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        @ARCJ137442
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="review-divider" aria-hidden="true"></div>
+                            <p data-i18n="teams.review.beta">
+                                “平时忽然有什么问题，不管是日常生活还是问个技术，几下子唤醒敲字就能开问，能搜索能读文档能画图，随呼随走也能钉着放一边，可谓无处不在，一触即达。”
+                            </p>
+                        </div>
+                    </article>
+                    <article class="review-card">
+                        <div class="review-card-content">
+                            <div class="review-card-top">
+                                <a
+                                    class="review-avatar-link"
+                                    href="https://github.com/TheEverests"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    aria-label="Open TheEverests GitHub profile"
+                                >
+                                    <img
+                                        class="review-avatar"
+                                        src="/review-avatars/theeverests.png"
+                                        alt=""
+                                        loading="lazy"
+                                    />
+                                </a>
+                                <div class="review-title-block">
+                                    <div class="review-title-row">
+                                        <a
+                                            class="review-author-link"
+                                            href="https://github.com/TheEverests"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                        >
+                                            <strong>TheEverests</strong>
+                                        </a>
+                                        <span class="review-platform">GitHub</span>
+                                    </div>
+                                    <a
+                                        class="review-author-link review-handle"
+                                        href="https://github.com/TheEverests"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        @TheEverests
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="review-divider" aria-hidden="true"></div>
+                            <p data-i18n="teams.review.gamma">
+                                “在解答疑难题目时，调用 TouchAI
+                                进行智能解析；其不仅在分析答案的同时，能够绘制多种图形辅助理解，从而使抽象概念得以直观呈现，实现学习支持的高效可及与即时响应。”
+                            </p>
+                        </div>
+                    </article>
+                    <article class="review-card">
+                        <div class="review-card-content">
+                            <div class="review-card-top">
+                                <span
+                                    class="review-avatar-link"
+                                    aria-label="Anonymous GitHub avatar"
+                                >
+                                    <img
+                                        class="review-avatar"
+                                        src="/review-avatars/anonymous.png"
+                                        alt=""
+                                        loading="lazy"
+                                    />
+                                </span>
+                                <div class="review-title-block">
+                                    <div class="review-title-row">
+                                        <strong>匿名</strong>
+                                        <span class="review-platform">GitHub</span>
+                                    </div>
+                                    <span class="review-handle">@anonymous</span>
+                                </div>
+                            </div>
+                            <div class="review-divider" aria-hidden="true"></div>
+                            <p data-i18n="teams.review.delta">
+                                “之前用过好多 agent
+                                工具，其中很大的问题就是要自己培养，太费精力，到头来成了一个玩具。但是用过这款下来，真的能解决我的需求。”
+                            </p>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section class="cta" id="download">
+                <h2 data-i18n="cta.title">开始使用 TouchAI</h2>
+                <p data-i18n="cta.copy">体验近在咫尺的AI陪伴</p>
+                <a
+                    class="button secondary"
+                    href={releasesUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-i18n="cta.download"
+                >
+                    下载 TouchAI
+                </a>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <div class="footer-links">
+                <a
+                    href="https://touch-ai.org/"
+                    target="_blank"
+                    rel="noreferrer"
+                    data-i18n="footer.official"
+                >
+                    官网
+                </a>
+                <a href={repoUrl} target="_blank" rel="noreferrer">GitHub</a>
+                <a href={docsUrl} target="_blank" rel="noreferrer" data-i18n="footer.docs" hidden>
+                    文档
+                </a>
+                <a
+                    href="https://github.com/TouchAI-org/TouchAI/issues"
+                    target="_blank"
+                    rel="noreferrer"
+                    data-i18n="footer.contact"
+                >
+                    联系我们
+                </a>
+            </div>
+            <div data-i18n="footer.copyright">© 2026 TouchAI. GPL-3.0-or-later.</div>
+        </footer>
+
+        <script>
+            import { gsap } from 'gsap';
+            import ScrollTrigger from 'gsap/ScrollTrigger';
+            import { createShader, playSweep } from 'glimm';
+            import { ensureTouchaiLightDemoRuntime } from '../scripts/component-demo-runtime';
+
+            (async () => {
+                document.body.dataset.pageScript = 'started';
+                window.__touchaiBootState = {
+                    stage: 'started',
                 };
-                var dd = pad(d),
-                    hh = pad(h),
-                    mm = pad(m),
-                    ss = pad(s);
-                var vals = [dd[0], dd[1], hh[0], hh[1], mm[0], mm[1], ss[0], ss[1]];
-                for (var i = 0; i < 8; i++) setCell(cells[i], vals[i]);
-            }
+                let touchaiDemoRuntime = null;
+                const sendToDemo = (target, data) =>
+                    touchaiDemoRuntime?.send(target, data) ?? false;
 
-            tick();
-            setInterval(tick, 1000);
-
-            // --- Sync waitlist width to countdown ---
-            (function () {
-                var cd = document.getElementById('cd');
-                var wl = document.getElementById('waitlistForm');
-                if (!cd || !wl) return;
-                function sync() {
-                    var w = cd.offsetWidth;
-                    if (w > 0) wl.style.maxWidth = w + 'px';
+                try {
+                    document.body.dataset.componentRuntime = 'initializing';
+                    window.__touchaiBootState.stage = 'runtime-initializing';
+                    touchaiDemoRuntime = ensureTouchaiLightDemoRuntime();
+                    document.body.dataset.componentRuntimeFactory =
+                        document.body.dataset.touchaiRuntimeFactory || 'unknown';
+                    document.body.dataset.componentRuntime = 'ready';
+                    window.__touchaiBootState.stage = 'runtime-ready';
+                    touchaiDemoRuntime.mountAll();
+                    document.body.dataset.componentRuntime = 'ready';
+                    document.body.dataset.componentMountAll = 'done';
+                    window.__touchaiBootState.stage = 'mount-all-done';
+                } catch (error) {
+                    document.body.dataset.componentMountAll = 'failed';
+                    window.__touchaiBootState.stage = 'mount-all-failed';
+                    window.__touchaiBootState.error =
+                        error instanceof Error ? error.message : String(error);
+                    throw error;
                 }
-                sync();
-                if (typeof ResizeObserver !== 'undefined') {
-                    new ResizeObserver(sync).observe(cd);
+
+                window.gsap = gsap;
+                window.ScrollTrigger = ScrollTrigger;
+                gsap.registerPlugin(ScrollTrigger);
+                document.body.dataset.pageScript = 'bootstrapped';
+                window.__touchaiBootState.stage = 'bootstrapped';
+
+                const translations = {
+                    zh: {
+                        'nav.features': '功能',
+                        'nav.workflow': '场景',
+                        'nav.teams': '评价',
+                        'nav.download': '下载',
+                        'hero.subtitle': '一触即达的桌面效率 Agent',
+                        'hero.download': '下载 TouchAI',
+                        'hero.docs': '使用文档',
+                        'features.title': '自然融入你的工作流',
+                        'features.one.title': '把题目交给桌面 AI',
+                        'features.one.copy':
+                            '截图、公式和上下文可以一起进入对话。TouchAI 会理解题面，逐步展开推导，并把关键结论整理成可继续使用的答案。',
+                        'features.two.title': '整理你的复杂工作',
+                        'features.two.copy':
+                            '随时把你混乱的任务丢给TouchAI，让他帮你整理归档，专注更有价值的创造',
+                        'features.three.title': '让世界近在咫尺',
+                        'features.three.copy':
+                            '随时呼起，一句自然语言，迅速调用外部工具，无负担无打扰',
+                        'workflow.title': '丰富的功能特性',
+                        'workflow.one.title': '支持BYOK',
+                        'workflow.one.copy':
+                            '无厂商锁定，接入你自己的模型，用任意模型驱动TouchAI。',
+                        'workflow.two.title': '桌面上下文理解',
+                        'workflow.two.copy':
+                            '围绕当前窗口、剪贴板、文件理解你的桌面上下文，让连续任务自然接上下一步。',
+                        'workflow.three.title': '桌面操控与执行',
+                        'workflow.three.copy':
+                            '直接操控电脑、打开应用、查询信息、整理文件并执行桌面动作，让AI帮你操作。',
+                        'teams.title': '用户反馈',
+                        'teams.stats.stars': 'Stars',
+                        'teams.stats.forks': 'Forks',
+                        'teams.stats.issues': 'Open issues',
+                        'teams.one.quote':
+                            '开发者正在 GitHub Issues 里围绕桌面唤起、模型接入和自动化工作流提交反馈，项目保持持续迭代。',
+                        'teams.one.label': 'Issues 反馈',
+                        'teams.one.link': '查看 Issues',
+                        'teams.two.quote':
+                            'TouchAI 采用 GPL-3.0 开源协议，当前以 TypeScript 为主要语言，欢迎围绕桌面 Agent 体验提交改进建议。',
+                        'teams.two.label': '开源协作',
+                        'teams.two.link': '打开仓库',
+                        'teams.three.quote':
+                            '关注者可以通过 Stars、Forks 和 Discussions 跟进项目方向，也可以直接参与功能讨论与体验反馈。',
+                        'teams.three.label': '社区讨论',
+                        'teams.three.link': '查看 Discussions',
+                        'teams.review.alpha':
+                            '“在阅读技术文档的时候，使用 TouchAI 一键帮我生成可视化学习架构，帮助我快速理解技术难点，对我来说是一个高效办公的好工具。”',
+                        'teams.review.beta':
+                            '“平时忽然有什么问题，不管是日常生活还是问个技术，几下子唤醒敲字就能开问，能搜索能读文档能画图，随呼随走也能钉着放一边，可谓无处不在，一触即达。”',
+                        'teams.review.gamma':
+                            '“在解答疑难题目时，调用 TouchAI 进行智能解析；其不仅在分析答案的同时，能够绘制多种图形辅助理解，从而使抽象概念得以直观呈现，实现学习支持的高效可及与即时响应。”',
+                        'teams.review.delta':
+                            '“之前用过好多 agent 工具，其中很大的问题就是要自己培养，太费精力，到头来成了一个玩具。但是用过这款下来，真的能解决我的需求。”',
+                        'cta.title': '开始使用 TouchAI',
+                        'cta.copy': '体验近在咫尺的AI陪伴',
+                        'cta.download': '下载 TouchAI',
+                        'footer.official': '官网',
+                        'footer.docs': '文档',
+                        'footer.contact': '联系我们',
+                        'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
+                    },
+                    en: {
+                        'nav.features': 'Features',
+                        'nav.workflow': 'Use cases',
+                        'nav.teams': 'Stories',
+                        'nav.download': 'Download',
+                        'hero.subtitle': 'A desktop productivity agent, one touch away',
+                        'hero.download': 'Download TouchAI',
+                        'hero.docs': 'Docs',
+                        'features.title': 'Naturally fits into your workflow',
+                        'features.one.title': 'Hand the problem to desktop AI.',
+                        'features.one.copy':
+                            'Screenshots, formulas, and context can enter the same conversation. TouchAI understands the prompt, unfolds the derivation step by step, and organizes the final answer for reuse.',
+                        'features.two.title': 'Organize your complex work.',
+                        'features.two.copy':
+                            'Drop messy tasks into TouchAI anytime. It helps organize and archive them so you can focus on more valuable creation.',
+                        'features.three.title': 'Keep the world within reach.',
+                        'features.three.copy':
+                            'Call it up anytime. One natural-language sentence quickly invokes external tools with no burden and no interruption.',
+                        'workflow.title': 'Rich feature set',
+                        'workflow.one.title': 'BYOK supported',
+                        'workflow.one.copy':
+                            'No vendor lock-in. Connect your own models and drive TouchAI with any model you choose.',
+                        'workflow.two.title': 'Desktop context awareness',
+                        'workflow.two.copy':
+                            'Understand the current window, clipboard, files, and recent actions so ongoing work can continue without repeated setup.',
+                        'workflow.three.title': 'Desktop control and execution',
+                        'workflow.three.copy':
+                            'Operate the computer, open apps, look things up, organize files, and carry actions through beyond the conversation itself.',
+                        'teams.title': 'User feedback',
+                        'teams.stats.stars': 'Stars',
+                        'teams.stats.forks': 'Forks',
+                        'teams.stats.issues': 'Open issues',
+                        'teams.one.quote':
+                            'Developers are using GitHub Issues to discuss desktop summon, model access, and automation workflows while the project keeps moving.',
+                        'teams.one.label': 'Issue feedback',
+                        'teams.one.link': 'View Issues',
+                        'teams.two.quote':
+                            'TouchAI is GPL-3.0 licensed and primarily written in TypeScript. Suggestions around the desktop Agent experience are welcome.',
+                        'teams.two.label': 'Open-source work',
+                        'teams.two.link': 'Open repository',
+                        'teams.three.quote':
+                            'Followers can track direction through Stars, Forks, and Discussions, or join feature conversations directly.',
+                        'teams.three.label': 'Community discussion',
+                        'teams.three.link': 'View Discussions',
+                        'teams.review.alpha':
+                            '“When reading technical documentation, TouchAI can generate a visual learning structure for me with one prompt, helping me grasp difficult concepts much faster. It is a genuinely efficient productivity tool.”',
+                        'teams.review.beta':
+                            '“Whenever a question comes up, whether it is daily life or something technical, I can wake it up and start asking in seconds. It can search, read docs, draw diagrams, stay pinned, or leave just as quickly. It really feels everywhere, one touch away.”',
+                        'teams.review.gamma':
+                            '“When solving difficult problems, TouchAI provides intelligent analysis and can also draw multiple supporting diagrams, making abstract concepts more intuitive and turning learning support into something immediate and accessible.”',
+                        'teams.review.delta':
+                            '“I used many agent tools before, and the biggest problem was that they needed too much training and energy, so they ended up feeling like toys. This one actually solves my real needs.”',
+                        'cta.title': 'Get started with TouchAI',
+                        'cta.copy': 'Experience AI companionship within reach.',
+                        'cta.download': 'Download TouchAI',
+                        'footer.official': 'Official site',
+                        'footer.docs': 'Docs',
+                        'footer.contact': 'Contact us',
+                        'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
+                    },
+                };
+
+                const featureProgressByFrame = new WeakMap();
+                function syncFeatureDemoProgress(frame, progress) {
+                    if (!frame) return;
+                    featureProgressByFrame.set(frame, progress);
+                    sendToDemo(frame, {
+                        type: 'touchai-set-scroll-progress',
+                        progress,
+                    });
                 }
-                window.addEventListener('resize', sync);
-            })();
 
-            // --- Waitlist ---
-            // WAITLIST_ENDPOINT is injected at build time via define:vars (PUBLIC_WAITLIST_ENDPOINT).
-            // If empty, the form shows a fallback message instead of submitting.
-            var waitlistMessages = {
-                zh: {
-                    invalid: '请输入有效的邮箱地址',
-                    success: '订阅成功，发布时第一时间通知您！',
-                    duplicate: '该邮箱已订阅，发布时会通知您',
-                    rateLimit: '请求过于频繁，请稍后再试',
-                    serverError: '服务暂时不可用，请稍后再试',
-                    networkError: '网络错误，请重试',
-                },
-                en: {
-                    invalid: 'Please enter a valid email address',
-                    success: 'Subscribed! We will notify you at launch.',
-                    duplicate: 'Already subscribed — we will notify you',
-                    rateLimit: 'Too many requests, please retry later',
-                    serverError: 'Service unavailable, please retry later',
-                    networkError: 'Network error, please retry',
-                },
-            };
-            var emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            var waitlistForm = document.getElementById('waitlistForm');
-            var waitlistEmail = document.getElementById('waitlistEmail');
-            var waitlistSubmit = document.getElementById('waitlistSubmit');
-            var waitlistMsg = document.getElementById('waitlistMsg');
-
-            function showToast(msg, type) {
-                var t = window.__toast;
-                if (t) {
-                    if (type === 'error') t.error(msg);
-                    else if (type === 'success') t.success(msg);
-                    else t(msg);
+                function restoreFeatureDemoProgress(frame) {
+                    if (!frame) return;
+                    const progress = featureProgressByFrame.get(frame) ?? 0;
+                    syncFeatureDemoProgress(frame, progress);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 120);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 360);
                 }
-            }
 
-            if (waitlistForm) {
-                waitlistForm.addEventListener('submit', function (e) {
-                    e.preventDefault();
-                    var t = waitlistMessages[lang];
-                    var email = (waitlistEmail.value || '').trim();
-                    if (!emailRe.test(email)) {
-                        showToast(t.invalid, 'error');
-                        waitlistEmail.focus();
-                        return;
+                const setLanguage = (language) => {
+                    const lang = language === 'en' ? 'en' : 'zh';
+                    document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+                    document.querySelectorAll('[data-i18n]').forEach((node) => {
+                        const key = node.dataset.i18n;
+                        if (key && translations[lang][key]) {
+                            node.textContent = translations[lang][key];
+                        }
+                    });
+                    const toggle = document.querySelector('.lang-toggle');
+                    if (toggle) {
+                        toggle.setAttribute('aria-pressed', String(lang === 'en'));
+                        toggle.setAttribute(
+                            'aria-label',
+                            lang === 'en' ? '切换到中文' : 'Switch to English'
+                        );
+                        toggle.setAttribute(
+                            'title',
+                            lang === 'en' ? '切换到中文' : 'Switch to English'
+                        );
+                        toggle.querySelector('span').textContent = lang === 'en' ? 'EN' : '中';
                     }
-                    if (!WAITLIST_ENDPOINT) {
-                        showToast(t.serverError, 'error');
-                        return;
+                    const introDemo = document.querySelector('.component-frame');
+                    if (introDemo) {
+                        const nextSrc =
+                            lang === 'en'
+                                ? '/touchai-intro-en/touchai-components.html?v=1'
+                                : '/touchai-intro/touchai-components.html?v=8';
+                        if (introDemo.dataset.src !== nextSrc) {
+                            introDemo.dataset.src = nextSrc;
+                            introDemo.dataset.title =
+                                lang === 'en'
+                                    ? 'TouchAI intro component demo'
+                                    : 'TouchAI 介绍组件演示';
+                            Promise.resolve(introDemo.reload?.()).then(() => {
+                                syncComponentBackground();
+                            });
+                        }
                     }
-                    // Start loading animation
-                    waitlistSubmit.disabled = true;
-                    waitlistSubmit.classList.add('loading');
-                    if (waitlistMsg) {
-                        waitlistMsg.textContent = '';
-                        waitlistMsg.className = 'waitlist-msg';
+                    const solverDemo = document.querySelector('.feature-component-frame');
+                    if (solverDemo) {
+                        const nextSolverSrc =
+                            lang === 'en'
+                                ? '/feature-solver-en/touchai-components.html?v=1'
+                                : '/feature-solver/touchai-components.html?v=17';
+                        if (solverDemo.dataset.src !== nextSolverSrc) {
+                            solverDemo.dataset.src = nextSolverSrc;
+                            solverDemo.dataset.title =
+                                lang === 'en'
+                                    ? 'TouchAI math solver component demo'
+                                    : 'TouchAI 解题组件演示';
+                            Promise.resolve(solverDemo.reload?.()).then(() => {
+                                syncComponentBackground();
+                                restoreFeatureDemoProgress(solverDemo);
+                            });
+                        }
                     }
-                    fetch(WAITLIST_ENDPOINT, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            email: email,
-                            lang: lang,
-                            ref: document.referrer || '',
-                        }),
-                    })
-                        .then(function (res) {
-                            return res
-                                .json()
-                                .catch(function () {
-                                    return {};
-                                })
-                                .then(function (data) {
-                                    return { status: res.status, data: data };
-                                });
-                        })
-                        .then(function (r) {
-                            var tt = waitlistMessages[lang];
-                            waitlistSubmit.classList.remove('loading');
-                            if (r.status === 200 || r.status === 201) {
-                                // Success: show checkmark then fade out row
-                                waitlistSubmit.classList.add('success');
-                                showToast(
-                                    r.data && r.data.duplicate ? tt.duplicate : tt.success,
-                                    'success'
-                                );
-                                waitlistEmail.value = '';
-                                setTimeout(function () {
-                                    var wrap = document.querySelector('.wrap');
-                                    var siblings = wrap
-                                        ? Array.prototype.filter.call(wrap.children, function (el) {
-                                              return el !== waitlistForm;
-                                          })
-                                        : [];
-                                    var firstRects = siblings.map(function (el) {
-                                        return el.getBoundingClientRect();
-                                    });
+                    const workDemo = document.querySelector('.feature-work-frame');
+                    if (workDemo) {
+                        const nextWorkSrc =
+                            lang === 'en'
+                                ? '/feature-work-organizer-en/touchai-components.html?v=1'
+                                : '/feature-work-organizer/touchai-components.html?v=13';
+                        if (workDemo.dataset.src !== nextWorkSrc) {
+                            workDemo.dataset.src = nextWorkSrc;
+                            workDemo.dataset.title =
+                                lang === 'en'
+                                    ? 'TouchAI work organizer component demo'
+                                    : 'TouchAI 工作整理组件演示';
+                            Promise.resolve(workDemo.reload?.()).then(() => {
+                                syncComponentBackground();
+                                restoreFeatureDemoProgress(workDemo);
+                            });
+                        }
+                    }
+                    const reminderDemo = document.querySelector('.feature-reminder-frame');
+                    if (reminderDemo) {
+                        const nextReminderSrc =
+                            lang === 'en'
+                                ? '/feature-reminder-en/touchai-components.html?v=1'
+                                : '/feature-reminder/touchai-components.html?v=5';
+                        if (reminderDemo.dataset.src !== nextReminderSrc) {
+                            reminderDemo.dataset.src = nextReminderSrc;
+                            reminderDemo.dataset.title =
+                                lang === 'en'
+                                    ? 'TouchAI meeting reminder component demo'
+                                    : 'TouchAI MCP 工具调用组件演示';
+                            Promise.resolve(reminderDemo.reload?.()).then(() => {
+                                syncComponentBackground();
+                                restoreFeatureDemoProgress(reminderDemo);
+                            });
+                        }
+                    }
+                    localStorage.setItem('touchai-language', lang);
+                };
 
-                                    waitlistForm.classList.add('hide');
+                const languageToggle = document.querySelector('.lang-toggle');
+                const savedLanguage = localStorage.getItem('touchai-language');
+                setLanguage(savedLanguage === 'en' ? 'en' : 'zh');
 
-                                    requestAnimationFrame(function () {
-                                        siblings.forEach(function (el, i) {
-                                            var lastRect = el.getBoundingClientRect();
-                                            var dy = firstRects[i].top - lastRect.top;
-                                            if (dy === 0) return;
-                                            el.style.transition = 'none';
-                                            el.style.transform = 'translateY(' + dy + 'px)';
-                                            requestAnimationFrame(function () {
-                                                el.style.transition =
-                                                    'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
-                                                el.style.transform = '';
-                                                setTimeout(function () {
-                                                    el.style.transition = '';
-                                                }, 550);
-                                            });
-                                        });
-                                    });
+                const componentBackgroundFrames = () =>
+                    document.querySelectorAll('touchai-component-demo');
 
-                                    var onEnd = function (e) {
-                                        if (e.propertyName !== 'max-height') return;
-                                        waitlistForm.classList.add('gone');
-                                        waitlistForm.removeEventListener('transitionend', onEnd);
-                                    };
-                                    waitlistForm.addEventListener('transitionend', onEnd);
-                                }, 800);
-                                if (typeof window.clarity === 'function') {
-                                    try {
-                                        window.clarity('event', 'waitlist_submit');
-                                    } catch (_e) {
-                                        // ignore
-                                    }
-                                }
-                            } else if (r.status === 429) {
-                                showToast(tt.rateLimit, 'error');
-                            } else if (r.status === 400) {
-                                showToast((r.data && r.data.error) || tt.invalid, 'error');
-                            } else {
-                                showToast(tt.serverError, 'error');
+                const syncFeatureFrameSizing = () => {
+                    const solverFrame = document.querySelector('.feature-component-frame');
+                    if (solverFrame) {
+                        solverFrame.style.height = '657px';
+                        solverFrame.style.minHeight = '657px';
+                        solverFrame.style.maxHeight = '657px';
+                        solverFrame.style.background = 'transparent';
+                    }
+                    const workFrame = document.querySelector('.feature-work-frame');
+                    if (workFrame) {
+                        workFrame.style.height = '657px';
+                        workFrame.style.minHeight = '657px';
+                        workFrame.style.maxHeight = '657px';
+                        workFrame.style.background = 'transparent';
+                    }
+                    const reminderFrame = document.querySelector('.feature-reminder-frame');
+                    if (reminderFrame) {
+                        reminderFrame.style.height = '657px';
+                        reminderFrame.style.minHeight = '657px';
+                        reminderFrame.style.maxHeight = '657px';
+                        reminderFrame.style.background = 'transparent';
+                    }
+                };
+
+                const syncComponentBackground = () => {
+                    requestAnimationFrame(() => {
+                        const componentStageBg = getComputedStyle(document.documentElement)
+                            .getPropertyValue('--component-stage-bg')
+                            .trim();
+                        const featureShellBg = getComputedStyle(document.documentElement)
+                            .getPropertyValue('--feature-shell-bg')
+                            .trim();
+                        componentBackgroundFrames().forEach((frame) => {
+                            const isSolverFrame =
+                                frame.classList.contains('feature-component-frame');
+                            const isFeatureFrame =
+                                isSolverFrame ||
+                                frame.classList.contains('feature-work-frame') ||
+                                frame.classList.contains('feature-reminder-frame');
+                            const isIntroFrame = frame.classList.contains('component-frame');
+                            const nextBg = isIntroFrame
+                                ? 'transparent'
+                                : isFeatureFrame
+                                  ? featureShellBg
+                                  : componentStageBg;
+                            frame.style.setProperty('--page-bg', nextBg);
+                            if (!isSolverFrame) {
+                                frame.style.background = nextBg;
                             }
-                        })
-                        .catch(function () {
-                            waitlistSubmit.classList.remove('loading');
-                            showToast(waitlistMessages[lang].networkError, 'error');
-                            waitlistSubmit.disabled = false;
+                            sendToDemo(frame, { type: 'touchai-page-bg', background: nextBg });
                         });
+                        syncFeatureFrameSizing();
+                    });
+                };
+
+                const setTheme = (theme) => {
+                    const nextTheme = theme === 'dark' ? 'dark' : 'light';
+                    document.documentElement.dataset.theme = nextTheme;
+                    document
+                        .querySelector('meta[name="theme-color"]')
+                        ?.setAttribute('content', nextTheme === 'dark' ? '#101014' : '#ffffff');
+                    const themeToggle = document.querySelector('.theme-toggle');
+                    if (themeToggle) {
+                        themeToggle.setAttribute('aria-pressed', String(nextTheme === 'dark'));
+                        themeToggle.setAttribute(
+                            'aria-label',
+                            nextTheme === 'dark' ? '切换白天模式' : '切换黑夜模式'
+                        );
+                        themeToggle.setAttribute(
+                            'title',
+                            nextTheme === 'dark' ? '切换白天模式' : '切换黑夜模式'
+                        );
+                    }
+                    localStorage.setItem('touchai-theme', nextTheme);
+                    syncComponentBackground();
+                };
+
+                const repoStats = {
+                    stars: 23,
+                    forks: 22,
+                    issues: 82,
+                };
+                const statNodes = {
+                    stars: document.querySelector('[data-github-stat="stars"]'),
+                    forks: document.querySelector('[data-github-stat="forks"]'),
+                    issues: document.querySelector('[data-github-stat="issues"]'),
+                };
+                const formatStat = (value) => {
+                    const num = Number(value);
+                    return Number.isFinite(num) ? new Intl.NumberFormat('en-US').format(num) : null;
+                };
+                const renderRepoStats = (nextStats) => {
+                    if (statNodes.stars && nextStats.stars != null)
+                        statNodes.stars.textContent = String(nextStats.stars);
+                    if (statNodes.forks && nextStats.forks != null)
+                        statNodes.forks.textContent = String(nextStats.forks);
+                    if (statNodes.issues && nextStats.issues != null)
+                        statNodes.issues.textContent = String(nextStats.issues);
+                };
+                const refreshRepoStats = async () => {
+                    try {
+                        const response = await fetch(
+                            `https://api.github.com/repos/TouchAI-org/TouchAI?ts=${Date.now()}`,
+                            {
+                                cache: 'no-store',
+                                headers: {
+                                    Accept: 'application/vnd.github+json',
+                                    'Cache-Control': 'no-cache',
+                                    Pragma: 'no-cache',
+                                },
+                            }
+                        );
+                        if (!response.ok) return;
+                        const data = await response.json();
+                        const nextStats = {
+                            stars: formatStat(data.stargazers_count),
+                            forks: formatStat(data.forks_count),
+                            issues: formatStat(data.open_issues_count),
+                        };
+                        Object.assign(repoStats, nextStats);
+                        renderRepoStats(repoStats);
+                    } catch (error) {
+                        renderRepoStats(repoStats);
+                    }
+                };
+
+                const savedTheme = localStorage.getItem('touchai-theme');
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                setTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
+                renderRepoStats(repoStats);
+                refreshRepoStats();
+                window.setInterval(refreshRepoStats, 10 * 60 * 1000);
+
+                componentBackgroundFrames().forEach((frame) => {
+                    frame.addEventListener('load', syncComponentBackground);
+                    frame.addEventListener('touchai-component-loaded', syncComponentBackground);
                 });
-            }
+                syncFeatureFrameSizing();
+
+                const glimmCanvas = document.createElement('canvas');
+                glimmCanvas.className = 'glimm-click-layer';
+                glimmCanvas.setAttribute('aria-hidden', 'true');
+                document.body.appendChild(glimmCanvas);
+
+                const glimmController = createShader({
+                    canvas: glimmCanvas,
+                    palette: 'berry',
+                    direction: 'ltr',
+                    bandTight: 0.78,
+                    brightness: document.documentElement.dataset.theme === 'dark' ? 1.26 : 1.48,
+                    waveAmount: 1.34,
+                    rippleAmount: 1.24,
+                    waveSpeed: 1.16,
+                    swellAmount: 1.1,
+                });
+
+                let activeGlimmSweep = null;
+                const playGlimmSweep = (midpointAction, options = {}) => {
+                    if (!glimmController) {
+                        midpointAction?.();
+                        return Promise.resolve();
+                    }
+                    activeGlimmSweep?.cancel?.();
+                    document.body.classList.add('is-glimm-transitioning');
+                    glimmController.setBrightness(
+                        document.documentElement.dataset.theme === 'dark' ? 1.26 : 1.48
+                    );
+                    const handle = playSweep(glimmController, {
+                        palette: options.palette ?? 'berry',
+                        direction: options.direction ?? 'ltr',
+                        sweepMs: options.sweepMs ?? 1320,
+                        outroMs: options.outroMs ?? 860,
+                        bandTight: options.bandTight ?? 0.78,
+                        peakAlpha: options.peakAlpha ?? 1.16,
+                        brightness:
+                            options.brightness ??
+                            (document.documentElement.dataset.theme === 'dark' ? 1.26 : 1.48),
+                        waveAmount: options.waveAmount ?? 1.34,
+                        rippleAmount: options.rippleAmount ?? 1.24,
+                        waveSpeed: options.waveSpeed ?? 1.16,
+                        swellAmount: options.swellAmount ?? 1.1,
+                        onMidpoint: async () => {
+                            await midpointAction?.();
+                        },
+                        onComplete: () => {
+                            document.body.classList.remove('is-glimm-transitioning');
+                            activeGlimmSweep = null;
+                        },
+                    });
+                    activeGlimmSweep = handle;
+                    return handle.done.finally(() => {
+                        document.body.classList.remove('is-glimm-transitioning');
+                    });
+                };
+
+                document.querySelectorAll('a, button').forEach((target) => {
+                    target.classList.add('interactive-click');
+                    target.addEventListener('pointerdown', () => {
+                        target.classList.add('is-pressing');
+                    });
+                    ['pointerup', 'pointerleave', 'pointercancel', 'blur'].forEach((eventName) => {
+                        target.addEventListener(eventName, () =>
+                            target.classList.remove('is-pressing')
+                        );
+                    });
+                });
+
+                document.querySelectorAll('a.interactive-click').forEach((target) => {
+                    target.addEventListener('click', (event) => {
+                        const href = target.getAttribute('href');
+                        if (!href || target.dataset.glimmSkip === 'true') return;
+                        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+                            return;
+                        event.preventDefault();
+                        target.classList.remove('is-pressing');
+
+                        const isExternal = target.target === '_blank' || /^https?:\/\//.test(href);
+                        playGlimmSweep(() => {
+                            if (href.startsWith('#')) {
+                                const destination = document.querySelector(href);
+                                if (destination) {
+                                    destination.scrollIntoView({
+                                        behavior: 'smooth',
+                                        block: 'start',
+                                    });
+                                }
+                                if (history.replaceState) {
+                                    history.replaceState(null, '', href);
+                                }
+                                return;
+                            }
+                            if (isExternal) {
+                                window.open(href, target.target || '_blank', 'noopener,noreferrer');
+                                return;
+                            }
+                            window.location.href = href;
+                        });
+                    });
+                });
+
+                document.querySelectorAll('button.interactive-click').forEach((target) => {
+                    target.addEventListener(
+                        'click',
+                        (event) => {
+                            if (target.dataset.glimmBound === 'true') return;
+                            if (target.closest('.theme-toggle') || target.closest('.lang-toggle')) {
+                                event.stopImmediatePropagation();
+                                event.preventDefault();
+                                target.classList.remove('is-pressing');
+                                playGlimmSweep(() => {
+                                    if (target.classList.contains('theme-toggle')) {
+                                        setTheme(
+                                            document.documentElement.dataset.theme === 'dark'
+                                                ? 'light'
+                                                : 'dark'
+                                        );
+                                        return;
+                                    }
+                                    if (target.classList.contains('lang-toggle')) {
+                                        const nextLanguage =
+                                            document.documentElement.lang === 'en' ? 'zh' : 'en';
+                                        setLanguage(nextLanguage);
+                                    }
+                                });
+                            }
+                        },
+                        true
+                    );
+                });
+
+                const solverFrame = document.querySelector('.feature-component-frame');
+                const solverCard = document.querySelector('.feature-component-card');
+                if (solverFrame) {
+                    syncFeatureDemoProgress(solverFrame, 0);
+                    solverFrame.addEventListener('load', () => {
+                        syncFeatureDemoProgress(
+                            solverFrame,
+                            featureProgressByFrame.get(solverFrame) ?? 0
+                        );
+                    });
+                    window.addEventListener('message', (event) => {
+                        if (event.data?.type === 'touchai-solver-ready') {
+                            syncFeatureDemoProgress(
+                                solverFrame,
+                                featureProgressByFrame.get(solverFrame) ?? 0
+                            );
+                        }
+                    });
+                }
+
+                const workOrganizerFrame = document.querySelector('.feature-work-frame');
+                const workOrganizerCard = document.querySelector('.feature-work-card');
+                if (workOrganizerFrame) {
+                    syncFeatureDemoProgress(workOrganizerFrame, 0);
+                    workOrganizerFrame.addEventListener('load', () => {
+                        syncFeatureDemoProgress(
+                            workOrganizerFrame,
+                            featureProgressByFrame.get(workOrganizerFrame) ?? 0
+                        );
+                    });
+                    window.addEventListener('message', (event) => {
+                        if (event.data?.type === 'touchai-work-organizer-ready') {
+                            syncFeatureDemoProgress(
+                                workOrganizerFrame,
+                                featureProgressByFrame.get(workOrganizerFrame) ?? 0
+                            );
+                        }
+                    });
+                }
+
+                const reminderFrame = document.querySelector('.feature-reminder-frame');
+                const reminderCard = document.querySelector('.feature-reminder-card');
+                if (reminderFrame) {
+                    syncFeatureDemoProgress(reminderFrame, 0);
+                    reminderFrame.addEventListener('load', () => {
+                        syncFeatureDemoProgress(
+                            reminderFrame,
+                            featureProgressByFrame.get(reminderFrame) ?? 0
+                        );
+                    });
+                    window.addEventListener('message', (event) => {
+                        if (event.data?.type === 'touchai-reminder-ready') {
+                            syncFeatureDemoProgress(
+                                reminderFrame,
+                                featureProgressByFrame.get(reminderFrame) ?? 0
+                            );
+                        }
+                    });
+                }
+
+                const replayEmbeddedComponent = async (frame) => {
+                    const progress = featureProgressByFrame.get(frame) ?? 0;
+                    await Promise.resolve(frame.reload?.());
+                    syncFeatureDemoProgress(frame, progress);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 120);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 360);
+                };
+
+                const bindReplayCard = (card, frame, label) => {
+                    if (!card || !frame) return;
+                    let replaying = false;
+                    card.setAttribute('role', 'button');
+                    card.setAttribute('tabindex', '0');
+                    card.setAttribute('aria-label', `${label}，点击刷新当前滚动进度`);
+
+                    const replay = async () => {
+                        if (replaying) return;
+                        replaying = true;
+                        try {
+                            await replayEmbeddedComponent(frame);
+                        } finally {
+                            window.setTimeout(() => {
+                                replaying = false;
+                            }, 900);
+                        }
+                    };
+
+                    card.addEventListener('click', () => {
+                        replay();
+                    });
+                    card.addEventListener('keydown', (event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        replay();
+                    });
+                };
+
+                bindReplayCard(solverCard, solverFrame, '解题对话框');
+                bindReplayCard(workOrganizerCard, workOrganizerFrame, '工作整理对话框');
+                bindReplayCard(reminderCard, reminderFrame, '提醒对话框');
+
+                const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+                gsap.utils.toArray('.hero, .section, .cta').forEach((section, index) => {
+                    if (reduceMotion) {
+                        gsap.set(section, { autoAlpha: 1, y: 0 });
+                        return;
+                    }
+
+                    gsap.from(section, {
+                        autoAlpha: 0,
+                        y: 24,
+                        duration: 0.8,
+                        ease: 'power2.out',
+                        scrollTrigger: {
+                            trigger: section,
+                            start: 'top 82%',
+                            toggleActions: 'play none none reverse',
+                        },
+                    });
+                });
+
+                if (!reduceMotion) {
+                    const workflowSection = document.querySelector('#workflow');
+                    const workflowTitle = workflowSection?.querySelector('.section-title');
+                    const scenarioCards = workflowSection
+                        ? gsap.utils.toArray('#workflow .scenario-card')
+                        : [];
+                    const featureFrames = [solverFrame, workOrganizerFrame, reminderFrame].filter(
+                        Boolean
+                    );
+
+                    if (workflowSection && workflowTitle && scenarioCards.length) {
+                        gsap.set(scenarioCards, {
+                            autoAlpha: 0,
+                            y: 86,
+                            z: -120,
+                            rotationX: 9,
+                            rotationY: (index) => (index - 1) * -5,
+                            transformPerspective: 1100,
+                            transformOrigin: '50% 80%',
+                        });
+
+                        gsap.timeline({
+                            scrollTrigger: {
+                                trigger: workflowSection,
+                                start: 'top 72%',
+                                end: 'bottom 34%',
+                                toggleActions: 'play none none reverse',
+                            },
+                        })
+                            .fromTo(
+                                workflowTitle,
+                                { autoAlpha: 0, y: 36, filter: 'blur(12px)' },
+                                {
+                                    autoAlpha: 1,
+                                    y: 0,
+                                    filter: 'blur(0px)',
+                                    duration: 0.85,
+                                    ease: 'power3.out',
+                                }
+                            )
+                            .to(
+                                scenarioCards,
+                                {
+                                    autoAlpha: 1,
+                                    y: 0,
+                                    z: 0,
+                                    rotationX: 0,
+                                    rotationY: 0,
+                                    duration: 1.05,
+                                    stagger: { each: 0.12, from: 'center' },
+                                    ease: 'power3.out',
+                                },
+                                '-=0.35'
+                            )
+                            .to(
+                                scenarioCards,
+                                {
+                                    keyframes: [
+                                        { '--scenario-glow-opacity': 1, duration: 0.2 },
+                                        { '--scenario-glow-opacity': 0, duration: 0.8 },
+                                    ],
+                                    stagger: 0.08,
+                                    ease: 'power1.out',
+                                },
+                                '-=0.65'
+                            )
+                            .to(
+                                scenarioCards,
+                                {
+                                    '--scenario-glow-x': '76%',
+                                    '--scenario-glow-y': '24%',
+                                    duration: 1,
+                                    stagger: 0.08,
+                                    ease: 'sine.out',
+                                },
+                                '<'
+                            )
+                            .to(
+                                scenarioCards,
+                                {
+                                    y: (index) => (index % 2 === 0 ? -7 : 7),
+                                    duration: 3.2,
+                                    repeat: -1,
+                                    yoyo: true,
+                                    ease: 'sine.inOut',
+                                    stagger: 0.18,
+                                },
+                                '>-0.25'
+                            );
+
+                        scenarioCards.forEach((card) => {
+                            card.addEventListener('pointermove', (event) => {
+                                const rect = card.getBoundingClientRect();
+                                const x = (event.clientX - rect.left) / rect.width;
+                                const y = (event.clientY - rect.top) / rect.height;
+
+                                gsap.to(card, {
+                                    rotationY: gsap.utils.mapRange(0, 1, -7, 7, x),
+                                    rotationX: gsap.utils.mapRange(0, 1, 7, -7, y),
+                                    scale: 1.018,
+                                    '--scenario-glow-x': `${x * 100}%`,
+                                    '--scenario-glow-y': `${y * 100}%`,
+                                    '--scenario-glow-opacity': 1,
+                                    duration: 0.35,
+                                    ease: 'power2.out',
+                                    overwrite: 'auto',
+                                });
+                            });
+
+                            card.addEventListener('pointerenter', () => {
+                                gsap.fromTo(
+                                    card,
+                                    { '--scenario-glow-opacity': 0.2 },
+                                    {
+                                        '--scenario-glow-opacity': 1,
+                                        duration: 0.25,
+                                        ease: 'power2.out',
+                                    }
+                                );
+                                gsap.fromTo(
+                                    card,
+                                    {
+                                        '--scenario-shine-x': '-120%',
+                                        '--scenario-shine-opacity': 0,
+                                    },
+                                    {
+                                        '--scenario-shine-x': '120%',
+                                        '--scenario-shine-opacity': 0.68,
+                                        duration: 0.82,
+                                        ease: 'power2.out',
+                                        overwrite: 'auto',
+                                        onComplete: () => {
+                                            gsap.set(card, { '--scenario-shine-opacity': 0 });
+                                        },
+                                    }
+                                );
+                            });
+
+                            card.addEventListener('pointerleave', () => {
+                                gsap.to(card, {
+                                    rotationX: 0,
+                                    rotationY: 0,
+                                    scale: 1,
+                                    '--scenario-glow-opacity': 0,
+                                    duration: 0.55,
+                                    ease: 'power3.out',
+                                    overwrite: 'auto',
+                                });
+                            });
+                        });
+                    }
+
+                    const visualSection = document.querySelector('.visual-section');
+                    const visualShell = document.querySelector('.visual-shell');
+                    const introDemo = document.querySelector('.component-frame');
+
+                    if (visualSection && visualShell && introDemo) {
+                        gsap.set(visualShell, { scale: 0.985, transformOrigin: 'center center' });
+
+                        let componentTrigger;
+                        const syncComponent = (progress) => {
+                            sendToDemo(introDemo, { type: 'touchai-set-progress', progress });
+                        };
+                        const refreshPinnedIntro = () => {
+                            ScrollTrigger.refresh();
+                            syncComponent(componentTrigger?.progress ?? 0);
+                        };
+                        gsap.timeline({
+                            scrollTrigger: {
+                                trigger: visualSection,
+                                start: 'top top',
+                                end: () => `+=${Math.max(window.innerHeight * 3.45, 2800)}`,
+                                pin: true,
+                                pinSpacing: true,
+                                anticipatePin: 1,
+                                scrub: 0.55,
+                                invalidateOnRefresh: true,
+                                onRefresh: (self) => {
+                                    componentTrigger = self;
+                                    syncComponent(self.progress);
+                                },
+                                onEnter: () => syncComponent(componentTrigger?.progress ?? 0),
+                                onEnterBack: () => syncComponent(componentTrigger?.progress ?? 1),
+                                onUpdate: (self) => {
+                                    componentTrigger = self;
+                                    syncComponent(self.progress);
+                                },
+                                onLeave: () => syncComponent(1),
+                                onLeaveBack: () => syncComponent(0),
+                            },
+                        })
+                            .fromTo(
+                                visualShell,
+                                { scale: 0.965, y: 0, opacity: 0.65 },
+                                { scale: 1, y: 0, opacity: 1, duration: 0.35, ease: 'power2.out' }
+                            )
+                            .to(introDemo, { opacity: 1, duration: 0.2, ease: 'none' }, 0);
+
+                        introDemo.addEventListener('load', () => {
+                            requestAnimationFrame(() => {
+                                refreshPinnedIntro();
+                            });
+                        });
+                        introDemo.addEventListener('touchai-component-loaded', () => {
+                            requestAnimationFrame(refreshPinnedIntro);
+                        });
+
+                        window.addEventListener('message', (event) => {
+                            if (event.data?.type === 'touchai-component-ready') {
+                                requestAnimationFrame(refreshPinnedIntro);
+                            }
+                        });
+                    }
+
+                    featureFrames.forEach((frame) => {
+                        if (!frame) return;
+
+                        const featureBlock = frame.closest('.feature-block') || frame;
+                        const featureShell = frame.closest('.feature-block-shell') || featureBlock;
+                        let featureTrigger;
+                        const syncCurrentFeatureProgress = () => {
+                            syncFeatureDemoProgress(frame, featureTrigger?.progress ?? 0);
+                        };
+
+                        featureTrigger = ScrollTrigger.create({
+                            trigger: featureBlock,
+                            start: () => {
+                                const shellHeight =
+                                    featureShell.getBoundingClientRect().height || 560;
+                                return `top ${Math.max(0, Math.round((window.innerHeight - shellHeight) / 2))}px`;
+                            },
+                            end: () => {
+                                const shellHeight =
+                                    featureShell.getBoundingClientRect().height || 560;
+                                return `bottom ${Math.max(0, Math.round((window.innerHeight + shellHeight) / 2))}px`;
+                            },
+                            scrub: true,
+                            invalidateOnRefresh: true,
+                            onRefresh: syncCurrentFeatureProgress,
+                            onEnter: syncCurrentFeatureProgress,
+                            onEnterBack: syncCurrentFeatureProgress,
+                            onUpdate: (self) => {
+                                syncFeatureDemoProgress(frame, self.progress);
+                            },
+                            onLeave: () => syncFeatureDemoProgress(frame, 1),
+                            onLeaveBack: () => syncFeatureDemoProgress(frame, 0),
+                        });
+                    });
+                }
+
+                const nav = document.querySelector('.nav');
+                const syncNavScrolled = () => {
+                    nav?.classList.toggle('is-scrolled', window.scrollY > 12);
+                };
+
+                window.addEventListener('scroll', syncNavScrolled, { passive: true });
+
+                window.addEventListener('load', () => {
+                    syncNavScrolled();
+                    ScrollTrigger.refresh();
+                });
+            })();
         </script>
-        <ToastProvider client:load />
     </body>
 </html>
