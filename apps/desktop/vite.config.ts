@@ -56,6 +56,7 @@ const chunkGroups = [
     [
       '@tauri-apps/api',
       '@tauri-apps/plugin-dialog',
+      '@tauri-apps/plugin-deep-link',
       '@tauri-apps/plugin-fs',
       '@tauri-apps/plugin-http',
       '@tauri-apps/plugin-notification',
@@ -78,6 +79,7 @@ export default defineConfig({
       '@tauri-apps/api/webviewWindow',
       '@tauri-apps/api/window',
       '@tauri-apps/plugin-dialog',
+      '@tauri-apps/plugin-deep-link',
       '@tauri-apps/plugin-fs',
       '@tauri-apps/plugin-http',
       '@tauri-apps/plugin-notification',
