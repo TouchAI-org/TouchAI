@@ -309,6 +309,12 @@ const isUnsafeUrl = (value: string) => {
     );
 };
 
+const resolveSafeExternalUrl = (value: string, baseUrl: string) => {
+    if (isUnsafeUrl(value)) return null;
+    const resolved = resolveUrl(value, baseUrl);
+    return isUnsafeUrl(resolved) ? null : resolved;
+};
+
 const sanitizeClonedBody = (bodyContent: HTMLElement) => {
     bodyContent.querySelectorAll<HTMLElement>('*').forEach((node) => {
         [...node.attributes].forEach((attribute) => {
@@ -570,7 +576,12 @@ const applyDocument = async (
     doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach((link) => {
         const href = link.getAttribute('href');
         if (!href) return;
-        loadExternalStyle(resolveUrl(href, componentUrl.href));
+        const resolvedHref = resolveSafeExternalUrl(href, componentUrl.href);
+        if (!resolvedHref) {
+            host.dataset.touchaiSkippedStyle = href;
+            return;
+        }
+        loadExternalStyle(resolvedHref);
     });
 
     const bodyContent = doc.body.cloneNode(true) as HTMLElement;
@@ -583,7 +594,11 @@ const applyDocument = async (
         if (loadVersion !== host.__touchaiLoadVersion) return;
         const srcAttr = script.getAttribute('src');
         if (srcAttr) {
-            const resolvedSrc = resolveUrl(srcAttr, componentUrl.href);
+            const resolvedSrc = resolveSafeExternalUrl(srcAttr, componentUrl.href);
+            if (!resolvedSrc) {
+                host.dataset.touchaiSkippedScript = srcAttr;
+                continue;
+            }
             host.dataset.touchaiLastScript = resolvedSrc;
             await loadExternalScript(resolvedSrc);
             continue;
