@@ -29,7 +29,8 @@ declare global {
 
 const loadedScripts = new Map<string, Promise<void>>();
 const loadedStyles = new Set<string>();
-const unsafeUrlAttributes = new Set(['href', 'src', 'xlink:href', 'manifest']);
+const unsafeUrlAttributes = new Set(['href', 'src', 'xlink:href', 'manifest', 'formaction']);
+const unsafeHtmlAttributes = new Set(['srcdoc']);
 
 const hostCssFor = (id: string) => `
 touchai-component-demo[data-demo-id="${id}"] {
@@ -288,11 +289,14 @@ const loadExternalStyle = (href: string) => {
 
 const parseHtml = (html: string) => new DOMParser().parseFromString(html, 'text/html');
 
-const isJavaScriptUrl = (value: string) =>
-    value
-        .replace(/[\u0000-\u001f\u007f\s]+/g, '')
-        .toLowerCase()
-        .startsWith('javascript:');
+const isUnsafeUrl = (value: string) => {
+    const normalized = value.replace(/[\u0000-\u001f\u007f\s]+/g, '').toLowerCase();
+    return (
+        normalized.startsWith('javascript:') ||
+        normalized.startsWith('vbscript:') ||
+        normalized.startsWith('data:')
+    );
+};
 
 const sanitizeClonedBody = (bodyContent: HTMLElement) => {
     bodyContent.querySelectorAll<HTMLElement>('*').forEach((node) => {
@@ -303,7 +307,10 @@ const sanitizeClonedBody = (bodyContent: HTMLElement) => {
                 return;
             }
 
-            if (unsafeUrlAttributes.has(name) && isJavaScriptUrl(attribute.value)) {
+            if (
+                unsafeHtmlAttributes.has(name) ||
+                (unsafeUrlAttributes.has(name) && isUnsafeUrl(attribute.value))
+            ) {
                 node.removeAttribute(attribute.name);
             }
         });
