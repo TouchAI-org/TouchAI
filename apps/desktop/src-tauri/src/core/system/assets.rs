@@ -3,6 +3,8 @@
 //! 应用资源下载与管理。
 
 use log::{error, info, warn};
+use sha2::{Digest, Sha256};
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use tauri::Emitter;
 use tokio::fs;
@@ -12,6 +14,9 @@ use crate::core::system::paths::{app_directory_path, AppDirectory};
 
 /// 字体文件名
 const FONT_FILENAME: &str = "SourceHanSerifSC-VF.ttf.woff2";
+const FONT_EXPECTED_SIZE_BYTES: u64 = 21_600_852;
+const FONT_EXPECTED_SHA256: &str =
+    "95bee5840bd5bcc68ada7d9c32fbf40af38a7dadeb77bfae4dd26d85b131ce20";
 
 /// CDN 地址列表（按优先级排序）
 const FONT_CDN_URLS: &[&str] = &[
@@ -34,7 +39,65 @@ fn get_font_path() -> Result<PathBuf, String> {
 /// 检查字体文件是否已存在
 async fn font_exists() -> Result<bool, String> {
     let font_path = get_font_path()?;
-    Ok(font_path.exists())
+    is_valid_font_file(&font_path).await
+}
+
+async fn is_valid_font_file(font_path: &std::path::Path) -> Result<bool, String> {
+    let metadata = match fs::metadata(&font_path).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read font metadata '{}': {error}",
+                font_path.display()
+            ));
+        }
+    };
+
+    if metadata.len() != FONT_EXPECTED_SIZE_BYTES {
+        warn!(
+            "Ignoring invalid cached font '{}': expected {} bytes, found {} bytes",
+            font_path.display(),
+            FONT_EXPECTED_SIZE_BYTES,
+            metadata.len()
+        );
+        return Ok(false);
+    }
+
+    let data = fs::read(&font_path)
+        .await
+        .map_err(|e| format!("Failed to read cached font '{}': {e}", font_path.display()))?;
+    match validate_font_data(&data) {
+        Ok(()) => Ok(true),
+        Err(error) => {
+            warn!(
+                "Ignoring invalid cached font '{}': {}",
+                font_path.display(),
+                error
+            );
+            Ok(false)
+        }
+    }
+}
+
+fn validate_font_data(data: &[u8]) -> Result<(), String> {
+    if data.len() as u64 != FONT_EXPECTED_SIZE_BYTES {
+        return Err(format!(
+            "expected {} bytes, found {} bytes",
+            FONT_EXPECTED_SIZE_BYTES,
+            data.len()
+        ));
+    }
+
+    let actual_hash = format!("{:x}", Sha256::digest(data));
+    if actual_hash != FONT_EXPECTED_SHA256 {
+        return Err(format!(
+            "expected sha256 {}, found {}",
+            FONT_EXPECTED_SHA256, actual_hash
+        ));
+    }
+
+    Ok(())
 }
 
 /// 从指定 URL 下载文件
@@ -81,19 +144,47 @@ async fn try_download_from_cdns() -> Result<Vec<u8>, String> {
 
 /// 保存字体文件到本地
 async fn save_font(data: &[u8]) -> Result<(), String> {
+    validate_font_data(data)?;
     let font_path = get_font_path()?;
+    let temp_font_path = font_path.with_file_name(format!("{FONT_FILENAME}.tmp"));
 
-    let mut file = fs::File::create(&font_path)
-        .await
-        .map_err(|e| format!("Failed to create font file: {}", e))?;
+    if let Some(parent) = font_path.parent() {
+        fs::create_dir_all(parent).await.map_err(|e| {
+            format!(
+                "Failed to create font directory '{}': {e}",
+                parent.display()
+            )
+        })?;
+    }
 
-    file.write_all(data)
-        .await
-        .map_err(|e| format!("Failed to write font file: {}", e))?;
+    {
+        let mut file = fs::File::create(&temp_font_path)
+            .await
+            .map_err(|e| format!("Failed to create temporary font file: {}", e))?;
 
-    file.flush()
+        file.write_all(data)
+            .await
+            .map_err(|e| format!("Failed to write temporary font file: {}", e))?;
+
+        file.flush()
+            .await
+            .map_err(|e| format!("Failed to flush temporary font file: {}", e))?;
+    }
+
+    match fs::remove_file(&font_path).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "Failed to remove existing font file '{}': {error}",
+                font_path.display()
+            ));
+        }
+    }
+
+    fs::rename(&temp_font_path, &font_path)
         .await
-        .map_err(|e| format!("Failed to flush font file: {}", e))?;
+        .map_err(|e| format!("Failed to replace font file: {}", e))?;
 
     info!("Font saved to: {}", font_path.display());
     Ok(())
@@ -153,5 +244,77 @@ pub async fn initialize_font(app_handle: tauri::AppHandle) -> Result<(), String>
             Ok(())
         }
         Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_valid_font_file, validate_font_data, FONT_EXPECTED_SHA256, FONT_FILENAME};
+    use sha2::{Digest, Sha256};
+    use tempfile::tempdir;
+    use tokio::fs;
+
+    #[tokio::test]
+    async fn missing_font_cache_is_not_valid() {
+        let root = tempdir().expect("tempdir");
+        let font_path = root.path().join(FONT_FILENAME);
+
+        assert!(!is_valid_font_file(&font_path)
+            .await
+            .expect("missing font cache check"));
+    }
+
+    #[tokio::test]
+    async fn existing_short_font_cache_is_not_valid() {
+        let root = tempdir().expect("tempdir");
+        let font_dir = root.path().join("assets").join("font");
+        fs::create_dir_all(&font_dir)
+            .await
+            .expect("create font dir");
+        let font_path = font_dir.join(FONT_FILENAME);
+        fs::write(&font_path, b"not a font")
+            .await
+            .expect("write invalid font");
+
+        assert!(!is_valid_font_file(&font_path)
+            .await
+            .expect("font cache check"));
+    }
+
+    #[tokio::test]
+    async fn bundled_font_cache_is_valid() {
+        let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/font")
+            .join(FONT_FILENAME);
+
+        assert!(is_valid_font_file(&font_path)
+            .await
+            .expect("bundled font cache check"));
+    }
+
+    #[test]
+    fn valid_font_hash_matches_expected_constant() {
+        let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/font")
+            .join(FONT_FILENAME);
+        let data = std::fs::read(font_path).expect("read bundled font");
+        let actual_hash = format!("{:x}", Sha256::digest(&data));
+
+        assert_eq!(actual_hash, FONT_EXPECTED_SHA256);
+        validate_font_data(&data).expect("validate bundled font data");
+    }
+
+    #[test]
+    fn same_size_font_with_wrong_hash_is_rejected() {
+        let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/font")
+            .join(FONT_FILENAME);
+        let mut data = std::fs::read(font_path).expect("read bundled font");
+        let last_byte = data.last_mut().expect("font has data");
+        *last_byte = last_byte.wrapping_add(1);
+
+        let error = validate_font_data(&data).expect_err("mutated font should fail hash check");
+
+        assert!(error.contains("expected sha256"));
     }
 }
