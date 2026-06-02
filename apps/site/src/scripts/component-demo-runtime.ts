@@ -45,8 +45,8 @@ touchai-component-demo[data-demo-id="${id}"] {
 }
 
 touchai-component-demo[data-demo-id="${id}"].component-frame {
-    width: 60vw !important;
-    max-width: 60vw;
+    width: min(60vw, 760px) !important;
+    max-width: 760px;
     justify-self: center;
     overflow: visible !important;
 }
@@ -148,6 +148,24 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete 
     min-height: 100% !important;
     max-height: 100% !important;
     height: 100% !important;
+}
+
+@media (max-width: 560px) {
+    touchai-component-demo[data-demo-id="${id}"].component-frame {
+        width: min(calc(100vw - 56px), 360px) !important;
+        max-width: min(calc(100vw - 56px), 360px) !important;
+        height: 560px !important;
+        min-height: 560px !important;
+        overflow: visible !important;
+    }
+
+    touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
+        min-height: 560px !important;
+        height: 560px !important;
+        padding: 0 !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
 }
 `;
 
