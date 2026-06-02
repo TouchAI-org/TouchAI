@@ -100,6 +100,7 @@ export interface PendingRequest {
     inputSnapshot?: InputHistorySnapshot;
     modelId?: string;
     providerId?: number;
+    desktopContextCapsuleId?: string | null;
 }
 
 export interface SearchModelCapabilities {

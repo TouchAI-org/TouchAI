@@ -4,6 +4,7 @@ import {
     type AttachmentIndex,
     inspectAttachments,
 } from '@/services/AgentService/infrastructure/attachments';
+import type { DesktopContextPromptMetadata } from '@/services/DesktopContextService/types';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import {
@@ -24,6 +25,12 @@ const TOOL_DISCIPLINE_SYSTEM_PROMPT = [
 const BACKGROUND_MODE_PROMPT = [
     '当前任务允许在前台页面失焦、隐藏或切换会话后继续运行。',
     '除非用户主动取消，或工具审批明确被拒绝，否则应继续完成原始任务。',
+].join('\n');
+
+const DESKTOP_CONTEXT_TOOL_PROMPT = [
+    '本轮请求绑定了一份只读桌面上下文胶囊。',
+    '如果用户的问题需要理解呼出 TouchAI 前的桌面、前台窗口、选中文本、剪贴板或截图，请调用 `builtin__get_desktop_context` 读取。',
+    '不要假设桌面上下文已经完整出现在 prompt 中；不要执行点击、输入、滚动、聚焦或控制外部应用等 computer use 行为。',
 ].join('\n');
 
 const PROMPT_SOURCE_ORDER: PromptFragmentSource[] = [
@@ -50,6 +57,7 @@ interface ComposePromptSnapshotOptions {
     mode?: string[];
     feature?: string[];
     userAppend?: string[];
+    desktopContext?: DesktopContextPromptMetadata;
 }
 
 function buildFragments(source: PromptFragmentSource, contents: string[]): PromptFragment[] {
@@ -101,7 +109,10 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
             'mode',
             options.mode ?? (executionMode === 'background' ? [BACKGROUND_MODE_PROMPT] : [])
         ),
-        feature: buildFragments('feature', options.feature ?? []),
+        feature: buildFragments('feature', [
+            ...(options.feature ?? []),
+            ...(options.desktopContext ? [DESKTOP_CONTEXT_TOOL_PROMPT] : []),
+        ]),
         user_append: buildFragments('user_append', options.userAppend ?? []),
     };
 
@@ -111,6 +122,7 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
         fragments: PROMPT_SOURCE_ORDER.flatMap((source) => fragmentsBySource[source]),
         userPrompt: options.prompt,
         attachments: await summarizeAttachments(options.attachments ?? []),
+        ...(options.desktopContext ? { desktopContext: options.desktopContext } : {}),
     };
 }
 
@@ -130,6 +142,7 @@ export async function composePromptSnapshot(
         fragments: assembly.fragments,
         userPrompt: assembly.userPrompt,
         attachments: assembly.attachments,
+        ...(assembly.desktopContext ? { desktopContext: assembly.desktopContext } : {}),
         systemPrompt: assembly.fragments
             .map((fragment) => fragment.content)
             .join('\n\n')

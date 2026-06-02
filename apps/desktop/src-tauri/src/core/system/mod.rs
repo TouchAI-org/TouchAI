@@ -8,6 +8,7 @@ pub mod assets;
 pub mod autostart;
 pub mod bundled;
 pub mod clipboard;
+pub mod desktop_context;
 pub mod logging;
 pub mod paths;
 pub mod runtime;

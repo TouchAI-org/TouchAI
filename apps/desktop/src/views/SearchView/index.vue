@@ -105,6 +105,7 @@
     const historyAnchorElement = ref<HTMLElement | null>(null);
     const pageContainer = ref<HTMLElement | null>(null);
     const approvalAttentionToken = ref(0);
+    const latestDesktopContextCapsuleId = ref<string | null>(null);
     const isDragging = ref(false);
     const latestContentVisible = ref(true);
     const latestSeenCompletedMessageMarker = ref<string | null>(null);
@@ -249,6 +250,7 @@
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
         getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
+        getCurrentDesktopContextCapsuleId: () => latestDesktopContextCapsuleId.value,
     });
 
     const {
@@ -418,6 +420,9 @@
         handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste: tryShortcutAutoPaste,
+        handleSearchSurfaceShown: ({ contextCapsuleId }) => {
+            latestDesktopContextCapsuleId.value = contextCapsuleId ?? null;
+        },
     });
 
     function getSessionHistoryPopupData(): SessionHistoryData {

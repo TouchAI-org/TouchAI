@@ -13,6 +13,7 @@ import type {
     ToolEventBuiltInConversationSemanticAction,
 } from '@/services/AgentService/contracts/tooling';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import type { BoundDesktopContext } from '@/services/DesktopContextService/types';
 
 /**
  * 当前内置工具体系允许暴露给模型的稳定工具标识。
@@ -23,6 +24,7 @@ export type BuiltInToolId =
     | 'read'
     | 'setting'
     | 'web_fetch'
+    | 'get_desktop_context'
     | 'upgrade_model'
     | 'show_widget'
     | 'visualize_read_me'
@@ -38,6 +40,7 @@ export interface BaseBuiltInToolExecutionContext {
     iteration: number;
     emitToolEvent?: (toolEvent: ToolEvent) => void;
     hasExecutedBuiltInTool: (toolId: BuiltInToolId) => boolean;
+    desktopContext?: BoundDesktopContext | null;
     requestUserQuestions?: (
         callId: string,
         questions: AskUserQuestion[]

@@ -5,6 +5,7 @@ pub mod autostart;
 pub mod built_in_tools;
 pub mod clipboard;
 pub mod database;
+pub mod desktop_context;
 pub mod mcp;
 pub mod paths;
 pub mod quick_search;
@@ -42,6 +43,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         clipboard::read_clipboard_payload,
         clipboard::consume_shortcut_auto_paste_payload,
         clipboard::write_clipboard_text,
+        desktop_context::desktop_context_get_capsule,
+        desktop_context::desktop_context_bind_capsule,
         autostart::enable_autostart,
         autostart::disable_autostart,
         autostart::is_autostart_enabled,

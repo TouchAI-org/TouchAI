@@ -43,6 +43,48 @@
                         </div>
                     </div>
                 </div>
+
+                <div
+                    v-if="message.desktopContext"
+                    class="mt-2 rounded-md border border-amber-200 bg-amber-50/80 p-2 text-xs text-amber-950"
+                >
+                    <div class="flex items-center gap-1.5 font-medium">
+                        <AppIcon name="eye" class="h-3.5 w-3.5 text-amber-700" />
+                        <span>{{ t('conversation.desktopContext.title') }}</span>
+                    </div>
+                    <div class="mt-1 text-amber-900" data-no-i18n="true" translate="no">
+                        {{ message.desktopContext.summary }}
+                    </div>
+                    <div
+                        v-if="message.desktopContext.activeWindowTitle"
+                        class="mt-1 truncate text-amber-800"
+                        data-no-i18n="true"
+                        translate="no"
+                    >
+                        {{ message.desktopContext.activeWindowTitle }}
+                    </div>
+                    <a
+                        v-if="desktopContextScreenshotUrl"
+                        :href="desktopContextScreenshotUrl"
+                        target="_blank"
+                        rel="noreferrer"
+                        class="mt-2 block"
+                    >
+                        <img
+                            :src="desktopContextScreenshotUrl"
+                            :alt="t('conversation.desktopContext.screenshotAlt')"
+                            class="max-h-32 max-w-xs rounded border border-amber-200 object-contain"
+                        />
+                    </a>
+                    <div
+                        v-else-if="message.desktopContext.screenshotPath"
+                        class="mt-1 text-amber-800"
+                        data-no-i18n="true"
+                        translate="no"
+                    >
+                        {{ message.desktopContext.screenshotPath }}
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -61,6 +103,8 @@
     import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
     import { notify } from '@services/NotificationService';
+    import { convertFileSrc } from '@tauri-apps/api/core';
+    import { computed } from 'vue';
 
     import { t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
@@ -71,6 +115,11 @@
     }
 
     const props = defineProps<Props>();
+
+    const desktopContextScreenshotUrl = computed(() => {
+        const screenshotPath = props.message.desktopContext?.screenshotPath;
+        return screenshotPath ? convertFileSrc(screenshotPath) : null;
+    });
 
     async function handleCopy() {
         try {

@@ -374,3 +374,29 @@ WHERE NOT EXISTS (
     WHERE existing_attempts.turn_id = turn_map.target_turn_id
       AND existing_attempts.attempt_index = source_attempts.attempt_index
 );
+
+INSERT INTO main.session_turn_context_artifacts (
+    turn_id, capsule_id, artifact_kind, artifact_path, mime_type,
+    width, height, captured_at, metadata_json, created_at
+)
+SELECT
+    turn_map.target_turn_id,
+    source_artifacts.capsule_id,
+    source_artifacts.artifact_kind,
+    source_artifacts.artifact_path,
+    source_artifacts.mime_type,
+    source_artifacts.width,
+    source_artifacts.height,
+    source_artifacts.captured_at,
+    source_artifacts.metadata_json,
+    source_artifacts.created_at
+FROM imported.session_turn_context_artifacts AS source_artifacts
+INNER JOIN temp_turn_map AS turn_map
+    ON turn_map.source_turn_id = source_artifacts.turn_id
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM main.session_turn_context_artifacts AS existing_artifacts
+    WHERE existing_artifacts.turn_id = turn_map.target_turn_id
+      AND existing_artifacts.capsule_id = source_artifacts.capsule_id
+      AND existing_artifacts.artifact_kind = source_artifacts.artifact_kind
+);

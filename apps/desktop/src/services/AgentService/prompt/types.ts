@@ -3,6 +3,7 @@
 import type { JSONContent } from '@tiptap/core';
 
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import type { DesktopContextPromptMetadata } from '@/services/DesktopContextService/types';
 
 import type { AttachmentDerivedKind, AttachmentSemanticIntent } from '../contracts/protocol';
 import type { ModelLanguageContext } from '../languageContext';
@@ -60,6 +61,7 @@ export interface PromptAssembly {
     fragments: PromptFragment[];
     userPrompt: string;
     attachments: PromptSnapshotAttachmentSummary[];
+    desktopContext?: DesktopContextPromptMetadata;
 }
 
 export interface PromptInputSnapshot {
@@ -77,4 +79,5 @@ export interface PromptSnapshot extends PromptAssembly {
     createdAt: string;
     systemPrompt: string;
     inputSnapshot?: PromptInputSnapshot;
+    desktopContext?: DesktopContextPromptMetadata;
 }

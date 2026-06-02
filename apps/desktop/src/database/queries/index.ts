@@ -14,6 +14,7 @@ export * from './providers';
 export * from './quickSearchClicks';
 export * from './sessions';
 export * from './sessionTurnAttempts';
+export * from './sessionTurnContextArtifacts';
 export * from './sessionTurns';
 export * from './settings';
 export * from './statistics';

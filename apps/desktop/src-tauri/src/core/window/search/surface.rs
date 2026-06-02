@@ -24,6 +24,14 @@ impl SearchSurfaceShowSource {
             Self::Notification => "notification",
         }
     }
+
+    /// 转成桌面上下文胶囊的调用来源。
+    fn as_desktop_context_source(&self) -> &'static str {
+        match self {
+            Self::Shortcut => "shortcut",
+            Self::Notification => "notification",
+        }
+    }
 }
 
 /// 搜索窗口组隐藏原因。
@@ -49,6 +57,7 @@ impl SearchSurfaceHideReason {
 struct SearchSurfaceShownPayload {
     source: &'static str,
     sequence: u64,
+    context_capsule_id: Option<String>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -318,6 +327,21 @@ pub fn show_surface<R: Runtime>(
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
+    let context_capsule_id = if let Some(desktop_context_runtime) =
+        app_handle.try_state::<crate::core::system::desktop_context::DesktopContextRuntime>()
+    {
+        match desktop_context_runtime
+            .capture_invocation(app_handle, source.as_desktop_context_source())
+        {
+            Ok(capsule) => Some(capsule.id),
+            Err(error) => {
+                log::warn!("Failed to capture desktop context capsule: {}", error);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     super::show_and_activate_search_window(&window)?;
     app_handle
@@ -326,6 +350,7 @@ pub fn show_surface<R: Runtime>(
             SearchSurfaceShownPayload {
                 source: source.as_str(),
                 sequence: runtime.next_sequence(),
+                context_capsule_id,
             },
         )
         .map_err(|error| format!("Failed to emit search surface shown event: {}", error))

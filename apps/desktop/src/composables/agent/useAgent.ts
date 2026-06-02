@@ -130,11 +130,13 @@ export function useAgent(options: UseAiRequestOptions = {}) {
      * 从持久化数据恢复指定会话。
      */
     async function loadPersistedSession(sessionId: number): Promise<LoadedSessionInfo> {
-        const { session, messages, turns, attempts, model } = await getSessionData(sessionId);
+        const { session, messages, turns, attempts, contextArtifacts, model } =
+            await getSessionData(sessionId);
         sessionHistory.value = await buildSessionHistoryFromData({
             messages,
             turns,
             attempts,
+            contextArtifacts,
         });
         currentSessionId.value = session.id;
         resetTransientState();
@@ -194,7 +196,8 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         attachments: Index[] = [],
         inputSnapshot?: InputHistorySnapshot,
         modelId?: string,
-        providerId?: number
+        providerId?: number,
+        desktopContextCapsuleId?: string | null
     ) {
         if (!prompt.trim() && attachments.length === 0) {
             error.value = new Error(t('search.error.promptEmpty'));
@@ -219,6 +222,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 providerId,
                 attachments,
                 inputSnapshot,
+                desktopContextCapsuleId,
                 executionMode: 'foreground',
                 signal: startAbortController.signal,
             });

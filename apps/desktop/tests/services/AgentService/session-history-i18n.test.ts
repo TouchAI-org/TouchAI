@@ -1,4 +1,5 @@
 import type { MessageRow } from '@database/queries/messages';
+import type { SessionTurnContextArtifactHistoryRow } from '@database/queries/sessionTurnContextArtifacts';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -91,6 +92,26 @@ function createAttempt(
         finished_at: BASE_TIME,
         created_at: BASE_TIME,
         updated_at: BASE_TIME,
+        ...overrides,
+    };
+}
+
+function createContextArtifact(
+    overrides: Partial<SessionTurnContextArtifactHistoryRow>
+): SessionTurnContextArtifactHistoryRow {
+    return {
+        id: 1,
+        turn_id: 1,
+        prompt_message_id: 10,
+        capsule_id: 'ctx-1',
+        artifact_kind: 'metadata',
+        artifact_path: null,
+        mime_type: null,
+        width: null,
+        height: null,
+        captured_at: BASE_TIME,
+        metadata_json: null,
+        created_at: BASE_TIME,
         ...overrides,
     };
 }
@@ -205,6 +226,57 @@ describe('AgentService session history i18n', () => {
         expect(toolCall?.builtinPresentation).toMatchObject({
             verb: 'Ran',
             content: 'Write-Output 设置',
+        });
+    });
+
+    it('restores persisted desktop context artifacts onto the prompt message', async () => {
+        const history = await buildSessionHistory({
+            messages: [
+                createMessageRow({
+                    id: 10,
+                    role: 'user',
+                    content: '解释我刚才选中的内容',
+                }),
+            ],
+            turns: [
+                createTurn({
+                    id: 1,
+                    prompt_message_id: 10,
+                }),
+            ],
+            attempts: [],
+            contextArtifacts: [
+                createContextArtifact({
+                    artifact_kind: 'metadata',
+                    metadata_json: JSON.stringify({
+                        capsuleId: 'ctx-1',
+                        capturedAt: BASE_TIME,
+                        summary: 'Visual Studio Code focused with selected Rust error text.',
+                        activeWindowTitle: 'main.rs - TouchAI',
+                    }),
+                }),
+                createContextArtifact({
+                    id: 2,
+                    artifact_kind: 'screenshot',
+                    artifact_path: 'E:/TouchAI/data/session-context/ctx-1.png',
+                    mime_type: 'image/png',
+                    width: 1200,
+                    height: 800,
+                }),
+            ],
+            resolveServerName: () => '',
+        });
+
+        expect(history[0]).toMatchObject({
+            role: 'user',
+            desktopContext: {
+                capsuleId: 'ctx-1',
+                summary: 'Visual Studio Code focused with selected Rust error text.',
+                activeWindowTitle: 'main.rs - TouchAI',
+                screenshotPath: 'E:/TouchAI/data/session-context/ctx-1.png',
+                screenshotWidth: 1200,
+                screenshotHeight: 800,
+            },
         });
     });
 });

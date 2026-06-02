@@ -9,6 +9,7 @@ import type {
     BuiltInToolConversationSemantic,
 } from '@/services/BuiltInToolService';
 import type { ShowWidgetPayload } from '@/services/BuiltInToolService/tools/widgetTool';
+import type { UserMessageDesktopContext } from '@/services/DesktopContextService/types';
 
 /**
  * SearchView 与 agent 运行时共享的会话展示模型。
@@ -233,6 +234,7 @@ export interface SessionMessage {
     statusText?: string;
     attachments?: Index[];
     inputSnapshot?: InputHistorySnapshot;
+    desktopContext?: UserMessageDesktopContext;
     toolCalls?: ToolCallInfo[];
     approvals?: ToolApprovalInfo[];
     widgets?: WidgetInfo[];

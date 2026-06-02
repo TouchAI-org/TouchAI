@@ -10,6 +10,7 @@ import {
     type BuiltInToolId,
     builtInToolService,
 } from '@/services/BuiltInToolService';
+import type { BoundDesktopContext } from '@/services/DesktopContextService/types';
 import { z } from '@/utils/zod';
 
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
@@ -72,6 +73,7 @@ export interface RequestExecutionCallbacks {
         callId: string,
         questions: AskUserQuestion[]
     ) => Promise<AskUserAnswer[] | null>;
+    desktopContext?: BoundDesktopContext | null;
 }
 
 export interface AttemptCheckpoint {
@@ -724,6 +726,7 @@ export class AiRequestExecutor {
             sessionId: options.persister.getSessionId(),
             requestToolApproval: options.requestToolApproval,
             requestUserQuestions: options.requestUserQuestions,
+            desktopContext: options.desktopContext ?? null,
             emitToolEvent: (toolEvent) => this.emitToolEvent(options.onChunk, toolEvent),
         });
 
@@ -777,6 +780,7 @@ export class AiRequestExecutor {
                     onChunk: options.onChunk,
                     requestToolApproval: options.requestToolApproval,
                     requestUserQuestions: options.requestUserQuestions,
+                    desktopContext: options.desktopContext ?? null,
                 })
             )
         );
@@ -888,6 +892,7 @@ export class AiRequestExecutor {
                     onChunk: options.onChunk,
                     requestToolApproval: options.requestToolApproval,
                     requestUserQuestions: options.requestUserQuestions,
+                    desktopContext: options.desktopContext ?? null,
                 });
 
                 runtime.iteration += 1;
