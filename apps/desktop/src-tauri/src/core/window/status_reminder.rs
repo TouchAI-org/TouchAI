@@ -72,6 +72,8 @@ pub struct SessionStatusReminderNotificationRuntime {
     active_toasts: Mutex<Vec<windows::UI::Notifications::ToastNotification>>,
     #[cfg(target_os = "macos")]
     active_notification_ids: Mutex<Vec<String>>,
+    #[cfg(target_os = "linux")]
+    active_notifications: Mutex<Vec<notify_rust::NotificationHandle>>,
 }
 
 impl SessionStatusReminderNotificationRuntime {
@@ -85,6 +87,8 @@ impl SessionStatusReminderNotificationRuntime {
             active_toasts: Mutex::new(Vec::new()),
             #[cfg(target_os = "macos")]
             active_notification_ids: Mutex::new(Vec::new()),
+            #[cfg(target_os = "linux")]
+            active_notifications: Mutex::new(Vec::new()),
         }
     }
 
@@ -158,16 +162,37 @@ impl SessionStatusReminderNotificationRuntime {
     }
 
     #[cfg(target_os = "linux")]
-    pub fn track_active_notification(&self, _id: u32) {
-        // Tracking IDs for future dismissal is not yet supported on Linux
-        // because notify-rust's wait_for_action consumes the handle.
+    pub fn track_active_notification(&self, handle: notify_rust::NotificationHandle) {
+        self.active_notifications
+            .lock()
+            .expect("session status reminder runtime poisoned")
+            .push(handle);
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn release_active_notification(&self, id: u32) {
+        let mut handles = self
+            .active_notifications
+            .lock()
+            .expect("session status reminder runtime poisoned");
+        if let Some(index) = handles.iter().position(|handle| handle.id() == id) {
+            handles.remove(index);
+        }
     }
 
     #[cfg(target_os = "linux")]
     pub fn clear_active_notifications(&self) {
-        // No-op on Linux: notify-rust's NotificationHandle is consumed by
-        // wait_for_action, so we cannot close notifications programmatically.
-        // Reminders auto-expire, which keeps residual notifications bounded.
+        let handles = {
+            let mut handles = self
+                .active_notifications
+                .lock()
+                .expect("session status reminder runtime poisoned");
+            std::mem::take(&mut *handles)
+        };
+
+        for handle in handles {
+            handle.close();
+        }
     }
 }
 
@@ -1107,7 +1132,7 @@ mod macos_notifications {
 
 #[cfg(target_os = "linux")]
 mod linux_notifications {
-    use notify_rust::{Notification, Timeout};
+    use notify_rust::{ActionResponse, Notification, Timeout};
     use tauri::{AppHandle, Runtime};
 
     use super::{
@@ -1184,11 +1209,23 @@ mod linux_notifications {
             reply_text: None,
         };
 
-        // wait_for_action blocks until the notification closes or the user acts,
-        // so it must run off the Tauri invoke thread.
+        runtime.track_active_notification(handle);
+
+        // Listen for the notification action on a background thread while
+        // keeping the original handle available for explicit closing.
         std::thread::spawn(move || {
-            handle.wait_for_action(move |action_name| {
-                let Some(resolved_action) = resolve_action(action_name) else {
+            notify_rust::handle_action(notification_id, move |action| {
+                if let Some(runtime) =
+                    app_handle.try_state::<super::SessionStatusReminderNotificationRuntime>()
+                {
+                    runtime.release_active_notification(notification_id);
+                }
+
+                let resolved_action = match action {
+                    ActionResponse::Custom(action_name) => resolve_action(action_name),
+                    ActionResponse::Closed(_) => None,
+                };
+                let Some(resolved_action) = resolved_action else {
                     return;
                 };
 
@@ -1204,16 +1241,13 @@ mod linux_notifications {
             });
         });
 
-        runtime.track_active_notification(notification_id);
-
         Ok(())
     }
 
     /// Clear tracked Linux notifications.
     pub fn clear(runtime: &super::SessionStatusReminderNotificationRuntime) {
-        // Linux reminder notifications auto-expire, so clearing here is
-        // best-effort even though notify-rust does not expose a cross-desktop
-        // close primitive once action waiting is detached.
+        // Close any still-tracked notifications. Notifications that already
+        // received an action are released from tracking by the action listener.
         runtime.clear_active_notifications();
     }
 }
