@@ -725,4 +725,62 @@ describe('useSearchPageLifecycle', () => {
 
         mounted.unmount();
     });
+
+    it('remeasures the search window height when a hidden completed session is reopened', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+        const remeasureSearchWindowHeight = vi.fn().mockResolvedValue(undefined);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                shouldClearSessionAfterTimeout: () => false,
+                reconcilePopupSurfaces,
+                handleShortcutAutoPaste,
+                remeasureSearchWindowHeight,
+            })
+        );
+
+        await flushLifecycle();
+
+        const surfaceHiddenHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN);
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        const surfaceShownHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN);
+        expect(surfaceHiddenHandler).toBeDefined();
+        expect(statusHandler).toBeDefined();
+        expect(surfaceShownHandler).toBeDefined();
+
+        await surfaceHiddenHandler!({
+            sequence: 1,
+            reason: 'app-blur-hide',
+        });
+        await flushLifecycle();
+        await statusHandler!(createStatusChangedPayload('completed'));
+        await flushLifecycle();
+
+        remeasureSearchWindowHeight.mockClear();
+
+        await surfaceShownHandler!({
+            source: 'notification',
+            sequence: 2,
+        });
+        await flushLifecycle();
+
+        expect(remeasureSearchWindowHeight).toHaveBeenCalledTimes(1);
+        expect(reconcilePopupSurfaces).toHaveBeenCalledTimes(1);
+        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
+        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
+    });
 });

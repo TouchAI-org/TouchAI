@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  随叫随到 · 桌面上下文 · MCP · BYOK
+  <a href="https://touch-ai.org/">官网</a> · <a href="https://hub.touch-ai.org/">Hub 站</a>
 </p>
 
 <p align="center">
@@ -30,9 +30,6 @@
 <p align="center">
   <img src="docs/images/touchai-mimo.png" alt="TouchAI × 小米 MIMO" />
 </p>
-
-> [!WARNING]
-> 当前尚有大量功能未合并，可能会破坏性升级。6.1 限免活动正式启动后将推送 1.0 正式版。
 
 ### 功能特性
 
