@@ -39,11 +39,13 @@ export function isTouchAiManagedMode(config: ProviderConfigJson, baseUrl: string
         return false;
     }
 
+    const isHubEndpoint = normalizeBaseUrl(baseUrl) === TOUCHAI_HUB_GATEWAY_BASE_URL;
+
     if (config.touchAiMode === 'managed') {
-        return true;
+        return isHubEndpoint;
     }
 
-    return normalizeBaseUrl(baseUrl) === TOUCHAI_HUB_GATEWAY_BASE_URL;
+    return isHubEndpoint;
 }
 
 export function isTouchAiManagedModel(modelId: string): boolean {

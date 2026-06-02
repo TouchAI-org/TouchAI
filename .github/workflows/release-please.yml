@@ -29,6 +29,8 @@ jobs:
             sha: ${{ steps.release.outputs['apps/desktop--sha'] }}
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              with:
+                  persist-credentials: false
 
             - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
               id: release

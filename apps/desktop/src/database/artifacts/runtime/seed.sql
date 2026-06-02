@@ -94,8 +94,7 @@ SET
     name = 'Xiaomi MiMo',
     api_endpoint = 'https://hub.touch-ai.org/api/v1',
     config_json = json_set(COALESCE(config_json, '{}'), '$.touchAiMode', 'managed'),
-    logo = 'mimo.png',
-    enabled = 1
+    logo = 'mimo.png'
 WHERE is_builtin = 1
   AND driver = 'mimo'
   AND COALESCE(json_extract(config_json, '$.touchAiMode'), 'managed') <> 'custom';

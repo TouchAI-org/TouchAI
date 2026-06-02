@@ -93,7 +93,7 @@ export interface SettingsAiServicesFocusProviderEvent {
     section: 'ai-services';
     providerDriver: 'mimo';
     requireBuiltIn: true;
-    mode: 'managed' | 'custom';
+    mode: 'managed';
     reason: 'managed-auth-callback';
     requestedAt: number;
 }

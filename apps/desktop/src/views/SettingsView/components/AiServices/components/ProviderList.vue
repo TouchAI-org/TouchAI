@@ -46,17 +46,20 @@
         )
     );
 
+    const isPromotedBuiltin = (provider: Provider) =>
+        provider.is_builtin === 1 && PROMOTED_PROVIDER_DRIVERS.has(provider.driver);
+
     const primaryProviders = computed(() =>
         props.providers.filter(
             (provider) =>
-                !PROMOTED_PROVIDER_DRIVERS.has(provider.driver) && PRIMARY_NAMES.has(provider.name)
+                !isPromotedBuiltin(provider) && PRIMARY_NAMES.has(provider.name)
         )
     );
 
     const otherProviders = computed(() =>
         props.providers.filter(
             (provider) =>
-                !PROMOTED_PROVIDER_DRIVERS.has(provider.driver) && !PRIMARY_NAMES.has(provider.name)
+                !isPromotedBuiltin(provider) && !PRIMARY_NAMES.has(provider.name)
         )
     );
 

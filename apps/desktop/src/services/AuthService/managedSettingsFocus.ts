@@ -23,7 +23,8 @@ function isSettingsAiServicesFocusProviderEvent(
         record.requireBuiltIn === true &&
         record.mode === 'managed' &&
         record.reason === 'managed-auth-callback' &&
-        typeof record.requestedAt === 'number'
+        typeof record.requestedAt === 'number' &&
+        Number.isFinite(record.requestedAt)
     );
 }
 
