@@ -32,7 +32,21 @@ describe('MiMoProviderAdapter', () => {
         vi.clearAllMocks();
     });
 
-    it('keeps managed mode pinned to the TouchAI Hub gateway and returns the supported models locally', async () => {
+    it('keeps managed mode pinned to the TouchAI Hub gateway and discovers models from the hub', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: [{ id: 'mimo-latest' }, { id: 'mimo-pro-latest' }],
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
+                    },
+                }
+            )
+        );
+
         const provider = new MiMoProviderAdapter({
             apiEndpoint: 'https://hub.touch-ai.org/api/v1',
             apiKey: 'ta_live_managed_key',
@@ -48,10 +62,20 @@ describe('MiMoProviderAdapter', () => {
             discoveryTarget: 'https://hub.touch-ai.org/api/v1/models',
         });
         await expect(provider.listModels()).resolves.toEqual([
-            { id: 'mimo-v2.5', name: 'mimo-v2.5' },
-            { id: 'mimo-v2.5-pro', name: 'mimo-v2.5-pro' },
+            { id: 'mimo-latest', name: 'mimo-latest' },
+            { id: 'mimo-pro-latest', name: 'mimo-pro-latest' },
         ]);
-        expect(fetchMock).not.toHaveBeenCalled();
+        const [target, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        const headers = new Headers(init.headers);
+
+        expect(target).toBe('https://hub.touch-ai.org/api/v1/models');
+        expect(init.method).toBe('GET');
+        expect(init.body).toBeUndefined();
+        expect(headers.get('Authorization')).toBe('Bearer ta_live_managed_key');
+        expect(headers.get('X-TouchAI-Client')).toBe('desktop');
+        expect(headers.get('X-TouchAI-Timestamp')).toMatch(/^\d+$/);
+        expect(headers.get('X-TouchAI-Nonce')).toMatch(/^touchai-/);
+        expect(headers.get('X-TouchAI-Signature')).toMatch(/^[A-Za-z0-9_-]+$/);
     });
 
     it('uses the provider endpoint directly when builtin MiMo is not switched to explicit custom mode', async () => {
@@ -208,7 +232,7 @@ describe('MiMoProviderAdapter', () => {
         });
     });
 
-    it('rejects models outside the TouchAI Hub managed allowlist', () => {
+    it('lets the hub validate managed model ids at request time', () => {
         const provider = new MiMoProviderAdapter({
             apiEndpoint: 'https://hub.touch-ai.org/api/v1',
             apiKey: 'ta_live_managed_key',
@@ -217,12 +241,9 @@ describe('MiMoProviderAdapter', () => {
             },
         });
 
-        expect(() => asTestableProvider(provider).createLanguageModel('gpt-4.1')).toThrowError(
-            AiError
-        );
-        expect(() => asTestableProvider(provider).createLanguageModel('gpt-4.1')).toThrow(
-            'TouchAI Hub only supports mimo-v2.5 and mimo-v2.5-pro.'
-        );
-        expect(chatModelMock).not.toHaveBeenCalled();
+        expect(asTestableProvider(provider).createLanguageModel('mimo-latest')).toEqual({
+            modelId: 'mimo-latest',
+        });
+        expect(chatModelMock).toHaveBeenCalledWith('mimo-latest');
     });
 });

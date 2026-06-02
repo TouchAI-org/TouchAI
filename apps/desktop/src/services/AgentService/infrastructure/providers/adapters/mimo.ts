@@ -6,12 +6,7 @@ import { z } from '@/utils/zod';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import { AiSdkProviderBase, buildUrlWithQueryParams } from '../ai-sdk/base';
-import {
-    isTouchAiManagedMode,
-    TOUCHAI_HUB_GATEWAY_BASE_URL,
-    TOUCHAI_HUB_MANAGED_MODEL_SET,
-    TOUCHAI_HUB_MANAGED_MODELS,
-} from '../config';
+import { isTouchAiManagedMode, TOUCHAI_HUB_GATEWAY_BASE_URL } from '../config';
 import type { ModelInfo, ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
@@ -87,10 +82,6 @@ export class MiMoProviderAdapter extends AiSdkProviderBase {
     });
 
     protected createLanguageModel(modelId: string) {
-        if (this.managedMode) {
-            this.assertSupportedModelId(modelId);
-        }
-
         return this.sdkProvider.chatModel(modelId);
     }
 
@@ -117,11 +108,6 @@ export class MiMoProviderAdapter extends AiSdkProviderBase {
     }
 
     protected parseModelList(payload: unknown) {
-        if (this.managedMode) {
-            void payload;
-            return this.getSupportedModels();
-        }
-
         const parsed = openAiCompatibleModelsSchema.parse(payload);
         return parsed.data.map((model) => ({
             id: model.id,
@@ -130,11 +116,21 @@ export class MiMoProviderAdapter extends AiSdkProviderBase {
     }
 
     async listModels(): Promise<ModelInfo[]> {
-        if (this.managedMode) {
-            return this.getSupportedModels();
+        if (!this.managedMode) {
+            return await super.listModels();
         }
 
-        return await super.listModels();
+        const { discoveryTarget } = this.getApiTargets();
+        if (!discoveryTarget) {
+            throw new Error('Provider base URL is empty');
+        }
+
+        const response = await this.gatewayFetch(discoveryTarget, {
+            method: 'GET',
+            headers: this.getDiscoveryHeaders(),
+        });
+        const payload = await this.readJsonResponse(response);
+        return this.parseModelList(payload);
     }
 
     protected classifyApiCallError(statusCode: number | undefined, data: unknown): AiError | null {
@@ -214,28 +210,6 @@ export class MiMoProviderAdapter extends AiSdkProviderBase {
             'X-TouchAI-Client': 'desktop',
             ...this.getCustomHeaders(),
         };
-    }
-
-    private getSupportedModels(): ModelInfo[] {
-        return TOUCHAI_HUB_MANAGED_MODELS.map((modelId) => ({
-            id: modelId,
-            name: modelId,
-        }));
-    }
-
-    private assertSupportedModelId(modelId: string): void {
-        if (TOUCHAI_HUB_MANAGED_MODEL_SET.has(modelId)) {
-            return;
-        }
-
-        throw new AiError(
-            AiErrorCode.MODEL_NOT_FOUND,
-            {
-                modelId,
-                supportedModels: [...TOUCHAI_HUB_MANAGED_MODELS],
-            },
-            'TouchAI Hub only supports mimo-v2.5 and mimo-v2.5-pro.'
-        );
     }
 
     private createGatewayFetch(): typeof fetch {

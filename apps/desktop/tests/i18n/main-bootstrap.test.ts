@@ -11,9 +11,12 @@ const {
     openSettingsWindowMock,
     settingsInitializeMock,
     appUpdateCheckNowMock,
+    isLlmMetadataEmptyMock,
     getCurrentMock,
     initializeFontLoaderMock,
     initializeLoggerMock,
+    syncAllModelsMetadataMock,
+    updateModelMetadataMock,
     onOpenUrlMock,
     originalWindowOpenMock,
     openUrlMock,
@@ -29,9 +32,12 @@ const {
     openSettingsWindowMock: vi.fn(),
     settingsInitializeMock: vi.fn(),
     appUpdateCheckNowMock: vi.fn(),
+    isLlmMetadataEmptyMock: vi.fn(),
     getCurrentMock: vi.fn(),
     initializeFontLoaderMock: vi.fn(),
     initializeLoggerMock: vi.fn(),
+    syncAllModelsMetadataMock: vi.fn(),
+    updateModelMetadataMock: vi.fn(),
     onOpenUrlMock: vi.fn(),
     originalWindowOpenMock: vi.fn(),
     openUrlMock: vi.fn(),
@@ -61,6 +67,15 @@ vi.mock('@services/AppUpdateService', () => ({
 vi.mock('@services/AuthService', () => ({
     completeManagedLogin: completeManagedLoginMock,
     initializeManagedProviderState: initializeManagedProviderStateMock,
+}));
+
+vi.mock('@database/queries', () => ({
+    isLlmMetadataEmpty: isLlmMetadataEmptyMock,
+    syncAllModelsMetadata: syncAllModelsMetadataMock,
+}));
+
+vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
+    updateModelMetadata: updateModelMetadataMock,
 }));
 
 vi.mock('@services/EventService', () => ({
@@ -141,6 +156,9 @@ describe('app bootstrap i18n', () => {
         appUpdateCheckNowMock.mockResolvedValue(false);
         completeManagedLoginMock.mockResolvedValue(false);
         initializeManagedProviderStateMock.mockResolvedValue(undefined);
+        isLlmMetadataEmptyMock.mockResolvedValue(false);
+        syncAllModelsMetadataMock.mockResolvedValue(undefined);
+        updateModelMetadataMock.mockResolvedValue(undefined);
         openSettingsWindowMock.mockResolvedValue(undefined);
         eventServiceEmitMock.mockResolvedValue(undefined);
         getCurrentMock.mockResolvedValue([]);
@@ -168,6 +186,43 @@ describe('app bootstrap i18n', () => {
         expect(appMountMock).toHaveBeenCalledWith('#app');
         const settingsInitializeOrder = settingsInitializeMock.mock.invocationCallOrder[0]!;
         expect(settingsInitializeOrder).toBeLessThan(appMountMock.mock.invocationCallOrder[0]!);
+    });
+
+    it('refreshes remote model metadata during bootstrap when local metadata is empty', async () => {
+        isLlmMetadataEmptyMock.mockResolvedValue(true);
+
+        const { initializeApp } = await import('@/bootstrap');
+        await initializeApp();
+
+        expect(updateModelMetadataMock).toHaveBeenCalledTimes(1);
+        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
+    });
+
+    it('syncs cached model metadata during bootstrap without refreshing remote metadata', async () => {
+        isLlmMetadataEmptyMock.mockResolvedValue(false);
+
+        const { initializeApp } = await import('@/bootstrap');
+        await initializeApp();
+
+        expect(updateModelMetadataMock).not.toHaveBeenCalled();
+        expect(syncAllModelsMetadataMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('continues bootstrap when remote model metadata refresh fails', async () => {
+        const metadataError = new Error('metadata unavailable');
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        isLlmMetadataEmptyMock.mockResolvedValue(true);
+        updateModelMetadataMock.mockRejectedValue(metadataError);
+
+        const { initializeApp } = await import('@/bootstrap');
+        await expect(initializeApp()).resolves.toBeUndefined();
+
+        expect(appMountMock).toHaveBeenCalledWith('#app');
+        expect(consoleSpy).toHaveBeenCalledWith(
+            '[Bootstrap] Failed to initialize model metadata:',
+            metadataError
+        );
+        consoleSpy.mockRestore();
     });
 
     it('mounts without the legacy DOM localizer when persisted settings fail to initialize', async () => {

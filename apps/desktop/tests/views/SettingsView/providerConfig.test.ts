@@ -41,6 +41,7 @@ vi.mock('@/services/AgentService', () => ({
 }));
 
 vi.mock('@/services/AgentService/infrastructure/providers', () => ({
+    MIMO_CUSTOM_API_BASE_URL: 'https://token-plan-cn.xiaomimimo.com/v1',
     getProviderDriverDefinition: () => ({
         driver: 'mimo',
         label: 'Xiaomi MiMo',
@@ -117,8 +118,18 @@ describe('ProviderConfig managed TouchAI activity provider', () => {
         expect(wrapper.find('[data-testid="settings-managed-activity-provider"]').exists()).toBe(
             false
         );
+        expect((wrapper.get('input[type="text"]').element as HTMLInputElement).value).toBe(
+            'https://token-plan-cn.xiaomimimo.com/v1'
+        );
         expect(wrapper.find('[data-testid="password-input"]').exists()).toBe(true);
         expect(wrapper.find('input[placeholder="sk-..."]').exists()).toBe(true);
+        const updatePayload = wrapper.emitted('update')?.[0]?.[0] as Partial<Provider>;
+        expect(JSON.parse(updatePayload.config_json!)).toEqual({
+            touchAiMode: 'custom',
+            touchAiCustom: {
+                apiEndpoint: 'https://token-plan-cn.xiaomimimo.com/v1',
+            },
+        });
     });
 
     it('renders the managed activity as a compact single-row authorization bar', async () => {

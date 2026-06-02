@@ -4,19 +4,13 @@ import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 import {
-    createModels,
     findAllProvidersSorted,
-    findDefaultModel,
-    findModelsWithProvider,
     reassignModelsAndDeleteProvider,
-    setDefaultModel,
     updateProvider,
 } from '@/database/queries';
 import {
-    isTouchAiManagedModel,
     parseProviderConfigJson,
     TOUCHAI_HUB_GATEWAY_BASE_URL,
-    TOUCHAI_HUB_MANAGED_MODELS,
 } from '@/services/AgentService/infrastructure/providers/config';
 import type { ProviderConfigJson } from '@/services/AgentService/infrastructure/providers/types';
 import { AppEvent, eventService } from '@/services/EventService';
@@ -202,55 +196,6 @@ function buildNormalizedManagedProviderPatch(provider: ManagedProviderRow) {
     };
 }
 
-function getPreferredManagedModelId(
-    models: Array<{
-        id: number;
-        model_id: string;
-    }>
-): number | null {
-    for (const managedModelId of TOUCHAI_HUB_MANAGED_MODELS) {
-        const matchedModel = models.find((model) => model.model_id === managedModelId);
-        if (matchedModel) {
-            return matchedModel.id;
-        }
-    }
-
-    return null;
-}
-
-async function ensureManagedProviderModels(providerId: number): Promise<void> {
-    const existingModels = await findModelsWithProvider({ providerId });
-    const existingModelIds = new Set(existingModels.map((model) => model.model_id));
-    const missingModels = TOUCHAI_HUB_MANAGED_MODELS.filter(
-        (modelId) => !existingModelIds.has(modelId)
-    ).map((modelId) => ({
-        provider_id: providerId,
-        name: modelId,
-        model_id: modelId,
-        is_default: 0,
-    }));
-
-    if (missingModels.length > 0) {
-        await createModels(missingModels);
-    }
-
-    const defaultModel = await findDefaultModel();
-    if (
-        !defaultModel ||
-        defaultModel.provider_id !== providerId ||
-        isTouchAiManagedModel(defaultModel.model_id)
-    ) {
-        return;
-    }
-
-    const managedModels =
-        missingModels.length > 0 ? await findModelsWithProvider({ providerId }) : existingModels;
-    const nextDefaultModelId = getPreferredManagedModelId(managedModels);
-    if (nextDefaultModelId) {
-        await setDefaultModel({ modelId: nextDefaultModelId });
-    }
-}
-
 function extractManagedAuthFailureDetails(error: unknown): {
     gatewayCode: string;
     statusCode?: number;
@@ -353,10 +298,6 @@ export async function initializeManagedProviderState(): Promise<void> {
     }
 
     await Promise.all(migrations);
-
-    if (managedProviderId !== null) {
-        await ensureManagedProviderModels(managedProviderId);
-    }
 }
 
 export async function getManagedAuthState(): Promise<ManagedAuthState> {
@@ -483,7 +424,6 @@ export async function completeManagedLogin(callbackUrl: string): Promise<boolean
             config_json: buildManagedProviderConfigJson(provider, managedAuth),
         },
     });
-    await ensureManagedProviderModels(state.providerId);
     markManagedCodeProcessed(code);
 
     return true;
