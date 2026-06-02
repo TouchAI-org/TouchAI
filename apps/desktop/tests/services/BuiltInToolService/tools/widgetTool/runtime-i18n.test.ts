@@ -13,7 +13,7 @@ async function waitForWidgetRender(): Promise<void> {
     }
 }
 
-function installScriptExecutionMock(): void {
+function installExternalScriptLoadMock(): void {
     vi.spyOn(Node.prototype, 'replaceChild').mockImplementation(function (
         this: Node,
         newChild: Node,
@@ -21,12 +21,6 @@ function installScriptExecutionMock(): void {
     ) {
         const isScriptReplacement =
             newChild instanceof HTMLScriptElement && oldChild instanceof HTMLScriptElement;
-        const originalInlineScript =
-            isScriptReplacement && !newChild.src ? newChild.textContent || '' : null;
-
-        if (originalInlineScript !== null) {
-            newChild.textContent = '';
-        }
 
         const replacedNode = nativeReplaceChild.call(this, newChild, oldChild);
 
@@ -45,8 +39,6 @@ function installScriptExecutionMock(): void {
                 }
                 newChild.dispatchEvent(new Event('load'));
             }, 0);
-        } else if (originalInlineScript !== null) {
-            new Function(originalInlineScript)();
         }
 
         return replacedNode;
@@ -82,8 +74,6 @@ describe('show widget renderer i18n opt-out', () => {
     });
 
     it('executes ready-phase inline widget initializers after sanitizing the inert markup', async () => {
-        installScriptExecutionMock();
-
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -281,8 +271,6 @@ describe('show widget renderer i18n opt-out', () => {
     });
 
     it('keeps script-bound widget interactions available for internal calculations', async () => {
-        installScriptExecutionMock();
-
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -314,8 +302,76 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
+    it('runs button-bound inline calculations that auto-trigger on render', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'coin-calculation-widget',
+            title: 'Coin calculation widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<input id="amount" type="number" value="41">',
+                '<button id="calculate" type="button">Calculate</button>',
+                '<div id="result"></div>',
+                '<div id="steps"></div>',
+                '<script>',
+                'document.getElementById("calculate").addEventListener("click", function() {',
+                'const amount = parseInt(document.getElementById("amount").value);',
+                'const coins = [25, 10, 5, 1];',
+                'let remaining = amount;',
+                'let totalCoins = 0;',
+                'for (const coin of coins) {',
+                'const count = Math.floor(remaining / coin);',
+                'remaining %= coin;',
+                'totalCoins += count;',
+                '}',
+                'document.getElementById("result").textContent = String(totalCoins);',
+                'document.getElementById("steps").textContent = "done";',
+                '});',
+                'document.getElementById("calculate").click();',
+                '</script>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        expect(host.querySelector('#result')?.textContent).toBe('4');
+        expect(host.querySelector('#steps')?.textContent).toBe('done');
+
+        renderer.destroy();
+    });
+
+    it('does not execute non-classic inline script payloads', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'json-script-widget',
+            title: 'JSON script widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<script type="application/json">',
+                '{"value":"window.__touchaiWidgetInitRan = true"}',
+                '</script>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        expect(
+            (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan
+        ).toBeUndefined();
+
+        renderer.destroy();
+    });
+
     it('waits for an allowed external widget script before running the following initializer', async () => {
-        installScriptExecutionMock();
+        installExternalScriptLoadMock();
 
         const host = document.createElement('div');
         document.body.appendChild(host);

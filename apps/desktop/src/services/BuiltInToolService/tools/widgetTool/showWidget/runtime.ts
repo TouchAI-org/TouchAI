@@ -53,6 +53,14 @@ export interface WidgetRenderer {
 
 type MorphdomFunction = typeof morphdom;
 const SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS = 8000;
+const SHOW_WIDGET_INERT_SCRIPT_TYPE = 'application/x-touchai-widget-script';
+const SHOW_WIDGET_CLASSIC_SCRIPT_TYPES = new Set([
+    '',
+    'application/ecmascript',
+    'application/javascript',
+    'text/ecmascript',
+    'text/javascript',
+]);
 type ShowWidgetRenderPayload = Pick<
     ShowWidgetPayload,
     'widgetId' | 'title' | 'description' | 'html' | 'phase'
@@ -928,10 +936,60 @@ function waitForExternalScript(
     });
 }
 
+function isClassicInlineScript(node: HTMLScriptElement): boolean {
+    if (node.src) {
+        return false;
+    }
+
+    return SHOW_WIDGET_CLASSIC_SCRIPT_TYPES.has(
+        (node.getAttribute('type') ?? '').trim().toLowerCase()
+    );
+}
+
+function replaceInlineScriptWithInertNode(
+    oldNode: HTMLScriptElement,
+    parent: Node
+): HTMLScriptElement {
+    const newNode = document.createElement('script');
+
+    for (const attribute of Array.from(oldNode.attributes)) {
+        if (attribute.name === 'src') {
+            continue;
+        }
+
+        if (attribute.name === 'type') {
+            newNode.setAttribute('data-touchai-widget-original-type', attribute.value);
+            continue;
+        }
+
+        newNode.setAttribute(attribute.name, attribute.value);
+    }
+
+    newNode.type = SHOW_WIDGET_INERT_SCRIPT_TYPE;
+    newNode.textContent = oldNode.textContent;
+    parent.replaceChild(newNode, oldNode);
+
+    return newNode;
+}
+
+function executeInlineWidgetScript(source: string): void {
+    if (!source.trim()) {
+        return;
+    }
+
+    try {
+        const execute = window.Function(`${source}\n//# sourceURL=touchai-widget-inline.js`);
+        execute.call(window);
+    } catch (error) {
+        console.error('[ShowWidget] Failed to execute inline script:', error);
+    }
+}
+
 /**
- * 简化后的脚本执行策略直接重新插入 `<script>` 节点。
+ * 外部脚本走浏览器加载流程，inline classic script 由 runtime 显式执行一次。
  *
- * 这样和浏览器原生行为一致，也避免沙箱代理破坏常见第三方库或 DOM 访问方式。
+ * 部分 WebView/测试环境不会稳定执行动态插入的 inline script，因此这里先把脚本
+ * 替换成 inert 节点避免宿主二次执行，再用当前 window realm 执行原始脚本文本。
  */
 async function runInlineScripts(
     root: HTMLElement,
@@ -956,8 +1014,6 @@ async function runInlineScripts(
             continue;
         }
 
-        const newNode = document.createElement('script');
-        copyScriptAttributes(oldNode, newNode);
         const parent = oldNode.parentNode;
 
         if (!parent) {
@@ -965,11 +1021,19 @@ async function runInlineScripts(
         }
 
         if (oldNode.src) {
+            const newNode = document.createElement('script');
+            copyScriptAttributes(oldNode, newNode);
             await waitForExternalScript(newNode, parent, oldNode);
             continue;
         }
 
-        parent.replaceChild(newNode, oldNode);
+        if (!isClassicInlineScript(oldNode)) {
+            continue;
+        }
+
+        const source = oldNode.textContent ?? '';
+        replaceInlineScriptWithInertNode(oldNode, parent);
+        executeInlineWidgetScript(source);
     }
 }
 
