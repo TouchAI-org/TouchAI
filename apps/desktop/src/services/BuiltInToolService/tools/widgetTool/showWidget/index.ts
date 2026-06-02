@@ -20,6 +20,8 @@ import { buildShowWidgetSummary, parseShowWidgetArgs, readExternalResourceUrl } 
 import { isShowWidgetResourceUrlAllowed } from './runtime';
 import { SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS } from './runtimeConstants';
 
+const NON_VISIBLE_ROOT_TAG_NAMES = new Set(['LINK', 'META', 'SCRIPT', 'STYLE', 'TITLE']);
+
 function buildShowWidgetConversationSemantic(
     args: Record<string, unknown>
 ): BuiltInToolConversationSemantic {
@@ -40,6 +42,12 @@ function buildShowWidgetConversationSemantic(
  */
 function validateShowWidgetMarkup(html: string): void {
     const violations = new Set<string>();
+    const leadingTagName = html.match(/^\s*<([a-z][\w:-]*)\b/i)?.[1]?.toUpperCase();
+    if (leadingTagName && NON_VISIBLE_ROOT_TAG_NAMES.has(leadingTagName)) {
+        throw new Error(
+            'ShowWidget widget_code must start with a visible root element before style or script blocks.'
+        );
+    }
 
     for (const rule of FORBIDDEN_WIDGET_RULES) {
         if (rule.pattern.test(html)) {

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createWidgetRenderer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
+import {
+    createShowWidgetBaseStyles,
+    createWidgetRenderer,
+} from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 
 const nativeReplaceChild = Node.prototype.replaceChild;
 
@@ -94,6 +97,46 @@ describe('show widget renderer i18n opt-out', () => {
         expect(host.querySelector('#chart-probe')?.getAttribute('data-initialized')).toBe('true');
 
         renderer.destroy();
+    });
+
+    it('preserves widget style blocks and inline styles during ready rendering', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'styled-widget',
+            title: 'Styled widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<style>.route-card{display:grid;gap:8px;color:rgb(12, 68, 124);}</style>',
+                '<section class="route-card" style="border: 1px solid rgb(24, 95, 165); padding: 12px;">',
+                '<span>越秀公园</span>',
+                '</section>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        const style = host.querySelector('style:not([data-touchai-widget-base-style])');
+        const card = host.querySelector<HTMLElement>('.route-card');
+
+        expect(style?.textContent).toContain('.route-card');
+        expect(style?.textContent).toContain('[data-touchai-widget-host=');
+        expect(style?.textContent).toContain('display:grid');
+        expect(card?.getAttribute('style')).toContain('border: 1px solid');
+        expect(card?.getAttribute('style')).toContain('padding: 12px');
+
+        renderer.destroy();
+    });
+
+    it('keeps runtime-injected base styles aligned with flat visual rules', () => {
+        const css = createShowWidgetBaseStyles('[data-touchai-widget-host="probe"]');
+
+        expect(css).not.toMatch(/\bbox-shadow\s*:/i);
+        expect(css).not.toMatch(/\btext-shadow\s*:/i);
+        expect(css).not.toMatch(/\bfilter\s*:\s*(?!none\b)/i);
     });
 
     it('waits for an allowed external widget script before running the following initializer', async () => {

@@ -353,7 +353,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `  font-size: 14px;`,
         `  font-family: var(--font-sans);`,
         `  outline: none;`,
-        `  transition: border-color 0.2s, box-shadow 0.2s;`,
+        `  transition: border-color 0.2s, outline-color 0.2s;`,
         `}`,
         `${hostSelector} input[type="text"]:hover,`,
         `${hostSelector} input[type="number"]:hover,`,
@@ -370,7 +370,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `${hostSelector} input[type="search"]:focus,`,
         `${hostSelector} input[type="url"]:focus,`,
         `${hostSelector} input[type="tel"]:focus,`,
-        `${hostSelector} textarea:focus { border-color: var(--color-border-primary); box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.1); }`,
+        `${hostSelector} textarea:focus { border-color: var(--color-border-primary); outline: 2px solid var(--color-border-tertiary); outline-offset: 1px; }`,
         `${hostSelector} textarea { min-height: 80px; resize: vertical; }`,
         `${hostSelector} select {`,
         `  width: 100%;`,
@@ -384,7 +384,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `  font-family: var(--font-sans);`,
         `  outline: none;`,
         `  cursor: pointer;`,
-        `  transition: border-color 0.2s, box-shadow 0.2s;`,
+        `  transition: border-color 0.2s, outline-color 0.2s;`,
         `  appearance: none;`,
         `  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L2 4h8z'/%3E%3C/svg%3E");`,
         `  background-repeat: no-repeat;`,
@@ -392,7 +392,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `  background-size: 12px;`,
         `}`,
         `${hostSelector} select:hover { border-color: var(--color-border-secondary); }`,
-        `${hostSelector} select:focus { border-color: var(--color-border-primary); box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.1); }`,
+        `${hostSelector} select:focus { border-color: var(--color-border-primary); outline: 2px solid var(--color-border-tertiary); outline-offset: 1px; }`,
         `${hostSelector} button {`,
         `  background: transparent;`,
         `  border: 1px solid var(--color-border-secondary);`,
@@ -407,7 +407,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `}`,
         `${hostSelector} button:hover { background: var(--color-background-secondary); border-color: var(--color-border-primary); }`,
         `${hostSelector} button:active { transform: scale(0.98); }`,
-        `${hostSelector} button:focus-visible { box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.2); }`,
+        `${hostSelector} button:focus-visible { outline: 2px solid var(--color-border-tertiary); outline-offset: 1px; }`,
         `${hostSelector} button:disabled { opacity: 0.5; cursor: not-allowed; }`,
         `${hostSelector} input[type="range"] { width: 100%; height: 4px; background: var(--color-border-secondary); border-radius: 2px; outline: none; appearance: none; -webkit-appearance: none; }`,
         `${hostSelector} input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--color-text-primary); cursor: pointer; transition: transform 0.2s; }`,
@@ -512,7 +512,197 @@ function sanitizeDraftHtml(html: string, phase: ShowWidgetPhase): string {
     return sanitized.trim();
 }
 
-function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): ParsedRenderTree {
+function splitCssSelectorList(selectorList: string): string[] {
+    const selectors: string[] = [];
+    let current = '';
+    let depth = 0;
+    let quote: '"' | "'" | null = null;
+
+    for (let index = 0; index < selectorList.length; index += 1) {
+        const char = selectorList[index]!;
+
+        if (quote) {
+            current += char;
+            if (char === '\\') {
+                index += 1;
+                current += selectorList[index] ?? '';
+                continue;
+            }
+            if (char === quote) {
+                quote = null;
+            }
+            continue;
+        }
+
+        if (char === '"' || char === "'") {
+            quote = char;
+            current += char;
+            continue;
+        }
+
+        if (char === '(' || char === '[') {
+            depth += 1;
+            current += char;
+            continue;
+        }
+
+        if (char === ')' || char === ']') {
+            depth = Math.max(0, depth - 1);
+            current += char;
+            continue;
+        }
+
+        if (char === ',' && depth === 0) {
+            selectors.push(current);
+            current = '';
+            continue;
+        }
+
+        current += char;
+    }
+
+    selectors.push(current);
+    return selectors;
+}
+
+function scopeCssSelector(selector: string, hostSelector: string): string {
+    const trimmed = selector.trim();
+    if (!trimmed) {
+        return '';
+    }
+
+    if (trimmed.startsWith(hostSelector)) {
+        return trimmed;
+    }
+
+    if (trimmed === ':root' || trimmed === 'html' || trimmed === 'body') {
+        return hostSelector;
+    }
+
+    if (trimmed.startsWith(':host')) {
+        return trimmed.replace(/^:host\b/, hostSelector);
+    }
+
+    return `${hostSelector} ${trimmed}`;
+}
+
+function findCssBlockEnd(css: string, openBraceIndex: number): number {
+    let depth = 1;
+    let quote: '"' | "'" | null = null;
+
+    for (let index = openBraceIndex + 1; index < css.length; index += 1) {
+        const char = css[index]!;
+
+        if (quote) {
+            if (char === '\\') {
+                index += 1;
+                continue;
+            }
+            if (char === quote) {
+                quote = null;
+            }
+            continue;
+        }
+
+        if (char === '"' || char === "'") {
+            quote = char;
+            continue;
+        }
+
+        if (char === '{') {
+            depth += 1;
+            continue;
+        }
+
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return index;
+            }
+        }
+    }
+
+    return -1;
+}
+
+function findNextCssStatementEnd(css: string, startIndex: number): number {
+    const nextSemicolon = css.indexOf(';', startIndex);
+    const nextBrace = css.indexOf('{', startIndex);
+
+    if (nextSemicolon === -1) {
+        return nextBrace === -1 ? css.length : nextBrace;
+    }
+
+    if (nextBrace === -1) {
+        return nextSemicolon;
+    }
+
+    return Math.min(nextSemicolon, nextBrace);
+}
+
+function scopeWidgetCss(css: string, hostSelector: string): string {
+    let output = '';
+    let cursor = 0;
+
+    while (cursor < css.length) {
+        const nextBrace = css.indexOf('{', cursor);
+        if (nextBrace === -1) {
+            const remainder = css.slice(cursor);
+            output += remainder.replace(/@import[^;]*;/gi, '');
+            break;
+        }
+
+        const prelude = css.slice(cursor, nextBrace);
+        const trimmedPrelude = prelude.trim();
+        const statementEnd = findNextCssStatementEnd(css, cursor);
+        if (statementEnd !== nextBrace) {
+            const statement = css.slice(cursor, statementEnd + 1);
+            if (!statement.trim().startsWith('@')) {
+                output += statement;
+            }
+            cursor = statementEnd + 1;
+            continue;
+        }
+
+        const blockEnd = findCssBlockEnd(css, nextBrace);
+        if (blockEnd === -1) {
+            break;
+        }
+
+        const block = css.slice(nextBrace + 1, blockEnd);
+        const atRuleName = trimmedPrelude.match(/^@([a-z-]+)/i)?.[1]?.toLowerCase();
+
+        if (atRuleName === 'media' || atRuleName === 'supports' || atRuleName === 'container') {
+            output += `${prelude}{${scopeWidgetCss(block, hostSelector)}}`;
+        } else if (atRuleName === 'keyframes' || atRuleName === '-webkit-keyframes') {
+            output += `${prelude}{${block}}`;
+        } else if (!atRuleName) {
+            const scopedSelector = splitCssSelectorList(prelude)
+                .map((selector) => scopeCssSelector(selector, hostSelector))
+                .filter(Boolean)
+                .join(', ');
+            if (scopedSelector) {
+                output += `${scopedSelector}{${block}}`;
+            }
+        }
+
+        cursor = blockEnd + 1;
+    }
+
+    return output.trim();
+}
+
+function scopeStyleElements(fragment: DocumentFragment, hostSelector: string): void {
+    for (const styleElement of fragment.querySelectorAll('style')) {
+        styleElement.textContent = scopeWidgetCss(styleElement.textContent ?? '', hostSelector);
+    }
+}
+
+function parseRenderTree(
+    rawHtml: string,
+    hostSelector: string,
+    phase: ShowWidgetPhase = 'ready'
+): ParsedRenderTree {
     const template = document.createElement('template');
     const sanitizedHtml = sanitizeDraftHtml(rawHtml, phase);
     const normalizedHtml = sanitizedHtml || '<div></div>';
@@ -521,7 +711,7 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
     // Explicit <script> blocks are executable widget code. DOMPurify still
     // sanitizes surrounding markup, event-handler attributes, and javascript:
     // URIs before runInlineScripts re-inserts scripts in document order.
-    const purifyConfig = { ADD_TAGS: ['script'] };
+    const purifyConfig = { ADD_TAGS: ['script', 'style'], FORCE_BODY: true };
 
     if (isFullDocument) {
         const parser = new DOMParser();
@@ -535,6 +725,8 @@ function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): Par
             template.innerHTML = '<div></div>';
         }
     }
+
+    scopeStyleElements(template.content, hostSelector);
 
     return {
         fragment: template.content,
@@ -743,7 +935,11 @@ async function applyDocumentHtml(
         return false;
     }
 
-    const parsedTree = parseRenderTree(rawHtml, phase);
+    const parsedTree = parseRenderTree(
+        rawHtml,
+        `[data-touchai-widget-host="${hostElement.dataset.touchaiWidgetHost}"]`,
+        phase
+    );
     if (phase !== 'ready' && !hasMeaningfulContent(parsedTree.fragment)) {
         return false;
     }
