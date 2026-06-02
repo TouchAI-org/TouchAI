@@ -85,7 +85,7 @@ describe('AuthService managed TouchAI Hub flow', () => {
         expect(openUrlMock).toHaveBeenCalledWith('https://hub.touch-ai.org/desktop/login');
     });
 
-    it('normalizes the builtin mimo provider and removes legacy mimo activity providers during bootstrap', async () => {
+    it('normalizes the builtin mimo provider without creating managed models during bootstrap', async () => {
         queriesMock.findAllProvidersSorted.mockResolvedValue([
             {
                 id: 320,
@@ -139,21 +139,8 @@ describe('AuthService managed TouchAI Hub flow', () => {
                 enabled: 1,
             },
         });
-        expect(queriesMock.createModels).toHaveBeenCalledWith([
-            {
-                provider_id: 320,
-                name: 'mimo-v2.5',
-                model_id: 'mimo-v2.5',
-                is_default: 0,
-            },
-            {
-                provider_id: 320,
-                name: 'mimo-v2.5-pro',
-                model_id: 'mimo-v2.5-pro',
-                is_default: 0,
-            },
-        ]);
-        expect(queriesMock.syncAllModelsMetadata).toHaveBeenCalledOnce();
+        expect(queriesMock.createModels).not.toHaveBeenCalled();
+        expect(queriesMock.syncAllModelsMetadata).not.toHaveBeenCalled();
     });
 
     it('clears the managed provider token on logout', async () => {
@@ -251,7 +238,8 @@ describe('AuthService managed TouchAI Hub flow', () => {
                 }),
             },
         });
-        expect(queriesMock.syncAllModelsMetadata).toHaveBeenCalledOnce();
+        expect(queriesMock.createModels).not.toHaveBeenCalled();
+        expect(queriesMock.syncAllModelsMetadata).not.toHaveBeenCalled();
     });
 
     it('does not exchange the same desktop callback code twice in one app session', async () => {

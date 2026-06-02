@@ -11,6 +11,7 @@
     import {
         getProviderDriverDefinition,
         isTouchAiManagedMode,
+        MIMO_CUSTOM_API_BASE_URL,
         parseProviderConfigJson,
     } from '@/services/AgentService/infrastructure/providers';
     import type { ProviderConfigJson } from '@/services/AgentService/infrastructure/providers/types';
@@ -109,8 +110,14 @@
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-    function buildTouchAiCustomConfigPayload(): ProviderConfigJson['touchAiCustom'] | undefined {
-        const apiEndpoint = touchAiCustomForm.value.api_endpoint.trim();
+    function buildTouchAiCustomConfigPayload(
+        mode: 'managed' | 'custom' = managedConfigMode.value
+    ): ProviderConfigJson['touchAiCustom'] | undefined {
+        const apiEndpoint =
+            touchAiCustomForm.value.api_endpoint.trim() ||
+            (isManagedTouchAiActivityProvider.value && mode === 'custom'
+                ? MIMO_CUSTOM_API_BASE_URL
+                : '');
         const apiKey = touchAiCustomForm.value.api_key.trim();
 
         if (!apiEndpoint && !apiKey) {
@@ -140,7 +147,7 @@
             config_json: stringifyProviderConfigJson({
                 ...touchAiProviderConfig.value,
                 touchAiMode: mode,
-                touchAiCustom: buildTouchAiCustomConfigPayload(),
+                touchAiCustom: buildTouchAiCustomConfigPayload(mode),
             }),
         });
     }
@@ -152,7 +159,11 @@
             api_key: provider.api_key || '',
         };
         touchAiCustomForm.value = {
-            api_endpoint: parsedConfig.touchAiCustom?.apiEndpoint || '',
+            api_endpoint:
+                parsedConfig.touchAiCustom?.apiEndpoint ||
+                (provider.driver === 'mimo' && provider.is_builtin === 1
+                    ? MIMO_CUSTOM_API_BASE_URL
+                    : ''),
             api_key: parsedConfig.touchAiCustom?.apiKey || '',
         };
         managedConfigMode.value = isTouchAiManagedMode(parsedConfig, provider.api_endpoint)
