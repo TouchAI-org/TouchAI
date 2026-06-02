@@ -1133,7 +1133,7 @@ mod macos_notifications {
 #[cfg(target_os = "linux")]
 mod linux_notifications {
     use notify_rust::{ActionResponse, Notification, Timeout};
-    use tauri::{AppHandle, Runtime};
+    use tauri::{AppHandle, Manager, Runtime};
 
     use super::{
         SessionStatusReminderAction, SessionStatusReminderActionPayload, SessionStatusReminderKind,
