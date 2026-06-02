@@ -16,6 +16,7 @@ const queriesMock = vi.hoisted(() => ({
     findModelsWithProvider: vi.fn(),
     reassignModelsAndDeleteProvider: vi.fn(),
     setDefaultModel: vi.fn(),
+    syncAllModelsMetadata: vi.fn(),
     updateProvider: vi.fn(),
 }));
 
@@ -59,6 +60,7 @@ describe('AuthService managed TouchAI Hub flow', () => {
         queriesMock.createModels.mockResolvedValue(undefined);
         queriesMock.reassignModelsAndDeleteProvider.mockResolvedValue(true);
         queriesMock.setDefaultModel.mockResolvedValue(undefined);
+        queriesMock.syncAllModelsMetadata.mockResolvedValue(undefined);
         queriesMock.updateProvider.mockResolvedValue(undefined);
         openUrlMock.mockResolvedValue(undefined);
         window.sessionStorage.clear();
@@ -151,6 +153,7 @@ describe('AuthService managed TouchAI Hub flow', () => {
                 is_default: 0,
             },
         ]);
+        expect(queriesMock.syncAllModelsMetadata).toHaveBeenCalledOnce();
     });
 
     it('clears the managed provider token on logout', async () => {
@@ -248,6 +251,7 @@ describe('AuthService managed TouchAI Hub flow', () => {
                 }),
             },
         });
+        expect(queriesMock.syncAllModelsMetadata).toHaveBeenCalledOnce();
     });
 
     it('does not exchange the same desktop callback code twice in one app session', async () => {

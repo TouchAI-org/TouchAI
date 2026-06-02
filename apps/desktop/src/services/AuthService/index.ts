@@ -10,6 +10,7 @@ import {
     findModelsWithProvider,
     reassignModelsAndDeleteProvider,
     setDefaultModel,
+    syncAllModelsMetadata,
     updateProvider,
 } from '@/database/queries';
 import {
@@ -233,6 +234,8 @@ async function ensureManagedProviderModels(providerId: number): Promise<void> {
     if (missingModels.length > 0) {
         await createModels(missingModels);
     }
+
+    await syncAllModelsMetadata();
 
     const defaultModel = await findDefaultModel();
     if (

@@ -35,6 +35,10 @@ const llmMetadataMock = vi.hoisted(() => ({
     isLlmMetadataEmpty: vi.fn().mockResolvedValue(false),
 }));
 
+const modelMetadataMock = vi.hoisted(() => ({
+    updateModelMetadata: vi.fn().mockResolvedValue(undefined),
+}));
+
 const agentServiceMock = vi.hoisted(() => ({
     createProviderInstance: vi.fn(() => ({
         listModels: vi.fn().mockResolvedValue([]),
@@ -91,9 +95,7 @@ vi.mock('@/services/AgentService', () => ({
     aiService: agentServiceMock,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
-    updateModelMetadata: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => modelMetadataMock);
 
 vi.mock('@/services/AgentService/infrastructure/providers', () => ({
     getProviderDriverDefinition: vi.fn(() => ({
@@ -122,6 +124,7 @@ describe('SettingsAiServicesSection', () => {
         managedSettingsFocusMock.consumeManagedSettingsFocusRequest.mockReturnValue(null);
         queries.findDefaultModel.mockResolvedValue(null);
         queries.findModelsWithProvider.mockResolvedValue([]);
+        modelMetadataMock.updateModelMetadata.mockResolvedValue(undefined);
     });
 
     it('omits custom-only controls for builtin providers', async () => {
@@ -595,6 +598,7 @@ describe('SettingsAiServicesSection', () => {
             })
         );
         expect(listModels).toHaveBeenCalled();
+        expect(modelMetadataMock.updateModelMetadata).not.toHaveBeenCalled();
     });
 
     it('does not refresh managed MiMo models before login is completed', async () => {

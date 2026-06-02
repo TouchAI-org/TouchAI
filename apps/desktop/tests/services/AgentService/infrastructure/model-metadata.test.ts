@@ -80,4 +80,62 @@ describe('model metadata refresh', () => {
 
         expect(insertRequest?.params).toEqual(expect.arrayContaining(['gpt-4', 'gpt-4o']));
     });
+
+    it('applies refreshed metadata to runtime model rows in the same update', async () => {
+        globalThis.fetch = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({
+                mimo: {
+                    models: {
+                        'mimo-v2.5-pro': {
+                            id: 'mimo-v2.5-pro',
+                            name: 'mimo-v2.5-pro',
+                            attachment: true,
+                            open_weights: false,
+                            reasoning: true,
+                            temperature: true,
+                            tool_call: true,
+                            modalities: {
+                                input: ['text', 'image'],
+                                output: ['text'],
+                            },
+                        },
+                    },
+                },
+            }),
+        })) as unknown as typeof fetch;
+
+        interceptTauriInvoke((call) => {
+            if (call.cmd === 'database_tx_begin') {
+                return 'tx_model_metadata';
+            }
+
+            if (call.cmd === 'database_tx_commit' || call.cmd === 'database_tx_rollback') {
+                return undefined;
+            }
+
+            if (call.cmd === 'database_tx_query') {
+                const request = getRequest(call.payload);
+                if (request?.sql.includes('insert into "statistics"')) {
+                    return {
+                        rows: [{ key: 'model_metadata_last_updated_at' }],
+                        rowsAffected: 1,
+                        lastInsertId: 1,
+                    };
+                }
+
+                return { rows: [], rowsAffected: 1, lastInsertId: null };
+            }
+
+            return undefined;
+        });
+
+        await expect(updateModelMetadata()).resolves.toBeUndefined();
+
+        const updateRequest = getTauriInvokeCalls('database_tx_query')
+            .map((call) => getRequest(call.payload))
+            .find((request) => request?.sql.includes('UPDATE models'));
+
+        expect(updateRequest?.sql).toContain('ranked_metadata');
+    });
 });
