@@ -195,4 +195,15 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(result).not.toMatch(/TouchAI widget components/i);
         expect(result).not.toMatch(/host app'?s component layer/i);
     });
+
+    it('does not recommend sanitizer-stripped inline event attributes for interactions', () => {
+        const result = buildGuidelineResult(
+            readShowWidgetGuidelines(['diagram', 'interactive', 'mockup', 'chart'])
+        );
+
+        expect(result).not.toMatch(/\son(?:click|input|change|load)\s*=/i);
+        expect(result).not.toContain('sendPrompt()/openLink()');
+        expect(result).toContain('data-send-prompt');
+        expect(result).toContain('addEventListener');
+    });
 });

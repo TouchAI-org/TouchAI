@@ -82,10 +82,25 @@ All auto-adapt to light/dark mode. For custom colors in HTML, use CSS variables.
 - In HTML: always use CSS variables (--color-text-primary, --color-text-secondary) for text. Never hardcode colors like color: #333 — invisible in dark mode.
 - Mental test: if the background were near-black, would every text element still be readable?
 
-### sendPrompt(text)
+### Actions and scripts
 
-A global function that sends a message to chat as if the user typed it. Use it when the user's next step benefits from TouchAI thinking. Handle filtering, sorting, toggling, and calculations in JS instead.
+For buttons, SVG nodes, or cards that should ask TouchAI a follow-up, set `data-send-prompt="Ask the follow-up"` on the clickable element. The host dispatches it safely.
+
+For link-like controls, set `data-open-link="https://example.com"` or use a normal `<a href="https://...">`.
+
+Do not use inline event attributes. The sanitizer removes them. For internal filtering, sorting, toggling, calculations, sliders, and custom UI behavior, put a final `<script>` block after the static HTML and bind events with `addEventListener`.
+
+```html
+<button type="button" data-send-prompt="Compare one more scenario">Compare more</button>
+<button id="recalc" type="button">Recalculate</button>
+<output id="result">42</output>
+<script>
+    document.getElementById('recalc').addEventListener('click', () => {
+        document.getElementById('result').textContent = String(21 * 2);
+    });
+</script>
+```
 
 ### Links
 
-`<a href="https://...">` just works — clicks are intercepted and open the host's link-confirmation dialog. Or call `openLink(url)` directly.
+`<a href="https://...">` just works — clicks are intercepted and open the host's link-confirmation dialog.

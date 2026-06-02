@@ -29,7 +29,7 @@ Native controls inherit host widget base styles. Use semantic HTML and inline st
         >
             Scenario
         </span>
-        <button type="button" onclick="sendPrompt('Compare one more scenario ↗')">
+        <button type="button" data-send-prompt="Compare one more scenario">
             Compare more
         </button>
     </div>
@@ -79,7 +79,7 @@ Use `builtin__show_widget` with HTML in `widget_code` for the interactive contro
 </div>
 ```
 
-Use `sendPrompt()` to let users ask follow-ups: `sendPrompt('What if I increase the rate to 10%?')`
+Use `data-send-prompt` to let users ask follow-ups: `<button type="button" data-send-prompt="What if I increase the rate to 10%?">Try 10%</button>`.
 
 ### 2. Compare options — decision making
 
@@ -89,7 +89,7 @@ Use `builtin__show_widget` with HTML in `widget_code`. Side-by-side card grid fo
 
 - Use `repeat(auto-fit, minmax(160px, 1fr))` for responsive columns
 - Each option in a card. Use badges for key differentiators.
-- Add `sendPrompt()` buttons: `sendPrompt('Tell me more about the Pro plan')`
+- Add follow-up buttons with `data-send-prompt="Tell me more about the Pro plan"`
 - Don't put comparison tables inside this tool — output them as regular markdown tables in your response text instead. The tool is for the visual card grid only.
 - When one option is recommended or "most popular", accent its card with `border: 2px solid var(--color-border-info)` only (2px is deliberate — the only exception to the 0.5px rule, used to accent featured items) — keep the same background and border as the other cards. Add a small badge (e.g. "Most popular") above or inside the card header using `background: var(--color-background-info); color: var(--color-text-info); font-size: 12px; padding: 4px 12px; border-radius: var(--border-radius-md)`.
 

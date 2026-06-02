@@ -19,23 +19,34 @@ function installScriptExecutionMock(): void {
         newChild: Node,
         oldChild: Node
     ) {
+        const isScriptReplacement =
+            newChild instanceof HTMLScriptElement && oldChild instanceof HTMLScriptElement;
+        const originalInlineScript =
+            isScriptReplacement && !newChild.src ? newChild.textContent || '' : null;
+
+        if (originalInlineScript !== null) {
+            newChild.textContent = '';
+        }
+
         const replacedNode = nativeReplaceChild.call(this, newChild, oldChild);
 
-        if (newChild instanceof HTMLScriptElement) {
-            if (newChild.src) {
-                window.setTimeout(() => {
-                    if (newChild.src.includes('chart.umd.js')) {
-                        (window as Window & { Chart?: unknown }).Chart = function Chart() {
-                            (
-                                window as Window & { __touchaiChartConstructed?: boolean }
-                            ).__touchaiChartConstructed = true;
-                        };
-                    }
-                    newChild.dispatchEvent(new Event('load'));
-                }, 0);
-            } else {
-                new Function(newChild.textContent || '')();
-            }
+        if (!isScriptReplacement) {
+            return replacedNode;
+        }
+
+        if (newChild instanceof HTMLScriptElement && newChild.src) {
+            window.setTimeout(() => {
+                if (newChild.src.includes('chart.umd.js')) {
+                    (window as Window & { Chart?: unknown }).Chart = function Chart() {
+                        (
+                            window as Window & { __touchaiChartConstructed?: boolean }
+                        ).__touchaiChartConstructed = true;
+                    };
+                }
+                newChild.dispatchEvent(new Event('load'));
+            }, 0);
+        } else if (originalInlineScript !== null) {
+            new Function(originalInlineScript)();
         }
 
         return replacedNode;
@@ -48,6 +59,8 @@ describe('show widget renderer i18n opt-out', () => {
         Node.prototype.replaceChild = nativeReplaceChild;
         document.body.innerHTML = '';
         delete (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan;
+        delete (window as Window & { sendPrompt?: unknown }).sendPrompt;
+        delete (window as Window & { openLink?: unknown }).openLink;
         delete (window as Window & { Chart?: unknown }).Chart;
         delete (window as Window & { __touchaiChartConstructed?: boolean })
             .__touchaiChartConstructed;
@@ -137,6 +150,147 @@ describe('show widget renderer i18n opt-out', () => {
         expect(css).not.toMatch(/\bbox-shadow\s*:/i);
         expect(css).not.toMatch(/\btext-shadow\s*:/i);
         expect(css).not.toMatch(/\bfilter\s*:\s*(?!none\b)/i);
+    });
+
+    it('dispatches widget prompt actions from data attributes and safe legacy onclick handlers', async () => {
+        const sendPrompt = vi.fn();
+        (window as Window & { sendPrompt?: (text: string) => void }).sendPrompt = sendPrompt;
+
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'action-widget',
+            title: 'Action widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<button type="button" data-send-prompt="Compare one more scenario">Compare</button>',
+                '<svg viewBox="0 0 80 32">',
+                `<g id="legacy-node" onclick="sendPrompt('Tell me more about this stop')">`,
+                '<rect width="80" height="32"></rect>',
+                '</g>',
+                '</svg>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        host.querySelector('button')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+        host.querySelector('#legacy-node')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+
+        expect(sendPrompt).toHaveBeenCalledTimes(2);
+        expect(sendPrompt).toHaveBeenNthCalledWith(1, 'Compare one more scenario');
+        expect(sendPrompt).toHaveBeenNthCalledWith(2, 'Tell me more about this stop');
+        expect(host.querySelector('#legacy-node')?.getAttribute('onclick')).toBeNull();
+
+        renderer.destroy();
+    });
+
+    it('ignores unsafe data-open-link action URLs', async () => {
+        const openLink = vi.fn();
+        (window as Window & { openLink?: (url: string) => void }).openLink = openLink;
+
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'link-action-widget',
+            title: 'Link action widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<button type="button" data-open-link="https://example.com/report">Open report</button>',
+                '<button id="unsafe-link" type="button" data-open-link="javascript:alert(1)">Unsafe</button>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        host.querySelector('button')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+        host.querySelector('#unsafe-link')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+
+        expect(openLink).toHaveBeenCalledOnce();
+        expect(openLink).toHaveBeenCalledWith('https://example.com/report');
+
+        renderer.destroy();
+    });
+
+    it('leaves relative anchor links for the host router', async () => {
+        const openLink = vi.fn();
+        (window as Window & { openLink?: (url: string) => void }).openLink = openLink;
+
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'relative-link-widget',
+            title: 'Relative link widget',
+            description: '',
+            phase: 'ready',
+            html: '<a id="internal-link" href="/settings">Settings</a>',
+        });
+
+        await waitForWidgetRender();
+
+        let wasPreventedByWidget = true;
+        host.addEventListener('click', (event) => {
+            wasPreventedByWidget = event.defaultPrevented;
+            event.preventDefault();
+        });
+
+        const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+        host.querySelector('#internal-link')?.dispatchEvent(clickEvent);
+
+        expect(wasPreventedByWidget).toBe(false);
+        expect(openLink).not.toHaveBeenCalled();
+
+        renderer.destroy();
+    });
+
+    it('keeps script-bound widget interactions available for internal calculations', async () => {
+        installScriptExecutionMock();
+
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'calculation-widget',
+            title: 'Calculation widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<button id="increment" type="button">Increment</button>',
+                '<span id="count">0</span>',
+                '<script>',
+                'const button = document.getElementById("increment");',
+                'const output = document.getElementById("count");',
+                'button.addEventListener("click", () => { output.textContent = String(Number(output.textContent) + 1); });',
+                '</script>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        host.querySelector('#increment')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+
+        expect(host.querySelector('#count')?.textContent).toBe('1');
+
+        renderer.destroy();
     });
 
     it('waits for an allowed external widget script before running the following initializer', async () => {

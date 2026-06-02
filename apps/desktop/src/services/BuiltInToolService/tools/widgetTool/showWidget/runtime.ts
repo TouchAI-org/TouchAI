@@ -78,6 +78,13 @@ interface ShowWidgetTypographySource {
     fontWeight: string;
 }
 
+type SimpleWidgetActionName = 'sendPrompt' | 'openLink';
+
+interface SimpleWidgetAction {
+    name: SimpleWidgetActionName;
+    value: string;
+}
+
 declare global {
     interface Window {
         sendPrompt?: (text: string) => void;
@@ -512,6 +519,97 @@ function sanitizeDraftHtml(html: string, phase: ShowWidgetPhase): string {
     return sanitized.trim();
 }
 
+function decodeSimpleJsStringLiteral(value: string): string {
+    let decoded = '';
+
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index]!;
+        if (char !== '\\') {
+            decoded += char;
+            continue;
+        }
+
+        index += 1;
+        const escaped = value[index];
+        if (!escaped) {
+            decoded += '\\';
+            break;
+        }
+
+        switch (escaped) {
+            case 'n':
+                decoded += '\n';
+                break;
+            case 'r':
+                decoded += '\r';
+                break;
+            case 't':
+                decoded += '\t';
+                break;
+            case 'b':
+                decoded += '\b';
+                break;
+            case 'f':
+                decoded += '\f';
+                break;
+            default:
+                decoded += escaped;
+                break;
+        }
+    }
+
+    return decoded;
+}
+
+function parseSimpleWidgetAction(attributeValue: string | null): SimpleWidgetAction | null {
+    if (!attributeValue) {
+        return null;
+    }
+
+    const match = attributeValue.match(
+        /^\s*(sendPrompt|openLink)\(\s*(["'])((?:\\.|(?!\2).)*)\2\s*\)\s*;?\s*$/s
+    );
+    if (!match) {
+        return null;
+    }
+
+    const value = decodeSimpleJsStringLiteral(match[3] ?? '').trim();
+    if (!value) {
+        return null;
+    }
+
+    return {
+        name: match[1] as SimpleWidgetActionName,
+        value,
+    };
+}
+
+function normalizeWidgetActionAttributesIn(root: ParentNode): void {
+    const elements = Array.from(root.querySelectorAll('[onclick]'));
+
+    for (const element of elements) {
+        const action = parseSimpleWidgetAction(element.getAttribute('onclick'));
+        element.removeAttribute('onclick');
+
+        if (!action) {
+            continue;
+        }
+
+        if (action.name === 'sendPrompt') {
+            element.setAttribute('data-send-prompt', action.value);
+        } else {
+            element.setAttribute('data-open-link', action.value);
+        }
+    }
+}
+
+function normalizeWidgetActionAttributes(html: string): string {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    normalizeWidgetActionAttributesIn(template.content);
+    return template.innerHTML;
+}
+
 function splitCssSelectorList(selectorList: string): string[] {
     const selectors: string[] = [];
     let current = '';
@@ -716,11 +814,14 @@ function parseRenderTree(
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
+        normalizeWidgetActionAttributesIn(parsed.body);
         template.innerHTML = String(
             DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
         );
     } else {
-        template.innerHTML = String(DOMPurify.sanitize(normalizedHtml, purifyConfig));
+        template.innerHTML = String(
+            DOMPurify.sanitize(normalizeWidgetActionAttributes(normalizedHtml), purifyConfig)
+        );
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
@@ -893,17 +994,48 @@ function applyShowWidgetLayoutGuards(hostElement: HTMLElement, widgetRoot: HTMLE
     }
 }
 
+function normalizeShowWidgetExternalUrl(url: string): string | null {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
+        return null;
+    }
+
+    if (!/^(?:https?:)?\/\//i.test(trimmedUrl)) {
+        return null;
+    }
+
+    try {
+        const parsedUrl = new URL(trimmedUrl, window.location.href);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+            return null;
+        }
+
+        return parsedUrl.href;
+    } catch {
+        return null;
+    }
+}
+
 function openShowWidgetLink(url: string): void {
-    if (!url.trim()) {
+    const externalUrl = normalizeShowWidgetExternalUrl(url);
+    if (!externalUrl) {
         return;
     }
 
     if (typeof window.openLink === 'function') {
-        window.openLink(url);
+        window.openLink(externalUrl);
         return;
     }
 
-    window.open(url, '_blank');
+    window.open(externalUrl, '_blank');
+}
+
+function sendShowWidgetPrompt(prompt: string): void {
+    if (!prompt.trim() || typeof window.sendPrompt !== 'function') {
+        return;
+    }
+
+    window.sendPrompt(prompt);
 }
 
 function morphWidgetRoot(
@@ -1084,17 +1216,40 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
     ensureMorphdomReady();
 
     const handleHostClick = (event: MouseEvent): void => {
-        const target = event.target as HTMLElement | null;
+        const target = event.target instanceof Element ? event.target : null;
+        const promptElement = target?.closest('[data-send-prompt]');
+        const prompt = promptElement?.getAttribute('data-send-prompt')?.trim();
+
+        if (prompt) {
+            event.preventDefault();
+            event.stopPropagation();
+            sendShowWidgetPrompt(prompt);
+            return;
+        }
+
+        const actionLinkElement = target?.closest('[data-open-link]');
+        const actionHref = actionLinkElement?.getAttribute('data-open-link')?.trim();
+        if (actionHref) {
+            event.preventDefault();
+            event.stopPropagation();
+            openShowWidgetLink(actionHref);
+            return;
+        }
+
         const anchor = target?.closest('a');
         const href = anchor?.getAttribute('href')?.trim();
+        if (!href || href === '#' || href.startsWith('#')) {
+            return;
+        }
 
-        if (!anchor || !href || href === '#' || href.startsWith('#')) {
+        const externalHref = normalizeShowWidgetExternalUrl(href);
+        if (!externalHref) {
             return;
         }
 
         event.preventDefault();
         event.stopPropagation();
-        openShowWidgetLink(href);
+        openShowWidgetLink(externalHref);
     };
 
     hostElement.addEventListener('click', handleHostClick, true);

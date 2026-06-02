@@ -87,7 +87,7 @@ Keep all nodes the same height when they have the same content type (e.g. all si
 _Single-line node_ (44px tall): title only. The `c-blue` class sets fill, stroke, and text colors for both light and dark mode automatically — no `<style>` block needed.
 
 ```svg
-<g class="node c-blue" onclick="sendPrompt('Tell me more about T-cells')">
+<g class="node c-blue" data-send-prompt="Tell me more about T-cells">
   <rect x="100" y="20" width="180" height="44" rx="8" stroke-width="0.5"/>
   <text class="th" x="190" y="42" text-anchor="middle" dominant-baseline="central">T-cells</text>
 </g>
@@ -96,7 +96,7 @@ _Single-line node_ (44px tall): title only. The `c-blue` class sets fill, stroke
 _Two-line node_ (56px tall): bold title + muted subtitle.
 
 ```svg
-<g class="node c-blue" onclick="sendPrompt('Tell me more about dendritic cells')">
+<g class="node c-blue" data-send-prompt="Tell me more about dendritic cells">
   <rect x="100" y="20" width="200" height="56" rx="8" stroke-width="0.5"/>
   <text class="th" x="200" y="38" text-anchor="middle" dominant-baseline="central">Dendritic cells</text>
   <text class="ts" x="200" y="56" text-anchor="middle" dominant-baseline="central">Detect foreign antigens</text>
@@ -111,7 +111,7 @@ _Connector_ (no label — meaning is clear from source + target):
 
 _Neutral node_ (gray, for start/end/generic steps): use `class="box"` for auto-themed fill/stroke, and default text classes.
 
-Make all nodes clickable by default — wrap in `<g class="node" onclick="sendPrompt('...')">`. The hover effect is built in.
+Make all nodes clickable by default when they should ask TouchAI a follow-up question — use `<g class="node" data-send-prompt="...">`. The hover effect is built in.
 
 #### Structural diagram
 
@@ -442,32 +442,32 @@ All core rules still apply (viewBox 680px, dark mode mandatory, 14/12px text, pr
             <path d="M398,454Q404,434 408,440Q412,428 416,454Z" fill="#EF9F27" />
         </g>
         <!-- Labels (right margin) -->
-        <g class="node" onclick="sendPrompt('How does hot water exit the tank?')">
+        <g class="node" data-send-prompt="How does hot water exit the tank?">
             <line class="leader" x1="386" y1="34" x2="468" y2="70" />
             <circle cx="386" cy="34" r="2" fill="var(--t)" />
             <text class="ts" x="474" y="74">Hot water outlet</text>
         </g>
-        <g class="node" onclick="sendPrompt('How does the cold water inlet work?')">
+        <g class="node" data-send-prompt="How does the cold water inlet work?">
             <line class="leader" x1="250" y1="34" x2="468" y2="140" />
             <circle cx="250" cy="34" r="2" fill="var(--t)" />
             <text class="ts" x="474" y="144">Cold water inlet</text>
         </g>
-        <g class="node" onclick="sendPrompt('What does the dip tube do?')">
+        <g class="node" data-send-prompt="What does the dip tube do?">
             <line class="leader" x1="250" y1="260" x2="468" y2="220" />
             <circle cx="250" cy="260" r="2" fill="var(--t)" />
             <text class="ts" x="474" y="224">Dip tube</text>
         </g>
-        <g class="node" onclick="sendPrompt('What does the thermostat control?')">
+        <g class="node" data-send-prompt="What does the thermostat control?">
             <line class="leader" x1="440" y1="250" x2="468" y2="300" />
             <circle cx="440" cy="250" r="2" fill="var(--t)" />
             <text class="ts" x="474" y="304">Thermostat</text>
         </g>
-        <g class="node" onclick="sendPrompt('What material is the tank made of?')">
+        <g class="node" data-send-prompt="What material is the tank made of?">
             <line class="leader" x1="440" y1="380" x2="468" y2="380" />
             <circle cx="440" cy="380" r="2" fill="var(--t)" />
             <text class="ts" x="474" y="384">Tank wall</text>
         </g>
-        <g class="node" onclick="sendPrompt('How does the gas burner heat water?')">
+        <g class="node" data-send-prompt="How does the gas burner heat water?">
             <line class="leader" x1="432" y1="454" x2="468" y2="454" />
             <circle cx="432" cy="454" r="2" fill="var(--t)" />
             <text class="ts" x="474" y="458">Heating element</text>
@@ -520,7 +520,6 @@ All core rules still apply (viewBox 680px, dark mode mandatory, 14/12px text, pr
                     type="checkbox"
                     id="heat-toggle"
                     checked
-                    onchange="toggleHeat(this.checked)"
                     style="position:absolute;opacity:0;width:100%;height:100%;cursor:pointer;margin:0"
                 />
                 <span
@@ -537,7 +536,6 @@ All core rules still apply (viewBox 680px, dark mode mandatory, 14/12px text, pr
             max="90"
             value="40"
             style="flex:1"
-            oninput="setTemp(this.value)"
         />
         <span id="temp-label" style="min-width:36px;text-align:right">40%</span>
     </div>
@@ -557,6 +555,12 @@ All core rules still apply (viewBox 680px, dark mode mandatory, 14/12px text, pr
             document.getElementById('flames').classList.toggle('off', !on);
             document.querySelectorAll('.conv').forEach((p) => p.classList.toggle('off', !on));
         }
+        document.getElementById('heat-toggle')?.addEventListener('change', (event) => {
+            toggleHeat(event.currentTarget.checked);
+        });
+        document.getElementById('temp-slider')?.addEventListener('input', (event) => {
+            setTemp(event.currentTarget.value);
+        });
     </script>
 </section>
 ```
@@ -577,7 +581,7 @@ All core rules still apply (viewBox 680px, dark mode mandatory, 14/12px text, pr
 <line stroke="#EF9F27" stroke-linecap="round" x1="340" y1="230" x2="452" y2="146" stroke-width="2.5" opacity="0.7"/>
 <line stroke="#EF9F27" stroke-linecap="round" x1="340" y1="230" x2="564" y2="146" stroke-width="1"   opacity="0.2"/>
 
-<g class="node" onclick="sendPrompt('What do the attention weights mean?')">
+<g class="node" data-send-prompt="What do the attention weights mean?">
   <rect class="c-gray"  x="80"  y="230" width="72" height="36" rx="6" stroke-width="0.5"/>
   <rect class="c-gray"  x="192" y="230" width="72" height="36" rx="6" stroke-width="0.5"/>
   <rect class="c-amber" x="304" y="230" width="72" height="36" rx="6" stroke-width="1"/>
