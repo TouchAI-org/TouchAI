@@ -29,6 +29,7 @@ declare global {
 
 const loadedScripts = new Map<string, Promise<void>>();
 const loadedStyles = new Set<string>();
+const unsafeUrlAttributes = new Set(['href', 'src', 'xlink:href', 'manifest']);
 
 const hostCssFor = (id: string) => `
 touchai-component-demo[data-demo-id="${id}"] {
@@ -276,20 +277,6 @@ const scopeCss = (css: string, hostSelector: string) => {
     return consumeBlock();
 };
 
-const loadExternalScript = (src: string) => {
-    if (loadedScripts.has(src)) return loadedScripts.get(src)!;
-    const promise = new Promise<void>((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = false;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-        document.head.appendChild(script);
-    });
-    loadedScripts.set(src, promise);
-    return promise;
-};
-
 const loadExternalStyle = (href: string) => {
     if (loadedStyles.has(href)) return;
     loadedStyles.add(href);
@@ -300,6 +287,45 @@ const loadExternalStyle = (href: string) => {
 };
 
 const parseHtml = (html: string) => new DOMParser().parseFromString(html, 'text/html');
+
+const isJavaScriptUrl = (value: string) =>
+    value
+        .replace(/[\u0000-\u001f\u007f\s]+/g, '')
+        .toLowerCase()
+        .startsWith('javascript:');
+
+const sanitizeClonedBody = (bodyContent: HTMLElement) => {
+    bodyContent.querySelectorAll<HTMLElement>('*').forEach((node) => {
+        [...node.attributes].forEach((attribute) => {
+            const name = attribute.name.toLowerCase();
+            if (name.startsWith('on')) {
+                node.removeAttribute(attribute.name);
+                return;
+            }
+
+            if (unsafeUrlAttributes.has(name) && isJavaScriptUrl(attribute.value)) {
+                node.removeAttribute(attribute.name);
+            }
+        });
+    });
+};
+
+const loadExternalScript = (src: string) => {
+    if (loadedScripts.has(src)) return loadedScripts.get(src)!;
+    const promise = new Promise<void>((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = false;
+        script.onload = () => resolve();
+        script.onerror = () => {
+            loadedScripts.delete(src);
+            reject(new Error(`Failed to load script: ${src}`));
+        };
+        document.head.appendChild(script);
+    });
+    loadedScripts.set(src, promise);
+    return promise;
+};
 
 const dispatchMessage = (host: TouchAiHost | null | undefined, data: unknown) => {
     if (!host) return false;
@@ -530,6 +556,7 @@ const applyDocument = async (
     });
 
     const bodyContent = doc.body.cloneNode(true) as HTMLElement;
+    sanitizeClonedBody(bodyContent);
     bodyContent.querySelectorAll('script').forEach((script) => script.remove());
     host.replaceChildren(...Array.from(bodyContent.childNodes));
     updateResolvedSources(host, componentUrl.href);
@@ -550,7 +577,10 @@ const applyDocument = async (
     if (loadVersion !== host.__touchaiLoadVersion) return;
 
     host.dataset.touchaiStatus = 'loaded';
-    if (host.__touchaiPendingMessage && host.__touchaiMessageHandlers?.size) {
+    if (
+        Object.prototype.hasOwnProperty.call(host, '__touchaiPendingMessage') &&
+        host.__touchaiMessageHandlers?.size
+    ) {
         dispatchMessage(host, host.__touchaiPendingMessage);
     }
     host.dispatchEvent(new Event('load'));
@@ -597,6 +627,9 @@ const mount = (id: string): TouchAiHost | null => {
                 signal: controller.signal,
             });
             host.dataset.touchaiStatus = `fetched-${response.status}`;
+            if (!response.ok) {
+                throw new Error(`Failed to fetch component: ${response.status}`);
+            }
             const html = await response.text();
             const doc = parseHtml(html);
             await applyDocument(host, styleNode, doc, componentUrl, loadVersion);
