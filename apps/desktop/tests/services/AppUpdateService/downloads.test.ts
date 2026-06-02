@@ -88,6 +88,26 @@ describe('preferredAppUpdateDownload', () => {
         );
     });
 
+    it('returns null for known platforms when no matching download is available', () => {
+        const windowsOnlyDownloads: AppUpdateDownload[] = [
+            {
+                kind: 'installer',
+                name: 'TouchAI-0.2.0-windows.msi',
+                url: 'https://example.com/TouchAI-0.2.0-windows.msi',
+                sizeBytes: 1,
+            },
+            {
+                kind: 'updatePackage',
+                name: 'TouchAI-0.2.0-windows-full.nupkg',
+                url: 'https://example.com/TouchAI-0.2.0-windows-full.nupkg',
+                sizeBytes: 1,
+            },
+        ];
+
+        expect(preferredAppUpdateDownload(windowsOnlyDownloads, { os: 'linux' })).toBeNull();
+        expect(preferredAppUpdateDownload(windowsOnlyDownloads, { os: 'macos' })).toBeNull();
+    });
+
     it('returns null when there are no downloads', () => {
         expect(preferredAppUpdateDownload([], { os: 'windows' })).toBeNull();
     });

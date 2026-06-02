@@ -201,129 +201,128 @@ export const findModelByProviderAndModelId = async ({
         .where(and(eq(models.provider_id, providerId), eq(models.model_id, modelId)))
         .get()) as ModelWithProvider | undefined;
 
+const metadataMatchCondition = `
+                (
+                    lower(m2.model_id) = lower(source_models.model_id)
+                    OR (
+                        length(source_models.model_id) > 0
+                        AND length(m2.model_id) > length(source_models.model_id)
+                        AND substr(lower(m2.model_id), 1, length(source_models.model_id)) = lower(source_models.model_id)
+                        AND (
+                            substr(m2.model_id, length(source_models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9]'
+                            OR substr(m2.model_id, length(source_models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9][0-9][0-9]'
+                            OR substr(m2.model_id, length(source_models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+                            OR substr(m2.model_id, length(source_models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+                            OR lower(substr(m2.model_id, length(source_models.model_id) + 1)) = '-latest'
+                        )
+                    )
+                )
+`;
+
+const metadataMatchOrder = `
+                    CASE WHEN lower(m2.model_id) = lower(source_models.model_id) THEN 1 ELSE 0 END DESC,
+                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
+                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
+                    ) DESC,
+                    length(m2.model_id) DESC
+`;
+
 /**
  * 批量同步所有模型的元数据。
  */
 export const syncAllModelsMetadata = async (database: DatabaseExecutor = db): Promise<void> => {
     const updateSql = sql.raw(`
+        WITH ranked_metadata AS (
+            SELECT
+                source_models.id AS model_row_id,
+                m2.attachment,
+                m2.modalities,
+                m2.open_weights,
+                m2.reasoning,
+                m2.release_date,
+                m2.temperature,
+                m2.tool_call,
+                m2.knowledge,
+                json_extract(m2."limit", '$.context') AS context_limit,
+                json_extract(m2."limit", '$.output') AS output_limit,
+                ROW_NUMBER() OVER (
+                    PARTITION BY source_models.id
+                    ORDER BY
+                        ${metadataMatchOrder}
+                ) AS rn
+            FROM models AS source_models
+            JOIN llm_metadata AS m2
+              ON ${metadataMatchCondition}
+        )
         UPDATE models
         SET
             attachment = COALESCE((
-                SELECT m2.attachment
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.attachment
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), attachment),
             modalities = COALESCE((
-                SELECT m2.modalities
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.modalities
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), modalities),
             open_weights = COALESCE((
-                SELECT m2.open_weights
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.open_weights
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), open_weights),
             reasoning = COALESCE((
-                SELECT m2.reasoning
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.reasoning
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), reasoning),
             release_date = COALESCE((
-                SELECT m2.release_date
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.release_date
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), release_date),
             temperature = COALESCE((
-                SELECT m2.temperature
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.temperature
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), temperature),
             tool_call = COALESCE((
-                SELECT m2.tool_call
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.tool_call
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), tool_call),
             knowledge = COALESCE((
-                SELECT m2.knowledge
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.knowledge
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), knowledge),
             context_limit = COALESCE((
-                SELECT json_extract(m2."limit", '$.context')
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.context_limit
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), context_limit),
             output_limit = COALESCE((
-                SELECT json_extract(m2."limit", '$.output')
-                FROM llm_metadata AS m2
-                WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
-                ORDER BY
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-                LIMIT 1
+                SELECT ranked_metadata.output_limit
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
             ), output_limit),
             updated_at = datetime('now')
         WHERE is_custom_metadata = 0
           AND EXISTS (
             SELECT 1
-            FROM llm_metadata AS m2
-            WHERE lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'
+            FROM ranked_metadata
+            WHERE ranked_metadata.model_row_id = models.id
+              AND ranked_metadata.rn = 1
         )
     `);
 

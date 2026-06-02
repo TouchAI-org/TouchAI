@@ -303,16 +303,39 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     /**
      * 串行 resize 消费队列。
      *
-     * CSS transition 期间 ResizeObserver 每帧触发，始终取最新高度串行调用 resize()。
+     * ResizeObserver 连续触发时，始终取最新高度串行调用 resize()。
      * 同一时刻只允许一个 resize() 在执行，避免并发 IPC 导致窗口在多个高度之间跳变。
      * resize() 内部的 currentHeight 去重确保已完成的高度不会重复调用。
+     *
+     * 增高立即跟随，避免输入框内容先长高而 #app 外框滞后；
+     * 收缩和微小抖动继续合并，降低 Windows WebView2 高频 resize 卡顿。
      */
     let pendingHeight: number | null = null;
     let isConsuming = false;
+    let coalesceTimer: ReturnType<typeof setTimeout> | null = null;
+    const COALESCE_SETTLE_MS = 80;
 
     function scheduleObserverResize(height: number) {
         pendingHeight = height;
-        consumeResizeQueue();
+
+        // 增高时立即驱动窗口跟随输入内容，避免 #app 外框落后于 SearchBar。
+        // 收缩和 1px 级抖动继续合并，防止 WebView2 高频 resize 卡顿。
+        const shouldFlushImmediately = currentHeight.value === 0 || height > currentHeight.value;
+
+        if (coalesceTimer !== null) {
+            clearTimeout(coalesceTimer);
+            coalesceTimer = null;
+        }
+
+        if (shouldFlushImmediately) {
+            consumeResizeQueue();
+            return;
+        }
+
+        coalesceTimer = setTimeout(() => {
+            coalesceTimer = null;
+            consumeResizeQueue();
+        }, COALESCE_SETTLE_MS);
     }
 
     async function consumeResizeQueue() {
@@ -369,6 +392,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         if (resizeObserver) {
             resizeObserver.disconnect();
             resizeObserver = null;
+        }
+        if (coalesceTimer !== null) {
+            clearTimeout(coalesceTimer);
+            coalesceTimer = null;
         }
     }
 

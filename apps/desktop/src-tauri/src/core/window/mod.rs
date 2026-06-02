@@ -6,6 +6,7 @@
 
 pub mod popup;
 pub mod resize;
+pub mod rounded_corners;
 pub mod search;
 pub mod settings;
 pub mod status_reminder;
