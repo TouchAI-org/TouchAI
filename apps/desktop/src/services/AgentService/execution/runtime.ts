@@ -9,6 +9,7 @@ import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastr
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
+import { isTouchAiManagedMode, parseProviderConfigJson } from '../infrastructure/providers/config';
 import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
@@ -30,7 +31,6 @@ import {
     shouldRetryRequestFailure,
     waitForRetryDelay,
 } from './retry';
-import { isTouchAiManagedMode, parseProviderConfigJson } from '../infrastructure/providers/config';
 
 /**
  * 运行时在真正执行 turn 之前需要的宿主环境。

@@ -2,7 +2,10 @@
 
 import { appUpdateService } from '@services/AppUpdateService';
 import { completeManagedLogin, initializeManagedProviderState } from '@services/AuthService';
-import { createManagedSettingsFocusRequest, persistManagedSettingsFocusRequest } from '@services/AuthService/managedSettingsFocus';
+import {
+    createManagedSettingsFocusRequest,
+    persistManagedSettingsFocusRequest,
+} from '@services/AuthService/managedSettingsFocus';
 import { AppEvent, eventService } from '@services/EventService';
 import { initializeLogger } from '@services/LoggerService';
 import { native } from '@services/NativeService';
