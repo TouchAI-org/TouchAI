@@ -51,15 +51,13 @@
 
     const primaryProviders = computed(() =>
         props.providers.filter(
-            (provider) =>
-                !isPromotedBuiltin(provider) && PRIMARY_NAMES.has(provider.name)
+            (provider) => !isPromotedBuiltin(provider) && PRIMARY_NAMES.has(provider.name)
         )
     );
 
     const otherProviders = computed(() =>
         props.providers.filter(
-            (provider) =>
-                !isPromotedBuiltin(provider) && !PRIMARY_NAMES.has(provider.name)
+            (provider) => !isPromotedBuiltin(provider) && !PRIMARY_NAMES.has(provider.name)
         )
     );
 
