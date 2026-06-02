@@ -9,8 +9,7 @@ import type {
     SessionTurnContextArtifactEntity,
 } from '../types';
 
-export interface SessionTurnContextArtifactHistoryRow
-    extends SessionTurnContextArtifactEntity {
+export interface SessionTurnContextArtifactHistoryRow extends SessionTurnContextArtifactEntity {
     prompt_message_id: number | null;
 }
 
@@ -21,7 +20,21 @@ export async function createSessionTurnContextArtifact(
     const row = await database
         .insert(sessionTurnContextArtifacts)
         .values(data)
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+            target: [
+                sessionTurnContextArtifacts.turn_id,
+                sessionTurnContextArtifacts.capsule_id,
+                sessionTurnContextArtifacts.artifact_kind,
+            ],
+            set: {
+                artifact_path: data.artifact_path ?? null,
+                mime_type: data.mime_type ?? null,
+                width: data.width ?? null,
+                height: data.height ?? null,
+                captured_at: data.captured_at,
+                metadata_json: data.metadata_json ?? null,
+            },
+        })
         .returning()
         .get();
 
@@ -69,9 +82,6 @@ export async function findSessionTurnContextArtifactsBySessionId(
         .from(sessionTurnContextArtifacts)
         .innerJoin(sessionTurns, eq(sessionTurns.id, sessionTurnContextArtifacts.turn_id))
         .where(eq(sessionTurns.session_id, sessionId))
-        .orderBy(
-            asc(sessionTurnContextArtifacts.created_at),
-            asc(sessionTurnContextArtifacts.id)
-        )
+        .orderBy(asc(sessionTurnContextArtifacts.created_at), asc(sessionTurnContextArtifacts.id))
         .all();
 }

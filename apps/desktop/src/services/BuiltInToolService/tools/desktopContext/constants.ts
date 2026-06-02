@@ -7,7 +7,8 @@ export const DESKTOP_CONTEXT_TOOL_NAME = 'GetDesktopContext';
 export const DESKTOP_CONTEXT_TOOL_DESCRIPTION = [
     'Read the immutable desktop context capsule bound to the current user turn.',
     'This is read-only context, not computer use: the tool cannot click, type, focus, scroll, or control apps.',
-    'Use include as an extensible array. Sensitive fields such as clipboard full text and screenshot image path are returned only when explicitly requested.',
+    'Use include as an extensible array. By default only safe metadata is returned: summary, active_window, capabilities, and redactions.',
+    'Sensitive fields such as selected text, clipboard content, and screenshots require explicit include values and user approval before TouchAI reads or captures them.',
 ].join(' ');
 
 export const DESKTOP_CONTEXT_INCLUDE_VALUES = [
@@ -34,7 +35,8 @@ export const DESKTOP_CONTEXT_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema']
         },
         limit: {
             type: 'number',
-            description: 'Maximum number of capsules to return for recent scope. Reserved for later.',
+            description:
+                'Maximum number of capsules to return for recent scope. Reserved for later.',
         },
         include: {
             type: 'array',
@@ -43,13 +45,13 @@ export const DESKTOP_CONTEXT_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema']
                 enum: [...DESKTOP_CONTEXT_INCLUDE_VALUES],
             },
             description:
-                'Fields to include. Defaults to summary, active_window, selected_text.full_text, clipboard.summary, capabilities, and redactions.',
+                'Fields to include. Defaults to safe fields only: summary, active_window, capabilities, and redactions. Sensitive values selected_text.*, clipboard.*, and screenshot.* require user approval and are read or captured only after approval.',
         },
         screenshotTarget: {
             type: 'string',
             enum: ['capsule_default', 'active_window', 'active_display', 'all_displays'],
             description:
-                'Requested screenshot target. Phase 1 returns the capsule default screenshot metadata or path.',
+                'Requested screenshot target when screenshot.metadata or screenshot.image is included and approved.',
         },
     },
     additionalProperties: false,

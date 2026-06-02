@@ -2,8 +2,11 @@
 
 import { describe, expect, it } from 'vitest';
 
+import {
+    buildDesktopContextPromptMetadata,
+    buildDesktopContextToolPayload,
+} from '@/services/DesktopContextService/toolPayload';
 import type { BoundDesktopContext } from '@/services/DesktopContextService/types';
-import { buildDesktopContextToolPayload } from '@/services/DesktopContextService/toolPayload';
 
 const context: BoundDesktopContext = {
     id: 'ctx-1',
@@ -60,7 +63,7 @@ describe('buildDesktopContextToolPayload', () => {
         });
     });
 
-    it('uses a safe default include set without clipboard full text or screenshot path', () => {
+    it('uses a safe default include set without selected text, clipboard, or screenshot contents', () => {
         const payload = buildDesktopContextToolPayload(context);
 
         expect(payload).toMatchObject({
@@ -68,32 +71,81 @@ describe('buildDesktopContextToolPayload', () => {
             capsuleId: 'ctx-1',
             summary: context.summary,
             activeWindow: context.activeWindow,
-            selectedText: {
-                fullText: 'selected compiler error',
-            },
-            clipboard: {
-                textSummary: 'clipboard secret',
-                textLength: 16,
-            },
             capabilities: context.capabilities,
             redactions: context.redactions,
         });
+        expect(payload).not.toHaveProperty('selectedText');
+        expect(payload).not.toHaveProperty('clipboard');
         expect(payload).not.toHaveProperty('screenshot');
+    });
+
+    it('returns selected text metadata only when explicitly requested', () => {
+        const payload = buildDesktopContextToolPayload(context, {
+            include: ['selected_text.summary'],
+        });
+
+        expect(payload.selectedText).toMatchObject({
+            available: true,
+            source: 'win32-edit-control',
+            textSummary: 'selected compiler error',
+            textLength: 23,
+            truncated: false,
+        });
+        expect(payload.selectedText).not.toHaveProperty('fullText');
+    });
+
+    it('returns clipboard metadata only when explicitly requested', () => {
+        const payload = buildDesktopContextToolPayload(context, {
+            include: ['clipboard.summary'],
+        });
+
+        expect(payload.clipboard).toMatchObject({
+            textSummary: 'clipboard secret',
+            textLength: 16,
+        });
         expect(payload.clipboard).not.toHaveProperty('fullText');
+    });
+
+    it('returns screenshot metadata only when explicitly requested', () => {
+        const payload = buildDesktopContextToolPayload(context, {
+            include: ['screenshot.metadata'],
+        });
+
+        expect(payload.screenshot).toMatchObject({
+            available: true,
+            width: 1200,
+            height: 800,
+            persisted: true,
+        });
+        expect(payload.screenshot).not.toHaveProperty('path');
     });
 
     it('returns sensitive fields only when the include array asks for them', () => {
         const payload = buildDesktopContextToolPayload(context, {
-            include: ['clipboard.full_text', 'screenshot.image'],
+            include: ['selected_text.full_text', 'clipboard.full_text', 'screenshot.image'],
         });
 
         expect(payload).not.toHaveProperty('summary');
+        expect(payload.selectedText).toMatchObject({
+            fullText: 'selected compiler error',
+        });
         expect(payload.clipboard).toMatchObject({
             fullText: 'clipboard secret',
         });
         expect(payload.screenshot).toMatchObject({
             path: 'E:/TouchAI/data/session-context/ctx-1.png',
             persisted: true,
+        });
+    });
+
+    it('exposes screenshot availability in prompt metadata without leaking the image path', () => {
+        expect(buildDesktopContextPromptMetadata(context)).toMatchObject({
+            capsuleId: 'ctx-1',
+            summary: 'Visual Studio Code focused with selected Rust error text.',
+            screenshotAvailable: true,
+            screenshotPersisted: true,
+            screenshotWidth: 1200,
+            screenshotHeight: 800,
         });
     });
 });

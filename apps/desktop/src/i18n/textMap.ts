@@ -533,7 +533,14 @@ export const zhToEnTextMap = {
         'Failed to save retry checkpoint, but this turn will continue retrying.',
     命令执行确认: 'Confirm command execution',
     读取本地内容确认: 'Confirm local content read',
+    桌面上下文读取确认: 'Confirm desktop context read',
     模型切换确认: 'Confirm model switch',
+    选中文本: 'selected text',
+    剪贴板: 'clipboard',
+    屏幕截图: 'screenshot',
+    敏感桌面上下文: 'sensitive desktop context',
+    '模型请求读取 {targets}。批准后，TouchAI 会读取或捕获这些桌面上下文，并将结果发送给模型。':
+        'The model requested {targets}. After approval, TouchAI will read or capture this desktop context and send the result to the model.',
     '允许从 {currentModel} 切换到 {targetModel}':
         'Allow switching from {currentModel} to {targetModel}',
     命令执行需要确认: 'Command execution needs confirmation',
@@ -733,6 +740,7 @@ export const zhToEnTextMap = {
     任务正在等待用户回复: 'Task is waiting for a user response',
     '回复 TouchAI': 'Reply to TouchAI',
     回复: 'Reply',
+    已绑定桌面上下文: 'Desktop context attached',
 } as const;
 
 export type SourceText = keyof typeof zhToEnTextMap;

@@ -569,6 +569,16 @@ export class PersistenceProjector {
         );
     }
 
+    async persistDesktopContextArtifact(context: BoundDesktopContext): Promise<void> {
+        if (!this.turn) {
+            await this.ensureTurnRecord();
+        }
+
+        await db.transaction(async (tx) => {
+            await this.persistDesktopContextArtifacts(this.getTurnId(), tx, context);
+        });
+    }
+
     async persistCheckpoint(checkpoint: AttemptCheckpoint): Promise<void> {
         if (!this.attemptState) {
             return;
@@ -737,9 +747,9 @@ export class PersistenceProjector {
 
     private async persistDesktopContextArtifacts(
         turnId: number,
-        database: DatabaseExecutor = db
+        database: DatabaseExecutor = db,
+        context: BoundDesktopContext | null = this.desktopContext
     ): Promise<void> {
-        const context = this.desktopContext;
         if (!context) {
             return;
         }
@@ -759,6 +769,13 @@ export class PersistenceProjector {
                     activeWindowAppName: context.activeWindow?.appName ?? null,
                     selectedTextLength: context.selectedText.textLength,
                     clipboardTextLength: context.clipboard.textLength,
+                    screenshotAvailable: context.screenshot.available,
+                    screenshotPersisted: context.screenshot.persisted,
+                    screenshotWidth: context.screenshot.width,
+                    screenshotHeight: context.screenshot.height,
+                    screenshotCapturedAt: context.screenshot.capturedAt,
+                    screenshotTarget: context.screenshot.target,
+                    screenshotReason: context.screenshot.reason ?? null,
                     capabilities: context.capabilities,
                     redactions: context.redactions,
                 }),

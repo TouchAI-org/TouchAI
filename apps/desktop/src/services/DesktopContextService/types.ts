@@ -107,7 +107,10 @@ export interface DesktopContextPromptMetadata {
     activeWindowTitle: string | null;
     selectedTextLength: number;
     clipboardTextLength: number;
+    screenshotAvailable: boolean;
     screenshotPersisted: boolean;
+    screenshotWidth: number | null;
+    screenshotHeight: number | null;
     capabilities: DesktopContextCapability[];
 }
 

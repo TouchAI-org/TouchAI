@@ -45,6 +45,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         clipboard::write_clipboard_text,
         desktop_context::desktop_context_get_capsule,
         desktop_context::desktop_context_bind_capsule,
+        desktop_context::desktop_context_capture_sensitive,
         autostart::enable_autostart,
         autostart::disable_autostart,
         autostart::is_autostart_enabled,

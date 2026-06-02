@@ -26,6 +26,7 @@ class DesktopContextService {
 
 export const desktopContextService = new DesktopContextService();
 
+export { buildDesktopContextPromptMetadata, buildDesktopContextToolPayload } from './toolPayload';
 export type {
     BoundDesktopContext,
     DesktopContextActiveWindow,
@@ -41,4 +42,3 @@ export type {
     DesktopContextTurnArtifact,
     UserMessageDesktopContext,
 } from './types';
-export { buildDesktopContextPromptMetadata, buildDesktopContextToolPayload } from './toolPayload';

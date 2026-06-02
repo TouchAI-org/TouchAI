@@ -7,9 +7,9 @@ import { t } from '@/i18n';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import {
+    type BoundDesktopContext,
     buildDesktopContextPromptMetadata,
     desktopContextService,
-    type BoundDesktopContext,
 } from '@/services/DesktopContextService';
 import type { InputHistorySnapshot } from '@/types/session';
 

@@ -27,11 +27,23 @@ const BACKGROUND_MODE_PROMPT = [
     '除非用户主动取消，或工具审批明确被拒绝，否则应继续完成原始任务。',
 ].join('\n');
 
-const DESKTOP_CONTEXT_TOOL_PROMPT = [
-    '本轮请求绑定了一份只读桌面上下文胶囊。',
-    '如果用户的问题需要理解呼出 TouchAI 前的桌面、前台窗口、选中文本、剪贴板或截图，请调用 `builtin__get_desktop_context` 读取。',
-    '不要假设桌面上下文已经完整出现在 prompt 中；不要执行点击、输入、滚动、聚焦或控制外部应用等 computer use 行为。',
-].join('\n');
+function buildDesktopContextToolPrompt(context: DesktopContextPromptMetadata): string {
+    const screenshotHint = context.screenshotAvailable
+        ? `本轮已有一张经用户批准后捕获的桌面截图${context.screenshotPersisted ? '并已持久化' : ''}${
+              context.screenshotWidth && context.screenshotHeight
+                  ? `，尺寸 ${context.screenshotWidth}x${context.screenshotHeight}`
+                  : ''
+          }。如需图片文件路径，调用 \`builtin__get_desktop_context\` 并传入 \`include: ['screenshot.image']\`。`
+        : "如果需要屏幕截图，调用 `builtin__get_desktop_context` 并传入 `include: ['screenshot.image']`；TouchAI 会先请求用户批准，批准后再捕获并持久化截图。";
+
+    return [
+        `本轮请求绑定了一份只读桌面上下文胶囊：${context.capsuleId}。`,
+        `上下文摘要：${context.summary}`,
+        screenshotHint,
+        '如果用户的问题需要理解呼出 TouchAI 前的桌面、前台窗口、选中文本、剪贴板或截图，请调用 `builtin__get_desktop_context` 读取；选中文本、剪贴板和截图字段都需要用户批准后才会读取或捕获。',
+        '不要假设桌面上下文已经完整出现在 prompt 中；不要执行点击、输入、滚动、聚焦或控制外部应用等 computer use 行为。',
+    ].join('\n');
+}
 
 const PROMPT_SOURCE_ORDER: PromptFragmentSource[] = [
     'override',
@@ -111,7 +123,9 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
         ),
         feature: buildFragments('feature', [
             ...(options.feature ?? []),
-            ...(options.desktopContext ? [DESKTOP_CONTEXT_TOOL_PROMPT] : []),
+            ...(options.desktopContext
+                ? [buildDesktopContextToolPrompt(options.desktopContext)]
+                : []),
         ]),
         user_append: buildFragments('user_append', options.userAppend ?? []),
     };

@@ -71,6 +71,7 @@ export interface BuiltInToolExecutionResult {
     errorMessage?: string | null;
     approvalSummary?: string | null;
     attachments?: AttachmentIndex[];
+    desktopContextArtifact?: BoundDesktopContext | null;
     controlSignal?: BuiltInToolControlSignal;
 }
 

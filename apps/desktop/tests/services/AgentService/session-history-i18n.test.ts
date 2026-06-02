@@ -1,6 +1,6 @@
 import type { MessageRow } from '@database/queries/messages';
-import type { SessionTurnContextArtifactHistoryRow } from '@database/queries/sessionTurnContextArtifacts';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
+import type { SessionTurnContextArtifactHistoryRow } from '@database/queries/sessionTurnContextArtifacts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

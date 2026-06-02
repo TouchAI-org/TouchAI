@@ -18,6 +18,7 @@ interface DesktopContextToolUnavailablePayload {
 interface DesktopContextToolSelectedTextPayload {
     available: boolean;
     source: string | null;
+    textSummary: string | null;
     textLength: number;
     truncated: boolean;
     reason: string | null;
@@ -70,11 +71,10 @@ export type DesktopContextToolPayload =
 const DEFAULT_INCLUDE: DesktopContextInclude[] = [
     'summary',
     'active_window',
-    'selected_text.full_text',
-    'clipboard.summary',
     'capabilities',
     'redactions',
 ];
+const SELECTED_TEXT_SUMMARY_LIMIT = 500;
 
 function normalizeInclude(include: unknown): Set<DesktopContextInclude> {
     if (!Array.isArray(include) || include.length === 0) {
@@ -90,6 +90,19 @@ function has(include: Set<DesktopContextInclude>, key: DesktopContextInclude): b
     return include.has(key);
 }
 
+function summarizeSelectedText(text: string | null): string | null {
+    if (!text) {
+        return null;
+    }
+
+    const chars = Array.from(text);
+    if (chars.length <= SELECTED_TEXT_SUMMARY_LIMIT) {
+        return text;
+    }
+
+    return `${chars.slice(0, SELECTED_TEXT_SUMMARY_LIMIT).join('')}...`;
+}
+
 function selectedTextPayload(
     context: BoundDesktopContext,
     include: Set<DesktopContextInclude>
@@ -102,6 +115,7 @@ function selectedTextPayload(
     return {
         available: selectedText.available,
         source: selectedText.source,
+        textSummary: summarizeSelectedText(selectedText.text),
         textLength: selectedText.textLength,
         truncated: selectedText.truncated,
         reason: selectedText.reason ?? null,
@@ -212,7 +226,10 @@ export function buildDesktopContextPromptMetadata(
         activeWindowTitle: context.activeWindow?.title ?? null,
         selectedTextLength: context.selectedText.textLength,
         clipboardTextLength: context.clipboard.textLength,
+        screenshotAvailable: context.screenshot.available,
         screenshotPersisted: context.screenshot.persisted,
+        screenshotWidth: context.screenshot.width,
+        screenshotHeight: context.screenshot.height,
         capabilities: context.capabilities,
     };
 }

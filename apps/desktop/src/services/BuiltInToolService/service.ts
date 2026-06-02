@@ -61,6 +61,7 @@ interface BuiltInToolExecutionResponse {
     toolLogId: number | null;
     toolLogKind: ToolLogKind;
     attachments?: BuiltInToolExecutionResult['attachments'];
+    desktopContextArtifact?: BuiltInToolExecutionResult['desktopContextArtifact'];
     controlSignal?: BuiltInToolControlSignal;
 }
 
@@ -476,6 +477,7 @@ class BuiltInToolService {
             toolLogId,
             toolLogKind: 'builtin',
             attachments: toolResult.attachments,
+            desktopContextArtifact: toolResult.desktopContextArtifact,
             controlSignal: toolResult.controlSignal,
         };
     }

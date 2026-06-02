@@ -2,8 +2,8 @@
 
 import { findAllMcpServers } from '@database/queries/mcpServers';
 import type { MessageRow } from '@database/queries/messages';
-import type { SessionTurnContextArtifactHistoryRow } from '@database/queries/sessionTurnContextArtifacts';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
+import type { SessionTurnContextArtifactHistoryRow } from '@database/queries/sessionTurnContextArtifacts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import type { PersistedToolLogStatus } from '@database/schema';
 
@@ -147,9 +147,7 @@ function isCancellationStatusText(text?: string | null): boolean {
     );
 }
 
-function parseDesktopContextMetadata(
-    metadataJson: string | null
-): DesktopContextMetadataArtifact {
+function parseDesktopContextMetadata(metadataJson: string | null): DesktopContextMetadataArtifact {
     if (!metadataJson) {
         return {};
     }
