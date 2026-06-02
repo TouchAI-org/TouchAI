@@ -1,4 +1,4 @@
-﻿type TouchAiHost = HTMLElement & {
+type TouchAiHost = HTMLElement & {
     __touchaiMounted?: boolean;
     __touchaiReady?: boolean;
     __touchaiLoadVersion?: number;
@@ -45,10 +45,15 @@ touchai-component-demo[data-demo-id="${id}"] {
 }
 
 touchai-component-demo[data-demo-id="${id}"].component-frame {
-    width: 60vw !important;
-    max-width: 60vw;
+    width: min(60vw, 680px, 100%) !important;
+    max-width: min(680px, 100%);
     justify-self: center;
     overflow: visible !important;
+}
+
+touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
+    width: 100% !important;
+    max-width: 100% !important;
 }
 
 touchai-component-demo[data-demo-id="${id}"].feature-component-frame,
@@ -88,6 +93,11 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .chat-panel 
         0 34px 90px rgba(107, 114, 128, 0.22),
         0 12px 34px rgba(107, 114, 128, 0.12),
         0 0 48px rgba(107, 114, 128, 0.14) !important;
+}
+
+touchai-component-demo[data-demo-id="${id}"].component-frame .chat-panel {
+    width: 100% !important;
+    max-width: 100% !important;
 }
 
 touchai-component-demo[data-demo-id="${id}"].component-frame.is-idle .chat-panel {
@@ -148,6 +158,24 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete 
     min-height: 100% !important;
     max-height: 100% !important;
     height: 100% !important;
+}
+
+@media (max-width: 560px) {
+    touchai-component-demo[data-demo-id="${id}"].component-frame {
+        width: min(calc(100vw - 56px), 360px, 100%) !important;
+        max-width: min(calc(100vw - 56px), 360px, 100%) !important;
+        height: 560px !important;
+        min-height: 560px !important;
+        overflow: visible !important;
+    }
+
+    touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
+        min-height: 560px !important;
+        height: 560px !important;
+        padding: 0 !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
 }
 `;
 
