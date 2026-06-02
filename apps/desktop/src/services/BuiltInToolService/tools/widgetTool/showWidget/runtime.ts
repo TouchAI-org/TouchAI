@@ -10,6 +10,7 @@ import {
     SHOW_WIDGET_COLOR_RAMPS,
     SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS,
     SHOW_WIDGET_FADE_IN_ANIMATION,
+    SHOW_WIDGET_MAX_WIDTH_PX,
     SHOW_WIDGET_THEME_FALLBACKS,
 } from './runtimeConstants';
 
@@ -301,8 +302,10 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `  --touchai-widget-font-body: var(--font-serif);`,
         `  display: block;`,
         `  width: 100%;`,
-        `  max-width: 100%;`,
+        `  max-width: ${SHOW_WIDGET_MAX_WIDTH_PX}px;`,
         `  min-width: 0;`,
+        `  margin-left: auto;`,
+        `  margin-right: auto;`,
         `  position: relative;`,
         `  overflow: hidden;`,
         `  isolation: isolate;`,
@@ -972,8 +975,10 @@ async function runInlineScripts(
 
 function applyShowWidgetLayoutGuards(hostElement: HTMLElement, widgetRoot: HTMLElement): void {
     hostElement.style.width = '100%';
-    hostElement.style.maxWidth = '100%';
+    hostElement.style.maxWidth = `${SHOW_WIDGET_MAX_WIDTH_PX}px`;
     hostElement.style.minWidth = '0';
+    hostElement.style.marginLeft = 'auto';
+    hostElement.style.marginRight = 'auto';
     hostElement.style.overflow = 'hidden';
 
     widgetRoot.style.width = '100%';

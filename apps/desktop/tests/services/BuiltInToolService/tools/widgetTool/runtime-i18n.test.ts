@@ -152,6 +152,27 @@ describe('show widget renderer i18n opt-out', () => {
         expect(css).not.toMatch(/\bfilter\s*:\s*(?!none\b)/i);
     });
 
+    it('caps rendered widgets at the designed visualization width', () => {
+        const css = createShowWidgetBaseStyles('[data-touchai-widget-host="probe"]');
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        const root = host.querySelector<HTMLElement>('[data-touchai-widget-root="true"]');
+
+        expect(css).toContain('max-width: 680px');
+        expect(css).toContain('margin-left: auto');
+        expect(css).toContain('margin-right: auto');
+        expect(host.style.width).toBe('100%');
+        expect(host.style.maxWidth).toBe('680px');
+        expect(host.style.marginLeft).toBe('auto');
+        expect(host.style.marginRight).toBe('auto');
+        expect(root?.style.width).toBe('100%');
+        expect(root?.style.maxWidth).toBe('100%');
+
+        renderer.destroy();
+    });
+
     it('dispatches widget prompt actions from data attributes and safe legacy onclick handlers', async () => {
         const sendPrompt = vi.fn();
         (window as Window & { sendPrompt?: (text: string) => void }).sendPrompt = sendPrompt;
