@@ -28,7 +28,8 @@ const docsUrl = 'https://touch-ai.org/getting-started';
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="TouchAI" />
         <meta name="twitter:description" content="一触即达的桌面效率Agent" />
-        <link rel="icon" type="image/svg+xml" href="/touchai-wordmark.svg" />
+        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="shortcut icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" href="/touchai-wordmark.svg" />
         <meta name="theme-color" content="#ffffff" />
         {
@@ -1188,6 +1189,8 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     grid-template-columns: 1fr;
                     min-height: auto;
                     gap: 0;
+                    overflow: hidden;
+                    border-radius: 22px;
                 }
 
                 .feature-block.reverse .feature-block-shell {
@@ -1211,7 +1214,17 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 .feature-block .feature-media:first-child,
                 .feature-block .feature-copy:last-child,
                 .feature-block .feature-media:last-child {
-                    border-radius: 22px;
+                    border-radius: 0;
+                }
+
+                .feature-block:not(.reverse) .feature-copy,
+                .feature-block.reverse .feature-copy {
+                    border-radius: 22px 22px 0 0;
+                }
+
+                .feature-block:not(.reverse) .feature-media,
+                .feature-block.reverse .feature-media {
+                    border-radius: 0 0 22px 22px;
                 }
 
                 .feature-copy {
@@ -1228,7 +1241,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 .feature-media {
                     min-height: 430px;
                     padding: 22px 0 30px;
-                    border-radius: 22px;
+                    border-radius: 0;
                     overflow: hidden;
                 }
 
@@ -1354,7 +1367,8 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 .feature-block-shell {
                     display: grid;
-                    gap: 12px;
+                    gap: 0;
+                    border-radius: 20px;
                 }
 
                 .feature-copy {
@@ -1371,6 +1385,16 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     min-height: 356px;
                     padding: 18px 0 24px;
                     overflow: hidden;
+                }
+
+                .feature-block:not(.reverse) .feature-copy,
+                .feature-block.reverse .feature-copy {
+                    border-radius: 20px 20px 0 0;
+                }
+
+                .feature-block:not(.reverse) .feature-media,
+                .feature-block.reverse .feature-media {
+                    border-radius: 0 0 20px 20px;
                 }
 
                 .feature-component-card,
