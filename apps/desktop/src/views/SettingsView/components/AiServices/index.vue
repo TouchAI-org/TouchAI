@@ -27,13 +27,20 @@
     import { isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
+    import { consumeManagedSettingsFocusRequest, peekManagedSettingsFocusRequest } from '@services/AuthService/managedSettingsFocus';
     import { AppEvent, eventService } from '@services/EventService';
-    import { computed, onMounted, ref, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
-    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
+    import {
+        getProviderDriverDefinition,
+        isTouchAiManagedMode,
+        parseProviderConfigJson,
+    } from '@/services/AgentService/infrastructure/providers';
+    import type { ProviderConfigJson } from '@/services/AgentService/infrastructure/providers/types';
+    import { invalidateManagedAuthForError } from '@/services/AuthService';
 
     defineOptions({
         name: 'SettingsAiServicesSection',
@@ -45,6 +52,8 @@
     import ModelList from './components/ModelList.vue';
     import ProviderConfig from './components/ProviderConfig.vue';
     import ProviderList from './components/ProviderList.vue';
+
+    const MANAGED_PROVIDER_DRIVER = 'mimo';
 
     const alert = useAlert();
 
@@ -84,6 +93,9 @@
     const showEditDialog = ref(false);
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
+    let unlistenAiModelsUpdated: (() => void) | null = null;
+    let unlistenSettingsAiServicesFocusProvider: (() => void) | null = null;
+    let lastHandledSettingsFocusRequestAt = 0;
 
     async function broadcastModelsUpdated() {
         await eventService.emit(AppEvent.AI_MODELS_UPDATED, {
@@ -144,6 +156,29 @@
         );
     }
 
+    function stringifyProviderConfigJson(config: ProviderConfigJson): string | null {
+        const nextConfig: ProviderConfigJson = {
+            ...(config.headers ? { headers: config.headers } : {}),
+            ...(config.queryParams ? { queryParams: config.queryParams } : {}),
+            ...(config.managedAuth ? { managedAuth: config.managedAuth } : {}),
+            ...(config.touchAiMode ? { touchAiMode: config.touchAiMode } : {}),
+            ...(config.touchAiCustom ? { touchAiCustom: config.touchAiCustom } : {}),
+        };
+
+        return Object.keys(nextConfig).length > 0 ? JSON.stringify(nextConfig) : null;
+    }
+
+    function isManagedTouchAiProvider(provider: Provider): boolean {
+        if (provider.driver !== MANAGED_PROVIDER_DRIVER || provider.is_builtin !== 1) {
+            return false;
+        }
+
+        return isTouchAiManagedMode(
+            parseProviderConfigJson(provider.config_json),
+            provider.api_endpoint
+        );
+    }
+
     function toModelWithProvider(model: Model, provider: Provider): ModelWithProvider {
         return {
             ...model,
@@ -157,9 +192,59 @@
         };
     }
 
+    function buildTouchAiProviderConfigJson(
+        provider: Provider,
+        mode: 'managed' | 'custom'
+    ): string | null {
+        const parsedConfig = parseProviderConfigJson(provider.config_json);
+        return stringifyProviderConfigJson({
+            ...(parsedConfig.headers ? { headers: parsedConfig.headers } : {}),
+            ...(parsedConfig.queryParams ? { queryParams: parsedConfig.queryParams } : {}),
+            ...(parsedConfig.managedAuth ? { managedAuth: parsedConfig.managedAuth } : {}),
+            touchAiMode: mode,
+            ...(parsedConfig.touchAiCustom ? { touchAiCustom: parsedConfig.touchAiCustom } : {}),
+        });
+    }
+
+    async function ensureTouchAiProviderMode(
+        provider: Provider,
+        mode: 'managed' | 'custom'
+    ): Promise<Provider> {
+        if (provider.driver !== MANAGED_PROVIDER_DRIVER || provider.is_builtin !== 1) {
+            return provider;
+        }
+
+        const parsedConfig = parseProviderConfigJson(provider.config_json);
+        const isAlreadyManaged = isTouchAiManagedMode(parsedConfig, provider.api_endpoint);
+        const isAlreadyInRequestedMode =
+            mode === 'managed' ? isAlreadyManaged : parsedConfig.touchAiMode === 'custom';
+        if (isAlreadyInRequestedMode) {
+            return provider;
+        }
+
+        const nextConfigJson = buildTouchAiProviderConfigJson(provider, mode);
+        await updateProvider({
+            id: provider.id,
+            providerPatch: {
+                config_json: nextConfigJson,
+            },
+        });
+        patchProvider(provider.id, {
+            config_json: nextConfigJson,
+        });
+
+        return {
+            ...provider,
+            config_json: nextConfigJson,
+        };
+    }
+
     // 计算属性
-    const selectedProvider = computed(() =>
-        providers.value.find((p) => p.id === selectedProviderId.value)
+    const selectedProvider = computed(
+        () =>
+            providers.value.find((provider) => provider.id === selectedProviderId.value) ??
+            providers.value[0] ??
+            null
     );
 
     const selectedProviderDriverLabel = computed(() =>
@@ -182,6 +267,58 @@
         return ids;
     });
 
+    async function handleSettingsAiServicesFocusProvider(payload: {
+        section: 'ai-services';
+        providerDriver: 'mimo';
+        requireBuiltIn: true;
+        mode: 'managed' | 'custom';
+        reason: 'managed-auth-callback';
+        requestedAt: number;
+    }) {
+        if (payload.requestedAt <= lastHandledSettingsFocusRequestAt) {
+            consumeManagedSettingsFocusRequest();
+            return;
+        }
+
+        lastHandledSettingsFocusRequestAt = payload.requestedAt;
+
+        if (providers.value.length === 0) {
+            await loadProviders();
+        }
+
+        const targetProvider = providers.value.find(
+            (provider) =>
+                provider.driver === payload.providerDriver &&
+                (!payload.requireBuiltIn || provider.is_builtin === 1)
+        );
+        if (!targetProvider) {
+            return;
+        }
+
+        await selectProvider(targetProvider.id);
+        await ensureTouchAiProviderMode(targetProvider, payload.mode);
+        consumeManagedSettingsFocusRequest();
+    }
+
+    async function ensureProviderSelected() {
+        const nextProviders = providers.value;
+        if (nextProviders.length === 0) {
+            selectedProviderId.value = null;
+            return;
+        }
+
+        const stillVisible = nextProviders.some((provider) => provider.id === selectedProviderId.value);
+        if (stillVisible) {
+            return;
+        }
+
+        const nextProviderId = nextProviders[0]?.id ?? null;
+        selectedProviderId.value = nextProviderId;
+        if (nextProviderId !== null) {
+            await loadModelsForProvider(nextProviderId);
+        }
+    }
+
     // 加载服务商列表
     const loadProviders = async () => {
         try {
@@ -194,13 +331,7 @@
             defaultModelId.value = defaultModel?.id || null;
             defaultModelProviderId.value = defaultModel?.provider_id || null;
 
-            // 自动选择第一个服务商
-            if (providers.value.length > 0 && !selectedProviderId.value) {
-                selectedProviderId.value = providers.value[0]?.id || null;
-                if (selectedProviderId.value) {
-                    await loadModelsForProvider(selectedProviderId.value);
-                }
-            }
+            await ensureProviderSelected();
         } catch (err) {
             error.value = err instanceof Error ? err.message : t('settings.ai.loadFailed');
             console.error('Failed to load providers:', err);
@@ -358,9 +489,8 @@
                 ),
             });
             providers.value = [...providers.value, createdProvider];
-            if (!selectedProviderId.value) {
-                selectedProviderId.value = createdProvider.id;
-            }
+            selectedProviderId.value = createdProvider.id;
+            await loadModelsForProvider(createdProvider.id, true);
             showAddDialog.value = false;
             alert.success(t('settings.ai.createSucceeded'));
         } catch (err) {
@@ -396,12 +526,7 @@
             await deleteProvider({ id: providerId });
             providers.value = providers.value.filter((item) => item.id !== providerId);
             removeCachedModels(providerId);
-            if (selectedProviderId.value === providerId) {
-                selectedProviderId.value = providers.value[0]?.id || null;
-                if (selectedProviderId.value) {
-                    await loadModelsForProvider(selectedProviderId.value);
-                }
-            }
+            await ensureProviderSelected();
             showEditDialog.value = false;
             alert.success(t('settings.ai.deleteSucceeded'));
         } catch (err) {
@@ -504,12 +629,17 @@
                 return;
             }
 
-            // 如果有 API key 就直接用，没有就用占位符（部分厂商支持无key获取模型列表）
-            const apiKey = provider.api_key || 'placeholder_for_models';
+            if (isManagedTouchAiProvider(provider) && !provider.api_key) {
+                if (!silent) {
+                    alert.warning(t('settings.ai.providerNeedsApiKeyForModels'));
+                }
+                return;
+            }
+
             const providerInstance = aiService.createProviderInstance(
                 provider.driver,
                 provider.api_endpoint,
-                apiKey,
+                provider.api_key,
                 provider.config_json
             );
 
@@ -521,23 +651,23 @@
                     return;
                 }
 
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                const isAuthError =
-                    errorMessage.includes('401') ||
-                    errorMessage.includes('403') ||
-                    errorMessage.includes('Unauthorized') ||
-                    errorMessage.includes('authentication') ||
-                    errorMessage.includes('API key');
+                const didInvalidateManagedAuth =
+                    isManagedTouchAiProvider(provider)
+                        ? await invalidateManagedAuthForError({
+                              providerId: provider.id,
+                              error,
+                          })
+                        : false;
 
-                // 如果是认证错误且没有配置 key，提示用户
-                if (isAuthError && !provider.api_key) {
+                if (didInvalidateManagedAuth) {
+                    removeCachedModels(provider.id);
+                    await loadProviders();
                     if (!silent) {
-                        alert.warning(t('settings.ai.providerNeedsApiKeyForModels'));
+                        alert.warning(t('settings.ai.managedActivity.sessionExpired'));
                     }
                     return;
                 }
 
-                // 其他错误直接抛出
                 throw error;
             }
 
@@ -618,7 +748,29 @@
             console.error('[AiServicesView] Failed to check or update llm-metadata:', error);
         }
 
-        loadProviders();
+        unlistenAiModelsUpdated = await eventService.on(AppEvent.AI_MODELS_UPDATED, async () => {
+            await loadProviders();
+        });
+        unlistenSettingsAiServicesFocusProvider = await eventService.on(
+            AppEvent.SETTINGS_AI_SERVICES_FOCUS_PROVIDER,
+            async (payload) => {
+                await handleSettingsAiServicesFocusProvider(payload);
+            }
+        );
+
+        await loadProviders();
+
+        const pendingSettingsFocusRequest = peekManagedSettingsFocusRequest();
+        if (pendingSettingsFocusRequest) {
+            await handleSettingsAiServicesFocusProvider(pendingSettingsFocusRequest);
+        }
+    });
+
+    onUnmounted(() => {
+        unlistenAiModelsUpdated?.();
+        unlistenAiModelsUpdated = null;
+        unlistenSettingsAiServicesFocusProvider?.();
+        unlistenSettingsAiServicesFocusProvider = null;
     });
 </script>
 
@@ -648,11 +800,12 @@
                 </div>
             </div>
 
-            <div v-else-if="selectedProvider" class="settings-page-wide">
+            <div v-else class="settings-page-wide">
                 <div class="space-y-8">
                     <div
+                        v-if="selectedProvider"
                         data-testid="settings-provider-header"
-                        class="flex min-h-[64px] items-center justify-between gap-6"
+                        class="flex min-h-[64px] flex-wrap items-center justify-between gap-6"
                     >
                         <div
                             data-testid="settings-provider-identity"
@@ -663,7 +816,7 @@
                                 :name="selectedProvider.name"
                                 size="large"
                                 :show-badge="selectedProvider.is_builtin === 1"
-                                :promoted="selectedProvider.name === 'Xiaomi MiMo'"
+                                :promoted="false"
                             />
 
                             <div data-testid="settings-provider-copy" class="min-w-0 self-center">
@@ -685,20 +838,27 @@
                             </div>
                         </div>
 
-                        <button
-                            v-if="!selectedProvider.is_builtin"
-                            data-testid="settings-provider-edit-button"
-                            class="settings-icon-button"
-                            :title="t('settings.ai.editProvider.title')"
-                            @click="handleEditProvider"
-                        >
-                            <AppIcon name="edit" class="h-5 w-5" />
-                        </button>
+                        <div class="flex items-center gap-3">
+                            <button
+                                v-if="!selectedProvider.is_builtin"
+                                data-testid="settings-provider-edit-button"
+                                class="settings-icon-button"
+                                :title="t('settings.ai.editProvider.title')"
+                                @click="handleEditProvider"
+                            >
+                                <AppIcon name="edit" class="h-5 w-5" />
+                            </button>
+                        </div>
                     </div>
 
-                    <ProviderConfig :provider="selectedProvider" @update="handleUpdateProvider" />
+                    <ProviderConfig
+                        v-if="selectedProvider"
+                        :provider="selectedProvider"
+                        @update="handleUpdateProvider"
+                    />
 
                     <ModelList
+                        v-if="selectedProvider"
                         :provider-id="selectedProvider.id"
                         :models="selectedProviderModels"
                         :default-model-id="defaultModelId"

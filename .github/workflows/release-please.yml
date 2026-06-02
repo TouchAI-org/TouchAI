@@ -23,13 +23,52 @@ jobs:
             issues: write
             pull-requests: write
         outputs:
-            release_created: ${{ steps.release.outputs['apps/desktop--release_created'] }}
-            version: ${{ steps.release.outputs['apps/desktop--version'] }}
-            tag_name: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
-            sha: ${{ steps.release.outputs['apps/desktop--sha'] }}
+            release_created: ${{ steps.release_forced.outputs['apps/desktop--release_created'] || steps.release_default.outputs['apps/desktop--release_created'] }}
+            version: ${{ steps.release_forced.outputs['apps/desktop--version'] || steps.release_default.outputs['apps/desktop--version'] }}
+            tag_name: ${{ steps.release_forced.outputs['apps/desktop--tag_name'] || steps.release_default.outputs['apps/desktop--tag_name'] }}
+            sha: ${{ steps.release_forced.outputs['apps/desktop--sha'] || steps.release_default.outputs['apps/desktop--sha'] }}
         steps:
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+            - name: Resolve release override
+              id: release_override
+              run: |
+                  node <<'EOF' >> "$GITHUB_OUTPUT"
+                  const fs = require('fs');
+                  const packagePath = 'apps/desktop';
+                  const manifest = JSON.parse(
+                    fs.readFileSync('.release-please-manifest.json', 'utf8')
+                  );
+                  const overridesPath = 'release-please-overrides.json';
+                  const overrides = fs.existsSync(overridesPath)
+                    ? JSON.parse(fs.readFileSync(overridesPath, 'utf8'))
+                    : {};
+                  const currentVersion = manifest[packagePath];
+                  const overrideVersion = overrides[packagePath];
+
+                  if (
+                    typeof overrideVersion === 'string' &&
+                    overrideVersion.length > 0 &&
+                    overrideVersion !== currentVersion
+                  ) {
+                    console.log(`version=${overrideVersion}`);
+                  } else {
+                    console.log('version=');
+                  }
+                  EOF
+
             - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
-              id: release
+              if: ${{ steps.release_override.outputs.version != '' }}
+              id: release_forced
+              with:
+                  token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+                  config-file: release-please-config.json
+                  manifest-file: .release-please-manifest.json
+                  release-as: ${{ steps.release_override.outputs.version }}
+
+            - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+              if: ${{ steps.release_override.outputs.version == '' }}
+              id: release_default
               with:
                   token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
                   config-file: release-please-config.json

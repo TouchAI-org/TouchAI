@@ -35,7 +35,15 @@ export function shouldRetryRequestFailure(
     error: AiError,
     details?: RetryableRequestErrorInfo | null
 ): boolean {
-    // 首先检查错误码是否可重试
+    if (
+        error.details &&
+        typeof error.details === 'object' &&
+        'requiresRelogin' in error.details &&
+        error.details.requiresRelogin === true
+    ) {
+        return false;
+    }
+
     if (error.isRetryable()) {
         return true;
     }

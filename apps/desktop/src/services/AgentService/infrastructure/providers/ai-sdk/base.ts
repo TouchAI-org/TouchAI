@@ -3,8 +3,6 @@
 import type { ProviderDriver } from '@database/schema';
 import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
-import { safeParseJsonWithSchema, z } from '@/utils/zod';
-
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import type { AiRequestOptions, AiResponse, JsonObject } from '../../../contracts/protocol';
 import type {
@@ -19,11 +17,6 @@ import { buildModelMessages, buildToolSet } from './messages';
 import { createAiSdkStreamProcessor } from './stream';
 import { createTauriFetch } from './tauriFetch';
 
-const providerConfigJsonSchema = z.object({
-    headers: z.record(z.string(), z.string()).optional(),
-    queryParams: z.record(z.string(), z.string()).optional(),
-});
-
 /**
  * base URL 只负责移除尾部斜杠，绝不追加供应商路径。
  */
@@ -31,11 +24,10 @@ export function normalizeProviderBaseUrl(baseUrl: string): string {
     return baseUrl.replace(/\/+$/, '');
 }
 
-export function parseProviderConfigJson(configJson?: string | null): ProviderConfigJson {
-    return safeParseJsonWithSchema(providerConfigJsonSchema, configJson, {});
-}
-
-function buildUrlWithQueryParams(target: string, queryParams: Record<string, string>): string {
+export function buildUrlWithQueryParams(
+    target: string,
+    queryParams: Record<string, string>
+): string {
     if (Object.keys(queryParams).length === 0 || !target) {
         return target;
     }
