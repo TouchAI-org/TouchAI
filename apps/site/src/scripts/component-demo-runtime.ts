@@ -289,8 +289,19 @@ const loadExternalStyle = (href: string) => {
 
 const parseHtml = (html: string) => new DOMParser().parseFromString(html, 'text/html');
 
+const normalizeUrlScheme = (value: string) => {
+    let normalized = '';
+    for (const character of value) {
+        const code = character.charCodeAt(0);
+        // Prevent scheme obfuscation such as "java\0script:" or "java\tscript:".
+        if (code <= 0x1f || code === 0x7f || character.trim() === '') continue;
+        normalized += character;
+    }
+    return normalized.toLowerCase();
+};
+
 const isUnsafeUrl = (value: string) => {
-    const normalized = value.replace(/[\u0000-\u001f\u007f\s]+/g, '').toLowerCase();
+    const normalized = normalizeUrlScheme(value);
     return (
         normalized.startsWith('javascript:') ||
         normalized.startsWith('vbscript:') ||
