@@ -11,10 +11,13 @@ const createOpenAiCompatibleMock = vi.hoisted(() =>
     }))
 );
 
-type TestableMiMoProviderAdapter = MiMoProviderAdapter & {
+type TestableMiMoProviderAdapter = {
     gatewayFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     createLanguageModel: (modelId: string) => unknown;
 };
+
+const asTestableProvider = (provider: MiMoProviderAdapter): TestableMiMoProviderAdapter =>
+    provider as unknown as TestableMiMoProviderAdapter;
 
 vi.mock('@ai-sdk/openai-compatible', () => ({
     createOpenAICompatible: createOpenAiCompatibleMock,
@@ -134,7 +137,7 @@ describe('MiMoProviderAdapter', () => {
             },
         });
 
-        await (provider as TestableMiMoProviderAdapter).gatewayFetch(
+        await asTestableProvider(provider).gatewayFetch(
             'https://hub.touch-ai.org/api/v1/chat/completions',
             {
                 method: 'POST',
@@ -215,10 +218,10 @@ describe('MiMoProviderAdapter', () => {
         });
 
         expect(() =>
-            (provider as TestableMiMoProviderAdapter).createLanguageModel('gpt-4.1')
+            asTestableProvider(provider).createLanguageModel('gpt-4.1')
         ).toThrowError(AiError);
         expect(() =>
-            (provider as TestableMiMoProviderAdapter).createLanguageModel('gpt-4.1')
+            asTestableProvider(provider).createLanguageModel('gpt-4.1')
         ).toThrow('TouchAI Hub only supports mimo-v2.5 and mimo-v2.5-pro.');
         expect(chatModelMock).not.toHaveBeenCalled();
     });
