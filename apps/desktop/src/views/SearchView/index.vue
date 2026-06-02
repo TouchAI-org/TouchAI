@@ -409,6 +409,7 @@
         clearSession: clearSessionToIdle,
         shouldClearSessionAfterTimeout,
         reconcilePopupSurfaces: hideAllPopups,
+        remeasureSearchWindowHeight: remeasureTargetHeight,
         onSurfaceHidden: clearSurfaceUiAfterHidden,
         handleSearchSurfaceCommand: async (payload) => {
             if (payload.command === 'toggle-model-dropdown') {
