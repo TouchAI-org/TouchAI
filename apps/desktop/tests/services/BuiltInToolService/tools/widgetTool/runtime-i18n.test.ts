@@ -124,7 +124,12 @@ describe('show widget renderer i18n opt-out', () => {
             ].join(''),
         });
 
-        await waitForWidgetRender();
+        await waitForCondition(
+            () =>
+                (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan ===
+                    true &&
+                host.querySelector('#chart-probe')?.getAttribute('data-initialized') === 'true'
+        );
 
         expect(
             (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan
@@ -152,7 +157,13 @@ describe('show widget renderer i18n opt-out', () => {
             ].join(''),
         });
 
-        await waitForWidgetRender();
+        await waitForCondition(
+            () =>
+                host
+                    .querySelector('style:not([data-touchai-widget-base-style])')
+                    ?.textContent?.includes('.route-card') === true &&
+                host.querySelector<HTMLElement>('.route-card') !== null
+        );
 
         const style = host.querySelector('style:not([data-touchai-widget-base-style])');
         const card = host.querySelector<HTMLElement>('.route-card');
@@ -185,7 +196,14 @@ describe('show widget renderer i18n opt-out', () => {
             ].join(''),
         });
 
-        await waitForWidgetRender();
+        await waitForCondition(
+            () =>
+                host.querySelector<HTMLElement>('.head-style-card')?.textContent ===
+                    'Head styled content' &&
+                host
+                    .querySelector('style:not([data-touchai-widget-base-style])')
+                    ?.textContent?.includes('.head-style-card') === true
+        );
 
         const style = host.querySelector('style:not([data-touchai-widget-base-style])');
         const card = host.querySelector<HTMLElement>('.head-style-card');
