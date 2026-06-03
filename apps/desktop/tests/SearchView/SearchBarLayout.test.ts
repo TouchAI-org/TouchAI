@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
 const { isMultiLine, useSearchInputMock } = vi.hoisted(() => {
-    const fakeRef = <T,>(value: T) => ({
+    const fakeRef = <T>(value: T) => ({
         __v_isRef: true,
         value,
     });
