@@ -3,6 +3,17 @@ import { emit } from '@tauri-apps/api/event';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const existsMock = vi.hoisted(() => vi.fn(async () => true));
+const joinMock = vi.hoisted(() => vi.fn(async (...segments: string[]) => segments.join('/')));
+
+vi.mock('@tauri-apps/plugin-fs', () => ({
+    exists: existsMock,
+}));
+
+vi.mock('@tauri-apps/api/path', () => ({
+    join: joinMock,
+}));
+
 const FONT_STYLE_SELECTOR = 'style[data-touchai-font-face="source-han-serif-sc"]';
 const FONT_TEST_TIMEOUT_MS = 15_000;
 
@@ -43,11 +54,14 @@ describe('font loader', () => {
         vi.resetModules();
         vi.doUnmock('@tauri-apps/api/core');
         document.head.innerHTML = '';
+        existsMock.mockReset();
+        existsMock.mockResolvedValue(true);
+        joinMock.mockClear();
         mockTauriCommand('get_app_directory_path', 'D:\\TouchAI\\assets\\font');
     });
 
     it(
-        'loads the bundled serif font during initialization without waiting for font-ready',
+        'loads the cached serif font during initialization without waiting for font-ready',
         async () => {
             const { initializeFontLoader } = await import('@/utils/font');
 
@@ -64,6 +78,49 @@ describe('font loader', () => {
             expect(commandOrder.indexOf('plugin:event|listen')).toBeLessThan(
                 commandOrder.indexOf('get_app_directory_path')
             );
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'resolves the cached font path with Tauri path join before checking existence',
+        async () => {
+            mockTauriCommand('get_app_directory_path', '/var/lib/touchai/assets/font');
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
+                expect(joinMock).toHaveBeenCalledWith(
+                    '/var/lib/touchai/assets/font',
+                    'SourceHanSerifSC-VF.ttf.woff2'
+                );
+                expect(existsMock).toHaveBeenCalledWith(
+                    '/var/lib/touchai/assets/font/SourceHanSerifSC-VF.ttf.woff2'
+                );
+            });
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'does not inject a missing startup font asset before font-ready arrives',
+        async () => {
+            existsMock.mockResolvedValue(false);
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+            await waitForFontReadyListener();
+
+            await vi.waitFor(() => expect(existsMock).toHaveBeenCalled());
+            expect(fontStyles()).toHaveLength(0);
+
+            await emit(AppEvent.FONT_READY, {});
+
+            await vi.waitFor(() => {
+                expect(fontStyles()).toHaveLength(1);
+                expect(fontStyleText()).toContain('touchaiFontReload=1');
+            });
         },
         FONT_TEST_TIMEOUT_MS
     );
