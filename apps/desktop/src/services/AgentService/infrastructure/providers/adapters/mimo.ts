@@ -50,7 +50,7 @@ function buildGatewayErrorDetails(
     return {
         gatewayCode: code ?? null,
         statusCode,
-        requiresRelogin: code ? reloginRequiredGatewayCodes.has(code) : false,
+        requiresRelogin: code ? reloginRequiredGatewayCodes.has(code) : statusCode === 401,
         payload: data,
     };
 }

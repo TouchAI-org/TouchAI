@@ -262,6 +262,30 @@ describe('MiMoProviderAdapter', () => {
         );
     });
 
+    it('treats unstructured managed gateway unauthorized responses as requiring relogin', () => {
+        const provider = new MiMoProviderAdapter({
+            apiEndpoint: 'https://hub.touch-ai.org/api/v1',
+            apiKey: 'ta_live_managed_key',
+            config: {
+                touchAiMode: 'managed',
+            },
+        });
+
+        const authError = provider.classifyError({
+            statusCode: 401,
+            responseBody: '{"message":"Unauthorized"}',
+            message: 'Unauthorized',
+        });
+
+        expect(authError).toBeInstanceOf(AiError);
+        expect(authError?.code).toBe(AiErrorCode.UNAUTHORIZED);
+        expect((authError as AiError).details).toMatchObject({
+            gatewayCode: null,
+            statusCode: 401,
+            requiresRelogin: true,
+        });
+    });
+
     it('lets the hub validate managed model ids at request time', () => {
         const provider = new MiMoProviderAdapter({
             apiEndpoint: 'https://hub.touch-ai.org/api/v1',
