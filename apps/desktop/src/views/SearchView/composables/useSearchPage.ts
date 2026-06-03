@@ -382,6 +382,7 @@ interface UseSearchPageLifecycleOptions {
     clearSession: () => void | Promise<void>;
     shouldClearSessionAfterTimeout?: () => boolean | Promise<boolean>;
     reconcilePopupSurfaces?: () => Promise<void>;
+    remeasureSearchWindowHeight?: () => void | Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
     handleSearchSurfaceCommand?: (payload: {
         command: 'toggle-model-dropdown';
@@ -406,6 +407,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         clearSession,
         shouldClearSessionAfterTimeout,
         reconcilePopupSurfaces,
+        remeasureSearchWindowHeight,
         onSurfaceHidden,
         handleSearchSurfaceCommand,
         handleSessionStatusReminderAction,
@@ -492,6 +494,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await controller.focusSearchInput();
         await controller.loadActiveModel();
         await syncWindowPinStateSafely('focus');
+        await remeasureSearchWindowHeightSafely('activation');
 
         if (surfaceSource !== 'shortcut') {
             return;
@@ -583,6 +586,17 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             await syncWindowPinState();
         } catch (error) {
             console.error(`[SearchView] Failed to sync window pin state on ${reason}:`, error);
+        }
+    }
+
+    async function remeasureSearchWindowHeightSafely(reason: 'activation') {
+        try {
+            await Promise.resolve(remeasureSearchWindowHeight?.());
+        } catch (error) {
+            console.error(
+                `[SearchView] Failed to remeasure search window height on ${reason}:`,
+                error
+            );
         }
     }
 

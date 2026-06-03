@@ -36,6 +36,17 @@ describe('provider driver labels i18n', () => {
         expect(labels).toContain('智谱');
     });
 
+    it('registers Xiaomi MiMo as a builtin provider driver', () => {
+        expect(isProviderDriver('mimo')).toBe(true);
+
+        const definition = getProviderDriverDefinition('mimo');
+        expect(definition.label).toBe('Xiaomi MiMo');
+        expect(definition.logo).toBe('mimo.png');
+        expect(definition.placeholder).toBe('https://token-plan-cn.xiaomimimo.com/v1');
+
+        expect(getProviderDriverDefinitions().some((item) => item.driver === 'mimo')).toBe(true);
+    });
+
     it('keeps the legacy exported definition list available for non-reactive callers', () => {
         expect(providerDriverDefinitions.map((definition) => definition.driver)).toContain(
             'openai-compatible'
