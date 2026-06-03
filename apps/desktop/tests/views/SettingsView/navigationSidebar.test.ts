@@ -1,7 +1,6 @@
 import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, vi } from 'vitest';
 
-import desktopPackageJson from '../../../package.json';
 import NavigationSidebar from '@/views/SettingsView/components/NavigationSidebar.vue';
 import {
     SETTINGS_DETAIL_PANEL_MIN_WIDTH,
@@ -11,6 +10,7 @@ import {
     SETTINGS_SIDEBAR_MAX_WIDTH,
     SETTINGS_SIDEBAR_MIN_WIDTH,
 } from '@/views/SettingsView/settingsSidebarLayout';
+import desktopPackageJson from '../../../package.json';
 
 const openUrlMock = vi.hoisted(() => vi.fn());
 
