@@ -107,19 +107,9 @@ pub(super) fn show_and_activate_search_window<R: Runtime>(
 ) -> Result<(), String> {
     let _ = window.unminimize();
     crate::core::window::rounded_corners::sync_window_corner_style(window)?;
-    protect_search_window_from_screen_capture(window);
     window.show().map_err(|e| e.to_string())?;
     crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     reactivate_search_window_input(window)
-}
-
-fn protect_search_window_from_screen_capture<R: Runtime>(window: &WebviewWindow<R>) {
-    if let Err(error) = window.set_content_protected(true) {
-        log::warn!(
-            "Failed to protect search window from screen capture: {}",
-            error
-        );
-    }
 }
 
 /// 让主搜索窗口重新成为键盘输入目标，并唤醒 WebView2 accelerator 管线。

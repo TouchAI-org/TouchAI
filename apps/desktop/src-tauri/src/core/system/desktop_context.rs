@@ -10,11 +10,13 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Mutex,
     },
+    thread,
+    time::Duration,
 };
 
 use image::{imageops, RgbaImage};
 use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 use xcap::{Monitor, Window};
 
 use crate::core::system::{
@@ -216,6 +218,7 @@ impl DesktopContextRuntime {
         if include_requests_screenshot(include) {
             let captured_at = now_rfc3339_millis();
             capsule.screenshot = capture_screenshot(
+                app_handle,
                 &capsule.id,
                 &captured_at,
                 capsule.active_window.as_ref(),
@@ -980,19 +983,133 @@ fn select_capture_monitor(
 }
 
 fn capture_screenshot(
+    app_handle: &AppHandle<impl Runtime>,
     capsule_id: &str,
     captured_at: &str,
     active_window: Option<&DesktopContextActiveWindow>,
     screenshot_target: Option<&str>,
 ) -> DesktopContextScreenshot {
     let target = normalize_screenshot_target(screenshot_target);
-    match capture_screenshot_result(capsule_id, captured_at, active_window, target) {
+    match capture_screenshot_result(app_handle, capsule_id, captured_at, active_window, target) {
         Ok(screenshot) => screenshot,
         Err(error) => unsupported_screenshot_for_target(captured_at, target, error),
     }
 }
 
-fn capture_screenshot_result(
+fn should_hide_window_for_context_screenshot(label: &str) -> bool {
+    label == "main" || label == "tray-menu" || label.starts_with("popup-")
+}
+
+fn context_screenshot_window_hide_priority(label: &str) -> u8 {
+    if label == "main" {
+        1
+    } else {
+        0
+    }
+}
+
+struct HiddenContextScreenshotWindow<R: Runtime> {
+    label: String,
+    window: WebviewWindow<R>,
+    was_focused: bool,
+}
+
+struct ContextScreenshotWindowGuard<R: Runtime> {
+    app_handle: AppHandle<R>,
+    hidden_windows: Vec<HiddenContextScreenshotWindow<R>>,
+    entered_context_screenshot_window_hide: bool,
+}
+
+impl<R: Runtime> ContextScreenshotWindowGuard<R> {
+    fn hide_visible_touchai_windows(app_handle: &AppHandle<R>) -> Self {
+        let entered_context_screenshot_window_hide = app_handle
+            .try_state::<crate::core::window::search::surface::SearchSurfaceRuntime>()
+            .map(|runtime| {
+                runtime.enter_context_screenshot_window_hide();
+            })
+            .is_some();
+
+        let mut windows = app_handle
+            .webview_windows()
+            .into_iter()
+            .filter(|(label, _)| should_hide_window_for_context_screenshot(label))
+            .collect::<Vec<_>>();
+        windows.sort_by(|(left_label, _), (right_label, _)| {
+            context_screenshot_window_hide_priority(left_label)
+                .cmp(&context_screenshot_window_hide_priority(right_label))
+                .then_with(|| left_label.cmp(right_label))
+        });
+
+        let mut hidden_windows = Vec::new();
+        for (label, window) in windows {
+            if !window.is_visible().unwrap_or(false) {
+                continue;
+            }
+
+            let was_focused = window.is_focused().unwrap_or(false);
+            match window.hide() {
+                Ok(()) => hidden_windows.push(HiddenContextScreenshotWindow {
+                    label,
+                    window,
+                    was_focused,
+                }),
+                Err(error) => log::warn!(
+                    "Failed to temporarily hide TouchAI window for context screenshot: {}",
+                    error
+                ),
+            }
+        }
+
+        if !hidden_windows.is_empty() {
+            thread::sleep(Duration::from_millis(80));
+        }
+
+        Self {
+            app_handle: app_handle.clone(),
+            hidden_windows,
+            entered_context_screenshot_window_hide,
+        }
+    }
+}
+
+impl<R: Runtime> Drop for ContextScreenshotWindowGuard<R> {
+    fn drop(&mut self) {
+        for hidden_window in self.hidden_windows.iter().rev() {
+            if let Err(error) = hidden_window.window.show() {
+                log::warn!(
+                    "Failed to restore TouchAI window '{}' after context screenshot: {}",
+                    hidden_window.label,
+                    error
+                );
+                continue;
+            }
+            if hidden_window.was_focused {
+                if let Err(error) = hidden_window.window.set_focus() {
+                    log::warn!(
+                        "Failed to restore TouchAI window '{}' focus after context screenshot: {}",
+                        hidden_window.label,
+                        error
+                    );
+                }
+            }
+        }
+
+        if self.entered_context_screenshot_window_hide {
+            if !self.hidden_windows.is_empty() {
+                thread::sleep(Duration::from_millis(80));
+            }
+            if let Some(runtime) =
+                self.app_handle
+                    .try_state::<crate::core::window::search::surface::SearchSurfaceRuntime>()
+            {
+                runtime.leave_context_screenshot_window_hide();
+            }
+        }
+    }
+}
+
+fn capture_screenshot_result<R: Runtime>(
+    app_handle: &AppHandle<R>,
     capsule_id: &str,
     captured_at: &str,
     active_window: Option<&DesktopContextActiveWindow>,
@@ -1006,10 +1123,14 @@ fn capture_screenshot_result(
         })?;
     }
 
-    let image = match target {
-        "active_window" => capture_active_window_image(active_window)?,
-        "all_displays" => capture_all_displays_image()?,
-        _ => capture_active_display_image(active_window)?,
+    let image = {
+        let _touchai_window_guard =
+            ContextScreenshotWindowGuard::hide_visible_touchai_windows(app_handle);
+        match target {
+            "active_window" => capture_active_window_image(active_window)?,
+            "all_displays" => capture_all_displays_image()?,
+            _ => capture_active_display_image(active_window)?,
+        }
     };
     let width = image.width();
     let height = image.height();
@@ -1475,9 +1596,20 @@ fn capture_active_window_with_win32() -> Option<DesktopContextActiveWindow> {
 mod tests {
     use super::{
         screenshot_artifact_path, selected_text_from_text, selected_text_from_utf16_range,
-        SELECTED_TEXT_LIMIT,
+        should_hide_window_for_context_screenshot, SELECTED_TEXT_LIMIT,
     };
     use std::path::PathBuf;
+
+    #[test]
+    fn context_screenshot_hides_only_transient_touchai_windows() {
+        assert!(should_hide_window_for_context_screenshot("main"));
+        assert!(should_hide_window_for_context_screenshot("tray-menu"));
+        assert!(should_hide_window_for_context_screenshot(
+            "popup-model-dropdown-popup"
+        ));
+        assert!(!should_hide_window_for_context_screenshot("settings"));
+        assert!(!should_hide_window_for_context_screenshot("assistant-log"));
+    }
 
     #[test]
     fn screenshot_artifact_path_stays_under_desktop_context_directory() {
