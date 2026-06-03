@@ -340,19 +340,59 @@ describe('font loader', () => {
             await vi.waitFor(() => {
                 expect(fontApi.load).toHaveBeenCalledWith("16px 'TouchAI Source Han Serif SC'");
                 expect(fontApi.check).toHaveBeenCalledWith("16px 'TouchAI Source Han Serif SC'");
+                expect(fetch).toHaveBeenCalledWith(expect.stringContaining('SourceHanSerifSC-VF'));
+                expect(consoleInfo).toHaveBeenCalledWith(
+                    'Source Han Serif font ready:',
+                    expect.objectContaining({
+                        fontLoaded: true,
+                        fetchOk: true,
+                        fetchStatus: 200,
+                        contentType: 'font/woff2',
+                    })
+                );
             });
-            expect(fetch).toHaveBeenCalledWith(expect.stringContaining('SourceHanSerifSC-VF'));
-            expect(consoleInfo).toHaveBeenCalledWith(
-                'Source Han Serif font ready:',
-                expect.objectContaining({
-                    fontLoaded: true,
-                    fetchOk: true,
-                    fetchStatus: 200,
-                    contentType: 'font/woff2',
+
+            consoleInfo.mockRestore();
+            vi.unstubAllGlobals();
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'retries a transient missing font check before warning',
+        async () => {
+            const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const fontApi = mockFontLoadingApi();
+            fontApi.check.mockReturnValueOnce(false).mockReturnValue(true);
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue({
+                    ok: true,
+                    status: 200,
+                    statusText: 'OK',
+                    headers: new Headers({ 'content-type': 'font/woff2' }),
                 })
             );
 
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
+                expect(fontApi.check).toHaveBeenCalledTimes(2);
+                expect(consoleInfo).toHaveBeenCalledWith(
+                    'Source Han Serif font ready:',
+                    expect.objectContaining({ fontLoaded: true })
+                );
+            });
+            expect(consoleWarn).not.toHaveBeenCalledWith(
+                'Source Han Serif font diagnostics:',
+                expect.objectContaining({ fontLoaded: false })
+            );
+
             consoleInfo.mockRestore();
+            consoleWarn.mockRestore();
             vi.unstubAllGlobals();
         },
         FONT_TEST_TIMEOUT_MS

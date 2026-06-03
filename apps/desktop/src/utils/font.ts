@@ -11,6 +11,8 @@ const FONT_FACE_FAMILY = 'TouchAI Source Han Serif SC';
 const FONT_FACE_STYLE_ATTRIBUTE = 'data-touchai-font-face';
 const FONT_FACE_STYLE_KEY = 'source-han-serif-sc';
 const FONT_LOAD_TEST = `16px '${FONT_FACE_FAMILY}'`;
+const FONT_LOAD_ATTEMPTS = 3;
+const FONT_LOAD_RETRY_DELAY_MS = 16;
 
 let fontLoadPromise: Promise<void> | null = null;
 let fontReadyListenerPromise: Promise<void> | null = null;
@@ -52,6 +54,25 @@ function stringifyError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
+    });
+}
+
+async function waitForStyleProcessing(): Promise<void> {
+    await Promise.resolve();
+
+    await new Promise<void>((resolve) => {
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => resolve());
+            return;
+        }
+
+        window.setTimeout(resolve, 0);
+    });
+}
+
 async function resolveFontPath(): Promise<string> {
     const fontDir = await paths.getAppDirectoryPath('ASSETS_FONT');
     return join(fontDir, FONT_FILENAME);
@@ -69,8 +90,20 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<void> {
 
     try {
         if (diagnostics.fontsApiAvailable) {
-            await document.fonts.load(FONT_LOAD_TEST);
-            diagnostics.fontLoaded = document.fonts.check(FONT_LOAD_TEST);
+            await waitForStyleProcessing();
+
+            for (let attempt = 0; attempt < FONT_LOAD_ATTEMPTS; attempt += 1) {
+                if (attempt > 0) {
+                    await delay(FONT_LOAD_RETRY_DELAY_MS);
+                }
+
+                await document.fonts.load(FONT_LOAD_TEST);
+                diagnostics.fontLoaded = document.fonts.check(FONT_LOAD_TEST);
+
+                if (diagnostics.fontLoaded) {
+                    break;
+                }
+            }
         }
 
         if (typeof fetch === 'function') {
