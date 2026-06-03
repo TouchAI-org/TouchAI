@@ -363,7 +363,11 @@ function parseRequestedTimeoutMs(toolArgs: Record<string, unknown>): {
     delete sanitizedToolArgs[TOOL_TIMEOUT_META_KEY];
 
     const timeoutMs = (meta as Record<string, unknown>).timeoutMs;
-    if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs)) {
+    if (
+        typeof timeoutMs !== 'number' ||
+        !Number.isFinite(timeoutMs) ||
+        !Number.isInteger(timeoutMs)
+    ) {
         return {
             requestedTimeoutMs: undefined,
             sanitizedToolArgs,
