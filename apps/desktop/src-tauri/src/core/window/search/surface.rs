@@ -24,6 +24,14 @@ impl SearchSurfaceShowSource {
             Self::Notification => "notification",
         }
     }
+
+    /// 转成桌面上下文胶囊的调用来源。
+    fn as_desktop_context_source(&self) -> &'static str {
+        match self {
+            Self::Shortcut => "shortcut",
+            Self::Notification => "notification",
+        }
+    }
 }
 
 /// 搜索窗口组隐藏原因。
@@ -49,6 +57,7 @@ impl SearchSurfaceHideReason {
 struct SearchSurfaceShownPayload {
     source: &'static str,
     sequence: u64,
+    context_capsule_id: Option<String>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -73,6 +82,7 @@ pub struct PopupSurfaceSession {
 pub struct SearchWindowRuntime {
     hide_on_app_blur: AtomicBool,
     allow_height_override: AtomicBool,
+    context_screenshot_window_hide_depth: AtomicU64,
     sequence: AtomicU64,
     popup_sessions: Mutex<HashMap<String, PopupSurfaceSession>>,
     window_state: SearchWindowState,
@@ -88,6 +98,7 @@ struct FocusLostDecisionInput<'a> {
     main_always_on_top: bool,
     app_focused: bool,
     has_popup_sessions: bool,
+    context_screenshot_window_hide_active: bool,
 }
 
 pub type SearchSurfaceRuntime = SearchWindowRuntime;
@@ -98,6 +109,7 @@ impl SearchWindowRuntime {
         Self {
             hide_on_app_blur: AtomicBool::new(true),
             allow_height_override: AtomicBool::new(false),
+            context_screenshot_window_hide_depth: AtomicU64::new(0),
             sequence: AtomicU64::new(0),
             popup_sessions: Mutex::new(HashMap::new()),
             window_state: SearchWindowState::default(),
@@ -127,6 +139,28 @@ impl SearchWindowRuntime {
     /// 读取当前是否允许用户通过手动 resize 覆盖窗口高度。
     pub fn should_allow_height_override(&self) -> bool {
         self.allow_height_override.load(Ordering::Relaxed)
+    }
+
+    /// 标记原生层正在为上下文截图临时隐藏 TouchAI surface。
+    pub fn enter_context_screenshot_window_hide(&self) {
+        self.context_screenshot_window_hide_depth
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 结束上下文截图临时隐藏 TouchAI surface 的标记。
+    pub fn leave_context_screenshot_window_hide(&self) {
+        let _ = self.context_screenshot_window_hide_depth.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |depth| Some(depth.saturating_sub(1)),
+        );
+    }
+
+    /// 判断是否需要忽略由上下文截图 hide/show 造成的原生失焦事件。
+    pub fn is_context_screenshot_window_hide_active(&self) -> bool {
+        self.context_screenshot_window_hide_depth
+            .load(Ordering::Relaxed)
+            > 0
     }
 
     /// 记录一个 popup 原生窗口会话。
@@ -206,6 +240,10 @@ pub fn update_window_defaults<R: Runtime>(
 
 /// 判断某次原生失焦是否应该隐藏完整搜索窗口组。
 fn should_hide_on_focus_lost(input: FocusLostDecisionInput<'_>) -> bool {
+    if input.context_screenshot_window_hide_active {
+        return false;
+    }
+
     if !input.hide_on_app_blur || !input.main_visible || input.main_always_on_top {
         return false;
     }
@@ -318,6 +356,21 @@ pub fn show_surface<R: Runtime>(
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
+    let context_capsule_id = if let Some(desktop_context_runtime) =
+        app_handle.try_state::<crate::core::system::desktop_context::DesktopContextRuntime>()
+    {
+        match desktop_context_runtime
+            .capture_invocation(app_handle, source.as_desktop_context_source())
+        {
+            Ok(capsule) => Some(capsule.id),
+            Err(error) => {
+                log::warn!("Failed to capture desktop context capsule: {}", error);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     super::show_and_activate_search_window(&window)?;
     app_handle
@@ -326,6 +379,7 @@ pub fn show_surface<R: Runtime>(
             SearchSurfaceShownPayload {
                 source: source.as_str(),
                 sequence: runtime.next_sequence(),
+                context_capsule_id,
             },
         )
         .map_err(|error| format!("Failed to emit search surface shown event: {}", error))
@@ -376,6 +430,7 @@ pub fn handle_focus_lost<R: Runtime>(
         main_always_on_top: main_window.is_always_on_top().unwrap_or(false),
         app_focused: crate::core::window::popup::is_app_focused(app_handle.clone())?,
         has_popup_sessions: runtime.has_popup_sessions(),
+        context_screenshot_window_hide_active: runtime.is_context_screenshot_window_hide_active(),
     };
     let should_hide = should_hide_on_focus_lost(decision_input);
     if !should_hide {
@@ -442,6 +497,7 @@ mod tests {
             main_always_on_top: false,
             app_focused: false,
             has_popup_sessions: false,
+            context_screenshot_window_hide_active: false,
         }
     }
 
@@ -476,6 +532,16 @@ mod tests {
     fn blur_does_not_hide_surface_while_app_is_still_focused() {
         let should_hide = should_hide_on_focus_lost(FocusLostDecisionInput {
             app_focused: true,
+            ..decision_input("main")
+        });
+
+        assert!(!should_hide);
+    }
+
+    #[test]
+    fn blur_does_not_hide_surface_during_context_screenshot_window_hide() {
+        let should_hide = should_hide_on_focus_lost(FocusLostDecisionInput {
+            context_screenshot_window_hide_active: true,
             ..decision_input("main")
         });
 

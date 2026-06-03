@@ -211,6 +211,7 @@ describe('useSearchRequestFlow', () => {
             inputSnapshot: queuedSnapshot,
             modelId: 'queued-model',
             providerId: 3,
+            desktopContextCapsuleId: null,
         });
         expect(mounted.result.isWaitingForCompletion.value).toBe(true);
         expect(agentState.sendRequest).not.toHaveBeenCalled();
@@ -226,7 +227,8 @@ describe('useSearchRequestFlow', () => {
             [supportedAttachment],
             queuedSnapshot,
             'queued-model',
-            3
+            3,
+            null
         );
         expect(mounted.result.pendingRequest.value).toBeNull();
         expect(mounted.result.isWaitingForCompletion.value).toBe(false);
@@ -398,7 +400,8 @@ describe('useSearchRequestFlow', () => {
                 excludeFromHistory: true,
             }),
             'regen-model',
-            11
+            11,
+            null
         );
 
         mounted.unmount();

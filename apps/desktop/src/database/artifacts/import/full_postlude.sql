@@ -8,6 +8,7 @@ WHERE name IN (
     'message_attachments',
     'session_turns',
     'session_turn_attempts',
+    'session_turn_context_artifacts',
     'settings',
     'statistics',
     'llm_metadata'
@@ -21,6 +22,7 @@ INSERT INTO main.sqlite_sequence (name, seq) SELECT 'attachments', COALESCE(MAX(
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'message_attachments', COALESCE(MAX(id), 0) FROM main.message_attachments;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'session_turns', COALESCE(MAX(id), 0) FROM main.session_turns;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'session_turn_attempts', COALESCE(MAX(id), 0) FROM main.session_turn_attempts;
+INSERT INTO main.sqlite_sequence (name, seq) SELECT 'session_turn_context_artifacts', COALESCE(MAX(id), 0) FROM main.session_turn_context_artifacts;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'settings', COALESCE(MAX(id), 0) FROM main.settings;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'statistics', COALESCE(MAX(id), 0) FROM main.statistics;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'llm_metadata', COALESCE(MAX(id), 0) FROM main.llm_metadata;

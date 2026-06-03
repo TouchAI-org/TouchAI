@@ -10,6 +10,7 @@ import {
     type BuiltInToolId,
     builtInToolService,
 } from '@/services/BuiltInToolService';
+import type { BoundDesktopContext } from '@/services/DesktopContextService/types';
 import { z } from '@/utils/zod';
 
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
@@ -72,6 +73,7 @@ export interface RequestExecutionCallbacks {
         callId: string,
         questions: AskUserQuestion[]
     ) => Promise<AskUserAnswer[] | null>;
+    desktopContext?: BoundDesktopContext | null;
 }
 
 export interface AttemptCheckpoint {
@@ -107,6 +109,7 @@ interface ToolExecutionResult {
     toolLogId: number | null;
     toolLogKind: ToolLogKind | null;
     attachments?: AttachmentIndex[];
+    desktopContextArtifact?: BoundDesktopContext | null;
     builtInToolId?: BuiltInToolId;
     controlSignal?: BuiltInToolControlSignal;
 }
@@ -436,6 +439,7 @@ export class AiRequestExecutor {
         toolLogId: number | null;
         toolLogKind: ToolLogKind | null;
         attachments?: AttachmentIndex[];
+        desktopContextArtifact?: undefined;
         builtInToolId?: undefined;
         controlSignal?: undefined;
     }> {
@@ -724,6 +728,7 @@ export class AiRequestExecutor {
             sessionId: options.persister.getSessionId(),
             requestToolApproval: options.requestToolApproval,
             requestUserQuestions: options.requestUserQuestions,
+            desktopContext: options.desktopContext ?? null,
             emitToolEvent: (toolEvent) => this.emitToolEvent(options.onChunk, toolEvent),
         });
 
@@ -777,6 +782,7 @@ export class AiRequestExecutor {
                     onChunk: options.onChunk,
                     requestToolApproval: options.requestToolApproval,
                     requestUserQuestions: options.requestUserQuestions,
+                    desktopContext: options.desktopContext ?? null,
                 })
             )
         );
@@ -790,6 +796,7 @@ export class AiRequestExecutor {
             toolLogId,
             toolLogKind,
             attachments,
+            desktopContextArtifact,
             controlSignal,
         } of toolResults) {
             runtime.messages.push({
@@ -806,6 +813,10 @@ export class AiRequestExecutor {
                 toolLogKind,
                 attachments
             );
+
+            if (desktopContextArtifact) {
+                await options.persister.persistDesktopContextArtifact(desktopContextArtifact);
+            }
 
             if (builtInToolId && !isError) {
                 runtime.executedBuiltInTools.add(builtInToolId);
@@ -888,6 +899,7 @@ export class AiRequestExecutor {
                     onChunk: options.onChunk,
                     requestToolApproval: options.requestToolApproval,
                     requestUserQuestions: options.requestUserQuestions,
+                    desktopContext: options.desktopContext ?? null,
                 });
 
                 runtime.iteration += 1;

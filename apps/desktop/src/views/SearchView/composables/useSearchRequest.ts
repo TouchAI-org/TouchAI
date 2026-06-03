@@ -29,6 +29,7 @@ interface UseSearchRequestFlowOptions {
     getSupportedAttachments: () => Index[];
     getUnsupportedAttachmentMessage: () => string | null;
     getCurrentInputSnapshot: (query: string) => InputHistorySnapshot;
+    getCurrentDesktopContextCapsuleId?: () => string | null;
 }
 
 const SESSION_LIST_LIMIT = 40;
@@ -65,6 +66,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
         getCurrentInputSnapshot,
+        getCurrentDesktopContextCapsuleId,
     } = options;
 
     const pendingRequest = ref<PendingRequest | null>(null);
@@ -152,12 +154,20 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 inputSnapshot,
                 modelId,
                 providerId,
+                desktopContextCapsuleId,
             } = pendingRequest.value;
             clearPendingRequestState();
 
             clearDraft({ preserveModelTag: true });
 
-            await sendRequest(query, pendingAttachments, inputSnapshot, modelId, providerId);
+            await sendRequest(
+                query,
+                pendingAttachments,
+                inputSnapshot,
+                modelId,
+                providerId,
+                desktopContextCapsuleId
+            );
         },
         onError: () => {
             invalidateSessionListCache({
@@ -338,6 +348,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         }
 
         const inputSnapshot = inputSnapshotOverride ?? getCurrentInputSnapshot(query);
+        const desktopContextCapsuleId = getCurrentDesktopContextCapsuleId?.() ?? null;
 
         if (isLoading.value) {
             if (pendingRequest.value) {
@@ -352,6 +363,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 inputSnapshot,
                 modelId: selectedModelId ?? undefined,
                 providerId: selectedProviderId ?? undefined,
+                desktopContextCapsuleId,
             };
             isWaitingForCompletion.value = true;
             return;
@@ -368,7 +380,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             supportedAttachments,
             inputSnapshot,
             selectedModelId ?? undefined,
-            selectedProviderId ?? undefined
+            selectedProviderId ?? undefined,
+            desktopContextCapsuleId
         );
     }
 
@@ -440,7 +453,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             supportedAttachments,
             inputSnapshot,
             selectedModelId ?? undefined,
-            selectedProviderId ?? undefined
+            selectedProviderId ?? undefined,
+            getCurrentDesktopContextCapsuleId?.() ?? null
         );
     }
 

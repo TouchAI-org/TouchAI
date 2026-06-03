@@ -67,6 +67,7 @@ clipboard-rs = "0.3.4"
 html5gum = { version = "0.8.3", default-features = false }
 sha2 = "0.10"
 velopack = { version = "=0.0.1589-ga2c5a97", features = ["public-utils"] }
+xcap = "0.9.6"
 
 [dev-dependencies]
 tempfile = "3"
@@ -109,6 +110,7 @@ windows = { version = "0.58", features = [
     "Win32_System_Com",
     "Win32_System_Threading",
     "Win32_UI_Controls_Dialogs",
+    "Win32_UI_Accessibility",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",

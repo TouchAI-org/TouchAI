@@ -2,6 +2,7 @@
 
 import { builtInTools as askUserTools } from './tools/askUser';
 import { builtInTools as bashTools } from './tools/bash';
+import { builtInTools as desktopContextTools } from './tools/desktopContext';
 import { builtInTools as fileSearchTools } from './tools/fileSearch';
 import { builtInTools as readTools } from './tools/read';
 import { builtInTools as settingTools } from './tools/setting';
@@ -55,6 +56,7 @@ export const builtInToolRegistry = new BuiltInToolRegistry();
 
 builtInToolRegistry.register(askUserTools);
 builtInToolRegistry.register(bashTools);
+builtInToolRegistry.register(desktopContextTools);
 builtInToolRegistry.register(fileSearchTools);
 builtInToolRegistry.register(readTools);
 builtInToolRegistry.register(settingTools);

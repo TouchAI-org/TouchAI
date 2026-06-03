@@ -393,6 +393,10 @@ interface UseSearchPageLifecycleOptions {
     ) => void | Promise<void>;
     handleAiModelsUpdated?: () => void | Promise<void>;
     handleShortcutAutoPaste?: () => void | Promise<void>;
+    handleSearchSurfaceShown?: (payload: {
+        contextCapsuleId?: string | null;
+        sequence?: number;
+    }) => void | Promise<void>;
 }
 
 export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
@@ -413,6 +417,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste,
+        handleSearchSurfaceShown,
     } = options;
 
     const settingsStore = useSettingsStore();
@@ -647,6 +652,14 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 }
 
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
+                await Promise.resolve(
+                    handleSearchSurfaceShown?.({
+                        contextCapsuleId: payload.contextCapsuleId ?? null,
+                        sequence,
+                    })
+                ).catch((error) => {
+                    console.error('[SearchView] Failed to record desktop context capsule:', error);
+                });
                 interactionContext.markWindowVisible();
                 handleReminderSurfaceVisible();
                 await handleSearchWindowActivated(payload.source ?? 'shortcut');

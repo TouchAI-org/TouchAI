@@ -7,6 +7,7 @@ import {
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
+    createSessionTurnContextArtifact,
     refreshSessionMetadata,
     updateSession,
     updateSessionTurn,
@@ -27,6 +28,7 @@ import {
     serializeAttachmentDeliveryManifest,
     upsertAttachmentDeliveryManifestRequest,
 } from '@/services/AgentService/infrastructure/attachments';
+import type { BoundDesktopContext } from '@/services/DesktopContextService/types';
 import { toDbTimestamp } from '@/utils/date';
 
 import type {
@@ -68,6 +70,7 @@ interface PersistenceProjectorOptions {
     taskId: string;
     executionMode: TaskExecutionMode;
     promptSnapshot: PromptSnapshot;
+    desktopContext?: BoundDesktopContext | null;
     deliveryManifest?: AttachmentDeliveryManifest;
     maxRetries: number;
     buildSessionTitle: (prompt: string) => string;
@@ -230,6 +233,7 @@ export class PersistenceProjector {
     private readonly taskId: string;
     private readonly executionMode: TaskExecutionMode;
     private readonly promptSnapshot: PromptSnapshot;
+    private readonly desktopContext: BoundDesktopContext | null;
     private deliveryManifest: AttachmentDeliveryManifest;
     private readonly maxRetries: number;
     private readonly buildSessionTitle: (prompt: string) => string;
@@ -250,6 +254,7 @@ export class PersistenceProjector {
         this.taskId = options.taskId;
         this.executionMode = options.executionMode;
         this.promptSnapshot = options.promptSnapshot;
+        this.desktopContext = options.desktopContext ?? null;
         this.deliveryManifest = options.deliveryManifest ?? createEmptyAttachmentDeliveryManifest();
         this.maxRetries = options.maxRetries;
         this.buildSessionTitle = options.buildSessionTitle;
@@ -293,6 +298,7 @@ export class PersistenceProjector {
                     sessionId
                 ));
             const turn = await this.ensureTurnRecord(tx, sessionId, userMessageId);
+            await this.persistDesktopContextArtifacts(turn.id, tx);
             const attemptState = await this.ensureAttemptRecord(1, initialCheckpoint, tx, turn.id);
 
             return { sessionId, userMessageId, turn, attemptState };
@@ -563,6 +569,16 @@ export class PersistenceProjector {
         );
     }
 
+    async persistDesktopContextArtifact(context: BoundDesktopContext): Promise<void> {
+        if (!this.turn) {
+            await this.ensureTurnRecord();
+        }
+
+        await db.transaction(async (tx) => {
+            await this.persistDesktopContextArtifacts(this.getTurnId(), tx, context);
+        });
+    }
+
     async persistCheckpoint(checkpoint: AttemptCheckpoint): Promise<void> {
         if (!this.attemptState) {
             return;
@@ -727,6 +743,67 @@ export class PersistenceProjector {
         );
         this.turnStartedAtMs = startedAt;
         return turn;
+    }
+
+    private async persistDesktopContextArtifacts(
+        turnId: number,
+        database: DatabaseExecutor = db,
+        context: BoundDesktopContext | null = this.desktopContext
+    ): Promise<void> {
+        if (!context) {
+            return;
+        }
+
+        await createSessionTurnContextArtifact(
+            {
+                turn_id: turnId,
+                capsule_id: context.id,
+                artifact_kind: 'metadata',
+                captured_at: context.capturedAt,
+                metadata_json: JSON.stringify({
+                    capsuleId: context.id,
+                    capturedAt: context.capturedAt,
+                    boundAt: context.boundAt,
+                    summary: context.summary,
+                    activeWindowTitle: context.activeWindow?.title ?? null,
+                    activeWindowAppName: context.activeWindow?.appName ?? null,
+                    selectedTextLength: context.selectedText.textLength,
+                    clipboardTextLength: context.clipboard.textLength,
+                    screenshotAvailable: context.screenshot.available,
+                    screenshotPersisted: context.screenshot.persisted,
+                    screenshotWidth: context.screenshot.width,
+                    screenshotHeight: context.screenshot.height,
+                    screenshotCapturedAt: context.screenshot.capturedAt,
+                    screenshotTarget: context.screenshot.target,
+                    screenshotReason: context.screenshot.reason ?? null,
+                    capabilities: context.capabilities,
+                    redactions: context.redactions,
+                }),
+            },
+            database
+        );
+
+        if (!context.screenshot.available || !context.screenshot.path) {
+            return;
+        }
+
+        await createSessionTurnContextArtifact(
+            {
+                turn_id: turnId,
+                capsule_id: context.id,
+                artifact_kind: 'screenshot',
+                artifact_path: context.screenshot.path,
+                mime_type: context.screenshot.mimeType,
+                width: context.screenshot.width,
+                height: context.screenshot.height,
+                captured_at: context.screenshot.capturedAt ?? context.capturedAt,
+                metadata_json: JSON.stringify({
+                    target: context.screenshot.target,
+                    persisted: context.screenshot.persisted,
+                }),
+            },
+            database
+        );
     }
 
     private async ensureAttemptRecord(

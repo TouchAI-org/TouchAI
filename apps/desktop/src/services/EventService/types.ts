@@ -118,6 +118,7 @@ export interface WindowResizeEvent {
 export interface SearchSurfaceShownEvent {
     source: 'shortcut' | 'notification';
     sequence?: number;
+    contextCapsuleId?: string | null;
 }
 
 export interface SearchSurfaceHiddenEvent {

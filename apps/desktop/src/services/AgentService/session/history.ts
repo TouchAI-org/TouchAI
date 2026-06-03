@@ -3,6 +3,7 @@
 import { findAllMcpServers } from '@database/queries/mcpServers';
 import type { MessageRow } from '@database/queries/messages';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
+import type { SessionTurnContextArtifactHistoryRow } from '@database/queries/sessionTurnContextArtifacts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import type { PersistedToolLogStatus } from '@database/schema';
 
@@ -16,6 +17,7 @@ import {
     SHOW_WIDGET_TOOL_NAME,
     type ShowWidgetPayload,
 } from '@/services/BuiltInToolService/tools/widgetTool';
+import type { UserMessageDesktopContext } from '@/services/DesktopContextService/types';
 import {
     createInputHistorySnapshot,
     type SessionMessage,
@@ -66,10 +68,21 @@ export interface BuildSessionHistoryOptions {
     messages: MessageRow[];
     turns: SessionTurnHistoryRow[];
     attempts: SessionTurnAttemptHistoryRow[];
+    contextArtifacts?: SessionTurnContextArtifactHistoryRow[];
     resolveServerName: (serverId: number | null) => string;
 }
 
-type SessionHistorySourceData = Pick<SessionData, 'messages' | 'turns' | 'attempts'>;
+type SessionHistorySourceData = Pick<
+    SessionData,
+    'messages' | 'turns' | 'attempts' | 'contextArtifacts'
+>;
+
+interface DesktopContextMetadataArtifact {
+    capsuleId?: string;
+    capturedAt?: string;
+    summary?: string;
+    activeWindowTitle?: string | null;
+}
 
 function normalizeDisplayName(namespacedName: string): string {
     const match = namespacedName.match(/^mcp__\d+__(.+)$/);
@@ -132,6 +145,59 @@ function isCancellationStatusText(text?: string | null): boolean {
         normalized.includes('cancelled by user') ||
         normalized.includes('request cancelled')
     );
+}
+
+function parseDesktopContextMetadata(metadataJson: string | null): DesktopContextMetadataArtifact {
+    if (!metadataJson) {
+        return {};
+    }
+
+    try {
+        const parsed = JSON.parse(metadataJson) as DesktopContextMetadataArtifact;
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (error) {
+        console.error('[SessionHistory] Failed to parse desktop context metadata JSON:', error);
+        return {};
+    }
+}
+
+function buildDesktopContextsByPromptMessageId(
+    artifacts: SessionTurnContextArtifactHistoryRow[] = []
+): Map<number, UserMessageDesktopContext> {
+    const byPromptMessageId = new Map<number, SessionTurnContextArtifactHistoryRow[]>();
+    for (const artifact of artifacts) {
+        if (artifact.prompt_message_id === null) {
+            continue;
+        }
+
+        const existing = byPromptMessageId.get(artifact.prompt_message_id) ?? [];
+        existing.push(artifact);
+        byPromptMessageId.set(artifact.prompt_message_id, existing);
+    }
+
+    const contexts = new Map<number, UserMessageDesktopContext>();
+    for (const [promptMessageId, rows] of byPromptMessageId.entries()) {
+        const metadataRow = rows.find((row) => row.artifact_kind === 'metadata');
+        const screenshotRow = rows.find((row) => row.artifact_kind === 'screenshot');
+        const metadata = parseDesktopContextMetadata(metadataRow?.metadata_json ?? null);
+        const fallbackRow = metadataRow ?? screenshotRow;
+        if (!fallbackRow) {
+            continue;
+        }
+
+        contexts.set(promptMessageId, {
+            capsuleId: metadata.capsuleId ?? fallbackRow.capsule_id,
+            capturedAt: metadata.capturedAt ?? fallbackRow.captured_at,
+            summary: metadata.summary ?? tt('已绑定桌面上下文'),
+            activeWindowTitle: metadata.activeWindowTitle ?? null,
+            screenshotPath: screenshotRow?.artifact_path ?? null,
+            screenshotMimeType: screenshotRow?.mime_type ?? null,
+            screenshotWidth: screenshotRow?.width ?? null,
+            screenshotHeight: screenshotRow?.height ?? null,
+        });
+    }
+
+    return contexts;
 }
 function assertUnreachablePersistedToolStatus(value: never): never {
     throw new Error(`Unexpected persisted tool status: ${String(value)}`);
@@ -294,7 +360,8 @@ async function buildPersistedEntries(
  */
 function convertEntriesToSessionHistory(
     entries: PersistedHistoryEntry[],
-    promptSnapshotsByMessageId: Map<number, PromptSnapshot>
+    promptSnapshotsByMessageId: Map<number, PromptSnapshot>,
+    desktopContextsByMessageId: Map<number, UserMessageDesktopContext>
 ): SessionHistoryBuildResult {
     const history: SessionMessage[] = [];
     const historyIndexByPersistedMessageId = new Map<number, number>();
@@ -475,6 +542,7 @@ function convertEntriesToSessionHistory(
                     editorDoc: promptSnapshot?.inputSnapshot?.editorDoc,
                     excludeFromHistory: promptSnapshot?.inputSnapshot?.excludeFromHistory,
                 }),
+                desktopContext: desktopContextsByMessageId.get(entry.id),
                 parts: [],
                 timestamp: parseDbDateTimestamp(entry.created_at),
             });
@@ -860,8 +928,9 @@ function injectDerivedRequestStatuses(
 export async function buildSessionHistory(
     options: BuildSessionHistoryOptions
 ): Promise<SessionMessage[]> {
-    const { messages, turns, attempts, resolveServerName } = options;
+    const { messages, turns, attempts, contextArtifacts, resolveServerName } = options;
     const promptSnapshotsByMessageId = new Map<number, PromptSnapshot>();
+    const desktopContextsByMessageId = buildDesktopContextsByPromptMessageId(contextArtifacts);
     for (const turn of turns) {
         if (turn.prompt_message_id === null) {
             continue;
@@ -878,7 +947,8 @@ export async function buildSessionHistory(
     return injectDerivedRequestStatuses(
         convertEntriesToSessionHistory(
             await buildPersistedEntries(messages, resolveServerName),
-            promptSnapshotsByMessageId
+            promptSnapshotsByMessageId,
+            desktopContextsByMessageId
         ),
         turns,
         attempts
@@ -898,6 +968,7 @@ export async function buildSessionHistoryFromData(
         messages: data.messages,
         turns: data.turns,
         attempts: data.attempts,
+        contextArtifacts: data.contextArtifacts,
         resolveServerName: (serverId) => {
             if (serverId === null) {
                 return '';
@@ -912,10 +983,11 @@ export async function buildSessionHistoryFromData(
  * 按会话主键直接加载页面历史。
  */
 export async function loadSessionHistory(sessionId: number): Promise<SessionMessage[]> {
-    const { messages, turns, attempts } = await getSessionData(sessionId);
+    const { messages, turns, attempts, contextArtifacts } = await getSessionData(sessionId);
     return buildSessionHistoryFromData({
         messages,
         turns,
         attempts,
+        contextArtifacts,
     });
 }

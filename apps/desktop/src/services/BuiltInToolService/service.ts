@@ -21,6 +21,7 @@ import type {
     ToolApprovalRequest,
     ToolEvent,
 } from '@/services/AgentService/contracts/tooling';
+import type { BoundDesktopContext } from '@/services/DesktopContextService/types';
 
 import { builtInToolRegistry } from './registry';
 import type {
@@ -40,6 +41,7 @@ interface BuiltInToolExecutionOptions {
     iteration: number;
     currentModel: ModelWithProvider;
     hasExecutedBuiltInTool: (toolId: BuiltInToolId) => boolean;
+    desktopContext?: BoundDesktopContext | null;
     signal?: AbortSignal;
     sessionId: number | null;
     toolCallMessageId: number | null;
@@ -59,6 +61,7 @@ interface BuiltInToolExecutionResponse {
     toolLogId: number | null;
     toolLogKind: ToolLogKind;
     attachments?: BuiltInToolExecutionResult['attachments'];
+    desktopContextArtifact?: BuiltInToolExecutionResult['desktopContextArtifact'];
     controlSignal?: BuiltInToolControlSignal;
 }
 
@@ -256,6 +259,7 @@ class BuiltInToolService {
             signal: options.signal,
             emitToolEvent: options.emitToolEvent,
             hasExecutedBuiltInTool: options.hasExecutedBuiltInTool,
+            desktopContext: options.desktopContext ?? null,
             requestUserQuestions: options.requestUserQuestions,
         };
 
@@ -473,6 +477,7 @@ class BuiltInToolService {
             toolLogId,
             toolLogKind: 'builtin',
             attachments: toolResult.attachments,
+            desktopContextArtifact: toolResult.desktopContextArtifact,
             controlSignal: toolResult.controlSignal,
         };
     }

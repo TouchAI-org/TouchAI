@@ -360,6 +360,33 @@ export interface SessionTurnAttemptCreateData {
 
 export type SessionTurnAttemptUpdateData = Partial<SessionTurnAttemptCreateData>;
 
+export interface SessionTurnContextArtifactEntity {
+    id: number;
+    turn_id: number;
+    capsule_id: string;
+    artifact_kind: 'screenshot' | 'metadata';
+    artifact_path: string | null;
+    mime_type: string | null;
+    width: number | null;
+    height: number | null;
+    captured_at: string;
+    metadata_json: string | null;
+    created_at: string;
+}
+
+export interface SessionTurnContextArtifactCreateData {
+    turn_id: number;
+    capsule_id: string;
+    artifact_kind: 'screenshot' | 'metadata';
+    artifact_path?: string | null;
+    mime_type?: string | null;
+    width?: number | null;
+    height?: number | null;
+    captured_at: string;
+    metadata_json?: string | null;
+    created_at?: string;
+}
+
 // ==================== LLM 元数据 ====================
 
 export interface LlmMetadataEntity {

@@ -4,6 +4,7 @@ import {
     type AttachmentIndex,
     inspectAttachments,
 } from '@/services/AgentService/infrastructure/attachments';
+import type { DesktopContextPromptMetadata } from '@/services/DesktopContextService/types';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import {
@@ -25,6 +26,31 @@ const BACKGROUND_MODE_PROMPT = [
     '当前任务允许在前台页面失焦、隐藏或切换会话后继续运行。',
     '除非用户主动取消，或工具审批明确被拒绝，否则应继续完成原始任务。',
 ].join('\n');
+
+function buildDesktopContextToolPrompt(context: DesktopContextPromptMetadata): string {
+    const screenshotHint = context.screenshotAvailable
+        ? `本轮已有一张经用户批准后捕获的桌面截图${context.screenshotPersisted ? '并已持久化' : ''}${
+              context.screenshotWidth && context.screenshotHeight
+                  ? `，尺寸 ${context.screenshotWidth}x${context.screenshotHeight}`
+                  : ''
+          }。如需图片文件路径，调用 \`builtin__get_desktop_context\` 并传入 \`include: ['screenshot.image']\`。`
+        : "如果需要屏幕截图，调用 `builtin__get_desktop_context` 并传入 `include: ['screenshot.image']`；TouchAI 会先请求用户批准，批准后再捕获并持久化截图。";
+    const selectedTextHint = context.selectedTextSummary?.trim()
+        ? [
+              `已默认注入脱敏后的选中文本摘要：${context.selectedTextSummary}`,
+              "如需选中文本原文，调用 `builtin__get_desktop_context` 并传入 `include: ['selected_text.full_text']`；TouchAI 会先请求用户批准，批准后再返回原始完整文本。",
+          ].join('\n')
+        : "本轮没有可默认注入的选中文本摘要。如用户问题需要原始选中文本，可调用 `builtin__get_desktop_context` 并传入 `include: ['selected_text.full_text']`。";
+
+    return [
+        `本轮请求绑定了一份只读桌面上下文胶囊：${context.capsuleId}。`,
+        `上下文摘要：${context.summary}`,
+        selectedTextHint,
+        screenshotHint,
+        '如果用户的问题需要理解呼出 TouchAI 前的桌面、前台窗口、剪贴板或截图，请调用 `builtin__get_desktop_context` 读取；剪贴板、截图和选中文本原文字段都需要用户批准后才会读取或捕获。',
+        '不要假设桌面上下文已经完整出现在 prompt 中；不要执行点击、输入、滚动、聚焦或控制外部应用等 computer use 行为。',
+    ].join('\n');
+}
 
 const PROMPT_SOURCE_ORDER: PromptFragmentSource[] = [
     'override',
@@ -50,6 +76,7 @@ interface ComposePromptSnapshotOptions {
     mode?: string[];
     feature?: string[];
     userAppend?: string[];
+    desktopContext?: DesktopContextPromptMetadata;
 }
 
 function buildFragments(source: PromptFragmentSource, contents: string[]): PromptFragment[] {
@@ -101,7 +128,12 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
             'mode',
             options.mode ?? (executionMode === 'background' ? [BACKGROUND_MODE_PROMPT] : [])
         ),
-        feature: buildFragments('feature', options.feature ?? []),
+        feature: buildFragments('feature', [
+            ...(options.feature ?? []),
+            ...(options.desktopContext
+                ? [buildDesktopContextToolPrompt(options.desktopContext)]
+                : []),
+        ]),
         user_append: buildFragments('user_append', options.userAppend ?? []),
     };
 
@@ -111,6 +143,7 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
         fragments: PROMPT_SOURCE_ORDER.flatMap((source) => fragmentsBySource[source]),
         userPrompt: options.prompt,
         attachments: await summarizeAttachments(options.attachments ?? []),
+        ...(options.desktopContext ? { desktopContext: options.desktopContext } : {}),
     };
 }
 
@@ -130,6 +163,7 @@ export async function composePromptSnapshot(
         fragments: assembly.fragments,
         userPrompt: assembly.userPrompt,
         attachments: assembly.attachments,
+        ...(assembly.desktopContext ? { desktopContext: assembly.desktopContext } : {}),
         systemPrompt: assembly.fragments
             .map((fragment) => fragment.content)
             .join('\n\n')

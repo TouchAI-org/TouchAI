@@ -78,6 +78,7 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'read',
     'setting',
     'web_fetch',
+    'get_desktop_context',
     'show_widget',
     'visualize_read_me',
 ]);
@@ -103,6 +104,10 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
 
     if (toolId === 'web_fetch') {
         return t('settings.builtInTools.summary.webFetch');
+    }
+
+    if (toolId === 'get_desktop_context') {
+        return t('settings.builtInTools.summary.desktopContext');
     }
 
     if (toolId === 'upgrade_model') {

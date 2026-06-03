@@ -2,6 +2,7 @@ import { autostart } from './autostart';
 import { builtInTools } from './builtInTools';
 import { clipboard } from './clipboard';
 import { database } from './database';
+import { desktopContext } from './desktopContext';
 import { log } from './log';
 import * as mcp from './mcp';
 import { paths } from './paths';
@@ -45,6 +46,7 @@ export {
     builtInTools,
     clipboard,
     database,
+    desktopContext,
     log,
     mcp,
     paths,
@@ -63,6 +65,7 @@ export const native = {
     builtInTools,
     log,
     database,
+    desktopContext,
     paths,
     mcp,
     quickSearch,

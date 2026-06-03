@@ -371,6 +371,44 @@ export const sessionTurnAttempts = sqliteTable(
 );
 
 /**
+ * 会话轮次绑定的桌面上下文工件。
+ *
+ * 这是 read-only desktop context 的专用 provenance 关系，不复用 message attachments，
+ * 避免把自动捕获的 invocation 截图误表示为用户手动上传附件。
+ */
+export const sessionTurnContextArtifacts = sqliteTable(
+    'session_turn_context_artifacts',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        turn_id: integer('turn_id')
+            .notNull()
+            .references(() => sessionTurns.id, { onDelete: 'cascade' }),
+        capsule_id: text('capsule_id').notNull(),
+        artifact_kind: text('artifact_kind', {
+            enum: ['screenshot', 'metadata'],
+        }).notNull(),
+        artifact_path: text('artifact_path'),
+        mime_type: text('mime_type'),
+        width: integer('width'),
+        height: integer('height'),
+        captured_at: text('captured_at').notNull(),
+        metadata_json: text('metadata_json'),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        index('session_turn_context_artifacts_turn_id_idx').on(table.turn_id),
+        index('session_turn_context_artifacts_capsule_id_idx').on(table.capsule_id),
+        uniqueIndex('session_turn_context_artifacts_turn_capsule_kind_unique').on(
+            table.turn_id,
+            table.capsule_id,
+            table.artifact_kind
+        ),
+    ]
+);
+
+/**
  * LLM 元数据表
  */
 export const llmMetadata = sqliteTable('llm_metadata', {
@@ -600,6 +638,10 @@ export type SessionTurnUpdate = Partial<NewSessionTurn>;
 export type SessionTurnAttempt = typeof sessionTurnAttempts.$inferSelect;
 export type NewSessionTurnAttempt = typeof sessionTurnAttempts.$inferInsert;
 export type SessionTurnAttemptUpdate = Partial<NewSessionTurnAttempt>;
+
+export type SessionTurnContextArtifact = typeof sessionTurnContextArtifacts.$inferSelect;
+export type NewSessionTurnContextArtifact = typeof sessionTurnContextArtifacts.$inferInsert;
+export type SessionTurnContextArtifactUpdate = Partial<NewSessionTurnContextArtifact>;
 
 export type LlmMetadata = typeof llmMetadata.$inferSelect;
 export type NewLlmMetadata = typeof llmMetadata.$inferInsert;

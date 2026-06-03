@@ -6,6 +6,11 @@ import type { SessionTurnEntity } from '@database/types';
 import { t } from '@/i18n';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import {
+    type BoundDesktopContext,
+    buildDesktopContextPromptMetadata,
+    desktopContextService,
+} from '@/services/DesktopContextService';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
@@ -136,6 +141,7 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;
     promptSnapshot?: PromptSnapshot;
+    desktopContextCapsuleId?: string | null;
     environment?: ConversationRuntimeEnvironment;
 }
 
@@ -150,6 +156,7 @@ interface RuntimeContext {
     initialCheckpoint: AttemptCheckpoint;
     persister: PersistenceProjector;
     requestStartRecordPromise: Promise<void>;
+    desktopContext: BoundDesktopContext | null;
 }
 
 /**
@@ -225,6 +232,9 @@ export class AiConversationRuntime {
         if (attachments.length > 0) {
             await this.prepareAttachmentsForTransport(attachments);
         }
+        const desktopContext = await desktopContextService.bindCapsule(
+            this.options.desktopContextCapsuleId
+        );
         // prompt 快照在整个 turn 生命周期内只生成一次。
         // 后续 retry、tool iteration、checkpoint resume 都必须复用它。
         const promptSnapshot =
@@ -234,6 +244,7 @@ export class AiConversationRuntime {
                 attachments,
                 executionMode: this.options.executionMode ?? 'foreground',
                 inputSnapshot: this.options.inputSnapshot,
+                desktopContext: buildDesktopContextPromptMetadata(desktopContext),
             }));
         const modelLanguageContext =
             promptSnapshot.modelLanguageContext ?? getCurrentModelLanguageContext();
@@ -265,6 +276,7 @@ export class AiConversationRuntime {
             taskId: this.options.taskId ?? crypto.randomUUID(),
             executionMode: this.options.executionMode ?? 'foreground',
             promptSnapshot,
+            desktopContext,
             maxRetries: MAX_REQUEST_RETRIES,
             buildSessionTitle,
         });
@@ -298,6 +310,7 @@ export class AiConversationRuntime {
             initialCheckpoint,
             persister,
             requestStartRecordPromise,
+            desktopContext,
         };
     }
 
@@ -420,6 +433,7 @@ export class AiConversationRuntime {
                     onTurnEvent: this.options.onTurnEvent,
                     requestToolApproval: this.options.requestToolApproval,
                     requestUserQuestions: this.options.requestUserQuestions,
+                    desktopContext: context.desktopContext,
                 });
 
                 await context.requestStartRecordPromise;

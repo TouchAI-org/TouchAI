@@ -15,6 +15,10 @@ import {
     type SessionTurnAttemptHistoryRow,
 } from '@database/queries/sessionTurnAttempts';
 import {
+    findSessionTurnContextArtifactsBySessionId,
+    type SessionTurnContextArtifactHistoryRow,
+} from '@database/queries/sessionTurnContextArtifacts';
+import {
     findLatestModelBySessionId,
     findSessionTurnsBySessionId,
     type SessionTurnHistoryRow,
@@ -26,6 +30,7 @@ export interface SessionData {
     messages: MessageRow[];
     turns: SessionTurnHistoryRow[];
     attempts: SessionTurnAttemptHistoryRow[];
+    contextArtifacts: SessionTurnContextArtifactHistoryRow[];
     model: ModelWithProvider | null;
 }
 
@@ -70,10 +75,11 @@ export async function getSessionData(sessionId: number): Promise<SessionData> {
         throw new Error(`Session ${sessionId} not found`);
     }
 
-    const [messages, turns, attempts, model] = await Promise.all([
+    const [messages, turns, attempts, contextArtifacts, model] = await Promise.all([
         findMessagesBySessionId(sessionId),
         findSessionTurnsBySessionId(sessionId),
         findSessionTurnAttemptsBySessionId(sessionId),
+        findSessionTurnContextArtifactsBySessionId(sessionId),
         findLatestModelBySessionId({ sessionId }),
     ]);
 
@@ -82,6 +88,7 @@ export async function getSessionData(sessionId: number): Promise<SessionData> {
         messages,
         turns,
         attempts,
+        contextArtifacts,
         model,
     };
 }

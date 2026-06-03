@@ -56,6 +56,7 @@ export interface StartSessionTaskOptions {
     providerId?: number;
     attachments?: AttachmentIndex[];
     inputSnapshot?: InputHistorySnapshot;
+    desktopContextCapsuleId?: string | null;
     executionMode?: TaskExecutionMode;
     signal?: AbortSignal;
 }

@@ -329,6 +329,7 @@ class SessionTaskCenter {
                 providerId: options.providerId,
                 attachments: options.attachments,
                 inputSnapshot: options.inputSnapshot,
+                desktopContextCapsuleId: options.desktopContextCapsuleId,
                 executionMode: options.executionMode ?? 'foreground',
                 environment: runtimeEnvironmentResult.value,
                 signal: abortController.signal,
