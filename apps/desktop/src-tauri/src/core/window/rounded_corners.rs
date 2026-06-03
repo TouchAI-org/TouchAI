@@ -23,7 +23,7 @@ mod win {
         Graphics::Dwm::{
             DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
         },
-        Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn},
+        Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN},
         UI::WindowsAndMessaging::GetClientRect,
     };
 
@@ -115,13 +115,31 @@ mod win {
         Ok(())
     }
 
+    fn clear_window_region(hwnd: HWND) -> Result<(), String> {
+        let no_region = HRGN(std::ptr::null_mut());
+
+        unsafe {
+            if SetWindowRgn(hwnd, no_region, true) == 0 {
+                return Err(format!(
+                    "Failed to clear rounded window region: {}",
+                    windows::core::Error::from_win32()
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn apply_window_corner_style<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
         if !should_manage_window(window) {
             return Ok(());
         }
 
         let hwnd = window_hwnd(window)?;
-        set_dwm_corner_preference(hwnd).or_else(|_| set_window_region_rounded_corners(hwnd))
+        match set_dwm_corner_preference(hwnd) {
+            Ok(()) => clear_window_region(hwnd),
+            Err(_) => set_window_region_rounded_corners(hwnd),
+        }
     }
 
     pub fn sync_window_corner_style<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
