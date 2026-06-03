@@ -56,9 +56,7 @@
     "plugins": {
         "deep-link": {
             "desktop": {
-                "schemes": [
-                    "touchai"
-                ]
+                "schemes": ["touchai"]
             }
         }
     },
