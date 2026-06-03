@@ -352,8 +352,7 @@ function parseRequestedTimeoutMs(toolArgs: Record<string, unknown>): {
     sanitizedToolArgs: Record<string, unknown>;
 } {
     const meta = toolArgs[TOOL_TIMEOUT_META_KEY];
-    const hasTimeoutMeta = TOOL_TIMEOUT_META_KEY in toolArgs;
-    const sanitizedToolArgs = hasTimeoutMeta ? { ...toolArgs } : toolArgs;
+    const sanitizedToolArgs = TOOL_TIMEOUT_META_KEY in toolArgs ? { ...toolArgs } : toolArgs;
     if (TOOL_TIMEOUT_META_KEY in sanitizedToolArgs) {
         delete sanitizedToolArgs[TOOL_TIMEOUT_META_KEY];
     }
