@@ -28,7 +28,7 @@ const FONT_CDN_URLS: &[&str] = &[
 const DOWNLOAD_TIMEOUT_SECS: u64 = 30;
 
 /// 最大重试轮次（每轮会尝试所有 CDN）
-const MAX_RETRY_ROUNDS: usize = 2;
+const MAX_RETRY_ROUNDS: usize = 5;
 
 /// 获取字体文件路径
 fn get_font_path() -> Result<PathBuf, String> {
@@ -272,8 +272,8 @@ pub async fn initialize_font(app_handle: tauri::AppHandle) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::{
-        is_valid_font_file, replace_font_file, validate_font_data, FONT_EXPECTED_SHA256,
-        FONT_FILENAME,
+        is_valid_font_file, replace_font_file, validate_font_data, FONT_CDN_URLS,
+        FONT_EXPECTED_SHA256, FONT_FILENAME, MAX_RETRY_ROUNDS,
     };
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
@@ -341,6 +341,18 @@ mod tests {
         let error = validate_font_data(&data).expect_err("mutated font should fail hash check");
 
         assert!(error.contains("expected sha256"));
+    }
+
+    #[test]
+    fn font_download_retry_budget_covers_multiple_cdn_rounds() {
+        assert!(
+            MAX_RETRY_ROUNDS >= 5,
+            "font download should retry each CDN at least 5 rounds"
+        );
+        assert!(
+            MAX_RETRY_ROUNDS * FONT_CDN_URLS.len() >= 10,
+            "font download should have at least 10 total CDN attempts"
+        );
     }
 
     #[tokio::test]
