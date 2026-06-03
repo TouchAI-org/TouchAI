@@ -54,3 +54,349 @@ pub struct BuiltInBashExecutionResponse {
     #[serde(default)]
     pub compressed: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerCapability {
+    NativeTree,
+    Screenshot,
+    BackgroundActions,
+    VisionFallback,
+    BrowserDom,
+    ExternalProvider,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerObservationMode {
+    Tree,
+    Screenshot,
+    TreeAndScreenshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerObservationInclude {
+    Displays,
+    Windows,
+    Tree,
+    Screenshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerExecutionMode {
+    Foreground,
+    Background,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerRoute {
+    Auto,
+    #[serde(rename = "win32.send_input")]
+    Win32SendInput,
+    #[serde(rename = "win32.message")]
+    Win32Message,
+    #[serde(rename = "screen.capture")]
+    ScreenCapture,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerActionOperation {
+    Click,
+    DoubleClick,
+    RightClick,
+    Move,
+    Drag,
+    Scroll,
+    TypeText,
+    PressKey,
+    Hotkey,
+    Wait,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerLane {
+    NativeTree,
+    VisionFallback,
+    BrowserDom,
+    ExternalProvider,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerSessionStatus {
+    Ready,
+    Unsupported,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerActionStatus {
+    Success,
+    Unsupported,
+    Blocked,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerWindowTarget {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerElementTarget {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerCoordinateTarget {
+    pub x: i32,
+    pub y: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerTarget {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<ComputerWindowTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element: Option<ComputerElementTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coordinates: Option<ComputerCoordinateTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerSessionRequest {
+    pub session_id: String,
+    pub target: ComputerTarget,
+    #[serde(default)]
+    pub capabilities: Vec<ComputerCapability>,
+    #[serde(default)]
+    pub provider_hints: Vec<String>,
+    pub reason: String,
+    pub timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerCapabilitySnapshot {
+    pub platform: String,
+    pub lanes: Vec<ComputerLane>,
+    pub routes: Vec<ComputerRoute>,
+    pub background: ComputerBackgroundCapability,
+    pub grounding: ComputerGroundingCapability,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerBackgroundCapability {
+    pub supported: bool,
+    pub routes: Vec<ComputerRoute>,
+    pub limitations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerGroundingCapability {
+    pub tree: bool,
+    pub screenshot: bool,
+    pub click_prediction: bool,
+    pub external_providers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerSessionResponse {
+    pub session_id: String,
+    pub status: ComputerSessionStatus,
+    pub capabilities: ComputerCapabilitySnapshot,
+    pub target: ComputerTarget,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerObservationRequest {
+    pub session_id: String,
+    pub mode: ComputerObservationMode,
+    pub target: ComputerTarget,
+    #[serde(default)]
+    pub include: Vec<ComputerObservationInclude>,
+    pub reason: String,
+    pub timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerDisplaySnapshot {
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub scale_factor: f64,
+    pub primary: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerWindowSnapshot {
+    pub element_id: String,
+    pub title: String,
+    pub process_name: Option<String>,
+    pub bounds: ComputerBounds,
+    pub focused: bool,
+    pub visible: bool,
+    pub native: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerElementSnapshot {
+    pub element_id: String,
+    pub role: String,
+    pub name: String,
+    pub bounds: Option<ComputerBounds>,
+    pub states: Vec<String>,
+    pub value: Option<String>,
+    pub children: Vec<ComputerElementSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerObservationTree {
+    pub lane: ComputerLane,
+    pub elements: Vec<ComputerElementSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerScreenshotSnapshot {
+    pub format: String,
+    pub width: i32,
+    pub height: i32,
+    pub data_base64: Option<String>,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerObservationResponse {
+    pub observation_id: String,
+    pub session_id: String,
+    pub platform: String,
+    pub target: ComputerTarget,
+    pub displays: Vec<ComputerDisplaySnapshot>,
+    pub windows: Vec<ComputerWindowSnapshot>,
+    pub tree: Option<ComputerObservationTree>,
+    pub screenshot: Option<ComputerScreenshotSnapshot>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerActionOptions {
+    #[serde(default)]
+    pub allow_background: bool,
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default)]
+    pub post_action_observe: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerActionRequest {
+    pub session_id: String,
+    pub operation: ComputerActionOperation,
+    pub target: ComputerTarget,
+    pub value: Option<String>,
+    pub execution_mode: ComputerExecutionMode,
+    pub reason: String,
+    pub route_hint: ComputerRoute,
+    pub timeout_ms: u64,
+    #[serde(default)]
+    pub options: ComputerActionOptions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerResolvedTarget {
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub element_id: Option<String>,
+    pub window_id: Option<String>,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerActionResponse {
+    pub action_id: String,
+    pub session_id: String,
+    pub operation: ComputerActionOperation,
+    pub route: ComputerRoute,
+    pub lane: ComputerLane,
+    pub background_safe: bool,
+    pub cursor_moved: bool,
+    pub foreground_changed: bool,
+    pub target_resolved: ComputerResolvedTarget,
+    pub status: ComputerActionStatus,
+    pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub post_action_observation: Option<ComputerObservationResponse>,
+}
