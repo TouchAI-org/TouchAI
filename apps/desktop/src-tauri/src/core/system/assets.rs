@@ -5,7 +5,7 @@
 use log::{error, info, warn};
 use sha2::{Digest, Sha256};
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -42,7 +42,7 @@ async fn font_exists() -> Result<bool, String> {
     is_valid_font_file(&font_path).await
 }
 
-async fn is_valid_font_file(font_path: &std::path::Path) -> Result<bool, String> {
+async fn is_valid_font_file(font_path: &Path) -> Result<bool, String> {
     let metadata = match fs::metadata(&font_path).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
@@ -98,6 +98,41 @@ fn validate_font_data(data: &[u8]) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(windows)]
+async fn replace_font_file(source_path: &Path, font_path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    fn wide_path(path: &Path) -> Vec<u16> {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let source_wide = wide_path(source_path);
+    let font_wide = wide_path(font_path);
+
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source_wide.as_ptr()),
+            PCWSTR(font_wide.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    }
+    .map_err(|e| format!("Failed to replace font file: {e}"))
+}
+
+#[cfg(not(windows))]
+async fn replace_font_file(source_path: &Path, font_path: &Path) -> Result<(), String> {
+    fs::rename(source_path, font_path)
+        .await
+        .map_err(|e| format!("Failed to replace font file: {}", e))
 }
 
 /// 从指定 URL 下载文件
@@ -171,20 +206,7 @@ async fn save_font(data: &[u8]) -> Result<(), String> {
             .map_err(|e| format!("Failed to flush temporary font file: {}", e))?;
     }
 
-    match fs::remove_file(&font_path).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(format!(
-                "Failed to remove existing font file '{}': {error}",
-                font_path.display()
-            ));
-        }
-    }
-
-    fs::rename(&temp_font_path, &font_path)
-        .await
-        .map_err(|e| format!("Failed to replace font file: {}", e))?;
+    replace_font_file(&temp_font_path, &font_path).await?;
 
     info!("Font saved to: {}", font_path.display());
     Ok(())
@@ -249,7 +271,10 @@ pub async fn initialize_font(app_handle: tauri::AppHandle) -> Result<(), String>
 
 #[cfg(test)]
 mod tests {
-    use super::{is_valid_font_file, validate_font_data, FONT_EXPECTED_SHA256, FONT_FILENAME};
+    use super::{
+        is_valid_font_file, replace_font_file, validate_font_data, FONT_EXPECTED_SHA256,
+        FONT_FILENAME,
+    };
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
     use tokio::fs;
@@ -316,5 +341,50 @@ mod tests {
         let error = validate_font_data(&data).expect_err("mutated font should fail hash check");
 
         assert!(error.contains("expected sha256"));
+    }
+
+    #[tokio::test]
+    async fn replace_font_file_keeps_existing_font_when_source_is_missing() {
+        let root = tempdir().expect("tempdir");
+        let source_path = root.path().join("missing-font.tmp");
+        let font_path = root.path().join(FONT_FILENAME);
+        fs::write(&font_path, b"existing font")
+            .await
+            .expect("write existing font");
+
+        let error = replace_font_file(&source_path, &font_path)
+            .await
+            .expect_err("missing source should fail");
+
+        assert!(error.contains("Failed to replace font file"));
+        assert_eq!(
+            fs::read(&font_path).await.expect("read existing font"),
+            b"existing font"
+        );
+    }
+
+    #[tokio::test]
+    async fn replace_font_file_commits_new_font_over_existing_font() {
+        let root = tempdir().expect("tempdir");
+        let source_path = root.path().join("font.tmp");
+        let font_path = root.path().join(FONT_FILENAME);
+        fs::write(&source_path, b"new font")
+            .await
+            .expect("write replacement font");
+        fs::write(&font_path, b"existing font")
+            .await
+            .expect("write existing font");
+
+        replace_font_file(&source_path, &font_path)
+            .await
+            .expect("replace font");
+
+        assert_eq!(
+            fs::read(&font_path).await.expect("read replaced font"),
+            b"new font"
+        );
+        assert!(!fs::try_exists(&source_path)
+            .await
+            .expect("check source path"));
     }
 }
