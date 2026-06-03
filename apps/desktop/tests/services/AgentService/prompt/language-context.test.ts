@@ -61,6 +61,7 @@ describe('prompt current language context', () => {
                 boundAt: '2026-06-02T12:00:05.000Z',
                 summary: 'Visual Studio Code focused with selected Rust error text.',
                 activeWindowTitle: 'main.rs - TouchAI',
+                selectedTextSummary: 'panic at src/main.rs:42 with token=[REDACTED:secret]',
                 selectedTextLength: 23,
                 clipboardTextLength: 16,
                 screenshotAvailable: true,
@@ -81,8 +82,12 @@ describe('prompt current language context', () => {
         expect(snapshot.systemPrompt).toContain(
             '本轮已有一张经用户批准后捕获的桌面截图并已持久化，尺寸 1200x800'
         );
+        expect(snapshot.systemPrompt).toContain(
+            '已默认注入脱敏后的选中文本摘要：panic at src/main.rs:42 with token=[REDACTED:secret]'
+        );
         expect(snapshot.systemPrompt).toContain("include: ['screenshot.image']");
         expect(snapshot.systemPrompt).toContain('builtin__get_desktop_context');
+        expect(snapshot.systemPrompt).toContain("include: ['selected_text.full_text']");
     });
 
     it('builds the current system and tool language context from the active locale', () => {

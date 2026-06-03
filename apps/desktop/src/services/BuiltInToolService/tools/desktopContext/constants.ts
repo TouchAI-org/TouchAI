@@ -7,8 +7,8 @@ export const DESKTOP_CONTEXT_TOOL_NAME = 'GetDesktopContext';
 export const DESKTOP_CONTEXT_TOOL_DESCRIPTION = [
     'Read the immutable desktop context capsule bound to the current user turn.',
     'This is read-only context, not computer use: the tool cannot click, type, focus, scroll, or control apps.',
-    'Use include as an extensible array. By default only safe metadata is returned: summary, active_window, capabilities, and redactions.',
-    'Sensitive fields such as selected text, clipboard content, and screenshots require explicit include values and user approval before TouchAI reads or captures them.',
+    'Use include as an extensible array. By default safe context is returned: summary, active_window, redacted selected_text.summary, capabilities, and redactions.',
+    'Sensitive fields such as selected_text.full_text, clipboard content, and screenshots require explicit include values and user approval before TouchAI reads or captures them.',
 ].join(' ');
 
 export const DESKTOP_CONTEXT_INCLUDE_VALUES = [
@@ -45,7 +45,7 @@ export const DESKTOP_CONTEXT_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema']
                 enum: [...DESKTOP_CONTEXT_INCLUDE_VALUES],
             },
             description:
-                'Fields to include. Defaults to safe fields only: summary, active_window, capabilities, and redactions. Sensitive values selected_text.*, clipboard.*, and screenshot.* require user approval and are read or captured only after approval.',
+                'Fields to include. Defaults to safe fields only: summary, active_window, redacted selected_text.summary, capabilities, and redactions. Sensitive values selected_text.full_text, clipboard.*, and screenshot.* require user approval and are read or captured only after approval.',
         },
         screenshotTarget: {
             type: 'string',

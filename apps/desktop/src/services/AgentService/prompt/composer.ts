@@ -35,12 +35,19 @@ function buildDesktopContextToolPrompt(context: DesktopContextPromptMetadata): s
                   : ''
           }。如需图片文件路径，调用 \`builtin__get_desktop_context\` 并传入 \`include: ['screenshot.image']\`。`
         : "如果需要屏幕截图，调用 `builtin__get_desktop_context` 并传入 `include: ['screenshot.image']`；TouchAI 会先请求用户批准，批准后再捕获并持久化截图。";
+    const selectedTextHint = context.selectedTextSummary?.trim()
+        ? [
+              `已默认注入脱敏后的选中文本摘要：${context.selectedTextSummary}`,
+              "如需选中文本原文，调用 `builtin__get_desktop_context` 并传入 `include: ['selected_text.full_text']`；TouchAI 会先请求用户批准，批准后再返回原始完整文本。",
+          ].join('\n')
+        : "本轮没有可默认注入的选中文本摘要。如用户问题需要原始选中文本，可调用 `builtin__get_desktop_context` 并传入 `include: ['selected_text.full_text']`。";
 
     return [
         `本轮请求绑定了一份只读桌面上下文胶囊：${context.capsuleId}。`,
         `上下文摘要：${context.summary}`,
+        selectedTextHint,
         screenshotHint,
-        '如果用户的问题需要理解呼出 TouchAI 前的桌面、前台窗口、选中文本、剪贴板或截图，请调用 `builtin__get_desktop_context` 读取；选中文本、剪贴板和截图字段都需要用户批准后才会读取或捕获。',
+        '如果用户的问题需要理解呼出 TouchAI 前的桌面、前台窗口、剪贴板或截图，请调用 `builtin__get_desktop_context` 读取；剪贴板、截图和选中文本原文字段都需要用户批准后才会读取或捕获。',
         '不要假设桌面上下文已经完整出现在 prompt 中；不要执行点击、输入、滚动、聚焦或控制外部应用等 computer use 行为。',
     ].join('\n');
 }

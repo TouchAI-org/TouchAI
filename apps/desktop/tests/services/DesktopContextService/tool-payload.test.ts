@@ -27,8 +27,8 @@ const context: BoundDesktopContext = {
     selectedText: {
         available: true,
         source: 'win32-edit-control',
-        text: 'selected compiler error',
-        textLength: 23,
+        text: 'selected compiler error with sk-live-secret-token and Authorization: Bearer abcdefghijklmnopqrstuvwxyz',
+        textLength: 102,
         truncated: false,
     },
     clipboard: {
@@ -63,7 +63,7 @@ describe('buildDesktopContextToolPayload', () => {
         });
     });
 
-    it('uses a safe default include set without selected text, clipboard, or screenshot contents', () => {
+    it('uses a safe default include set with redacted selected text but no clipboard or screenshot contents', () => {
         const payload = buildDesktopContextToolPayload(context);
 
         expect(payload).toMatchObject({
@@ -71,10 +71,26 @@ describe('buildDesktopContextToolPayload', () => {
             capsuleId: 'ctx-1',
             summary: context.summary,
             activeWindow: context.activeWindow,
+            selectedText: {
+                available: true,
+                source: 'win32-edit-control',
+                textSummary:
+                    'selected compiler error with [REDACTED:secret] and Authorization: [REDACTED:secret]',
+                textLength: 102,
+                truncated: false,
+            },
             capabilities: context.capabilities,
-            redactions: context.redactions,
         });
-        expect(payload).not.toHaveProperty('selectedText');
+        expect(payload.redactions).toEqual(
+            expect.arrayContaining([
+                ...context.redactions,
+                {
+                    field: 'selectedText.textSummary',
+                    reason: 'Sensitive-looking selected text was redacted before default prompt/tool exposure.',
+                },
+            ])
+        );
+        expect(payload.selectedText).not.toHaveProperty('fullText');
         expect(payload).not.toHaveProperty('clipboard');
         expect(payload).not.toHaveProperty('screenshot');
     });
@@ -87,8 +103,9 @@ describe('buildDesktopContextToolPayload', () => {
         expect(payload.selectedText).toMatchObject({
             available: true,
             source: 'win32-edit-control',
-            textSummary: 'selected compiler error',
-            textLength: 23,
+            textSummary:
+                'selected compiler error with [REDACTED:secret] and Authorization: [REDACTED:secret]',
+            textLength: 102,
             truncated: false,
         });
         expect(payload.selectedText).not.toHaveProperty('fullText');
@@ -127,7 +144,8 @@ describe('buildDesktopContextToolPayload', () => {
 
         expect(payload).not.toHaveProperty('summary');
         expect(payload.selectedText).toMatchObject({
-            fullText: 'selected compiler error',
+            fullText:
+                'selected compiler error with sk-live-secret-token and Authorization: Bearer abcdefghijklmnopqrstuvwxyz',
         });
         expect(payload.clipboard).toMatchObject({
             fullText: 'clipboard secret',
@@ -142,6 +160,8 @@ describe('buildDesktopContextToolPayload', () => {
         expect(buildDesktopContextPromptMetadata(context)).toMatchObject({
             capsuleId: 'ctx-1',
             summary: 'Visual Studio Code focused with selected Rust error text.',
+            selectedTextSummary:
+                'selected compiler error with [REDACTED:secret] and Authorization: [REDACTED:secret]',
             screenshotAvailable: true,
             screenshotPersisted: true,
             screenshotWidth: 1200,

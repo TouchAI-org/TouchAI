@@ -71,10 +71,22 @@ export type DesktopContextToolPayload =
 const DEFAULT_INCLUDE: DesktopContextInclude[] = [
     'summary',
     'active_window',
+    'selected_text.summary',
     'capabilities',
     'redactions',
 ];
 const SELECTED_TEXT_SUMMARY_LIMIT = 500;
+const SELECTED_TEXT_REDACTION: DesktopContextRedaction = {
+    field: 'selectedText.textSummary',
+    reason: 'Sensitive-looking selected text was redacted before default prompt/tool exposure.',
+};
+
+const SECRET_PATTERNS: RegExp[] = [
+    /\b(authorization\s*:\s*)(?:bearer\s+)?[^\s"',;]+/gi,
+    /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|token|secret|password|passwd)\b(\s*[:=]\s*)["']?[^"'\s,;]+["']?/gi,
+    /\b(?:sk|pk|rk|xox[baprs]|gh[pousr]|github_pat|ta_live|tp)-[A-Za-z0-9_-]{10,}\b/g,
+    /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+];
 
 function normalizeInclude(include: unknown): Set<DesktopContextInclude> {
     if (!Array.isArray(include) || include.length === 0) {
@@ -103,6 +115,36 @@ function summarizeSelectedText(text: string | null): string | null {
     return `${chars.slice(0, SELECTED_TEXT_SUMMARY_LIMIT).join('')}...`;
 }
 
+function redactSelectedTextSummary(summary: string | null): string | null {
+    if (!summary) {
+        return summary;
+    }
+
+    return SECRET_PATTERNS.reduce((redacted, pattern) => {
+        pattern.lastIndex = 0;
+        return redacted.replace(pattern, (_match, prefix, separator) => {
+            if (typeof prefix === 'string' && typeof separator === 'string') {
+                return `${prefix}${separator}[REDACTED:secret]`;
+            }
+
+            if (typeof prefix === 'string' && prefix.toLowerCase().startsWith('authorization')) {
+                return `${prefix}[REDACTED:secret]`;
+            }
+
+            return '[REDACTED:secret]';
+        });
+    }, summary);
+}
+
+function selectedTextSummary(context: BoundDesktopContext): string | null {
+    return redactSelectedTextSummary(summarizeSelectedText(context.selectedText.text));
+}
+
+function selectedTextWasRedacted(context: BoundDesktopContext): boolean {
+    const summary = summarizeSelectedText(context.selectedText.text);
+    return summary !== null && redactSelectedTextSummary(summary) !== summary;
+}
+
 function selectedTextPayload(
     context: BoundDesktopContext,
     include: Set<DesktopContextInclude>
@@ -112,10 +154,11 @@ function selectedTextPayload(
     }
 
     const selectedText = context.selectedText;
+    const redactedSummary = selectedTextSummary(context);
     return {
         available: selectedText.available,
         source: selectedText.source,
-        textSummary: summarizeSelectedText(selectedText.text),
+        textSummary: redactedSummary,
         textLength: selectedText.textLength,
         truncated: selectedText.truncated,
         reason: selectedText.reason ?? null,
@@ -194,6 +237,12 @@ export function buildDesktopContextToolPayload(
     const selectedText = selectedTextPayload(context, include);
     const clipboard = clipboardPayload(context, include);
     const screenshot = screenshotPayload(context, include);
+    const redactions = has(include, 'redactions')
+        ? [
+              ...context.redactions,
+              ...(selectedTextWasRedacted(context) ? [SELECTED_TEXT_REDACTION] : []),
+          ]
+        : undefined;
 
     return {
         available: true,
@@ -207,7 +256,7 @@ export function buildDesktopContextToolPayload(
         ...(clipboard ? { clipboard } : {}),
         ...(screenshot ? { screenshot } : {}),
         ...(has(include, 'capabilities') ? { capabilities: context.capabilities } : {}),
-        ...(has(include, 'redactions') ? { redactions: context.redactions } : {}),
+        ...(redactions ? { redactions } : {}),
     };
 }
 
@@ -224,6 +273,7 @@ export function buildDesktopContextPromptMetadata(
         boundAt: context.boundAt,
         summary: context.summary,
         activeWindowTitle: context.activeWindow?.title ?? null,
+        selectedTextSummary: selectedTextSummary(context),
         selectedTextLength: context.selectedText.textLength,
         clipboardTextLength: context.clipboard.textLength,
         screenshotAvailable: context.screenshot.available,

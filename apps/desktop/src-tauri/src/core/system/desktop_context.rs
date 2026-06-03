@@ -159,9 +159,10 @@ impl DesktopContextRuntime {
         let active_window_capture = capture_active_window();
         let active_window = active_window_capture.value.clone();
         let clipboard = pending_clipboard(app_handle);
-        let selected_text = pending_selected_text();
+        let selected_text = capture_selected_text(active_window.as_ref());
         let screenshot = pending_screenshot();
-        let capabilities = build_initial_capabilities(&active_window_capture, &clipboard);
+        let capabilities =
+            build_initial_capabilities(&active_window_capture, &selected_text, &clipboard);
         let redactions = sensitive_redactions();
         let summary = build_summary(
             active_window.as_ref(),
@@ -420,13 +421,6 @@ fn selected_text_from_utf16_range(
         source,
         String::from_utf16_lossy(&text[start..end]),
     ))
-}
-
-fn pending_selected_text() -> DesktopContextSelectedText {
-    unavailable_selected_text(
-        Some(selected_text_provider_method()),
-        SENSITIVE_ACCESS_REQUIRES_APPROVAL,
-    )
 }
 
 fn capture_selected_text(
@@ -1348,11 +1342,12 @@ fn build_capabilities(
 
 fn build_initial_capabilities(
     active_window: &CaptureOutcome<DesktopContextActiveWindow>,
+    selected_text: &DesktopContextSelectedText,
     clipboard: &DesktopContextClipboard,
 ) -> Vec<DesktopContextCapability> {
     build_capabilities(
         active_window,
-        &pending_selected_text(),
+        selected_text,
         clipboard,
         &pending_screenshot(),
     )
@@ -1382,8 +1377,7 @@ fn sensitive_redactions() -> Vec<DesktopContextRedaction> {
     vec![
         DesktopContextRedaction {
             field: "selectedText.fullText".to_string(),
-            reason: "Only read after explicit user approval for selected_text.full_text."
-                .to_string(),
+            reason: "Selected text is captured at invocation, but raw full text is only returned after explicit user approval for selected_text.full_text.".to_string(),
         },
         DesktopContextRedaction {
             field: "clipboard.fullText".to_string(),

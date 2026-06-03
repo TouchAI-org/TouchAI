@@ -536,6 +536,7 @@ export const zhToEnTextMap = {
     桌面上下文读取确认: 'Confirm desktop context read',
     模型切换确认: 'Confirm model switch',
     选中文本: 'selected text',
+    选中文本原文: 'selected text full text',
     剪贴板: 'clipboard',
     屏幕截图: 'screenshot',
     敏感桌面上下文: 'sensitive desktop context',

@@ -27,7 +27,6 @@ import {
 
 const includeValues = new Set<string>(DESKTOP_CONTEXT_INCLUDE_VALUES);
 const sensitiveIncludeValues = new Set<DesktopContextInclude>([
-    'selected_text.summary',
     'selected_text.full_text',
     'clipboard.summary',
     'clipboard.full_text',
@@ -73,7 +72,7 @@ function describeSensitiveIncludes(request: DesktopContextToolRequest): string {
     const labels = new Set<string>();
     for (const item of request.include ?? []) {
         if (item.startsWith('selected_text.')) {
-            labels.add(tt('选中文本'));
+            labels.add(tt('选中文本原文'));
         } else if (item.startsWith('clipboard.')) {
             labels.add(tt('剪贴板'));
         } else if (item.startsWith('screenshot.')) {

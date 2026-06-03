@@ -105,6 +105,7 @@ export interface DesktopContextPromptMetadata {
     boundAt: string;
     summary: string;
     activeWindowTitle: string | null;
+    selectedTextSummary: string | null;
     selectedTextLength: number;
     clipboardTextLength: number;
     screenshotAvailable: boolean;

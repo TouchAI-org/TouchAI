@@ -31,12 +31,11 @@ const desktopContext: BoundDesktopContext = {
     summary: 'Visual Studio Code focused with a persisted desktop screenshot.',
     activeWindow: null,
     selectedText: {
-        available: false,
+        available: true,
         source: 'windows-uia-textpattern',
-        text: null,
-        textLength: 0,
+        text: 'selected text with token=secret-value',
+        textLength: 37,
         truncated: false,
-        reason: 'No selected text.',
     },
     clipboard: {
         available: false,
@@ -132,8 +131,12 @@ describe('desktopContextTool', () => {
         expect(payload).toMatchObject({
             available: true,
             summary: desktopContext.summary,
+            selectedText: {
+                available: true,
+                textSummary: 'selected text with token=[REDACTED:secret]',
+            },
         });
-        expect(payload).not.toHaveProperty('selectedText');
+        expect(payload.selectedText).not.toHaveProperty('fullText');
         expect(payload).not.toHaveProperty('clipboard');
         expect(payload).not.toHaveProperty('screenshot');
     });
@@ -150,7 +153,7 @@ describe('desktopContextTool', () => {
     });
 
     it.each([
-        ['selected text', ['selected_text.summary']],
+        ['selected text full text', ['selected_text.full_text']],
         ['clipboard', ['clipboard.summary']],
         ['screenshot', ['screenshot.metadata']],
     ])('requires approval before reading %s context', async (_label, include) => {
@@ -224,8 +227,8 @@ describe('desktopContextTool', () => {
 
         expect(JSON.parse(result.result)).toMatchObject({
             selectedText: {
-                available: false,
-                reason: 'No selected text.',
+                available: true,
+                fullText: 'selected text with token=secret-value',
             },
         });
         expect(result.desktopContextArtifact).toBeUndefined();
