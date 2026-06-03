@@ -53,7 +53,6 @@ export interface WidgetRenderer {
 
 type MorphdomFunction = typeof morphdom;
 const SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS = 8000;
-const SHOW_WIDGET_INERT_SCRIPT_TYPE = 'application/x-touchai-widget-script';
 const SHOW_WIDGET_CLASSIC_SCRIPT_TYPES = new Set([
     '',
     'application/ecmascript',
@@ -68,6 +67,14 @@ type ShowWidgetRenderPayload = Pick<
 
 interface ParsedRenderTree {
     fragment: DocumentFragment;
+    scripts: WidgetScriptSnapshot[];
+}
+
+interface WidgetScriptSnapshot {
+    attributes: Array<{ name: string; value: string }>;
+    source: string;
+    src: string;
+    type: string;
 }
 
 interface ShowWidgetRendererState {
@@ -244,6 +251,28 @@ export function isShowWidgetResourceUrlAllowed(resourceUrl: string): boolean {
         );
         if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
             return true;
+        }
+
+        return SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS.includes(
+            parsedUrl.hostname as (typeof SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS)[number]
+        );
+    } catch {
+        return false;
+    }
+}
+
+function isShowWidgetScriptUrlAllowed(scriptUrl: string): boolean {
+    if (!scriptUrl.trim()) {
+        return false;
+    }
+
+    try {
+        const parsedUrl = new URL(
+            scriptUrl,
+            typeof window === 'undefined' ? 'https://claude.ai/' : window.location.href
+        );
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+            return false;
         }
 
         return SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS.includes(
@@ -614,11 +643,26 @@ function normalizeWidgetActionAttributesIn(root: ParentNode): void {
     }
 }
 
-function normalizeWidgetActionAttributes(html: string): string {
-    const template = document.createElement('template');
-    template.innerHTML = html;
-    normalizeWidgetActionAttributesIn(template.content);
-    return template.innerHTML;
+function snapshotWidgetScript(scriptElement: HTMLScriptElement): WidgetScriptSnapshot {
+    return {
+        attributes: Array.from(scriptElement.attributes).map((attribute) => ({
+            name: attribute.name,
+            value: attribute.value,
+        })),
+        source: scriptElement.textContent ?? '',
+        src: scriptElement.src,
+        type: (scriptElement.getAttribute('type') ?? '').trim().toLowerCase(),
+    };
+}
+
+function extractWidgetScripts(root: ParentNode): WidgetScriptSnapshot[] {
+    const scripts = Array.from(root.querySelectorAll('script'));
+
+    for (const script of scripts) {
+        script.remove();
+    }
+
+    return scripts.map(snapshotWidgetScript);
 }
 
 function splitCssSelectorList(selectorList: string): string[] {
@@ -817,22 +861,32 @@ function parseRenderTree(
     const normalizedHtml = sanitizedHtml || '<div></div>';
     const isFullDocument = /<(?:!doctype|html|head|body)\b/i.test(normalizedHtml);
 
-    // Explicit <script> blocks are executable widget code. DOMPurify still
-    // sanitizes surrounding markup, event-handler attributes, and javascript:
-    // URIs before runInlineScripts re-inserts scripts in document order.
-    const purifyConfig = { ADD_TAGS: ['script', 'style'], FORCE_BODY: true };
+    // Explicit <script> blocks are executable widget code. Some legitimate
+    // widget scripts contain template strings with SVG/HTML snippets, which
+    // DOMPurify may drop as unsafe script text. Capture scripts before
+    // sanitizing markup, then run the captured classic scripts after the
+    // sanitized DOM has been mounted.
+    const purifyConfig = { ADD_TAGS: ['style'], FORCE_BODY: true };
+    let htmlForSanitizer: string;
+    let scripts: WidgetScriptSnapshot[];
 
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
         normalizeWidgetActionAttributesIn(parsed.body);
-        template.innerHTML = String(
-            DOMPurify.sanitize(parsed.body.innerHTML || '<div></div>', purifyConfig)
-        );
+        scripts = extractWidgetScripts(parsed.body);
+        htmlForSanitizer = parsed.body.innerHTML || '<div></div>';
     } else {
-        template.innerHTML = String(
-            DOMPurify.sanitize(normalizeWidgetActionAttributes(normalizedHtml), purifyConfig)
-        );
+        const preSanitizeTemplate = document.createElement('template');
+        preSanitizeTemplate.innerHTML = normalizedHtml;
+        normalizeWidgetActionAttributesIn(preSanitizeTemplate.content);
+        scripts = extractWidgetScripts(preSanitizeTemplate.content);
+        htmlForSanitizer = preSanitizeTemplate.innerHTML;
+    }
+
+    template.innerHTML = String(DOMPurify.sanitize(htmlForSanitizer, purifyConfig));
+
+    if (!isFullDocument) {
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
@@ -842,6 +896,7 @@ function parseRenderTree(
 
     return {
         fragment: template.content,
+        scripts,
     };
 }
 
@@ -898,8 +953,11 @@ function applyNodeAddedAnimation(node: Node): void {
     );
 }
 
-function copyScriptAttributes(source: HTMLScriptElement, target: HTMLScriptElement): void {
-    for (const attribute of Array.from(source.attributes)) {
+function copyScriptSnapshotAttributes(
+    source: WidgetScriptSnapshot,
+    target: HTMLScriptElement
+): void {
+    for (const attribute of source.attributes) {
         if (attribute.name === 'src') {
             continue;
         }
@@ -911,15 +969,11 @@ function copyScriptAttributes(source: HTMLScriptElement, target: HTMLScriptEleme
         target.async = false;
         target.src = source.src;
     } else {
-        target.textContent = source.textContent;
+        target.textContent = source.source;
     }
 }
 
-function waitForExternalScript(
-    node: HTMLScriptElement,
-    parent: Node,
-    oldNode: HTMLScriptElement
-): Promise<void> {
+function appendExternalScript(node: HTMLScriptElement, root: HTMLElement): Promise<void> {
     return new Promise<void>((resolve) => {
         const timeoutId = window.setTimeout(settle, SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS);
 
@@ -932,44 +986,16 @@ function waitForExternalScript(
 
         node.addEventListener('load', settle);
         node.addEventListener('error', settle);
-        parent.replaceChild(node, oldNode);
+        root.appendChild(node);
     });
 }
 
-function isClassicInlineScript(node: HTMLScriptElement): boolean {
-    if (node.src) {
+function isClassicInlineScript(script: WidgetScriptSnapshot): boolean {
+    if (script.src) {
         return false;
     }
 
-    return SHOW_WIDGET_CLASSIC_SCRIPT_TYPES.has(
-        (node.getAttribute('type') ?? '').trim().toLowerCase()
-    );
-}
-
-function replaceInlineScriptWithInertNode(
-    oldNode: HTMLScriptElement,
-    parent: Node
-): HTMLScriptElement {
-    const newNode = document.createElement('script');
-
-    for (const attribute of Array.from(oldNode.attributes)) {
-        if (attribute.name === 'src') {
-            continue;
-        }
-
-        if (attribute.name === 'type') {
-            newNode.setAttribute('data-touchai-widget-original-type', attribute.value);
-            continue;
-        }
-
-        newNode.setAttribute(attribute.name, attribute.value);
-    }
-
-    newNode.type = SHOW_WIDGET_INERT_SCRIPT_TYPE;
-    newNode.textContent = oldNode.textContent;
-    parent.replaceChild(newNode, oldNode);
-
-    return newNode;
+    return SHOW_WIDGET_CLASSIC_SCRIPT_TYPES.has(script.type);
 }
 
 function escapeWidgetDocumentIdSelectorValue(value: string): string {
@@ -1043,12 +1069,13 @@ function executeInlineWidgetScript(source: string, root: HTMLElement): void {
 /**
  * 外部脚本走浏览器加载流程，inline classic script 由 runtime 显式执行一次。
  *
- * 部分 WebView/测试环境不会稳定执行动态插入的 inline script，因此这里先把脚本
- * 替换成 inert 节点避免宿主二次执行，再用当前 window realm 执行原始脚本文本。
+ * 部分 WebView/测试环境不会稳定执行动态插入的 inline script，因此这里直接用当前
+ * window realm 执行原始脚本文本；外部脚本仍按 CDN 白名单加载并等待完成。
  */
 async function runInlineScripts(
     root: HTMLElement,
     htmlSignature: string,
+    scripts: WidgetScriptSnapshot[],
     state: ShowWidgetRendererState
 ): Promise<void> {
     if (htmlSignature === state.lastExecutedHtml) {
@@ -1057,38 +1084,28 @@ async function runInlineScripts(
 
     state.lastExecutedHtml = htmlSignature;
     const runToken = ++state.scriptRunToken;
-    const scripts = Array.from(root.querySelectorAll('script'));
 
-    for (const oldNode of scripts) {
+    for (const script of scripts) {
         if (state.destroyed || runToken !== state.scriptRunToken) {
             return;
         }
 
-        if (oldNode.src && !isShowWidgetResourceUrlAllowed(oldNode.src)) {
-            oldNode.remove();
+        if (script.src && !isShowWidgetScriptUrlAllowed(script.src)) {
             continue;
         }
 
-        const parent = oldNode.parentNode;
-
-        if (!parent) {
-            continue;
-        }
-
-        if (oldNode.src) {
+        if (script.src) {
             const newNode = document.createElement('script');
-            copyScriptAttributes(oldNode, newNode);
-            await waitForExternalScript(newNode, parent, oldNode);
+            copyScriptSnapshotAttributes(script, newNode);
+            await appendExternalScript(newNode, root);
             continue;
         }
 
-        if (!isClassicInlineScript(oldNode)) {
+        if (!isClassicInlineScript(script)) {
             continue;
         }
 
-        const source = oldNode.textContent ?? '';
-        replaceInlineScriptWithInertNode(oldNode, parent);
-        executeInlineWidgetScript(source, root);
+        executeInlineWidgetScript(script.source, root);
     }
 }
 
@@ -1206,7 +1223,7 @@ async function applyDocumentHtml(
     applyShowWidgetLayoutGuards(hostElement, root);
 
     if (phase === 'ready') {
-        await runInlineScripts(root, rawHtml || '', state);
+        await runInlineScripts(root, rawHtml || '', parsedTree.scripts, state);
         applyShowWidgetLayoutGuards(hostElement, root);
     }
 

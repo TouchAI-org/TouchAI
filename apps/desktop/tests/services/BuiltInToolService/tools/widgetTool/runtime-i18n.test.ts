@@ -6,6 +6,7 @@ import {
 } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 
 const nativeReplaceChild = Node.prototype.replaceChild;
+const nativeAppendChild = Node.prototype.appendChild;
 
 async function waitForWidgetRender(): Promise<void> {
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -26,6 +27,23 @@ async function waitForCondition(condition: () => boolean): Promise<void> {
 }
 
 function installExternalScriptLoadMock(): void {
+    const scheduleMockScriptLoad = (node: Node): void => {
+        if (!(node instanceof HTMLScriptElement) || !node.src) {
+            return;
+        }
+
+        window.setTimeout(() => {
+            if (node.src.includes('chart.umd.js')) {
+                (window as Window & { Chart?: unknown }).Chart = function Chart() {
+                    (
+                        window as Window & { __touchaiChartConstructed?: boolean }
+                    ).__touchaiChartConstructed = true;
+                };
+            }
+            node.dispatchEvent(new Event('load'));
+        }, 0);
+    };
+
     vi.spyOn(Node.prototype, 'replaceChild').mockImplementation(function (
         this: Node,
         newChild: Node,
@@ -40,27 +58,26 @@ function installExternalScriptLoadMock(): void {
             return replacedNode;
         }
 
-        if (newChild instanceof HTMLScriptElement && newChild.src) {
-            window.setTimeout(() => {
-                if (newChild.src.includes('chart.umd.js')) {
-                    (window as Window & { Chart?: unknown }).Chart = function Chart() {
-                        (
-                            window as Window & { __touchaiChartConstructed?: boolean }
-                        ).__touchaiChartConstructed = true;
-                    };
-                }
-                newChild.dispatchEvent(new Event('load'));
-            }, 0);
-        }
+        scheduleMockScriptLoad(newChild);
 
         return replacedNode;
     } as typeof Node.prototype.replaceChild);
+
+    vi.spyOn(Node.prototype, 'appendChild').mockImplementation(function (
+        this: Node,
+        newChild: Node
+    ) {
+        const appendedNode = nativeAppendChild.call(this, newChild);
+        scheduleMockScriptLoad(newChild);
+        return appendedNode;
+    } as typeof Node.prototype.appendChild);
 }
 
 describe('show widget renderer i18n opt-out', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         Node.prototype.replaceChild = nativeReplaceChild;
+        Node.prototype.appendChild = nativeAppendChild;
         document.body.innerHTML = '';
         delete (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan;
         delete (window as Window & { sendPrompt?: unknown }).sendPrompt;
@@ -497,6 +514,225 @@ describe('show widget renderer i18n opt-out', () => {
         secondRenderer.destroy();
     });
 
+    it('keeps sample-style addEventListener SVG actions interactive', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'svg-action-widget',
+            title: 'SVG action widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<section>',
+                '<button id="btn-step" type="button">Step</button>',
+                '<svg width="100%" viewBox="0 0 160 80" id="coin-svg">',
+                '<g id="step-area"></g>',
+                '</svg>',
+                '<div id="explanation">Ready</div>',
+                '<script>',
+                'const stepArea = document.getElementById("step-area");',
+                'const explanation = document.getElementById("explanation");',
+                'explanation.dataset.scriptRan = "true";',
+                'document.getElementById("btn-step").dataset.bound = "true";',
+                'let chosen = [];',
+                'function renderSteps(){',
+                'stepArea.innerHTML = "";',
+                'chosen.forEach((coin, index) => {',
+                'const group = document.createElementNS("http://www.w3.org/2000/svg", "g");',
+                'group.innerHTML = `<rect x="${10 + index * 50}" y="20" width="40" height="24" rx="4"></rect><text x="${30 + index * 50}" y="34">${coin}</text>`;',
+                'stepArea.appendChild(group);',
+                '});',
+                'explanation.textContent = `picked ${chosen.join(",")}`;',
+                '}',
+                'document.getElementById("btn-step").addEventListener("click", () => {',
+                'chosen.push(25);',
+                'renderSteps();',
+                '});',
+                '</script>',
+                '</section>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        const button = host.querySelector('[id="btn-step"]');
+        expect(button).not.toBeNull();
+        expect(consoleError).not.toHaveBeenCalled();
+        expect(host.querySelector<HTMLElement>('[id="explanation"]')?.dataset.scriptRan).toBe(
+            'true'
+        );
+        expect(host.querySelector<HTMLElement>('[id="btn-step"]')?.dataset.bound).toBe('true');
+
+        button?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        expect(consoleError).not.toHaveBeenCalled();
+
+        await waitForCondition(
+            () => host.querySelector('[id="explanation"]')?.textContent === 'picked 25'
+        );
+
+        expect(host.querySelector('[id="step-area"] rect')).not.toBeNull();
+        expect(host.querySelector('[id="step-area"] text')?.textContent).toBe('25');
+
+        renderer.destroy();
+    });
+
+    it('keeps reported coin-change controls, SVG updates, and timers interactive', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'reported-coin-change-widget',
+            title: 'Reported coin change widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<section style="display:grid;gap:16px;max-width:640px">',
+                '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">',
+                '<label>Amount</label>',
+                '<input type="range" id="amount-slider" min="1" max="99" value="41" />',
+                '<span id="amount-display">41</span>',
+                '</div>',
+                '<div>',
+                '<button id="btn-auto" type="button">Auto</button>',
+                '<button id="btn-step" type="button">Step</button>',
+                '<button id="btn-reset" type="button">Reset</button>',
+                '</div>',
+                '<svg width="100%" viewBox="0 0 640 260" id="coin-svg">',
+                '<text x="30" y="20">Denominations</text>',
+                '<g id="denom-row"></g>',
+                '<text x="30" y="100">Steps</text>',
+                '<g id="step-area"></g>',
+                '<text x="30" y="220">Result</text>',
+                '<g id="result-area"></g>',
+                '</svg>',
+                '<div id="explanation">Ready</div>',
+                '</section>',
+                '<script>',
+                'const DENOMS = [25, 10, 5, 1];',
+                "const COIN_COLORS = {25:'#534AB7',10:'#0F6E56',5:'#BA7517',1:'#D85A30'};",
+                "const COIN_NAMES = {25:'25c',10:'10c',5:'5c',1:'1c'};",
+                'let target = 41;',
+                'let chosen = [];',
+                'let remaining = 41;',
+                'let animTimer = null;',
+                "const denomRow = document.getElementById('denom-row');",
+                "const stepArea = document.getElementById('step-area');",
+                "const resultArea = document.getElementById('result-area');",
+                "const explanation = document.getElementById('explanation');",
+                'function drawDenoms(){',
+                "denomRow.innerHTML = '';",
+                'DENOMS.forEach((d,i)=>{',
+                'const x = 30 + i*90;',
+                "const g = document.createElementNS('http://www.w3.org/2000/svg','g');",
+                'g.innerHTML = `<rect x="${x}" y="30" width="72" height="44" rx="8" fill="${COIN_COLORS[d]}" opacity="0.18" stroke="${COIN_COLORS[d]}" stroke-width="0.5"></rect><text x="${x+36}" y="48" text-anchor="middle" dominant-baseline="central">${COIN_NAMES[d]}</text>`;',
+                'denomRow.appendChild(g);',
+                '});',
+                '}',
+                'function reset(){',
+                'if(animTimer){clearInterval(animTimer);animTimer=null;}',
+                'chosen = [];',
+                'remaining = target;',
+                "stepArea.innerHTML = '';",
+                "resultArea.innerHTML = '';",
+                'explanation.textContent = `Target ${target}. Greedy picks the largest possible coin each step.`;',
+                "document.getElementById('btn-step').disabled = false;",
+                "document.getElementById('btn-auto').disabled = false;",
+                '}',
+                'function doStep(){',
+                'if(remaining<=0){',
+                "document.getElementById('btn-step').disabled = true;",
+                "document.getElementById('btn-auto').disabled = true;",
+                'showResult();',
+                'return false;',
+                '}',
+                'let pick = DENOMS.find(d=>d<=remaining);',
+                'chosen.push(pick);',
+                'remaining -= pick;',
+                'renderSteps();',
+                'return true;',
+                '}',
+                'function renderSteps(){',
+                "stepArea.innerHTML = '';",
+                'let totalSoFar = 0;',
+                'chosen.forEach((c,i)=>{',
+                'totalSoFar += c;',
+                'const x = 30 + (i%10)*60;',
+                'const y = 110 + Math.floor(i/10)*50;',
+                "const g = document.createElementNS('http://www.w3.org/2000/svg','g');",
+                'g.innerHTML = `<rect x="${x}" y="${y}" width="48" height="36" rx="8" fill="${COIN_COLORS[c]}" opacity="0.22" stroke="${COIN_COLORS[c]}" stroke-width="0.5"></rect><text x="${x+24}" y="${y+14}" text-anchor="middle" dominant-baseline="central">${COIN_NAMES[c]}</text><text x="${x+24}" y="${y+29}" text-anchor="middle" dominant-baseline="central">total ${totalSoFar}</text>`;',
+                'stepArea.appendChild(g);',
+                '});',
+                'explanation.textContent = `Picked ${chosen.length}, total ${totalSoFar}, remaining ${remaining}.`;',
+                '}',
+                'function showResult(){',
+                'resultArea.innerHTML = \'<text x="30" y="242">done</text>\';',
+                '}',
+                "document.getElementById('amount-slider').addEventListener('input',e=>{",
+                'target = +e.target.value;',
+                "document.getElementById('amount-display').textContent = target;",
+                'drawDenoms();',
+                'reset();',
+                '});',
+                "document.getElementById('btn-step').addEventListener('click',doStep);",
+                "document.getElementById('btn-reset').addEventListener('click',reset);",
+                "document.getElementById('btn-auto').addEventListener('click',()=>{",
+                'if(animTimer){clearInterval(animTimer);animTimer=null;return;}',
+                'animTimer = setInterval(()=>{',
+                'if(!doStep()) clearInterval(animTimer);',
+                '},500);',
+                '});',
+                'drawDenoms();',
+                'reset();',
+                '</script>',
+            ].join(''),
+        });
+
+        await waitForCondition(() => host.querySelectorAll('[id="denom-row"] rect').length === 4);
+
+        expect(consoleError).not.toHaveBeenCalled();
+        expect(host.querySelector('[id="explanation"]')?.textContent).toContain('Target 41');
+
+        host.querySelector('[id="btn-step"]')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+        await waitForCondition(
+            () =>
+                host.querySelector('[id="explanation"]')?.textContent ===
+                'Picked 1, total 25, remaining 16.'
+        );
+        expect(host.querySelector('[id="step-area"] rect')).not.toBeNull();
+        expect(host.querySelector('[id="step-area"] text')?.textContent).toBe('25c');
+
+        const slider = host.querySelector<HTMLInputElement>('[id="amount-slider"]');
+        expect(slider).not.toBeNull();
+        slider!.value = '30';
+        slider!.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        expect(host.querySelector('[id="amount-display"]')?.textContent).toBe('30');
+        expect(host.querySelector('[id="step-area"] rect')).toBeNull();
+        expect(host.querySelector('[id="explanation"]')?.textContent).toContain('Target 30');
+
+        host.querySelector('[id="btn-auto"]')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+        await new Promise((resolve) => window.setTimeout(resolve, 550));
+        expect(host.querySelector('[id="explanation"]')?.textContent).toBe(
+            'Picked 1, total 25, remaining 5.'
+        );
+        host.querySelector('[id="btn-auto"]')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+
+        expect(consoleError).not.toHaveBeenCalled();
+
+        renderer.destroy();
+    });
+
     it('does not execute non-classic inline script payloads', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -519,6 +755,51 @@ describe('show widget renderer i18n opt-out', () => {
         expect(
             (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan
         ).toBeUndefined();
+
+        renderer.destroy();
+    });
+
+    it('does not load unsafe external widget script URLs captured before sanitization', async () => {
+        const appendedScriptUrls: string[] = [];
+        vi.spyOn(Node.prototype, 'appendChild').mockImplementation(function (
+            this: Node,
+            newChild: Node
+        ) {
+            if (newChild instanceof HTMLScriptElement) {
+                appendedScriptUrls.push(newChild.src);
+            }
+
+            return nativeAppendChild.call(this, newChild);
+        } as typeof Node.prototype.appendChild);
+
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'unsafe-script-url-widget',
+            title: 'Unsafe script URL widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<section>',
+                '<div id="result">pending</div>',
+                '</section>',
+                '<script src="javascript:window.__touchaiWidgetInitRan=true"></script>',
+                '<script src="/local-widget.js"></script>',
+                '<script>',
+                'document.getElementById("result").textContent = "safe inline ran";',
+                '</script>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        expect(appendedScriptUrls).toEqual([]);
+        expect(
+            (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan
+        ).toBeUndefined();
+        expect(host.querySelector('#result')?.textContent).toBe('safe inline ran');
 
         renderer.destroy();
     });
