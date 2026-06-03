@@ -62,6 +62,7 @@
     import { useSearchRequestFlow } from './composables/useSearchRequest';
     import { useSearchWindowResize } from './composables/useSearchWindowResize';
     import { useSessionHistoryPopup } from './composables/useSessionHistoryPopup';
+    import { initializeSearchViewForFirstPaint } from './startup';
     import type {
         ConversationPanelHandle,
         QuickSearchHandle,
@@ -1020,38 +1021,23 @@
     }
 
     async function initialize() {
-        try {
-            viewReady.value = false;
-
-            await Promise.all([
-                mcpStore.initialize(),
-                settingsStore.initialize(),
-                popupService.initialize(),
-            ]);
-            await syncWindowPinState().catch((error) => {
-                console.error('[SearchView] Failed to sync window pin state on initialize:', error);
-            });
-            await syncSearchWindowState().catch((error) => {
-                console.error(
-                    '[SearchView] Failed to sync search window state on initialize:',
-                    error
-                );
-            });
-
-            viewReady.value = true;
-
-            if (!(await isE2eTestMode())) {
-                mcpManager.autoConnect().catch((initializeError) => {
-                    console.error(
-                        '[SearchView] Failed to auto-connect MCP servers:',
-                        initializeError
-                    );
-                });
-            }
-        } catch (initializeError) {
-            console.error('[SearchView] Failed to initialize dependencies:', initializeError);
-            viewReady.value = false;
-        }
+        await initializeSearchViewForFirstPaint({
+            initializeSettings: () => settingsStore.initialize(),
+            initializeMcpStore: () => mcpStore.initialize(),
+            initializePopups: () => popupService.initialize(),
+            syncWindowPinState,
+            syncSearchWindowState,
+            isE2eTestMode,
+            autoConnectMcp: async () => {
+                await mcpManager.autoConnect();
+            },
+            onReady: (ready) => {
+                viewReady.value = ready;
+            },
+            logError: (message, error) => {
+                console.error(message, error);
+            },
+        });
     }
 
     watch(
@@ -1324,7 +1310,7 @@
             class="ask-user-divider relative z-10 w-full"
         ></div>
         <AskUserPanel v-if="searchViewContentReady && askUserStore.current" />
-        <div v-if="searchViewContentReady && !askUserStore.current" class="relative w-full">
+        <div v-if="viewReady && !askUserStore.current" class="relative w-full">
             <SearchBar
                 ref="searchBar"
                 :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"
@@ -1341,7 +1327,10 @@
                 @drag-start="isDragging = true"
                 @drag-end="isDragging = false"
             />
-            <div v-if="sessionHistory.length === 0" v-show="quickSearchOpen">
+            <div
+                v-if="searchViewContentReady && sessionHistory.length === 0"
+                v-show="quickSearchOpen"
+            >
                 <QuickSearchPanel
                     ref="quickSearchPanel"
                     :open="quickSearchOpen"
