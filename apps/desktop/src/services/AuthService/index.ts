@@ -197,7 +197,7 @@ function buildNormalizedManagedProviderPatch(provider: ManagedProviderRow) {
 }
 
 function extractManagedAuthFailureDetails(error: unknown): {
-    gatewayCode: string;
+    gatewayCode: string | null;
     statusCode?: number;
 } | null {
     if (error == null || typeof error !== 'object' || !('details' in error)) {
@@ -213,14 +213,18 @@ function extractManagedAuthFailureDetails(error: unknown): {
     const requiresRelogin = detailRecord.requiresRelogin === true;
     const gatewayCode =
         typeof detailRecord.gatewayCode === 'string' ? detailRecord.gatewayCode : null;
-    if (!requiresRelogin || !gatewayCode) {
+    const statusCode =
+        typeof detailRecord.statusCode === 'number' ? detailRecord.statusCode : undefined;
+    if (
+        !requiresRelogin ||
+        (gatewayCode ? !MANAGED_AUTH_FAILURE_CODES.has(gatewayCode) : statusCode !== 401)
+    ) {
         return null;
     }
 
     return {
         gatewayCode,
-        statusCode:
-            typeof detailRecord.statusCode === 'number' ? detailRecord.statusCode : undefined,
+        statusCode,
     };
 }
 
@@ -350,7 +354,7 @@ export async function invalidateManagedAuthForError(options: {
     error: unknown;
 }): Promise<boolean> {
     const details = extractManagedAuthFailureDetails(options.error);
-    if (!details || !MANAGED_AUTH_FAILURE_CODES.has(details.gatewayCode)) {
+    if (!details) {
         return false;
     }
 

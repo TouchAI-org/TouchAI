@@ -349,4 +349,35 @@ describe('AuthService managed TouchAI Hub flow', () => {
             updatedAt: expect.any(Number),
         });
     });
+
+    it('invalidates the managed token when a managed 401 response requires relogin without a gateway code', async () => {
+        const { invalidateManagedAuthForError } = await import('@/services/AuthService');
+
+        await expect(
+            invalidateManagedAuthForError({
+                providerId: 320,
+                error: {
+                    details: {
+                        requiresRelogin: true,
+                        gatewayCode: null,
+                        statusCode: 401,
+                    },
+                },
+            })
+        ).resolves.toBe(true);
+
+        expect(queriesMock.updateProvider).toHaveBeenCalledWith({
+            id: 320,
+            providerPatch: {
+                api_key: null,
+                api_endpoint: 'https://hub.touch-ai.org/api/v1',
+                config_json: JSON.stringify({
+                    touchAiMode: 'managed',
+                }),
+            },
+        });
+        expect(eventServiceMock.emit).toHaveBeenCalledWith('AI_MODELS_UPDATED', {
+            updatedAt: expect.any(Number),
+        });
+    });
 });
