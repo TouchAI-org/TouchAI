@@ -1419,6 +1419,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn dry_run_coordinate_click_returns_send_input_receipt() {
         let runtime = ComputerUseRuntime::new();
@@ -1451,6 +1452,43 @@ mod tests {
         assert_eq!(response.lane, ComputerLane::VisionFallback);
         assert_eq!(response.status, ComputerActionStatus::Success);
         assert_eq!(response.target_resolved.x, Some(10));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn auto_route_returns_unsupported_on_non_windows() {
+        let runtime = ComputerUseRuntime::new();
+        runtime.start_session(session_request()).unwrap();
+
+        let response = runtime
+            .act(ComputerActionRequest {
+                session_id: "session-1".to_string(),
+                operation: ComputerActionOperation::Click,
+                target: ComputerTarget {
+                    scope: Some("screen".to_string()),
+                    x: Some(10),
+                    y: Some(20),
+                    ..Default::default()
+                },
+                value: None,
+                execution_mode: ComputerExecutionMode::Foreground,
+                reason: "test unsupported platform".to_string(),
+                route_hint: ComputerRoute::Auto,
+                timeout_ms: 8000,
+                options: ComputerActionOptions {
+                    allow_background: false,
+                    dry_run: true,
+                    post_action_observe: false,
+                },
+            })
+            .unwrap();
+
+        assert_eq!(response.route, ComputerRoute::Win32SendInput);
+        assert_eq!(response.status, ComputerActionStatus::Unsupported);
+        assert_eq!(
+            response.warnings,
+            vec!["route 'win32.send_input' is not available for this session"]
+        );
     }
 
     #[test]
@@ -1522,6 +1560,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn background_coordinate_actions_are_rejected() {
         let runtime = ComputerUseRuntime::new();
@@ -1557,6 +1596,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn background_window_actions_require_observed_native_targets() {
         let runtime = ComputerUseRuntime::new();
@@ -1591,6 +1631,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn background_window_actions_do_not_trust_session_target_native_ids() {
         let runtime = ComputerUseRuntime::new();
@@ -1627,6 +1668,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn background_window_actions_reject_stale_observed_native_targets() {
         let runtime = ComputerUseRuntime::new();
@@ -1678,6 +1720,7 @@ mod tests {
         assert_eq!(lparam.0 as usize, 0x0022_000c);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn post_action_observe_returns_follow_up_observation_for_successful_actions() {
         let runtime = ComputerUseRuntime::new();
