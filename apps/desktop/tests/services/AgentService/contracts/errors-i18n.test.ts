@@ -48,9 +48,7 @@ describe('AiError display localization', () => {
             'No endpoints found that support tool, image, and file inputs'
         );
 
-        expect(error.getDisplayMessage()).toBe(
-            AiError.getMessage(AiErrorCode.UNSUPPORTED_INPUT)
-        );
+        expect(error.getDisplayMessage()).toBe(AiError.getMessage(AiErrorCode.UNSUPPORTED_INPUT));
     });
 
     it('keeps default Error.message stable while exposing localized display text', () => {

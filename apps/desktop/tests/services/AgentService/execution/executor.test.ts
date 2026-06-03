@@ -64,9 +64,18 @@ describe('AiRequestExecutor', () => {
         const requestError = new Error(
             'error sending request for url (https://hub.touch-ai.org/api/v1/chat/completions)'
         );
-        providerMock.stream.mockImplementation(async function* () {
-            throw requestError;
-        });
+        providerMock.stream.mockImplementation(
+            () =>
+                ({
+                    [Symbol.asyncIterator]() {
+                        return {
+                            next: async () => {
+                                throw requestError;
+                            },
+                        };
+                    },
+                }) as AsyncIterable<unknown>
+        );
         providerMock.classifyError.mockImplementation(() => {
             throw new TypeError('n is not a function');
         });
