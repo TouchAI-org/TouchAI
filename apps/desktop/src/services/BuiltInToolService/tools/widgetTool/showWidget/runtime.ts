@@ -875,7 +875,10 @@ function parseRenderTree(
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
         normalizeWidgetActionAttributesIn(parsed.body);
         scripts = extractWidgetScripts(parsed.body);
-        htmlForSanitizer = parsed.body.innerHTML || '<div></div>';
+        const headStyleHtml = Array.from(parsed.head.querySelectorAll('style'))
+            .map((style) => style.outerHTML)
+            .join('');
+        htmlForSanitizer = `${headStyleHtml}${parsed.body.innerHTML || '<div></div>'}`;
     } else {
         const preSanitizeTemplate = document.createElement('template');
         preSanitizeTemplate.innerHTML = normalizedHtml;
@@ -1005,6 +1008,30 @@ function escapeWidgetDocumentIdSelectorValue(value: string): string {
 function createWidgetScopedDocument(root: HTMLElement): Document {
     return new Proxy(document, {
         get(target, property, receiver) {
+            if (property === 'body' || property === 'documentElement') {
+                return root;
+            }
+
+            if (property === 'children') {
+                return root.children;
+            }
+
+            if (property === 'childNodes') {
+                return root.childNodes;
+            }
+
+            if (property === 'firstElementChild') {
+                return root.firstElementChild;
+            }
+
+            if (property === 'firstChild') {
+                return root.firstChild;
+            }
+
+            if (property === 'activeElement') {
+                return root.contains(document.activeElement) ? document.activeElement : null;
+            }
+
             if (property === 'getElementById') {
                 return (elementId: string) =>
                     root.querySelector(`[id="${escapeWidgetDocumentIdSelectorValue(elementId)}"]`);
@@ -1055,12 +1082,13 @@ function executeInlineWidgetScript(source: string, root: HTMLElement): void {
 
     try {
         const scopedDocument = createWidgetScopedDocument(root);
+        const scopedWindow = createWidgetScopedWindow(scopedDocument);
         const execute = window.Function(
             'window',
             'document',
             `${source}\n//# sourceURL=touchai-widget-inline.js`
         );
-        execute.call(window, createWidgetScopedWindow(scopedDocument), scopedDocument);
+        execute.call(scopedWindow, scopedWindow, scopedDocument);
     } catch (error) {
         console.error('[ShowWidget] Failed to execute inline script:', error);
     }
@@ -1168,7 +1196,7 @@ function openShowWidgetLink(url: string): void {
         return;
     }
 
-    window.open(externalUrl, '_blank');
+    window.open(externalUrl, '_blank', 'noopener,noreferrer');
 }
 
 function sendShowWidgetPrompt(prompt: string): void {

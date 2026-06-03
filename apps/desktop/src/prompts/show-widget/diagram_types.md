@@ -191,7 +191,7 @@ erDiagram
   }
 ```
 
-Use `builtin__show_widget` with HTML in `widget_code` for ERDs. Import and initialize in a `<script type="module">`. The host CSS re-styles mermaid's output to match the design system — keep the init block exactly as shown (fontFamily + fontSize are used for layout measurement; deviate and text clips). After rendering, replace sharp-cornered entity `<path>` elements with rounded `<rect rx="8">` to match the design system, and strip borders from attribute rows (only the outer container and header row keep visible borders — alternating fill colors separate the rows):
+Use `builtin__show_widget` with HTML in `widget_code` for ERDs. Load Mermaid with its UMD/global script, then initialize it from `window.mermaid` in a plain classic `<script>` that follows. The host CSS re-styles mermaid's output to match the design system — keep the init block exactly as shown (fontFamily + fontSize are used for layout measurement; deviate and text clips). After rendering, replace sharp-cornered entity `<path>` elements with rounded `<rect rx="8">` to match the design system, and strip borders from attribute rows (only the outer container and header row keep visible borders — alternating fill colors separate the rows):
 
 ```html
 <div id="erd" aria-label="Entity relationship diagram">
@@ -211,63 +211,74 @@ Use `builtin__show_widget` with HTML in `widget_code` for ERDs. Import and initi
         }
     </style>
 </div>
-<script type="module">
-    import mermaid from 'https://esm.sh/mermaid@11/dist/mermaid.esm.min.mjs';
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.12.0/mermaid.min.js"></script>
+<script>
+    const mermaid = window.mermaid;
+    if (!mermaid) {
+        document.querySelector('#erd [data-loading]')?.remove();
+        throw new Error('Mermaid failed to load');
+    }
+
     const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-    await document.fonts.ready;
-    mermaid.initialize({
-        startOnLoad: false,
-        theme: 'base',
-        fontFamily: '"Anthropic Sans", sans-serif',
-        themeVariables: {
-            darkMode: dark,
-            fontSize: '13px',
-            fontFamily: '"Anthropic Sans", sans-serif',
-            lineColor: dark ? '#9c9a92' : '#73726c',
-            textColor: dark ? '#c2c0b6' : '#3d3d3a',
-        },
-    });
-    const { svg } = await mermaid.render(
-        'erd-svg',
-        `erDiagram
+    const fontsReady = document.fonts?.ready ?? Promise.resolve();
+    fontsReady
+        .then(() => {
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: 'base',
+                fontFamily: '"Anthropic Sans", sans-serif',
+                themeVariables: {
+                    darkMode: dark,
+                    fontSize: '13px',
+                    fontFamily: '"Anthropic Sans", sans-serif',
+                    lineColor: dark ? '#9c9a92' : '#73726c',
+                    textColor: dark ? '#c2c0b6' : '#3d3d3a',
+                },
+            });
+            return mermaid.render(
+                'erd-svg',
+                `erDiagram
   USERS ||--o{ POSTS : writes
   POSTS ||--o{ COMMENTS : has`
-    );
-    document.getElementById('erd-output').innerHTML = svg;
-    document.querySelector('#erd [data-loading]')?.remove();
+            );
+        })
+        .then(({ svg }) => {
+            document.getElementById('erd-output').innerHTML = svg;
+            document.querySelector('#erd [data-loading]')?.remove();
 
-    // Round only the outermost entity box corners (not internal row stripes)
-    document.querySelectorAll('#erd svg.erDiagram .node').forEach((node) => {
-        const firstPath = node.querySelector('path[d]');
-        if (!firstPath) return;
-        const d = firstPath.getAttribute('d');
-        const nums = d.match(/-?[\d.]+/g)?.map(Number);
-        if (!nums || nums.length < 8) return;
-        const xs = [nums[0], nums[2], nums[4], nums[6]];
-        const ys = [nums[1], nums[3], nums[5], nums[7]];
-        const x = Math.min(...xs),
-            y = Math.min(...ys);
-        const w = Math.max(...xs) - x,
-            h = Math.max(...ys) - y;
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', x);
-        rect.setAttribute('y', y);
-        rect.setAttribute('width', w);
-        rect.setAttribute('height', h);
-        rect.setAttribute('rx', '8');
-        for (const a of ['fill', 'stroke', 'stroke-width', 'class', 'style']) {
-            if (firstPath.hasAttribute(a)) rect.setAttribute(a, firstPath.getAttribute(a));
-        }
-        firstPath.replaceWith(rect);
-    });
+            // Round only the outermost entity box corners (not internal row stripes)
+            document.querySelectorAll('#erd svg.erDiagram .node').forEach((node) => {
+                const firstPath = node.querySelector('path[d]');
+                if (!firstPath) return;
+                const d = firstPath.getAttribute('d');
+                const nums = d.match(/-?[\d.]+/g)?.map(Number);
+                if (!nums || nums.length < 8) return;
+                const xs = [nums[0], nums[2], nums[4], nums[6]];
+                const ys = [nums[1], nums[3], nums[5], nums[7]];
+                const x = Math.min(...xs),
+                    y = Math.min(...ys);
+                const w = Math.max(...xs) - x,
+                    h = Math.max(...ys) - y;
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', x);
+                rect.setAttribute('y', y);
+                rect.setAttribute('width', w);
+                rect.setAttribute('height', h);
+                rect.setAttribute('rx', '8');
+                for (const a of ['fill', 'stroke', 'stroke-width', 'class', 'style']) {
+                    if (firstPath.hasAttribute(a)) rect.setAttribute(a, firstPath.getAttribute(a));
+                }
+                firstPath.replaceWith(rect);
+            });
 
-    // Strip borders from attribute rows (mermaid v11: .row-rect-odd / .row-rect-even)
-    document
-        .querySelectorAll(
-            '#erd svg.erDiagram .row-rect-odd path, #erd svg.erDiagram .row-rect-even path'
-        )
-        .forEach((p) => {
-            p.setAttribute('stroke', 'none');
+            // Strip borders from attribute rows (mermaid v11: .row-rect-odd / .row-rect-even)
+            document
+                .querySelectorAll(
+                    '#erd svg.erDiagram .row-rect-odd path, #erd svg.erDiagram .row-rect-even path'
+                )
+                .forEach((p) => {
+                    p.setAttribute('stroke', 'none');
+                });
         });
 </script>
 ```
@@ -529,14 +540,7 @@ All core rules still apply (viewBox 680px, dark mode mandatory, 14/12px text, pr
             Heating
         </label>
         <span>Thermostat</span>
-        <input
-            type="range"
-            id="temp-slider"
-            min="10"
-            max="90"
-            value="40"
-            style="flex:1"
-        />
+        <input type="range" id="temp-slider" min="10" max="90" value="40" style="flex:1" />
         <span id="temp-label" style="min-width:36px;text-align:right">40%</span>
     </div>
     <script>

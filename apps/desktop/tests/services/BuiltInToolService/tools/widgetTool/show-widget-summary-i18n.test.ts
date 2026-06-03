@@ -202,8 +202,22 @@ describe('ShowWidget generated summaries i18n', () => {
         );
 
         expect(result).not.toMatch(/\son(?:click|input|change|load)\s*=/i);
+        expect(result).not.toMatch(/\bsendPrompt\b(?!-)/);
         expect(result).not.toContain('sendPrompt()/openLink()');
         expect(result).toContain('data-send-prompt');
         expect(result).toContain('addEventListener');
+    });
+
+    it('keeps Mermaid ERD guidance compatible with classic inline widget scripts', () => {
+        const result = buildGuidelineResult(readShowWidgetGuidelines(['diagram']));
+
+        expect(result).not.toContain('<script type="module">');
+        expect(result).not.toMatch(/import\s+mermaid\s+from/i);
+        expect(result).not.toContain('https://esm.sh/mermaid');
+        expect(result).toContain('window.mermaid');
+        expect(result).toContain('fontFamily');
+        expect(result).toContain('fontSize');
+        expect(result).toContain("rect.setAttribute('rx', '8')");
+        expect(result).toContain("p.setAttribute('stroke', 'none')");
     });
 });

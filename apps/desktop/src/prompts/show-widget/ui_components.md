@@ -10,7 +10,7 @@ Flat, clean, white surfaces. Minimal 0.5px borders. Generous whitespace. No grad
 - Corner radius: `var(--border-radius-md)` for most elements, `var(--border-radius-lg)` for cards
 - Cards: white bg (`var(--color-background-primary)`), 0.5px border, radius-lg, padding 1rem 1.25rem
 - Use standard HTML tags only. Prefer `div`, `section`, `span`, `button`, `input`, `textarea`, `select`, `label`, `svg`, `canvas`, and `table`.
-- Buttons: pre-styled with transparent bg, 0.5px border-secondary, hover bg-secondary, active scale(0.98). If it triggers sendPrompt, append a ↗ arrow.
+- Buttons: pre-styled with transparent bg, 0.5px border-secondary, hover bg-secondary, active scale(0.98). If it uses `data-send-prompt`, append a ↗ arrow.
 - **Round every displayed number.** JS float math leaks artifacts — `0.1 + 0.2` gives `0.30000000000000004`, `7 * 1.1` gives `7.700000000000001`. Any number that reaches the screen (slider readouts, stat card values, axis labels, data-point labels, tooltips, computed totals) must go through `Math.round()`, `.toFixed(n)`, or `Intl.NumberFormat`. Pick the precision that makes sense for the context — integers for counts, 1–2 decimals for percentages, `toLocaleString()` for currency. For range sliders, also set `step="1"` (or step="0.1" etc.) so the input itself emits round values.
 - Spacing: use rem for vertical rhythm (1rem, 1.5rem, 2rem), px for component-internal gaps (8px, 12px, 16px)
 - Focus rings: use `outline` or border-color changes, not `box-shadow`
@@ -29,9 +29,7 @@ Native controls inherit host widget base styles. Use semantic HTML and inline st
         >
             Scenario
         </span>
-        <button type="button" data-send-prompt="Compare one more scenario">
-            Compare more
-        </button>
+        <button type="button" data-send-prompt="Compare one more scenario">Compare more</button>
     </div>
     <label for="rate" style="font-size:13px; color:var(--color-text-secondary);">Rate</label>
     <input id="rate" type="number" value="5" />

@@ -42,8 +42,14 @@ function buildShowWidgetConversationSemantic(
  */
 function validateShowWidgetMarkup(html: string): void {
     const violations = new Set<string>();
-    const leadingTagName = html.match(/^\s*<([a-z][\w:-]*)\b/i)?.[1]?.toUpperCase();
-    if (leadingTagName && NON_VISIBLE_ROOT_TAG_NAMES.has(leadingTagName)) {
+    const rootTemplate = document.createElement('template');
+    rootTemplate.innerHTML = html;
+    const firstElement = rootTemplate.content.firstElementChild;
+    if (!firstElement) {
+        throw new Error('ShowWidget widget_code must contain a visible root element.');
+    }
+
+    if (NON_VISIBLE_ROOT_TAG_NAMES.has(firstElement.tagName.toUpperCase())) {
         throw new Error(
             'ShowWidget widget_code must start with a visible root element before style or script blocks.'
         );
@@ -56,11 +62,6 @@ function validateShowWidgetMarkup(html: string): void {
     }
 
     const parsed = new DOMParser().parseFromString(html, 'text/html');
-    const rootElement = parsed.body.firstElementChild;
-    if (!rootElement) {
-        throw new Error('ShowWidget widget_code must contain a visible root element.');
-    }
-
     const externalResourceElements = parsed.querySelectorAll<HTMLElement>(
         SHOW_WIDGET_EXTERNAL_RESOURCE_SELECTOR
     );

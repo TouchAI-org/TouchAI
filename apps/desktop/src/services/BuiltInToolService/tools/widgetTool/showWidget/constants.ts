@@ -28,7 +28,7 @@ export const FORBIDDEN_WIDGET_RULES = [
         reason: 'Do not use SVG gradients, patterns, or filters.',
     },
     {
-        pattern: /\sfilter\s*=\s*["'](?!none["'])/i,
+        pattern: /\sfilter\s*=\s*(?:(["'])(?!none\1)[^"']*\1|(?!["'])(?!none(?=[\s>/]))[^>\s]+)/i,
         reason: 'Do not use SVG filter attributes.',
     },
     {

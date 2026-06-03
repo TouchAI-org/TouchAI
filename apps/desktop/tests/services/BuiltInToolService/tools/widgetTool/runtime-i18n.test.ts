@@ -79,6 +79,9 @@ describe('show widget renderer i18n opt-out', () => {
         Node.prototype.replaceChild = nativeReplaceChild;
         Node.prototype.appendChild = nativeAppendChild;
         document.body.innerHTML = '';
+        delete document.body.dataset.widgetBody;
+        delete document.body.dataset.thisDocumentBody;
+        delete document.documentElement.dataset.widgetDocumentElement;
         delete (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan;
         delete (window as Window & { sendPrompt?: unknown }).sendPrompt;
         delete (window as Window & { openLink?: unknown }).openLink;
@@ -159,6 +162,38 @@ describe('show widget renderer i18n opt-out', () => {
         expect(style?.textContent).toContain('display:grid');
         expect(card?.getAttribute('style')).toContain('border: 1px solid');
         expect(card?.getAttribute('style')).toContain('padding: 12px');
+
+        renderer.destroy();
+    });
+
+    it('preserves style blocks from full document head markup', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'full-document-style-widget',
+            title: 'Full document style widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<!doctype html><html><head>',
+                '<style>.head-style-card{display:grid;color:rgb(12, 68, 124);}</style>',
+                '</head><body>',
+                '<section class="head-style-card">Head styled content</section>',
+                '</body></html>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        const style = host.querySelector('style:not([data-touchai-widget-base-style])');
+        const card = host.querySelector<HTMLElement>('.head-style-card');
+
+        expect(card?.textContent).toBe('Head styled content');
+        expect(style?.textContent).toContain('.head-style-card');
+        expect(style?.textContent).toContain('[data-touchai-widget-host=');
+        expect(style?.textContent).toContain('display:grid');
 
         renderer.destroy();
     });
@@ -299,6 +334,35 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
+    it('hardens external anchor fallback opens without an opener reference', async () => {
+        const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'fallback-link-widget',
+            title: 'Fallback link widget',
+            description: '',
+            phase: 'ready',
+            html: '<a id="external-link" href="https://example.com/report">Report</a>',
+        });
+
+        await waitForWidgetRender();
+
+        host.querySelector('#external-link')?.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+
+        expect(open).toHaveBeenCalledWith(
+            'https://example.com/report',
+            '_blank',
+            'noopener,noreferrer'
+        );
+
+        renderer.destroy();
+    });
+
     it('keeps script-bound widget interactions available for internal calculations', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -327,6 +391,45 @@ describe('show widget renderer i18n opt-out', () => {
         );
 
         expect(host.querySelector('#count')?.textContent).toBe('1');
+
+        renderer.destroy();
+    });
+
+    it('scopes direct document body, documentElement, and this.document access to the widget root', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'document-facade-widget',
+            title: 'Document facade widget',
+            description: '',
+            phase: 'ready',
+            html: [
+                '<section id="inside">content</section>',
+                '<script>',
+                'document.body.dataset.widgetBody = "scoped";',
+                'document.documentElement.dataset.widgetDocumentElement = "scoped";',
+                'this.document.body.dataset.thisDocumentBody = "scoped";',
+                'const child = document.createElement("span");',
+                'child.id = "body-child";',
+                'document.body.appendChild(child);',
+                '</script>',
+            ].join(''),
+        });
+
+        await waitForWidgetRender();
+
+        const root = host.querySelector<HTMLElement>('[data-touchai-widget-root="true"]');
+
+        expect(document.body.dataset.widgetBody).toBeUndefined();
+        expect(document.documentElement.dataset.widgetDocumentElement).toBeUndefined();
+        expect(document.body.dataset.thisDocumentBody).toBeUndefined();
+        expect(document.body.querySelector(':scope > #body-child')).toBeNull();
+        expect(root?.dataset.widgetBody).toBe('scoped');
+        expect(root?.dataset.widgetDocumentElement).toBe('scoped');
+        expect(root?.dataset.thisDocumentBody).toBe('scoped');
+        expect(root?.querySelector('#body-child')).not.toBeNull();
 
         renderer.destroy();
     });
