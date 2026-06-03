@@ -209,7 +209,6 @@ export class AiError extends Error {
             AiErrorCode.SERVICE_UNAVAILABLE,
             AiErrorCode.BAD_GATEWAY,
             AiErrorCode.GATEWAY_TIMEOUT,
-            AiErrorCode.API_ERROR,
             AiErrorCode.EMPTY_RESPONSE,
         ].includes(this.code);
     }
