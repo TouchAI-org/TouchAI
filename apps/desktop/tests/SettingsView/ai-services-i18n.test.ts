@@ -106,6 +106,10 @@ vi.mock('@/utils/modelSchemas', () => ({
     parseModelModalities: vi.fn(() => null),
 }));
 
+vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
+    updateModelMetadata: vi.fn(),
+}));
+
 vi.mock('@/services/AgentService', () => ({
     aiService: {
         createProviderInstance: () => ({

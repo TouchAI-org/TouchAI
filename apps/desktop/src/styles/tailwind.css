@@ -11,8 +11,7 @@
 @theme {
     --font-sans:
         -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-    --font-serif:
-        'Source Han Serif SC', 'Source Han Serif CN', 'Noto Serif SC', 'Source Han Serif', serif;
+    --font-serif: 'TouchAI Source Han Serif SC', 'Noto Serif SC', serif;
 
     /* 背景色 */
     --color-background-primary: rgba(251, 251, 246, 0.98);

@@ -72,6 +72,8 @@ pub struct SessionStatusReminderNotificationRuntime {
     active_toasts: Mutex<Vec<windows::UI::Notifications::ToastNotification>>,
     #[cfg(target_os = "macos")]
     active_notification_ids: Mutex<Vec<String>>,
+    #[cfg(target_os = "linux")]
+    active_notifications: Mutex<Vec<notify_rust::NotificationHandle>>,
 }
 
 impl SessionStatusReminderNotificationRuntime {
@@ -85,6 +87,8 @@ impl SessionStatusReminderNotificationRuntime {
             active_toasts: Mutex::new(Vec::new()),
             #[cfg(target_os = "macos")]
             active_notification_ids: Mutex::new(Vec::new()),
+            #[cfg(target_os = "linux")]
+            active_notifications: Mutex::new(Vec::new()),
         }
     }
 
@@ -158,16 +162,37 @@ impl SessionStatusReminderNotificationRuntime {
     }
 
     #[cfg(target_os = "linux")]
-    pub fn track_active_notification(&self, _id: u32) {
-        // Tracking IDs for future dismissal is not yet supported on Linux
-        // because notify-rust's wait_for_action consumes the handle.
+    pub fn track_active_notification(&self, handle: notify_rust::NotificationHandle) {
+        self.active_notifications
+            .lock()
+            .expect("session status reminder runtime poisoned")
+            .push(handle);
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn release_active_notification(&self, id: u32) {
+        let mut handles = self
+            .active_notifications
+            .lock()
+            .expect("session status reminder runtime poisoned");
+        if let Some(index) = handles.iter().position(|handle| handle.id() == id) {
+            handles.remove(index);
+        }
     }
 
     #[cfg(target_os = "linux")]
     pub fn clear_active_notifications(&self) {
-        // No-op on Linux: notify-rust's NotificationHandle is consumed by
-        // wait_for_action, so we cannot close notifications programmatically.
-        // Reminders auto-expire, which keeps residual notifications bounded.
+        let handles = {
+            let mut handles = self
+                .active_notifications
+                .lock()
+                .expect("session status reminder runtime poisoned");
+            std::mem::take(&mut *handles)
+        };
+
+        for handle in handles {
+            handle.close();
+        }
     }
 }
 
@@ -185,11 +210,13 @@ fn restore_search_window_from_status_reminder<R: Runtime>(
     tauri::async_runtime::spawn(async move {
         let task_handle = app_handle.clone();
         if let Err(error) = app_handle.run_on_main_thread(move || {
-            if let Err(error) = crate::core::window::show_search_window(task_handle.clone()) {
-                log::warn!(
-                    "Failed to restore search window from session status notification: {}",
-                    error
-                );
+            if should_restore_search_window_from_status_reminder(payload.as_ref()) {
+                if let Err(error) = crate::core::window::show_search_window(task_handle.clone()) {
+                    log::warn!(
+                        "Failed to restore search window from session status notification: {}",
+                        error
+                    );
+                }
             }
 
             let Some(payload) = payload.as_ref() else {
@@ -212,6 +239,17 @@ fn restore_search_window_from_status_reminder<R: Runtime>(
             );
         }
     });
+}
+
+fn should_restore_search_window_from_status_reminder(
+    payload: Option<&SessionStatusReminderActionPayload>,
+) -> bool {
+    !matches!(
+        payload,
+        Some(payload)
+            if payload.kind == SessionStatusReminderKind::WaitingApproval
+                && payload.action == SessionStatusReminderAction::Approve
+    )
 }
 
 fn has_windows_installation_marker(exe_path: &std::path::Path) -> bool {
@@ -490,6 +528,11 @@ fn build_toast_document(
     toast
         .SetAttribute(&HSTRING::from("launch"), &HSTRING::from(&launch))
         .map_err(|error| error.to_string())?;
+    if payload.kind == SessionStatusReminderKind::WaitingApproval && payload.approval.is_some() {
+        toast
+            .SetAttribute(&HSTRING::from("scenario"), &HSTRING::from("reminder"))
+            .map_err(|error| error.to_string())?;
+    }
 
     let visual = doc
         .CreateElement(&HSTRING::from("visual"))
@@ -1089,8 +1132,8 @@ mod macos_notifications {
 
 #[cfg(target_os = "linux")]
 mod linux_notifications {
-    use notify_rust::{Notification, Timeout};
-    use tauri::{AppHandle, Runtime};
+    use notify_rust::{ActionResponse, Notification, Timeout};
+    use tauri::{AppHandle, Manager, Runtime};
 
     use super::{
         SessionStatusReminderAction, SessionStatusReminderActionPayload, SessionStatusReminderKind,
@@ -1098,13 +1141,9 @@ mod linux_notifications {
     };
 
     const STANDARD_REMINDER_TIMEOUT_MS: u32 = 15_000;
-    const APPROVAL_REMINDER_TIMEOUT_MS: u32 = 300_000;
-
     fn notification_timeout(kind: SessionStatusReminderKind) -> Timeout {
         match kind {
-            SessionStatusReminderKind::WaitingApproval => {
-                Timeout::Milliseconds(APPROVAL_REMINDER_TIMEOUT_MS)
-            }
+            SessionStatusReminderKind::WaitingApproval => Timeout::Never,
             SessionStatusReminderKind::Completed | SessionStatusReminderKind::Failed => {
                 Timeout::Milliseconds(STANDARD_REMINDER_TIMEOUT_MS)
             }
@@ -1170,11 +1209,23 @@ mod linux_notifications {
             reply_text: None,
         };
 
-        // wait_for_action blocks until the notification closes or the user acts,
-        // so it must run off the Tauri invoke thread.
+        runtime.track_active_notification(handle);
+
+        // Listen for the notification action on a background thread while
+        // keeping the original handle available for explicit closing.
         std::thread::spawn(move || {
-            handle.wait_for_action(move |action_name| {
-                let Some(resolved_action) = resolve_action(action_name) else {
+            notify_rust::handle_action(notification_id, move |action| {
+                if let Some(runtime) =
+                    app_handle.try_state::<super::SessionStatusReminderNotificationRuntime>()
+                {
+                    runtime.release_active_notification(notification_id);
+                }
+
+                let resolved_action = match action {
+                    ActionResponse::Custom(action_name) => resolve_action(action_name),
+                    ActionResponse::Closed(_) => None,
+                };
+                let Some(resolved_action) = resolved_action else {
                     return;
                 };
 
@@ -1190,16 +1241,13 @@ mod linux_notifications {
             });
         });
 
-        runtime.track_active_notification(notification_id);
-
         Ok(())
     }
 
     /// Clear tracked Linux notifications.
     pub fn clear(runtime: &super::SessionStatusReminderNotificationRuntime) {
-        // Linux reminder notifications auto-expire, so clearing here is
-        // best-effort even though notify-rust does not expose a cross-desktop
-        // close primitive once action waiting is detached.
+        // Close any still-tracked notifications. Notifications that already
+        // received an action are released from tracking by the action listener.
         runtime.clear_active_notifications();
     }
 }
@@ -1211,7 +1259,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        finalize_activation_payload, has_windows_installation_marker, SessionStatusReminderAction,
+        finalize_activation_payload, has_windows_installation_marker,
+        should_restore_search_window_from_status_reminder, SessionStatusReminderAction,
         SessionStatusReminderActionPayload, SessionStatusReminderKind,
     };
 
@@ -1261,6 +1310,50 @@ mod tests {
 
         fs::write(dir.path().join("uninstall.exe"), b"stub").expect("write uninstall");
         assert!(has_windows_installation_marker(&exe_path));
+    }
+
+    #[test]
+    fn waiting_approval_approve_does_not_restore_search_window() {
+        let payload = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Approve,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            call_id: Some("call-1".to_string()),
+            reply_text: None,
+        };
+
+        assert!(!should_restore_search_window_from_status_reminder(Some(
+            &payload
+        )));
+    }
+
+    #[test]
+    fn other_status_reminder_actions_still_restore_search_window() {
+        let approve_completed = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Approve,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::Completed,
+            call_id: None,
+            reply_text: None,
+        };
+        let reject_waiting = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Reject,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            call_id: Some("call-1".to_string()),
+            reply_text: None,
+        };
+
+        assert!(should_restore_search_window_from_status_reminder(None));
+        assert!(should_restore_search_window_from_status_reminder(Some(
+            &approve_completed
+        )));
+        assert!(should_restore_search_window_from_status_reminder(Some(
+            &reject_waiting
+        )));
     }
 }
 
@@ -1313,6 +1406,7 @@ mod tests_windows {
         .expect("toast xml");
 
         assert!(xml.contains("<actions>"));
+        assert!(xml.contains("scenario=\"reminder\""));
         assert!(xml.contains("Approve"));
         assert!(xml.contains("Reject"));
         assert!(!xml.contains("Reply to TouchAI"));

@@ -6,7 +6,8 @@
     <div
         ref="searchBarContainerRef"
         data-testid="search-bar"
-        class="search-bar-container relative flex h-full min-h-14 w-full items-start gap-2 p-3"
+        class="search-bar-container relative flex h-full min-h-14 w-full gap-2 p-3"
+        :class="isMultiLine ? 'items-start' : 'items-center'"
         @mousedown="handleContainerMouseDown"
     >
         <div

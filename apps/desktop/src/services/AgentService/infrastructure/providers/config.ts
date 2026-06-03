@@ -5,8 +5,7 @@ import { safeParseJsonWithSchema, z } from '@/utils/zod';
 import type { ProviderConfigJson } from './types';
 
 export const TOUCHAI_HUB_GATEWAY_BASE_URL = 'https://hub.touch-ai.org/api/v1';
-export const TOUCHAI_HUB_MANAGED_MODELS = ['mimo-v2.5', 'mimo-v2.5-pro'] as const;
-export const TOUCHAI_HUB_MANAGED_MODEL_SET = new Set<string>(TOUCHAI_HUB_MANAGED_MODELS);
+export const MIMO_CUSTOM_API_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
 
 const providerConfigJsonSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
@@ -46,8 +45,4 @@ export function isTouchAiManagedMode(config: ProviderConfigJson, baseUrl: string
     }
 
     return isHubEndpoint;
-}
-
-export function isTouchAiManagedModel(modelId: string): boolean {
-    return TOUCHAI_HUB_MANAGED_MODEL_SET.has(modelId);
 }

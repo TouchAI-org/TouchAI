@@ -35,6 +35,10 @@ const llmMetadataMock = vi.hoisted(() => ({
     isLlmMetadataEmpty: vi.fn().mockResolvedValue(false),
 }));
 
+const modelMetadataMock = vi.hoisted(() => ({
+    updateModelMetadata: vi.fn().mockResolvedValue(undefined),
+}));
+
 const agentServiceMock = vi.hoisted(() => ({
     createProviderInstance: vi.fn(() => ({
         listModels: vi.fn().mockResolvedValue([]),
@@ -91,9 +95,7 @@ vi.mock('@/services/AgentService', () => ({
     aiService: agentServiceMock,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
-    updateModelMetadata: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => modelMetadataMock);
 
 vi.mock('@/services/AgentService/infrastructure/providers', () => ({
     getProviderDriverDefinition: vi.fn(() => ({
@@ -122,6 +124,7 @@ describe('SettingsAiServicesSection', () => {
         managedSettingsFocusMock.consumeManagedSettingsFocusRequest.mockReturnValue(null);
         queries.findDefaultModel.mockResolvedValue(null);
         queries.findModelsWithProvider.mockResolvedValue([]);
+        modelMetadataMock.updateModelMetadata.mockResolvedValue(undefined);
     });
 
     it('omits custom-only controls for builtin providers', async () => {
@@ -144,7 +147,11 @@ describe('SettingsAiServicesSection', () => {
         const wrapper = mount(AiServicesSection, {
             global: {
                 stubs: {
-                    ProviderList: true,
+                    ProviderList: {
+                        emits: ['add-custom'],
+                        template:
+                            '<button data-testid="settings-add-custom-provider-button" @click="$emit(\'add-custom\')">add</button>',
+                    },
                     ProviderConfig: true,
                     ModelList: true,
                     AddProviderDialog: true,
@@ -184,7 +191,11 @@ describe('SettingsAiServicesSection', () => {
         const wrapper = mount(AiServicesSection, {
             global: {
                 stubs: {
-                    ProviderList: true,
+                    ProviderList: {
+                        emits: ['add-custom'],
+                        template:
+                            '<button data-testid="settings-add-custom-provider-button" @click="$emit(\'add-custom\')">add</button>',
+                    },
                     ProviderConfig: true,
                     ModelList: true,
                     AddProviderDialog: true,
@@ -204,7 +215,7 @@ describe('SettingsAiServicesSection', () => {
         expect(wrapper.text()).toContain('Custom Gateway');
     });
 
-    it('patches provider config locally without provider list reload', async () => {
+    it('patches provider config locally and refreshes models without a success toast', async () => {
         const provider = {
             id: 2,
             name: 'Custom Gateway',
@@ -218,7 +229,21 @@ describe('SettingsAiServicesSection', () => {
             created_at: '',
             updated_at: '',
         };
+        const listModels = vi.fn().mockResolvedValue([
+            {
+                id: 'gpt-5-mini',
+                name: 'GPT 5 Mini',
+            },
+        ]);
         queries.findAllProvidersSorted.mockResolvedValue([provider]);
+        queries.findProviderById.mockResolvedValue({
+            ...provider,
+            name: 'Renamed Gateway',
+        });
+        agentServiceMock.createProviderInstance.mockReturnValue({
+            listModels,
+            getApiTargets: () => ({ generationTarget: '' }),
+        });
 
         const wrapper = mount(AiServicesSection, {
             global: {
@@ -259,8 +284,88 @@ describe('SettingsAiServicesSection', () => {
             providerPatch: { name: 'Renamed Gateway' },
         });
         expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
-        expect(alertMock.success).toHaveBeenCalledWith('保存成功');
+        expect(listModels).toHaveBeenCalled();
+        expect(alertMock.success).not.toHaveBeenCalled();
         expect(wrapper.text()).toContain('Renamed Gateway');
+    });
+
+    it('refreshes models after creating a provider without a success toast', async () => {
+        const createdProvider = {
+            id: 9,
+            name: 'New Gateway',
+            driver: 'openai',
+            api_endpoint: 'https://new.example.com',
+            api_key: 'sk-new',
+            config_json: null,
+            logo: 'openai.png',
+            enabled: 1,
+            is_builtin: 0,
+            created_at: '',
+            updated_at: '',
+        };
+        const listModels = vi.fn().mockResolvedValue([
+            {
+                id: 'gpt-5-mini',
+                name: 'GPT 5 Mini',
+            },
+        ]);
+        queries.findAllProvidersSorted.mockResolvedValue([]);
+        queries.createProvider.mockResolvedValue(createdProvider);
+        queries.findProviderById.mockResolvedValue(createdProvider);
+        agentServiceMock.createProviderInstance.mockReturnValue({
+            listModels,
+            getApiTargets: () => ({ generationTarget: '' }),
+        });
+
+        const wrapper = mount(AiServicesSection, {
+            global: {
+                stubs: {
+                    ProviderList: {
+                        emits: ['add-custom'],
+                        template:
+                            '<button data-testid="settings-add-custom-provider-button" @click="$emit(\'add-custom\')">add</button>',
+                    },
+                    ProviderConfig: true,
+                    ModelList: true,
+                    AddProviderDialog: {
+                        emits: ['create', 'cancel'],
+                        template: `
+                            <button
+                                data-testid="create-provider"
+                                @click="$emit('create', {
+                                    name: 'New Gateway',
+                                    driver: 'openai',
+                                    api_endpoint: 'https://new.example.com',
+                                    api_key: 'sk-new',
+                                    config_json: null,
+                                    logo: 'openai.png',
+                                    enabled: 1,
+                                    is_builtin: 0
+                                })"
+                            >
+                                create
+                            </button>
+                        `,
+                    },
+                    EditProviderDialog: true,
+                    BadgedLogo: {
+                        props: ['logo', 'name'],
+                        template: '<div data-testid="badged-logo-stub" />',
+                    },
+                },
+            },
+        });
+
+        await flushPromises();
+
+        await wrapper.get('[data-testid="settings-add-custom-provider-button"]').trigger('click');
+        await flushPromises();
+        await wrapper.get('[data-testid="create-provider"]').trigger('click');
+        await flushPromises();
+
+        expect(queries.createProvider).toHaveBeenCalled();
+        expect(listModels).toHaveBeenCalled();
+        expect(alertMock.success).not.toHaveBeenCalled();
     });
 
     it('patches the default model locally without provider list reload', async () => {
@@ -595,6 +700,7 @@ describe('SettingsAiServicesSection', () => {
             })
         );
         expect(listModels).toHaveBeenCalled();
+        expect(modelMetadataMock.updateModelMetadata).not.toHaveBeenCalled();
     });
 
     it('does not refresh managed MiMo models before login is completed', async () => {
@@ -674,6 +780,15 @@ describe('SettingsAiServicesSection', () => {
             created_at: '',
             updated_at: '',
         };
+        const managedModeProvider = {
+            ...mimoProvider,
+            config_json: JSON.stringify({
+                touchAiMode: 'managed',
+                touchAiCustom: {
+                    apiEndpoint: 'https://token-plan-cn.xiaomimimo.com/v1',
+                },
+            }),
+        };
         const openAiProvider = {
             id: 2,
             name: 'OpenAI',
@@ -687,7 +802,18 @@ describe('SettingsAiServicesSection', () => {
             created_at: '',
             updated_at: '',
         };
+        const listModels = vi.fn().mockResolvedValue([
+            {
+                id: 'mimo-v2.5',
+                name: 'mimo-v2.5',
+            },
+        ]);
         queries.findAllProvidersSorted.mockResolvedValue([openAiProvider, mimoProvider]);
+        queries.findProviderById.mockResolvedValue(managedModeProvider);
+        agentServiceMock.createProviderInstance.mockReturnValue({
+            listModels,
+            getApiTargets: () => ({ generationTarget: '' }),
+        });
         managedSettingsFocusMock.peekManagedSettingsFocusRequest.mockReturnValue({
             section: 'ai-services',
             providerDriver: 'mimo',
@@ -732,5 +858,7 @@ describe('SettingsAiServicesSection', () => {
             },
         });
         expect(managedSettingsFocusMock.consumeManagedSettingsFocusRequest).toHaveBeenCalled();
+        expect(listModels).toHaveBeenCalled();
+        expect(alertMock.success).not.toHaveBeenCalled();
     });
 });

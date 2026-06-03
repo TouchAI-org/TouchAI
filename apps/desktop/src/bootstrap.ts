@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+import { isLlmMetadataEmpty, syncAllModelsMetadata } from '@database/queries';
 import { appUpdateService } from '@services/AppUpdateService';
 import { completeManagedLogin, initializeManagedProviderState } from '@services/AuthService';
 import {
@@ -18,6 +19,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import { installI18n } from './i18n';
 import router from './router';
+import { updateModelMetadata } from './services/AgentService/infrastructure/modelMetadata';
 import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
 
@@ -166,12 +168,26 @@ async function setupDeepLinkListener(): Promise<void> {
     }
 }
 
+async function initializeModelMetadata(): Promise<void> {
+    try {
+        if (await isLlmMetadataEmpty()) {
+            await updateModelMetadata();
+            return;
+        }
+
+        await syncAllModelsMetadata();
+    } catch (error) {
+        console.warn('[Bootstrap] Failed to initialize model metadata:', error);
+    }
+}
+
 export async function initializeApp() {
     initializeLogger();
     setupLinkInterceptor();
     document.addEventListener('contextmenu', (event) => event.preventDefault());
     initializeFontLoader();
     await initializeManagedProviderState();
+    await initializeModelMetadata();
     await setupDeepLinkListener();
 
     const app = createApp(App);

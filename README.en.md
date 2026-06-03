@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  On demand · Desktop context · MCP · BYOK
+  <a href="https://touch-ai.org/">Website</a> · <a href="https://hub.touch-ai.org/">Hub</a>
 </p>
 
 <p align="center">
@@ -30,9 +30,6 @@
 <p align="center">
   <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" />
 </p>
-
-> [!WARNING]
-> Many features are still pending merge and may undergo breaking changes. Version 1.0 will be released when the June 1 free token event officially launches.
 
 ### Features
 

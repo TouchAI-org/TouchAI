@@ -78,8 +78,7 @@ export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string>
     '--color-scrollbar-thumb-hover': 'rgba(156, 163, 175, 0.6)',
     '--font-sans':
         "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif",
-    '--font-serif':
-        "'Source Han Serif SC', 'Source Han Serif CN', 'Noto Serif SC', 'Source Han Serif', serif",
+    '--font-serif': "'TouchAI Source Han Serif SC', 'Noto Serif SC', serif",
     '--font-mono': "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace",
     '--border-radius-md': '8px',
     '--border-radius-lg': '12px',
