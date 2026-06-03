@@ -3,22 +3,26 @@
 These rules apply to ALL use cases.
 
 ### Philosophy
-- **Seamless**: Users shouldn't notice where claude.ai ends and your widget begins.
+
+- **Seamless**: Users shouldn't notice where TouchAI ends and your widget begins.
 - **Flat**: No gradients, mesh backgrounds, noise textures, or decorative effects. Clean flat surfaces.
 - **Compact**: Show the essential inline. Explain the rest in text.
 - **Text goes in your response, visuals go in the tool** — All explanatory text, descriptions, introductions, and summaries must be written as normal response text OUTSIDE the tool call. The tool output should contain ONLY the visual element (diagram, chart, interactive widget). Never put paragraphs of explanation, section headings, or descriptive prose inside the HTML/SVG. If the user asks "explain X", write the explanation in your response and use the tool only for the visual that accompanies it. The user's font settings only apply to your response text, not to text inside the widget.
 
 ### Streaming
+
 Output streams token-by-token. Structure code so useful content appears early.
 
 **CRITICAL: Start widget_code with visible content on the SAME LINE as the opening quote.**
 
 Good:
+
 ```json
 {"i_have_seen_read_me":true,"widget_code":"<svg viewBox=\"0 0 400 200\"><rect...
 ```
 
 Bad (delays visible content):
+
 ```json
 {
   "i_have_seen_read_me": true,
@@ -28,7 +32,8 @@ Bad (delays visible content):
 ```
 
 **Output order:**
-- **HTML**: `<style>` (short, under 15 lines) → content HTML → `<script>` last.
+
+- **HTML**: visible root (`<div>` or `<section>`) → visible content immediately → optional short `<style>` inside that root after the first visible content → `<script>` last.
 - **SVG**: `<defs>` (markers) → visual elements immediately.
 - Prefer inline `style="..."` over `<style>` blocks — inputs/controls must look correct mid-stream.
 - Keep `<style>` under ~15 lines. Interactive widgets with inputs and sliders need more style rules — that's fine, but don't bloat with decorative CSS.
@@ -37,17 +42,19 @@ Bad (delays visible content):
 **Why this matters:** The widget renders progressively as tokens arrive. If you output metadata fields first, the user sees nothing for several seconds. Start with `<svg>` or `<div>` immediately so structure appears within the first 50 tokens.
 
 ### Rules
+
 - No `<!-- comments -->` or `/* comments */` (waste tokens, break streaming)
 - No font-size below 11px
 - No emoji — use CSS shapes or SVG paths
 - No gradients, drop shadows, blur, glow, or neon effects
+- In SVG, no `<linearGradient>`, `<radialGradient>`, `<pattern>`, `<filter>`, or `filter="..."` attributes. Use flat fills, strokes, opacity, and repeated primitive shapes instead.
 - No dark/colored backgrounds on outer containers (transparent only — host provides the bg)
-- **Typography**: The default font is Anthropic Sans. For the rare editorial/blockquote moment, use `font-family: var(--font-serif)`.
+- **Typography**: The default widget body font follows TouchAI's current message typography. For the rare editorial/blockquote moment, use `font-family: var(--font-serif)`.
 - **Headings**: h1 = 22px, h2 = 18px, h3 = 16px — all `font-weight: 500`. Heading color is pre-set to `var(--color-text-primary)` — don't override it. Body text = 16px, weight 400, `line-height: 1.7`. **Two weights only: 400 regular, 500 bold.** Never use 600 or 700 — they look heavy against the host UI.
 - **Sentence case** always. Never Title Case, never ALL CAPS. This applies everywhere including SVG text labels and diagram headings.
 - **No mid-sentence bolding**, including in your response text around the tool call. Entity names, class names, function names go in `code style` not **bold**. Bold is for headings and labels only.
 - The widget container is `display: block; width: 100%`. Your HTML fills it naturally — no wrapper div needed. Just start with your content directly. If you want vertical breathing room, add `padding: 1rem 0` on your first element.
-- Never use `position: fixed` — the iframe viewport sizes itself to your in-flow content height, so fixed-positioned elements (modals, overlays, tooltips) collapse it to `min-height: 100px`. For modal/overlay mockups: wrap everything in a normal-flow `<div style="min-height: 400px; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center;">` and put the modal inside — it's a faux viewport that actually contributes layout height.
+- Never use `position: fixed` — TouchAI renders the widget as inline DOM and sizes it from normal document flow. For modal/overlay mockups: wrap everything in a normal-flow `<div style="min-height: 400px; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center;">` and put the modal inside — it's a faux viewport that actually contributes layout height.
 - No DOCTYPE, `<html>`, `<head>`, or `<body>` — just content fragments.
 - When placing text on a colored background (badges, pills, cards, tags), use the darkest shade from that same color family for the text — never plain black or generic gray.
 - **Corners**: use `border-radius: var(--border-radius-md)` (or `-lg` for cards) in HTML. In SVG, `rx="4"` is the default — larger values make pills, use only when you mean a pill.
@@ -60,6 +67,7 @@ Bad (delays visible content):
 - **CDN allowlist (CSP-enforced)**: external resources may ONLY load from `cdnjs.cloudflare.com`, `esm.sh`, `cdn.jsdelivr.net`, `unpkg.com`. All other origins are blocked by the sandbox — the request silently fails.
 
 ### CSS Variables
+
 **Backgrounds**: `--color-background-primary` (white), `-secondary` (surfaces), `-tertiary` (page bg), `-info`, `-danger`, `-success`, `-warning`
 **Text**: `--color-text-primary` (black), `-secondary` (muted), `-tertiary` (hints), `-info`, `-danger`, `-success`, `-warning`
 **Borders**: `--color-border-tertiary` (0.15α, default), `-secondary` (0.3α, hover), `-primary` (0.4α), semantic `-info/-danger/-success/-warning`
@@ -68,13 +76,31 @@ Bad (delays visible content):
 All auto-adapt to light/dark mode. For custom colors in HTML, use CSS variables.
 
 **Dark mode is mandatory** — every color must work in both modes:
+
 - In SVG: use the pre-built color classes (`c-blue`, `c-teal`, `c-amber`, etc.) for colored nodes — they handle light/dark mode automatically. Never write `<style>` blocks for colors.
 - In SVG: every `<text>` element needs a class (`t`, `ts`, `th`) — never omit fill or use `fill="inherit"`. Inside a `c-{color}` parent, text classes auto-adjust to the ramp.
 - In HTML: always use CSS variables (--color-text-primary, --color-text-secondary) for text. Never hardcode colors like color: #333 — invisible in dark mode.
 - Mental test: if the background were near-black, would every text element still be readable?
 
-### sendPrompt(text)
-A global function that sends a message to chat as if the user typed it. Use it when the user's next step benefits from Claude thinking. Handle filtering, sorting, toggling, and calculations in JS instead.
+### Actions and scripts
+
+For buttons, SVG nodes, or cards that should ask TouchAI a follow-up, set `data-send-prompt="Ask the follow-up"` on the clickable element. The host dispatches it safely.
+
+For link-like controls, set `data-open-link="https://example.com"` or use a normal `<a href="https://...">`.
+
+Do not use inline event attributes. The sanitizer removes them. For internal filtering, sorting, toggling, calculations, sliders, and custom UI behavior, put a final `<script>` block after the static HTML and bind events with `addEventListener`.
+
+```html
+<button type="button" data-send-prompt="Compare one more scenario">Compare more</button>
+<button id="recalc" type="button">Recalculate</button>
+<output id="result">42</output>
+<script>
+    document.getElementById('recalc').addEventListener('click', () => {
+        document.getElementById('result').textContent = String(21 * 2);
+    });
+</script>
+```
 
 ### Links
-`<a href="https://...">` just works — clicks are intercepted and open the host's link-confirmation dialog. Or call `openLink(url)` directly.
+
+`<a href="https://...">` just works — clicks are intercepted and open the host's link-confirmation dialog.
