@@ -159,7 +159,15 @@ fn computer_act_dry_run_returns_stable_receipt() {
     assert_eq!(response["foregroundChanged"], json!(false));
     assert_eq!(response["targetResolved"]["x"], json!(120));
     assert_eq!(response["targetResolved"]["y"], json!(130));
-    assert_eq!(response["status"], json!("success"));
+    if cfg!(target_os = "windows") {
+        assert_eq!(response["status"], json!("success"));
+    } else {
+        assert_eq!(response["status"], json!("unsupported"));
+        assert_eq!(
+            response["warnings"],
+            json!(["route 'win32.send_input' is not available for this session"])
+        );
+    }
 }
 
 #[test]
@@ -235,9 +243,17 @@ fn computer_act_rejects_invalid_route_and_background_coordinate_actions() {
         }),
     );
     assert_eq!(background_coordinate["route"], json!("win32.message"));
-    assert_eq!(background_coordinate["status"], json!("blocked"));
-    assert_eq!(
-        background_coordinate["warnings"],
-        json!(["coordinate targets cannot be executed in background mode"])
-    );
+    if cfg!(target_os = "windows") {
+        assert_eq!(background_coordinate["status"], json!("blocked"));
+        assert_eq!(
+            background_coordinate["warnings"],
+            json!(["coordinate targets cannot be executed in background mode"])
+        );
+    } else {
+        assert_eq!(background_coordinate["status"], json!("unsupported"));
+        assert_eq!(
+            background_coordinate["warnings"],
+            json!(["route 'win32.message' is not available for this session"])
+        );
+    }
 }
