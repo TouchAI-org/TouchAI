@@ -352,15 +352,18 @@ function parseRequestedTimeoutMs(toolArgs: Record<string, unknown>): {
     sanitizedToolArgs: Record<string, unknown>;
 } {
     const meta = toolArgs[TOOL_TIMEOUT_META_KEY];
+    const sanitizedToolArgs =
+        TOOL_TIMEOUT_META_KEY in toolArgs ? { ...toolArgs } : toolArgs;
+    if (TOOL_TIMEOUT_META_KEY in sanitizedToolArgs) {
+        delete sanitizedToolArgs[TOOL_TIMEOUT_META_KEY];
+    }
+
     if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
         return {
             requestedTimeoutMs: undefined,
-            sanitizedToolArgs: toolArgs,
+            sanitizedToolArgs,
         };
     }
-
-    const sanitizedToolArgs = { ...toolArgs };
-    delete sanitizedToolArgs[TOOL_TIMEOUT_META_KEY];
 
     const timeoutMs = (meta as Record<string, unknown>).timeoutMs;
     if (
