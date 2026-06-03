@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import { mapHttpStatusToAiError } from '@/services/AgentService/infrastructure/providers/ai-sdk/base';
 
 describe('AiError display localization', () => {
     beforeEach(() => {
@@ -75,5 +76,15 @@ describe('AiError display localization', () => {
         );
         expect(error.cause).toBe(rawError);
         expect(error.details).toBe(rawError);
+    });
+
+    it('uses the default localized message for generic HTTP status errors', () => {
+        setLocale('en-US');
+
+        const error = mapHttpStatusToAiError(401, 'HTTP 401');
+
+        expect(error?.code).toBe(AiErrorCode.UNAUTHORIZED);
+        expect(error?.message).toBe(AiError.getMessage(AiErrorCode.UNAUTHORIZED));
+        expect(error?.getDisplayMessage()).toBe('Authentication failed. Check the API key.');
     });
 });

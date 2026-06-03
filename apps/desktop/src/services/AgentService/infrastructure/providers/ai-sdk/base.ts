@@ -91,23 +91,25 @@ export function mapHttpStatusToAiError(
     statusCode: number | undefined,
     message: string
 ): AiError | null {
+    const normalizedMessage = /^HTTP\s+\d{3}\b/i.test(message) ? undefined : message;
+
     switch (statusCode) {
         case 401:
         case 403:
-            return new AiError(AiErrorCode.UNAUTHORIZED, undefined, message);
+            return new AiError(AiErrorCode.UNAUTHORIZED, undefined, normalizedMessage);
         case 408:
-            return new AiError(AiErrorCode.TIMEOUT, undefined, message);
+            return new AiError(AiErrorCode.TIMEOUT, undefined, normalizedMessage);
         case 429:
-            return new AiError(AiErrorCode.RATE_LIMIT, undefined, message);
+            return new AiError(AiErrorCode.RATE_LIMIT, undefined, normalizedMessage);
         case 502:
-            return new AiError(AiErrorCode.BAD_GATEWAY, undefined, message);
+            return new AiError(AiErrorCode.BAD_GATEWAY, undefined, normalizedMessage);
         case 503:
-            return new AiError(AiErrorCode.SERVICE_UNAVAILABLE, undefined, message);
+            return new AiError(AiErrorCode.SERVICE_UNAVAILABLE, undefined, normalizedMessage);
         case 504:
-            return new AiError(AiErrorCode.GATEWAY_TIMEOUT, undefined, message);
+            return new AiError(AiErrorCode.GATEWAY_TIMEOUT, undefined, normalizedMessage);
         default:
             if (statusCode && statusCode >= 500)
-                return new AiError(AiErrorCode.API_ERROR, undefined, message);
+                return new AiError(AiErrorCode.API_ERROR, undefined, normalizedMessage);
             return null;
     }
 }

@@ -232,6 +232,36 @@ describe('MiMoProviderAdapter', () => {
         });
     });
 
+    it('keeps provider business messages raw for managed gateway policy errors', () => {
+        const provider = new MiMoProviderAdapter({
+            apiEndpoint: 'https://hub.touch-ai.org/api/v1',
+            apiKey: 'ta_live_managed_key',
+            config: {
+                touchAiMode: 'managed',
+            },
+        });
+
+        const policyError = provider.classifyError({
+            statusCode: 403,
+            responseBody:
+                '{"error":{"code":"policy_blocked","message":"This activity is not eligible for your account."}}',
+            data: {
+                error: {
+                    code: 'policy_blocked',
+                    message: 'This activity is not eligible for your account.',
+                },
+            },
+            message: 'HTTP 403',
+        });
+
+        expect(policyError).toBeInstanceOf(AiError);
+        expect(policyError?.code).toBe(AiErrorCode.API_ERROR);
+        expect(policyError?.message).toBe('This activity is not eligible for your account.');
+        expect(policyError?.getDisplayMessage()).toBe(
+            'This activity is not eligible for your account.'
+        );
+    });
+
     it('lets the hub validate managed model ids at request time', () => {
         const provider = new MiMoProviderAdapter({
             apiEndpoint: 'https://hub.touch-ai.org/api/v1',
