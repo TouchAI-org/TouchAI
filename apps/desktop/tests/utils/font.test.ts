@@ -49,6 +49,18 @@ function fontReadyListenCalls() {
     );
 }
 
+function mockFontLoadingApi(checkResult = true) {
+    const load = vi.fn().mockResolvedValue([]);
+    const check = vi.fn().mockReturnValue(checkResult);
+
+    Object.defineProperty(document, 'fonts', {
+        configurable: true,
+        value: { load, check },
+    });
+
+    return { load, check };
+}
+
 describe('font loader', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -304,6 +316,44 @@ describe('font loader', () => {
                 expect(fontStyles()).toHaveLength(1);
                 expect(fontStyleText()).toContain('&touchaiFontReload=1');
             });
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'verifies the injected font with browser font APIs before reporting readiness',
+        async () => {
+            const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+            const fontApi = mockFontLoadingApi();
+            const fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                headers: new Headers({ 'content-type': 'font/woff2' }),
+            });
+            vi.stubGlobal('fetch', fetch);
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
+                expect(fontApi.load).toHaveBeenCalledWith("16px 'TouchAI Source Han Serif SC'");
+                expect(fontApi.check).toHaveBeenCalledWith("16px 'TouchAI Source Han Serif SC'");
+            });
+            expect(fetch).toHaveBeenCalledWith(expect.stringContaining('SourceHanSerifSC-VF'));
+            expect(consoleInfo).toHaveBeenCalledWith(
+                'Source Han Serif font ready:',
+                expect.objectContaining({
+                    fontLoaded: true,
+                    fetchOk: true,
+                    fetchStatus: 200,
+                    contentType: 'font/woff2',
+                })
+            );
+
+            consoleInfo.mockRestore();
+            vi.unstubAllGlobals();
         },
         FONT_TEST_TIMEOUT_MS
     );
