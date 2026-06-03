@@ -18,7 +18,9 @@ const TOOL_TIMEOUT_META_PROPERTY = {
         timeoutMs: {
             type: 'integer',
             description:
-                'Optional timeout in milliseconds. Use only when a task is expected to take longer or shorter than the default. Maximum: 600000 (10 minutes).',
+                'Optional timeout in milliseconds. Use only when a task is expected to take longer or shorter than the default. Minimum: 1000 (1 second). Maximum: 600000 (10 minutes).',
+            minimum: 1000,
+            maximum: 600000,
         },
     },
 } as const;
