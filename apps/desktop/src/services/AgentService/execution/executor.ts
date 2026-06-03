@@ -959,9 +959,19 @@ export class AiRequestExecutor {
                 console.warn('[AiRequestExecutor] Provider error details:', providerErrorDetails);
             }
 
-            // 先让 provider 自己分类，再 fallback 到通用启发式
-            const classifiedError =
-                runtime.provider.classifyError?.(unwrapped) ?? AiError.fromError(unwrapped);
+            // 先让 provider 自己分类，再 fallback 到通用启发式。
+            // 分类器只负责提升错误信息，不能覆盖真正的请求失败原因。
+            let classifiedError: AiError;
+            try {
+                classifiedError =
+                    runtime.provider.classifyError?.(unwrapped) ?? AiError.fromError(unwrapped);
+            } catch (classificationError) {
+                console.warn(
+                    '[AiRequestExecutor] Provider error classification failed:',
+                    classificationError
+                );
+                classifiedError = AiError.fromError(unwrapped);
+            }
 
             return {
                 type: 'failed',
