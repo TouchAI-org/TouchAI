@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
 /**
  * MCP Manager - 管理 MCP 服务器连接和工具调用
@@ -438,6 +438,7 @@ export class McpManager {
             iteration?: number;
             toolCallId?: string;
             resolved?: { serverId: number; originalName: string; toolTimeout: number };
+            requestedTimeoutMs?: number;
         }
     ): Promise<{
         result: string;
@@ -455,11 +456,17 @@ export class McpManager {
             throw new Error(t('agent.mcp.toolNotFound', { toolName }));
         }
 
+        // Apply requested timeout bounded between 1s and 10 mins, default to tool config
+        let effectiveTimeout = resolved.toolTimeout;
+        if (options?.requestedTimeoutMs && options.requestedTimeoutMs > 0) {
+            effectiveTimeout = Math.min(Math.max(options.requestedTimeoutMs, 1000), 600000);
+        }
+
         // 将工具调用与超时和中止信号进行竞争
         const callPromise = this.callTool(resolved.serverId, resolved.originalName, args);
         const response = await raceWithTimeoutAndSignal(
             callPromise,
-            resolved.toolTimeout,
+            effectiveTimeout,
             options?.signal
         );
 
