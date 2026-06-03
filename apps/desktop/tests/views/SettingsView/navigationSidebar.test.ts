@@ -1,6 +1,7 @@
 import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import desktopPackageJson from '../../../package.json';
 import NavigationSidebar from '@/views/SettingsView/components/NavigationSidebar.vue';
 import {
     SETTINGS_DETAIL_PANEL_MIN_WIDTH,
@@ -76,7 +77,7 @@ describe('NavigationSidebar', () => {
             },
         });
 
-        expect(wrapper.text()).toContain('TouchAI v1.0.0');
+        expect(wrapper.text()).toContain(`TouchAI v${desktopPackageJson.version}`);
         expect(wrapper.find('[data-testid="settings-sidebar-github"]').exists()).toBe(true);
         expect(wrapper.find('[data-testid="settings-sidebar-issues"]').exists()).toBe(true);
 
