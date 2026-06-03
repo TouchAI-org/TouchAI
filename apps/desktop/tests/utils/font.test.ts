@@ -4,9 +4,14 @@ import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsMock = vi.hoisted(() => vi.fn(async () => true));
+const joinMock = vi.hoisted(() => vi.fn(async (...segments: string[]) => segments.join('/')));
 
 vi.mock('@tauri-apps/plugin-fs', () => ({
     exists: existsMock,
+}));
+
+vi.mock('@tauri-apps/api/path', () => ({
+    join: joinMock,
 }));
 
 const FONT_STYLE_SELECTOR = 'style[data-touchai-font-face="source-han-serif-sc"]';
@@ -51,6 +56,7 @@ describe('font loader', () => {
         document.head.innerHTML = '';
         existsMock.mockReset();
         existsMock.mockResolvedValue(true);
+        joinMock.mockClear();
         mockTauriCommand('get_app_directory_path', 'D:\\TouchAI\\assets\\font');
     });
 
@@ -72,6 +78,27 @@ describe('font loader', () => {
             expect(commandOrder.indexOf('plugin:event|listen')).toBeLessThan(
                 commandOrder.indexOf('get_app_directory_path')
             );
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'resolves the cached font path with Tauri path join before checking existence',
+        async () => {
+            mockTauriCommand('get_app_directory_path', '/var/lib/touchai/assets/font');
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
+                expect(joinMock).toHaveBeenCalledWith(
+                    '/var/lib/touchai/assets/font',
+                    'SourceHanSerifSC-VF.ttf.woff2'
+                );
+                expect(existsMock).toHaveBeenCalledWith(
+                    '/var/lib/touchai/assets/font/SourceHanSerifSC-VF.ttf.woff2'
+                );
+            });
         },
         FONT_TEST_TIMEOUT_MS
     );

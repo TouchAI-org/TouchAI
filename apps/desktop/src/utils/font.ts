@@ -3,6 +3,7 @@
 import { AppEvent, eventService } from '@services/EventService';
 import { paths } from '@services/NativeService';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { join } from '@tauri-apps/api/path';
 import { exists } from '@tauri-apps/plugin-fs';
 
 const FONT_FILENAME = 'SourceHanSerifSC-VF.ttf.woff2';
@@ -36,7 +37,7 @@ function appendFontReloadToken(fontUrl: string, reloadToken: number): string {
 
 async function resolveFontPath(): Promise<string> {
     const fontDir = await paths.getAppDirectoryPath('ASSETS_FONT');
-    return `${fontDir}\\${FONT_FILENAME}`;
+    return join(fontDir, FONT_FILENAME);
 }
 
 async function injectFontFace(options: LoadFontFaceOptions = {}): Promise<boolean> {
