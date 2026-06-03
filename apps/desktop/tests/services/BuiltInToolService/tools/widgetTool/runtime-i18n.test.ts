@@ -15,15 +15,9 @@ async function waitForWidgetRender(): Promise<void> {
 }
 
 async function waitForCondition(condition: () => boolean): Promise<void> {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-        if (condition()) {
-            return;
-        }
-
-        await new Promise((resolve) => window.setTimeout(resolve, 0));
-    }
-
-    throw new Error('Timed out waiting for widget condition');
+    await vi.waitFor(() => {
+        expect(condition()).toBe(true);
+    });
 }
 
 function installExternalScriptLoadMock(): void {
