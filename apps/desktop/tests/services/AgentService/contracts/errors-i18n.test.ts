@@ -33,6 +33,24 @@ describe('AiError display localization', () => {
         expect(error.getDisplayMessage()).toBe('供应商返回的原始错误 payload');
     });
 
+    it('normalizes unsupported input endpoint errors from plain Error objects', () => {
+        const error = new Error('No endpoints found that support image input');
+
+        expect(AiError.getDisplayMessage(error)).toBe(
+            '当前模型不支持图片/文件输入，请选择合适模型继续。'
+        );
+    });
+
+    it('normalizes unsupported endpoint errors when other capabilities are listed too', () => {
+        const error = new AiError(
+            AiErrorCode.API_ERROR,
+            undefined,
+            'No endpoints found that support tool, image, and file inputs'
+        );
+
+        expect(error.getDisplayMessage()).toBe('当前模型不支持图片/文件输入，请选择合适模型继续。');
+    });
+
     it('keeps default Error.message stable while exposing localized display text', () => {
         setLocale('en-US');
         const error = new AiError(AiErrorCode.NO_ACTIVE_MODEL);

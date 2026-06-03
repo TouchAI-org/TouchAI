@@ -9,7 +9,13 @@ import {
 
 import type { AiContentPart, AiMessage } from '../contracts/protocol';
 import type { AiToolCall } from '../contracts/tooling';
-import { buildAttachmentParts, hydratePersistedAttachments } from '../infrastructure/attachments';
+import {
+    type AttachmentCapabilities,
+    type AttachmentType,
+    buildAttachmentParts,
+    getUnsupportedAttachmentTypes,
+    hydratePersistedAttachments,
+} from '../infrastructure/attachments';
 
 function toTransportToolName(toolLog: ToolLogHistoryRow): string {
     if (toolLog.source === 'builtin') {
@@ -39,12 +45,53 @@ function buildAssistantTransportContent(row: {
 
 const MISSING_TOOL_RESULT_PLACEHOLDER = 'Missing historical tool result.';
 
+export async function findUnsupportedSessionAttachmentTypes(options: {
+    sessionId?: number;
+    capabilities: AttachmentCapabilities;
+}): Promise<AttachmentType[]> {
+    if (!options.sessionId) {
+        return [];
+    }
+
+    const rows = await findMessagesBySessionId(options.sessionId);
+    const transportAttachmentRows = rows
+        .filter((row) => row.role === 'user' || row.role === 'tool_result')
+        .flatMap((row) => row.attachments);
+
+    return getUnsupportedAttachmentTypes(transportAttachmentRows, options.capabilities);
+}
+
+function resolveTransportAttachmentCapabilities(options: {
+    attachmentCapabilities?: AttachmentCapabilities;
+    supportsAttachments?: boolean;
+}): AttachmentCapabilities {
+    if (options.attachmentCapabilities) {
+        return options.attachmentCapabilities;
+    }
+
+    const supportsAttachments = options.supportsAttachments ?? true;
+    return {
+        supportsImages: supportsAttachments,
+        supportsFiles: supportsAttachments,
+    };
+}
+
+function filterSupportedAttachmentRows<T extends { type: AttachmentType }>(
+    attachments: T[],
+    capabilities: AttachmentCapabilities
+): T[] {
+    return attachments.filter(
+        (attachment) => getUnsupportedAttachmentTypes([attachment], capabilities).length === 0
+    );
+}
+
 /**
  * 将会话历史重组为下一轮请求可继续复用的模型消息。
  */
 export async function loadSessionTransportMessages(options: {
     sessionId?: number;
     supportsAttachments?: boolean;
+    attachmentCapabilities?: AttachmentCapabilities;
 }): Promise<AiMessage[]> {
     const [rows, toolLogs] = options.sessionId
         ? await Promise.all([
@@ -52,7 +99,7 @@ export async function loadSessionTransportMessages(options: {
               findToolLogRowsBySessionId(options.sessionId),
           ])
         : [[], []];
-    const supportsAttachments = options.supportsAttachments ?? true;
+    const attachmentCapabilities = resolveTransportAttachmentCapabilities(options);
     const messages: AiMessage[] = [];
     const toolLogsByMessageId = new Map<number, ToolLogHistoryRow[]>();
     const toolLogByIdentity = new Map<string, ToolLogHistoryRow>();
@@ -178,9 +225,14 @@ export async function loadSessionTransportMessages(options: {
             );
 
             if (pendingToolCall) {
-                const attachments = supportsAttachments
-                    ? await hydratePersistedAttachments(row.attachments)
-                    : [];
+                const supportedAttachmentRows = filterSupportedAttachmentRows(
+                    row.attachments,
+                    attachmentCapabilities
+                );
+                const attachments =
+                    supportedAttachmentRows.length > 0
+                        ? await hydratePersistedAttachments(supportedAttachmentRows)
+                        : [];
                 const attachmentParts =
                     attachments.length > 0
                         ? await buildAttachmentParts(attachments, {
@@ -213,9 +265,14 @@ export async function loadSessionTransportMessages(options: {
         if (row.role === 'user') {
             flushMissingToolResults();
 
-            const attachments = supportsAttachments
-                ? await hydratePersistedAttachments(row.attachments)
-                : [];
+            const supportedAttachmentRows = filterSupportedAttachmentRows(
+                row.attachments,
+                attachmentCapabilities
+            );
+            const attachments =
+                supportedAttachmentRows.length > 0
+                    ? await hydratePersistedAttachments(supportedAttachmentRows)
+                    : [];
             const attachmentParts =
                 attachments.length > 0 ? await buildAttachmentParts(attachments) : [];
 

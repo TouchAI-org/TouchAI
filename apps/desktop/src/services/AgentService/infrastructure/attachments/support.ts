@@ -3,8 +3,45 @@
  */
 
 import { tt } from '@/i18n';
+import { parseModelModalities } from '@/utils/modelSchemas';
 
 import type { AttachmentIndex, AttachmentSupportStatus } from './types';
+
+export interface AttachmentCapabilities {
+    supportsImages: boolean;
+    supportsFiles: boolean;
+}
+
+export type AttachmentType = AttachmentIndex['type'];
+
+export function getModelAttachmentCapabilities(model: {
+    modalities?: string | null;
+    attachment?: number | null;
+}): AttachmentCapabilities {
+    const modalities = parseModelModalities(model.modalities);
+    return {
+        supportsImages: Boolean(modalities.input?.includes('image')),
+        supportsFiles: model.attachment === 1,
+    };
+}
+
+export function getUnsupportedAttachmentTypes(
+    attachments: Pick<AttachmentIndex, 'type'>[],
+    capabilities: AttachmentCapabilities
+): AttachmentType[] {
+    const unsupportedTypes = new Set<AttachmentType>();
+
+    for (const attachment of attachments) {
+        if (attachment.type === 'image' && !capabilities.supportsImages) {
+            unsupportedTypes.add('image');
+        }
+        if (attachment.type === 'file' && !capabilities.supportsFiles) {
+            unsupportedTypes.add('file');
+        }
+    }
+
+    return Array.from(unsupportedTypes);
+}
 
 /**
  * 根据文件类型和模型能力计算附件支持状态。
@@ -15,7 +52,7 @@ import type { AttachmentIndex, AttachmentSupportStatus } from './types';
  */
 export function resolveAttachmentSupportStatus(
     fileType: 'image' | 'file',
-    capabilities: { supportsImages: boolean; supportsFiles: boolean }
+    capabilities: AttachmentCapabilities
 ): AttachmentSupportStatus {
     if (fileType === 'image' && !capabilities.supportsImages) return 'unsupported-image';
     if (fileType === 'file' && !capabilities.supportsFiles) return 'unsupported-file';

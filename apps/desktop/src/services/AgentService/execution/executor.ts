@@ -23,7 +23,12 @@ import type {
     ToolApprovalDecisionRequest,
     ToolEventModelSummary,
 } from '../contracts/tooling';
-import { type AttachmentIndex, buildAttachmentParts } from '../infrastructure/attachments';
+import {
+    type AttachmentIndex,
+    buildAttachmentParts,
+    getModelAttachmentCapabilities,
+    getUnsupportedAttachmentTypes,
+} from '../infrastructure/attachments';
 import { mcpManager } from '../infrastructure/mcp';
 import {
     type AiProvider,
@@ -271,6 +276,25 @@ function throwIfAborted(signal?: AbortSignal): void {
     if (signal?.aborted) {
         throw new AiError(AiErrorCode.REQUEST_CANCELLED);
     }
+}
+
+function throwIfAttachmentsUnsupportedByModel(
+    attachments: AttachmentIndex[] | undefined,
+    model: ModelWithProvider
+): void {
+    const unsupportedAttachmentTypes = getUnsupportedAttachmentTypes(
+        attachments ?? [],
+        getModelAttachmentCapabilities(model)
+    );
+    if (unsupportedAttachmentTypes.length === 0) {
+        return;
+    }
+
+    throw new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
+        unsupportedAttachmentTypes,
+        modelId: model.model_id,
+        providerId: model.provider_id,
+    });
 }
 
 function formatToolArgumentsIssues(error: z.ZodError): string {
@@ -781,7 +805,14 @@ export class AiRequestExecutor {
             )
         );
 
-        let requestedModelSwitch: BuiltInToolControlSignal | null = null;
+        const requestedModelSwitch =
+            toolResults.find(({ controlSignal }) => controlSignal?.type === 'upgrade_model')
+                ?.controlSignal ?? null;
+        const nextModel =
+            requestedModelSwitch?.type === 'upgrade_model'
+                ? requestedModelSwitch.targetModel
+                : runtime.activeModel;
+
         for (const {
             toolCall,
             builtInToolId,
@@ -790,8 +821,9 @@ export class AiRequestExecutor {
             toolLogId,
             toolLogKind,
             attachments,
-            controlSignal,
         } of toolResults) {
+            throwIfAttachmentsUnsupportedByModel(attachments, nextModel);
+
             runtime.messages.push({
                 role: 'tool',
                 content: await buildToolResultMessageContent(result, attachments),
@@ -809,10 +841,6 @@ export class AiRequestExecutor {
 
             if (builtInToolId && !isError) {
                 runtime.executedBuiltInTools.add(builtInToolId);
-            }
-
-            if (!requestedModelSwitch && controlSignal?.type === 'upgrade_model') {
-                requestedModelSwitch = controlSignal;
             }
         }
 
