@@ -407,6 +407,96 @@ describe('show widget renderer i18n opt-out', () => {
         secondRenderer.destroy();
     });
 
+    it('keeps sample-style onclick timers scoped when duplicate widgets are rendered', async () => {
+        const firstHost = document.createElement('div');
+        const secondHost = document.createElement('div');
+        document.body.append(firstHost, secondHost);
+
+        const firstRenderer = createWidgetRenderer(firstHost);
+        const secondRenderer = createWidgetRenderer(secondHost);
+        const sampleStyleHtml = [
+            '<section>',
+            '<button id="btn-s" type="button">Next</button>',
+            '<button id="btn-a" type="button">Auto</button>',
+            '<span id="st">idle</span>',
+            '<div id="rem">41 cents</div>',
+            '<div class="d" data-v="25"><span class="cn">x0</span></div>',
+            '<div class="d" data-v="10"><span class="cn">x0</span></div>',
+            '<script>',
+            'const D = [25, 10, 5, 1];',
+            'let rem = 41;',
+            'let stepLock = false;',
+            'let autoId = null;',
+            'function ui() {',
+            'document.getElementById("rem").textContent = rem + " cents";',
+            'document.querySelectorAll(".d").forEach((element) => {',
+            'element.querySelector(".cn").textContent = "x" + (Number(element.dataset.v) <= rem ? 1 : 0);',
+            '});',
+            '}',
+            'function step() {',
+            'if (stepLock || rem <= 0) return;',
+            'const ch = D.find((coin) => coin <= rem);',
+            'stepLock = true;',
+            'document.getElementById("st").textContent = "selected " + ch;',
+            'setTimeout(() => {',
+            'rem -= ch;',
+            'ui();',
+            'document.getElementById("st").textContent = "remaining " + rem;',
+            'stepLock = false;',
+            '}, 0);',
+            '}',
+            'function auto() {',
+            'if (autoId) { clearInterval(autoId); autoId = null; return; }',
+            'autoId = setInterval(() => { if (!stepLock && rem > 0) step(); }, 10);',
+            '}',
+            'document.getElementById("btn-s").onclick = step;',
+            'document.getElementById("btn-a").onclick = auto;',
+            'ui();',
+            '</script>',
+            '</section>',
+        ].join('');
+
+        firstRenderer.render({
+            widgetId: 'first-sample-style-widget',
+            title: 'First sample style widget',
+            description: '',
+            phase: 'ready',
+            html: sampleStyleHtml,
+        });
+        await waitForCondition(
+            () => firstHost.querySelector('[id="rem"]')?.textContent === '41 cents'
+        );
+
+        secondRenderer.render({
+            widgetId: 'second-sample-style-widget',
+            title: 'Second sample style widget',
+            description: '',
+            phase: 'ready',
+            html: sampleStyleHtml,
+        });
+        await waitForCondition(
+            () =>
+                firstHost.querySelector('[id="rem"]')?.textContent === '41 cents' &&
+                secondHost.querySelector('[id="rem"]')?.textContent === '41 cents'
+        );
+
+        secondHost
+            .querySelector('[id="btn-s"]')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        await waitForCondition(
+            () => secondHost.querySelector('[id="rem"]')?.textContent === '16 cents'
+        );
+
+        expect(firstHost.querySelector('[id="st"]')?.textContent).toBe('idle');
+        expect(firstHost.querySelector('[id="rem"]')?.textContent).toBe('41 cents');
+        expect(secondHost.querySelector('[id="st"]')?.textContent).toBe('remaining 16');
+        expect(secondHost.querySelector('[id="rem"]')?.textContent).toBe('16 cents');
+
+        firstRenderer.destroy();
+        secondRenderer.destroy();
+    });
+
     it('does not execute non-classic inline script payloads', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
