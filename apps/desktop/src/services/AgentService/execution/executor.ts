@@ -38,6 +38,7 @@ const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
 const MAX_REQUEST_MODEL_SWITCHES = 4;
 const MODEL_SWITCH_EXCLUDED_TOOL_NAMES = [BUILT_IN_UPGRADE_TOOL_NAME];
 const toolArgumentsSchema = z.record(z.string(), z.unknown());
+const TOOL_TIMEOUT_META_KEY = '_meta';
 /**
  * 这些文本会进入工具结果和会话历史，属于用户可见内容，因此统一使用中文。
  * console 日志仍保留英文，便于对齐 SDK、provider 和协议层排障信息。
@@ -322,6 +323,35 @@ function parseToolCallArguments(toolCall: AiToolCall):
     };
 }
 
+function parseRequestedTimeoutMs(toolArgs: Record<string, unknown>): {
+    requestedTimeoutMs?: number;
+    sanitizedToolArgs: Record<string, unknown>;
+} {
+    const meta = toolArgs[TOOL_TIMEOUT_META_KEY];
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+        return {
+            requestedTimeoutMs: undefined,
+            sanitizedToolArgs: toolArgs,
+        };
+    }
+
+    const sanitizedToolArgs = { ...toolArgs };
+    delete sanitizedToolArgs[TOOL_TIMEOUT_META_KEY];
+
+    const timeoutMs = (meta as Record<string, unknown>).timeoutMs;
+    if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs)) {
+        return {
+            requestedTimeoutMs: undefined,
+            sanitizedToolArgs,
+        };
+    }
+
+    return {
+        requestedTimeoutMs: timeoutMs,
+        sanitizedToolArgs,
+    };
+}
+
 /**
  * 负责单次模型执行的底层编排：
  * - 模型解析
@@ -429,6 +459,7 @@ export class AiRequestExecutor {
         toolCallMessageId: number | null;
         sessionId: number | null;
         onChunk?: RequestExecutionCallbacks['onChunk'];
+        requestedTimeoutMs?: number;
     }): Promise<{
         toolCall: AiToolCall;
         result: string;
@@ -497,6 +528,7 @@ export class AiRequestExecutor {
                 signal: options.signal,
                 iteration: options.iteration,
                 toolCallId: options.toolCall.id,
+                requestedTimeoutMs: options.requestedTimeoutMs,
                 resolved: {
                     serverId: mapping.serverId,
                     originalName: mapping.originalName,
@@ -712,10 +744,13 @@ export class AiRequestExecutor {
             };
         }
 
-        const { toolArgs } = parsedToolArguments;
+        const { requestedTimeoutMs, sanitizedToolArgs } = parseRequestedTimeoutMs(
+            parsedToolArguments.toolArgs
+        );
+
         const builtInResult = await builtInToolService.executeTool({
             toolCall: options.toolCall,
-            toolArgs,
+            toolArgs: sanitizedToolArgs,
             iteration: runtime.iteration,
             currentModel: runtime.activeModel,
             hasExecutedBuiltInTool: (toolId) => runtime.executedBuiltInTools.has(toolId),
@@ -725,6 +760,7 @@ export class AiRequestExecutor {
             requestToolApproval: options.requestToolApproval,
             requestUserQuestions: options.requestUserQuestions,
             emitToolEvent: (toolEvent) => this.emitToolEvent(options.onChunk, toolEvent),
+            requestedTimeoutMs,
         });
 
         if (builtInResult) {
@@ -733,12 +769,13 @@ export class AiRequestExecutor {
 
         return this.executeMcpToolCall({
             toolCall: options.toolCall,
-            toolArgs,
+            toolArgs: sanitizedToolArgs,
             iteration: runtime.iteration,
             signal: options.signal,
             toolCallMessageId: options.toolCallMessageId,
             sessionId: options.persister.getSessionId(),
             onChunk: options.onChunk,
+            requestedTimeoutMs,
         });
     }
 

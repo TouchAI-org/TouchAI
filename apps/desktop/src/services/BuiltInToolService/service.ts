@@ -49,6 +49,7 @@ interface BuiltInToolExecutionOptions {
         questions: AskUserQuestion[]
     ) => Promise<AskUserAnswer[] | null>;
     emitToolEvent: (event: ToolEvent) => void;
+    requestedTimeoutMs?: number;
 }
 
 interface BuiltInToolExecutionResponse {
@@ -257,6 +258,7 @@ class BuiltInToolService {
             emitToolEvent: options.emitToolEvent,
             hasExecutedBuiltInTool: options.hasExecutedBuiltInTool,
             requestUserQuestions: options.requestUserQuestions,
+            requestedTimeoutMs: options.requestedTimeoutMs,
         };
 
         const callStartTime = Date.now();

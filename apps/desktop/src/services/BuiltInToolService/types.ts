@@ -42,6 +42,7 @@ export interface BaseBuiltInToolExecutionContext {
         callId: string,
         questions: AskUserQuestion[]
     ) => Promise<AskUserAnswer[] | null>;
+    requestedTimeoutMs?: number;
 }
 
 /**

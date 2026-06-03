@@ -153,12 +153,19 @@ export async function executeBashTool(
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
     const commandContext = await resolveCommandContext(args, config);
+
+    // Apply requested timeout bounded between 1s and 10 mins, default to tool config
+    let effectiveTimeout = config.timeoutMs;
+    if (context.requestedTimeoutMs && context.requestedTimeoutMs > 0) {
+        effectiveTimeout = Math.min(Math.max(context.requestedTimeoutMs, 1000), 600000);
+    }
+
     const response = await executeCancelableBash(
         {
             executionId: context.callId,
             command: commandContext.command,
             workingDirectory: commandContext.workingDirectory,
-            timeoutMs: config.timeoutMs,
+            timeoutMs: effectiveTimeout,
             compactOutput: config.compactOutput,
             rawOutput: commandContext.rawOutput,
         },
