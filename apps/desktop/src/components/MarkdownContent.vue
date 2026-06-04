@@ -44,6 +44,9 @@
 
     const markdownParser = getMarkdown('touchai-markdown', {
         enableContainers: false,
+        markdownItOptions: {
+            breaks: true,
+        },
     });
     const markdownItEmojiPlugin = markdownItEmoji as unknown as Parameters<MarkdownIt['use']>[0];
 
