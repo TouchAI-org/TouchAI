@@ -82,6 +82,22 @@ describe('MarkdownContent i18n', () => {
         expect(languageMapMock.mermaid).toBe('Diagram');
     });
 
+    it('escapes shell variables so KaTeX does not treat them as inline math', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        mount(MarkdownContent, {
+            props: {
+                content:
+                    'paths: $env:USERPROFILE\\Desktop, $HOME/project, ${USERPROFILE}\\Desktop, ${env:APPDATA}; math: $x$; code: `echo $HOME`',
+            },
+        });
+
+        expect(parseMarkdownToStructureMock).toHaveBeenCalledWith(
+            'paths: \\$env:USERPROFILE\\Desktop, \\$HOME/project, \\${USERPROFILE}\\Desktop, \\${env:APPDATA}; math: $x$; code: `echo $HOME`',
+            expect.anything(),
+            expect.anything()
+        );
+    });
     it('updates markstream labels when locale changes after mount', async () => {
         const { setLocale } = await import('@/i18n');
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');

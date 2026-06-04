@@ -151,8 +151,61 @@
         configureMarkstreamLabels(nextLocale);
     });
     const markdownContainerRef = ref<HTMLElement | null>(null);
+    const SHELL_VARIABLE_PATTERN =
+        /^\$(?:\{(?:env:)?[A-Za-z_][A-Za-z0-9_]*\}|env:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)/;
+
+    function shouldEscapeShellVariable(content: string, index: number): boolean {
+        const match = content.slice(index).match(SHELL_VARIABLE_PATTERN);
+        if (!match) {
+            return false;
+        }
+
+        const nextChar = content[index + match[0].length];
+        return nextChar !== '$';
+    }
+
+    function escapeShellVariablesOutsideCode(content: string): string {
+        let result = '';
+        let index = 0;
+        let inFence = false;
+        let inInlineCode = false;
+
+        while (index < content.length) {
+            if (!inInlineCode && content.startsWith('```', index)) {
+                inFence = !inFence;
+                result += '```';
+                index += 3;
+                continue;
+            }
+
+            const char = content[index];
+            if (!inFence && char === '`') {
+                inInlineCode = !inInlineCode;
+                result += char;
+                index += 1;
+                continue;
+            }
+
+            if (
+                !inFence &&
+                !inInlineCode &&
+                char === '$' &&
+                shouldEscapeShellVariable(content, index)
+            ) {
+                result += String.raw`\$`;
+                index += 1;
+                continue;
+            }
+
+            result += char;
+            index += 1;
+        }
+
+        return result;
+    }
+
     const markdownParseInput = computed(() => ({
-        content: props.content,
+        content: escapeShellVariablesOutsideCode(props.content),
         final: props.final,
         locale: locale.value,
     }));
