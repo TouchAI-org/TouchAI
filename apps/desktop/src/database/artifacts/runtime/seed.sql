@@ -158,3 +158,21 @@ INSERT INTO built_in_tools (
 )
 SELECT 'ask_user_question', 'AskUserQuestion', '向用户提出结构化问题', 1, 'low', NULL
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'ask_user_question');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
+SELECT 'browser_session', 'BrowserSession', '管理浏览器自动化会话与标签页', 1, 'medium', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser_session');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
+SELECT 'browser_observe', 'BrowserObserve', '观察浏览器页面状态、快照、截图、控制台与网络摘要', 1, 'low', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser_observe');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
+SELECT 'browser_act', 'BrowserAct', '通过浏览器页面引用执行点击、输入、表单、按键、滚动与等待操作', 1, 'medium', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser_act');

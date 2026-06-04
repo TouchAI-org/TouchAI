@@ -74,6 +74,35 @@ export const updateBuiltInTool = async (
 };
 
 /**
+ * 在同一个事务中更新多条内置工具配置。
+ */
+export const updateBuiltInTools = async (
+    ids: number[],
+    data: BuiltInToolUpdateData
+): Promise<BuiltInToolEntity[]> => {
+    if (ids.length === 0) {
+        return [];
+    }
+
+    return await db.transaction(async (tx) => {
+        const updatedTools: BuiltInToolEntity[] = [];
+        for (const id of ids) {
+            const updatedTool = await tx
+                .update(builtInTools)
+                .set(data)
+                .where(eq(builtInTools.id, id))
+                .returning()
+                .get();
+            if (!updatedTool || updatedTool.id === undefined) {
+                throw new Error(`Built-in tool not found after update: ${id}`);
+            }
+            updatedTools.push(updatedTool);
+        }
+        return updatedTools;
+    });
+};
+
+/**
  * 更新内置工具最近一次使用时间。
  */
 export const touchBuiltInToolLastUsed = async (

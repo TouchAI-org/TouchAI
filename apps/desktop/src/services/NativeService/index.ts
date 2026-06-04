@@ -1,4 +1,5 @@
 import { autostart } from './autostart';
+import { browser } from './browser';
 import { builtInTools } from './builtInTools';
 import { clipboard } from './clipboard';
 import { database } from './database';
@@ -27,6 +28,16 @@ export type {
     AppUpdateDownload,
     AppUpdateInfo,
     AppUpdateRequirement,
+    BrowserActRequest,
+    BrowserActResponse,
+    BrowserNavigationRequest,
+    BrowserObserveOperation,
+    BrowserObserveRequest,
+    BrowserObserveResponse,
+    BrowserSessionResponse,
+    BrowserStartRequest,
+    BrowserStatusResponse,
+    BrowserTabRequest,
     BuiltInBashExecutionRequest,
     BuiltInBashExecutionResponse,
     ClipboardPayload,
@@ -42,6 +53,7 @@ export type {
 
 export {
     autostart,
+    browser,
     builtInTools,
     clipboard,
     database,
@@ -59,6 +71,7 @@ export const native = {
     window,
     shortcut,
     autostart,
+    browser,
     clipboard,
     builtInTools,
     log,

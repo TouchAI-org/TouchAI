@@ -8,6 +8,11 @@ use tauri::{
 use crate::{
     commands,
     core::{
+        browser::{
+            actions, endpoint,
+            types::{BrowserActRequest, BrowserDomRef},
+            url_policy, BrowserRuntime,
+        },
         database::DatabaseRuntime,
         updater::AppUpdaterState,
         window::{
@@ -30,6 +35,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .manage(SearchSurfaceRuntime::new())
         .manage(SessionStatusReminderNotificationRuntime::for_tests())
         .manage(TrayStatusRuntime::new())
+        .manage(BrowserRuntime::new())
         .manage(AppUpdaterState::default())
 }
 
@@ -76,3 +82,43 @@ pub fn session_status_reminder_clear_count<R: Runtime>(app: &App<R>) -> usize {
     app.state::<SessionStatusReminderNotificationRuntime>()
         .clear_count()
 }
+
+pub fn parse_browser_loopback_endpoint_for_tests(raw: &str) -> Result<serde_json::Value, String> {
+    serde_json::to_value(endpoint::parse_loopback_endpoint(raw)?.snapshot())
+        .map_err(|error| error.to_string())
+}
+
+pub fn validate_browser_navigation_token_for_tests(
+    supplied: &str,
+    current: &str,
+) -> Result<(), String> {
+    endpoint::validate_stale_navigation_token(supplied, current)
+}
+
+pub fn validate_browser_websocket_endpoint_for_tests(
+    websocket_url: &str,
+    endpoint_url: &str,
+) -> Result<(), String> {
+    let endpoint = endpoint::parse_loopback_endpoint(endpoint_url)?;
+    endpoint::validate_loopback_websocket(websocket_url, &endpoint)
+}
+
+pub fn validate_browser_action_for_tests(
+    request: serde_json::Value,
+    refs: Vec<serde_json::Value>,
+) -> Result<(), String> {
+    let request: BrowserActRequest =
+        serde_json::from_value(request).map_err(|error| error.to_string())?;
+    let refs: Vec<BrowserDomRef> = refs
+        .into_iter()
+        .map(serde_json::from_value)
+        .collect::<Result<_, _>>()
+        .map_err(|error| error.to_string())?;
+    actions::resolve_ref_action(&request, &refs).map(|_| ())
+}
+
+pub fn validate_browser_url_for_tests(raw: &str) -> Result<String, String> {
+    url_policy::validate_browser_url(raw)
+}
+
+pub type BrowserStartRequestForTests = crate::core::browser::types::BrowserStartRequest;

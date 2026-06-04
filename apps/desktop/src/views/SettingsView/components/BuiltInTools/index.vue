@@ -11,6 +11,7 @@
 
     import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';
     import SectionTabs, { type SectionTabItem } from '../SectionTabs.vue';
+    import { getBuiltInToolUpdateTargets } from './browserToolGroup';
     import BuiltInToolConfig from './components/BuiltInToolConfig.vue';
     import BuiltInToolList from './components/BuiltInToolList.vue';
     import BuiltInToolLogViewer from './components/BuiltInToolLogViewer.vue';
@@ -112,26 +113,66 @@
         }
     }
 
+    function updateTogglingToolIds(toolIds: number[], active: boolean) {
+        const next = new Set(togglingToolIds.value);
+        for (const toolId of toolIds) {
+            if (active) {
+                next.add(toolId);
+            } else {
+                next.delete(toolId);
+            }
+        }
+        togglingToolIds.value = next;
+    }
+
+    async function updateTargetTools(
+        targetTools: BuiltInToolEntity[],
+        patch: BuiltInToolUpdateData
+    ): Promise<BuiltInToolEntity[]> {
+        const queries = await loadBuiltInToolQueries();
+        const targetToolIds = targetTools.map((targetTool) => targetTool.id);
+        if (targetTools.length > 1) {
+            return await queries.updateBuiltInTools(targetToolIds, patch);
+        }
+
+        const targetTool = targetTools[0];
+        if (!targetTool) {
+            return [];
+        }
+
+        const updatedTool = await queries.updateBuiltInTool(targetTool.id, patch);
+        if (!updatedTool) {
+            throw new Error(`Built-in tool not found after update: ${targetTool.id}`);
+        }
+
+        return [updatedTool];
+    }
+
     async function handleToggleEnabled(toolId: number, enabled: boolean) {
-        if (togglingToolIds.value.has(toolId)) {
+        const tool = tools.value.find((candidate) => candidate.id === toolId);
+        const targetTools = getBuiltInToolUpdateTargets(tools.value, tool);
+        const targetToolIds = targetTools.map((targetTool) => targetTool.id);
+        if (
+            targetToolIds.length === 0 ||
+            targetToolIds.some((id) => togglingToolIds.value.has(id))
+        ) {
             return;
         }
 
-        togglingToolIds.value.add(toolId);
+        updateTogglingToolIds(targetToolIds, true);
         try {
-            const queries = await loadBuiltInToolQueries();
-            const updatedTool = await queries.updateBuiltInTool(toolId, {
+            const patch = {
                 enabled: enabled ? 1 : 0,
-            });
-            if (!updatedTool) {
-                throw new Error(`Built-in tool not found after update: ${toolId}`);
+            };
+            const updatedTools = await updateTargetTools(targetTools, patch);
+            for (const updatedTool of updatedTools) {
+                applyToolUpdate(updatedTool);
             }
-            applyToolUpdate(updatedTool);
         } catch (error) {
             console.error('[BuiltInToolsView] Failed to toggle tool enabled:', error);
             alertMessage.value?.error(t('settings.builtInTools.updateEnabledFailed'), 6000);
         } finally {
-            togglingToolIds.value.delete(toolId);
+            updateTogglingToolIds(targetToolIds, false);
         }
     }
 
@@ -148,15 +189,15 @@
             return;
         }
 
-        const currentToolId = selectedTool.value.id;
+        const currentTool = selectedTool.value;
+        const currentToolId = currentTool.id;
+        const targetTools = getBuiltInToolUpdateTargets(tools.value, currentTool);
         saving.value = true;
         try {
-            const queries = await loadBuiltInToolQueries();
-            const nextTool = await queries.updateBuiltInTool(currentToolId, patch);
-            if (!nextTool) {
-                throw new Error(`Built-in tool not found after update: ${currentToolId}`);
+            const updatedTools = await updateTargetTools(targetTools, patch);
+            for (const updatedTool of updatedTools) {
+                applyToolUpdate(updatedTool);
             }
-            applyToolUpdate(nextTool);
         } catch (error) {
             console.error('[BuiltInToolsView] Failed to update tool:', error);
             alertMessage.value?.error(t('settings.builtInTools.saveConfigFailed'), 6000);

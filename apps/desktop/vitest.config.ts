@@ -43,6 +43,18 @@ export default defineConfig({
           functions: 90,
           lines: 90,
         },
+        'src/services/BuiltInToolService/tools/browser/**/*.ts': {
+          statements: 90,
+          branches: 90,
+          functions: 90,
+          lines: 90,
+        },
+        'src/views/SettingsView/components/BuiltInTools/browserToolGroup.ts': {
+          statements: 90,
+          branches: 90,
+          functions: 90,
+          lines: 90,
+        },
         'src/views/SearchView/components/QuickSearchPanel/composables/**/*.ts': {
           statements: 75,
           branches: 65,
