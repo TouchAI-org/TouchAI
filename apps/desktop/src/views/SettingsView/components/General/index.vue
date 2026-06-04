@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
@@ -30,6 +30,7 @@
         findShortcutConflict,
         formatShortcutForDisplay,
         hasRequiredModifier,
+        isModifierlessFunctionShortcut,
         isReservedLocalShortcut,
         normalizeLocalShortcutString,
         toCurrentPlatformShortcut,
@@ -44,6 +45,7 @@
 
     const settingsStore = useSettingsStore();
     const { settings } = storeToRefs(settingsStore);
+    type SearchShortcutIconAction = 'clear' | 'restore';
 
     const outputScrollBehaviorOptions = computed(
         (): Array<{
@@ -88,16 +90,68 @@
         label: LOCALE_LABELS[value],
     }));
 
+    function formatSearchShortcutForSettings(shortcut: string | null | undefined): string {
+        const normalizedShortcut = normalizeLocalShortcutString(shortcut);
+        return normalizedShortcut ? formatShortcutForDisplay(normalizedShortcut) : '无';
+    }
+
     const searchShortcutRows = computed(() =>
-        SEARCH_KEYBINDING_DEFINITIONS.map((definition) => ({
-            ...definition,
-            label: t(definition.labelKey),
-            displayValue: searchShortcutDisplayMap.value[definition.id],
-            isCapturing: activeSearchShortcutActionId.value === definition.id,
-            hasError: searchShortcutErrorActionId.value === definition.id,
-            defaultDisplay: formatShortcutForDisplay(definition.defaultShortcut),
-        }))
+        SEARCH_KEYBINDING_DEFINITIONS.map((definition) => {
+            const currentShortcut = settings.value.searchKeybindings[definition.id];
+            const isDefaultShortcut =
+                normalizeLocalShortcutString(currentShortcut) ===
+                normalizeLocalShortcutString(definition.defaultShortcut);
+            const shortcutAction: SearchShortcutIconAction = isDefaultShortcut
+                ? 'clear'
+                : 'restore';
+
+            return {
+                ...definition,
+                label: t(definition.labelKey),
+                displayValue: searchShortcutDisplayMap.value[definition.id],
+                isCapturing: activeSearchShortcutActionId.value === definition.id,
+                hasError: searchShortcutErrorActionId.value === definition.id,
+                shortcutAction,
+                shortcutActionLabel:
+                    shortcutAction === 'clear'
+                        ? t('common.clear')
+                        : `${t('window.restore')} ${t('common.default')}`,
+            };
+        })
     );
+
+    const searchShortcutGroups = computed(() => {
+        const rowById = new Map(searchShortcutRows.value.map((row) => [row.id, row]));
+        const groups: Array<{
+            title: string;
+            actionIds: SearchKeybindingActionId[];
+        }> = [
+            {
+                title: t('settings.general.searchShortcutGroups.session'),
+                actionIds: ['search.history.open', 'search.session.new'],
+            },
+            {
+                title: t('settings.general.searchShortcutGroups.inputAndRequest'),
+                actionIds: [
+                    'search.input.focus',
+                    'search.model.toggle',
+                    'search.request.cancel',
+                    'search.draft.clearAll',
+                ],
+            },
+            {
+                title: t('settings.general.searchShortcutGroups.window'),
+                actionIds: ['search.window.pin', 'search.window.maximize'],
+            },
+        ];
+
+        return groups.map((group) => ({
+            title: group.title,
+            rows: group.actionIds
+                .map((actionId) => rowById.get(actionId))
+                .filter((row): row is NonNullable<typeof row> => Boolean(row)),
+        }));
+    });
 
     const shortcutInput = ref<HTMLInputElement | null>(null);
     const isSaving = ref(false);
@@ -108,6 +162,8 @@
     const pendingLanguage = ref<AppLocale>(settings.value.language);
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const shortcutRegistrationFailed = ref(false);
+    const showGlobalShortcutPresetMenu = ref(false);
+    const globalShortcutPresetOptions = ['Alt+Space', 'Ctrl+Space'] as const;
     const activeSearchShortcutActionId = ref<SearchKeybindingActionId | null>(null);
     const searchShortcutCapturedValue = ref<string | null>(null);
     const hasCapturedSearchShortcut = ref(false);
@@ -115,7 +171,7 @@
     const searchShortcutDisplayMap = ref<Record<SearchKeybindingActionId, string>>(
         SEARCH_KEYBINDING_DEFINITIONS.reduce(
             (accumulator, definition) => {
-                accumulator[definition.id] = formatShortcutForDisplay(
+                accumulator[definition.id] = formatSearchShortcutForSettings(
                     settings.value.searchKeybindings[definition.id]
                 );
                 return accumulator;
@@ -137,7 +193,7 @@
             if (activeSearchShortcutActionId.value === definition.id) {
                 continue;
             }
-            next[definition.id] = formatShortcutForDisplay(
+            next[definition.id] = formatSearchShortcutForSettings(
                 settings.value.searchKeybindings[definition.id]
             );
         }
@@ -151,6 +207,24 @@
     ) {
         searchShortcutErrorActionId.value = actionId;
         alertMessage.value?.error(t(messageKey, params), 3000);
+    }
+
+    function findGlobalShortcutSearchConflict(shortcut: string) {
+        const normalizedShortcut = normalizeLocalShortcutString(shortcut);
+        if (!normalizedShortcut) {
+            return null;
+        }
+
+        for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
+            const searchShortcut = normalizeLocalShortcutString(
+                toCurrentPlatformShortcut(settings.value.searchKeybindings[definition.id])
+            );
+            if (searchShortcut && searchShortcut === normalizedShortcut) {
+                return definition;
+            }
+        }
+
+        return null;
     }
 
     // 键名映射表
@@ -204,6 +278,8 @@
         const shortcut = [...modifiers, keyName].join('+');
         displayShortcut.value = shortcut;
         hasCapturedShortcut.value = true;
+        showGlobalShortcutPresetMenu.value = false;
+        void confirmCapturedShortcut(shortcut);
     };
 
     // 开始捕获（输入框获得焦点）
@@ -211,6 +287,21 @@
         isCapturing.value = true;
         hasCapturedShortcut.value = false;
         displayShortcut.value = shortcutCapturePrompt.value;
+        showGlobalShortcutPresetMenu.value = true;
+    };
+
+    const confirmCapturedShortcut = async (shortcut: string) => {
+        if (!isCapturing.value) return;
+
+        isCapturing.value = false;
+        showGlobalShortcutPresetMenu.value = false;
+
+        if (shortcut === settings.value.globalShortcut) {
+            displayShortcut.value = settings.value.globalShortcut;
+            return;
+        }
+
+        await saveNewShortcut(shortcut);
     };
 
     // 停止捕获并保存（输入框失去焦点）
@@ -218,6 +309,7 @@
         if (!isCapturing.value) return;
 
         isCapturing.value = false;
+        showGlobalShortcutPresetMenu.value = false;
 
         const completion = resolveShortcutCaptureCompletion({
             currentShortcut: settings.value.globalShortcut,
@@ -236,6 +328,19 @@
 
     // 保存新快捷键的通用函数
     const saveNewShortcut = async (newShortcut: string) => {
+        const searchConflict = findGlobalShortcutSearchConflict(newShortcut);
+        if (searchConflict) {
+            shortcutRegistrationFailed.value = false;
+            displayShortcut.value = settings.value.globalShortcut;
+            alertMessage.value?.error(
+                t('settings.general.searchShortcuts.errors.duplicate', {
+                    action: t(searchConflict.labelKey),
+                }),
+                3000
+            );
+            return;
+        }
+
         isSaving.value = true;
         shortcutRegistrationFailed.value = false;
 
@@ -268,6 +373,8 @@
 
     // 使用建议的快捷键
     const useSuggestedShortcut = async (shortcut: string) => {
+        showGlobalShortcutPresetMenu.value = false;
+
         // 如果正在捕获，先取消捕获
         if (isCapturing.value) {
             isCapturing.value = false;
@@ -302,6 +409,7 @@
         hasCapturedSearchShortcut.value = true;
         searchShortcutErrorActionId.value = null;
         updateSearchShortcutDisplay(actionId, captured.displayShortcut);
+        void confirmCapturedSearchShortcut(actionId, captured.shortcut);
     };
 
     const saveSearchShortcut = async (
@@ -311,14 +419,19 @@
         const normalizedShortcut =
             shortcut === null ? null : normalizeLocalShortcutString(shortcut);
         if (normalizedShortcut) {
-            if (!hasRequiredModifier(normalizedShortcut)) {
+            const definition = getSearchKeybindingDefinition(actionId);
+            const allowsModifierlessFunctionShortcut =
+                definition.allowModifierlessFunctionKey &&
+                isModifierlessFunctionShortcut(normalizedShortcut);
+
+            if (!hasRequiredModifier(normalizedShortcut) && !allowsModifierlessFunctionShortcut) {
                 reportSearchShortcutError(
                     actionId,
                     'settings.general.searchShortcuts.errors.modifierRequired'
                 );
                 updateSearchShortcutDisplay(
                     actionId,
-                    formatShortcutForDisplay(settings.value.searchKeybindings[actionId])
+                    formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
                 );
                 return;
             }
@@ -330,7 +443,7 @@
                 );
                 updateSearchShortcutDisplay(
                     actionId,
-                    formatShortcutForDisplay(settings.value.searchKeybindings[actionId])
+                    formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
                 );
                 return;
             }
@@ -353,7 +466,7 @@
                 );
                 updateSearchShortcutDisplay(
                     actionId,
-                    formatShortcutForDisplay(settings.value.searchKeybindings[actionId])
+                    formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
                 );
                 return;
             }
@@ -375,7 +488,7 @@
                 );
                 updateSearchShortcutDisplay(
                     actionId,
-                    formatShortcutForDisplay(settings.value.searchKeybindings[actionId])
+                    formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
                 );
                 return;
             }
@@ -388,14 +501,17 @@
                 ...settings.value.searchKeybindings,
                 [actionId]: normalizedShortcut,
             });
-            updateSearchShortcutDisplay(actionId, formatShortcutForDisplay(normalizedShortcut));
+            updateSearchShortcutDisplay(
+                actionId,
+                formatSearchShortcutForSettings(normalizedShortcut)
+            );
             alertMessage.value?.success(t('common.saved'), 2000);
         } catch (error) {
             console.error('Failed to save search shortcut:', error);
             reportSearchShortcutError(actionId, 'settings.general.saveSettingsFailed');
             updateSearchShortcutDisplay(
                 actionId,
-                formatShortcutForDisplay(settings.value.searchKeybindings[actionId])
+                formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
             );
         } finally {
             isSaving.value = false;
@@ -410,6 +526,32 @@
         updateSearchShortcutDisplay(actionId, shortcutCapturePrompt.value);
     };
 
+    const confirmCapturedSearchShortcut = async (
+        actionId: SearchKeybindingActionId,
+        shortcut: string
+    ) => {
+        if (activeSearchShortcutActionId.value !== actionId) {
+            return;
+        }
+
+        activeSearchShortcutActionId.value = null;
+        hasCapturedSearchShortcut.value = false;
+        searchShortcutCapturedValue.value = null;
+
+        if (
+            normalizeLocalShortcutString(shortcut) ===
+            normalizeLocalShortcutString(settings.value.searchKeybindings[actionId])
+        ) {
+            updateSearchShortcutDisplay(
+                actionId,
+                formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
+            );
+            return;
+        }
+
+        await saveSearchShortcut(actionId, shortcut);
+    };
+
     const stopSearchShortcutCaptureAndSave = async (actionId: SearchKeybindingActionId) => {
         if (activeSearchShortcutActionId.value !== actionId) {
             return;
@@ -420,7 +562,7 @@
         if (!hasCapturedSearchShortcut.value || !searchShortcutCapturedValue.value) {
             updateSearchShortcutDisplay(
                 actionId,
-                formatShortcutForDisplay(settings.value.searchKeybindings[actionId])
+                formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
             );
             return;
         }
@@ -431,7 +573,7 @@
         ) {
             updateSearchShortcutDisplay(
                 actionId,
-                formatShortcutForDisplay(settings.value.searchKeybindings[actionId])
+                formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
             );
             return;
         }
@@ -445,6 +587,28 @@
 
     const disableSearchShortcut = async (actionId: SearchKeybindingActionId) => {
         await saveSearchShortcut(actionId, null);
+    };
+
+    const handleSearchShortcutIconAction = async (
+        actionId: SearchKeybindingActionId,
+        action: SearchShortcutIconAction
+    ) => {
+        if (activeSearchShortcutActionId.value === actionId) {
+            activeSearchShortcutActionId.value = null;
+            hasCapturedSearchShortcut.value = false;
+            searchShortcutCapturedValue.value = null;
+            updateSearchShortcutDisplay(
+                actionId,
+                formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
+            );
+        }
+
+        if (action === 'clear') {
+            await disableSearchShortcut(actionId);
+            return;
+        }
+
+        await resetSearchShortcut(actionId);
     };
 
     // 监听 isCapturing 状态，添加/移除全局键盘监听
@@ -683,14 +847,15 @@
                     <h2 class="settings-section-title">
                         {{ t('settings.general.shortcuts') }}
                     </h2>
-                    <p class="settings-section-description">
-                        {{ t('settings.general.shortcutsDescription') }}
-                    </p>
+                </div>
+
+                <div class="px-1 text-[12px] leading-5 font-medium text-neutral-500">
+                    {{ t('settings.general.globalShortcutGroup') }}
                 </div>
 
                 <div
                     data-testid="settings-general-card-shortcut"
-                    class="settings-row-group divide-y divide-neutral-200/70"
+                    class="settings-row-group divide-y divide-neutral-200/70 overflow-visible"
                 >
                     <div
                         class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_360px] sm:items-center"
@@ -704,35 +869,12 @@
                         <div class="min-w-0 justify-self-end">
                             <div
                                 data-testid="settings-shortcut-control-row"
-                                class="flex min-w-0 items-center justify-end gap-3 text-[11px]"
+                                class="flex min-w-0 items-center justify-end text-[11px]"
                             >
-                                <div
-                                    data-testid="settings-shortcut-suggestions"
-                                    class="shrink-0 text-left whitespace-nowrap"
-                                >
-                                    <span class="text-[11px] text-neutral-400">
-                                        {{ t('settings.general.suggestionsShort') }}
-                                    </span>
-                                    <button
-                                        class="text-primary-700 decoration-primary-300 hover:text-primary-600 ml-2 font-mono text-[11px] underline underline-offset-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                                        :disabled="isSaving"
-                                        @click="useSuggestedShortcut('Alt+Space')"
-                                    >
-                                        Alt+Space
-                                    </button>
-                                    <span class="mx-1.5 text-neutral-300">|</span>
-                                    <button
-                                        class="text-primary-700 decoration-primary-300 hover:text-primary-600 font-mono text-[11px] underline underline-offset-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                                        :disabled="isSaving"
-                                        @click="useSuggestedShortcut('Ctrl+Space')"
-                                    >
-                                        Ctrl+Space
-                                    </button>
-                                </div>
-                                <div data-testid="settings-general-control" class="w-[180px]">
+                                <div data-testid="settings-general-control" class="w-[220px]">
                                     <div
                                         data-testid="settings-general-shortcut-input-wrap"
-                                        class="relative ml-auto w-[180px] shrink-0"
+                                        class="relative ml-auto w-[220px] shrink-0"
                                     >
                                         <input
                                             ref="shortcutInput"
@@ -741,7 +883,10 @@
                                             type="text"
                                             readonly
                                             :class="[
-                                                'w-full rounded-[10px] border px-3 py-2 text-center font-mono text-[12px] shadow-none [box-shadow:none] transition-colors focus:shadow-none focus:[box-shadow:none] focus:outline-none',
+                                                'w-full rounded-[10px] border px-3 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors focus:shadow-none focus:[box-shadow:none] focus:outline-none',
+                                                showGlobalShortcutPresetMenu
+                                                    ? 'rounded-b-none border-b-0'
+                                                    : '',
                                                 shortcutRegistrationFailed
                                                     ? 'border-red-300 bg-red-50 text-red-600'
                                                     : isCapturing
@@ -769,6 +914,24 @@
                                                 class="h-3.5 w-3.5"
                                             />
                                         </span>
+                                        <div
+                                            v-if="showGlobalShortcutPresetMenu"
+                                            data-testid="settings-global-shortcut-preset-menu"
+                                            class="border-primary-300 absolute top-full right-0 z-20 w-full overflow-hidden rounded-[10px] rounded-t-none border border-t-0 bg-white py-1 shadow-lg"
+                                        >
+                                            <button
+                                                v-for="shortcut in globalShortcutPresetOptions"
+                                                :key="shortcut"
+                                                type="button"
+                                                class="block w-full px-3 py-2 text-center text-[12px] text-neutral-800 transition-colors hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                                :disabled="isSaving"
+                                                :data-testid="`settings-global-shortcut-preset-${shortcut}`"
+                                                @mousedown.prevent
+                                                @click="useSuggestedShortcut(shortcut)"
+                                            >
+                                                {{ shortcut }}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -776,70 +939,71 @@
                     </div>
                 </div>
 
-                <div>
-                    <h3 class="settings-section-title text-[14px]">
-                        {{ t('settings.general.searchShortcuts') }}
-                    </h3>
-                    <p class="settings-section-description">
-                        {{ t('settings.general.searchShortcutsDescription') }}
-                    </p>
-                </div>
-
-                <div class="settings-row-group divide-y divide-neutral-200/70">
-                    <div
-                        v-for="row in searchShortcutRows"
-                        :key="row.id"
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_420px] sm:items-center"
-                    >
+                <div v-for="group in searchShortcutGroups" :key="group.title" class="space-y-2">
+                    <div class="px-1 text-[12px] leading-5 font-medium text-neutral-500">
+                        {{ group.title }}
+                    </div>
+                    <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
-                            data-testid="settings-general-row-label"
-                            class="min-w-0 text-[13px] leading-6 font-normal text-neutral-900"
+                            v-for="row in group.rows"
+                            :key="row.id"
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
                         >
-                            <div>{{ row.label }}</div>
-                            <div class="text-[11px] text-neutral-500">
-                                {{ t('common.default') }} · {{ row.defaultDisplay }}
+                            <div
+                                data-testid="settings-general-row-label"
+                                class="min-w-0 text-[13px] leading-6 font-normal text-neutral-900"
+                            >
+                                <div>{{ row.label }}</div>
                             </div>
-                        </div>
-                        <div class="min-w-0 justify-self-end">
-                            <div class="flex min-w-0 items-center justify-end gap-2">
-                                <div class="relative w-[180px] shrink-0">
-                                    <input
-                                        :value="row.displayValue"
-                                        :data-testid="`settings-search-shortcut-input-${row.id}`"
-                                        type="text"
-                                        readonly
-                                        :class="[
-                                            'w-full rounded-[10px] border px-3 py-2 text-center font-mono text-[12px] shadow-none [box-shadow:none] transition-colors focus:shadow-none focus:[box-shadow:none] focus:outline-none',
-                                            row.hasError
-                                                ? 'border-red-300 bg-red-50 text-red-600'
-                                                : row.isCapturing
-                                                  ? 'border-primary-300 bg-white text-neutral-950'
-                                                  : 'focus:border-primary-300 border-transparent bg-[#f0f0ef] text-neutral-900 hover:bg-[#ececea]',
-                                            isSaving ? 'cursor-wait opacity-50' : 'cursor-pointer',
-                                        ]"
-                                        :disabled="isSaving"
-                                        :placeholder="t('settings.general.shortcutPlaceholder')"
-                                        @focus="startSearchShortcutCapture(row.id)"
-                                        @blur="stopSearchShortcutCaptureAndSave(row.id)"
-                                    />
+                            <div class="min-w-0 justify-self-end">
+                                <div class="flex min-w-0 items-center justify-end">
+                                    <div class="relative w-[220px] shrink-0">
+                                        <input
+                                            :value="row.displayValue"
+                                            :data-testid="`settings-search-shortcut-input-${row.id}`"
+                                            type="text"
+                                            readonly
+                                            :class="[
+                                                'w-full rounded-[10px] border px-9 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors focus:shadow-none focus:[box-shadow:none] focus:outline-none',
+                                                row.hasError
+                                                    ? 'border-red-300 bg-red-50 text-red-600'
+                                                    : row.isCapturing
+                                                      ? 'border-primary-300 bg-white text-neutral-950'
+                                                      : 'focus:border-primary-300 border-transparent bg-[#f0f0ef] text-neutral-900 hover:bg-[#ececea]',
+                                                isSaving
+                                                    ? 'cursor-wait opacity-50'
+                                                    : 'cursor-pointer',
+                                            ]"
+                                            :disabled="isSaving"
+                                            :placeholder="t('settings.general.shortcutPlaceholder')"
+                                            @focus="startSearchShortcutCapture(row.id)"
+                                            @blur="stopSearchShortcutCaptureAndSave(row.id)"
+                                        />
+                                        <button
+                                            type="button"
+                                            class="absolute top-1/2 right-2.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                            :disabled="isSaving"
+                                            :title="row.shortcutActionLabel"
+                                            :aria-label="row.shortcutActionLabel"
+                                            :data-testid="`settings-search-shortcut-action-${row.id}`"
+                                            :data-shortcut-action="row.shortcutAction"
+                                            @mousedown.prevent
+                                            @click="
+                                                handleSearchShortcutIconAction(
+                                                    row.id,
+                                                    row.shortcutAction
+                                                )
+                                            "
+                                        >
+                                            <AppIcon
+                                                :name="
+                                                    row.shortcutAction === 'clear' ? 'x' : 'undo'
+                                                "
+                                                class="h-4 w-4"
+                                            />
+                                        </button>
+                                    </div>
                                 </div>
-                                <button
-                                    class="rounded-[10px] border border-neutral-200 px-3 py-2 text-[12px] text-neutral-700 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    :disabled="isSaving"
-                                    :data-testid="`settings-search-shortcut-reset-${row.id}`"
-                                    @click="resetSearchShortcut(row.id)"
-                                >
-                                    {{ t('common.default') }}
-                                </button>
-                                <button
-                                    v-if="row.allowDisable"
-                                    class="rounded-[10px] border border-neutral-200 px-3 py-2 text-[12px] text-neutral-700 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    :disabled="isSaving"
-                                    :data-testid="`settings-search-shortcut-disable-${row.id}`"
-                                    @click="disableSearchShortcut(row.id)"
-                                >
-                                    {{ t('common.disabled') }}
-                                </button>
                             </div>
                         </div>
                     </div>

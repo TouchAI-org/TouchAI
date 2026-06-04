@@ -4,42 +4,48 @@ import { vi } from 'vitest';
 
 import GeneralSection from '@/views/SettingsView/components/General/index.vue';
 
-const settingsStoreMock = vi.hoisted(() => ({
-    settings: {
-        value: {
-            globalShortcut: 'Alt+Space',
-            searchKeybindings: {
-                'search.history.open': 'Mod+H',
-                'search.input.focus': 'Mod+L',
-                'search.session.new': 'Mod+N',
-                'search.model.toggle': 'Mod+M',
-                'search.window.pin': 'Mod+P',
-                'search.request.cancel': 'Mod+.',
-                'search.draft.clearAll': 'Mod+Backspace',
-            },
-            startOnBoot: false,
-            startMinimized: true,
-            language: 'zh-CN',
-            outputScrollBehavior: 'follow_output',
-            searchWindowSizePreset: 'normal',
-            searchWindowDefaultSize: { width: 720, height: 520 },
-            appUpdateChannel: 'stable',
-            appUpdateAutoCheck: true,
-            appUpdateLastCheckedAt: null,
+const settingsStoreMock = vi.hoisted(() => {
+    const createGeneralSettingsMock = () => ({
+        globalShortcut: 'Alt+Space',
+        searchKeybindings: {
+            'search.history.open': 'Mod+H',
+            'search.input.focus': 'Mod+L',
+            'search.session.new': 'Mod+N',
+            'search.model.toggle': 'Mod+M',
+            'search.window.pin': 'Mod+P',
+            'search.window.maximize': 'F11',
+            'search.request.cancel': 'Mod+.',
+            'search.draft.clearAll': 'Mod+Backspace',
+        } as Record<string, string | null>,
+        startOnBoot: false,
+        startMinimized: true,
+        language: 'zh-CN',
+        outputScrollBehavior: 'follow_output',
+        searchWindowSizePreset: 'normal',
+        searchWindowDefaultSize: { width: 720, height: 520 },
+        appUpdateChannel: 'stable',
+        appUpdateAutoCheck: true,
+        appUpdateLastCheckedAt: null,
+    });
+
+    return {
+        createGeneralSettingsMock,
+        settings: {
+            value: createGeneralSettingsMock(),
         },
-    },
-    initialize: vi.fn().mockResolvedValue(undefined),
-    updateGlobalShortcut: vi.fn().mockResolvedValue(undefined),
-    updateSearchKeybindings: vi.fn().mockResolvedValue(undefined),
-    updateStartOnBoot: vi.fn().mockResolvedValue(undefined),
-    updateStartMinimized: vi.fn().mockResolvedValue(undefined),
-    updateOutputScrollBehavior: vi.fn().mockResolvedValue(undefined),
-    updateSearchWindowSizePreset: vi.fn().mockResolvedValue(undefined),
-    updateLanguage: vi.fn().mockResolvedValue(undefined),
-    updateAppUpdateChannel: vi.fn().mockResolvedValue(undefined),
-    updateAppUpdateAutoCheck: vi.fn().mockResolvedValue(undefined),
-    updateAppUpdateLastCheckedAt: vi.fn().mockResolvedValue(undefined),
-}));
+        initialize: vi.fn().mockResolvedValue(undefined),
+        updateGlobalShortcut: vi.fn().mockResolvedValue(undefined),
+        updateSearchKeybindings: vi.fn().mockResolvedValue(undefined),
+        updateStartOnBoot: vi.fn().mockResolvedValue(undefined),
+        updateStartMinimized: vi.fn().mockResolvedValue(undefined),
+        updateOutputScrollBehavior: vi.fn().mockResolvedValue(undefined),
+        updateSearchWindowSizePreset: vi.fn().mockResolvedValue(undefined),
+        updateLanguage: vi.fn().mockResolvedValue(undefined),
+        updateAppUpdateChannel: vi.fn().mockResolvedValue(undefined),
+        updateAppUpdateAutoCheck: vi.fn().mockResolvedValue(undefined),
+        updateAppUpdateLastCheckedAt: vi.fn().mockResolvedValue(undefined),
+    };
+});
 
 const nativeMock = vi.hoisted(() => ({
     shortcut: {
@@ -162,19 +168,49 @@ describe('SettingsGeneralSection', () => {
         appUpdateServiceMock.state = appUpdateServiceMock.createState();
         nativeMock.shortcut.getShortcutStatus.mockResolvedValue([false, null]);
         nativeMock.autostart.isAutostartEnabled.mockResolvedValue(false);
+        settingsStoreMock.settings.value = settingsStoreMock.createGeneralSettingsMock();
     });
 
-    it('renders the general settings groups and row controls', () => {
+    it('renders the general settings groups and row controls', async () => {
         const wrapper = mount(GeneralSection);
+
+        await flushPromises();
 
         expect(wrapper.get('h1').text()).toBe('通用');
         expect(wrapper.text()).toContain('快捷键');
         expect(wrapper.text()).toContain('唤起快捷键');
-        expect(wrapper.text()).toContain('Alt+Space');
-        expect(wrapper.text()).toContain('Ctrl+Space');
-        expect(wrapper.text()).toContain('搜索页快捷键');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-global-shortcut-input"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Alt+Space');
+        expect(wrapper.text()).not.toContain('Ctrl+Space');
+        expect(wrapper.find('[data-testid="settings-shortcut-suggestions"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
+            false
+        );
+        expect(wrapper.text()).not.toContain('搜索页快捷键');
+        expect(wrapper.text()).not.toContain(
+            '自定义搜索窗口内的命令型快捷键，不会影响输入导航与全局唤起。'
+        );
+        expect(wrapper.text()).toContain('会话');
+        expect(wrapper.text()).toContain('输入与请求');
+        expect(wrapper.text()).toContain('窗口');
         expect(wrapper.text()).toContain('打开会话历史');
         expect(wrapper.text()).toContain('开始新会话');
+        expect(wrapper.text()).toContain('切换窗口最大化');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.window.maximize"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('F11');
+        expect(
+            wrapper
+                .get('[data-testid="settings-search-shortcut-input-search.history.open"]')
+                .classes()
+        ).not.toContain('font-mono');
         expect(wrapper.text()).toContain('启动与窗口');
         expect(wrapper.text()).toContain('开机自启动');
         expect(wrapper.text()).toContain('启动时最小化');
@@ -201,6 +237,179 @@ describe('SettingsGeneralSection', () => {
 
         const rowLabels = wrapper.findAll('[data-testid="settings-general-row-label"]');
         expect(rowLabels.length).toBeGreaterThanOrEqual(13);
+    });
+
+    it('opens global shortcut presets from the shortcut field and saves a preset', async () => {
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get('[data-testid="settings-global-shortcut-input"]');
+        await input.trigger('focus');
+        await flushPromises();
+
+        expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
+            true
+        );
+        expect(
+            wrapper.get('[data-testid="settings-global-shortcut-preset-Alt+Space"]').text()
+        ).toBe('Alt+Space');
+        expect(
+            wrapper.get('[data-testid="settings-global-shortcut-preset-Ctrl+Space"]').text()
+        ).toBe('Ctrl+Space');
+
+        await wrapper
+            .get('[data-testid="settings-global-shortcut-preset-Ctrl+Space"]')
+            .trigger('click');
+        await flushPromises();
+
+        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
+        expect(settingsStoreMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
+        expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
+            false
+        );
+    });
+
+    it('saves the global shortcut immediately after a shortcut is pressed', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.session.new'] = 'Mod+Shift+N';
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get('[data-testid="settings-global-shortcut-input"]');
+        await input.trigger('focus');
+        await flushPromises();
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ctrlKey: true }));
+        await flushPromises();
+
+        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+N');
+        expect(settingsStoreMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+N');
+        expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
+            false
+        );
+    });
+
+    it('does not save a global shortcut that duplicates a search shortcut', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+A';
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get('[data-testid="settings-global-shortcut-input"]');
+        await input.trigger('focus');
+        await flushPromises();
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true }));
+        await flushPromises();
+
+        expect(nativeMock.shortcut.registerGlobalShortcut).not.toHaveBeenCalled();
+        expect(settingsStoreMock.updateGlobalShortcut).not.toHaveBeenCalled();
+        expect((input.element as HTMLInputElement).value).toBe('Alt+Space');
+    });
+    it('accepts modifierless F11 for the maximize search shortcut', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.window.maximize'] =
+            'Mod+Shift+M';
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.window.maximize"]'
+        );
+        await input.trigger('focus');
+        await flushPromises();
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F11' }));
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
+            ...settingsStoreMock.settings.value.searchKeybindings,
+            'search.window.maximize': 'F11',
+        });
+    });
+
+    it('uses an inline x icon to clear a default search shortcut', async () => {
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        expect(
+            wrapper
+                .find('[data-testid="settings-search-shortcut-reset-search.history.open"]')
+                .exists()
+        ).toBe(false);
+        expect(
+            wrapper
+                .find('[data-testid="settings-search-shortcut-disable-search.history.open"]')
+                .exists()
+        ).toBe(false);
+
+        const action = wrapper.get(
+            '[data-testid="settings-search-shortcut-action-search.history.open"]'
+        );
+        expect(action.attributes('data-shortcut-action')).toBe('clear');
+        expect(action.get('[data-testid="app-icon"]').attributes('data-name')).toBe('x');
+
+        await action.trigger('click');
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
+            ...settingsStoreMock.settings.value.searchKeybindings,
+            'search.history.open': null,
+        });
+    });
+
+    it('uses an inline undo icon to restore non-default search shortcuts', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const action = wrapper.get(
+            '[data-testid="settings-search-shortcut-action-search.history.open"]'
+        );
+        expect(action.attributes('data-shortcut-action')).toBe('restore');
+        expect(action.get('[data-testid="app-icon"]').attributes('data-name')).toBe('undo');
+
+        await action.trigger('click');
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
+            ...settingsStoreMock.settings.value.searchKeybindings,
+            'search.history.open': 'Mod+H',
+        });
+    });
+
+    it('restores the default search shortcut from the cleared state', async () => {
+        const clearedSearchKeybindings = {
+            ...settingsStoreMock.settings.value.searchKeybindings,
+            'search.history.open': null,
+        };
+        settingsStoreMock.settings.value.searchKeybindings = clearedSearchKeybindings;
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.history.open"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('无');
+
+        const action = wrapper.get(
+            '[data-testid="settings-search-shortcut-action-search.history.open"]'
+        );
+        expect(action.attributes('data-shortcut-action')).toBe('restore');
+        expect(action.get('[data-testid="app-icon"]').attributes('data-name')).toBe('undo');
+
+        await action.trigger('click');
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
+            ...clearedSearchKeybindings,
+            'search.history.open': 'Mod+H',
+        });
     });
 
     it('shows the current version in the latest update details', async () => {

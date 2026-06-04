@@ -801,6 +801,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
                 case 'search.window.pin':
                     await toggleWindowPin();
                     return;
+                case 'search.window.maximize':
+                    await toggleWindowMaximize();
+                    return;
                 case 'search.request.cancel':
                     cancelRequest();
                     return;
@@ -837,13 +840,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         }
 
         if (event.defaultPrevented) {
-            return;
-        }
-
-        if (event.key === 'F11') {
-            event.preventDefault();
-            event.stopPropagation();
-            await toggleWindowMaximize();
             return;
         }
 

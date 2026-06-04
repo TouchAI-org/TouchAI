@@ -1,12 +1,15 @@
 import { mountComposable } from '@tests/utils/composables';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computed, nextTick, ref } from 'vue';
 
+import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import {
     createPopupSurfaceCoordinator,
     createSearchEntryPolicy,
     createSearchInteractionContext,
+    createSearchKeydownHandler,
     createSessionInputHistoryBrowseState,
     extractSessionInputHistoryEntries,
     navigateSessionInputHistory,
@@ -29,6 +32,10 @@ function createUserMessage(id: string, overrides: Partial<SessionMessage> = {}):
         ...overrides,
     };
 }
+
+beforeEach(() => {
+    setActivePinia(createPinia());
+});
 
 function createControllerStub() {
     return {
@@ -284,6 +291,65 @@ describe('useQuickSearchCoordinator', () => {
         expect(controller.closeQuickSearch).toHaveBeenCalled();
 
         mounted.unmount();
+    });
+});
+
+describe('createSearchKeydownHandler', () => {
+    it('routes the default F11 maximize shortcut to the maximize callback', async () => {
+        const controller = createControllerStub();
+        const toggleWindowMaximize = vi.fn().mockResolvedValue(undefined);
+        const handleKeyDown = createSearchKeydownHandler({
+            viewReady: ref(true),
+            searchKeybindings: ref(createDefaultSearchKeybindings()),
+            queryText: ref(''),
+            attachments: ref([]),
+            cursorContext: ref<SearchCursorContext>({
+                isMultiLine: false,
+                cursorAtStart: true,
+                cursorAtTextStart: true,
+                cursorAtEnd: true,
+            }),
+            modelOverride: ref<SearchModelOverride>({
+                modelId: null,
+                providerId: null,
+            }),
+            modelDropdownState: ref({ isOpen: false }),
+            controller,
+            sessionHistory: ref([]),
+            pendingRequest: ref(null),
+            isWaitingForCompletion: ref(false),
+            isLoading: ref(false),
+            pendingToolApproval: ref(null),
+            approvePendingToolApproval: vi.fn(() => false),
+            rejectPendingToolApproval: vi.fn(() => false),
+            promptPendingToolApprovalAttention: vi.fn(),
+            getActivePopupType: () => null,
+            hasActivePopupWindowFocus: () => false,
+            isQuickSearchOpen: computed(() => false),
+            shouldTriggerQuickSearch: () => false,
+            sessionHistoryPopupOpen: ref(false),
+            hideAllPopups: vi.fn().mockResolvedValue(undefined),
+            hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            navigateInputHistory: vi.fn(() => 'ignored'),
+            closeModelDropdown: vi.fn().mockResolvedValue(undefined),
+            toggleModelDropdown: vi.fn().mockResolvedValue(undefined),
+            openHistoryDialog: vi.fn().mockResolvedValue(undefined),
+            startNewSession: vi.fn().mockResolvedValue(undefined),
+            toggleWindowPin: vi.fn().mockResolvedValue(undefined),
+            toggleWindowMaximize,
+            handleSubmit: vi.fn().mockResolvedValue(undefined),
+            clearAll: vi.fn(),
+            cancelRequest: vi.fn(),
+            clearSession: vi.fn(),
+        });
+
+        const event = new KeyboardEvent('keydown', { key: 'F11', cancelable: true });
+        await handleKeyDown(event);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(toggleWindowMaximize).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(true);
     });
 });
 

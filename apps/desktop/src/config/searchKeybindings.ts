@@ -7,6 +7,7 @@ export const SEARCH_KEYBINDING_ACTION_IDS = [
     'search.session.new',
     'search.model.toggle',
     'search.window.pin',
+    'search.window.maximize',
     'search.request.cancel',
     'search.draft.clearAll',
 ] as const;
@@ -18,6 +19,7 @@ export interface SearchKeybindingDefinition {
     labelKey: MessageKey;
     defaultShortcut: string | null;
     allowDisable: boolean;
+    allowModifierlessFunctionKey?: boolean;
 }
 
 export type SearchKeybindings = Record<SearchKeybindingActionId, string | null>;
@@ -52,6 +54,13 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.windowPin',
         defaultShortcut: 'Mod+P',
         allowDisable: true,
+    },
+    {
+        id: 'search.window.maximize',
+        labelKey: 'settings.general.searchActions.windowMaximize',
+        defaultShortcut: 'F11',
+        allowDisable: true,
+        allowModifierlessFunctionKey: true,
     },
     {
         id: 'search.request.cancel',

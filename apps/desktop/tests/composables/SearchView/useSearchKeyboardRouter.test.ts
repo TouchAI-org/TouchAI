@@ -114,6 +114,33 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.history.open');
     });
 
+    it('routes the default maximize shortcut through the action callback', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getSearchKeybindings: () => createDefaultSearchKeybindings(),
+        });
+
+        expect(router.route({ key: 'F11' })).toBe(true);
+        await flushAsyncWork();
+
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.window.maximize');
+    });
+
+    it('stops routing raw F11 after the maximize shortcut is remapped', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getSearchKeybindings: () => ({
+                ...createDefaultSearchKeybindings(),
+                'search.window.maximize': 'F12',
+            }),
+        });
+
+        expect(router.route({ key: 'F11' })).toBe(false);
+        expect(router.route({ key: 'F12' })).toBe(true);
+        await flushAsyncWork();
+
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(1);
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.window.maximize');
+    });
+
     it('only routes cancel and clear actions when their guard conditions are satisfied', async () => {
         const { router, callbacks } = createKeyboardRouter({
             getSearchKeybindings: () => createDefaultSearchKeybindings(),

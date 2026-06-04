@@ -69,6 +69,7 @@ describe('settings search keybindings state', () => {
         await store.initialize();
 
         expect(store.settings.searchKeybindings).toEqual(createDefaultSearchKeybindings());
+        expect(store.settings.searchKeybindings['search.window.maximize']).toBe('F11');
         expect(setSettingMock).toHaveBeenCalledWith({
             key: 'search_keybindings',
             value: JSON.stringify(createDefaultSearchKeybindings()),
@@ -90,6 +91,9 @@ describe('settings search keybindings state', () => {
 
         expect(store.settings.searchKeybindings['search.history.open']).toBe('Mod+Y');
         expect(store.settings.searchKeybindings['search.request.cancel']).toBeNull();
+        expect(store.settings.searchKeybindings['search.window.maximize']).toBe(
+            createDefaultSearchKeybindings()['search.window.maximize']
+        );
         expect(store.settings.searchKeybindings['search.input.focus']).toBe(
             createDefaultSearchKeybindings()['search.input.focus']
         );

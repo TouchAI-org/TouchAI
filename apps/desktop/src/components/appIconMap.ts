@@ -39,6 +39,7 @@ import IconShow from '~icons/bx/show';
 import IconStop from '~icons/bx/stop';
 import IconTrash from '~icons/bx/trash';
 import IconTrashAlt from '~icons/bx/trash-alt';
+import IconUndo from '~icons/bx/undo';
 import IconWrench from '~icons/bx/wrench';
 import IconX from '~icons/bx/x';
 import IconXCircle from '~icons/bx/x-circle';
@@ -82,6 +83,7 @@ export const appIconMap = {
     stop: IconStop,
     tool: IconBriefcase,
     trash: IconTrash,
+    undo: IconUndo,
     bug: IconBug,
     wrench: IconWrench,
     x: IconX,

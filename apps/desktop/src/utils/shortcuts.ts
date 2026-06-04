@@ -282,6 +282,21 @@ export function hasRequiredModifier(shortcut: string | null | undefined): boolea
     return modifiers.length > 0;
 }
 
+export function isModifierlessFunctionShortcut(shortcut: string | null | undefined): boolean {
+    const normalized = normalizeLocalShortcutString(shortcut);
+    if (!normalized) {
+        return false;
+    }
+
+    const match = /^F(\d{1,2})$/.exec(normalized);
+    if (!match) {
+        return false;
+    }
+
+    const functionKeyNumber = Number(match[1]);
+    return functionKeyNumber >= 1 && functionKeyNumber <= 12;
+}
+
 export function findShortcutConflict<T extends string>(
     shortcut: string | null | undefined,
     entries: Array<{ id: T; shortcut: string | null | undefined }>,
