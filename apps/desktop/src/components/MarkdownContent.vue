@@ -156,10 +156,7 @@
         final: props.final,
         locale: locale.value,
     }));
-    const markdownRenderKey = computed(
-        () =>
-            `${markdownParseInput.value.locale}:${props.variant}:${markdownParseInput.value.final}`
-    );
+    const markdownRenderKey = computed(() => `${markdownParseInput.value.locale}:${props.variant}`);
 
     const nodes = computed<ParsedNode[]>(() => {
         const input = markdownParseInput.value;

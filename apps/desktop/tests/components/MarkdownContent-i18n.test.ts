@@ -4,20 +4,26 @@ import { nextTick } from 'vue';
 
 import { clipboardService } from '@/services/ClipboardService';
 
-const { languageMapMock, notifyMock, parseMarkdownToStructureMock, setDefaultI18nMapMock } =
-    vi.hoisted(() => {
-        type MarkdownNodeFixture = {
-            type: string;
-            label?: string;
-        };
+const {
+    languageMapMock,
+    markdownRenderUnmountedMock,
+    notifyMock,
+    parseMarkdownToStructureMock,
+    setDefaultI18nMapMock,
+} = vi.hoisted(() => {
+    type MarkdownNodeFixture = {
+        type: string;
+        label?: string;
+    };
 
-        return {
-            languageMapMock: {} as Record<string, string>,
-            notifyMock: vi.fn(),
-            parseMarkdownToStructureMock: vi.fn<() => MarkdownNodeFixture[]>(() => []),
-            setDefaultI18nMapMock: vi.fn(),
-        };
-    });
+    return {
+        languageMapMock: {} as Record<string, string>,
+        markdownRenderUnmountedMock: vi.fn(),
+        notifyMock: vi.fn(),
+        parseMarkdownToStructureMock: vi.fn<() => MarkdownNodeFixture[]>(() => []),
+        setDefaultI18nMapMock: vi.fn(),
+    };
+});
 
 vi.mock('markdown-it-emoji', () => ({
     full: {},
@@ -27,6 +33,9 @@ vi.mock('markstream-vue', () => ({
     default: {
         name: 'MarkdownRender',
         props: ['nodes'],
+        unmounted() {
+            markdownRenderUnmountedMock();
+        },
         template: '<div data-testid="markdown-render">{{ nodes?.[0]?.label ?? "" }}</div>',
     },
     enableKatex: vi.fn(),
@@ -132,6 +141,28 @@ describe('MarkdownContent i18n', () => {
 
         expect(parseMarkdownToStructureMock).toHaveBeenCalledTimes(2);
         expect(wrapper.get('[data-testid="markdown-render"]').text()).toBe('Plain text');
+    });
+
+    it('keeps the markdown renderer mounted when streaming content becomes final', async () => {
+        parseMarkdownToStructureMock.mockImplementation(() => [
+            {
+                type: 'text',
+                label: 'done',
+            },
+        ]);
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: 'done',
+                final: false,
+            },
+        });
+
+        await wrapper.setProps({ final: true });
+
+        expect(parseMarkdownToStructureMock).toHaveBeenCalledTimes(2);
+        expect(markdownRenderUnmountedMock).not.toHaveBeenCalled();
     });
 
     it('marks rendered markdown as not eligible for global DOM localization', async () => {
