@@ -44,4 +44,34 @@ describe('AgentService retry policy', () => {
 
         expect(shouldRetryRequestFailure(error)).toBe(true);
     });
+
+    it('retries generic API errors when runtime provider details carry a retryable HTTP status', () => {
+        const error = new AiError(
+            AiErrorCode.API_ERROR,
+            {
+                requiresRelogin: false,
+            },
+            'HTTP 503'
+        );
+
+        expect(
+            shouldRetryRequestFailure(error, {
+                statusCode: 503,
+            })
+        ).toBe(true);
+    });
+
+    it('does not retry when requiresRelogin is true', () => {
+        const error = new AiError(
+            AiErrorCode.API_ERROR,
+            {
+                gatewayCode: 'upstream_unauthorized',
+                statusCode: 503,
+                requiresRelogin: true,
+            },
+            'Managed session expired.'
+        );
+
+        expect(shouldRetryRequestFailure(error)).toBe(false);
+    });
 });

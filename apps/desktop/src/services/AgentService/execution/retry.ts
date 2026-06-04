@@ -64,6 +64,13 @@ export function shouldRetryRequestFailure(
             return true;
         }
 
+        if (
+            typeof details?.statusCode === 'number' &&
+            RETRYABLE_STATUS_CODES.has(details.statusCode)
+        ) {
+            return true;
+        }
+
         return false;
     }
 
