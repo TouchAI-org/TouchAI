@@ -11,11 +11,10 @@ const settingsStoreMock = vi.hoisted(() => {
             'search.history.open': 'Mod+H',
             'search.input.focus': 'Mod+L',
             'search.session.new': 'Mod+N',
+            'search.session.reopenLastClosed': 'Ctrl+Up',
             'search.model.toggle': 'Mod+M',
             'search.window.pin': 'Mod+P',
             'search.window.maximize': 'F11',
-            'search.request.cancel': 'Mod+.',
-            'search.draft.clearAll': 'Mod+Backspace',
         } as Record<string, string | null>,
         startOnBoot: false,
         startMinimized: true,
@@ -206,6 +205,12 @@ describe('SettingsGeneralSection', () => {
                     .element as HTMLInputElement
             ).value
         ).toBe('F11');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.request.cancel"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Esc');
         expect(
             wrapper
                 .get('[data-testid="settings-search-shortcut-input-search.history.open"]')

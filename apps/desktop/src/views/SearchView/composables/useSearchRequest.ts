@@ -14,6 +14,7 @@ import {
 import { dismissSessionTerminalStatus, listSessions } from '@/services/AgentService/session';
 import { eventService } from '@/services/EventService';
 import { AppEvent } from '@/services/EventService/types';
+import { useSettingsStore } from '@/stores/settings';
 import {
     createInputHistorySnapshot,
     type InputHistorySnapshot,
@@ -73,6 +74,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     const sessionList = ref<SessionEntity[]>([]);
     const sessionListQuery = ref('');
     const isSessionListLoading = ref(false);
+    const settingsStore = useSettingsStore();
     let sessionListRequestId = 0;
     let sessionListLoadPromise: Promise<void> | null = null;
     let sessionListInFlightKey: string | null = null;
@@ -229,6 +231,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     });
 
     function clearSessionState() {
+        if (currentSessionId.value !== null) {
+            void settingsStore.updateLastClosedSessionId(currentSessionId.value).catch((error) => {
+                console.error('[SearchView] Failed to persist last closed session id:', error);
+            });
+        }
         clearPendingRequestState();
         clearSession();
     }
@@ -392,6 +399,19 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         clearDraft();
     }
 
+    async function reopenLastClosedSession(): Promise<LoadedSessionInfo | null> {
+        const sessionId = settingsStore.lastClosedSessionId;
+        if (sessionId === null) {
+            return null;
+        }
+
+        const loadedSession = await openSession(sessionId);
+        if (currentSessionId.value === sessionId) {
+            await settingsStore.updateLastClosedSessionId(null);
+        }
+        return loadedSession;
+    }
+
     async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
         // 切换会话时必须丢弃当前页面暂存的排队请求，
         // 否则新会话会错误继承旧会话的“等待发送”锁态。
@@ -461,6 +481,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         refreshSessionList,
         ensureSessionListLoaded,
         startNewSession,
+        reopenLastClosedSession,
         openSession,
         pendingToolApproval,
         pendingUserQuestion,

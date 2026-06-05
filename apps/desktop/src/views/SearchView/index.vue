@@ -233,6 +233,7 @@
         refreshSessionList,
         ensureSessionListLoaded,
         startNewSession,
+        reopenLastClosedSession,
         openSession,
         pendingToolApproval,
         pendingUserQuestion,
@@ -240,7 +241,6 @@
         rejectPendingToolApproval,
         settleUserQuestion,
         handleSubmit,
-        clearAll,
         cancelRequest,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
@@ -536,10 +536,10 @@
         toggleModelDropdown: handleToggleModelDropdownRequest,
         openHistoryDialog,
         startNewSession: handleStartNewSession,
+        reopenLastClosedSession: handleReopenLastClosedSession,
         toggleWindowPin: handleToggleWindowPin,
         toggleWindowMaximize: handleToggleMaximize,
         handleSubmit,
-        clearAll,
         cancelRequest,
         clearSession: clearSessionToIdle,
     });
@@ -810,6 +810,37 @@
         startNewSession();
         resetSessionInputHistoryTracking();
         await controller.focusSearchInput();
+    }
+
+    async function handleReopenLastClosedSession() {
+        controller.closeQuickSearch();
+        await hideAllPopups();
+        resetSessionInputHistoryTracking();
+
+        try {
+            const reopenedSession = await reopenLastClosedSession();
+            if (!reopenedSession) {
+                await controller.focusSearchInput();
+                return;
+            }
+
+            await syncSearchWindowState().catch((error) => {
+                console.error(
+                    '[SearchView] Failed to sync search window state after reopening session:',
+                    error
+                );
+            });
+            await remeasureTargetHeight().catch((error) => {
+                console.error(
+                    '[SearchView] Failed to remeasure window height after reopening session:',
+                    error
+                );
+            });
+            conversationPanel.value?.revealLatestContent();
+        } catch (error) {
+            console.error('[SearchView] Failed to reopen last closed session:', error);
+            await controller.focusSearchInput();
+        }
     }
 
     async function handleToggleWindowPin() {

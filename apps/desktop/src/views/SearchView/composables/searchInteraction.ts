@@ -133,15 +133,13 @@ export interface UseSearchKeyboardOptions {
     toggleModelDropdown: () => Promise<void>;
     openHistoryDialog: () => Promise<void>;
     startNewSession: () => Promise<void>;
+    reopenLastClosedSession: () => Promise<void>;
     toggleWindowPin: () => Promise<void>;
     toggleWindowMaximize: () => Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
-    clearAll: () => void;
     cancelRequest: () => void;
     clearSession: () => void;
 }
-
-const DOUBLE_BACKSPACE_INTERVAL = 300;
 
 function createEmptyModelOverride(): SearchModelOverride {
     return {
@@ -655,8 +653,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         modelDropdownState,
         controller,
         sessionHistory,
-        pendingRequest,
-        isWaitingForCompletion,
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
@@ -674,15 +670,14 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         toggleModelDropdown,
         openHistoryDialog,
         startNewSession,
+        reopenLastClosedSession,
         toggleWindowPin,
         toggleWindowMaximize,
         handleSubmit,
-        clearAll,
         cancelRequest,
         clearSession,
     } = options;
 
-    let lastBackspaceTime = 0;
     const keyboardRouter = createConfigurableSearchKeyboardRouter({
         getSearchKeybindings: () => searchKeybindings.value,
         getPendingApproval: () =>
@@ -778,9 +773,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         onClearDraft: () => {
             queryText.value = '';
         },
-        onClearAll: () => {
-            clearAll();
-        },
         onSearchKeybindingAction: async (actionId) => {
             switch (actionId) {
                 case 'search.history.open':
@@ -795,6 +787,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
                         await startNewSession();
                     }
                     return;
+                case 'search.session.reopenLastClosed':
+                    await reopenLastClosedSession();
+                    return;
                 case 'search.model.toggle':
                     await toggleModelDropdown();
                     return;
@@ -803,12 +798,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
                     return;
                 case 'search.window.maximize':
                     await toggleWindowMaximize();
-                    return;
-                case 'search.request.cancel':
-                    cancelRequest();
-                    return;
-                case 'search.draft.clearAll':
-                    clearAll();
                     return;
                 default:
                     return;
@@ -865,20 +854,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         if (event.key === 'Backspace') {
             if (modelDropdownState.value.isOpen) {
                 await closeModelDropdown();
-                return;
-            }
-
-            if (pendingRequest.value) {
-                const now = Date.now();
-                const timeSinceLastBackspace = now - lastBackspaceTime;
-                lastBackspaceTime = now;
-
-                if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL) {
-                    event.preventDefault();
-                    pendingRequest.value = null;
-                    isWaitingForCompletion.value = false;
-                    lastBackspaceTime = 0;
-                }
                 return;
             }
 

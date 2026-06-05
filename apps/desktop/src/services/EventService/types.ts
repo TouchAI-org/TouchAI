@@ -74,6 +74,7 @@ export interface McpStatusChangeEvent {
 export type GeneralSettingKey =
     | 'global_shortcut'
     | 'search_keybindings'
+    | 'last_closed_session_id'
     | 'start_on_boot'
     | 'start_minimized'
     | 'output_scroll_behavior'

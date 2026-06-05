@@ -330,15 +330,15 @@ describe('createSearchKeydownHandler', () => {
             sessionHistoryPopupOpen: ref(false),
             hideAllPopups: vi.fn().mockResolvedValue(undefined),
             hideSearchWindow: vi.fn().mockResolvedValue(undefined),
-            navigateInputHistory: vi.fn(() => 'ignored'),
+            navigateInputHistory: vi.fn(() => 'ignored' as const),
             closeModelDropdown: vi.fn().mockResolvedValue(undefined),
             toggleModelDropdown: vi.fn().mockResolvedValue(undefined),
             openHistoryDialog: vi.fn().mockResolvedValue(undefined),
             startNewSession: vi.fn().mockResolvedValue(undefined),
+            reopenLastClosedSession: vi.fn().mockResolvedValue(undefined),
             toggleWindowPin: vi.fn().mockResolvedValue(undefined),
             toggleWindowMaximize,
             handleSubmit: vi.fn().mockResolvedValue(undefined),
-            clearAll: vi.fn(),
             cancelRequest: vi.fn(),
             clearSession: vi.fn(),
         });
@@ -349,6 +349,126 @@ describe('createSearchKeydownHandler', () => {
         await Promise.resolve();
 
         expect(toggleWindowMaximize).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('cancels a pending request with Escape and ignores Backspace', async () => {
+        const controller = createControllerStub();
+        const cancelRequest = vi.fn();
+        const handleKeyDown = createSearchKeydownHandler({
+            viewReady: ref(true),
+            searchKeybindings: ref(createDefaultSearchKeybindings()),
+            queryText: ref(''),
+            attachments: ref([]),
+            cursorContext: ref<SearchCursorContext>({
+                isMultiLine: false,
+                cursorAtStart: true,
+                cursorAtTextStart: true,
+                cursorAtEnd: true,
+            }),
+            modelOverride: ref<SearchModelOverride>({
+                modelId: null,
+                providerId: null,
+            }),
+            modelDropdownState: ref({ isOpen: false }),
+            controller,
+            sessionHistory: ref([]),
+            pendingRequest: ref({ query: 'q', attachments: [] }),
+            isWaitingForCompletion: ref(true),
+            isLoading: ref(true),
+            pendingToolApproval: ref(null),
+            approvePendingToolApproval: vi.fn(() => false),
+            rejectPendingToolApproval: vi.fn(() => false),
+            promptPendingToolApprovalAttention: vi.fn(),
+            getActivePopupType: () => null,
+            hasActivePopupWindowFocus: () => false,
+            isQuickSearchOpen: computed(() => false),
+            shouldTriggerQuickSearch: () => false,
+            sessionHistoryPopupOpen: ref(false),
+            hideAllPopups: vi.fn().mockResolvedValue(undefined),
+            hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            navigateInputHistory: vi.fn(() => 'ignored' as const),
+            closeModelDropdown: vi.fn().mockResolvedValue(undefined),
+            toggleModelDropdown: vi.fn().mockResolvedValue(undefined),
+            openHistoryDialog: vi.fn().mockResolvedValue(undefined),
+            startNewSession: vi.fn().mockResolvedValue(undefined),
+            reopenLastClosedSession: vi.fn().mockResolvedValue(undefined),
+            toggleWindowPin: vi.fn().mockResolvedValue(undefined),
+            toggleWindowMaximize: vi.fn().mockResolvedValue(undefined),
+            handleSubmit: vi.fn().mockResolvedValue(undefined),
+            cancelRequest,
+            clearSession: vi.fn(),
+        });
+
+        const backspaceEvent = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
+        await handleKeyDown(backspaceEvent);
+        expect(cancelRequest).not.toHaveBeenCalled();
+        expect(backspaceEvent.defaultPrevented).toBe(false);
+
+        const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+        await handleKeyDown(escapeEvent);
+        expect(cancelRequest).toHaveBeenCalledTimes(1);
+        expect(escapeEvent.defaultPrevented).toBe(true);
+    });
+
+    it('routes Ctrl+Up to reopen the most recently closed session', async () => {
+        const controller = createControllerStub();
+        const reopenLastClosedSession = vi.fn().mockResolvedValue(undefined);
+        const handleKeyDown = createSearchKeydownHandler({
+            viewReady: ref(true),
+            searchKeybindings: ref(createDefaultSearchKeybindings()),
+            queryText: ref(''),
+            attachments: ref([]),
+            cursorContext: ref<SearchCursorContext>({
+                isMultiLine: false,
+                cursorAtStart: true,
+                cursorAtTextStart: true,
+                cursorAtEnd: true,
+            }),
+            modelOverride: ref<SearchModelOverride>({
+                modelId: null,
+                providerId: null,
+            }),
+            modelDropdownState: ref({ isOpen: false }),
+            controller,
+            sessionHistory: ref([]),
+            pendingRequest: ref(null),
+            isWaitingForCompletion: ref(false),
+            isLoading: ref(false),
+            pendingToolApproval: ref(null),
+            approvePendingToolApproval: vi.fn(() => false),
+            rejectPendingToolApproval: vi.fn(() => false),
+            promptPendingToolApprovalAttention: vi.fn(),
+            getActivePopupType: () => null,
+            hasActivePopupWindowFocus: () => false,
+            isQuickSearchOpen: computed(() => false),
+            shouldTriggerQuickSearch: () => false,
+            sessionHistoryPopupOpen: ref(false),
+            hideAllPopups: vi.fn().mockResolvedValue(undefined),
+            hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            navigateInputHistory: vi.fn(() => 'ignored' as const),
+            closeModelDropdown: vi.fn().mockResolvedValue(undefined),
+            toggleModelDropdown: vi.fn().mockResolvedValue(undefined),
+            openHistoryDialog: vi.fn().mockResolvedValue(undefined),
+            startNewSession: vi.fn().mockResolvedValue(undefined),
+            reopenLastClosedSession,
+            toggleWindowPin: vi.fn().mockResolvedValue(undefined),
+            toggleWindowMaximize: vi.fn().mockResolvedValue(undefined),
+            handleSubmit: vi.fn().mockResolvedValue(undefined),
+            cancelRequest: vi.fn(),
+            clearSession: vi.fn(),
+        });
+
+        const event = new KeyboardEvent('keydown', {
+            key: 'ArrowUp',
+            ctrlKey: true,
+            cancelable: true,
+        });
+        await handleKeyDown(event);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(reopenLastClosedSession).toHaveBeenCalledTimes(1);
         expect(event.defaultPrevented).toBe(true);
     });
 });

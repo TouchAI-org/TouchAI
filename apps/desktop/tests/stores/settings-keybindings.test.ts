@@ -74,6 +74,28 @@ describe('settings search keybindings state', () => {
             key: 'search_keybindings',
             value: JSON.stringify(createDefaultSearchKeybindings()),
         });
+        expect(store.settings.lastClosedSessionId).toBeNull();
+    });
+
+    it('loads and updates the persisted last closed session id', async () => {
+        mockSettings({
+            last_closed_session_id: '42',
+        });
+
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+
+        await store.initialize();
+
+        expect(store.settings.lastClosedSessionId).toBe(42);
+
+        await store.updateLastClosedSessionId(108);
+
+        expect(store.settings.lastClosedSessionId).toBe(108);
+        expect(setSettingMock).toHaveBeenLastCalledWith({
+            key: 'last_closed_session_id',
+            value: '108',
+        });
     });
 
     it('loads persisted search keybindings and merges missing defaults', async () => {
@@ -81,6 +103,7 @@ describe('settings search keybindings state', () => {
             search_keybindings: JSON.stringify({
                 'search.history.open': 'Mod+Y',
                 'search.request.cancel': null,
+                'search.draft.clearAll': 'Mod+Backspace',
             }),
         });
 
@@ -90,10 +113,20 @@ describe('settings search keybindings state', () => {
         await store.initialize();
 
         expect(store.settings.searchKeybindings['search.history.open']).toBe('Mod+Y');
-        expect(store.settings.searchKeybindings['search.request.cancel']).toBeNull();
+        expect(store.settings.searchKeybindings).toEqual({
+            ...createDefaultSearchKeybindings(),
+            'search.history.open': 'Mod+Y',
+        });
         expect(store.settings.searchKeybindings['search.window.maximize']).toBe(
             createDefaultSearchKeybindings()['search.window.maximize']
         );
+        expect(setSettingMock).toHaveBeenCalledWith({
+            key: 'search_keybindings',
+            value: JSON.stringify({
+                ...createDefaultSearchKeybindings(),
+                'search.history.open': 'Mod+Y',
+            }),
+        });
         expect(store.settings.searchKeybindings['search.input.focus']).toBe(
             createDefaultSearchKeybindings()['search.input.focus']
         );
@@ -109,7 +142,6 @@ describe('settings search keybindings state', () => {
         const nextKeybindings = {
             ...createDefaultSearchKeybindings(),
             'search.input.focus': 'Mod+K',
-            'search.request.cancel': null,
         };
 
         await store.updateSearchKeybindings(nextKeybindings);

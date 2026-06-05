@@ -32,6 +32,7 @@ export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_
 export interface GeneralSettingsData {
     globalShortcut: string;
     searchKeybindings: SearchKeybindings;
+    lastClosedSessionId: number | null;
     startOnBoot: boolean;
     startMinimized: boolean;
     outputScrollBehavior: OutputScrollBehavior;
@@ -46,6 +47,7 @@ export interface GeneralSettingsData {
 const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     globalShortcut: 'Alt+Space',
     searchKeybindings: createDefaultSearchKeybindings(),
+    lastClosedSessionId: null,
     startOnBoot: false,
     startMinimized: true,
     outputScrollBehavior: 'follow_output',
@@ -138,6 +140,24 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
+    function shouldRewritePersistedSearchKeybindings(value: string | null): boolean {
+        if (!value) {
+            return false;
+        }
+
+        try {
+            const parsed = JSON.parse(value);
+            return (
+                parsed &&
+                typeof parsed === 'object' &&
+                !Array.isArray(parsed) &&
+                ('search.request.cancel' in parsed || 'search.draft.clearAll' in parsed)
+            );
+        } catch {
+            return false;
+        }
+    }
+
     function cloneSettingsSnapshot(): GeneralSettingsData {
         return {
             ...settings.value,
@@ -161,6 +181,13 @@ export const useSettingsStore = defineStore('settings', () => {
                 applySearchKeybindings(
                     typeof value === 'string' ? parsePersistedSearchKeybindings(value) : value
                 );
+                break;
+            case 'last_closed_session_id':
+                settings.value.lastClosedSessionId =
+                    value === null || value === '' ? null : Number(value);
+                if (Number.isNaN(settings.value.lastClosedSessionId)) {
+                    settings.value.lastClosedSessionId = null;
+                }
                 break;
             case 'start_on_boot':
                 settings.value.startOnBoot =
@@ -200,6 +227,10 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.globalShortcut;
             case 'search_keybindings':
                 return JSON.stringify(settings.value.searchKeybindings);
+            case 'last_closed_session_id':
+                return settings.value.lastClosedSessionId === null
+                    ? ''
+                    : String(settings.value.lastClosedSessionId);
             case 'start_on_boot':
                 return String(settings.value.startOnBoot);
             case 'start_minimized':
@@ -229,6 +260,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 return {
                     ...settings.value.searchKeybindings,
                 };
+            case 'last_closed_session_id':
+                return settings.value.lastClosedSessionId;
             case 'start_on_boot':
                 return settings.value.startOnBoot;
             case 'start_minimized':
@@ -263,6 +296,7 @@ export const useSettingsStore = defineStore('settings', () => {
             const [
                 globalShortcut,
                 searchKeybindings,
+                lastClosedSessionId,
                 startOnBoot,
                 startMinimized,
                 outputScroll,
@@ -274,6 +308,7 @@ export const useSettingsStore = defineStore('settings', () => {
             ] = await Promise.all([
                 getSettingValue({ key: 'global_shortcut' }),
                 getSettingValue({ key: 'search_keybindings' }),
+                getSettingValue({ key: 'last_closed_session_id' }),
                 getSettingValue({ key: 'start_on_boot' }),
                 getSettingValue({ key: 'start_minimized' }),
                 getSettingValue({ key: 'output_scroll_behavior' }),
@@ -287,6 +322,13 @@ export const useSettingsStore = defineStore('settings', () => {
             settings.value.globalShortcut =
                 globalShortcut || DEFAULT_GENERAL_SETTINGS.globalShortcut;
             settings.value.searchKeybindings = parsePersistedSearchKeybindings(searchKeybindings);
+            settings.value.lastClosedSessionId =
+                lastClosedSessionId === null || lastClosedSessionId === ''
+                    ? DEFAULT_GENERAL_SETTINGS.lastClosedSessionId
+                    : Number(lastClosedSessionId);
+            if (Number.isNaN(settings.value.lastClosedSessionId)) {
+                settings.value.lastClosedSessionId = DEFAULT_GENERAL_SETTINGS.lastClosedSessionId;
+            }
             settings.value.startOnBoot =
                 startOnBoot === null
                     ? DEFAULT_GENERAL_SETTINGS.startOnBoot
@@ -307,7 +349,13 @@ export const useSettingsStore = defineStore('settings', () => {
 
             await Promise.allSettled([
                 persistDefaultIfMissing('global_shortcut', globalShortcut),
-                persistDefaultIfMissing('search_keybindings', searchKeybindings),
+                shouldRewritePersistedSearchKeybindings(searchKeybindings)
+                    ? setSetting({
+                          key: 'search_keybindings',
+                          value: JSON.stringify(settings.value.searchKeybindings),
+                      })
+                    : persistDefaultIfMissing('search_keybindings', searchKeybindings),
+                persistDefaultIfMissing('last_closed_session_id', lastClosedSessionId),
                 persistDefaultIfMissing('start_on_boot', startOnBoot),
                 persistDefaultIfMissing('start_minimized', startMinimized),
                 persistDefaultIfMissing('output_scroll_behavior', outputScroll),
@@ -420,6 +468,10 @@ export const useSettingsStore = defineStore('settings', () => {
         await updateSetting('search_keybindings', normalizeSearchKeybindings(searchKeybindings));
     }
 
+    async function updateLastClosedSessionId(sessionId: number | null) {
+        await updateSetting('last_closed_session_id', sessionId);
+    }
+
     async function updateStartOnBoot(enabled: boolean) {
         await updateSetting('start_on_boot', enabled);
     }
@@ -455,6 +507,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const outputScrollBehavior = computed(() => settings.value.outputScrollBehavior);
     const globalShortcut = computed(() => settings.value.globalShortcut);
     const searchKeybindings = computed(() => settings.value.searchKeybindings);
+    const lastClosedSessionId = computed(() => settings.value.lastClosedSessionId);
     const searchWindowSizePreset = computed(() => settings.value.searchWindowSizePreset);
     const searchWindowDefaultSize = computed(() => settings.value.searchWindowDefaultSize);
     const language = computed(() => settings.value.language);
@@ -469,6 +522,7 @@ export const useSettingsStore = defineStore('settings', () => {
         outputScrollBehavior,
         globalShortcut,
         searchKeybindings,
+        lastClosedSessionId,
         searchWindowSizePreset,
         searchWindowDefaultSize,
         language,
@@ -480,6 +534,7 @@ export const useSettingsStore = defineStore('settings', () => {
         refresh,
         updateGlobalShortcut,
         updateSearchKeybindings,
+        updateLastClosedSessionId,
         updateStartOnBoot,
         updateStartMinimized,
         updateOutputScrollBehavior,

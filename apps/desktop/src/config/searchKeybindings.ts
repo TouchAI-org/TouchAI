@@ -5,11 +5,10 @@ export const SEARCH_KEYBINDING_ACTION_IDS = [
     'search.history.open',
     'search.input.focus',
     'search.session.new',
+    'search.session.reopenLastClosed',
     'search.model.toggle',
     'search.window.pin',
     'search.window.maximize',
-    'search.request.cancel',
-    'search.draft.clearAll',
 ] as const;
 
 export type SearchKeybindingActionId = (typeof SEARCH_KEYBINDING_ACTION_IDS)[number];
@@ -44,6 +43,12 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         allowDisable: true,
     },
     {
+        id: 'search.session.reopenLastClosed',
+        labelKey: 'settings.general.searchActions.reopenLastClosedSession',
+        defaultShortcut: 'Mod+Up',
+        allowDisable: true,
+    },
+    {
         id: 'search.model.toggle',
         labelKey: 'settings.general.searchActions.modelToggle',
         defaultShortcut: 'Mod+M',
@@ -61,18 +66,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         defaultShortcut: 'F11',
         allowDisable: true,
         allowModifierlessFunctionKey: true,
-    },
-    {
-        id: 'search.request.cancel',
-        labelKey: 'settings.general.searchActions.cancelRequest',
-        defaultShortcut: 'Mod+.',
-        allowDisable: true,
-    },
-    {
-        id: 'search.draft.clearAll',
-        labelKey: 'settings.general.searchActions.clearAll',
-        defaultShortcut: 'Mod+Backspace',
-        allowDisable: true,
     },
 ];
 

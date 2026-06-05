@@ -59,7 +59,6 @@ interface CreateSearchKeyboardRouterOptions {
     onHideWindow: () => void | Promise<void>;
     onClearSession: () => void;
     onClearDraft: () => void;
-    onClearAll: () => void;
     onSearchKeybindingAction: (actionId: SearchKeybindingActionId) => void | Promise<void>;
 }
 
@@ -86,23 +85,14 @@ function isTypingAttemptDuringApproval(input: SearchKeyboardRouteInput) {
 function resolveSearchKeybindingAction(
     input: SearchKeyboardRouteInput,
     keybindings: SearchKeybindings,
-    context: {
+    _context: {
         isLoading: boolean;
-        hasClearableState: boolean;
     }
 ): SearchKeybindingActionId | null {
     for (const [actionId, shortcut] of Object.entries(keybindings) as Array<
         [SearchKeybindingActionId, string | null]
     >) {
         if (!matchShortcut(shortcut, input)) {
-            continue;
-        }
-
-        if (actionId === 'search.request.cancel' && !context.isLoading) {
-            continue;
-        }
-
-        if (actionId === 'search.draft.clearAll' && !context.hasClearableState) {
             continue;
         }
 
@@ -185,11 +175,6 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             getSearchKeybindings(),
             {
                 isLoading: isLoading(),
-                hasClearableState:
-                    Boolean(queryText.trim()) ||
-                    hasAttachments() ||
-                    hasModelOverride() ||
-                    getSessionHistoryCount() > 0,
             }
         );
         if (searchKeybindingAction) {

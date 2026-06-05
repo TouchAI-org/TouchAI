@@ -15,6 +15,7 @@ const {
     eventHandlers,
     listSessionsMock,
     notifyMock,
+    settingsStoreMock,
     useAgentMock,
 } = vi.hoisted(() => {
     const callbacksHolder: { current: Record<string, unknown> | null } = { current: null };
@@ -32,6 +33,12 @@ const {
         approvePendingToolApproval: vi.fn(() => true),
         rejectPendingToolApproval: vi.fn(() => true),
     };
+    const settingsStore = {
+        lastClosedSessionId: null as number | null,
+        updateLastClosedSessionId: vi.fn(async (sessionId: number | null) => {
+            settingsStore.lastClosedSessionId = sessionId;
+        }),
+    };
 
     return {
         agentCallbacks: callbacksHolder,
@@ -40,6 +47,7 @@ const {
         eventHandlers: handlers,
         listSessionsMock: vi.fn().mockResolvedValue([]),
         notifyMock: vi.fn(),
+        settingsStoreMock: settingsStore,
         useAgentMock: vi.fn((callbacks: Record<string, unknown>) => {
             callbacksHolder.current = callbacks;
             return agent;
@@ -53,6 +61,10 @@ vi.mock('@composables/agent', () => ({
 
 vi.mock('@services/NotificationService', () => ({
     notify: notifyMock,
+}));
+
+vi.mock('@/stores/settings', () => ({
+    useSettingsStore: () => settingsStoreMock,
 }));
 
 vi.mock('@services/AgentService/session', async () => {
@@ -130,6 +142,8 @@ describe('useSearchRequestFlow', () => {
         agentState.currentSessionId.value = null;
         agentState.sessionHistory.value = [];
         agentState.pendingToolApproval.value = null;
+        settingsStoreMock.lastClosedSessionId = null;
+        settingsStoreMock.updateLastClosedSessionId.mockClear();
 
         listSessionsMock.mockResolvedValue([]);
         dismissSessionTerminalStatusMock.mockResolvedValue(undefined);
@@ -329,6 +343,54 @@ describe('useSearchRequestFlow', () => {
             modelId: 'gpt-5',
             providerId: 9,
         });
+
+        mounted.unmount();
+    });
+
+    it('reopens the most recently closed session', async () => {
+        const modelOverride = ref({
+            modelId: null,
+            providerId: null,
+        });
+        const mounted = await mountComposable(() =>
+            useSearchRequestFlow({
+                modelOverride,
+                clearDraft: vi.fn(),
+                getSupportedAttachments: () => [],
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({
+                        text: query,
+                        attachments: [],
+                    }),
+            })
+        );
+
+        agentState.currentSessionId.value = 23;
+        mounted.result.clearSession();
+
+        expect(agentState.clearSession).toHaveBeenCalledTimes(1);
+        expect(settingsStoreMock.updateLastClosedSessionId).toHaveBeenCalledWith(23);
+        expect(settingsStoreMock.lastClosedSessionId).toBe(23);
+
+        agentState.openSession.mockResolvedValueOnce({
+            sessionId: 23,
+            title: 'Reopened Session',
+            modelId: 'gpt-5',
+            providerId: 9,
+        });
+
+        const reopenedSession = await mounted.result.reopenLastClosedSession();
+
+        expect(agentState.openSession).toHaveBeenCalledWith(23);
+        expect(reopenedSession).toEqual({
+            sessionId: 23,
+            title: 'Reopened Session',
+            modelId: 'gpt-5',
+            providerId: 9,
+        });
+        expect(settingsStoreMock.updateLastClosedSessionId).toHaveBeenLastCalledWith(null);
+        expect(settingsStoreMock.lastClosedSessionId).toBeNull();
 
         mounted.unmount();
     });

@@ -114,6 +114,19 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.history.open');
     });
 
+    it('routes the default Ctrl+Up shortcut through the action callback', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getSearchKeybindings: () => createDefaultSearchKeybindings(),
+        });
+
+        expect(router.route({ key: 'ArrowUp', ctrlKey: true })).toBe(true);
+        await flushAsyncWork();
+
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
+            'search.session.reopenLastClosed'
+        );
+    });
+
     it('routes the default maximize shortcut through the action callback', async () => {
         const { router, callbacks } = createKeyboardRouter({
             getSearchKeybindings: () => createDefaultSearchKeybindings(),
@@ -141,29 +154,29 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.window.maximize');
     });
 
-    it('only routes cancel and clear actions when their guard conditions are satisfied', async () => {
+    it('does not route removed Ctrl+. and Ctrl+Backspace shortcuts', async () => {
         const { router, callbacks } = createKeyboardRouter({
             getSearchKeybindings: () => createDefaultSearchKeybindings(),
             getQueryText: () => 'touchai',
             isLoading: () => true,
         });
 
-        expect(router.route({ key: 'Backspace', ctrlKey: true })).toBe(true);
-        expect(router.route({ key: '.', ctrlKey: true })).toBe(true);
+        expect(router.route({ key: 'Backspace', ctrlKey: true })).toBe(false);
+        expect(router.route({ key: '.', ctrlKey: true })).toBe(false);
         expect(router.route({ key: '.', ctrlKey: true, shiftKey: true })).toBe(false);
         await flushAsyncWork();
 
-        expect(callbacks.onSearchKeybindingAction).toHaveBeenNthCalledWith(
-            1,
-            'search.draft.clearAll'
-        );
-        expect(callbacks.onSearchKeybindingAction).toHaveBeenNthCalledWith(
-            2,
-            'search.request.cancel'
-        );
+        expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
     });
 
     it('applies the escape fallback order on the search surface', async () => {
+        const loadingRouter = createKeyboardRouter({
+            isLoading: () => true,
+        });
+        expect(loadingRouter.router.route({ key: 'Escape' })).toBe(true);
+        expect(loadingRouter.callbacks.onCancelRequest).toHaveBeenCalledTimes(1);
+        expect(loadingRouter.callbacks.onClearDraft).not.toHaveBeenCalled();
+
         const draftRouter = createKeyboardRouter({
             getQueryText: () => 'current draft',
         });

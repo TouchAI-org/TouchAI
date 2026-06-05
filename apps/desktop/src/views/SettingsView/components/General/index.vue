@@ -90,12 +90,77 @@
         label: LOCALE_LABELS[value],
     }));
 
+    type SearchShortcutGroupId = 'session' | 'inputAndRequest' | 'window';
+
+    interface SettingsSearchShortcutGroupRow {
+        kind: 'configurable' | 'fixed';
+        id: string;
+        label: string;
+        displayValue: string;
+        isCapturing?: boolean;
+        hasError?: boolean;
+        shortcutAction?: SearchShortcutIconAction;
+        shortcutActionLabel?: string;
+    }
+
+    const fixedSearchShortcutRows = computed<
+        Record<SearchShortcutGroupId, SettingsSearchShortcutGroupRow[]>
+    >(
+        () => ({
+            session: [
+                {
+                    kind: 'fixed',
+                    id: 'search.inputHistory.older',
+                    label: t('settings.general.fixedSearchActions.previousInputHistory'),
+                    displayValue: 'Up',
+                },
+                {
+                    kind: 'fixed',
+                    id: 'search.inputHistory.newer',
+                    label: t('settings.general.fixedSearchActions.nextInputHistory'),
+                    displayValue: 'Down',
+                },
+            ],
+            inputAndRequest: [
+                {
+                    kind: 'fixed',
+                    id: 'search.request.cancel',
+                    label: t('settings.general.searchActions.cancelRequest'),
+                    displayValue: 'Esc',
+                },
+                {
+                    kind: 'fixed',
+                    id: 'search.submit',
+                    label: t('settings.general.fixedSearchActions.submitRequest'),
+                    displayValue: 'Enter',
+                },
+                {
+                    kind: 'fixed',
+                    id: 'search.newLine',
+                    label: t('settings.general.fixedSearchActions.newLine'),
+                    displayValue: 'Shift+Enter',
+                },
+            ],
+            window: [],
+        })
+    );
+
     function formatSearchShortcutForSettings(shortcut: string | null | undefined): string {
         const normalizedShortcut = normalizeLocalShortcutString(shortcut);
         return normalizedShortcut ? formatShortcutForDisplay(normalizedShortcut) : '无';
     }
 
-    const searchShortcutRows = computed(() =>
+    function allowsReservedSearchShortcut(
+        actionId: SearchKeybindingActionId,
+        shortcut: string | null | undefined
+    ): boolean {
+        return (
+            actionId === 'search.session.reopenLastClosed' &&
+            normalizeLocalShortcutString(shortcut) === 'Mod+Up'
+        );
+    }
+
+    const searchShortcutRows = computed<SettingsSearchShortcutGroupRow[]>(() =>
         SEARCH_KEYBINDING_DEFINITIONS.map((definition) => {
             const currentShortcut = settings.value.searchKeybindings[definition.id];
             const isDefaultShortcut =
@@ -107,6 +172,7 @@
 
             return {
                 ...definition,
+                kind: 'configurable',
                 label: t(definition.labelKey),
                 displayValue: searchShortcutDisplayMap.value[definition.id],
                 isCapturing: activeSearchShortcutActionId.value === definition.id,
@@ -121,36 +187,48 @@
     );
 
     const searchShortcutGroups = computed(() => {
-        const rowById = new Map(searchShortcutRows.value.map((row) => [row.id, row]));
+        const rowById = new Map<string, SettingsSearchShortcutGroupRow>(
+            searchShortcutRows.value.map((row) => [row.id, row] as const)
+        );
         const groups: Array<{
+            id: SearchShortcutGroupId;
             title: string;
             actionIds: SearchKeybindingActionId[];
         }> = [
             {
+                id: 'session',
                 title: t('settings.general.searchShortcutGroups.session'),
-                actionIds: ['search.history.open', 'search.session.new'],
-            },
-            {
-                title: t('settings.general.searchShortcutGroups.inputAndRequest'),
                 actionIds: [
-                    'search.input.focus',
-                    'search.model.toggle',
-                    'search.request.cancel',
-                    'search.draft.clearAll',
+                    'search.history.open',
+                    'search.session.new',
+                    'search.session.reopenLastClosed',
                 ],
             },
             {
+                id: 'inputAndRequest',
+                title: t('settings.general.searchShortcutGroups.inputAndRequest'),
+                actionIds: ['search.input.focus', 'search.model.toggle'],
+            },
+            {
+                id: 'window',
                 title: t('settings.general.searchShortcutGroups.window'),
                 actionIds: ['search.window.pin', 'search.window.maximize'],
             },
         ];
 
-        return groups.map((group) => ({
-            title: group.title,
-            rows: group.actionIds
-                .map((actionId) => rowById.get(actionId))
-                .filter((row): row is NonNullable<typeof row> => Boolean(row)),
-        }));
+        return groups.map((group) => {
+            const rows: SettingsSearchShortcutGroupRow[] = [
+                ...group.actionIds
+                    .map((actionId) => rowById.get(actionId))
+                    .filter((row): row is SettingsSearchShortcutGroupRow => Boolean(row)),
+                ...fixedSearchShortcutRows.value[group.id],
+            ];
+
+            return {
+                title: group.title,
+                rows,
+            };
+        });
     });
 
     const shortcutInput = ref<HTMLInputElement | null>(null);
@@ -436,7 +514,10 @@
                 return;
             }
 
-            if (isReservedLocalShortcut(normalizedShortcut)) {
+            if (
+                isReservedLocalShortcut(normalizedShortcut) &&
+                !allowsReservedSearchShortcut(actionId, normalizedShortcut)
+            ) {
                 reportSearchShortcutError(
                     actionId,
                     'settings.general.searchShortcuts.errors.reserved'
@@ -518,7 +599,24 @@
         }
     };
 
-    const startSearchShortcutCapture = (actionId: SearchKeybindingActionId) => {
+    const startSearchShortcutCapture = (
+        rowOrActionId: SettingsSearchShortcutGroupRow | string
+    ) => {
+        if (typeof rowOrActionId === 'string') {
+            const actionId = rowOrActionId as SearchKeybindingActionId;
+            activeSearchShortcutActionId.value = actionId;
+            hasCapturedSearchShortcut.value = false;
+            searchShortcutCapturedValue.value = null;
+            searchShortcutErrorActionId.value = null;
+            updateSearchShortcutDisplay(actionId, shortcutCapturePrompt.value);
+            return;
+        }
+
+        if (rowOrActionId.kind !== 'configurable') {
+            return;
+        }
+
+        const actionId = rowOrActionId.id as SearchKeybindingActionId;
         activeSearchShortcutActionId.value = actionId;
         hasCapturedSearchShortcut.value = false;
         searchShortcutCapturedValue.value = null;
@@ -552,7 +650,19 @@
         await saveSearchShortcut(actionId, shortcut);
     };
 
-    const stopSearchShortcutCaptureAndSave = async (actionId: SearchKeybindingActionId) => {
+    const stopSearchShortcutCaptureAndSave = async (
+        rowOrActionId: SettingsSearchShortcutGroupRow | string
+    ) => {
+        const actionId =
+            typeof rowOrActionId === 'string'
+                ? (rowOrActionId as SearchKeybindingActionId)
+                : rowOrActionId.kind === 'configurable'
+                  ? (rowOrActionId.id as SearchKeybindingActionId)
+                  : null;
+        if (!actionId) {
+            return;
+        }
+
         if (activeSearchShortcutActionId.value !== actionId) {
             return;
         }
@@ -590,9 +700,26 @@
     };
 
     const handleSearchShortcutIconAction = async (
-        actionId: SearchKeybindingActionId,
-        action: SearchShortcutIconAction
+        rowOrActionId: SettingsSearchShortcutGroupRow | string,
+        explicitAction?: SearchShortcutIconAction
     ) => {
+        const actionId =
+            typeof rowOrActionId === 'string'
+                ? (rowOrActionId as SearchKeybindingActionId)
+                : rowOrActionId.kind === 'configurable'
+                  ? (rowOrActionId.id as SearchKeybindingActionId)
+                  : null;
+        const action =
+            explicitAction ??
+            (typeof rowOrActionId === 'string'
+                ? undefined
+                : rowOrActionId.kind === 'configurable'
+                  ? rowOrActionId.shortcutAction
+                  : undefined);
+        if (!actionId || !action) {
+            return;
+        }
+
         if (activeSearchShortcutActionId.value === actionId) {
             activeSearchShortcutActionId.value = null;
             hasCapturedSearchShortcut.value = false;
@@ -972,7 +1099,9 @@
                                                       : 'focus:border-primary-300 border-transparent bg-[#f0f0ef] text-neutral-900 hover:bg-[#ececea]',
                                                 isSaving
                                                     ? 'cursor-wait opacity-50'
-                                                    : 'cursor-pointer',
+                                                    : row.shortcutAction
+                                                      ? 'cursor-pointer'
+                                                      : 'cursor-default',
                                             ]"
                                             :disabled="isSaving"
                                             :placeholder="t('settings.general.shortcutPlaceholder')"
@@ -980,6 +1109,7 @@
                                             @blur="stopSearchShortcutCaptureAndSave(row.id)"
                                         />
                                         <button
+                                            v-if="row.shortcutAction"
                                             type="button"
                                             class="absolute top-1/2 right-2.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
                                             :disabled="isSaving"
