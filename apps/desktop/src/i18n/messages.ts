@@ -102,9 +102,9 @@ const zhCNMessages = {
     'settings.general.searchActions.cancelRequest': '取消当前请求',
     'settings.general.fixedSearchShortcuts': '固定快捷键',
     'settings.general.fixedSearchActions.submitRequest': '发送请求',
-    'settings.general.fixedSearchActions.newLine': '插入换行',
-    'settings.general.fixedSearchActions.previousInputHistory': '上一条输入历史',
-    'settings.general.fixedSearchActions.nextInputHistory': '下一条输入历史',
+    'settings.general.fixedSearchActions.newLine': '换行',
+    'settings.general.fixedSearchActions.previousInputHistory': '上一条会话历史',
+    'settings.general.fixedSearchActions.nextInputHistory': '下一条会话历史',
     'settings.general.searchActions.clearAll': '清空草稿与上下文',
     'settings.general.searchShortcuts.errors.modifierRequired': '快捷键至少需要一个修饰键',
     'settings.general.searchShortcuts.errors.reserved':
