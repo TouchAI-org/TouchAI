@@ -8,7 +8,9 @@ type TouchAiHost = HTMLElement & {
         EventListenerOrEventListenerObject,
         EventListenerOrEventListenerObject
     >;
-    __touchaiPendingMessage?: unknown;
+    __touchaiPendingMessages?: unknown[];
+    __touchaiResizeObservers?: ResizeObserver[];
+    load?: () => Promise<void>;
     postMessage?: (data: unknown) => void;
     reload?: () => Promise<void>;
 };
@@ -42,6 +44,18 @@ touchai-component-demo[data-demo-id="${id}"] {
     isolation: isolate;
     background: var(--page-bg, transparent);
     color-scheme: light;
+}
+
+touchai-component-demo[data-demo-id="${id}"] .component-demo-placeholder {
+    width: 100%;
+    height: 100%;
+    min-height: 260px;
+    border-radius: inherit;
+    background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0)),
+        var(--page-bg, transparent);
+    background-size: 220% 100%, auto;
+    animation: touchai-demo-placeholder-shimmer 1.2s ease-in-out infinite;
 }
 
 touchai-component-demo[data-demo-id="${id}"].component-frame {
@@ -86,13 +100,14 @@ touchai-component-demo[data-demo-id="${id}"].feature-component-frame .chat-panel
 touchai-component-demo[data-demo-id="${id}"].feature-work-frame .chat-panel,
 touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .chat-panel {
     margin: 0 auto !important;
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
     box-shadow:
         0 34px 90px rgba(107, 114, 128, 0.22),
         0 12px 34px rgba(107, 114, 128, 0.12),
         0 0 48px rgba(107, 114, 128, 0.14) !important;
+}
+
+touchai-component-demo[data-demo-id="${id}"].is-scroll-driven .chat-panel {
+    will-change: auto !important;
 }
 
 touchai-component-demo[data-demo-id="${id}"].component-frame .chat-panel {
@@ -106,58 +121,72 @@ touchai-component-demo[data-demo-id="${id}"].component-frame.is-idle .chat-panel
     background: var(--panel, #fff) !important;
 }
 
+touchai-component-demo[data-demo-id="${id}"].component-frame .conversation-content {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding-bottom: 18px !important;
+    overscroll-behavior: contain !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+touchai-component-demo[data-demo-id="${id}"].component-frame .conversation-content,
 touchai-component-demo[data-demo-id="${id}"].feature-component-frame .conversation-content,
 touchai-component-demo[data-demo-id="${id}"].feature-work-frame .conversation-content,
 touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .conversation-content {
-    flex: 1 1 auto !important;
     min-height: 0 !important;
-    overflow-y: hidden !important;
-    padding-bottom: 18px !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-scrolling .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-scrolling .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-scrolling .conversation-content {
     overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
 }
 
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame .composer,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame .composer,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .composer {
-    height: 56px !important;
-    min-height: 56px !important;
-    max-height: 56px !important;
-    flex: 0 0 56px !important;
-    margin-top: 0 !important;
+touchai-component-demo[data-demo-id="${id}"].component-frame .conversation-content::-webkit-scrollbar,
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame .conversation-content::-webkit-scrollbar,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame .conversation-content::-webkit-scrollbar,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .conversation-content::-webkit-scrollbar {
+    display: none;
 }
 
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame .composer-form,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame .composer-form,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .composer-form {
-    height: 56px !important;
-    min-height: 56px !important;
-    max-height: 56px !important;
-    align-items: center !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame .prompt-input,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame .prompt-input,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .prompt-input {
-    height: 32px !important;
-    min-height: 32px !important;
-    max-height: 32px !important;
-    line-height: 32px !important;
-}
-
+touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .chat-panel,
+touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .chat-panel,
 touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .chat-panel,
 touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .chat-panel,
 touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-answering .chat-panel,
 touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .chat-panel,
 touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-answering .chat-panel,
 touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .chat-panel {
-    min-height: 100% !important;
-    max-height: 100% !important;
-    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    max-width: 100% !important;
+}
+
+touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .conversation-content,
+touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .conversation-content,
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .conversation-content,
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .conversation-content,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-answering .conversation-content,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .conversation-content,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-answering .conversation-content,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .conversation-content {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding-bottom: 20px !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .composer,
+touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .composer,
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .composer,
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .composer,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-answering .composer,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .composer,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-answering .composer,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .composer {
+    margin-top: auto !important;
 }
 
 @media (max-width: 900px) {
@@ -172,6 +201,35 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete 
     touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
         height: 100% !important;
         min-height: 0 !important;
+    }
+}
+
+@media (max-height: 780px) {
+    touchai-component-demo[data-demo-id="${id}"].component-frame {
+        width: min(52vw, 560px, 100%) !important;
+        max-width: min(560px, 100%) !important;
+        height: auto !important;
+        min-height: 0 !important;
+        aspect-ratio: 760 / 657 !important;
+        max-height: min(60vh, 520px) !important;
+        overflow: hidden !important;
+    }
+
+    touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
+        min-height: 0 !important;
+        height: 100% !important;
+        padding: 0 !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .chat-panel,
+    touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .chat-panel,
+    touchai-component-demo[data-demo-id="${id}"].component-frame.is-scroll-driven.is-answering .chat-panel,
+    touchai-component-demo[data-demo-id="${id}"].component-frame.is-scroll-driven.is-complete .chat-panel {
+        display: flex !important;
+        flex-direction: column !important;
+        max-width: 100% !important;
     }
 }
 
@@ -192,6 +250,15 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete 
         padding: 0 !important;
         align-items: center !important;
         justify-content: center !important;
+    }
+}
+
+@keyframes touchai-demo-placeholder-shimmer {
+    from {
+        background-position: 160% 0, 0 0;
+    }
+    to {
+        background-position: -60% 0, 0 0;
     }
 }
 `;
@@ -396,25 +463,90 @@ const loadExternalScript = (src: string) => {
     return promise;
 };
 
+const getMessageType = (data: unknown) =>
+    typeof data === 'object' && data && 'type' in (data as Record<string, unknown>)
+        ? String((data as Record<string, unknown>).type)
+        : '';
+
+const getMessageProgress = (data: unknown) =>
+    typeof data === 'object' && data && 'progress' in (data as Record<string, unknown>)
+        ? Number((data as Record<string, unknown>).progress)
+        : NaN;
+
+const isScrollDrivenProgressType = (messageType: string) =>
+    messageType === 'touchai-set-progress' || messageType === 'touchai-set-scroll-progress';
+
+const isScrollDrivenResetType = (messageType: string) =>
+    messageType.endsWith('-start') || messageType === 'touchai-reset-demo';
+
+const clearScrollDrivenState = (host: TouchAiHost) => {
+    host.classList.remove('is-scroll-driven');
+    delete host.dataset.touchaiScrollDriven;
+};
+
+const queuePendingMessage = (host: TouchAiHost, data: unknown, messageType: string) => {
+    const pendingMessages = host.__touchaiPendingMessages ?? [];
+
+    if (messageType) {
+        const existingIndex = pendingMessages.findIndex(
+            (pendingMessage) => getMessageType(pendingMessage) === messageType
+        );
+        if (existingIndex >= 0) {
+            pendingMessages[existingIndex] = data;
+        } else {
+            pendingMessages.push(data);
+        }
+    } else {
+        pendingMessages.push(data);
+    }
+
+    if (pendingMessages.length > 12) {
+        pendingMessages.splice(0, pendingMessages.length - 12);
+    }
+
+    host.__touchaiPendingMessages = pendingMessages;
+};
+
+const flushPendingMessages = (host: TouchAiHost) => {
+    const pendingMessages = host.__touchaiPendingMessages;
+    if (!host.__touchaiMessageHandlers?.size || !pendingMessages?.length) return;
+
+    host.__touchaiPendingMessages = [];
+    pendingMessages.forEach((message) => {
+        dispatchMessage(host, message);
+    });
+    delete host.__touchaiPendingMessages;
+};
+
 const dispatchMessage = (host: TouchAiHost | null | undefined, data: unknown) => {
     if (!host) return false;
 
     const event = { data };
     const handlers = host.__touchaiMessageHandlers;
+    const messageType = getMessageType(data);
+
+    if (isScrollDrivenProgressType(messageType)) {
+        const progress = getMessageProgress(data);
+        if (Number.isFinite(progress) && (progress <= 0.0005 || progress >= 0.9995)) {
+            clearScrollDrivenState(host);
+        } else {
+            host.classList.add('is-scroll-driven');
+            host.dataset.touchaiScrollDriven = 'true';
+        }
+    } else if (isScrollDrivenResetType(messageType)) {
+        clearScrollDrivenState(host);
+    }
+
     host.dataset.touchaiMessageHandlerCount = String(handlers?.size ?? 0);
     host.dataset.touchaiMessageDispatchCount = String(
         (Number(host.dataset.touchaiMessageDispatchCount || '0') || 0) + 1
     );
     if (!handlers?.size) {
-        host.__touchaiPendingMessage = data;
+        queuePendingMessage(host, data, messageType);
     } else {
         handlers.forEach((handler) => handler(event));
-        delete host.__touchaiPendingMessage;
     }
-    host.dataset.touchaiLastMessage =
-        typeof data === 'object' && data && 'type' in (data as Record<string, unknown>)
-            ? String((data as Record<string, unknown>).type)
-            : 'unknown';
+    host.dataset.touchaiLastMessage = messageType || 'unknown';
 
     return true;
 };
@@ -484,11 +616,7 @@ const runInlineScript = (host: TouchAiHost, code: string) => {
                     if (type === 'message') {
                         const wrappedMessageHandler: TouchAiMessageHandler = (event) => {
                             host.dataset.touchaiLastReceivedMessage =
-                                typeof event?.data === 'object' &&
-                                event.data &&
-                                'type' in (event.data as Record<string, unknown>)
-                                    ? String((event.data as Record<string, unknown>).type)
-                                    : 'unknown';
+                                getMessageType(event?.data) || 'unknown';
                             host.dataset.touchaiMessageReceiveCount = String(
                                 (Number(host.dataset.touchaiMessageReceiveCount || '0') || 0) + 1
                             );
@@ -558,6 +686,14 @@ const runInlineScript = (host: TouchAiHost, code: string) => {
         },
     });
 
+    const ScopedResizeObserver = function (callback: ResizeObserverCallback) {
+        const observer = new ResizeObserver(callback);
+        host.__touchaiResizeObservers?.push(observer);
+        return observer;
+    } as unknown as typeof ResizeObserver;
+
+    ScopedResizeObserver.prototype = ResizeObserver.prototype;
+
     const runner = new Function(
         'document',
         'window',
@@ -576,7 +712,7 @@ const runInlineScript = (host: TouchAiHost, code: string) => {
         localWindow,
         NodeFilter,
         Element,
-        ResizeObserver,
+        ScopedResizeObserver,
         navigator,
         MutationObserver,
         window.requestAnimationFrame.bind(window),
@@ -595,6 +731,11 @@ const applyDocument = async (
     host.dataset.touchaiStatus = 'applying';
     host.dataset.touchaiLoadVersion = String(loadVersion);
 
+    host.__touchaiResizeObservers?.forEach((observer) => {
+        observer.disconnect();
+    });
+    host.__touchaiResizeObservers = [];
+
     host.__touchaiWindowHandlers?.forEach((wrapped) => {
         window.removeEventListener('resize', wrapped);
     });
@@ -603,6 +744,7 @@ const applyDocument = async (
 
     const bodyClassName = doc.body.className || '';
     host.className = host.dataset.baseClass || '';
+    clearScrollDrivenState(host);
     if (bodyClassName) {
         host.classList.add(...bodyClassName.split(/\s+/).filter(Boolean));
     }
@@ -655,12 +797,7 @@ const applyDocument = async (
     if (loadVersion !== host.__touchaiLoadVersion) return;
 
     host.dataset.touchaiStatus = 'loaded';
-    if (
-        Object.prototype.hasOwnProperty.call(host, '__touchaiPendingMessage') &&
-        host.__touchaiMessageHandlers?.size
-    ) {
-        dispatchMessage(host, host.__touchaiPendingMessage);
-    }
+    flushPendingMessages(host);
     host.dispatchEvent(new Event('load'));
     host.dispatchEvent(new CustomEvent('touchai-component-loaded'));
 };
@@ -680,7 +817,9 @@ const mount = (id: string): TouchAiHost | null => {
     host.__touchaiController = null;
     host.__touchaiMessageHandlers = new Set();
     host.__touchaiWindowHandlers = new Map();
+    host.__touchaiPendingMessages = [];
     host.dataset.touchaiMessageHandlerCount = '0';
+    host.__touchaiResizeObservers = [];
     host.dataset.touchaiMessageDispatchCount = '0';
     host.dataset.touchaiMessageReceiveCount = '0';
     host.dataset.demoId = id;
@@ -738,8 +877,33 @@ const mount = (id: string): TouchAiHost | null => {
         await load();
     };
 
-    if (host.dataset.loading !== 'lazy') {
-        void load();
+    const startLoad = () => {
+        if (host.dataset.touchaiLoadStarted === 'true') return Promise.resolve();
+        host.dataset.touchaiLoadStarted = 'true';
+        return load();
+    };
+    host.load = startLoad;
+
+    if (host.dataset.loading === 'lazy') {
+        if ('IntersectionObserver' in window) {
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    if (!entries.some((entry) => entry.isIntersecting)) return;
+                    observer.disconnect();
+                    startLoad();
+                },
+                {
+                    rootMargin: '900px 0px',
+                    threshold: 0.01,
+                }
+            );
+            observer.observe(host);
+            host.dataset.touchaiStatus = 'lazy-waiting';
+        } else {
+            window.setTimeout(startLoad, 800);
+        }
+    } else {
+        void startLoad();
     }
 
     return host;
@@ -764,6 +928,21 @@ const send = (target: string | TouchAiHost | null | undefined, data: unknown) =>
             : target.dataset.demoId
               ? (mount(target.dataset.demoId) ?? target)
               : target;
+
+    const messageType = getMessageType(data);
+    const shouldStartLazyLoad =
+        Boolean(messageType) &&
+        !isScrollDrivenProgressType(messageType) &&
+        messageType !== 'touchai-clear-scroll-driven' &&
+        messageType !== 'touchai-page-bg';
+
+    if (
+        host?.dataset.loading === 'lazy' &&
+        host.dataset.touchaiReady !== 'true' &&
+        shouldStartLazyLoad
+    ) {
+        void host.load?.();
+    }
 
     return dispatchMessage(host, data);
 };

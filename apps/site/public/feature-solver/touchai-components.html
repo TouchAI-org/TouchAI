@@ -85,6 +85,10 @@
                     margin-bottom 640ms cubic-bezier(0.22, 1, 0.36, 1);
             }
 
+            body.is-scroll-driven .chat-panel {
+                will-change: auto;
+            }
+
             body.is-idle .chat-panel {
                 max-height: 56px;
                 min-height: 56px;
@@ -150,20 +154,20 @@
                 flex: 1 1 auto;
                 min-height: 0;
                 overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
                 scrollbar-width: none;
                 padding-top: 0;
                 padding-bottom: 20px;
             }
 
-            body.is-answering .conversation-content {
-                flex: 0 0 auto;
-                overflow: visible;
-                padding-bottom: 0;
-            }
-
+            body.is-answering .conversation-content,
             body.is-answering.is-scrolling .conversation-content {
                 flex: 1 1 auto;
+                min-height: 0;
                 overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
                 padding-top: 0;
                 padding-bottom: 20px;
             }
@@ -393,11 +397,50 @@
                 flex: 0 0 auto;
             }
 
+            body.is-complete .conversation-content,
+            body.is-complete.is-scrolling .conversation-content {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 20px;
+            }
+
             body.is-answering .composer {
                 margin-top: 0;
             }
 
             body.is-answering.is-scrolling .composer {
+                margin-top: auto;
+            }
+
+            body.is-complete .composer {
+                margin-top: 0;
+            }
+
+            body.is-complete.is-scrolling .composer {
+                margin-top: auto;
+            }
+
+            body.is-scroll-driven.is-complete .chat-panel {
+                min-height: var(--window-min-height);
+                max-height: var(--window-min-height);
+                height: var(--window-min-height);
+            }
+
+            body.is-scroll-driven.is-answering .conversation-content,
+            body.is-scroll-driven.is-complete .conversation-content {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 20px;
+            }
+
+            body.is-scroll-driven.is-answering .composer,
+            body.is-scroll-driven.is-complete .composer {
                 margin-top: auto;
             }
 
@@ -1002,7 +1045,7 @@
                             </svg>
                         </button>
                     </div>
-                    <article class="response math-response" aria-live="polite">
+                    <article class="response math-response" aria-live="polite" aria-busy="false" aria-atomic="false">
                         <p>简短过程如下：</p>
                         <p class="math-narrative">
                             设过
@@ -1545,7 +1588,7 @@
 
                 <footer class="composer" aria-label="输入框">
                     <form class="composer-form prompt-form" aria-label="输入框">
-                        <img class="mi-logo" src="./mimo.png" alt="Mimo" />
+                        <img class="mi-logo" src="./mimo.png" alt="Mimo" width="32" height="32" decoding="async" />
                         <input
                             class="prompt-input"
                             type="text"
@@ -1563,8 +1606,9 @@
                 </footer>
             </section>
         </main>
+        <script src="/demo-utils/touchai-lite-renderer.js"></script>
         <script src="/demo-vendor/katex/katex.min.js"></script>
-        <script src="/demo-vendor/markdown-it/markdown-it.min.js"></script>
+        <script src="/demo-utils/touchai-lite-math.js"></script>
         <script>
             (() => {
                 const expectedPrompt = '完成这道题目';
@@ -1581,6 +1625,10 @@
                 let copyAnswer = null;
                 let replayAnswer = null;
                 let panelObserver = null;
+                let scrollAffordanceFrame = 0;
+                let mathLineGeometryFrame = 0;
+                let lastMathLineWidth = '';
+                let lastMathLineOffset = '';
                 let textNodes = [];
                 let hasStarted = false;
                 let typingTimer = 0;
@@ -1588,6 +1636,20 @@
                 let isPromptTyping = false;
                 let startSequenceActive = false;
                 let externalScrollProgress = 0;
+                let isScrollDriven = false;
+                let hasReceivedScrollProgress = false;
+
+                function getMessagePayload(event) {
+                    return event && typeof event.data === 'object' && event.data ? event.data : {};
+                }
+
+                function notifyParent(type) {
+                    try {
+                        if (window.parent && window.parent !== window) {
+                            window.parent.postMessage({ type }, window.location.origin);
+                        }
+                    } catch (error) {}
+                }
 
                 const answerMarkdown = String.raw`
 简短过程如下：
@@ -1674,71 +1736,8 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
             </button>
           </div>`;
 
-                function escapeHtml(value) {
-                    return value
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;');
-                }
-
-                function renderFormula(source, displayMode) {
-                    if (window.katex) {
-                        return window.katex.renderToString(source, {
-                            displayMode,
-                            throwOnError: false,
-                            strict: 'ignore',
-                            output: 'html',
-                        });
-                    }
-
-                    return `<span class="katex-fallback">${escapeHtml(source)}</span>`;
-                }
-
-                function renderMarkdownWithMath(markdown) {
-                    const mathTokens = [];
-                    const protectedMarkdown = markdown
-                        .replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
-                            const token = `@@MATH_BLOCK_${mathTokens.length}@@`;
-                            mathTokens.push({ token, formula: formula.trim(), display: true });
-                            return `\n\n${token}\n\n`;
-                        })
-                        .replace(/\$([^$\n]+?)\$/g, (_, formula) => {
-                            const token = `@@MATH_INLINE_${mathTokens.length}@@`;
-                            mathTokens.push({ token, formula: formula.trim(), display: false });
-                            return token;
-                        });
-
-                    const md = window.markdownit
-                        ? window.markdownit({ html: false, linkify: false, breaks: false })
-                        : null;
-                    let html = md
-                        ? md.render(protectedMarkdown)
-                        : protectedMarkdown
-                              .split(/\n{2,}/)
-                              .map((part) => {
-                                  if (part === '---') {
-                                      return `<hr />`;
-                                  }
-
-                                  return `<p>${escapeHtml(part).replace(/\n/g, '<br>')}</p>`;
-                              })
-                              .join('\n');
-
-                    mathTokens.forEach(({ token, formula, display }) => {
-                        const rendered = renderFormula(formula, display);
-                        const replacement = display
-                            ? `<div class="math-block"><span class="math-display-frame">${rendered}</span></div>`
-                            : `<span class="katex-formula">${rendered}</span>`;
-                        html = html
-                            .replace(new RegExp(`<p>${token}</p>`, 'g'), replacement)
-                            .replace(new RegExp(token, 'g'), replacement);
-                    });
-
-                    return html
-                        .replace(/<hr>/g, `<p class="response-divider" aria-hidden="true"></p>`)
-                        .replace(/<p>/g, `<p class="paragraph-node">`);
-                }
+                const renderMarkdownWithMath =
+                    window.TouchAILiteMathRenderer.renderMarkdownWithMath;
 
                 function prepareTypewriterNodes() {
                     textNodes = [];
@@ -1799,11 +1798,27 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                     const responseRect = response.getBoundingClientRect();
                     const mathLineWidth = `${panel.clientWidth}px`;
                     const mathLineOffset = `${panelRect.left - responseRect.left}px`;
-                    response.style.setProperty('--math-line-width', mathLineWidth);
-                    response.style.setProperty('--math-line-offset', mathLineOffset);
-                    response.querySelectorAll('.math-block').forEach((block) => {
-                        block.style.width = mathLineWidth;
-                        block.style.marginLeft = mathLineOffset;
+
+                    if (
+                        mathLineWidth === lastMathLineWidth &&
+                        mathLineOffset === lastMathLineOffset
+                    ) {
+                        return;
+                    }
+
+                    lastMathLineWidth = mathLineWidth;
+                    lastMathLineOffset = mathLineOffset;
+                    if (mathLineGeometryFrame) {
+                        window.cancelAnimationFrame(mathLineGeometryFrame);
+                    }
+                    mathLineGeometryFrame = window.requestAnimationFrame(() => {
+                        mathLineGeometryFrame = 0;
+                        response.style.setProperty('--math-line-width', mathLineWidth);
+                        response.style.setProperty('--math-line-offset', mathLineOffset);
+                        response.querySelectorAll('.math-block').forEach((block) => {
+                            block.style.width = mathLineWidth;
+                            block.style.marginLeft = mathLineOffset;
+                        });
                     });
                 }
 
@@ -1838,6 +1853,7 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                 watchPanelGeometry();
 
                 function resetResponseText() {
+                    response.setAttribute('aria-busy', 'false');
                     window.clearTimeout(typingTimer);
                     document.body.classList.remove('is-scrolling');
                     document.body.classList.remove('has-below-content');
@@ -1890,6 +1906,37 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                     startSequenceActive = false;
                 }
 
+                function resetDemoState(complete = false) {
+                    hasReceivedScrollProgress = false;
+                    externalScrollProgress = complete ? 1 : 0;
+                    window.clearTimeout(typingTimer);
+                    clearPromptTyping();
+                    setScrollDrivenState(false);
+
+                    if (complete) {
+                        hasStarted = true;
+                        clearPromptInput();
+                        document.body.classList.remove('is-idle', 'is-answering');
+                        document.body.classList.add('is-complete');
+                        setResponseProgress(1);
+                        updateScrollAffordance();
+                        return;
+                    }
+
+                    hasStarted = false;
+                    input.value = '';
+                    resetResponseText();
+                    document.body.classList.remove('is-answering', 'is-complete', 'is-scrolling');
+                    document.body.classList.add('is-idle');
+                    updateScrollAffordance();
+                }
+
+                function setScrollDrivenState(enabled) {
+                    isScrollDriven = Boolean(enabled);
+                    document.body.classList.toggle('is-scroll-driven', isScrollDriven);
+                    response.setAttribute('aria-live', isScrollDriven ? 'off' : 'polite');
+                }
+
                 function syncScrollMode() {
                     syncMathLineGeometry();
                     const shouldScroll =
@@ -1908,6 +1955,36 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                         content.scrollHeight - content.scrollTop - content.clientHeight > 6;
 
                     document.body.classList.toggle('has-below-content', hasBelow);
+                }
+
+                function scheduleScrollAffordanceUpdate() {
+                    if (scrollAffordanceFrame) return;
+                    scrollAffordanceFrame = window.requestAnimationFrame(() => {
+                        scrollAffordanceFrame = 0;
+                        updateScrollAffordance();
+                    });
+                }
+
+                function forwardWheelToPage(event) {
+                    if (event.ctrlKey || event.metaKey) {
+                        event.preventDefault();
+                        return;
+                    }
+
+                    if (!isScrollDriven || !hasReceivedScrollProgress) {
+                        return;
+                    }
+
+                    const deltaMultiplier =
+                        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
+                    const nextDeltaY = event.deltaY * deltaMultiplier;
+
+                    if (Math.abs(nextDeltaY) < 0.5) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    window.scrollBy(0, nextDeltaY);
                 }
 
                 function applyExternalScrollProgress(progress) {
@@ -1951,6 +2028,9 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
 
                 function renderScrollProgress(progress) {
                     const scrubProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+                    hasReceivedScrollProgress = scrubProgress > 0.0005 && scrubProgress < 0.9995;
+                    setScrollDrivenState(hasReceivedScrollProgress);
+                    response.setAttribute('aria-busy', hasReceivedScrollProgress ? 'true' : 'false');
                     externalScrollProgress = scrubProgress;
                     window.clearTimeout(typingTimer);
                     window.clearTimeout(promptTypingTimer);
@@ -1959,13 +2039,12 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                     isPromptTyping = false;
                     startSequenceActive = false;
 
-                    const promptProgress = Math.max(0, Math.min(1, scrubProgress / 0.18));
-                    input.value = expectedPrompt.slice(
-                        0,
-                        Math.round(expectedPrompt.length * promptProgress)
-                    );
-
                     if (scrubProgress < 0.18) {
+                        const promptProgress = Math.max(0, Math.min(1, scrubProgress / 0.18));
+                        input.value = expectedPrompt.slice(
+                            0,
+                            Math.round(expectedPrompt.length * promptProgress)
+                        );
                         hasStarted = false;
                         resetResponseText();
                         document.body.classList.remove(
@@ -1978,9 +2057,12 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                         return;
                     }
 
+                    clearPromptInput();
+
                     if (!hasStarted) {
                         resetResponseText();
-                        hasStarted = true;
+                    response.setAttribute('aria-busy', 'true');
+                    hasStarted = true;
                     }
 
                     const answerProgress = Math.max(0, Math.min(1, (scrubProgress - 0.18) / 0.5));
@@ -1993,18 +2075,16 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                     setResponseProgress(answerProgress);
                     syncMathLineGeometry();
 
-                    window.requestAnimationFrame(() => {
-                        const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
-                        document.body.classList.toggle(
-                            'is-scrolling',
-                            maxScroll > 1 && scrubProgress >= 0.66
-                        );
-                        content.scrollTop =
-                            answerProgress >= 1
-                                ? Math.round(maxScroll * scrollProgress)
-                                : Math.round(maxScroll * answerProgress);
-                        updateScrollAffordance();
-                    });
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                    document.body.classList.toggle(
+                        'is-scrolling',
+                        maxScroll > 1 && scrubProgress >= 0.66
+                    );
+                    content.scrollTop =
+                        answerProgress >= 1
+                            ? Math.round(maxScroll * scrollProgress)
+                            : Math.round(maxScroll * answerProgress);
+                    updateScrollAffordance();
                 }
 
                 function startTypewriter() {
@@ -2015,6 +2095,7 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                         if (nodeIndex >= textNodes.length) {
                             document.body.classList.remove('is-answering');
                             document.body.classList.add('is-complete');
+                            response.setAttribute('aria-busy', 'false');
                             syncScrollMode();
                             applyExternalScrollProgress(externalScrollProgress);
                             updateScrollAffordance();
@@ -2041,10 +2122,14 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                 }
 
                 function showAnswer() {
+                    hasReceivedScrollProgress = false;
+                    externalScrollProgress = 0;
+                    setScrollDrivenState(false);
                     clearPromptTyping();
                     clearPromptInput();
                     hydrateMarkdownAnswer();
                     resetResponseText();
+                    response.setAttribute('aria-busy', 'true');
                     hasStarted = true;
                     startSequenceActive = false;
                     document.body.classList.remove('is-idle', 'is-complete');
@@ -2077,6 +2162,9 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                         return;
                     }
 
+                    hasReceivedScrollProgress = false;
+                    externalScrollProgress = 0;
+                    setScrollDrivenState(false);
                     clearPromptTyping();
                     startSequenceActive = true;
                     isPromptTyping = true;
@@ -2109,24 +2197,39 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                 }
 
                 resetResponseText();
-                window.parent?.postMessage?.({ type: 'touchai-solver-ready' });
+                notifyParent('touchai-solver-ready');
                 form.addEventListener('submit', submitPrompt);
                 window.addEventListener('message', (event) => {
-                    if (event.data?.type === 'touchai-page-bg') {
+                    const message = getMessagePayload(event);
+                    if (message.type === 'touchai-page-bg') {
                         document.documentElement.style.setProperty(
                             '--page-bg',
-                            event.data.background || 'transparent'
+                            typeof message.background === 'string' ? message.background : 'transparent'
                         );
                         return;
                     }
 
-                    if (event.data?.type === 'touchai-solver-start') {
+                    if (message.type === 'touchai-solver-start') {
+                        hasReceivedScrollProgress = false;
+                        setScrollDrivenState(false);
                         typePromptThenSubmit();
                         return;
                     }
 
-                    if (event.data?.type === 'touchai-set-scroll-progress') {
-                        renderScrollProgress(event.data.progress);
+                    if (message.type === 'touchai-clear-scroll-driven') {
+                        hasReceivedScrollProgress = false;
+                        setScrollDrivenState(false);
+                        updateScrollAffordance();
+                        return;
+                    }
+
+                    if (message.type === 'touchai-reset-demo') {
+                        resetDemoState(false);
+                        return;
+                    }
+
+                    if (message.type === 'touchai-set-scroll-progress') {
+                        renderScrollProgress(message.progress);
                     }
                 });
                 toolbarButtons.forEach((button) => {
@@ -2143,11 +2246,15 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                         clearPromptInput();
                     }
                 });
-                scrollBottomButton.addEventListener('click', () => {
+                scrollBottomButton.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    document.body.classList.add('is-scrolling');
                     content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
-                    document.body.classList.remove('has-below-content');
+                    window.setTimeout(updateScrollAffordance, 220);
                 });
-                content.addEventListener('scroll', updateScrollAffordance);
+                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, { passive: true });
+                panel.addEventListener('wheel', forwardWheelToPage, { passive: false });
             })();
         </script>
     </body>
