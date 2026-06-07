@@ -27,14 +27,9 @@ const importPattern =
 const allowedBaselineViolationFragments: string[] = [];
 
 const allowedBaselineCycles = [
-    ['database', 'services/NativeService'],
-    ['services/AgentService', 'services/AuthService'],
     ['services/AgentService', 'services/BuiltInToolService'],
     ['services/AgentService', 'types'],
-    ['services/EventService', 'services/PopupService'],
     ['services/EventService', 'utils'],
-    ['services/NativeService', 'utils'],
-    ['services/PopupService', 'views/PopupView'],
 ];
 
 function withoutAllowedBaselineViolations(violations: string[]): string[] {
@@ -389,14 +384,9 @@ describe('architecture import boundaries', () => {
     it('does not keep the baseline frontend dependency cycles', () => {
         const components = findStronglyConnectedComponents(collectEdges());
         const baselineCycles = [
-            ['database', 'services/NativeService'],
-            ['services/AgentService', 'services/AuthService'],
             ['services/AgentService', 'services/BuiltInToolService'],
             ['services/AgentService', 'types'],
-            ['services/EventService', 'services/PopupService'],
             ['services/EventService', 'utils'],
-            ['services/NativeService', 'utils'],
-            ['services/PopupService', 'views/PopupView'],
         ];
 
         const retainedBaselineCycles = baselineCycles.filter((cycle) =>
