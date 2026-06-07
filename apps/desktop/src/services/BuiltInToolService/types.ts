@@ -26,7 +26,10 @@ export type BuiltInToolId =
     | 'upgrade_model'
     | 'show_widget'
     | 'visualize_read_me'
-    | 'ask_user_question';
+    | 'ask_user_question'
+    | 'computer_session'
+    | 'computer_observe'
+    | 'computer_act';
 
 /**
  * 所有内置工具共享的最小运行时上下文。

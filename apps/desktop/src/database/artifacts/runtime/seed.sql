@@ -158,3 +158,39 @@ INSERT INTO built_in_tools (
 )
 SELECT 'ask_user_question', 'AskUserQuestion', '向用户提出结构化问题', 1, 'low', NULL
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'ask_user_question');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
+SELECT
+    'computer_session',
+    'ComputerSession',
+    '初始化桌面控制会话并报告平台能力',
+    0,
+    'high',
+    '{"timeoutMs":8000,"defaultExecutionMode":"foreground","providerHints":["native_windows","external_adapter"],"enableVisionFallback":false}'
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'computer_session');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
+SELECT
+    'computer_observe',
+    'ComputerObserve',
+    '观察桌面、窗口和原生控件树',
+    0,
+    'high',
+    '{"timeoutMs":8000,"defaultExecutionMode":"foreground","providerHints":["native_windows","external_adapter"],"enableVisionFallback":false}'
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'computer_observe');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
+SELECT
+    'computer_act',
+    'ComputerAct',
+    '执行单步桌面鼠标或键盘动作',
+    0,
+    'high',
+    '{"timeoutMs":8000,"defaultExecutionMode":"foreground","providerHints":["native_windows","external_adapter"],"enableVisionFallback":false}'
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'computer_act');

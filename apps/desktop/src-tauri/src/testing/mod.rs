@@ -8,6 +8,7 @@ use tauri::{
 use crate::{
     commands,
     core::{
+        built_in_tools::ComputerRuntime,
         database::DatabaseRuntime,
         updater::AppUpdaterState,
         window::{
@@ -30,6 +31,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .manage(SearchSurfaceRuntime::new())
         .manage(SessionStatusReminderNotificationRuntime::for_tests())
         .manage(TrayStatusRuntime::new())
+        .manage(ComputerRuntime::new())
         .manage(AppUpdaterState::default())
 }
 

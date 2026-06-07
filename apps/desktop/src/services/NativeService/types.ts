@@ -35,6 +35,240 @@ export interface BuiltInBashExecutionResponse {
     compressed?: boolean;
 }
 
+export type ComputerCapability =
+    | 'native_tree'
+    | 'screenshot'
+    | 'background_actions'
+    | 'vision_fallback'
+    | 'browser_dom'
+    | 'external_provider';
+
+export type ComputerObservationMode = 'tree' | 'screenshot' | 'tree_and_screenshot';
+
+export type ComputerObservationInclude = 'displays' | 'windows' | 'tree' | 'screenshot';
+
+export type ComputerExecutionMode = 'foreground' | 'background';
+
+export type ComputerRouteHint =
+    | 'auto'
+    | 'win32.send_input'
+    | 'win32.message'
+    | 'screen.capture'
+    | 'unsupported';
+
+export type ComputerActionOperation =
+    | 'click'
+    | 'double_click'
+    | 'right_click'
+    | 'move'
+    | 'drag'
+    | 'scroll'
+    | 'type_text'
+    | 'press_key'
+    | 'hotkey'
+    | 'wait';
+
+export type ComputerRoute = ComputerRouteHint;
+
+export type ComputerLane =
+    | 'native_tree'
+    | 'vision_fallback'
+    | 'browser_dom'
+    | 'external_provider'
+    | 'unsupported';
+
+export interface ComputerBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface ComputerWindowTarget {
+    id?: string;
+    title?: string;
+    processName?: string;
+}
+
+export interface ComputerElementTarget {
+    id?: string;
+    role?: string;
+    name?: string;
+}
+
+export interface ComputerCoordinateTarget {
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+    displayId?: string;
+}
+
+export interface ComputerTarget {
+    scope?: 'foreground' | 'screen' | 'window' | 'element' | 'region';
+    window?: ComputerWindowTarget;
+    element?: ComputerElementTarget;
+    coordinates?: ComputerCoordinateTarget;
+    label?: string;
+    windowId?: string;
+    elementId?: string;
+    displayId?: string;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+}
+
+export interface ComputerSessionRequest {
+    sessionId: string;
+    target: ComputerTarget;
+    capabilities: ComputerCapability[];
+    providerHints: string[];
+    reason: string;
+    timeoutMs: number;
+}
+
+export interface ComputerCapabilitySnapshot {
+    platform: string;
+    lanes: ComputerLane[];
+    routes: ComputerRoute[];
+    background: {
+        supported: boolean;
+        routes: ComputerRoute[];
+        limitations: string[];
+    };
+    grounding: {
+        tree: boolean;
+        screenshot: boolean;
+        clickPrediction: boolean;
+        externalProviders: string[];
+    };
+}
+
+export interface ComputerSessionResponse {
+    sessionId: string;
+    status: 'ready' | 'unsupported' | 'error';
+    capabilities: ComputerCapabilitySnapshot;
+    target: ComputerTarget;
+    warnings?: string[];
+}
+
+export interface ComputerObservationRequest {
+    sessionId: string;
+    mode: ComputerObservationMode;
+    target: ComputerTarget;
+    include: ComputerObservationInclude[];
+    reason: string;
+    timeoutMs: number;
+}
+
+export interface ComputerDisplaySnapshot {
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    scaleFactor: number;
+    primary: boolean;
+}
+
+export interface ComputerWindowSnapshot {
+    elementId: string;
+    title: string;
+    processName?: string | null;
+    bounds: ComputerBounds;
+    focused: boolean;
+    visible: boolean;
+    native: boolean;
+}
+
+export interface ComputerElementSnapshot {
+    elementId: string;
+    role: string;
+    name: string;
+    bounds?: ComputerBounds | null;
+    states?: string[];
+    value?: string | null;
+    children?: ComputerElementSnapshot[];
+}
+
+export interface ComputerObservationTree {
+    lane: ComputerLane;
+    elements: ComputerElementSnapshot[];
+}
+
+export interface ComputerScreenshotSnapshot {
+    format: 'png' | 'jpeg';
+    width: number;
+    height: number;
+    dataBase64?: string | null;
+    path?: string | null;
+}
+
+export interface ComputerObservationResponse {
+    observationId: string;
+    sessionId: string;
+    platform: string;
+    target: ComputerTarget;
+    displays: ComputerDisplaySnapshot[];
+    windows: ComputerWindowSnapshot[];
+    tree?: ComputerObservationTree | null;
+    screenshot?: ComputerScreenshotSnapshot | null;
+    warnings: string[];
+}
+
+export interface ComputerActionOptions {
+    allowBackground: boolean;
+    dryRun: boolean;
+    postActionObserve: boolean;
+}
+
+export interface ComputerActionRequest {
+    sessionId: string;
+    operation: ComputerActionOperation;
+    target: ComputerTarget;
+    value: string | null;
+    executionMode: ComputerExecutionMode;
+    reason: string;
+    routeHint: ComputerRouteHint;
+    timeoutMs: number;
+    options: ComputerActionOptions;
+}
+
+export interface ComputerResolvedTarget {
+    x?: number | null;
+    y?: number | null;
+    elementId?: string | null;
+    windowId?: string | null;
+    confidence: number;
+}
+
+export interface ComputerActionReceipt {
+    route: ComputerRoute;
+    lane: ComputerLane;
+    backgroundSafe: boolean;
+    cursorMoved: boolean;
+    foregroundChanged: boolean;
+    targetResolved: ComputerResolvedTarget;
+    status: 'success' | 'unsupported' | 'blocked' | 'error';
+    warnings: string[];
+}
+
+export interface ComputerActionResponseBase {
+    actionId: string;
+    sessionId: string;
+    operation: ComputerActionOperation;
+    postActionObservation?: ComputerObservationResponse | null;
+}
+
+export interface ComputerActionResponseWithReceipt extends ComputerActionResponseBase {
+    receipt: ComputerActionReceipt;
+}
+
+export type ComputerActionResponse =
+    | ComputerActionResponseWithReceipt
+    | (ComputerActionResponseBase & ComputerActionReceipt);
+
 export interface ShowPopupWindowParams {
     x: number;
     y: number;

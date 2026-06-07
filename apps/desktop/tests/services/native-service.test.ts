@@ -6,6 +6,12 @@ import {
     builtInTools,
     clipboard,
     type ClipboardPayload,
+    type ComputerActionRequest,
+    type ComputerActionResponse,
+    type ComputerObservationRequest,
+    type ComputerObservationResponse,
+    type ComputerSessionRequest,
+    type ComputerSessionResponse,
     database,
     log,
     mcp,
@@ -866,5 +872,138 @@ describe('NativeService supporting boundaries', () => {
                 { executionId: 'exec-1' }
             )
         ).resolves.toBe(true);
+    });
+
+    it('bridges native computer-use session, observation, and action commands', async () => {
+        const sessionRequest: ComputerSessionRequest = {
+            sessionId: 'computer-session-1',
+            target: {
+                scope: 'window',
+                window: { id: 'window-1', title: 'Calculator' },
+            },
+            capabilities: ['native_tree', 'screenshot', 'background_actions'],
+            providerHints: ['native_windows'],
+            reason: 'operate calculator',
+            timeoutMs: 8000,
+        };
+        const sessionResponse: ComputerSessionResponse = {
+            sessionId: 'computer-session-1',
+            status: 'ready',
+            capabilities: {
+                platform: 'windows',
+                lanes: ['native_tree'],
+                routes: ['win32.send_input', 'win32.message'],
+                background: {
+                    supported: true,
+                    routes: ['win32.message'],
+                    limitations: [],
+                },
+                grounding: {
+                    tree: true,
+                    screenshot: true,
+                    clickPrediction: false,
+                    externalProviders: [],
+                },
+            },
+            target: sessionRequest.target,
+            warnings: [],
+        };
+        const observationRequest: ComputerObservationRequest = {
+            sessionId: 'computer-session-1',
+            mode: 'tree_and_screenshot',
+            target: {
+                scope: 'element',
+                element: { id: 'button-equals', role: 'button', name: 'Equals' },
+            },
+            include: ['windows', 'tree', 'screenshot'],
+            reason: 'ground the next click',
+            timeoutMs: 8000,
+        };
+        const observationResponse: ComputerObservationResponse = {
+            observationId: 'observation-1',
+            sessionId: 'computer-session-1',
+            platform: 'windows',
+            target: observationRequest.target,
+            displays: [],
+            windows: [],
+            tree: {
+                lane: 'native_tree',
+                elements: [],
+            },
+            screenshot: {
+                format: 'png',
+                width: 1200,
+                height: 800,
+                dataBase64: 'abc',
+            },
+            warnings: [],
+        };
+        const actionRequest: ComputerActionRequest = {
+            sessionId: 'computer-session-1',
+            operation: 'click',
+            target: {
+                scope: 'region',
+                coordinates: { x: 200, y: 240, width: 80, height: 32, displayId: 'display-1' },
+            },
+            value: null,
+            executionMode: 'foreground',
+            reason: 'click equals',
+            routeHint: 'auto',
+            timeoutMs: 8000,
+            options: {
+                allowBackground: false,
+                dryRun: false,
+                postActionObserve: true,
+            },
+        };
+        const actionResponse: ComputerActionResponse = {
+            actionId: 'action-1',
+            sessionId: 'computer-session-1',
+            operation: 'click',
+            receipt: {
+                route: 'win32.send_input',
+                lane: 'native_tree',
+                backgroundSafe: false,
+                cursorMoved: true,
+                foregroundChanged: true,
+                targetResolved: {
+                    x: 200,
+                    y: 240,
+                    elementId: null,
+                    windowId: 'window-1',
+                    confidence: 1,
+                },
+                status: 'success',
+                warnings: [],
+            },
+        };
+
+        mockTauriCommand('built_in_tools_computer_session', sessionResponse);
+        mockTauriCommand('built_in_tools_computer_observe', observationResponse);
+        mockTauriCommand('built_in_tools_computer_act', actionResponse);
+
+        await expect(
+            callAndExpectInvoke(
+                () => native.builtInTools.startComputerSession(sessionRequest),
+                'built_in_tools_computer_session',
+                { request: sessionRequest }
+            )
+        ).resolves.toEqual(sessionResponse);
+
+        await expect(
+            callAndExpectInvoke(
+                () => native.builtInTools.observeComputer(observationRequest),
+                'built_in_tools_computer_observe',
+                { request: observationRequest }
+            )
+        ).resolves.toEqual(observationResponse);
+
+        await expect(
+            callAndExpectInvoke(
+                () => native.builtInTools.executeComputerAction(actionRequest),
+                'built_in_tools_computer_act',
+                { request: actionRequest }
+            )
+        ).resolves.toEqual(actionResponse);
     });
 });

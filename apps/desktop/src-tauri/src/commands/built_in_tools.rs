@@ -4,6 +4,8 @@
 
 use crate::core::built_in_tools::{
     self, BashExecutionRegistry, BuiltInBashExecutionRequest, BuiltInBashExecutionResponse,
+    ComputerActionRequest, ComputerActionResponse, ComputerObservationRequest,
+    ComputerObservationResponse, ComputerRuntime, ComputerSessionRequest, ComputerSessionResponse,
 };
 use tauri::State;
 
@@ -29,4 +31,31 @@ pub fn built_in_tools_cancel_bash(
     registry: State<'_, BashExecutionRegistry>,
 ) -> Result<bool, String> {
     Ok(registry.cancel(&execution_id))
+}
+
+/// Start or refresh a native computer-use session.
+#[tauri::command]
+pub fn built_in_tools_computer_session(
+    request: ComputerSessionRequest,
+    runtime: State<'_, ComputerRuntime>,
+) -> Result<ComputerSessionResponse, String> {
+    built_in_tools::computer_session(request, runtime.inner())
+}
+
+/// Observe the native desktop surface for a computer-use session.
+#[tauri::command]
+pub fn built_in_tools_computer_observe(
+    request: ComputerObservationRequest,
+    runtime: State<'_, ComputerRuntime>,
+) -> Result<ComputerObservationResponse, String> {
+    built_in_tools::computer_observe(request, runtime.inner())
+}
+
+/// Execute one bounded computer-use action and return an auditable receipt.
+#[tauri::command]
+pub fn built_in_tools_computer_act(
+    request: ComputerActionRequest,
+    runtime: State<'_, ComputerRuntime>,
+) -> Result<ComputerActionResponse, String> {
+    built_in_tools::computer_act(request, runtime.inner())
 }

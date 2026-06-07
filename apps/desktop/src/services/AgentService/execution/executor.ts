@@ -40,6 +40,9 @@ import { PersistenceProjector } from '../outputs/persistence';
 import type { TurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
+const BUILT_IN_TOOL_PREFIX = 'builtin__';
+const BUILT_IN_COMPUTER_ACT_TOOL_ID: BuiltInToolId = 'computer_act';
+const BUILT_IN_COMPUTER_ACT_TOOL_NAME = `${BUILT_IN_TOOL_PREFIX}${BUILT_IN_COMPUTER_ACT_TOOL_ID}`;
 const MAX_REQUEST_MODEL_SWITCHES = 4;
 const MODEL_SWITCH_EXCLUDED_TOOL_NAMES = [BUILT_IN_UPGRADE_TOOL_NAME];
 const toolArgumentsSchema = z.record(z.string(), z.unknown());
@@ -712,6 +715,7 @@ export class AiRequestExecutor {
             toolCall: AiToolCall;
             toolCallMessageId: number | null;
             persister: PersistenceProjector;
+            executedBuiltInToolsInRound: Set<BuiltInToolId>;
         } & RequestExecutionCallbacks
     ): Promise<ToolExecutionResult> {
         throwIfAborted(options.signal);
@@ -742,7 +746,10 @@ export class AiRequestExecutor {
             toolArgs,
             iteration: runtime.iteration,
             currentModel: runtime.activeModel,
-            hasExecutedBuiltInTool: (toolId) => runtime.executedBuiltInTools.has(toolId),
+            hasExecutedBuiltInTool: (toolId) =>
+                toolId === BUILT_IN_COMPUTER_ACT_TOOL_ID
+                    ? options.executedBuiltInToolsInRound.has(toolId)
+                    : runtime.executedBuiltInTools.has(toolId),
             signal: options.signal,
             toolCallMessageId: options.toolCallMessageId,
             sessionId: options.persister.getSessionId(),
@@ -791,19 +798,40 @@ export class AiRequestExecutor {
             options.step.chunkReasoning
         );
 
-        const toolResults = await Promise.all(
-            options.step.toolCalls.map((toolCall) =>
-                this.executeToolCall(runtime, {
-                    toolCall,
-                    toolCallMessageId,
-                    persister: options.persister,
-                    signal: options.signal,
-                    onChunk: options.onChunk,
-                    requestToolApproval: options.requestToolApproval,
-                    requestUserQuestions: options.requestUserQuestions,
-                })
-            )
+        const shouldExecuteSequentially = options.step.toolCalls.some(
+            (toolCall) => toolCall.name === BUILT_IN_COMPUTER_ACT_TOOL_NAME
         );
+        const executedBuiltInToolsInRound = new Set<BuiltInToolId>();
+        const executeToolCall = (toolCall: AiToolCall) =>
+            this.executeToolCall(runtime, {
+                toolCall,
+                toolCallMessageId,
+                persister: options.persister,
+                executedBuiltInToolsInRound,
+                signal: options.signal,
+                onChunk: options.onChunk,
+                requestToolApproval: options.requestToolApproval,
+                requestUserQuestions: options.requestUserQuestions,
+            });
+        const toolResults: ToolExecutionResult[] = [];
+
+        if (shouldExecuteSequentially) {
+            for (const toolCall of options.step.toolCalls) {
+                const toolResult = await executeToolCall(toolCall);
+                toolResults.push(toolResult);
+
+                if (toolResult.builtInToolId && !toolResult.isError) {
+                    executedBuiltInToolsInRound.add(toolResult.builtInToolId);
+                    runtime.executedBuiltInTools.add(toolResult.builtInToolId);
+                }
+            }
+        } else {
+            toolResults.push(
+                ...(await Promise.all(
+                    options.step.toolCalls.map((toolCall) => executeToolCall(toolCall))
+                ))
+            );
+        }
 
         const requestedModelSwitch =
             toolResults.find(({ controlSignal }) => controlSignal?.type === 'upgrade_model')
@@ -840,6 +868,7 @@ export class AiRequestExecutor {
             );
 
             if (builtInToolId && !isError) {
+                executedBuiltInToolsInRound.add(builtInToolId);
                 runtime.executedBuiltInTools.add(builtInToolId);
             }
         }
