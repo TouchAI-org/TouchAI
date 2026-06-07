@@ -6,16 +6,14 @@ import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurn
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import type { PersistedToolLogStatus } from '@database/schema';
 
+import type { ShowWidgetPayload } from '@/contracts/widgets';
 import { tt } from '@/i18n';
 import { hydratePersistedAttachments } from '@/services/AttachmentService';
 import {
     buildBuiltInToolConversationPresentation,
     resolveBuiltInToolConversationSemantic,
 } from '@/services/BuiltInToolService/presentation';
-import {
-    SHOW_WIDGET_TOOL_NAME,
-    type ShowWidgetPayload,
-} from '@/services/BuiltInToolService/tools/widgetTool';
+import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
 import {
     createInputHistorySnapshot,
     type SessionMessage,

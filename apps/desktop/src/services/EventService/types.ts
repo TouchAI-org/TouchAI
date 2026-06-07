@@ -11,9 +11,9 @@ import type {
     PopupSessionSearchQueryChangePayload,
 } from '@services/PopupService/types';
 
-import type { SessionStatusReminderKind } from '@/utils/session';
+import type { SessionStatusReminderKind } from '@/contracts/sessionStatus';
 
-export type { SessionStatusReminderKind } from '@/utils/session';
+export type { SessionStatusReminderKind } from '@/contracts/sessionStatus';
 
 /**
  * 事件类型定义

@@ -28,7 +28,6 @@ const allowedBaselineViolationFragments = [
     'database -> services/NativeService',
     'services/AuthService -> services/AgentService',
     'services/EventService -> services/PopupService',
-    'services/NativeService -> utils',
     'services/PopupService -> views/PopupView',
 ];
 

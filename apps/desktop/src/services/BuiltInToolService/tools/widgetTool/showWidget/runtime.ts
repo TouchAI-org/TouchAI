@@ -3,6 +3,7 @@
 import DOMPurify from 'dompurify';
 import type morphdom from 'morphdom';
 
+import type { ShowWidgetMode, ShowWidgetPayload, ShowWidgetPhase } from '@/contracts/widgets';
 import { tt } from '@/i18n';
 
 import {
@@ -24,19 +25,7 @@ import {
  */
 
 export { SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS, SHOW_WIDGET_TOOL_NAME } from './runtimeConstants';
-
-export type ShowWidgetMode = 'render' | 'remove';
-export type ShowWidgetPhase = 'draft' | 'ready';
-
-export interface ShowWidgetPayload {
-    callId: string;
-    widgetId: string;
-    title: string;
-    description: string;
-    html: string;
-    mode: ShowWidgetMode;
-    phase: ShowWidgetPhase;
-}
+export type { ShowWidgetMode, ShowWidgetPayload, ShowWidgetPhase } from '@/contracts/widgets';
 
 export interface ShowWidgetDraft {
     widgetId?: string;

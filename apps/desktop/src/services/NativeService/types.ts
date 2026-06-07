@@ -1,6 +1,6 @@
 import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
-import type { SessionStatusReminderKind } from '@/utils/session';
+import type { SessionStatusReminderKind } from '@/contracts/sessionStatus';
 
 export type { AppUpdateChannel } from '@/config/appUpdate';
 export type { SearchWindowDefaultSize, SearchWindowHeightMode };

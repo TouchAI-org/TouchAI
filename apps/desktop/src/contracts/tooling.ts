@@ -1,6 +1,14 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { JsonObject } from './json';
+import type { ShowWidgetEventPayload } from './widgets';
+
+export type {
+    ShowWidgetEventPayload,
+    ShowWidgetMode,
+    ShowWidgetPayload,
+    ShowWidgetPhase,
+} from './widgets';
 
 /**
  * 暴露给模型的工具定义。
@@ -115,22 +123,6 @@ export type ToolEventBuiltInConversationSemanticAction =
 export interface ToolEventBuiltInConversationSemantic {
     action: ToolEventBuiltInConversationSemanticAction;
     target?: string;
-}
-
-export type ShowWidgetMode = 'render' | 'remove';
-export type ShowWidgetPhase = 'draft' | 'ready';
-
-/**
- * widget 类工具向前端发出的渲染事件载荷。
- */
-export interface ShowWidgetEventPayload {
-    callId: string;
-    widgetId: string;
-    title: string;
-    description: string;
-    html: string;
-    mode: ShowWidgetMode;
-    phase: ShowWidgetPhase;
 }
 
 /**
