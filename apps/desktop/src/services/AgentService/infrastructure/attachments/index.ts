@@ -36,7 +36,11 @@ export {
     hydratePersistedAttachments,
 } from './storage';
 export {
+    type AttachmentCapabilities,
+    type AttachmentType,
     getAttachmentSupportMessage,
+    getModelAttachmentCapabilities,
+    getUnsupportedAttachmentTypes,
     isAttachmentSupported,
     resolveAttachmentSupportStatus,
 } from './support';

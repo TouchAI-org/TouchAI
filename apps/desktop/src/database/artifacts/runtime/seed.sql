@@ -86,8 +86,18 @@ WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = '智谱');
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )
-SELECT 'Xiaomi MiMo', 'mimo', 'https://token-plan-cn.xiaomimimo.com/v1', NULL, NULL, 'mimo.png', 1, 1
+SELECT 'Xiaomi MiMo', 'mimo', 'https://hub.touch-ai.org/api/v1', NULL, json_object('touchAiMode', 'managed'), 'mimo.png', 1, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'Xiaomi MiMo');
+
+UPDATE providers
+SET
+    name = 'Xiaomi MiMo',
+    api_endpoint = 'https://hub.touch-ai.org/api/v1',
+    config_json = json_set(COALESCE(config_json, '{}'), '$.touchAiMode', 'managed'),
+    logo = 'mimo.png'
+WHERE is_builtin = 1
+  AND driver = 'mimo'
+  AND COALESCE(json_extract(config_json, '$.touchAiMode'), 'managed') <> 'custom';
 
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json

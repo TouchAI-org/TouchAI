@@ -578,6 +578,8 @@ export const zhToEnTextMap = {
         'The current model does not support images. Remove unsupported attachments or switch models.',
     '当前模型不支持文件，请移除不支持的附件或切换模型':
         'The current model does not support files. Remove unsupported attachments or switch models.',
+    '当前模型不支持图片/文件输入，请选择合适模型继续。':
+        'The current model does not support image or file input. Choose a compatible model to continue.',
     该模型不支持图片: 'This model does not support images.',
     该模型不支持文件: 'This model does not support files.',
     '（当前模型不支持图片）': ' (current model does not support images)',
@@ -723,6 +725,9 @@ export const zhToEnTextMap = {
     'Anthropic 兼容': 'Anthropic compatible',
     阿里云百炼: 'Alibaba Cloud Bailian',
     智谱: 'Zhipu',
+    取消授权: 'Cancel authorization',
+    限免活动: 'Managed activity',
+    自定义: 'Custom',
     任务已完成: 'Task completed',
     任务失败: 'Task failed',
     任务正在等待批准: 'Task is waiting for approval',

@@ -11,6 +11,14 @@ use tauri::{
     WebviewWindow, Window, WindowSizeConstraints,
 };
 
+#[cfg(target_os = "windows")]
+use raw_window_handle::HasWindowHandle;
+#[cfg(target_os = "windows")]
+use windows::Win32::{
+    Foundation::HWND,
+    UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER},
+};
+
 use super::search::bounds::{clamp_height, clamp_width, HeightMode, SearchWindowFrame};
 
 const DEFAULT_ANIMATION_DURATION_MS: u64 = 180;
@@ -85,6 +93,75 @@ fn centered_window_y(
     )
 }
 
+#[cfg(target_os = "windows")]
+fn logical_to_physical_i32(value: f64, scale_factor: f64, label: &str) -> Result<i32, String> {
+    let physical = (value * scale_factor).round();
+    if !physical.is_finite() || physical < i32::MIN as f64 || physical > i32::MAX as f64 {
+        return Err(format!("{} is outside Win32 coordinate range", label));
+    }
+
+    Ok(physical as i32)
+}
+
+#[cfg(target_os = "windows")]
+fn window_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String> {
+    let window_handle = window
+        .window_handle()
+        .map_err(|e| format!("Failed to get window handle: {}", e))?;
+
+    match window_handle.as_ref() {
+        raw_window_handle::RawWindowHandle::Win32(handle) => Ok(HWND(handle.hwnd.get() as _)),
+        _ => Err("Not a Win32 window".to_string()),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn apply_centered_window_frame_atomically<R: Runtime>(
+    window: &WebviewWindow<R>,
+    logical_x: f64,
+    logical_y: f64,
+    logical_width: f64,
+    logical_height: f64,
+    scale_factor: f64,
+) -> Result<bool, String> {
+    if window.label() != "main" {
+        return Ok(false);
+    }
+
+    let hwnd = window_hwnd(window)?;
+    let physical_x = logical_to_physical_i32(logical_x, scale_factor, "Window x")?;
+    let physical_y = logical_to_physical_i32(logical_y, scale_factor, "Window y")?;
+    let physical_width = logical_to_physical_i32(logical_width, scale_factor, "Window width")?;
+    let physical_height = logical_to_physical_i32(logical_height, scale_factor, "Window height")?;
+
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            HWND::default(),
+            physical_x,
+            physical_y,
+            physical_width,
+            physical_height,
+            SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE,
+        )
+        .map_err(|error| format!("Failed to apply centered window frame: {}", error))?;
+    }
+
+    Ok(true)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_centered_window_frame_atomically<R: Runtime>(
+    _window: &WebviewWindow<R>,
+    _logical_x: f64,
+    _logical_y: f64,
+    _logical_width: f64,
+    _logical_height: f64,
+    _scale_factor: f64,
+) -> Result<bool, String> {
+    Ok(false)
+}
+
 /// 应用窗口尺寸，并在需要时同步调整中心位置。
 fn apply_window_size<R: Runtime>(
     window: &WebviewWindow<R>,
@@ -97,14 +174,7 @@ fn apply_window_size<R: Runtime>(
     monitor: &Option<Monitor>,
     scale_factor: f64,
 ) -> Result<(), String> {
-    window
-        .set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: logical_width,
-            height: logical_height,
-        }))
-        .map_err(|e| e.to_string())?;
-
-    if center {
+    let centered_position = if center {
         if let (Some(logical_x), Some(base_logical_y)) = (logical_x, base_logical_y) {
             let adjusted_y = centered_window_y(
                 base_logical_y,
@@ -113,13 +183,44 @@ fn apply_window_size<R: Runtime>(
                 monitor,
                 scale_factor,
             );
-            window
-                .set_position(tauri::Position::Logical(tauri::LogicalPosition {
-                    x: logical_x,
-                    y: adjusted_y,
-                }))
-                .map_err(|e| e.to_string())?;
+            Some((logical_x, adjusted_y))
+        } else {
+            None
         }
+    } else {
+        None
+    };
+
+    if let Some((logical_x, adjusted_y)) = centered_position {
+        if apply_centered_window_frame_atomically(
+            window,
+            logical_x,
+            adjusted_y,
+            logical_width,
+            logical_height,
+            scale_factor,
+        )? {
+            crate::core::window::rounded_corners::sync_window_corner_style(window)?;
+            return Ok(());
+        }
+    }
+
+    window
+        .set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: logical_width,
+            height: logical_height,
+        }))
+        .map_err(|e| e.to_string())?;
+    crate::core::window::rounded_corners::sync_window_corner_style(window)?;
+
+    if let Some((logical_x, adjusted_y)) = centered_position {
+        window
+            .set_position(tauri::Position::Logical(tauri::LogicalPosition {
+                x: logical_x,
+                y: adjusted_y,
+            }))
+            .map_err(|e| e.to_string())?;
+        crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     }
 
     Ok(())
@@ -280,6 +381,7 @@ pub fn reset_search_window_to_defaults<R: Runtime>(
         window
             .center()
             .map_err(|e| format!("Failed to center search window: {}", e))?;
+        crate::core::window::rounded_corners::sync_window_corner_style(window)?;
         runtime.window_state().apply_programmatic_size(
             Some(snapshot.current_width),
             Some(snapshot.current_height),

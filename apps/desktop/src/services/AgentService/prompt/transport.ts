@@ -1,6 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import {
+    type AttachmentCapabilities,
+    type AttachmentIndex,
+    getUnsupportedAttachmentTypes,
+} from '@/services/AgentService/infrastructure/attachments';
 
 import type { AiContentPart, AiMessage } from '../contracts/protocol';
 import { buildAttachmentParts } from '../infrastructure/attachments';
@@ -12,6 +16,7 @@ interface BuildPromptTransportMessagesOptions {
     snapshot: PromptSnapshot;
     attachments?: AttachmentIndex[];
     supportsAttachments?: boolean;
+    attachmentCapabilities?: AttachmentCapabilities;
 }
 
 export type PromptAttachmentSlot =
@@ -104,17 +109,27 @@ async function buildUserPromptMessage(options: {
     prompt: string;
     attachments?: AttachmentIndex[];
     supportsAttachments?: boolean;
+    attachmentCapabilities?: AttachmentCapabilities;
 }): Promise<AiMessage> {
-    const supportsAttachments = options.supportsAttachments ?? true;
-    const attachments = options.attachments ?? [];
+    const attachmentCapabilities =
+        options.attachmentCapabilities ??
+        (() => {
+            const supportsAttachments = options.supportsAttachments ?? true;
+            return {
+                supportsImages: supportsAttachments,
+                supportsFiles: supportsAttachments,
+            };
+        })();
+    const attachments = (options.attachments ?? []).filter(
+        (attachment) =>
+            getUnsupportedAttachmentTypes([attachment], attachmentCapabilities).length === 0
+    );
     const hasDraftInsertionOffsets = attachments.some(
         (attachment) => typeof attachment.draftInsertionOffset === 'number'
     );
-    const attachmentParts = supportsAttachments
-        ? hasDraftInsertionOffsets
-            ? await buildInterleavedPromptContent(options.prompt, attachments)
-            : await buildAttachmentParts(attachments)
-        : [];
+    const attachmentParts = hasDraftInsertionOffsets
+        ? await buildInterleavedPromptContent(options.prompt, attachments)
+        : await buildAttachmentParts(attachments);
 
     const hasText = options.prompt.trim().length > 0;
     const hasAttachments = attachmentParts.length > 0;
@@ -154,6 +169,7 @@ export async function buildPromptTransportMessages(
     const historyMessages = await loadSessionTransportMessages({
         sessionId: options.sessionId,
         supportsAttachments: options.supportsAttachments,
+        attachmentCapabilities: options.attachmentCapabilities,
     });
     const messages: AiMessage[] = [];
 
@@ -170,6 +186,7 @@ export async function buildPromptTransportMessages(
             prompt: options.snapshot.userPrompt,
             attachments: options.attachments,
             supportsAttachments: options.supportsAttachments,
+            attachmentCapabilities: options.attachmentCapabilities,
         })
     );
 

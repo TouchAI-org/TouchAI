@@ -51,6 +51,7 @@ export interface ColorRampStops {
 
 export const SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS = 150;
 export const SHOW_WIDGET_FADE_IN_ANIMATION = 'touchai-widget-fade-in 180ms ease-out';
+export const SHOW_WIDGET_MAX_WIDTH_PX = 680;
 export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string> = {
     '--color-background-primary': 'rgba(251, 251, 246, 0.98)',
     '--color-background-secondary': 'rgba(246, 243, 238, 0.98)',
@@ -77,8 +78,7 @@ export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string>
     '--color-scrollbar-thumb-hover': 'rgba(156, 163, 175, 0.6)',
     '--font-sans':
         "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif",
-    '--font-serif':
-        "'Source Han Serif SC', 'Source Han Serif CN', 'Noto Serif SC', 'Source Han Serif', serif",
+    '--font-serif': "'TouchAI Source Han Serif SC', 'Noto Serif SC', serif",
     '--font-mono': "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace",
     '--border-radius-md': '8px',
     '--border-radius-lg': '12px',

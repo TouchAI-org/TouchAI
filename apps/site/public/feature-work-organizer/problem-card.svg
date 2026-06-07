@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="150" viewBox="0 0 720 150">
+  <rect width="720" height="150" rx="8" fill="#ffffff"/>
+  <rect x="1" y="1" width="718" height="148" rx="7" fill="none" stroke="#d3d6da"/>
+  <style>
+    text { font-family: "Times New Roman", "Source Han Serif SC", serif; fill: #111827; font-size: 22px; }
+    .em { font-style: italic; }
+  </style>
+  <text x="24" y="36">
+    <tspan>10. 设椭圆方程为 </tspan>
+    <tspan class="em">x² + y²/4 = 1</tspan>
+    <tspan>，过点 </tspan>
+    <tspan class="em">M(0,1)</tspan>
+    <tspan> 的直线交椭圆于点 </tspan>
+    <tspan class="em">A，B</tspan>
+    <tspan>。</tspan>
+  </text>
+  <text x="24" y="78">
+    <tspan>O 是坐标原点，点 </tspan>
+    <tspan class="em">P</tspan>
+    <tspan> 满足 </tspan>
+    <tspan class="em">OP = 1/2(OA + OB)</tspan>
+    <tspan>，点 </tspan>
+    <tspan class="em">N</tspan>
+    <tspan> 的坐标为 </tspan>
+    <tspan class="em">(1/2,1/2)</tspan>
+    <tspan>。</tspan>
+  </text>
+  <text x="24" y="120">
+    <tspan>当绕点 </tspan>
+    <tspan class="em">M</tspan>
+    <tspan> 旋转时，求：(1) 动点 </tspan>
+    <tspan class="em">P</tspan>
+    <tspan> 的轨迹方程；(2) |NP| 的最小值与最大值。</tspan>
+  </text>
+</svg>
