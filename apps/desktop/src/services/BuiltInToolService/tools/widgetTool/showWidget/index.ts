@@ -20,6 +20,8 @@ import { buildShowWidgetSummary, parseShowWidgetArgs, readExternalResourceUrl } 
 import { isShowWidgetResourceUrlAllowed } from './runtime';
 import { SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS } from './runtimeConstants';
 
+const NON_VISIBLE_ROOT_TAG_NAMES = new Set(['LINK', 'META', 'SCRIPT', 'STYLE', 'TITLE']);
+
 function buildShowWidgetConversationSemantic(
     args: Record<string, unknown>
 ): BuiltInToolConversationSemantic {
@@ -40,6 +42,18 @@ function buildShowWidgetConversationSemantic(
  */
 function validateShowWidgetMarkup(html: string): void {
     const violations = new Set<string>();
+    const rootTemplate = document.createElement('template');
+    rootTemplate.innerHTML = html;
+    const firstElement = rootTemplate.content.firstElementChild;
+    if (!firstElement) {
+        throw new Error('ShowWidget widget_code must contain a visible root element.');
+    }
+
+    if (NON_VISIBLE_ROOT_TAG_NAMES.has(firstElement.tagName.toUpperCase())) {
+        throw new Error(
+            'ShowWidget widget_code must start with a visible root element before style or script blocks.'
+        );
+    }
 
     for (const rule of FORBIDDEN_WIDGET_RULES) {
         if (rule.pattern.test(html)) {
@@ -48,11 +62,6 @@ function validateShowWidgetMarkup(html: string): void {
     }
 
     const parsed = new DOMParser().parseFromString(html, 'text/html');
-    const rootElement = parsed.body.firstElementChild;
-    if (!rootElement) {
-        throw new Error('ShowWidget widget_code must contain a visible root element.');
-    }
-
     const externalResourceElements = parsed.querySelectorAll<HTMLElement>(
         SHOW_WIDGET_EXTERNAL_RESOURCE_SELECTOR
     );

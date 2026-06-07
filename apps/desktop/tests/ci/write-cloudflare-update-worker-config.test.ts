@@ -41,6 +41,9 @@ describe('writeCloudflareUpdateWorkerConfig', () => {
         expect(config).toContain(`binding = "UPDATE_BUCKET"`);
         expect(config).toContain(`UPDATE_BASE_PATH = "touchai-app/v1"`);
         expect(config).toContain(`GITHUB_REPOSITORY = "TouchAI-org/TouchAI"`);
+        expect(config).toContain(`[[routes]]`);
+        expect(config).toContain(`pattern = "updates.touch-ai.org"`);
+        expect(config).toContain(`custom_domain = true`);
     });
 
     it('writes a config whose Worker main path is relative to the output file', async () => {

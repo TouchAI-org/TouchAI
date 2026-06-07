@@ -1,0 +1,371 @@
+---
+import fs from 'node:fs';
+import path from 'node:path';
+
+interface Props {
+    className: string;
+    src: string;
+    title: string;
+    loading?: 'lazy' | 'eager';
+}
+
+const { className, src, title, loading = 'eager' } = Astro.props;
+
+const toPublicPath = (value: string, basePathname: string) => {
+    if (!value || value.startsWith('data:') || value.startsWith('#')) return value;
+    return (
+        new URL(value, `http://touchai.local${basePathname}`).pathname +
+        new URL(value, `http://touchai.local${basePathname}`).search +
+        new URL(value, `http://touchai.local${basePathname}`).hash
+    );
+};
+
+const extractBody = (html: string) => {
+    const match = html.match(/<body([^>]*)>([\s\S]*?)<\/body>/i);
+    if (!match) {
+        return { className: '', innerHtml: '' };
+    }
+
+    const attrs = match[1] || '';
+    const classMatch = attrs.match(/\bclass=(["'])(.*?)\1/i);
+    return {
+        className: classMatch?.[2] ?? '',
+        innerHtml: match[2] ?? '',
+    };
+};
+
+const normalizeSelector = (selector: string, instanceSelector: string) => {
+    const trimmed = selector.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('@')) return trimmed;
+    if (trimmed.startsWith('from') || trimmed.startsWith('to') || /^\d+%$/.test(trimmed))
+        return trimmed;
+
+    const scoped = trimmed
+        .replace(/:root/g, instanceSelector)
+        .replace(/\bhtml\s*,\s*body\b/g, instanceSelector)
+        .replace(/\bbody((?:\.[\w-]+)+)/g, (_match, classes) => `${instanceSelector}${classes}`)
+        .replace(/\bbody\b/g, instanceSelector)
+        .replace(/\bhtml\b/g, instanceSelector);
+
+    if (scoped.startsWith(instanceSelector)) {
+        return scoped;
+    }
+
+    return `${instanceSelector} ${scoped}`;
+};
+
+const scopeSelectorList = (selectorText: string, instanceSelector: string) =>
+    selectorText
+        .split(',')
+        .map((selector) => normalizeSelector(selector, instanceSelector))
+        .filter(Boolean)
+        .join(', ');
+
+const scopeCss = (css: string, instanceSelector: string) => {
+    let index = 0;
+
+    const consumeBlock = (): string => {
+        let output = '';
+        let selectorBuffer = '';
+
+        while (index < css.length) {
+            const char = css[index];
+
+            if (char === '"' || char === "'") {
+                const quote = char;
+                selectorBuffer += char;
+                index += 1;
+                while (index < css.length) {
+                    const innerChar = css[index];
+                    selectorBuffer += innerChar;
+                    index += 1;
+                    if (innerChar === '\\') {
+                        if (index < css.length) {
+                            selectorBuffer += css[index];
+                            index += 1;
+                        }
+                        continue;
+                    }
+                    if (innerChar === quote) break;
+                }
+                continue;
+            }
+
+            if (char === '/' && css[index + 1] === '*') {
+                const end = css.indexOf('*/', index + 2);
+                const comment = end === -1 ? css.slice(index) : css.slice(index, end + 2);
+                selectorBuffer += comment;
+                index = end === -1 ? css.length : end + 2;
+                continue;
+            }
+
+            if (char === '{') {
+                const selector = selectorBuffer.trim();
+                selectorBuffer = '';
+                index += 1;
+
+                if (
+                    selector.startsWith('@keyframes') ||
+                    selector.startsWith('@-webkit-keyframes')
+                ) {
+                    const keyframeBodyStart = index;
+                    let depth = 1;
+                    while (index < css.length && depth > 0) {
+                        if (css[index] === '{') depth += 1;
+                        if (css[index] === '}') depth -= 1;
+                        index += 1;
+                    }
+                    output += `${selector}{${css.slice(keyframeBodyStart, index - 1)}}`;
+                    continue;
+                }
+
+                if (selector.startsWith('@')) {
+                    const inner = consumeBlock();
+                    output += `${selector}{${inner}}`;
+                    continue;
+                }
+
+                const bodyStart = index;
+                let depth = 1;
+                while (index < css.length && depth > 0) {
+                    if (css[index] === '{') depth += 1;
+                    if (css[index] === '}') depth -= 1;
+                    index += 1;
+                }
+                const body = css.slice(bodyStart, index - 1);
+                output += `${scopeSelectorList(selector, instanceSelector)}{${body}}`;
+                continue;
+            }
+
+            if (char === '}') {
+                index += 1;
+                output += selectorBuffer;
+                return output;
+            }
+
+            selectorBuffer += char;
+            index += 1;
+        }
+
+        output += selectorBuffer;
+        return output;
+    };
+
+    return consumeBlock();
+};
+
+const makeId = (value: string) => {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+    }
+    return `touchai-demo-${Math.abs(hash).toString(36)}`;
+};
+
+const pathname = new URL(src, 'http://touchai.local').pathname;
+const htmlPath = path.join(
+    process.cwd(),
+    'public',
+    pathname.replace(/^\/+/, '').replaceAll('/', path.sep)
+);
+const rawHtml = fs.readFileSync(htmlPath, 'utf-8');
+const body = extractBody(rawHtml);
+const basePathname = pathname.endsWith('/')
+    ? pathname
+    : pathname.slice(0, pathname.lastIndexOf('/') + 1);
+const inlineStyles = [...rawHtml.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map((match) => match[1] ?? '')
+    .join('\n');
+const stylesheetLinks = [
+    ...rawHtml.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["'][^>]*>/gi),
+].map((match) => toPublicPath(match[1], basePathname));
+const resolvedBodyHtml = body.innerHtml.replace(
+    /(<[^>]+\ssrc=["'])([^"']+)(["'][^>]*>)/gi,
+    (_match, prefix, value, suffix) => `${prefix}${toPublicPath(value, basePathname)}${suffix}`
+);
+const resolvedBodyHtmlWithoutScripts = resolvedBodyHtml.replace(
+    /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+    ''
+);
+const instanceId = makeId(`${className}:${src}`);
+const instanceSelector = `touchai-component-demo[data-demo-id="${instanceId}"]`;
+const hostCss = `
+${instanceSelector} {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-radius: inherit;
+    isolation: isolate;
+    background: var(--page-bg, transparent);
+    color-scheme: light;
+}
+
+${instanceSelector}.component-frame {
+    width: min(60vw, 680px, 100%) !important;
+    max-width: min(680px, 100%);
+    justify-self: center;
+    overflow: visible !important;
+}
+
+${instanceSelector}.component-frame .stage {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+${instanceSelector}.feature-component-frame,
+${instanceSelector}.feature-work-frame,
+${instanceSelector}.feature-reminder-frame {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    width: 760px !important;
+    height: 657px !important;
+    min-height: 657px !important;
+    max-height: 657px !important;
+    overflow: visible !important;
+    background: transparent !important;
+}
+
+${instanceSelector}.feature-component-frame .stage,
+${instanceSelector}.feature-work-frame .stage,
+${instanceSelector}.feature-reminder-frame .stage {
+    width: 100% !important;
+    min-height: 100% !important;
+    height: 100% !important;
+    padding: 0 !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+${instanceSelector}.component-frame .chat-panel,
+${instanceSelector}.feature-component-frame .chat-panel,
+${instanceSelector}.feature-work-frame .chat-panel,
+${instanceSelector}.feature-reminder-frame .chat-panel {
+    margin: 0 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    box-shadow:
+        0 34px 90px rgba(107, 114, 128, 0.22),
+        0 12px 34px rgba(107, 114, 128, 0.12),
+        0 0 48px rgba(107, 114, 128, 0.14) !important;
+}
+
+${instanceSelector}.component-frame .chat-panel {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+${instanceSelector}.component-frame.is-idle .chat-panel {
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    background: var(--panel, #fff) !important;
+}
+
+${instanceSelector}.feature-component-frame .conversation-content,
+${instanceSelector}.feature-work-frame .conversation-content,
+${instanceSelector}.feature-reminder-frame .conversation-content {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: hidden !important;
+    padding-bottom: 18px !important;
+}
+
+${instanceSelector}.feature-component-frame.is-scrolling .conversation-content,
+${instanceSelector}.feature-work-frame.is-scrolling .conversation-content,
+${instanceSelector}.feature-reminder-frame.is-scrolling .conversation-content {
+    overflow-y: auto !important;
+}
+
+${instanceSelector}.feature-component-frame .composer,
+${instanceSelector}.feature-work-frame .composer,
+${instanceSelector}.feature-reminder-frame .composer {
+    height: 56px !important;
+    min-height: 56px !important;
+    max-height: 56px !important;
+    flex: 0 0 56px !important;
+    margin-top: 0 !important;
+}
+
+${instanceSelector}.feature-component-frame .composer-form,
+${instanceSelector}.feature-work-frame .composer-form,
+${instanceSelector}.feature-reminder-frame .composer-form {
+    height: 56px !important;
+    min-height: 56px !important;
+    max-height: 56px !important;
+    align-items: center !important;
+}
+
+${instanceSelector}.feature-component-frame .prompt-input,
+${instanceSelector}.feature-work-frame .prompt-input,
+${instanceSelector}.feature-reminder-frame .prompt-input {
+    height: 32px !important;
+    min-height: 32px !important;
+    max-height: 32px !important;
+    line-height: 32px !important;
+}
+
+${instanceSelector}.feature-component-frame.is-answering .chat-panel,
+${instanceSelector}.feature-component-frame.is-complete .chat-panel,
+${instanceSelector}.feature-work-frame.is-answering .chat-panel,
+${instanceSelector}.feature-work-frame.is-complete .chat-panel,
+${instanceSelector}.feature-reminder-frame.is-answering .chat-panel,
+${instanceSelector}.feature-reminder-frame.is-complete .chat-panel {
+    min-height: 100% !important;
+    max-height: 100% !important;
+    height: 100% !important;
+}
+
+@media (max-width: 900px) {
+    ${instanceSelector}.component-frame {
+        width: min(60vw, 520px, 100%) !important;
+        height: auto !important;
+        min-height: 0 !important;
+        aspect-ratio: 760 / 657 !important;
+        max-height: min(62vh, 657px) !important;
+    }
+
+    ${instanceSelector}.component-frame .stage {
+        height: 100% !important;
+        min-height: 0 !important;
+    }
+}
+
+@media (max-width: 560px) {
+    ${instanceSelector}.component-frame {
+        width: min(calc(100vw - 56px), 360px, 100%) !important;
+        max-width: min(calc(100vw - 56px), 360px, 100%) !important;
+        height: auto !important;
+        min-height: 0 !important;
+        aspect-ratio: 760 / 657 !important;
+        max-height: min(58vh, 420px) !important;
+        overflow: visible !important;
+    }
+
+    ${instanceSelector}.component-frame .stage {
+        min-height: 0 !important;
+        height: 100% !important;
+        padding: 0 !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+}
+`;
+const initialCss = `${scopeCss(inlineStyles, instanceSelector)}\n${hostCss}`;
+const initialClassName = [className, body.className].filter(Boolean).join(' ');
+---
+
+{stylesheetLinks.map((href) => <link rel="stylesheet" href={href} />)}
+<style data-demo-style={instanceId} set:html={initialCss}></style>
+<touchai-component-demo
+    class={initialClassName}
+    data-component-demo
+    data-demo-id={instanceId}
+    data-src={src}
+    data-title={title}
+    data-loading={loading}
+    data-base-class={className}
+    set:html={resolvedBodyHtmlWithoutScripts}
+/>
