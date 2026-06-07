@@ -219,3 +219,56 @@ export interface QuickSearchResult {
     total_results: number;
     next_offset: number;
 }
+
+export interface BrowserStartRequest {
+    browserId?: string | null;
+    startupUrl?: string | null;
+}
+
+export interface BrowserNavigationRequest {
+    url: string;
+    tabId?: string | null;
+}
+
+export interface BrowserTabRequest {
+    tabId?: string | null;
+}
+
+export type BrowserObserveOperation = 'state' | 'snapshot' | 'screenshot';
+
+export interface BrowserObserveRequest {
+    operation: BrowserObserveOperation;
+    tabId?: string | null;
+    includeConsole?: boolean | null;
+    includeNetwork?: boolean | null;
+}
+
+export type BrowserActOperation =
+    | 'click'
+    | 'type'
+    | 'fill'
+    | 'fill_form'
+    | 'press_key'
+    | 'scroll'
+    | 'wait';
+
+export interface BrowserActRequest {
+    action: BrowserActOperation;
+    tabId?: string | null;
+    ref?: string | null;
+    refId?: string | null;
+    targetRef?: string | null;
+    navigationToken?: string | null;
+    text?: string | null;
+    value?: string | null;
+    fields?: Array<Record<string, unknown>> | null;
+    key?: string | null;
+    deltaX?: number | null;
+    deltaY?: number | null;
+    timeoutMs?: number | null;
+}
+
+export type BrowserStatusResponse = Record<string, unknown>;
+export type BrowserSessionResponse = Record<string, unknown>;
+export type BrowserObserveResponse = Record<string, unknown>;
+export type BrowserActResponse = Record<string, unknown>;

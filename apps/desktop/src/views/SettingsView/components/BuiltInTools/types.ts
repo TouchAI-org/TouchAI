@@ -6,6 +6,14 @@ export {
     parseBashToolConfig,
 } from '@/services/BuiltInToolService/tools/bash';
 export {
+    type BrowserAutomationMode,
+    type BrowserAutomationToolConfig,
+    DEFAULT_BROWSER_AUTOMATION_TOOL_CONFIG,
+    getBrowserAutomationStartupUrlError,
+    parseBrowserAutomationToolConfig,
+    serializeBrowserAutomationToolConfig,
+} from '@/services/BuiltInToolService/tools/browser/config';
+export {
     parseUpgradeModelToolConfig,
     type UpgradeModelToolConfig,
 } from '@/services/BuiltInToolService/tools/upgradeModel/config';
@@ -67,6 +75,10 @@ export interface BuiltInToolQueries {
         id: number,
         patch: BuiltInToolUpdateData
     ) => Promise<BuiltInToolEntity | undefined>;
+    updateBuiltInTools: (
+        ids: number[],
+        patch: BuiltInToolUpdateData
+    ) => Promise<BuiltInToolEntity[]>;
     findBuiltInToolLogsByToolId: (
         toolId: string,
         options?: FindBuiltInToolLogsOptions
@@ -83,6 +95,7 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
 ]);
 
 const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set(['visualize_read_me', 'ask_user_question']);
+const BROWSER_AUTOMATION_TOOL_IDS = new Set(['browser_session', 'browser_observe', 'browser_act']);
 
 export function getBuiltInToolSummary(toolId: string, description?: string | null): string {
     if (toolId === 'bash') {
@@ -109,6 +122,10 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
         return t('settings.builtInTools.summary.upgradeModel');
     }
 
+    if (isBrowserAutomationToolId(toolId)) {
+        return t('settings.builtInTools.summary.browserAutomation');
+    }
+
     if (toolId === 'show_widget') {
         return t('settings.builtInTools.summary.showWidget');
     }
@@ -122,6 +139,10 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
 
 export function isBuiltInToolVisibleInSettings(toolId: string): boolean {
     return !BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS.has(toolId);
+}
+
+export function isBrowserAutomationToolId(toolId: string): boolean {
+    return BROWSER_AUTOMATION_TOOL_IDS.has(toolId);
 }
 
 export function usesBuiltInToolEmptyConfig(toolId: string): boolean {

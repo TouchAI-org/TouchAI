@@ -33,6 +33,8 @@ import type {
 } from './types';
 
 const BUILT_IN_TOOL_PREFIX = 'builtin__';
+const BROWSER_TOOL_IDS = ['browser_session', 'browser_observe', 'browser_act'] as const;
+const BROWSER_TOOL_ID_SET = new Set<string>(BROWSER_TOOL_IDS);
 
 interface BuiltInToolExecutionOptions {
     toolCall: AiToolCall;
@@ -128,7 +130,13 @@ class BuiltInToolService {
      */
     async getEnabledToolDefinitions(): Promise<AiToolDefinition[]> {
         const enabledTools = await findEnabledBuiltInTools();
+        const enabledToolIds = new Set(enabledTools.map((tool) => tool.tool_id));
+        const browserGroupEnabled = BROWSER_TOOL_IDS.every((toolId) => enabledToolIds.has(toolId));
         return enabledTools.flatMap((tool) => {
+            if (BROWSER_TOOL_ID_SET.has(tool.tool_id) && !browserGroupEnabled) {
+                return [];
+            }
+
             const descriptor = builtInToolRegistry.get(tool.tool_id);
             if (!descriptor) {
                 return [];
@@ -159,6 +167,14 @@ class BuiltInToolService {
         const entity = await findBuiltInToolByToolId(toolId);
         if (!entity || entity.enabled !== 1) {
             return null;
+        }
+
+        if (BROWSER_TOOL_ID_SET.has(toolId)) {
+            const enabledTools = await findEnabledBuiltInTools();
+            const enabledToolIds = new Set(enabledTools.map((tool) => tool.tool_id));
+            if (!BROWSER_TOOL_IDS.every((browserToolId) => enabledToolIds.has(browserToolId))) {
+                return null;
+            }
         }
 
         const tool = builtInToolRegistry.get(toolId);

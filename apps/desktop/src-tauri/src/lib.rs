@@ -110,6 +110,7 @@ pub fn run() {
         .manage(core::window::status_reminder::SessionStatusReminderNotificationRuntime::new())
         .manage(core::window::tray::TrayStatusRuntime::new())
         .manage(BuiltInProcessExecutionRegistry::new())
+        .manage(core::browser::BrowserRuntime::new())
         .manage(McpClientManager::new())
         .manage(core::updater::AppUpdaterState::default())
         .on_window_event(|window, event| {

@@ -2,6 +2,7 @@ import {
     type AppUpdateCheckResult,
     type AppUpdateInfo,
     autostart,
+    browser,
     type BuiltInBashExecutionResponse,
     builtInTools,
     clipboard,
@@ -52,12 +53,83 @@ describe('NativeService barrel', () => {
         expect(native.autostart).toBe(autostart);
         expect(native.clipboard).toBe(clipboard);
         expect(native.builtInTools).toBe(builtInTools);
+        expect(native.browser).toBe(browser);
         expect(native.log).toBe(log);
         expect(native.database).toBe(database);
         expect(native.paths).toBe(paths);
         expect(native.mcp).toBe(mcp);
         expect(native.quickSearch).toBe(quickSearch);
         expect(native.updater).toBe(updater);
+    });
+});
+
+describe('NativeService browser boundary', () => {
+    it.each([
+        {
+            name: 'reads browser status',
+            call: () => browser.status(),
+            cmd: 'browser_status',
+            payload: undefined,
+        },
+        {
+            name: 'starts a managed browser',
+            call: () =>
+                browser.start({
+                    browserId: 'chrome',
+                    startupUrl: 'https://example.test/start',
+                }),
+            cmd: 'browser_start',
+            payload: {
+                request: {
+                    browserId: 'chrome',
+                    startupUrl: 'https://example.test/start',
+                },
+            },
+        },
+        {
+            name: 'stops a managed browser session',
+            call: () => browser.stop(),
+            cmd: 'browser_stop',
+            payload: undefined,
+        },
+        {
+            name: 'navigates the selected tab',
+            call: () => browser.navigate({ url: 'https://example.test/path' }),
+            cmd: 'browser_navigate',
+            payload: { request: { url: 'https://example.test/path' } },
+        },
+        {
+            name: 'goes back',
+            call: () => browser.back({ tabId: 'tab-1' }),
+            cmd: 'browser_back',
+            payload: { request: { tabId: 'tab-1' } },
+        },
+        {
+            name: 'goes forward',
+            call: () => browser.forward({ tabId: 'tab-1' }),
+            cmd: 'browser_forward',
+            payload: { request: { tabId: 'tab-1' } },
+        },
+        {
+            name: 'reloads',
+            call: () => browser.reload({ tabId: 'tab-1' }),
+            cmd: 'browser_reload',
+            payload: { request: { tabId: 'tab-1' } },
+        },
+        {
+            name: 'observes browser state',
+            call: () => browser.observe({ operation: 'snapshot' }),
+            cmd: 'browser_observe',
+            payload: { request: { operation: 'snapshot' } },
+        },
+        {
+            name: 'acts on browser state',
+            call: () => browser.act({ action: 'click', ref: 'e1' }),
+            cmd: 'browser_act',
+            payload: { request: { action: 'click', ref: 'e1' } },
+        },
+    ])('$name', async ({ call, cmd, payload }) => {
+        await callAndExpectInvoke(call, cmd, payload);
     });
 });
 

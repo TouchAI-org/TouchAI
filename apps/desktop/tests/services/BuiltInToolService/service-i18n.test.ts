@@ -8,12 +8,15 @@ const {
     createBuiltInToolLogMock,
     fakeTool,
     findBuiltInToolByToolIdMock,
+    findEnabledBuiltInToolsMock,
     touchBuiltInToolLastUsedMock,
     updateBuiltInToolLogByCallIdMock,
 } = vi.hoisted(() => {
     const fakeTool = {
         id: 'setting',
         displayName: 'Setting',
+        description: 'Setting tool',
+        inputSchema: { type: 'object', properties: {} },
         parseConfig: vi.fn(() => ({})),
         buildConversationSemanticWithContext: vi.fn(() => ({
             action: 'process',
@@ -27,6 +30,7 @@ const {
         createBuiltInToolLogMock: vi.fn(),
         fakeTool,
         findBuiltInToolByToolIdMock: vi.fn(),
+        findEnabledBuiltInToolsMock: vi.fn(),
         touchBuiltInToolLastUsedMock: vi.fn(),
         updateBuiltInToolLogByCallIdMock: vi.fn(),
     };
@@ -35,14 +39,19 @@ const {
 vi.mock('@database/queries', () => ({
     createBuiltInToolLog: createBuiltInToolLogMock,
     findBuiltInToolByToolId: findBuiltInToolByToolIdMock,
-    findEnabledBuiltInTools: vi.fn(async () => []),
+    findEnabledBuiltInTools: findEnabledBuiltInToolsMock,
     touchBuiltInToolLastUsed: touchBuiltInToolLastUsedMock,
     updateBuiltInToolLogByCallId: updateBuiltInToolLogByCallIdMock,
 }));
 
 vi.mock('@/services/BuiltInToolService/registry', () => ({
     builtInToolRegistry: {
-        get: vi.fn(() => fakeTool),
+        get: vi.fn((toolId: string) => ({
+            ...fakeTool,
+            id: toolId,
+            displayName: toolId,
+            description: `${toolId} description`,
+        })),
     },
 }));
 
@@ -90,6 +99,54 @@ describe('BuiltInToolService i18n', () => {
         });
         createBuiltInToolLogMock.mockResolvedValue({ id: 11 });
         updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
+        findEnabledBuiltInToolsMock.mockResolvedValue([]);
+    });
+
+    it('exposes browser tools to the model only as a complete three-tool group', async () => {
+        findEnabledBuiltInToolsMock.mockResolvedValueOnce([
+            { tool_id: 'browser_session' },
+            { tool_id: 'browser_act' },
+            { tool_id: 'setting' },
+        ]);
+
+        await expect(builtInToolService.getEnabledToolDefinitions()).resolves.toEqual([
+            expect.objectContaining({ name: 'builtin__setting' }),
+        ]);
+
+        findEnabledBuiltInToolsMock.mockResolvedValueOnce([
+            { tool_id: 'browser_session' },
+            { tool_id: 'browser_observe' },
+            { tool_id: 'browser_act' },
+            { tool_id: 'setting' },
+        ]);
+
+        const definitions = await builtInToolService.getEnabledToolDefinitions();
+        expect(definitions.map((definition) => definition.name).sort()).toEqual([
+            'builtin__browser_act',
+            'builtin__browser_observe',
+            'builtin__browser_session',
+            'builtin__setting',
+        ]);
+    });
+
+    it('refuses to resolve a partial browser tool group even if one row is enabled', async () => {
+        findBuiltInToolByToolIdMock.mockResolvedValueOnce({
+            id: 21,
+            tool_id: 'browser_act',
+            display_name: 'BrowserAct',
+            description: null,
+            enabled: 1,
+            risk_level: 'high',
+            config_json: null,
+            last_used_at: null,
+            created_at: '2026-05-24T00:00:00.000Z',
+            updated_at: '2026-05-24T00:00:00.000Z',
+        });
+        findEnabledBuiltInToolsMock.mockResolvedValueOnce([{ tool_id: 'browser_act' }]);
+
+        await expect(
+            builtInToolService.resolveToolCall('builtin__browser_act')
+        ).resolves.toBeNull();
     });
 
     it('localizes generic execution failures before storing tool output', async () => {
