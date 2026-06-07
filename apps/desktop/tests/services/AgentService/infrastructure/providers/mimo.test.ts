@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import { AiError, AiErrorCode } from '@/contracts/agentErrors';
 import { MiMoProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/mimo';
 
 const fetchMock = vi.hoisted(() => vi.fn());

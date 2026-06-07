@@ -27,7 +27,6 @@ const importPattern =
 const allowedBaselineViolationFragments = [
     'database -> services/NativeService',
     'services/AuthService -> services/AgentService',
-    'services/BuiltInToolService -> services/AgentService',
     'services/EventService -> services/PopupService',
     'services/NativeService -> utils',
     'services/PopupService -> views/PopupView',
@@ -407,7 +406,9 @@ describe('architecture import boundaries', () => {
         ];
 
         const retainedBaselineCycles = baselineCycles.filter((cycle) =>
-            components.some((component) => cycle.every((moduleName) => component.includes(moduleName)))
+            components.some((component) =>
+                cycle.every((moduleName) => component.includes(moduleName))
+            )
         );
 
         expect(retainedBaselineCycles.filter((cycle) => !isAllowedBaselineCycle(cycle))).toEqual(

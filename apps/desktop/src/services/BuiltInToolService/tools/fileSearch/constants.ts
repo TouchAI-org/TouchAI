@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
+import type { AiToolDefinition } from '@/contracts/tooling';
 
 import {
     arrayFromScalarSchema,

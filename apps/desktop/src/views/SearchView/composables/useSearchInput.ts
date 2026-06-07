@@ -10,7 +10,7 @@ import {
     createAttachment,
     type Index,
     isAttachmentSupported,
-} from '@/services/AgentService/infrastructure/attachments';
+} from '@/services/AttachmentService';
 import { clipboardService } from '@/services/ClipboardService';
 import type { ClipboardPayload } from '@/services/NativeService/types';
 

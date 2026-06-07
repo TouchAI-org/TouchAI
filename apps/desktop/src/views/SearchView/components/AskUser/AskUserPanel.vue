@@ -35,8 +35,8 @@
     import { AnimatePresence, motion } from 'motion-v';
     import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
+    import type { AskUserAnswer as StoreAnswer } from '@/contracts/tooling';
     import { t } from '@/i18n';
-    import type { AskUserAnswer as StoreAnswer } from '@/services/AgentService/contracts/tooling';
     import {
         type AskUserApprovalRequest,
         type AskUserConfirmRequest,

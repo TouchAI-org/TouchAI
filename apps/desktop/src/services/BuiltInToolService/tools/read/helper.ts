@@ -9,10 +9,10 @@ import {
 } from '@tauri-apps/api/path';
 import { type DirEntry, open, readDir, readTextFileLines, stat } from '@tauri-apps/plugin-fs';
 
+import type { AttachmentIndex } from '@/contracts/attachments';
+import type { ToolApprovalRequest } from '@/contracts/tooling';
 import { t, tt } from '@/i18n';
-import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
-import { createAttachment } from '@/services/AgentService/infrastructure/attachments';
+import { createAttachment } from '@/services/AttachmentService';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import type { BaseBuiltInToolExecutionContext, BuiltInToolConversationSemantic } from '../../types';

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ref } from 'vue';
 
+import type { AttachmentIndex as Index } from '@/contracts/attachments';
 import { setLocale } from '@/i18n';
-import type { Index } from '@/services/AgentService/infrastructure/attachments';
 import { useSearchAttachments } from '@/views/SearchView/composables/useSearchInput';
 
 function createAttachmentIndex(

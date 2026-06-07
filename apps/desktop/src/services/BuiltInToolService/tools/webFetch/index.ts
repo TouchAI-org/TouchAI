@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { t, tt } from '@/i18n';
-import { createTauriFetch } from '@/services/AgentService/infrastructure/providers';
+import { createTauriFetch } from '@/services/HttpService';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import {

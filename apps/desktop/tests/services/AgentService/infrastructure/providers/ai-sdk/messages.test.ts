@@ -1,8 +1,8 @@
 import type { ToolSet } from 'ai';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import type { AiToolDefinition } from '@/contracts/tooling';
 import { setLocale } from '@/i18n';
-import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 import {
     buildModelMessages,
     buildToolSet,

@@ -9,7 +9,7 @@ import {
     ensurePersistedAttachmentIndex,
     getModelAttachmentCapabilities,
     getUnsupportedAttachmentTypes,
-} from '@/services/AgentService/infrastructure/attachments';
+} from '@/services/AttachmentService';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';

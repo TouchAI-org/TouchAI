@@ -58,7 +58,7 @@
     import type { ComponentPublicInstance } from 'vue';
     import { onMounted, onUnmounted, ref, toRefs, watch } from 'vue';
 
-    import type { Index } from '@/services/AgentService/infrastructure/attachments';
+    import type { AttachmentIndex as Index } from '@/contracts/attachments';
 
     import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
     import { insertAttachmentTag } from './tags/attachment';

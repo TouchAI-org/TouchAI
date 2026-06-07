@@ -14,6 +14,7 @@ import {
     type UserContent,
 } from 'ai';
 
+import type { AiToolDefinition } from '@/contracts/tooling';
 import type {
     AiContentPart,
     AiMessage,
@@ -21,7 +22,6 @@ import type {
     AttachmentDeliveryManifestRequest,
     AttachmentPromptMeta,
 } from '@/services/AgentService/contracts/protocol';
-import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 import {
     type AttachmentDeliveryPlan,
     type AttachmentDeliveryPlanEntry,

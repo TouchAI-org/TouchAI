@@ -176,8 +176,4 @@ export interface AiResponse {
     finishReason?: string;
 }
 
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
-export interface JsonObject {
-    [key: string]: JsonValue | undefined;
-}
+export type { JsonObject, JsonPrimitive, JsonValue } from '@/contracts/json';

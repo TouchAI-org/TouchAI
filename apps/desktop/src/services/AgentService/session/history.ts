@@ -7,7 +7,7 @@ import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import type { PersistedToolLogStatus } from '@database/schema';
 
 import { tt } from '@/i18n';
-import { hydratePersistedAttachments } from '@/services/AgentService/infrastructure/attachments';
+import { hydratePersistedAttachments } from '@/services/AttachmentService';
 import {
     buildBuiltInToolConversationPresentation,
     resolveBuiltInToolConversationSemantic,

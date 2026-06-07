@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
+import type { AiToolDefinition } from '@/contracts/tooling';
 
 export const ASK_USER_TOOL_NAME = 'ask_user_question';
 

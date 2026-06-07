@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-import type { Index } from '@/services/AgentService/infrastructure/attachments';
+import type { AttachmentIndex as Index } from '@/contracts/attachments';
 import type { ClipboardPayload } from '@/services/NativeService/types';
 
 const { createAttachmentMock, readExplicitPastePayloadMock } = vi.hoisted(() => ({

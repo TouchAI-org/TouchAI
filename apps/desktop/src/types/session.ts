@@ -2,8 +2,8 @@
 
 import type { JSONContent } from '@tiptap/core';
 
-import type { ToolExecutionSource as AiToolExecutionSource } from '@/services/AgentService/contracts/tooling';
-import type { Index } from '@/services/AgentService/infrastructure/attachments';
+import type { AttachmentIndex as Index } from '@/contracts/attachments';
+import type { ToolExecutionSource as AiToolExecutionSource } from '@/contracts/tooling';
 import type {
     BuiltInToolConversationPresentation,
     BuiltInToolConversationSemantic,

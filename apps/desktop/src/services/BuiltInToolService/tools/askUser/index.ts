@@ -1,8 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { AiError, AiErrorCode } from '@/contracts/agentErrors';
+import type { AskUserAnswer, AskUserQuestion } from '@/contracts/tooling';
 import { t } from '@/i18n';
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import type { AskUserAnswer, AskUserQuestion } from '@/services/AgentService/contracts/tooling';
 
 import {
     type BaseBuiltInToolExecutionContext,

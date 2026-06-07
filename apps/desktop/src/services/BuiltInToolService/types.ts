@@ -3,6 +3,7 @@
 import type { ModelWithProvider } from '@database/queries/models';
 import type { BuiltInToolEntity } from '@database/types';
 
+import type { AttachmentIndex } from '@/contracts/attachments';
 import type {
     AiToolDefinition,
     AskUserAnswer,
@@ -11,8 +12,7 @@ import type {
     ToolEvent,
     ToolEventBuiltInConversationSemantic,
     ToolEventBuiltInConversationSemanticAction,
-} from '@/services/AgentService/contracts/tooling';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+} from '@/contracts/tooling';
 
 /**
  * 当前内置工具体系允许暴露给模型的稳定工具标识。

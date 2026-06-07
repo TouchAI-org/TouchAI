@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { AiError, AiErrorCode } from '@/contracts/agentErrors';
 import { setLocale } from '@/i18n';
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { mapHttpStatusToAiError } from '@/services/AgentService/infrastructure/providers/ai-sdk/base';
 
 describe('AiError display localization', () => {

@@ -2,9 +2,9 @@
 
 import { native } from '@services/NativeService';
 
+import { AiError, AiErrorCode } from '@/contracts/agentErrors';
+import type { ToolApprovalRequest } from '@/contracts/tooling';
 import { t, tt } from '@/i18n';
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import {
