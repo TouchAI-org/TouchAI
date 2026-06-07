@@ -4,20 +4,30 @@ import { nextTick } from 'vue';
 
 import { clipboardService } from '@/services/ClipboardService';
 
-const { languageMapMock, notifyMock, parseMarkdownToStructureMock, setDefaultI18nMapMock } =
-    vi.hoisted(() => {
-        type MarkdownNodeFixture = {
-            type: string;
-            label?: string;
-        };
+const {
+    getMarkdownMock,
+    languageMapMock,
+    markdownRenderUnmountedMock,
+    notifyMock,
+    parseMarkdownToStructureMock,
+    setDefaultI18nMapMock,
+} = vi.hoisted(() => {
+    type MarkdownNodeFixture = {
+        type: string;
+        label?: string;
+    };
 
-        return {
-            languageMapMock: {} as Record<string, string>,
-            notifyMock: vi.fn(),
-            parseMarkdownToStructureMock: vi.fn<() => MarkdownNodeFixture[]>(() => []),
-            setDefaultI18nMapMock: vi.fn(),
-        };
-    });
+    return {
+        getMarkdownMock: vi.fn(() => ({
+            use: vi.fn(),
+        })),
+        languageMapMock: {} as Record<string, string>,
+        markdownRenderUnmountedMock: vi.fn(),
+        notifyMock: vi.fn(),
+        parseMarkdownToStructureMock: vi.fn<() => MarkdownNodeFixture[]>(() => []),
+        setDefaultI18nMapMock: vi.fn(),
+    };
+});
 
 vi.mock('markdown-it-emoji', () => ({
     full: {},
@@ -26,14 +36,16 @@ vi.mock('markdown-it-emoji', () => ({
 vi.mock('markstream-vue', () => ({
     default: {
         name: 'MarkdownRender',
-        props: ['nodes'],
-        template: '<div data-testid="markdown-render">{{ nodes?.[0]?.label ?? "" }}</div>',
+        props: ['nodes', 'codeBlockMonacoOptions'],
+        unmounted() {
+            markdownRenderUnmountedMock();
+        },
+        template:
+            '<div data-testid="markdown-render" :data-code-block-auto-scroll-initial="String(codeBlockMonacoOptions?.autoScrollInitial)">{{ nodes?.[0]?.label ?? "" }}</div>',
     },
     enableKatex: vi.fn(),
     enableMermaid: vi.fn(),
-    getMarkdown: vi.fn(() => ({
-        use: vi.fn(),
-    })),
+    getMarkdown: getMarkdownMock,
     languageMap: languageMapMock,
     parseMarkdownToStructure: parseMarkdownToStructureMock,
     setDefaultI18nMap: setDefaultI18nMapMock,
@@ -80,6 +92,43 @@ describe('MarkdownContent i18n', () => {
         );
         expect(languageMapMock.plaintext).toBe('Plain text');
         expect(languageMapMock.mermaid).toBe('Diagram');
+    });
+
+    it('escapes shell variables so KaTeX does not treat them as inline math', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        mount(MarkdownContent, {
+            props: {
+                content:
+                    'paths: $env:USERPROFILE\\Desktop, $HOME/project, ${USERPROFILE}\\Desktop, ${env:APPDATA}; math: $x$ and $x+y$; code: `echo $HOME`',
+            },
+        });
+
+        expect(parseMarkdownToStructureMock).toHaveBeenCalledWith(
+            'paths: \\$env:USERPROFILE\\Desktop, \\$HOME/project, \\${USERPROFILE}\\Desktop, \\${env:APPDATA}; math: $x$ and $x+y$; code: `echo $HOME`',
+            expect.anything(),
+            expect.anything()
+        );
+    });
+
+    it('enables hard line breaks in the markdown parser for bubble text', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        mount(MarkdownContent, {
+            props: {
+                content: 'first line\nsecond line',
+            },
+        });
+
+        expect(getMarkdownMock).toHaveBeenCalledWith(
+            'touchai-markdown',
+            expect.objectContaining({
+                enableContainers: false,
+                markdownItOptions: expect.objectContaining({
+                    breaks: true,
+                }),
+            })
+        );
     });
 
     it('updates markstream labels when locale changes after mount', async () => {
@@ -132,6 +181,56 @@ describe('MarkdownContent i18n', () => {
 
         expect(parseMarkdownToStructureMock).toHaveBeenCalledTimes(2);
         expect(wrapper.get('[data-testid="markdown-render"]').text()).toBe('Plain text');
+    });
+
+    it('keeps the markdown renderer mounted when streaming content becomes final', async () => {
+        parseMarkdownToStructureMock.mockImplementation(() => [
+            {
+                type: 'text',
+                label: 'done',
+            },
+        ]);
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: 'done',
+                final: false,
+            },
+        });
+
+        await wrapper.setProps({ final: true });
+
+        expect(parseMarkdownToStructureMock).toHaveBeenCalledTimes(2);
+        expect(markdownRenderUnmountedMock).not.toHaveBeenCalled();
+    });
+
+    it('disables Monaco initial auto-scroll for completed markdown restored from history', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: '```ts\nconsole.log(1)\n```',
+                final: true,
+            },
+        });
+
+        const renderer = wrapper.get('[data-testid="markdown-render"]');
+        expect(renderer.attributes('data-code-block-auto-scroll-initial')).toBe('false');
+    });
+
+    it('keeps Monaco initial auto-scroll enabled while markdown is still streaming', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: '```ts\nconsole.log(1)',
+                final: false,
+            },
+        });
+
+        const renderer = wrapper.get('[data-testid="markdown-render"]');
+        expect(renderer.attributes('data-code-block-auto-scroll-initial')).toBe('true');
     });
 
     it('marks rendered markdown as not eligible for global DOM localization', async () => {

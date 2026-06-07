@@ -172,7 +172,6 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         detachTaskView();
 
         if (initialSnapshot) {
-            lastObservedModelSwitchCount = initialSnapshot.modelSwitchCount;
             applyTaskSnapshot(initialSnapshot);
         }
 

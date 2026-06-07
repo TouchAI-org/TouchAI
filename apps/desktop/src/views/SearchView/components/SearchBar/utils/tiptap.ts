@@ -511,7 +511,9 @@ export function createSearchEditorExtensions(options: CreateSearchEditorOptions)
 
 /** 从编辑器中提取纯文本，排除标签内容。 */
 export function getEditorText(editor: Editor): string {
-    return editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n', '');
+    return editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n', (node) =>
+        node.type.name === 'hardBreak' ? '\n' : ''
+    );
 }
 
 /**
