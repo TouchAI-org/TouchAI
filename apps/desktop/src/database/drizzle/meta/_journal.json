@@ -15,6 +15,13 @@
       "when": 1778889600000,
       "tag": "0001_silent_reasoning",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780185600000,
+      "tag": "0002_quick_search_click_stats_unique",
+      "breakpoints": true
     }
   ]
 }

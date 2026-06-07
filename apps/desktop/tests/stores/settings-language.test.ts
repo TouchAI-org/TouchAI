@@ -177,6 +177,26 @@ describe('settings language state', () => {
         expect(eventServiceMock.emit).not.toHaveBeenCalled();
     });
 
+    it('rolls back non-language setting state when persisting the update fails', async () => {
+        mockSettings({
+            output_scroll_behavior: 'follow_output',
+        });
+
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+        await store.initialize();
+
+        const failure = new Error('database unavailable');
+        setSettingMock.mockRejectedValueOnce(failure);
+
+        await expect(store.updateOutputScrollBehavior('stay_position')).rejects.toThrow(
+            'database unavailable'
+        );
+
+        expect(store.settings.outputScrollBehavior).toBe('follow_output');
+        expect(eventServiceMock.emit).not.toHaveBeenCalled();
+    });
+
     it('applies language changes from another window without rebroadcasting', async () => {
         mockSettings({
             language: 'zh-CN',

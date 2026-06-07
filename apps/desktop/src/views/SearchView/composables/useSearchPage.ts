@@ -382,6 +382,7 @@ interface UseSearchPageLifecycleOptions {
     clearSession: () => void | Promise<void>;
     shouldClearSessionAfterTimeout?: () => boolean | Promise<boolean>;
     reconcilePopupSurfaces?: () => Promise<void>;
+    remeasureSearchWindowHeight?: () => void | Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
     handleSearchSurfaceCommand?: (payload: {
         command: 'toggle-model-dropdown';
@@ -406,6 +407,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         clearSession,
         shouldClearSessionAfterTimeout,
         reconcilePopupSurfaces,
+        remeasureSearchWindowHeight,
         onSurfaceHidden,
         handleSearchSurfaceCommand,
         handleSessionStatusReminderAction,
@@ -492,6 +494,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await controller.focusSearchInput();
         await controller.loadActiveModel();
         await syncWindowPinStateSafely('focus');
+        await remeasureSearchWindowHeightSafely('activation');
 
         if (surfaceSource !== 'shortcut') {
             return;
@@ -586,6 +589,17 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
     }
 
+    async function remeasureSearchWindowHeightSafely(reason: 'activation') {
+        try {
+            await Promise.resolve(remeasureSearchWindowHeight?.());
+        } catch (error) {
+            console.error(
+                `[SearchView] Failed to remeasure search window height on ${reason}:`,
+                error
+            );
+        }
+    }
+
     async function startLifecycleOnceReady() {
         if (lifecycleInitialized || !viewReady.value) {
             return;
@@ -627,7 +641,12 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         unlistenSearchSurfaceShown = await eventService.on(
             AppEvent.SEARCH_SURFACE_SHOWN,
             async (payload) => {
-                latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
+                const sequence = payload.sequence ?? 0;
+                if (sequence > 0 && sequence < latestSurfaceSequence) {
+                    return;
+                }
+
+                latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
                 interactionContext.markWindowVisible();
                 handleReminderSurfaceVisible();
                 await handleSearchWindowActivated(payload.source ?? 'shortcut');

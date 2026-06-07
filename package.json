@@ -1,8 +1,8 @@
 {
     "name": "touchai-monorepo",
     "private": true,
-    "version": "0.1.0",
-    "description": "TouchAI monorepo",
+    "version": "1.0.0",
+    "description": "Your desktop agent, one shortcut away.",
     "author": "TouchAI Team",
     "license": "GPL-3.0-or-later",
     "type": "module",
