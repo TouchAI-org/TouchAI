@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { AiError, AiErrorCode } from '@/contracts/agentErrors';
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import { setLocale } from '@/i18n';
 import { mapHttpStatusToAiError } from '@/services/AgentService/infrastructure/providers/ai-sdk/base';
 

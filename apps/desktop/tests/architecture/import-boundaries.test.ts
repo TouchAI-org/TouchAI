@@ -344,6 +344,11 @@ describe('architecture import boundaries', () => {
                 to: /^composables$/,
                 reason: 'contracts must not depend on view/application composables',
             },
+            {
+                from: /^contracts$/,
+                to: /^(application|i18n)$/,
+                reason: 'contracts must not depend on application policy or i18n modules',
+            },
         ]);
 
         expect(violations).toEqual([]);
@@ -376,6 +381,11 @@ describe('architecture import boundaries', () => {
                 specifier: /^@(?:services|database|utils|components|composables)\b/,
                 reason: 'contracts must not import implementation-layer aliases',
             },
+            {
+                from: /^contracts$/,
+                specifier: /^@\/(?:application|i18n)\b/,
+                reason: 'contracts must not import application policy or i18n modules',
+            },
         ]);
 
         expect(violations).toEqual([]);
@@ -383,20 +393,10 @@ describe('architecture import boundaries', () => {
 
     it('does not keep the baseline frontend dependency cycles', () => {
         const components = findStronglyConnectedComponents(collectEdges());
-        const baselineCycles = [
-            ['services/AgentService', 'services/BuiltInToolService'],
-            ['services/AgentService', 'types'],
-            ['services/EventService', 'utils'],
-        ];
-
-        const retainedBaselineCycles = baselineCycles.filter((cycle) =>
-            components.some((component) =>
-                cycle.every((moduleName) => component.includes(moduleName))
-            )
+        const unexpectedCycles = components.filter(
+            (component) => !isAllowedBaselineCycle(component)
         );
 
-        expect(retainedBaselineCycles.filter((cycle) => !isAllowedBaselineCycle(cycle))).toEqual(
-            []
-        );
+        expect(unexpectedCycles).toEqual([]);
     });
 });

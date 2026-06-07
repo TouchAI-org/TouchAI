@@ -6,9 +6,9 @@ import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core/dialect';
 import { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy/driver';
 import { SQLiteProxyTransaction, SQLiteRemoteSession } from 'drizzle-orm/sqlite-proxy/session';
 
+import type { SqlValue } from '@/contracts/databaseRuntime';
 import { type DatabaseQueryMethod, databaseRuntime } from '@/services/DatabaseRuntimeService';
 
-import type { SqlValue } from './schema';
 import * as schema from './schema';
 
 type ProxyQueryResult = { rows: unknown[] };

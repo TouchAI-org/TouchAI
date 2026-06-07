@@ -9,6 +9,8 @@ export type {
     DatabaseQueryRequest,
     DatabaseQueryResponse,
     DatabaseTransactionBehavior,
-} from '@services/NativeService/database';
+    SqlParams,
+    SqlValue,
+} from '@/contracts/databaseRuntime';
 
 export const databaseRuntime = native.database;

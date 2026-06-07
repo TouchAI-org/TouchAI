@@ -15,40 +15,28 @@ import {
     parseSettingRequest,
 } from '@/services/BuiltInToolService/tools/setting/helper';
 
-const {
-    mockSettingsStore,
-    mockRegisterGlobalShortcut,
-    mockUpdateGlobalShortcut,
-    mockUpdateLanguage,
-} = vi.hoisted(() => {
-    const mockUpdateGlobalShortcut = vi.fn();
-    const mockUpdateLanguage = vi.fn();
-    return {
-        mockRegisterGlobalShortcut: vi.fn(),
-        mockUpdateGlobalShortcut,
-        mockUpdateLanguage,
-        mockSettingsStore: {
-            settings: {
-                globalShortcut: 'Alt+Space',
-                startOnBoot: false,
-                startMinimized: true,
-                outputScrollBehavior: 'follow_output',
-                searchWindowSizePreset: 'normal',
-                language: 'zh-CN',
-            },
-            initialize: vi.fn(async () => undefined),
-            updateGlobalShortcut: mockUpdateGlobalShortcut,
-            updateStartOnBoot: vi.fn(),
-            updateStartMinimized: vi.fn(),
-            updateOutputScrollBehavior: vi.fn(),
-            updateSearchWindowSizePreset: vi.fn(),
-            updateLanguage: mockUpdateLanguage,
-        },
-    };
-});
+const { eventServiceEmitMock, getSettingValueMock, mockRegisterGlobalShortcut, setSettingMock } =
+    vi.hoisted(() => {
+        return {
+            eventServiceEmitMock: vi.fn(),
+            getSettingValueMock: vi.fn(),
+            mockRegisterGlobalShortcut: vi.fn(),
+            setSettingMock: vi.fn(),
+        };
+    });
 
-vi.mock('@/stores/settings', () => ({
-    useSettingsStore: () => mockSettingsStore,
+vi.mock('@database/queries', () => ({
+    getSettingValue: getSettingValueMock,
+    setSetting: setSettingMock,
+}));
+
+vi.mock('@services/EventService', () => ({
+    AppEvent: {
+        SETTINGS_GENERAL_UPDATED: 'settings:general-updated',
+    },
+    eventService: {
+        emit: eventServiceEmitMock,
+    },
 }));
 
 vi.mock('@services/NativeService', () => ({
@@ -88,11 +76,20 @@ function createExecutionContext(): Parameters<typeof executeSettingTool>[2] {
 describe('Setting built-in tool i18n', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        getSettingValueMock.mockImplementation(async ({ key }: { key: string }) => {
+            const values: Record<string, string | null> = {
+                global_shortcut: 'Alt+Space',
+                start_on_boot: 'false',
+                start_minimized: 'true',
+                output_scroll_behavior: 'follow_output',
+                search_window_size_preset: 'normal',
+                language: 'en-US',
+            };
+            return values[key] ?? null;
+        });
+        setSettingMock.mockResolvedValue(undefined);
+        eventServiceEmitMock.mockResolvedValue(undefined);
         mockRegisterGlobalShortcut.mockResolvedValue(undefined);
-        mockUpdateGlobalShortcut.mockResolvedValue(undefined);
-        mockUpdateLanguage.mockResolvedValue(undefined);
-        mockSettingsStore.settings.globalShortcut = 'Alt+Space';
-        mockSettingsStore.settings.language = 'zh-CN';
     });
 
     it('formats list and get outputs in English when active locale is English', async () => {
@@ -260,7 +257,13 @@ describe('Setting built-in tool i18n', () => {
             isError: false,
             status: 'success',
         });
-        expect(mockUpdateLanguage).toHaveBeenCalledWith('en-US');
+        expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'en-US' });
+        expect(eventServiceEmitMock).toHaveBeenCalledWith('settings:general-updated', {
+            sourceId: 'built-in-setting-tool',
+            windowLabel: 'agent',
+            key: 'language',
+            value: 'en-US',
+        });
     });
 
     it('localizes invalid setting values while preserving validation details', () => {

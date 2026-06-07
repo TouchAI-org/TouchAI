@@ -1,3 +1,3 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-export { AiError, AiErrorCode } from '@/contracts/agentErrors';
+export { AiError, AiErrorCode } from '@/application/agentErrors';

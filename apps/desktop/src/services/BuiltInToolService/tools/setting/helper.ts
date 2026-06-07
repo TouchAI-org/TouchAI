@@ -1,9 +1,23 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { getSettingValue, setSetting } from '@database/queries';
+import { AppEvent, eventService, type GeneralSettingKey } from '@services/EventService';
 import { native } from '@services/NativeService';
 
-import { t, tt } from '@/i18n';
-import { type GeneralSettingsData, useSettingsStore } from '@/stores/settings';
+import {
+    DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
+    resolveSearchWindowDefaultSize,
+    type SearchWindowDefaultSize,
+    type SearchWindowSizePreset,
+} from '@/config/searchWindow';
+import {
+    type AppLocale,
+    normalizeLocale,
+    resolveFirstLaunchLocale,
+    setLocale,
+    t,
+    tt,
+} from '@/i18n';
 
 import { parseToolArguments } from '../../utils/toolSchema';
 import {
@@ -18,6 +32,18 @@ import {
     type SupportedSettingValue,
     TOOL_KEY_TO_STORE_KEY,
 } from './constants';
+
+export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
+
+export interface GeneralSettingsData {
+    globalShortcut: string;
+    startOnBoot: boolean;
+    startMinimized: boolean;
+    outputScrollBehavior: OutputScrollBehavior;
+    searchWindowSizePreset: SearchWindowSizePreset;
+    searchWindowDefaultSize: SearchWindowDefaultSize;
+    language: AppLocale;
+}
 
 export type ParsedSettingRequest =
     | {
@@ -37,6 +63,191 @@ export type ParsedSettingRequest =
       };
 
 export type SettingsStore = Awaited<ReturnType<typeof prepareSettingsStore>>;
+
+const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
+    globalShortcut: 'Alt+Space',
+    startOnBoot: false,
+    startMinimized: true,
+    outputScrollBehavior: 'follow_output',
+    searchWindowSizePreset: DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
+    searchWindowDefaultSize: resolveSearchWindowDefaultSize(DEFAULT_SEARCH_WINDOW_SIZE_PRESET),
+    language: 'zh-CN',
+};
+
+const outputScrollBehaviorValues = ['follow_output', 'stay_position', 'jump_to_top'] as const;
+
+function createDefaultGeneralSettings(): GeneralSettingsData {
+    return {
+        ...DEFAULT_GENERAL_SETTINGS,
+        searchWindowDefaultSize: {
+            ...DEFAULT_GENERAL_SETTINGS.searchWindowDefaultSize,
+        },
+    };
+}
+
+function normalizeOutputScrollBehavior(value: string | null): OutputScrollBehavior {
+    return outputScrollBehaviorValues.includes(value as OutputScrollBehavior)
+        ? (value as OutputScrollBehavior)
+        : DEFAULT_GENERAL_SETTINGS.outputScrollBehavior;
+}
+
+function normalizeSearchWindowSizePreset(value: unknown): SearchWindowSizePreset {
+    const result = settingValueSchemaByKey.search_window_size_preset.safeParse(value);
+    return result.success ? result.data : DEFAULT_GENERAL_SETTINGS.searchWindowSizePreset;
+}
+
+function resolvePersistedLanguage(language: string | null): AppLocale {
+    if (language === null) {
+        return resolveFirstLaunchLocale();
+    }
+
+    return normalizeLocale(language);
+}
+
+function applySearchWindowSizePreset(
+    settings: GeneralSettingsData,
+    preset: SearchWindowSizePreset
+): void {
+    settings.searchWindowSizePreset = preset;
+    settings.searchWindowDefaultSize = {
+        ...resolveSearchWindowDefaultSize(preset),
+    };
+}
+
+function serializeSetting(settings: GeneralSettingsData, key: GeneralSettingKey): string {
+    switch (key) {
+        case 'global_shortcut':
+            return settings.globalShortcut;
+        case 'start_on_boot':
+            return String(settings.startOnBoot);
+        case 'start_minimized':
+            return String(settings.startMinimized);
+        case 'output_scroll_behavior':
+            return settings.outputScrollBehavior;
+        case 'search_window_size_preset':
+            return settings.searchWindowSizePreset;
+        case 'language':
+            return settings.language;
+        default:
+            return '';
+    }
+}
+
+function payloadValueForEvent(settings: GeneralSettingsData, key: GeneralSettingKey) {
+    switch (key) {
+        case 'global_shortcut':
+            return settings.globalShortcut;
+        case 'start_on_boot':
+            return settings.startOnBoot;
+        case 'start_minimized':
+            return settings.startMinimized;
+        case 'output_scroll_behavior':
+            return settings.outputScrollBehavior;
+        case 'search_window_size_preset':
+            return settings.searchWindowSizePreset;
+        case 'language':
+            return settings.language;
+        default:
+            return '';
+    }
+}
+
+async function persistDefaultIfMissing(
+    settings: GeneralSettingsData,
+    key: GeneralSettingKey,
+    currentValue: string | null
+): Promise<void> {
+    if (currentValue !== null) {
+        return;
+    }
+
+    await setSetting({ key, value: serializeSetting(settings, key) });
+}
+
+async function loadGeneralSettings(): Promise<GeneralSettingsData> {
+    const settings = createDefaultGeneralSettings();
+    const [
+        globalShortcut,
+        startOnBoot,
+        startMinimized,
+        outputScroll,
+        searchWindowSizePreset,
+        language,
+    ] = await Promise.all([
+        getSettingValue({ key: 'global_shortcut' }),
+        getSettingValue({ key: 'start_on_boot' }),
+        getSettingValue({ key: 'start_minimized' }),
+        getSettingValue({ key: 'output_scroll_behavior' }),
+        getSettingValue({ key: 'search_window_size_preset' }),
+        getSettingValue({ key: 'language' }),
+    ]);
+
+    settings.globalShortcut = globalShortcut || DEFAULT_GENERAL_SETTINGS.globalShortcut;
+    settings.startOnBoot =
+        startOnBoot === null ? DEFAULT_GENERAL_SETTINGS.startOnBoot : startOnBoot === 'true';
+    settings.startMinimized =
+        startMinimized === null
+            ? DEFAULT_GENERAL_SETTINGS.startMinimized
+            : startMinimized === 'true';
+    settings.outputScrollBehavior = normalizeOutputScrollBehavior(outputScroll);
+    applySearchWindowSizePreset(settings, normalizeSearchWindowSizePreset(searchWindowSizePreset));
+    settings.language = resolvePersistedLanguage(language);
+    setLocale(settings.language);
+
+    await Promise.allSettled([
+        persistDefaultIfMissing(settings, 'global_shortcut', globalShortcut),
+        persistDefaultIfMissing(settings, 'start_on_boot', startOnBoot),
+        persistDefaultIfMissing(settings, 'start_minimized', startMinimized),
+        persistDefaultIfMissing(settings, 'output_scroll_behavior', outputScroll),
+        persistDefaultIfMissing(settings, 'search_window_size_preset', searchWindowSizePreset),
+        persistDefaultIfMissing(settings, 'language', language),
+    ]);
+
+    return settings;
+}
+
+function applySetting(
+    settings: GeneralSettingsData,
+    key: SupportedSettingKey,
+    value: unknown
+): void {
+    switch (key) {
+        case 'global_shortcut':
+            settings.globalShortcut = String(value || DEFAULT_GENERAL_SETTINGS.globalShortcut);
+            break;
+        case 'start_on_boot':
+            settings.startOnBoot = typeof value === 'boolean' ? value : String(value) === 'true';
+            break;
+        case 'start_minimized':
+            settings.startMinimized = typeof value === 'boolean' ? value : String(value) === 'true';
+            break;
+        case 'output_scroll_behavior':
+            settings.outputScrollBehavior = normalizeOutputScrollBehavior(String(value));
+            break;
+        case 'search_window_size_preset':
+            applySearchWindowSizePreset(settings, normalizeSearchWindowSizePreset(value));
+            break;
+        case 'language':
+            settings.language = normalizeLocale(value);
+            setLocale(settings.language);
+            break;
+    }
+}
+
+async function updateSettingValue(
+    settings: GeneralSettingsData,
+    key: SupportedSettingKey,
+    value: SupportedSettingValue
+): Promise<void> {
+    applySetting(settings, key, value);
+    await setSetting({ key, value: serializeSetting(settings, key) });
+    await eventService.emit(AppEvent.SETTINGS_GENERAL_UPDATED, {
+        sourceId: 'built-in-setting-tool',
+        windowLabel: 'agent',
+        key,
+        value: payloadValueForEvent(settings, key),
+    });
+}
 
 function normalizeUpdateValue(key: SupportedSettingKey, value: unknown): SupportedSettingValue {
     const result = settingValueSchemaByKey[key].safeParse(value);
@@ -83,9 +294,23 @@ export function parseSettingRequest(args: Record<string, unknown>): ParsedSettin
 }
 
 export async function prepareSettingsStore() {
-    const settingsStore = useSettingsStore();
-    await settingsStore.initialize();
-    return settingsStore;
+    const settings = await loadGeneralSettings();
+
+    return {
+        settings,
+        updateGlobalShortcut: (value: GeneralSettingsData['globalShortcut']) =>
+            updateSettingValue(settings, 'global_shortcut', value),
+        updateStartOnBoot: (value: GeneralSettingsData['startOnBoot']) =>
+            updateSettingValue(settings, 'start_on_boot', value),
+        updateStartMinimized: (value: GeneralSettingsData['startMinimized']) =>
+            updateSettingValue(settings, 'start_minimized', value),
+        updateOutputScrollBehavior: (value: GeneralSettingsData['outputScrollBehavior']) =>
+            updateSettingValue(settings, 'output_scroll_behavior', value),
+        updateSearchWindowSizePreset: (value: GeneralSettingsData['searchWindowSizePreset']) =>
+            updateSettingValue(settings, 'search_window_size_preset', value),
+        updateLanguage: (value: GeneralSettingsData['language']) =>
+            updateSettingValue(settings, 'language', value),
+    };
 }
 
 function toStoreSettingKey(key: SupportedSettingKey): StoreSettingKey {
@@ -93,7 +318,7 @@ function toStoreSettingKey(key: SupportedSettingKey): StoreSettingKey {
 }
 
 function readSettingValueFromStoreState(
-    settingsStore: ReturnType<typeof useSettingsStore>,
+    settingsStore: SettingsStore,
     key: SupportedSettingKey
 ): SupportedSettingValue {
     const storeKey = toStoreSettingKey(key);
@@ -101,7 +326,7 @@ function readSettingValueFromStoreState(
 }
 
 export async function readCurrentSettingValue(
-    settingsStore: ReturnType<typeof useSettingsStore>,
+    settingsStore: SettingsStore,
     key: SupportedSettingKey
 ): Promise<SupportedSettingValue> {
     if (key === 'start_on_boot') {

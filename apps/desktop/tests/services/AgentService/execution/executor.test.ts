@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AiError, AiErrorCode } from '@/contracts/agentErrors';
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
 

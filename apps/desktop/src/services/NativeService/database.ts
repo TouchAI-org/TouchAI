@@ -1,28 +1,24 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-import type { SqlValue } from '@database/schema';
 import { invoke } from '@tauri-apps/api/core';
 
-export type DatabaseQueryMethod = 'run' | 'all' | 'get' | 'values';
-export type DatabaseTransactionBehavior = 'deferred' | 'immediate' | 'exclusive';
-export type DatabaseImportMode = 'chat_only' | 'full';
+import type {
+    DatabaseImportRequest,
+    DatabaseQueryRequest,
+    DatabaseQueryResponse,
+    DatabaseTransactionBehavior,
+} from '@/contracts/databaseRuntime';
 
-export interface DatabaseQueryRequest {
-    sql: string;
-    params?: SqlValue[];
-    method: DatabaseQueryMethod;
-}
-
-export interface DatabaseQueryResponse {
-    rows: Array<Record<string, unknown>>;
-    rowsAffected: number;
-    lastInsertId: number | null;
-}
-
-export interface DatabaseImportRequest {
-    sourcePath: string;
-    mode: DatabaseImportMode;
-}
+export type {
+    DatabaseImportMode,
+    DatabaseImportRequest,
+    DatabaseQueryMethod,
+    DatabaseQueryRequest,
+    DatabaseQueryResponse,
+    DatabaseTransactionBehavior,
+    SqlParams,
+    SqlValue,
+} from '@/contracts/databaseRuntime';
 
 export const database = {
     query(request: DatabaseQueryRequest): Promise<DatabaseQueryResponse> {

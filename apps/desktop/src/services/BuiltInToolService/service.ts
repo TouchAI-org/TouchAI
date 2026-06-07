@@ -10,7 +10,7 @@ import {
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ToolLogKind } from '@database/schema';
 
-import { AiError, AiErrorCode } from '@/contracts/agentErrors';
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import type {
     AiToolCall,
     AiToolDefinition,

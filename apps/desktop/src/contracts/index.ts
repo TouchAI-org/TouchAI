@@ -1,8 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-export { AiError, AiErrorCode } from './agentErrors';
+export type { SerializedAiError } from './agentErrors';
+export { AiErrorCode } from './agentErrors';
 export type * from './attachments';
 export type * from './builtInToolPresentation';
+export type * from './databaseRuntime';
 export type * from './json';
 export type * from './popup';
 export type * from './popupManifest';

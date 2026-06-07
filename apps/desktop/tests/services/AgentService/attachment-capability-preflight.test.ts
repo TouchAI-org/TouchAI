@@ -2,7 +2,7 @@ import type { MessageRow, ToolLogHistoryRow } from '@database/queries/messages';
 import type { ModelWithProvider } from '@database/queries/models';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AiErrorCode } from '@/contracts/agentErrors';
+import { AiErrorCode } from '@/application/agentErrors';
 import type { AttachmentIndex } from '@/contracts/attachments';
 import { AiConversationRuntime } from '@/services/AgentService/execution/runtime';
 import { findUnsupportedSessionAttachmentTypes } from '@/services/AgentService/session/transport';

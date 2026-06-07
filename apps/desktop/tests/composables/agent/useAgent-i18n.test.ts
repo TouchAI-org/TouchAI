@@ -2,8 +2,8 @@ import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
 
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import { useAgent } from '@/composables/agent/useAgent';
-import { AiError, AiErrorCode } from '@/contracts/agentErrors';
 import { setLocale } from '@/i18n';
 
 const { notifyMock, startTaskMock } = vi.hoisted(() => ({

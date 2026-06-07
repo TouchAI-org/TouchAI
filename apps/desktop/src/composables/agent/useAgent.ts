@@ -5,7 +5,7 @@ import type { SessionTurn } from '@database/schema';
 import { notify } from '@services/NotificationService';
 import { computed, onUnmounted, ref } from 'vue';
 
-import { AiError, AiErrorCode } from '@/contracts/agentErrors';
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import { t } from '@/i18n';
 import { sessionTaskCenter } from '@/services/AgentService';
 import { buildSessionHistoryFromData } from '@/services/AgentService/session';

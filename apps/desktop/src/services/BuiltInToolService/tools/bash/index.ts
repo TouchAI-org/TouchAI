@@ -2,7 +2,7 @@
 
 import { native } from '@services/NativeService';
 
-import { AiError, AiErrorCode } from '@/contracts/agentErrors';
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import type { ToolApprovalRequest } from '@/contracts/tooling';
 import { t, tt } from '@/i18n';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
