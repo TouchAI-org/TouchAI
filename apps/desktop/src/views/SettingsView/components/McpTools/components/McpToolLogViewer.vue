@@ -86,9 +86,12 @@
     <div class="settings-page-wide">
         <div>
             <!-- 筛选和搜索栏 -->
-            <div class="mb-4 flex items-center justify-between gap-4">
+            <div
+                class="mb-4 flex flex-wrap items-center justify-between gap-4"
+                data-testid="mcp-tool-log-toolbar"
+            >
                 <!-- 筛选标签 -->
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2" data-testid="mcp-tool-log-filters">
                     <button
                         v-for="status in ['all', 'success', 'error', 'timeout', 'pending']"
                         :key="status"
@@ -105,7 +108,7 @@
                 </div>
 
                 <!-- 搜索框 -->
-                <div class="relative w-64">
+                <div class="relative w-full max-w-xs md:w-64" data-testid="mcp-tool-log-search">
                     <input
                         v-model="searchQuery"
                         type="text"

@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import DOMPurify from 'dompurify';
 import type morphdom from 'morphdom';
 
 import { tt } from '@/i18n';
@@ -9,6 +10,7 @@ import {
     SHOW_WIDGET_COLOR_RAMPS,
     SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS,
     SHOW_WIDGET_FADE_IN_ANIMATION,
+    SHOW_WIDGET_MAX_WIDTH_PX,
     SHOW_WIDGET_THEME_FALLBACKS,
 } from './runtimeConstants';
 
@@ -50,6 +52,14 @@ export interface WidgetRenderer {
 }
 
 type MorphdomFunction = typeof morphdom;
+const SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS = 8000;
+const SHOW_WIDGET_CLASSIC_SCRIPT_TYPES = new Set([
+    '',
+    'application/ecmascript',
+    'application/javascript',
+    'text/ecmascript',
+    'text/javascript',
+]);
 type ShowWidgetRenderPayload = Pick<
     ShowWidgetPayload,
     'widgetId' | 'title' | 'description' | 'html' | 'phase'
@@ -57,6 +67,14 @@ type ShowWidgetRenderPayload = Pick<
 
 interface ParsedRenderTree {
     fragment: DocumentFragment;
+    scripts: WidgetScriptSnapshot[];
+}
+
+interface WidgetScriptSnapshot {
+    attributes: Array<{ name: string; value: string }>;
+    source: string;
+    src: string;
+    type: string;
 }
 
 interface ShowWidgetRendererState {
@@ -74,6 +92,13 @@ interface ShowWidgetRendererState {
 interface ShowWidgetTypographySource {
     fontFamily: string;
     fontWeight: string;
+}
+
+type SimpleWidgetActionName = 'sendPrompt' | 'openLink';
+
+interface SimpleWidgetAction {
+    name: SimpleWidgetActionName;
+    value: string;
 }
 
 declare global {
@@ -236,6 +261,28 @@ export function isShowWidgetResourceUrlAllowed(resourceUrl: string): boolean {
     }
 }
 
+function isShowWidgetScriptUrlAllowed(scriptUrl: string): boolean {
+    if (!scriptUrl.trim()) {
+        return false;
+    }
+
+    try {
+        const parsedUrl = new URL(
+            scriptUrl,
+            typeof window === 'undefined' ? 'https://claude.ai/' : window.location.href
+        );
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+            return false;
+        }
+
+        return SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS.includes(
+            parsedUrl.hostname as (typeof SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS)[number]
+        );
+    } catch {
+        return false;
+    }
+}
+
 function loadMorphdom(): Promise<MorphdomFunction> {
     if (!morphdomLoader) {
         morphdomLoader = import('morphdom').then((module) => module.default);
@@ -292,8 +339,10 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `  --touchai-widget-font-body: var(--font-serif);`,
         `  display: block;`,
         `  width: 100%;`,
-        `  max-width: 100%;`,
+        `  max-width: ${SHOW_WIDGET_MAX_WIDTH_PX}px;`,
         `  min-width: 0;`,
+        `  margin-left: auto;`,
+        `  margin-right: auto;`,
         `  position: relative;`,
         `  overflow: hidden;`,
         `  isolation: isolate;`,
@@ -351,7 +400,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `  font-size: 14px;`,
         `  font-family: var(--font-sans);`,
         `  outline: none;`,
-        `  transition: border-color 0.2s, box-shadow 0.2s;`,
+        `  transition: border-color 0.2s, outline-color 0.2s;`,
         `}`,
         `${hostSelector} input[type="text"]:hover,`,
         `${hostSelector} input[type="number"]:hover,`,
@@ -368,7 +417,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `${hostSelector} input[type="search"]:focus,`,
         `${hostSelector} input[type="url"]:focus,`,
         `${hostSelector} input[type="tel"]:focus,`,
-        `${hostSelector} textarea:focus { border-color: var(--color-border-primary); box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.1); }`,
+        `${hostSelector} textarea:focus { border-color: var(--color-border-primary); outline: 2px solid var(--color-border-tertiary); outline-offset: 1px; }`,
         `${hostSelector} textarea { min-height: 80px; resize: vertical; }`,
         `${hostSelector} select {`,
         `  width: 100%;`,
@@ -382,7 +431,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `  font-family: var(--font-sans);`,
         `  outline: none;`,
         `  cursor: pointer;`,
-        `  transition: border-color 0.2s, box-shadow 0.2s;`,
+        `  transition: border-color 0.2s, outline-color 0.2s;`,
         `  appearance: none;`,
         `  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L2 4h8z'/%3E%3C/svg%3E");`,
         `  background-repeat: no-repeat;`,
@@ -390,7 +439,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `  background-size: 12px;`,
         `}`,
         `${hostSelector} select:hover { border-color: var(--color-border-secondary); }`,
-        `${hostSelector} select:focus { border-color: var(--color-border-primary); box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.1); }`,
+        `${hostSelector} select:focus { border-color: var(--color-border-primary); outline: 2px solid var(--color-border-tertiary); outline-offset: 1px; }`,
         `${hostSelector} button {`,
         `  background: transparent;`,
         `  border: 1px solid var(--color-border-secondary);`,
@@ -405,7 +454,7 @@ export function createShowWidgetBaseStyles(hostSelector: string): string {
         `}`,
         `${hostSelector} button:hover { background: var(--color-background-secondary); border-color: var(--color-border-primary); }`,
         `${hostSelector} button:active { transform: scale(0.98); }`,
-        `${hostSelector} button:focus-visible { box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.2); }`,
+        `${hostSelector} button:focus-visible { outline: 2px solid var(--color-border-tertiary); outline-offset: 1px; }`,
         `${hostSelector} button:disabled { opacity: 0.5; cursor: not-allowed; }`,
         `${hostSelector} input[type="range"] { width: 100%; height: 4px; background: var(--color-border-secondary); border-radius: 2px; outline: none; appearance: none; -webkit-appearance: none; }`,
         `${hostSelector} input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--color-text-primary); cursor: pointer; transition: transform 0.2s; }`,
@@ -510,25 +559,347 @@ function sanitizeDraftHtml(html: string, phase: ShowWidgetPhase): string {
     return sanitized.trim();
 }
 
-function parseRenderTree(rawHtml: string, phase: ShowWidgetPhase = 'ready'): ParsedRenderTree {
+function decodeSimpleJsStringLiteral(value: string): string {
+    let decoded = '';
+
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index]!;
+        if (char !== '\\') {
+            decoded += char;
+            continue;
+        }
+
+        index += 1;
+        const escaped = value[index];
+        if (!escaped) {
+            decoded += '\\';
+            break;
+        }
+
+        switch (escaped) {
+            case 'n':
+                decoded += '\n';
+                break;
+            case 'r':
+                decoded += '\r';
+                break;
+            case 't':
+                decoded += '\t';
+                break;
+            case 'b':
+                decoded += '\b';
+                break;
+            case 'f':
+                decoded += '\f';
+                break;
+            default:
+                decoded += escaped;
+                break;
+        }
+    }
+
+    return decoded;
+}
+
+function parseSimpleWidgetAction(attributeValue: string | null): SimpleWidgetAction | null {
+    if (!attributeValue) {
+        return null;
+    }
+
+    const match = attributeValue.match(
+        /^\s*(sendPrompt|openLink)\(\s*(["'])((?:\\.|(?!\2).)*)\2\s*\)\s*;?\s*$/s
+    );
+    if (!match) {
+        return null;
+    }
+
+    const value = decodeSimpleJsStringLiteral(match[3] ?? '').trim();
+    if (!value) {
+        return null;
+    }
+
+    return {
+        name: match[1] as SimpleWidgetActionName,
+        value,
+    };
+}
+
+function normalizeWidgetActionAttributesIn(root: ParentNode): void {
+    const elements = Array.from(root.querySelectorAll('[onclick]'));
+
+    for (const element of elements) {
+        const action = parseSimpleWidgetAction(element.getAttribute('onclick'));
+        element.removeAttribute('onclick');
+
+        if (!action) {
+            continue;
+        }
+
+        if (action.name === 'sendPrompt') {
+            element.setAttribute('data-send-prompt', action.value);
+        } else {
+            element.setAttribute('data-open-link', action.value);
+        }
+    }
+}
+
+function snapshotWidgetScript(scriptElement: HTMLScriptElement): WidgetScriptSnapshot {
+    return {
+        attributes: Array.from(scriptElement.attributes).map((attribute) => ({
+            name: attribute.name,
+            value: attribute.value,
+        })),
+        source: scriptElement.textContent ?? '',
+        src: scriptElement.src,
+        type: (scriptElement.getAttribute('type') ?? '').trim().toLowerCase(),
+    };
+}
+
+function extractWidgetScripts(root: ParentNode): WidgetScriptSnapshot[] {
+    const scripts = Array.from(root.querySelectorAll('script'));
+
+    for (const script of scripts) {
+        script.remove();
+    }
+
+    return scripts.map(snapshotWidgetScript);
+}
+
+function splitCssSelectorList(selectorList: string): string[] {
+    const selectors: string[] = [];
+    let current = '';
+    let depth = 0;
+    let quote: '"' | "'" | null = null;
+
+    for (let index = 0; index < selectorList.length; index += 1) {
+        const char = selectorList[index]!;
+
+        if (quote) {
+            current += char;
+            if (char === '\\') {
+                index += 1;
+                current += selectorList[index] ?? '';
+                continue;
+            }
+            if (char === quote) {
+                quote = null;
+            }
+            continue;
+        }
+
+        if (char === '"' || char === "'") {
+            quote = char;
+            current += char;
+            continue;
+        }
+
+        if (char === '(' || char === '[') {
+            depth += 1;
+            current += char;
+            continue;
+        }
+
+        if (char === ')' || char === ']') {
+            depth = Math.max(0, depth - 1);
+            current += char;
+            continue;
+        }
+
+        if (char === ',' && depth === 0) {
+            selectors.push(current);
+            current = '';
+            continue;
+        }
+
+        current += char;
+    }
+
+    selectors.push(current);
+    return selectors;
+}
+
+function scopeCssSelector(selector: string, hostSelector: string): string {
+    const trimmed = selector.trim();
+    if (!trimmed) {
+        return '';
+    }
+
+    if (trimmed.startsWith(hostSelector)) {
+        return trimmed;
+    }
+
+    if (trimmed === ':root' || trimmed === 'html' || trimmed === 'body') {
+        return hostSelector;
+    }
+
+    if (trimmed.startsWith(':host')) {
+        return trimmed.replace(/^:host\b/, hostSelector);
+    }
+
+    return `${hostSelector} ${trimmed}`;
+}
+
+function findCssBlockEnd(css: string, openBraceIndex: number): number {
+    let depth = 1;
+    let quote: '"' | "'" | null = null;
+
+    for (let index = openBraceIndex + 1; index < css.length; index += 1) {
+        const char = css[index]!;
+
+        if (quote) {
+            if (char === '\\') {
+                index += 1;
+                continue;
+            }
+            if (char === quote) {
+                quote = null;
+            }
+            continue;
+        }
+
+        if (char === '"' || char === "'") {
+            quote = char;
+            continue;
+        }
+
+        if (char === '{') {
+            depth += 1;
+            continue;
+        }
+
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return index;
+            }
+        }
+    }
+
+    return -1;
+}
+
+function findNextCssStatementEnd(css: string, startIndex: number): number {
+    const nextSemicolon = css.indexOf(';', startIndex);
+    const nextBrace = css.indexOf('{', startIndex);
+
+    if (nextSemicolon === -1) {
+        return nextBrace === -1 ? css.length : nextBrace;
+    }
+
+    if (nextBrace === -1) {
+        return nextSemicolon;
+    }
+
+    return Math.min(nextSemicolon, nextBrace);
+}
+
+function scopeWidgetCss(css: string, hostSelector: string): string {
+    let output = '';
+    let cursor = 0;
+
+    while (cursor < css.length) {
+        const nextBrace = css.indexOf('{', cursor);
+        if (nextBrace === -1) {
+            const remainder = css.slice(cursor);
+            output += remainder.replace(/@import[^;]*;/gi, '');
+            break;
+        }
+
+        const prelude = css.slice(cursor, nextBrace);
+        const trimmedPrelude = prelude.trim();
+        const statementEnd = findNextCssStatementEnd(css, cursor);
+        if (statementEnd !== nextBrace) {
+            const statement = css.slice(cursor, statementEnd + 1);
+            if (!statement.trim().startsWith('@')) {
+                output += statement;
+            }
+            cursor = statementEnd + 1;
+            continue;
+        }
+
+        const blockEnd = findCssBlockEnd(css, nextBrace);
+        if (blockEnd === -1) {
+            break;
+        }
+
+        const block = css.slice(nextBrace + 1, blockEnd);
+        const atRuleName = trimmedPrelude.match(/^@([a-z-]+)/i)?.[1]?.toLowerCase();
+
+        if (atRuleName === 'media' || atRuleName === 'supports' || atRuleName === 'container') {
+            output += `${prelude}{${scopeWidgetCss(block, hostSelector)}}`;
+        } else if (atRuleName === 'keyframes' || atRuleName === '-webkit-keyframes') {
+            output += `${prelude}{${block}}`;
+        } else if (!atRuleName) {
+            const scopedSelector = splitCssSelectorList(prelude)
+                .map((selector) => scopeCssSelector(selector, hostSelector))
+                .filter(Boolean)
+                .join(', ');
+            if (scopedSelector) {
+                output += `${scopedSelector}{${block}}`;
+            }
+        }
+
+        cursor = blockEnd + 1;
+    }
+
+    return output.trim();
+}
+
+function scopeStyleElements(fragment: DocumentFragment, hostSelector: string): void {
+    for (const styleElement of fragment.querySelectorAll('style')) {
+        styleElement.textContent = scopeWidgetCss(styleElement.textContent ?? '', hostSelector);
+    }
+}
+
+function parseRenderTree(
+    rawHtml: string,
+    hostSelector: string,
+    phase: ShowWidgetPhase = 'ready'
+): ParsedRenderTree {
     const template = document.createElement('template');
     const sanitizedHtml = sanitizeDraftHtml(rawHtml, phase);
     const normalizedHtml = sanitizedHtml || '<div></div>';
     const isFullDocument = /<(?:!doctype|html|head|body)\b/i.test(normalizedHtml);
 
+    // Explicit <script> blocks are executable widget code. Some legitimate
+    // widget scripts contain template strings with SVG/HTML snippets, which
+    // DOMPurify may drop as unsafe script text. Capture scripts before
+    // sanitizing markup, then run the captured classic scripts after the
+    // sanitized DOM has been mounted.
+    const purifyConfig = { ADD_TAGS: ['style'], FORCE_BODY: true };
+    let htmlForSanitizer: string;
+    let scripts: WidgetScriptSnapshot[];
+
     if (isFullDocument) {
         const parser = new DOMParser();
         const parsed = parser.parseFromString(normalizedHtml, 'text/html');
-        template.innerHTML = parsed.body.innerHTML || '<div></div>';
+        normalizeWidgetActionAttributesIn(parsed.body);
+        scripts = extractWidgetScripts(parsed.body);
+        const headStyleHtml = Array.from(parsed.head.querySelectorAll('style'))
+            .map((style) => style.outerHTML)
+            .join('');
+        htmlForSanitizer = `${headStyleHtml}${parsed.body.innerHTML || '<div></div>'}`;
     } else {
-        template.innerHTML = normalizedHtml;
+        const preSanitizeTemplate = document.createElement('template');
+        preSanitizeTemplate.innerHTML = normalizedHtml;
+        normalizeWidgetActionAttributesIn(preSanitizeTemplate.content);
+        scripts = extractWidgetScripts(preSanitizeTemplate.content);
+        htmlForSanitizer = preSanitizeTemplate.innerHTML;
+    }
+
+    template.innerHTML = String(DOMPurify.sanitize(htmlForSanitizer, purifyConfig));
+
+    if (!isFullDocument) {
         if (!template.content.childNodes.length) {
             template.innerHTML = '<div></div>';
         }
     }
 
+    scopeStyleElements(template.content, hostSelector);
+
     return {
         fragment: template.content,
+        scripts,
     };
 }
 
@@ -585,8 +956,11 @@ function applyNodeAddedAnimation(node: Node): void {
     );
 }
 
-function copyScriptAttributes(source: HTMLScriptElement, target: HTMLScriptElement): void {
-    for (const attribute of Array.from(source.attributes)) {
+function copyScriptSnapshotAttributes(
+    source: WidgetScriptSnapshot,
+    target: HTMLScriptElement
+): void {
+    for (const attribute of source.attributes) {
         if (attribute.name === 'src') {
             continue;
         }
@@ -598,18 +972,138 @@ function copyScriptAttributes(source: HTMLScriptElement, target: HTMLScriptEleme
         target.async = false;
         target.src = source.src;
     } else {
-        target.textContent = source.textContent;
+        target.textContent = source.source;
+    }
+}
+
+function appendExternalScript(node: HTMLScriptElement, root: HTMLElement): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const timeoutId = window.setTimeout(settle, SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS);
+
+        function settle(): void {
+            window.clearTimeout(timeoutId);
+            node.removeEventListener('load', settle);
+            node.removeEventListener('error', settle);
+            resolve();
+        }
+
+        node.addEventListener('load', settle);
+        node.addEventListener('error', settle);
+        root.appendChild(node);
+    });
+}
+
+function isClassicInlineScript(script: WidgetScriptSnapshot): boolean {
+    if (script.src) {
+        return false;
+    }
+
+    return SHOW_WIDGET_CLASSIC_SCRIPT_TYPES.has(script.type);
+}
+
+function escapeWidgetDocumentIdSelectorValue(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function createWidgetScopedDocument(root: HTMLElement): Document {
+    return new Proxy(document, {
+        get(target, property, receiver) {
+            if (property === 'body' || property === 'documentElement') {
+                return root;
+            }
+
+            if (property === 'children') {
+                return root.children;
+            }
+
+            if (property === 'childNodes') {
+                return root.childNodes;
+            }
+
+            if (property === 'firstElementChild') {
+                return root.firstElementChild;
+            }
+
+            if (property === 'firstChild') {
+                return root.firstChild;
+            }
+
+            if (property === 'activeElement') {
+                return root.contains(document.activeElement) ? document.activeElement : null;
+            }
+
+            if (property === 'getElementById') {
+                return (elementId: string) =>
+                    root.querySelector(`[id="${escapeWidgetDocumentIdSelectorValue(elementId)}"]`);
+            }
+
+            if (property === 'querySelector') {
+                return root.querySelector.bind(root);
+            }
+
+            if (property === 'querySelectorAll') {
+                return root.querySelectorAll.bind(root);
+            }
+
+            if (property === 'getElementsByClassName') {
+                return root.getElementsByClassName.bind(root);
+            }
+
+            if (property === 'getElementsByTagName') {
+                return root.getElementsByTagName.bind(root);
+            }
+
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+        },
+    }) as Document;
+}
+
+function createWidgetScopedWindow(scopedDocument: Document): Window & typeof globalThis {
+    return new Proxy(window, {
+        get(target, property, receiver) {
+            if (property === 'document') {
+                return scopedDocument;
+            }
+
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+        },
+        set(target, property, value, receiver) {
+            return Reflect.set(target, property, value, receiver);
+        },
+    });
+}
+
+function executeInlineWidgetScript(source: string, root: HTMLElement): void {
+    if (!source.trim()) {
+        return;
+    }
+
+    try {
+        const scopedDocument = createWidgetScopedDocument(root);
+        const scopedWindow = createWidgetScopedWindow(scopedDocument);
+        const execute = window.Function(
+            'window',
+            'document',
+            `${source}\n//# sourceURL=touchai-widget-inline.js`
+        );
+        execute.call(scopedWindow, scopedWindow, scopedDocument);
+    } catch (error) {
+        console.error('[ShowWidget] Failed to execute inline script:', error);
     }
 }
 
 /**
- * 简化后的脚本执行策略直接重新插入 `<script>` 节点。
+ * 外部脚本走浏览器加载流程，inline classic script 由 runtime 显式执行一次。
  *
- * 这样和浏览器原生行为一致，也避免沙箱代理破坏常见第三方库或 DOM 访问方式。
+ * 部分 WebView/测试环境不会稳定执行动态插入的 inline script，因此这里直接用当前
+ * window realm 执行原始脚本文本；外部脚本仍按 CDN 白名单加载并等待完成。
  */
 async function runInlineScripts(
     root: HTMLElement,
     htmlSignature: string,
+    scripts: WidgetScriptSnapshot[],
     state: ShowWidgetRendererState
 ): Promise<void> {
     if (htmlSignature === state.lastExecutedHtml) {
@@ -618,43 +1112,37 @@ async function runInlineScripts(
 
     state.lastExecutedHtml = htmlSignature;
     const runToken = ++state.scriptRunToken;
-    const scripts = Array.from(root.querySelectorAll('script'));
 
-    for (const oldNode of scripts) {
+    for (const script of scripts) {
         if (state.destroyed || runToken !== state.scriptRunToken) {
             return;
         }
 
-        if (oldNode.src && !isShowWidgetResourceUrlAllowed(oldNode.src)) {
-            oldNode.remove();
+        if (script.src && !isShowWidgetScriptUrlAllowed(script.src)) {
             continue;
         }
 
-        const newNode = document.createElement('script');
-        copyScriptAttributes(oldNode, newNode);
-        const parent = oldNode.parentNode;
-
-        if (!parent) {
+        if (script.src) {
+            const newNode = document.createElement('script');
+            copyScriptSnapshotAttributes(script, newNode);
+            await appendExternalScript(newNode, root);
             continue;
         }
 
-        if (oldNode.src) {
-            await new Promise<void>((resolve) => {
-                newNode.addEventListener('load', () => resolve(), { once: true });
-                newNode.addEventListener('error', () => resolve(), { once: true });
-                parent.replaceChild(newNode, oldNode);
-            });
+        if (!isClassicInlineScript(script)) {
             continue;
         }
 
-        parent.replaceChild(newNode, oldNode);
+        executeInlineWidgetScript(script.source, root);
     }
 }
 
 function applyShowWidgetLayoutGuards(hostElement: HTMLElement, widgetRoot: HTMLElement): void {
     hostElement.style.width = '100%';
-    hostElement.style.maxWidth = '100%';
+    hostElement.style.maxWidth = `${SHOW_WIDGET_MAX_WIDTH_PX}px`;
     hostElement.style.minWidth = '0';
+    hostElement.style.marginLeft = 'auto';
+    hostElement.style.marginRight = 'auto';
     hostElement.style.overflow = 'hidden';
 
     widgetRoot.style.width = '100%';
@@ -675,17 +1163,48 @@ function applyShowWidgetLayoutGuards(hostElement: HTMLElement, widgetRoot: HTMLE
     }
 }
 
+function normalizeShowWidgetExternalUrl(url: string): string | null {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
+        return null;
+    }
+
+    if (!/^(?:https?:)?\/\//i.test(trimmedUrl)) {
+        return null;
+    }
+
+    try {
+        const parsedUrl = new URL(trimmedUrl, window.location.href);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+            return null;
+        }
+
+        return parsedUrl.href;
+    } catch {
+        return null;
+    }
+}
+
 function openShowWidgetLink(url: string): void {
-    if (!url.trim()) {
+    const externalUrl = normalizeShowWidgetExternalUrl(url);
+    if (!externalUrl) {
         return;
     }
 
     if (typeof window.openLink === 'function') {
-        window.openLink(url);
+        window.openLink(externalUrl);
         return;
     }
 
-    window.open(url, '_blank');
+    window.open(externalUrl, '_blank', 'noopener,noreferrer');
+}
+
+function sendShowWidgetPrompt(prompt: string): void {
+    if (!prompt.trim() || typeof window.sendPrompt !== 'function') {
+        return;
+    }
+
+    window.sendPrompt(prompt);
 }
 
 function morphWidgetRoot(
@@ -717,7 +1236,11 @@ async function applyDocumentHtml(
         return false;
     }
 
-    const parsedTree = parseRenderTree(rawHtml, phase);
+    const parsedTree = parseRenderTree(
+        rawHtml,
+        `[data-touchai-widget-host="${hostElement.dataset.touchaiWidgetHost}"]`,
+        phase
+    );
     if (phase !== 'ready' && !hasMeaningfulContent(parsedTree.fragment)) {
         return false;
     }
@@ -728,7 +1251,7 @@ async function applyDocumentHtml(
     applyShowWidgetLayoutGuards(hostElement, root);
 
     if (phase === 'ready') {
-        await runInlineScripts(root, rawHtml || '', state);
+        await runInlineScripts(root, rawHtml || '', parsedTree.scripts, state);
         applyShowWidgetLayoutGuards(hostElement, root);
     }
 
@@ -862,17 +1385,40 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
     ensureMorphdomReady();
 
     const handleHostClick = (event: MouseEvent): void => {
-        const target = event.target as HTMLElement | null;
+        const target = event.target instanceof Element ? event.target : null;
+        const promptElement = target?.closest('[data-send-prompt]');
+        const prompt = promptElement?.getAttribute('data-send-prompt')?.trim();
+
+        if (prompt) {
+            event.preventDefault();
+            event.stopPropagation();
+            sendShowWidgetPrompt(prompt);
+            return;
+        }
+
+        const actionLinkElement = target?.closest('[data-open-link]');
+        const actionHref = actionLinkElement?.getAttribute('data-open-link')?.trim();
+        if (actionHref) {
+            event.preventDefault();
+            event.stopPropagation();
+            openShowWidgetLink(actionHref);
+            return;
+        }
+
         const anchor = target?.closest('a');
         const href = anchor?.getAttribute('href')?.trim();
+        if (!href || href === '#' || href.startsWith('#')) {
+            return;
+        }
 
-        if (!anchor || !href || href === '#' || href.startsWith('#')) {
+        const externalHref = normalizeShowWidgetExternalUrl(href);
+        if (!externalHref) {
             return;
         }
 
         event.preventDefault();
         event.stopPropagation();
-        openShowWidgetLink(href);
+        openShowWidgetLink(externalHref);
     };
 
     hostElement.addEventListener('click', handleHostClick, true);

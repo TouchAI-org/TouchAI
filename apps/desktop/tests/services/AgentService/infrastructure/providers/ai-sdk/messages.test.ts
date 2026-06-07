@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
-import { buildToolSet } from '@/services/AgentService/infrastructure/providers/ai-sdk/messages';
+import {
+    buildModelMessages,
+    buildToolSet,
+} from '@/services/AgentService/infrastructure/providers/ai-sdk/messages';
 import { composePromptSnapshot } from '@/services/AgentService/prompt';
 
 function createTool(description = 'Run a command.'): AiToolDefinition {
@@ -88,5 +91,51 @@ describe('AI SDK tool language context', () => {
 
         expect(description).toContain('Current TouchAI UI language: Simplified Chinese (zh-CN).');
         expect(description).not.toContain('Current TouchAI UI language: English (en-US).');
+    });
+});
+
+describe('AI SDK tool result messages', () => {
+    it('maps placeholder tool results into model-facing tool-result parts', async () => {
+        const placeholderResult = 'Tool result is missing for historical tool call call_missing.';
+
+        const { messages } = await buildModelMessages({
+            providerDriver: 'openai',
+            modelId: 'gpt-4.1',
+            messages: [
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            id: 'call_missing',
+                            name: 'builtin__ask_user',
+                            arguments: '{}',
+                        },
+                    ],
+                },
+                {
+                    role: 'tool',
+                    content: placeholderResult,
+                    tool_call_id: 'call_missing',
+                    name: 'builtin__ask_user',
+                },
+            ],
+        });
+
+        expect(messages).toHaveLength(2);
+        expect(messages[1]).toEqual({
+            role: 'tool',
+            content: [
+                {
+                    type: 'tool-result',
+                    toolCallId: 'call_missing',
+                    toolName: 'builtin__ask_user',
+                    output: {
+                        type: 'text',
+                        value: placeholderResult,
+                    },
+                },
+            ],
+        });
     });
 });

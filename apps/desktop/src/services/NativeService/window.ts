@@ -17,6 +17,10 @@ export const window = {
         return invoke('hide_search_window');
     },
 
+    showSearchWindow(): Promise<void> {
+        return invoke('show_search_window');
+    },
+
     setTrayStatusIndicator(status: TrayStatusIndicator): Promise<void> {
         return invoke('set_tray_status_indicator', { status });
     },

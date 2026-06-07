@@ -380,7 +380,9 @@ interface UseSearchPageLifecycleOptions {
     interactionContext: ReturnType<typeof createSearchInteractionContext>;
     syncWindowPinState: () => Promise<boolean>;
     clearSession: () => void | Promise<void>;
+    shouldClearSessionAfterTimeout?: () => boolean | Promise<boolean>;
     reconcilePopupSurfaces?: () => Promise<void>;
+    remeasureSearchWindowHeight?: () => void | Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
     handleSearchSurfaceCommand?: (payload: {
         command: 'toggle-model-dropdown';
@@ -403,7 +405,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext,
         syncWindowPinState,
         clearSession,
+        shouldClearSessionAfterTimeout,
         reconcilePopupSurfaces,
+        remeasureSearchWindowHeight,
         onSurfaceHidden,
         handleSearchSurfaceCommand,
         handleSessionStatusReminderAction,
@@ -490,6 +494,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await controller.focusSearchInput();
         await controller.loadActiveModel();
         await syncWindowPinStateSafely('focus');
+        await remeasureSearchWindowHeightSafely('activation');
 
         if (surfaceSource !== 'shortcut') {
             return;
@@ -511,14 +516,16 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
         syncFocusStateOnFocus();
 
-        if (
-            interactionContext.shouldRunTimeoutClearOnFocus(
-                interactionContext.state.visibilityEpoch,
-                Date.now(),
-                HIDE_TIMEOUT_MS
-            )
-        ) {
-            await Promise.resolve(clearSession());
+        const timedOut = interactionContext.shouldRunTimeoutClearOnFocus(
+            interactionContext.state.visibilityEpoch,
+            Date.now(),
+            HIDE_TIMEOUT_MS
+        );
+        if (timedOut) {
+            const shouldClear = await Promise.resolve(shouldClearSessionAfterTimeout?.() ?? true);
+            if (shouldClear) {
+                await Promise.resolve(clearSession());
+            }
         }
 
         const activationEpoch = interactionContext.state.activationEpoch;
@@ -582,6 +589,17 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
     }
 
+    async function remeasureSearchWindowHeightSafely(reason: 'activation') {
+        try {
+            await Promise.resolve(remeasureSearchWindowHeight?.());
+        } catch (error) {
+            console.error(
+                `[SearchView] Failed to remeasure search window height on ${reason}:`,
+                error
+            );
+        }
+    }
+
     async function startLifecycleOnceReady() {
         if (lifecycleInitialized || !viewReady.value) {
             return;
@@ -623,7 +641,12 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         unlistenSearchSurfaceShown = await eventService.on(
             AppEvent.SEARCH_SURFACE_SHOWN,
             async (payload) => {
-                latestSurfaceSequence = Math.max(latestSurfaceSequence, payload.sequence ?? 0);
+                const sequence = payload.sequence ?? 0;
+                if (sequence > 0 && sequence < latestSurfaceSequence) {
+                    return;
+                }
+
+                latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
                 interactionContext.markWindowVisible();
                 handleReminderSurfaceVisible();
                 await handleSearchWindowActivated(payload.source ?? 'shortcut');

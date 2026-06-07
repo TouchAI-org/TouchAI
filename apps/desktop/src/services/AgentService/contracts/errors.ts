@@ -18,6 +18,7 @@ export enum AiErrorCode {
     STREAM_ERROR = 'STREAM_ERROR',
     SESSION_ACTIVE_TASK_EXISTS = 'SESSION_ACTIVE_TASK_EXISTS',
     TASK_NOT_FOUND = 'TASK_NOT_FOUND',
+    UNSUPPORTED_INPUT = 'UNSUPPORTED_INPUT',
 
     // 网络相关错误 (3xxx) - 可重试
     NETWORK_ERROR = 'NETWORK_ERROR',
@@ -60,6 +61,7 @@ const ERROR_MESSAGES: Record<AiErrorCode, SourceText> = {
     [AiErrorCode.STREAM_ERROR]: '流式响应处理失败',
     [AiErrorCode.SESSION_ACTIVE_TASK_EXISTS]: '当前会话已有正在运行的任务，请等待完成或先取消',
     [AiErrorCode.TASK_NOT_FOUND]: '任务不存在或已结束',
+    [AiErrorCode.UNSUPPORTED_INPUT]: '当前模型不支持图片/文件输入，请选择合适模型继续。',
 
     // 网络相关
     [AiErrorCode.NETWORK_ERROR]: '网络连接失败，请检查网络设置',
@@ -86,6 +88,34 @@ const ERROR_MESSAGES: Record<AiErrorCode, SourceText> = {
     // 未知错误
     [AiErrorCode.UNKNOWN]: '未知错误',
 };
+
+function isUnsupportedInputEndpointMessage(message: string): boolean {
+    return /no endpoints found that support\b(?=.*\b(?:image|file)s?\b).*\binputs?\b/i.test(
+        message
+    );
+}
+
+function isTransportNetworkErrorMessage(message: string): boolean {
+    return (
+        message.includes('error sending request for url') ||
+        message.includes('failed to fetch') ||
+        message.includes('network') ||
+        message.includes('fetch')
+    );
+}
+
+function getDisplayMessageForText(message: string): string {
+    const source = Object.values(ERROR_MESSAGES).find((candidate) => candidate === message);
+    if (source) {
+        return tt(source);
+    }
+
+    if (isUnsupportedInputEndpointMessage(message)) {
+        return tt(ERROR_MESSAGES[AiErrorCode.UNSUPPORTED_INPUT]);
+    }
+
+    return message;
+}
 
 /**
  * AI 服务统一错误类
@@ -127,8 +157,7 @@ export class AiError extends Error {
      * Localize known default AiError messages after they have crossed a string-only boundary.
      */
     static getKnownDefaultDisplayMessage(message: string): string {
-        const source = Object.values(ERROR_MESSAGES).find((candidate) => candidate === message);
-        return source ? tt(source) : message;
+        return getDisplayMessageForText(message);
     }
 
     /**
@@ -138,7 +167,11 @@ export class AiError extends Error {
      * 避免破坏远端 payload 的诊断价值。
      */
     getDisplayMessage(): string {
-        return this.usesDefaultMessage ? tt(ERROR_MESSAGES[this.code]) : this.message;
+        if (this.usesDefaultMessage) {
+            return tt(ERROR_MESSAGES[this.code]);
+        }
+
+        return getDisplayMessageForText(this.message);
     }
 
     /**
@@ -150,10 +183,10 @@ export class AiError extends Error {
         }
 
         if (error instanceof Error) {
-            return error.message;
+            return getDisplayMessageForText(error.message);
         }
 
-        return String(error);
+        return getDisplayMessageForText(String(error));
     }
 
     /**
@@ -176,7 +209,6 @@ export class AiError extends Error {
             AiErrorCode.SERVICE_UNAVAILABLE,
             AiErrorCode.BAD_GATEWAY,
             AiErrorCode.GATEWAY_TIMEOUT,
-            AiErrorCode.API_ERROR,
             AiErrorCode.EMPTY_RESPONSE,
         ].includes(this.code);
     }
@@ -193,6 +225,7 @@ export class AiError extends Error {
             AiErrorCode.UNAUTHORIZED,
             AiErrorCode.INVALID_CONFIG,
             AiErrorCode.MISSING_ENDPOINT,
+            AiErrorCode.UNSUPPORTED_INPUT,
         ].includes(this.code);
     }
 
@@ -210,6 +243,12 @@ export class AiError extends Error {
             const message = error instanceof Error ? error.message.toLowerCase() : error;
             const originalMessage = error instanceof Error ? error.message : String(error);
 
+            if (isUnsupportedInputEndpointMessage(originalMessage)) {
+                return new AiError(AiErrorCode.UNSUPPORTED_INPUT, error, undefined, {
+                    cause,
+                });
+            }
+
             // 取消相关（abort / cancel / AbortError）
             if (
                 message.includes('abort') ||
@@ -222,8 +261,8 @@ export class AiError extends Error {
             }
 
             // 网络错误
-            if (message.includes('network') || message.includes('fetch')) {
-                return new AiError(AiErrorCode.NETWORK_ERROR, error, originalMessage, {
+            if (isTransportNetworkErrorMessage(message)) {
+                return new AiError(AiErrorCode.NETWORK_ERROR, error, undefined, {
                     cause,
                 });
             }

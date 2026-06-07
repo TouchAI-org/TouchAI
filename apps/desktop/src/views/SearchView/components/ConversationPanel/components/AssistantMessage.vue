@@ -69,14 +69,9 @@
                                 :tool-call="part.toolCall"
                             />
                             <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
-                            <ToolApprovalCard
+                            <ToolApprovalHistoryCard
                                 v-else-if="part.type === 'approval'"
                                 :approval="part.approval"
-                                :attention-token="
-                                    part.approval.status === 'pending' ? approvalAttentionToken : 0
-                                "
-                                @approve="handleApprove"
-                                @reject="handleReject"
                             />
                         </div>
                     </div>
@@ -89,7 +84,10 @@
                     </div>
 
                     <!-- 流式响应加载指示器 -->
-                    <div v-if="message.isStreaming" :class="streamingIndicatorClass">
+                    <div
+                        v-if="message.isStreaming && !askUserStore.current"
+                        :class="streamingIndicatorClass"
+                    >
                         <div class="flex items-center gap-1">
                             <span class="dot"></span>
                             <span class="dot"></span>
@@ -130,6 +128,7 @@
     import { type MessageKey, t } from '@/i18n';
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
+    import { useAskUserStore } from '@/stores/askUser';
     import type {
         SessionMessage,
         ToolApprovalInfo,
@@ -137,23 +136,18 @@
         WidgetInfo,
     } from '@/types/session';
 
-    import ToolApprovalCard from './ToolApprovalCard.vue';
+    import ToolApprovalHistoryCard from './ToolApprovalHistoryCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
     import WidgetFrame from './WidgetFrame.vue';
 
     interface Props {
         message: SessionMessage;
-        approvalAttentionToken?: number;
     }
 
-    const props = withDefaults(defineProps<Props>(), {
-        approvalAttentionToken: 0,
-    });
+    const props = defineProps<Props>();
 
     const emit = defineEmits<{
         regenerate: [messageId: string];
-        approveToolApproval: [callId: string];
-        rejectToolApproval: [callId: string];
     }>();
 
     type RenderedPart =
@@ -198,6 +192,8 @@
     const currentTipIndex = ref(0);
     const tipVisible = ref(false);
     const currentTip = computed(() => t(TIPS[currentTipIndex.value] ?? DEFAULT_LOADING_TIP_KEY));
+
+    const askUserStore = useAskUserStore();
 
     let tipTimer: ReturnType<typeof setInterval> | null = null;
     let tipDelayTimer: ReturnType<typeof setTimeout> | null = null;
@@ -351,14 +347,6 @@
 
     function handleRegenerate() {
         emit('regenerate', props.message.id);
-    }
-
-    function handleApprove(callId: string) {
-        emit('approveToolApproval', callId);
-    }
-
-    function handleReject(callId: string) {
-        emit('rejectToolApproval', callId);
     }
 </script>
 
