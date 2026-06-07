@@ -2,6 +2,7 @@
 
 <template>
     <div
+        data-testid="session-history-popup"
         data-search-history-popover="true"
         :class="[
             'history-popover max-h-96 overflow-hidden rounded-lg border border-stone-200/90 bg-white shadow-lg backdrop-blur',
@@ -15,6 +16,7 @@
                 <AppIcon name="search" class="h-3.5 w-3.5 text-stone-400" />
                 <input
                     ref="searchInputRef"
+                    data-testid="session-history-search-input"
                     :value="localSearchQuery"
                     type="text"
                     autofocus
@@ -31,6 +33,7 @@
         >
             <div
                 v-if="isWaitingForSearchResults"
+                data-testid="session-history-loading"
                 class="flex min-h-24 items-center justify-center text-xs text-stone-500"
             >
                 {{
@@ -43,6 +46,7 @@
             </div>
             <div
                 v-else-if="groupedSessions.length === 0"
+                data-testid="session-history-empty"
                 class="flex min-h-24 flex-col items-center justify-center gap-2 px-6 text-center"
             >
                 <AppIcon name="history" class="h-7 w-7 text-stone-300" />
@@ -85,6 +89,10 @@
                             "
                             type="button"
                             class="history-session-row flex w-full items-start gap-2 rounded-lg border border-transparent px-3 py-2 text-left transition-colors"
+                            data-testid="session-history-item"
+                            :data-session-title="
+                                session.title || t('popup.sessionHistory.untitled')
+                            "
                             :class="{
                                 'history-session-row--current': session.id === activeSessionId,
                                 'history-session-row--highlighted':

@@ -123,6 +123,9 @@
         openLink?: (url: string) => void;
         __TOUCHAI_E2E__?: {
             openSettingsWindow: () => Promise<void>;
+            openModelDropdownPopup: () => Promise<void>;
+            openSessionHistoryPopup: () => Promise<void>;
+            closePopups: () => Promise<void>;
             setSearchQuery: (text: string) => void;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
         };
@@ -959,6 +962,17 @@
         widgetBridgeWindow.__TOUCHAI_E2E__ = {
             async openSettingsWindow() {
                 await nativeController.openSettingsWindow();
+            },
+            async openModelDropdownPopup() {
+                await hideAllPopups();
+                await handleToggleModelDropdownRequest();
+            },
+            async openSessionHistoryPopup() {
+                await hideAllPopups();
+                await openHistoryDialog();
+            },
+            async closePopups() {
+                await hideAllPopups();
             },
             setSearchQuery(text: string) {
                 applyE2eSearchQuery(text);

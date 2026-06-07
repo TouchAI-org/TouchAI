@@ -2,6 +2,7 @@
 
 <template>
     <div
+        data-testid="model-dropdown-popup"
         data-model-dropdown-popover="true"
         :class="[
             'model-dropdown-popover max-h-96 overflow-hidden rounded-lg border border-stone-200/90 bg-white shadow-lg backdrop-blur',
@@ -15,6 +16,7 @@
                 <AppIcon name="search" class="h-3.5 w-3.5 text-stone-400" />
                 <input
                     ref="searchInputRef"
+                    data-testid="model-dropdown-search-input"
                     :value="localSearchQuery"
                     type="text"
                     autofocus
@@ -38,6 +40,8 @@
                     }
                 "
                 class="model-dropdown-row flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors"
+                data-testid="model-dropdown-option"
+                :data-model-name="model.name"
                 :class="{
                     'model-dropdown-row--highlighted': index === highlightedIndex,
                 }"
@@ -96,6 +100,7 @@
 
             <div
                 v-if="models.length === 0"
+                data-testid="model-dropdown-empty"
                 class="flex min-h-24 flex-col items-center justify-center gap-2 px-6 text-center"
             >
                 <AppIcon :name="emptyStateIcon" class="h-7 w-7 text-stone-300" />
