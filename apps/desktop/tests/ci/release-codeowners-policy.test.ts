@@ -11,12 +11,16 @@ async function readCodeowners() {
     return readFile(resolve(repositoryRoot, '.github/CODEOWNERS'), 'utf8');
 }
 
-function codeownerPatterns(codeowners: string) {
+function codeownerEntries(codeowners: string) {
     return codeowners
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter((line) => line.length > 0 && !line.startsWith('#'))
-        .map((line) => line.split(/\s+/)[0] ?? '');
+        .map((line) => {
+            const [pattern = '', ...owners] = line.split(/\s+/);
+
+            return { pattern, owners };
+        });
 }
 
 function patternMatchesPath(pattern: string, path: string) {
@@ -30,7 +34,14 @@ function patternMatchesPath(pattern: string, path: string) {
 }
 
 function ownedByCodeowners(codeowners: string, path: string) {
-    return codeownerPatterns(codeowners).some((pattern) => patternMatchesPath(pattern, path));
+    return codeownerEntries(codeowners).some(({ pattern }) => patternMatchesPath(pattern, path));
+}
+
+function ownedByMaintainer(codeowners: string, path: string) {
+    return codeownerEntries(codeowners).some(
+        ({ owners, pattern }) =>
+            patternMatchesPath(pattern, path) && owners.includes('@hiqiancheng')
+    );
 }
 
 describe('release CODEOWNERS policy', () => {
@@ -53,10 +64,10 @@ describe('release CODEOWNERS policy', () => {
     it('keeps release automation controls under maintainer review', async () => {
         const codeowners = await readCodeowners();
 
-        expect(ownedByCodeowners(codeowners, 'release-please-config.json')).toBe(true);
-        expect(ownedByCodeowners(codeowners, '.github/workflows/release-please.yml')).toBe(true);
+        expect(ownedByMaintainer(codeowners, 'release-please-config.json')).toBe(true);
+        expect(ownedByMaintainer(codeowners, '.github/workflows/release-please.yml')).toBe(true);
         expect(
-            ownedByCodeowners(codeowners, 'apps/desktop/scripts/ci/resolve-release-metadata.mjs')
+            ownedByMaintainer(codeowners, 'apps/desktop/scripts/ci/resolve-release-metadata.mjs')
         ).toBe(true);
     });
 });
