@@ -19,7 +19,7 @@ import {
 const turndownService = createTurndownService();
 const BLOCKED_RESOURCE_PROTOCOLS = new Set(['data:', 'javascript:', 'vbscript:']);
 
-interface WebFetchRequest {
+export interface WebFetchRequest {
     url: URL;
     mode: WebFetchMode;
     maxChars: number;
@@ -130,6 +130,20 @@ function isDisallowedHostname(hostname: string): boolean {
     return !normalized.includes('.');
 }
 
+export function validateWebFetchUrl(url: URL): void {
+    if (!SUPPORTED_PROTOCOLS.has(url.protocol)) {
+        throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
+    }
+
+    if (url.username || url.password) {
+        throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
+    }
+
+    if (isDisallowedHostname(url.hostname)) {
+        throw new Error(t('builtInTools.webFetch.error.blockedHost'));
+    }
+}
+
 /**
  * 解析 WebFetch 参数，并在真正发请求前完成 URL 安全边界校验。
  *
@@ -147,17 +161,7 @@ export function parseWebFetchRequest(args: Record<string, unknown>): WebFetchReq
         throw new Error(t('builtInTools.webFetch.error.invalidUrl', { url: rawUrl }));
     }
 
-    if (!SUPPORTED_PROTOCOLS.has(parsedUrl.protocol)) {
-        throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
-    }
-
-    if (parsedUrl.username || parsedUrl.password) {
-        throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
-    }
-
-    if (isDisallowedHostname(parsedUrl.hostname)) {
-        throw new Error(t('builtInTools.webFetch.error.blockedHost'));
-    }
+    validateWebFetchUrl(parsedUrl);
 
     return {
         url: parsedUrl,

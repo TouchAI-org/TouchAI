@@ -13,6 +13,7 @@ import {
 } from '../../types';
 import {
     DEFAULT_ACCEPT_HEADER,
+    MAX_WEB_FETCH_REDIRECTS,
     WEB_FETCH_TOOL_DESCRIPTION,
     WEB_FETCH_TOOL_INPUT_SCHEMA,
 } from './constants';
@@ -28,6 +29,8 @@ import {
     parseWebFetchRequest,
     readResponseText,
     truncateContent,
+    validateWebFetchUrl,
+    type WebFetchRequest,
 } from './helper';
 
 const tauriFetch = createTauriFetch();
@@ -57,6 +60,78 @@ function buildWebFetchConversationSemantic(
     };
 }
 
+function responseWithUrl(response: Response, url: URL): Response {
+    try {
+        Object.defineProperty(response, 'url', {
+            value: url.toString(),
+            configurable: true,
+        });
+    } catch {
+        // Best effort only; Response.url is read-only on some implementations.
+    }
+
+    return response;
+}
+
+function isRedirectResponse(response: Response): boolean {
+    return response.status >= 300 && response.status < 400;
+}
+
+function resolveRedirectUrl(location: string, baseUrl: URL): URL {
+    try {
+        return new URL(location, baseUrl);
+    } catch {
+        throw new Error(t('builtInTools.webFetch.error.invalidUrl', { url: location }));
+    }
+}
+
+async function cancelRedirectBody(response: Response): Promise<void> {
+    try {
+        await response.body?.cancel('WebFetch redirect');
+    } catch {
+        // Redirect bodies are discarded; cancellation failures should not mask fetch results.
+    }
+}
+
+async function fetchWithSafeRedirects(
+    request: WebFetchRequest,
+    signal: AbortSignal
+): Promise<Response> {
+    let currentUrl = request.url;
+
+    for (let redirectCount = 0; ; redirectCount += 1) {
+        const init = {
+            method: 'GET',
+            headers: {
+                Accept: DEFAULT_ACCEPT_HEADER,
+            },
+            maxRedirections: 0,
+            redirect: 'manual',
+            signal,
+        } satisfies RequestInit & { maxRedirections: number };
+        const response = responseWithUrl(await tauriFetch(currentUrl.toString(), init), currentUrl);
+        const location = response.headers.get('location');
+
+        if (!isRedirectResponse(response) || !location) {
+            return response;
+        }
+
+        if (redirectCount >= MAX_WEB_FETCH_REDIRECTS) {
+            await cancelRedirectBody(response);
+            throw new Error(
+                t('builtInTools.webFetch.error.tooManyRedirects', {
+                    maxRedirections: MAX_WEB_FETCH_REDIRECTS,
+                })
+            );
+        }
+
+        const nextUrl = resolveRedirectUrl(location, currentUrl);
+        validateWebFetchUrl(nextUrl);
+        await cancelRedirectBody(response);
+        currentUrl = nextUrl;
+    }
+}
+
 /**
  * 执行网页抓取，并把响应规范化为可继续喂给模型的文本结果。
  * @param args 工具参数。
@@ -74,13 +149,7 @@ export async function executeWebFetchTool(
     void config;
 
     try {
-        const response = await tauriFetch(request.url.toString(), {
-            method: 'GET',
-            headers: {
-                Accept: DEFAULT_ACCEPT_HEADER,
-            },
-            signal,
-        });
+        const response = await fetchWithSafeRedirects(request, signal);
         const contentType = getContentType(response);
 
         if (!isTextualContentType(contentType)) {

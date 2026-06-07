@@ -5,6 +5,7 @@ import { nextTick } from 'vue';
 import { clipboardService } from '@/services/ClipboardService';
 
 const {
+    getMarkdownMock,
     languageMapMock,
     markdownRenderUnmountedMock,
     notifyMock,
@@ -17,6 +18,9 @@ const {
     };
 
     return {
+        getMarkdownMock: vi.fn(() => ({
+            use: vi.fn(),
+        })),
         languageMapMock: {} as Record<string, string>,
         markdownRenderUnmountedMock: vi.fn(),
         notifyMock: vi.fn(),
@@ -41,9 +45,7 @@ vi.mock('markstream-vue', () => ({
     },
     enableKatex: vi.fn(),
     enableMermaid: vi.fn(),
-    getMarkdown: vi.fn(() => ({
-        use: vi.fn(),
-    })),
+    getMarkdown: getMarkdownMock,
     languageMap: languageMapMock,
     parseMarkdownToStructure: parseMarkdownToStructureMock,
     setDefaultI18nMap: setDefaultI18nMapMock,
@@ -90,6 +92,43 @@ describe('MarkdownContent i18n', () => {
         );
         expect(languageMapMock.plaintext).toBe('Plain text');
         expect(languageMapMock.mermaid).toBe('Diagram');
+    });
+
+    it('escapes shell variables so KaTeX does not treat them as inline math', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        mount(MarkdownContent, {
+            props: {
+                content:
+                    'paths: $env:USERPROFILE\\Desktop, $HOME/project, ${USERPROFILE}\\Desktop, ${env:APPDATA}; math: $x$ and $x+y$; code: `echo $HOME`',
+            },
+        });
+
+        expect(parseMarkdownToStructureMock).toHaveBeenCalledWith(
+            'paths: \\$env:USERPROFILE\\Desktop, \\$HOME/project, \\${USERPROFILE}\\Desktop, \\${env:APPDATA}; math: $x$ and $x+y$; code: `echo $HOME`',
+            expect.anything(),
+            expect.anything()
+        );
+    });
+
+    it('enables hard line breaks in the markdown parser for bubble text', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+
+        mount(MarkdownContent, {
+            props: {
+                content: 'first line\nsecond line',
+            },
+        });
+
+        expect(getMarkdownMock).toHaveBeenCalledWith(
+            'touchai-markdown',
+            expect.objectContaining({
+                enableContainers: false,
+                markdownItOptions: expect.objectContaining({
+                    breaks: true,
+                }),
+            })
+        );
     });
 
     it('updates markstream labels when locale changes after mount', async () => {
