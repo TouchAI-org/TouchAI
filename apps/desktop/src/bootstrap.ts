@@ -22,6 +22,7 @@ import router from './router';
 import { updateModelMetadata } from './services/AgentService/infrastructure/modelMetadata';
 import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
+import { isE2eTestMode } from './utils/runtimeMode';
 
 const MANAGED_DEEP_LINK_WINDOW_LABEL = 'main';
 
@@ -170,6 +171,10 @@ async function setupDeepLinkListener(): Promise<void> {
 
 async function initializeModelMetadata(): Promise<void> {
     try {
+        if (await isE2eTestMode()) {
+            return;
+        }
+
         if (await isLlmMetadataEmpty()) {
             await updateModelMetadata();
             return;

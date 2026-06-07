@@ -5,6 +5,8 @@
 <template>
     <button
         type="button"
+        :data-testid="dataTestid"
+        :data-result-name="dataResultName"
         :class="[
             'quick-search-list-item grid w-full cursor-pointer items-center px-2 outline-none',
             highlighted ? 'bg-primary-100 rounded-lg' : 'rounded-lg hover:bg-gray-100',
@@ -51,8 +53,14 @@
             nameSegments: NameSegment[];
             highlighted: boolean;
             rowHeight?: number;
+            dataTestid?: string;
+            dataResultName?: string;
         }>(),
-        { rowHeight: 40 }
+        {
+            dataResultName: undefined,
+            dataTestid: undefined,
+            rowHeight: 40,
+        }
     );
 
     defineEmits<{

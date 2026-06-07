@@ -15,6 +15,7 @@ const {
     getCurrentMock,
     initializeFontLoaderMock,
     initializeLoggerMock,
+    getRuntimeInfoMock,
     syncAllModelsMetadataMock,
     updateModelMetadataMock,
     onOpenUrlMock,
@@ -36,6 +37,7 @@ const {
     getCurrentMock: vi.fn(),
     initializeFontLoaderMock: vi.fn(),
     initializeLoggerMock: vi.fn(),
+    getRuntimeInfoMock: vi.fn(),
     syncAllModelsMetadataMock: vi.fn(),
     updateModelMetadataMock: vi.fn(),
     onOpenUrlMock: vi.fn(),
@@ -90,6 +92,9 @@ vi.mock('@services/EventService', () => ({
 
 vi.mock('@services/NativeService', () => ({
     native: {
+        runtime: {
+            getRuntimeInfo: getRuntimeInfoMock,
+        },
         window: {
             openSettingsWindow: openSettingsWindowMock,
         },
@@ -156,6 +161,7 @@ describe('app bootstrap i18n', () => {
         appUpdateCheckNowMock.mockResolvedValue(false);
         completeManagedLoginMock.mockResolvedValue(false);
         initializeManagedProviderStateMock.mockResolvedValue(undefined);
+        getRuntimeInfoMock.mockResolvedValue({ isE2eTestMode: false });
         isLlmMetadataEmptyMock.mockResolvedValue(false);
         syncAllModelsMetadataMock.mockResolvedValue(undefined);
         updateModelMetadataMock.mockResolvedValue(undefined);
@@ -206,6 +212,19 @@ describe('app bootstrap i18n', () => {
 
         expect(updateModelMetadataMock).not.toHaveBeenCalled();
         expect(syncAllModelsMetadataMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips model metadata bootstrap in E2E mode', async () => {
+        getRuntimeInfoMock.mockResolvedValue({ isE2eTestMode: true });
+        isLlmMetadataEmptyMock.mockResolvedValue(true);
+
+        const { initializeApp } = await import('@/bootstrap');
+        await initializeApp();
+
+        expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
+        expect(updateModelMetadataMock).not.toHaveBeenCalled();
+        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
+        expect(appMountMock).toHaveBeenCalledWith('#app');
     });
 
     it('continues bootstrap when remote model metadata refresh fails', async () => {

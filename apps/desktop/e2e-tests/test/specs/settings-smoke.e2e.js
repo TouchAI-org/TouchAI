@@ -1,72 +1,41 @@
+import { expectDisplayedByTestId, withSettingsWindow } from '../support/windows.js';
+
 describe('TouchAI settings smoke', () => {
-    it('opens the settings window and persists the start-minimized toggle', async () => {
-        const mainWindowHandle = await browser.getWindowHandle();
-        let settingsHandle = null;
+    it('opens settings, persists launch preferences, and navigates critical sections', async () => {
+        await withSettingsWindow(async () => {
+            const settingsView = await expectDisplayedByTestId('settings-view');
+            const generalSection = await expectDisplayedByTestId('settings-general-section');
+            const startMinimizedToggle = await $("[data-testid='settings-start-minimized-toggle']");
 
-        await browser.waitUntil(async () => {
-            return browser.execute(() => Boolean(window.__TOUCHAI_E2E__));
-        });
+            await settingsView.waitForDisplayed();
+            await generalSection.waitForDisplayed();
 
-        await browser
-            .executeAsync((done) => {
-                window.__TOUCHAI_E2E__
-                    .openSettingsWindow()
-                    .then(() => done({ ok: true }))
-                    .catch((error) => done({ ok: false, error: String(error) }));
-            })
-            .then((result) => {
-                if (!result?.ok) {
-                    throw new Error(
-                        `Failed to open settings window: ${result?.error ?? 'unknown error'}`
-                    );
-                }
+            const initialPressed = await startMinimizedToggle.getAttribute('aria-pressed');
+
+            await startMinimizedToggle.click();
+            await browser.waitUntil(async () => {
+                return (await startMinimizedToggle.getAttribute('aria-pressed')) !== initialPressed;
             });
 
-        await browser.waitUntil(async () => {
-            const handles = await browser.getWindowHandles();
-            for (const handle of handles) {
-                if (handle === mainWindowHandle) {
-                    continue;
-                }
+            await startMinimizedToggle.click();
+            await browser.waitUntil(async () => {
+                return (await startMinimizedToggle.getAttribute('aria-pressed')) === initialPressed;
+            });
 
-                await browser.switchToWindow(handle);
-                const currentUrl = await browser.getUrl();
-                if (currentUrl.includes('/settings')) {
-                    settingsHandle = handle;
-                    return true;
-                }
+            const sectionChecks = [
+                ['ai-services', 'settings-ai-services-panel'],
+                ['built-in-tools', 'settings-built-in-tools-panel'],
+                ['mcp-tools', 'settings-mcp-tools-panel'],
+                ['data-management', 'settings-data-history-list'],
+                ['general', 'settings-general-section'],
+            ];
+
+            for (const [section, expectedTestId] of sectionChecks) {
+                const navItem = await $(`[data-testid='settings-nav-${section}']`);
+                await navItem.waitForDisplayed();
+                await navItem.click();
+                await expectDisplayedByTestId(expectedTestId);
             }
-
-            await browser.switchToWindow(mainWindowHandle);
-            return false;
         });
-
-        if (!settingsHandle) {
-            throw new Error('Unable to locate settings window handle.');
-        }
-
-        await browser.switchToWindow(settingsHandle);
-
-        const settingsView = await $("[data-testid='settings-view']");
-        const generalSection = await $("[data-testid='settings-general-section']");
-        const startMinimizedToggle = await $("[data-testid='settings-start-minimized-toggle']");
-
-        await settingsView.waitForDisplayed();
-        await generalSection.waitForDisplayed();
-
-        const initialPressed = await startMinimizedToggle.getAttribute('aria-pressed');
-
-        await startMinimizedToggle.click();
-        await browser.waitUntil(async () => {
-            return (await startMinimizedToggle.getAttribute('aria-pressed')) !== initialPressed;
-        });
-
-        await startMinimizedToggle.click();
-        await browser.waitUntil(async () => {
-            return (await startMinimizedToggle.getAttribute('aria-pressed')) === initialPressed;
-        });
-
-        await browser.closeWindow();
-        await browser.switchToWindow(mainWindowHandle);
     });
 });
