@@ -225,7 +225,9 @@ export function createAiSdkStreamProcessor() {
         }
 
         if (part.type === 'tool-call') {
-            const toolName = normalizeToolName(part.toolName);
+            const toolName =
+                normalizeToolName(part.toolName) ??
+                normalizeToolName(state.namesByCallId.get(part.toolCallId));
             if (!toolName) {
                 state.indexesByCallId.delete(part.toolCallId);
                 state.namesByCallId.delete(part.toolCallId);
