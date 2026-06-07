@@ -112,12 +112,17 @@ async function fetchWithSafeRedirects(
         const response = responseWithUrl(await tauriFetch(currentUrl.toString(), init), currentUrl);
         const location = response.headers.get('location');
 
-        if (
-            !isRedirectResponse(response) ||
-            !location ||
-            redirectCount >= MAX_WEB_FETCH_REDIRECTS
-        ) {
+        if (!isRedirectResponse(response) || !location) {
             return response;
+        }
+
+        if (redirectCount >= MAX_WEB_FETCH_REDIRECTS) {
+            await cancelRedirectBody(response);
+            throw new Error(
+                t('builtInTools.webFetch.error.tooManyRedirects', {
+                    maxRedirections: MAX_WEB_FETCH_REDIRECTS,
+                })
+            );
         }
 
         const nextUrl = resolveRedirectUrl(location, currentUrl);

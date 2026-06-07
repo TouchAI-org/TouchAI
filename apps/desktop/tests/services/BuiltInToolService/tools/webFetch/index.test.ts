@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import { executeWebFetchTool } from '@/services/BuiltInToolService/tools/webFetch';
+import { MAX_WEB_FETCH_REDIRECTS } from '@/services/BuiltInToolService/tools/webFetch/constants';
 
 const { tauriFetchMock } = vi.hoisted(() => ({
     tauriFetchMock: vi.fn(),
@@ -89,6 +90,32 @@ describe('executeWebFetchTool', () => {
                 redirect: 'manual',
             })
         );
+    });
+
+    it('reports a clear error when the redirect limit is exceeded', async () => {
+        for (let index = 0; index <= MAX_WEB_FETCH_REDIRECTS; index += 1) {
+            tauriFetchMock.mockResolvedValueOnce(
+                new Response('', {
+                    status: 302,
+                    headers: {
+                        location: `/redirect-${index + 1}`,
+                    },
+                })
+            );
+        }
+
+        const result = await executeWebFetchTool(
+            { url: 'https://example.test/start', mode: 'page_text', maxChars: 1000 },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+            errorMessage: `WebFetch exceeded the redirect limit (${MAX_WEB_FETCH_REDIRECTS}).`,
+        });
+        expect(tauriFetchMock).toHaveBeenCalledTimes(MAX_WEB_FETCH_REDIRECTS + 1);
     });
 });
 

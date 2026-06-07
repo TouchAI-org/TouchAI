@@ -677,6 +677,8 @@ const zhCNMessages = {
     'builtInTools.webFetch.error.embeddedCredentials': 'WebFetch 不允许 URL 中包含凭据。',
     'builtInTools.webFetch.error.blockedHost':
         'WebFetch 会阻止 localhost、私有网络和单标签主机名。',
+    'builtInTools.webFetch.error.tooManyRedirects':
+        'WebFetch 重定向次数超过限制（最多 {maxRedirections} 次）。',
     'builtInTools.webFetch.error.timeout': 'WebFetch 在 {timeoutMs}ms 后超时',
     'builtInTools.webFetch.target': '网页',
     'builtInTools.webFetch.imageAltFallback': '[图片：{altText}]',
@@ -1433,6 +1435,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'WebFetch tool does not allow embedded credentials in URLs.',
     'builtInTools.webFetch.error.blockedHost':
         'WebFetch tool blocks localhost, private-network and single-label hostnames.',
+    'builtInTools.webFetch.error.tooManyRedirects':
+        'WebFetch exceeded the redirect limit ({maxRedirections}).',
     'builtInTools.webFetch.error.timeout': 'WebFetch timed out after {timeoutMs}ms',
     'builtInTools.webFetch.target': 'web page',
     'builtInTools.webFetch.imageAltFallback': '[Image: {altText}]',
