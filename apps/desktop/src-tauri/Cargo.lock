@@ -7327,9 +7327,9 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "velopack"
-version = "0.0.1589-ga2c5a97"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1becd905983d238b0f31a87f780a10627cd6c08bb819ac02de6337988683c7d9"
+checksum = "bd3fd8e7b771e0d0fc4ca67249273ad4eacfabe2562617b3ca42065a5972a58c"
 dependencies = [
  "anyhow",
  "bitflags 2.11.1",
