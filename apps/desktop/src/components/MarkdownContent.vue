@@ -186,9 +186,10 @@
         showFontSizeButtons: false,
     });
 
-    const codeBlockMonacoOptions = Object.freeze({
+    const codeBlockMonacoOptions = computed(() => ({
         glyphMargin: false,
-    });
+        autoScrollInitial: !props.final,
+    }));
 
     const codeBlockLightTheme = 'one-light';
     const codeBlockDarkTheme = 'one-dark-pro';
