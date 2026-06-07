@@ -138,6 +138,10 @@ export function preferredAppUpdateDownload(
         return bestForPlatform.download;
     }
 
+    if (platform.os !== 'unknown') {
+        return null;
+    }
+
     return downloads
         .map((download, index) => ({
             download,

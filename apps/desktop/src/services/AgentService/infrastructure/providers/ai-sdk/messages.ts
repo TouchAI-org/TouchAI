@@ -31,7 +31,7 @@ import {
     planAttachmentDeliveryForMessages,
     resolveDeliveredInlineTransportMode,
 } from '@/services/AgentService/infrastructure/attachments';
-import { getProviderAttachmentCapabilities } from '@/services/AgentService/infrastructure/providers';
+import { getProviderAttachmentCapabilities } from '@/services/AgentService/infrastructure/providers/capabilities';
 import {
     appendCurrentLanguageToolDescriptionContext,
     type ModelLanguageContext,

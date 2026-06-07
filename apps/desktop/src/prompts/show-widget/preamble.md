@@ -16,10 +16,10 @@ The widget streams token-by-token. Structure your tool call so visible content a
 
 ```json
 {
-  "i_have_seen_read_me": true,
-  "widget_code": "<svg viewBox=\"0 0 400 200\">...",
-  "widgetId": "optional-id",
-  "title": "optional-title"
+    "i_have_seen_read_me": true,
+    "widget_code": "<svg viewBox=\"0 0 400 200\">...",
+    "widgetId": "optional-id",
+    "title": "optional-title"
 }
 ```
 
@@ -27,19 +27,26 @@ The widget streams token-by-token. Structure your tool call so visible content a
 
 ### Streaming Structure
 
-- **CSS first** (if needed, keep under 15 lines)
+- **Visible root first** — start with `<svg>`, `<div>`, or `<section>`, not `<style>` or `<script>`
 - **Visible HTML/SVG immediately** — structure, shapes, text
+- **Inline styles first when needed** — controls and first-screen structure should look correct mid-stream
+- **Optional `<style>` later** — keep it under 15 lines and place it inside the visible root after the first visible content
 - **Scripts last** — they execute after streaming completes
 
 Example:
+
 ```html
-<style>.root{display:grid;gap:8px}</style>
-<div class="root">
-  <div>Visible content here</div>
-  <svg>...</svg>
+<div class="root" style="display:grid;gap:8px">
+    <div>Visible content here</div>
+    <svg>...</svg>
+    <style>
+        .root svg {
+            max-height: 220px;
+        }
+    </style>
 </div>
 <script>
-// Interactive behavior here
+    // Interactive behavior here
 </script>
 ```
 
@@ -53,6 +60,7 @@ Example:
 ## What Gets Rejected
 
 Outputs using these will fail validation:
+
 - Gradients (`linear-gradient`, `radial-gradient`)
 - Shadows (`box-shadow`, `text-shadow`)
 - Blur effects (`backdrop-filter`, `filter: blur`)
@@ -65,6 +73,7 @@ Outputs using these will fail validation:
 ## Modules
 
 Load the appropriate module via `builtin__visualize_read_me`:
+
 - **diagram**: Flowcharts, org charts, system diagrams, architecture
 - **chart**: Data visualization with Chart.js
 - **interactive**: Forms, calculators, configurators, games

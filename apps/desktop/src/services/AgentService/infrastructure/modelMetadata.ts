@@ -3,6 +3,7 @@
  */
 
 import { db } from '@database';
+import { syncAllModelsMetadata } from '@database/queries/models.ts';
 import { setStatistic } from '@database/queries/statistics.ts';
 import { llmMetadata, type NewLlmMetadata, StatisticKey } from '@database/schema.ts';
 
@@ -177,6 +178,8 @@ export async function updateModelMetadata(): Promise<void> {
                     .onConflictDoNothing({ target: llmMetadata.model_id })
                     .run();
             }
+
+            await syncAllModelsMetadata(tx);
 
             await setStatistic({
                 key: StatisticKey.MODEL_METADATA_LAST_UPDATED_AT,

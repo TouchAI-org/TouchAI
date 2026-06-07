@@ -10,8 +10,8 @@
     import { useSettingsResizablePanel } from '../../../composables/useSettingsResizablePanel';
     import ProviderCard from './ProviderCard.vue';
 
-    const PROMOTED_NAME = 'Xiaomi MiMo';
     const PRIMARY_NAMES = new Set(['OpenAI', 'Anthropic', 'Gemini']);
+    const PROMOTED_PROVIDER_DRIVERS = new Set(['mimo']);
 
     interface Props {
         providers: Provider[];
@@ -38,16 +38,26 @@
         panelWidth,
     } = useSettingsResizablePanel();
 
-    const promotedProviders = computed(() =>
-        props.providers.filter((p) => p.name === PROMOTED_NAME)
+    const promotedProviders = computed<Provider[]>(() =>
+        props.providers.filter(
+            (provider) =>
+                provider.is_builtin === 1 && PROMOTED_PROVIDER_DRIVERS.has(provider.driver)
+        )
     );
 
+    const isPromotedBuiltin = (provider: Provider) =>
+        provider.is_builtin === 1 && PROMOTED_PROVIDER_DRIVERS.has(provider.driver);
+
     const primaryProviders = computed(() =>
-        props.providers.filter((p) => PRIMARY_NAMES.has(p.name))
+        props.providers.filter(
+            (provider) => !isPromotedBuiltin(provider) && PRIMARY_NAMES.has(provider.name)
+        )
     );
 
     const otherProviders = computed(() =>
-        props.providers.filter((p) => p.name !== PROMOTED_NAME && !PRIMARY_NAMES.has(p.name))
+        props.providers.filter(
+            (provider) => !isPromotedBuiltin(provider) && !PRIMARY_NAMES.has(provider.name)
+        )
     );
 
     const othersExpanded = ref(false);
