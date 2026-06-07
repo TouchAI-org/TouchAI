@@ -167,8 +167,10 @@ describe('attachment storage persistence', () => {
             created_at: '2026-01-01T00:00:00.000Z',
         }));
 
-        await ensurePersistedAttachmentIndex(buildDraftAttachment(), {} as never);
+        const persisted = await ensurePersistedAttachmentIndex(buildDraftAttachment(), {} as never);
 
+        expect(persisted.id).toBe(43);
+        expect(createAttachmentRecordMock).not.toHaveBeenCalled();
         expect(copyFileMock).not.toHaveBeenCalled();
     });
 });
