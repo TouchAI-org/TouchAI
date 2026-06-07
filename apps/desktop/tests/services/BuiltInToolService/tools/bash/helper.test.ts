@@ -109,6 +109,18 @@ describe('resolveCommandContext', () => {
         ).rejects.toThrow('Working directory is outside the allowed scope');
     });
 
+    it('rejects relative working directories that escape with consecutive parent segments', async () => {
+        setLocale('en-US');
+        const config = {
+            ...baseConfig,
+            allowedWorkingDirectories: ['foo'],
+        };
+
+        await expect(
+            resolveCommandContext({ command: 'dir', workingDirectory: '../../foo' }, config)
+        ).rejects.toThrow('Working directory is outside the allowed scope');
+    });
+
     it('accepts command inside allowed directories', async () => {
         const config = {
             ...baseConfig,

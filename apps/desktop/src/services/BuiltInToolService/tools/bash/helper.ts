@@ -29,7 +29,8 @@ function normalizeDirectoryPath(path: string): string {
         }
 
         if (segment === '..') {
-            if (resolvedSegments.length > 0) {
+            const lastSegment = resolvedSegments[resolvedSegments.length - 1];
+            if (lastSegment && lastSegment !== '..') {
                 resolvedSegments.pop();
             } else if (!prefix) {
                 resolvedSegments.push(segment);
