@@ -4,14 +4,16 @@
     import { useWindowResize } from '@composables/useWindowResize';
     import { AppEvent, eventService } from '@services/EventService';
     import { native } from '@services/NativeService';
-    import type { PopupDataPayload, PopupKeydownPayload, PopupType } from '@services/PopupService';
     import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 
+    import type { PopupDataPayload, PopupKeydownPayload } from '@/contracts/popup';
+    import type { PopupType } from '@/contracts/popupManifest';
     import { useSettingsStore } from '@/stores/settings';
 
     import { getPopupTypeFromLocation } from './location';
+    import { getPopupComponent } from './popupComponents';
 
     defineOptions({
         name: 'PopupWindowView',
@@ -30,7 +32,7 @@
     const closedPopupIds = new Set<string>();
 
     const popupComponent = computed(() =>
-        popupType.value ? popupRegistry.get(popupType.value)?.component : null
+        popupType.value ? getPopupComponent(popupType.value) : null
     );
     const popupProps = computed(() => {
         return {

@@ -9,8 +9,7 @@ import type {
     PopupReadyPayload,
     PopupSessionOpenPayload,
     PopupSessionSearchQueryChangePayload,
-} from '@services/PopupService/types';
-
+} from '@/contracts/popup';
 import type { SessionStatusReminderKind } from '@/contracts/sessionStatus';
 
 export type { SessionStatusReminderKind } from '@/contracts/sessionStatus';

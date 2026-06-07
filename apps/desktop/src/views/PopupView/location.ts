@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { PopupType } from '@services/PopupService';
+import type { PopupType } from '@/contracts/popupManifest';
 
 interface LocationLike {
     hash: string;
