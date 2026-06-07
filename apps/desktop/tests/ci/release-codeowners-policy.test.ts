@@ -33,15 +33,21 @@ function patternMatchesPath(pattern: string, path: string) {
     return path === normalizedPattern;
 }
 
+function ownersForPath(codeowners: string, path: string) {
+    const matches = codeownerEntries(codeowners).filter(({ pattern }) =>
+        patternMatchesPath(pattern, path)
+    );
+    const lastMatch = matches[matches.length - 1];
+
+    return lastMatch?.owners ?? [];
+}
+
 function ownedByCodeowners(codeowners: string, path: string) {
-    return codeownerEntries(codeowners).some(({ pattern }) => patternMatchesPath(pattern, path));
+    return ownersForPath(codeowners, path).length > 0;
 }
 
 function ownedByMaintainer(codeowners: string, path: string) {
-    return codeownerEntries(codeowners).some(
-        ({ owners, pattern }) =>
-            patternMatchesPath(pattern, path) && owners.includes('@hiqiancheng')
-    );
+    return ownersForPath(codeowners, path).includes('@hiqiancheng');
 }
 
 describe('release CODEOWNERS policy', () => {
