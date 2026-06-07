@@ -137,13 +137,6 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
               run: pnpm install --frozen-lockfile
 
-            - name: Rust cache
-              if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
-              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-              with:
-                  workspaces: apps/desktop/src-tauri -> target
-                  shared-key: codeql
-
             - name: Build Rust targets for analysis
               if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
               run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --profile ci-check

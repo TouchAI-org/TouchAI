@@ -3,8 +3,6 @@
 import type { ProviderDriver } from '@database/schema';
 import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
-import { safeParseJsonWithSchema, z } from '@/utils/zod';
-
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import type { AiRequestOptions, AiResponse, JsonObject } from '../../../contracts/protocol';
 import type {
@@ -19,11 +17,6 @@ import { buildModelMessages, buildToolSet } from './messages';
 import { createAiSdkStreamProcessor } from './stream';
 import { createTauriFetch } from './tauriFetch';
 
-const providerConfigJsonSchema = z.object({
-    headers: z.record(z.string(), z.string()).optional(),
-    queryParams: z.record(z.string(), z.string()).optional(),
-});
-
 /**
  * base URL 只负责移除尾部斜杠，绝不追加供应商路径。
  */
@@ -31,11 +24,10 @@ export function normalizeProviderBaseUrl(baseUrl: string): string {
     return baseUrl.replace(/\/+$/, '');
 }
 
-export function parseProviderConfigJson(configJson?: string | null): ProviderConfigJson {
-    return safeParseJsonWithSchema(providerConfigJsonSchema, configJson, {});
-}
-
-function buildUrlWithQueryParams(target: string, queryParams: Record<string, string>): string {
+export function buildUrlWithQueryParams(
+    target: string,
+    queryParams: Record<string, string>
+): string {
     if (Object.keys(queryParams).length === 0 || !target) {
         return target;
     }
@@ -99,23 +91,25 @@ export function mapHttpStatusToAiError(
     statusCode: number | undefined,
     message: string
 ): AiError | null {
+    const normalizedMessage = /^HTTP\s+\d{3}\b/i.test(message) ? undefined : message;
+
     switch (statusCode) {
         case 401:
         case 403:
-            return new AiError(AiErrorCode.UNAUTHORIZED, undefined, message);
+            return new AiError(AiErrorCode.UNAUTHORIZED, undefined, normalizedMessage);
         case 408:
-            return new AiError(AiErrorCode.TIMEOUT, undefined, message);
+            return new AiError(AiErrorCode.TIMEOUT, undefined, normalizedMessage);
         case 429:
-            return new AiError(AiErrorCode.RATE_LIMIT, undefined, message);
+            return new AiError(AiErrorCode.RATE_LIMIT, undefined, normalizedMessage);
         case 502:
-            return new AiError(AiErrorCode.BAD_GATEWAY, undefined, message);
+            return new AiError(AiErrorCode.BAD_GATEWAY, undefined, normalizedMessage);
         case 503:
-            return new AiError(AiErrorCode.SERVICE_UNAVAILABLE, undefined, message);
+            return new AiError(AiErrorCode.SERVICE_UNAVAILABLE, undefined, normalizedMessage);
         case 504:
-            return new AiError(AiErrorCode.GATEWAY_TIMEOUT, undefined, message);
+            return new AiError(AiErrorCode.GATEWAY_TIMEOUT, undefined, normalizedMessage);
         default:
             if (statusCode && statusCode >= 500)
-                return new AiError(AiErrorCode.API_ERROR, undefined, message);
+                return new AiError(AiErrorCode.API_ERROR, undefined, normalizedMessage);
             return null;
     }
 }

@@ -68,6 +68,7 @@ vi.mock('@services/EventService', () => ({
     },
     eventService: {
         emit: vi.fn(),
+        on: vi.fn(async () => vi.fn()),
     },
 }));
 
@@ -93,6 +94,14 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => ({
         logo: 'openai.png',
         placeholder: 'https://api.openai.com',
     }),
+    parseProviderConfigJson: (configJson: string | null) =>
+        configJson ? JSON.parse(configJson) : {},
+    isTouchAiManagedMode: (config: { touchAiMode?: 'managed' | 'custom' }, baseUrl: string) =>
+        config.touchAiMode === 'custom'
+            ? false
+            : config.touchAiMode === 'managed'
+              ? true
+              : baseUrl === 'https://hub.touch-ai.org/api/v1',
 }));
 
 vi.mock('@/views/SettingsView/components/AiServices/components/ProviderList.vue', () => ({

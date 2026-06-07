@@ -15,6 +15,8 @@ import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type {
     AiToolCall,
     AiToolDefinition,
+    AskUserAnswer,
+    AskUserQuestion,
     ToolApprovalDecisionRequest,
     ToolApprovalRequest,
     ToolEvent,
@@ -42,6 +44,10 @@ interface BuiltInToolExecutionOptions {
     sessionId: number | null;
     toolCallMessageId: number | null;
     requestToolApproval?: (payload: ToolApprovalDecisionRequest) => Promise<boolean>;
+    requestUserQuestions?: (
+        callId: string,
+        questions: AskUserQuestion[]
+    ) => Promise<AskUserAnswer[] | null>;
     emitToolEvent: (event: ToolEvent) => void;
 }
 
@@ -250,6 +256,7 @@ class BuiltInToolService {
             signal: options.signal,
             emitToolEvent: options.emitToolEvent,
             hasExecutedBuiltInTool: options.hasExecutedBuiltInTool,
+            requestUserQuestions: options.requestUserQuestions,
         };
 
         const callStartTime = Date.now();

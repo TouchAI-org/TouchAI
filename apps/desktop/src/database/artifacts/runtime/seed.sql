@@ -20,7 +20,7 @@ WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'search_window_size_preset'
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )
-SELECT 'OpenAI', 'openai', 'https://api.openai.com', NULL, NULL, 'openai.png', 1, 1
+SELECT 'OpenAI', 'openai', 'https://api.openai.com', NULL, NULL, 'openai.png', 0, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'OpenAI');
 
 INSERT INTO providers (
@@ -86,8 +86,18 @@ WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = '智谱');
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )
-SELECT 'Xiaomi MiMo', 'mimo', 'https://token-plan-cn.xiaomimimo.com/v1', NULL, NULL, 'mimo.png', 0, 1
+SELECT 'Xiaomi MiMo', 'mimo', 'https://hub.touch-ai.org/api/v1', NULL, json_object('touchAiMode', 'managed'), 'mimo.png', 1, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'Xiaomi MiMo');
+
+UPDATE providers
+SET
+    name = 'Xiaomi MiMo',
+    api_endpoint = 'https://hub.touch-ai.org/api/v1',
+    config_json = json_set(COALESCE(config_json, '{}'), '$.touchAiMode', 'managed'),
+    logo = 'mimo.png'
+WHERE is_builtin = 1
+  AND driver = 'mimo'
+  AND COALESCE(json_extract(config_json, '$.touchAiMode'), 'managed') <> 'custom';
 
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
@@ -142,3 +152,9 @@ INSERT INTO built_in_tools (
 )
 SELECT 'visualize_read_me', 'VisualizeReadMe', '读取 ShowWidget 生成规范', 1, 'low', NULL
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'visualize_read_me');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
+SELECT 'ask_user_question', 'AskUserQuestion', '向用户提出结构化问题', 1, 'low', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'ask_user_question');

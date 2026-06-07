@@ -3,58 +3,214 @@
 import { AppEvent, eventService } from '@services/EventService';
 import { paths } from '@services/NativeService';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { join } from '@tauri-apps/api/path';
+import { exists } from '@tauri-apps/plugin-fs';
 
-/**
- * 字体文件名
- */
 const FONT_FILENAME = 'SourceHanSerifSC-VF.ttf.woff2';
+const FONT_FACE_FAMILY = 'TouchAI Source Han Serif SC';
+const FONT_FACE_STYLE_ATTRIBUTE = 'data-touchai-font-face';
+const FONT_FACE_STYLE_KEY = 'source-han-serif-sc';
+const FONT_LOAD_TEST = `16px '${FONT_FACE_FAMILY}'`;
+const FONT_LOAD_ATTEMPTS = 3;
+const FONT_LOAD_RETRY_DELAY_MS = 16;
 
-/**
- * 加载字体文件并注入 @font-face 规则
- */
-async function injectFontFace(): Promise<void> {
-    // 获取字体目录路径
+let fontLoadPromise: Promise<void> | null = null;
+let fontReadyListenerPromise: Promise<void> | null = null;
+let fontReloadToken = 0;
+
+interface LoadFontFaceOptions {
+    refresh?: boolean;
+    requireExistingFile?: boolean;
+}
+
+interface FontLoadDiagnostics {
+    fontUrl: string;
+    fontLoaded: boolean;
+    fontsApiAvailable: boolean;
+    fetchOk?: boolean;
+    fetchStatus?: number;
+    fetchStatusText?: string;
+    contentType?: string | null;
+    userAgent: string;
+    error?: string;
+}
+
+function getInjectedFontFaceStyle(): HTMLStyleElement | null {
+    return document.head.querySelector<HTMLStyleElement>(
+        `style[${FONT_FACE_STYLE_ATTRIBUTE}="${FONT_FACE_STYLE_KEY}"]`
+    );
+}
+
+function hasInjectedFontFace(): boolean {
+    return getInjectedFontFaceStyle() !== null;
+}
+
+function appendFontReloadToken(fontUrl: string, reloadToken: number): string {
+    const separator = fontUrl.includes('?') ? '&' : '?';
+    return `${fontUrl}${separator}touchaiFontReload=${reloadToken}`;
+}
+
+function stringifyError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
+    });
+}
+
+async function waitForStyleProcessing(): Promise<void> {
+    await Promise.resolve();
+
+    await new Promise<void>((resolve) => {
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => resolve());
+            return;
+        }
+
+        window.setTimeout(resolve, 0);
+    });
+}
+
+async function resolveFontPath(): Promise<string> {
     const fontDir = await paths.getAppDirectoryPath('ASSETS_FONT');
+    return join(fontDir, FONT_FILENAME);
+}
 
-    // 构建字体文件的完整路径
-    const fontPath = `${fontDir}\\${FONT_FILENAME}`;
+async function verifyInjectedFontFace(fontUrl: string): Promise<void> {
+    const diagnostics: FontLoadDiagnostics = {
+        fontUrl,
+        fontLoaded: false,
+        fontsApiAvailable:
+            typeof document.fonts?.load === 'function' &&
+            typeof document.fonts?.check === 'function',
+        userAgent: navigator.userAgent,
+    };
 
-    // 转换为前端可用的 URL
-    const fontUrl = convertFileSrc(fontPath);
+    try {
+        if (diagnostics.fontsApiAvailable) {
+            await waitForStyleProcessing();
 
-    // 动态注入 @font-face 规则
+            for (let attempt = 0; attempt < FONT_LOAD_ATTEMPTS; attempt += 1) {
+                if (attempt > 0) {
+                    await delay(FONT_LOAD_RETRY_DELAY_MS);
+                }
+
+                await document.fonts.load(FONT_LOAD_TEST);
+                diagnostics.fontLoaded = document.fonts.check(FONT_LOAD_TEST);
+
+                if (diagnostics.fontLoaded) {
+                    break;
+                }
+            }
+        }
+
+        if (typeof fetch === 'function') {
+            const response = await fetch(fontUrl);
+            diagnostics.fetchOk = response.ok;
+            diagnostics.fetchStatus = response.status;
+            diagnostics.fetchStatusText = response.statusText;
+            diagnostics.contentType = response.headers.get('content-type');
+        }
+    } catch (error) {
+        diagnostics.error = stringifyError(error);
+    }
+
+    if (diagnostics.fontLoaded && diagnostics.fetchOk !== false) {
+        console.info('Source Han Serif font ready:', diagnostics);
+    } else {
+        console.warn('Source Han Serif font diagnostics:', diagnostics);
+    }
+}
+
+async function injectFontFace(options: LoadFontFaceOptions = {}): Promise<boolean> {
+    const { refresh = false, requireExistingFile = false } = options;
+
+    if (!refresh && hasInjectedFontFace()) {
+        return true;
+    }
+
+    const fontPath = await resolveFontPath();
+    if (requireExistingFile && !(await exists(fontPath))) {
+        return false;
+    }
+
+    const fontUrl = refresh
+        ? appendFontReloadToken(convertFileSrc(fontPath), ++fontReloadToken)
+        : convertFileSrc(fontPath);
+
+    if (!refresh && hasInjectedFontFace()) {
+        return true;
+    }
+
     const style = document.createElement('style');
+    style.setAttribute(FONT_FACE_STYLE_ATTRIBUTE, FONT_FACE_STYLE_KEY);
     style.textContent = `
         @font-face {
-            font-family: 'Source Han Serif SC';
-            src: url('${fontUrl}') format('woff2-variations');
-            font-weight: 200 900;
+            font-family: '${FONT_FACE_FAMILY}';
+            src: url('${fontUrl}') format('woff2');
+            font-weight: 250 900;
             font-style: normal;
             font-display: swap;
         }
     `;
+    getInjectedFontFaceStyle()?.remove();
     document.head.appendChild(style);
 
-    console.log('Source Han Serif font loaded successfully from:', fontUrl);
+    await verifyInjectedFontFace(fontUrl);
+    return true;
 }
 
-/**
- * 初始化字体加载监听器
- *
- * 监听 Rust 后端发送的 `font:ready` 事件，
- * 收到事件后才加载字体文件。
- */
-export function initializeFontLoader(): void {
-    eventService
-        .on(AppEvent.FONT_READY, async () => {
-            try {
-                await injectFontFace();
-            } catch (error) {
-                console.error('Failed to load Source Han Serif font:', error);
-                // 字体加载失败不应阻止应用运行，只记录错误
-            }
+function loadFontFace(options: LoadFontFaceOptions = {}): Promise<void> {
+    const { refresh = false } = options;
+
+    if (!refresh && hasInjectedFontFace()) {
+        return Promise.resolve();
+    }
+
+    if (!refresh && fontLoadPromise) {
+        return fontLoadPromise;
+    }
+
+    const loadPromise = injectFontFace(options)
+        .then(() => undefined)
+        .finally(() => {
+            fontLoadPromise = null;
+        });
+
+    if (refresh) {
+        return loadPromise;
+    }
+
+    fontLoadPromise = loadPromise;
+    return fontLoadPromise;
+}
+
+function logFontLoadError(error: unknown): void {
+    console.error('Failed to load Source Han Serif font:', error);
+}
+
+function ensureFontReadyListener(): Promise<void> {
+    if (fontReadyListenerPromise) {
+        return fontReadyListenerPromise;
+    }
+
+    fontReadyListenerPromise = eventService
+        .on(AppEvent.FONT_READY, () => {
+            void loadFontFace({ refresh: true }).catch(logFontLoadError);
         })
+        .then(() => undefined)
         .catch((error) => {
+            fontReadyListenerPromise = null;
             console.error('Failed to listen for font-ready event:', error);
         });
+
+    return fontReadyListenerPromise;
+}
+
+export function initializeFontLoader(): void {
+    ensureFontReadyListener().finally(() => {
+        void loadFontFace({ requireExistingFile: true }).catch(logFontLoadError);
+    });
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { ProjectionApprovals } from '@/services/AgentService/task/projection/approvals';
+import { ProjectionUserPrompts } from '@/services/AgentService/task/projection/userPrompts';
 import type { SessionMessage } from '@/types/session';
 
 function createAssistantMessage(): SessionMessage {
@@ -14,7 +14,7 @@ function createAssistantMessage(): SessionMessage {
     };
 }
 
-describe('ProjectionApprovals i18n defaults', () => {
+describe('ProjectionUserPrompts i18n defaults', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         vi.spyOn(crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
@@ -22,7 +22,7 @@ describe('ProjectionApprovals i18n defaults', () => {
 
     it('keeps default approval fields as source text when the active locale is English', () => {
         setLocale('en-US');
-        const approvals = new ProjectionApprovals();
+        const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
 
         const approval = approvals.presentApproval(history, 'message-1', {
@@ -54,7 +54,7 @@ describe('ProjectionApprovals i18n defaults', () => {
 
     it('keeps omitted default approval labels as source text for live locale rendering', () => {
         setLocale('en-US');
-        const approvals = new ProjectionApprovals();
+        const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
 
         const approval = approvals.presentApproval(history, 'message-1', {
@@ -78,7 +78,7 @@ describe('ProjectionApprovals i18n defaults', () => {
 
     it('canonicalizes translated app-owned payload labels back to source text', () => {
         setLocale('en-US');
-        const approvals = new ProjectionApprovals();
+        const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
 
         const approval = approvals.presentApproval(history, 'message-1', {
@@ -107,7 +107,7 @@ describe('ProjectionApprovals i18n defaults', () => {
 
     it('canonicalizes translated setting approval text back to source text', () => {
         setLocale('en-US');
-        const approvals = new ProjectionApprovals();
+        const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
 
         const approval = approvals.presentApproval(history, 'message-1', {
@@ -135,7 +135,7 @@ describe('ProjectionApprovals i18n defaults', () => {
 
     it('settles approval with source-key default resolution text', async () => {
         setLocale('en-US');
-        const approvals = new ProjectionApprovals();
+        const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
 
         const decision = approvals.requestApproval(history, 'message-1', {
@@ -143,7 +143,7 @@ describe('ProjectionApprovals i18n defaults', () => {
             command: 'Remove-Item file.txt',
         } as never);
 
-        const settlement = approvals.settle('call-1', true);
+        const settlement = approvals.settleApproval('call-1', true);
 
         await expect(decision).resolves.toBe(true);
         expect(settlement).toMatchObject({

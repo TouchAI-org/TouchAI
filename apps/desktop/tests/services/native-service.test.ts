@@ -1,4 +1,4 @@
-﻿import {
+import {
     type AppUpdateCheckResult,
     type AppUpdateInfo,
     autostart,
@@ -67,6 +67,12 @@ describe('NativeService window boundary', () => {
             name: 'hides the search window',
             call: () => windowCommands.hideSearchWindow(),
             cmd: 'hide_search_window',
+            payload: undefined,
+        },
+        {
+            name: 'shows the search window',
+            call: () => windowCommands.showSearchWindow(),
+            cmd: 'show_search_window',
             payload: undefined,
         },
         {

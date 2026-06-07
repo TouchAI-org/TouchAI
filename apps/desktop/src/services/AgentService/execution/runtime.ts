@@ -4,17 +4,23 @@ import { updateModelLastUsed } from '@database/queries';
 import type { SessionTurnEntity } from '@database/types';
 
 import { t } from '@/i18n';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
-import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import {
+    type AttachmentIndex,
+    ensurePersistedAttachmentIndex,
+    getModelAttachmentCapabilities,
+    getUnsupportedAttachmentTypes,
+} from '@/services/AgentService/infrastructure/attachments';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
+import { isTouchAiManagedMode, parseProviderConfigJson } from '../infrastructure/providers/config';
 import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
 import { buildPromptTransportMessages } from '../prompt/transport';
 import type { PromptSnapshot } from '../prompt/types';
 import { buildSessionTitle } from '../session/title';
+import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
 import type { TaskExecutionMode } from '../task/types';
 import {
     AiRequestExecutor,
@@ -221,6 +227,22 @@ export class AiConversationRuntime {
             providerId: this.options.providerId,
         });
         const attachments = this.options.attachments ?? [];
+        const attachmentCapabilities = getModelAttachmentCapabilities(initialModel);
+        const unsupportedAttachmentTypes = new Set([
+            ...getUnsupportedAttachmentTypes(attachments, attachmentCapabilities),
+            ...(await findUnsupportedSessionAttachmentTypes({
+                sessionId: this.options.sessionId,
+                capabilities: attachmentCapabilities,
+            })),
+        ]);
+        if (unsupportedAttachmentTypes.size > 0) {
+            throw new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
+                unsupportedAttachmentTypes: Array.from(unsupportedAttachmentTypes),
+                modelId: initialModel.model_id,
+                providerId: initialModel.provider_id,
+            });
+        }
+
         if (attachments.length > 0) {
             await this.prepareAttachmentsForTransport(attachments);
         }
@@ -240,7 +262,7 @@ export class AiConversationRuntime {
             sessionId: this.options.sessionId,
             snapshot: promptSnapshot,
             attachments,
-            supportsAttachments: initialModel.attachment === 1,
+            attachmentCapabilities,
         });
         const initialCheckpoint = this.executor.createInitialCheckpoint({
             initialModel,
@@ -379,6 +401,26 @@ export class AiConversationRuntime {
         };
     }
 
+    private async invalidateManagedAuthIfNeeded(
+        model: ModelWithProvider,
+        error: unknown
+    ): Promise<boolean> {
+        if (model.provider_driver !== 'mimo') {
+            return false;
+        }
+
+        const providerConfig = parseProviderConfigJson(model.provider_config_json);
+        if (!isTouchAiManagedMode(providerConfig, model.api_endpoint)) {
+            return false;
+        }
+
+        const { invalidateManagedAuthForError } = await import('@/services/AuthService');
+        return await invalidateManagedAuthForError({
+            providerId: model.provider_id,
+            error,
+        });
+    }
+
     /**
      * 执行完整请求生命周期。
      */
@@ -398,6 +440,7 @@ export class AiConversationRuntime {
                     onChunk: this.options.onChunk,
                     onTurnEvent: this.options.onTurnEvent,
                     requestToolApproval: this.options.requestToolApproval,
+                    requestUserQuestions: this.options.requestUserQuestions,
                 });
 
                 await context.requestStartRecordPromise;
@@ -432,6 +475,18 @@ export class AiConversationRuntime {
                         });
                     }
                     throw attemptResult.error;
+                }
+
+                const didInvalidateManagedAuth = await this.invalidateManagedAuthIfNeeded(
+                    attemptResult.resumeCheckpoint.activeModel,
+                    attemptResult.error
+                );
+                if (didInvalidateManagedAuth) {
+                    attemptResult.error = new AiError(
+                        AiErrorCode.UNAUTHORIZED,
+                        attemptResult.error.details,
+                        t('settings.ai.managedActivity.sessionExpired')
+                    );
                 }
 
                 if (this.shouldRetryAttempt(attemptResult, retryAttempt)) {

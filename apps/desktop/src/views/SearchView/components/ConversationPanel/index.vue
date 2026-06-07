@@ -40,13 +40,7 @@
                     :data-message-id="message.id"
                     :data-message-role="message.role"
                 >
-                    <MessageItem
-                        :message="message"
-                        :approval-attention-token="approvalAttentionToken"
-                        @regenerate="handleRegenerateMessage"
-                        @approve-tool-approval="handleApproveToolApproval"
-                        @reject-tool-approval="handleRejectToolApproval"
-                    />
+                    <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
                 </div>
             </div>
 
@@ -103,13 +97,11 @@
         historyOpen: boolean;
         toolbarDisabled?: boolean;
         maxHeight?: number;
-        approvalAttentionToken?: number;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         maxHeight: 600,
         toolbarDisabled: false,
-        approvalAttentionToken: 0,
         isMaximized: false,
         fillAvailableHeight: false,
     });
@@ -121,10 +113,9 @@
         newSession: [];
         historyOpenChange: [payload: { open: boolean; anchorElement: HTMLElement | null }];
         historyPrefetch: [anchorElement: HTMLElement | null];
-        approveToolApproval: [callId: string];
-        rejectToolApproval: [callId: string];
         dragStart: [];
         dragEnd: [];
+        latestContentVisibilityChange: [visible: boolean];
     }>();
 
     const conversationContainer = ref<HTMLElement | null>(null);
@@ -189,23 +180,24 @@
         return conversationToolbar.value?.getHistoryAnchor() ?? null;
     }
 
+    function isLatestContentVisible() {
+        return isScrolledToBottom(conversationContainer.value);
+    }
+
     defineExpose({
         focus,
         revealLatestContent,
         scrollByDelta,
         getHistoryAnchor,
+        isLatestContentVisible,
     });
+
+    function emitLatestContentVisibility() {
+        emit('latestContentVisibilityChange', isLatestContentVisible());
+    }
 
     function handleRegenerateMessage(messageId: string) {
         emit('regenerateMessage', messageId);
-    }
-
-    function handleApproveToolApproval(callId: string) {
-        emit('approveToolApproval', callId);
-    }
-
-    function handleRejectToolApproval(callId: string) {
-        emit('rejectToolApproval', callId);
     }
 
     function shouldAutoScrollOnOutput(): boolean {
@@ -283,6 +275,7 @@
         }
 
         lastScrollTop.value = currentScrollTop;
+        emitLatestContentVisibility();
     }
 
     function syncToBottom() {
@@ -290,6 +283,7 @@
         lastAutoScrollAt.value = Date.now();
         conversationContainer.value.scrollTop = conversationContainer.value.scrollHeight;
         lastScrollTop.value = conversationContainer.value.scrollTop;
+        emitLatestContentVisibility();
     }
 
     function smoothScrollToBottom() {
@@ -300,6 +294,7 @@
             behavior: 'smooth',
         });
         lastScrollTop.value = conversationContainer.value.scrollTop;
+        emitLatestContentVisibility();
     }
 
     /**
@@ -313,6 +308,7 @@
 
         const atBottom = isScrolledToBottom(conversationContainer.value);
         showScrollToBottom.value = hasScrollbar() && !atBottom;
+        emitLatestContentVisibility();
     }
 
     function scrollToUserMessageTop(messageId: string, gap = USER_MESSAGE_SCROLL_GAP): boolean {
@@ -356,6 +352,7 @@
             isAutoScrollEnabled.value = false;
         }
         refreshScrollToBottomVisibility();
+        emitLatestContentVisibility();
     }
 
     // 滚动到底部
@@ -423,6 +420,7 @@
                     isAutoScrollEnabled.value = false;
                     nextTick(() => {
                         refreshScrollToBottomVisibility();
+                        emitLatestContentVisibility();
                     });
                 }
             }
@@ -441,6 +439,7 @@
 
             await nextTick();
             refreshScrollToBottomVisibility();
+            emitLatestContentVisibility();
         },
         { immediate: true }
     );
@@ -453,11 +452,13 @@
             scrollTop.value = conversationContainer.value.scrollTop;
             scrollHeight.value = conversationContainer.value.scrollHeight;
             clientHeight.value = conversationContainer.value.clientHeight;
+            emitLatestContentVisibility();
         }
 
         if (messageListRef.value) {
             messageListObserver = new ResizeObserver(() => {
                 if (!shouldAutoScrollOnOutput()) {
+                    emitLatestContentVisibility();
                     return;
                 }
 

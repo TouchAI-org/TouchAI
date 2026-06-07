@@ -5,6 +5,9 @@ on:
         branches:
             - main
     pull_request:
+    merge_group:
+        types:
+            - checks_requested
     workflow_dispatch:
 
 permissions:
@@ -12,7 +15,7 @@ permissions:
     pull-requests: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
     cancel-in-progress: true
 
 jobs:
@@ -125,7 +128,7 @@ jobs:
             - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
               with:
                   node-version: 22
-                  cache: pnpm
+                  package-manager-cache: false
 
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -185,3 +188,55 @@ jobs:
 
             - name: Run desktop smoke tests
               run: pnpm test:e2e
+
+    e2e-required:
+        name: E2E Required
+        if: always()
+        needs:
+            - changes
+            - desktop-e2e-smoke-windows
+        runs-on: ubuntu-latest
+        steps:
+            - name: Verify required E2E jobs
+              env:
+                  DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+                  DESKTOP_CHANGED: ${{ needs.changes.outputs.desktop_changed }}
+                  CHANGES_RESULT: ${{ needs.changes.result }}
+                  DESKTOP_E2E_RESULT: ${{ needs['desktop-e2e-smoke-windows'].result }}
+              run: |
+                  required=("changes:$CHANGES_RESULT")
+
+                  if [ "$DOCS_ONLY" != "true" ] && [ "$DESKTOP_CHANGED" = "true" ]; then
+                    required+=("desktop-e2e-smoke-windows:$DESKTOP_E2E_RESULT")
+                  fi
+
+                  failed=0
+                  observed=(
+                    "changes:$CHANGES_RESULT"
+                    "desktop-e2e-smoke-windows:$DESKTOP_E2E_RESULT"
+                  )
+
+                  for check in "${observed[@]}"; do
+                    name="${check%%:*}"
+                    result="${check#*:}"
+
+                    if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+                      echo "$name unexpectedly ended with $result."
+                      failed=1
+                    fi
+                  done
+
+                  for check in "${required[@]}"; do
+                    name="${check%%:*}"
+                    result="${check#*:}"
+                    echo "$name -> $result"
+
+                    if [ "$result" != "success" ]; then
+                      failed=1
+                    fi
+                  done
+
+                  if [ "$failed" -ne 0 ]; then
+                    echo "One or more required E2E jobs did not pass."
+                    exit 1
+                  fi

@@ -13,7 +13,9 @@ const SETTINGS_WINDOW_ROUTE: &str = "#/settings";
 pub async fn build_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     if let Some(settings_window) = app.get_webview_window("settings") {
         settings_window.unminimize().map_err(|e| e.to_string())?;
+        crate::core::window::rounded_corners::sync_window_corner_style(&settings_window)?;
         settings_window.show().map_err(|e| e.to_string())?;
+        crate::core::window::rounded_corners::sync_window_corner_style(&settings_window)?;
         settings_window.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
@@ -33,6 +35,7 @@ pub async fn build_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(),
     .map_err(|e| e.to_string())?;
 
     crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)?;
+    crate::core::window::rounded_corners::apply_window_corner_style(&window)?;
 
     Ok(())
 }

@@ -1,11 +1,10 @@
-﻿<!-- Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3 -->
+<!-- Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import type { AppIconName } from '@components/appIconMap';
     import { native } from '@services/NativeService';
     import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-    import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
     import { exit } from '@tauri-apps/plugin-process';
     import { onMounted } from 'vue';
 
@@ -55,11 +54,7 @@
 
     async function showMainWindow() {
         try {
-            const mainWindow = await WebviewWindow.getByLabel('main');
-
-            if (mainWindow) {
-                mainWindow.show().then(mainWindow.setFocus);
-            }
+            await native.window.showSearchWindow();
         } catch (error) {
             console.error('[TrayMenu] Error showing main window:', error);
         }
