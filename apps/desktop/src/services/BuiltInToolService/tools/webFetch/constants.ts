@@ -13,6 +13,7 @@ export const WEB_FETCH_MODES = ['reader', 'page_markdown', 'page_text'] as const
 export const SUPPORTED_PROTOCOLS = new Set(['http:', 'https:']);
 export const DEFAULT_TIMEOUT_MS = 20_000;
 export const DEFAULT_SOURCE_CHAR_LIMIT = 1_500_000;
+export const MAX_WEB_FETCH_REDIRECTS = 10;
 export const DEFAULT_ACCEPT_HEADER = [
     'text/html',
     'application/xhtml+xml',
