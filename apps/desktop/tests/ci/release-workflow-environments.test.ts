@@ -12,6 +12,22 @@ async function readWorkflow(path: string) {
 }
 
 describe('release workflow deployment environments', () => {
+    it('refreshes release PRs with a dedicated bot token so required checks run', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('Validate release bot token');
+        expect(workflow).toContain('RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}');
+        expect(workflow).toContain('token: ${{ secrets.RELEASE_PLEASE_TOKEN }}');
+        expect(workflow).not.toContain('github.token');
+        expect(workflow).not.toContain('secrets.RELEASE_PLEASE_TOKEN ||');
+    });
+
+    it('allows maintainers to manually refresh the release PR after token changes', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('workflow_dispatch:');
+    });
+
     it('keeps stable releases on the protected release environment by default', async () => {
         const workflow = await readWorkflow('velopack-build.yml');
 
