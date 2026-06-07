@@ -19,8 +19,7 @@
                 "provider": "cloudflare-r2",
                 "bucketName": "touchai-updates",
                 "workerName": "touchai-update-proxy",
-                "routePattern": "updates.touch-ai.org/touchai-app/v1/*",
-                "zoneName": "touch-ai.org",
+                "hostname": "updates.touch-ai.org",
                 "compatibilityDate": "2026-05-29",
                 "r2HotAssetVersions": {
                     "stable": 3,

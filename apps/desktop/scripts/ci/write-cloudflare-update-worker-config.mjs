@@ -27,8 +27,7 @@ export function buildCloudflareUpdateWorkerConfig(product, options) {
 
     assertNonEmptyString(deployment.workerName, 'services.updates.deployment.workerName');
     assertNonEmptyString(deployment.bucketName, 'services.updates.deployment.bucketName');
-    assertNonEmptyString(deployment.routePattern, 'services.updates.deployment.routePattern');
-    assertNonEmptyString(deployment.zoneName, 'services.updates.deployment.zoneName');
+    assertNonEmptyString(deployment.hostname, 'services.updates.deployment.hostname');
     assertNonEmptyString(
         deployment.compatibilityDate,
         'services.updates.deployment.compatibilityDate'
@@ -40,11 +39,9 @@ export function buildCloudflareUpdateWorkerConfig(product, options) {
         `main = ${tomlString(normalizePath(options.workerScriptPath))}`,
         `compatibility_date = ${tomlString(deployment.compatibilityDate)}`,
         '',
-        'routes = [',
-        `    { pattern = ${tomlString(deployment.routePattern)}, zone_name = ${tomlString(
-            deployment.zoneName
-        )} },`,
-        ']',
+        '[[routes]]',
+        `pattern = ${tomlString(deployment.hostname)}`,
+        'custom_domain = true',
         '',
         '[[r2_buckets]]',
         'binding = "UPDATE_BUCKET"',

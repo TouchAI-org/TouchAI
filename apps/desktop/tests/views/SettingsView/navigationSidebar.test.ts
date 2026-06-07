@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import NavigationSidebar from '@/views/SettingsView/components/NavigationSidebar.vue';
@@ -10,6 +10,8 @@ import {
     SETTINGS_SIDEBAR_MAX_WIDTH,
     SETTINGS_SIDEBAR_MIN_WIDTH,
 } from '@/views/SettingsView/settingsSidebarLayout';
+
+import desktopPackageJson from '../../../package.json';
 
 const openUrlMock = vi.hoisted(() => vi.fn());
 
@@ -24,6 +26,8 @@ vi.mock('@components/AppIcon.vue', () => ({
 vi.mock('@tauri-apps/plugin-opener', () => ({
     openUrl: openUrlMock,
 }));
+
+enableAutoUnmount(afterEach);
 
 function createPointerEvent(type: string, clientX: number, pointerId = 11) {
     const event = new Event(type, { bubbles: true, cancelable: true });
@@ -74,7 +78,7 @@ describe('NavigationSidebar', () => {
             },
         });
 
-        expect(wrapper.text()).toContain('TouchAI v0.1.0');
+        expect(wrapper.text()).toContain(`TouchAI v${desktopPackageJson.version}`);
         expect(wrapper.find('[data-testid="settings-sidebar-github"]').exists()).toBe(true);
         expect(wrapper.find('[data-testid="settings-sidebar-issues"]').exists()).toBe(true);
 

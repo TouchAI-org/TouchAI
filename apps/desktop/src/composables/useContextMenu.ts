@@ -15,7 +15,8 @@ type ContextMenuItemsSource = ContextMenuItem[] | (() => ContextMenuItem[]);
 
 export function useContextMenu<T = void>(
     items: ContextMenuItemsSource,
-    onSelect: (key: string, context: T) => void
+    onSelect: (key: string, context: T) => void,
+    onClose?: () => void
 ) {
     const context = ref<T | undefined>(undefined) as { value: T | undefined };
     let mountedApp: App | null = null;
@@ -23,7 +24,8 @@ export function useContextMenu<T = void>(
     let keydownHandler: ((e: KeyboardEvent) => void) | null = null;
     let activeIndex = 0;
 
-    const cleanup = () => {
+    const cleanup = (options: { notify?: boolean } = {}) => {
+        const hadMenu = keydownHandler !== null || mountedApp !== null || container !== null;
         if (keydownHandler) {
             document.removeEventListener('keydown', keydownHandler, true);
             keydownHandler = null;
@@ -37,6 +39,10 @@ export function useContextMenu<T = void>(
             container = null;
         }
         activeIndex = 0;
+
+        if (hadMenu && options.notify !== false) {
+            onClose?.();
+        }
     };
 
     /** 获取当前菜单项元素列表。 */
@@ -78,7 +84,7 @@ export function useContextMenu<T = void>(
 
     const open = (event: MouseEvent, ctx?: T) => {
         event.preventDefault();
-        cleanup();
+        cleanup({ notify: false });
 
         context.value = ctx;
         activeIndex = 0;

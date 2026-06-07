@@ -127,7 +127,7 @@ export const visualizeReadMeArgsSchema = z
  * 暴露给模型的 VisualizeReadMe 工具说明。
  */
 export const VISUALIZE_READ_ME_TOOL_DESCRIPTION =
-    "Before using show_widget, you must use this tool to read the appropriate guidelines. Read ['diagram'] for diagrams/flowcharts/org charts. Read ['mockup'] for UI component mockups. Read ['interactive'] for interactive widgets. Read ['chart'] for charts and data visualization. Read ['art'] for visual illustrations. Feel free to read multiple guidelines if needed. CORE is always included automatically.";
+    "This tool is exposed to the model as builtin__visualize_read_me. Before using builtin__show_widget, you must use this tool to read the appropriate guidelines. Read ['diagram'] for diagrams/flowcharts/org charts. Read ['mockup'] for UI component mockups. Read ['interactive'] for interactive widgets. Read ['chart'] for charts and data visualization. Read ['art'] for visual illustrations. Feel free to read multiple guidelines if needed. CORE is always included automatically.";
 
 /**
  * 暴露给模型的 VisualizeReadMe 工具输入 schema。
@@ -137,7 +137,8 @@ export const VISUALIZE_READ_ME_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema
     properties: {
         modules: {
             type: 'array',
-            description: 'One or more guideline modules to load before calling show_widget.',
+            description:
+                'One or more guideline modules to load before calling builtin__show_widget.',
             items: {
                 type: 'string',
                 enum: SHOW_WIDGET_GUIDE_MODULES.filter(
