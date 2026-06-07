@@ -253,6 +253,7 @@ export class AiError extends Error {
             if (
                 message.includes('abort') ||
                 message.includes('cancel') ||
+                originalMessage.includes('\u53d6\u6d88') || // "取消" (cancel in Chinese)
                 (error instanceof Error && error.name === 'AbortError')
             ) {
                 return new AiError(AiErrorCode.REQUEST_CANCELLED, error, undefined, {
