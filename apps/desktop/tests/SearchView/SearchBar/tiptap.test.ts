@@ -59,6 +59,47 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(createEditorFromDoc(doc))).toBe('trusted proxy:\ntrue.');
     });
 
+    it('serializes consecutive hard breaks as consecutive newlines', () => {
+        const doc = schema.nodes.doc!.create(null, [
+            schema.nodes.paragraph!.create(null, [
+                schema.text('line1'),
+                schema.nodes.hardBreak!.create(),
+                schema.nodes.hardBreak!.create(),
+                schema.text('line2'),
+            ]),
+        ]);
+
+        expect(getEditorText(createEditorFromDoc(doc))).toBe('line1\n\nline2');
+    });
+
+    it('serializes hard-break-only paragraphs as newline content', () => {
+        const doc = schema.nodes.doc!.create(null, [
+            schema.nodes.paragraph!.create(null, [
+                schema.nodes.hardBreak!.create(),
+                schema.nodes.hardBreak!.create(),
+            ]),
+        ]);
+
+        expect(getEditorText(createEditorFromDoc(doc))).toBe('\n\n');
+    });
+
+    it('preserves paragraph boundaries and hard breaks together', () => {
+        const doc = schema.nodes.doc!.create(null, [
+            schema.nodes.paragraph!.create(null, [
+                schema.text('para1'),
+                schema.nodes.hardBreak!.create(),
+                schema.text('wrap1'),
+            ]),
+            schema.nodes.paragraph!.create(null, [
+                schema.text('para2'),
+                schema.nodes.hardBreak!.create(),
+                schema.text('wrap2'),
+            ]),
+        ]);
+
+        expect(getEditorText(createEditorFromDoc(doc))).toBe('para1\nwrap1\npara2\nwrap2');
+    });
+
     it('keeps non-text search tags out of the extracted plain text', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [
@@ -69,5 +110,18 @@ describe('SearchBar tiptap utilities', () => {
         ]);
 
         expect(getEditorText(createEditorFromDoc(doc))).toBe('beforeafter');
+    });
+
+    it('preserves hard breaks while filtering mixed inline search tags', () => {
+        const doc = schema.nodes.doc!.create(null, [
+            schema.nodes.paragraph!.create(null, [
+                schema.text('before'),
+                schema.nodes.hardBreak!.create(),
+                schema.nodes.attachmentTag!.create({ attachmentId: 'file-1' }),
+                schema.text('after'),
+            ]),
+        ]);
+
+        expect(getEditorText(createEditorFromDoc(doc))).toBe('before\nafter');
     });
 });
