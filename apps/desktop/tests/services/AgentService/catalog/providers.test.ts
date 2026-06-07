@@ -8,11 +8,14 @@ const providerRegistryMock = vi.hoisted(() => ({
         driver,
         config,
     })),
-    parseProviderConfigJson: vi.fn(() => ({ headers: {} })),
     parseProviderDriver: vi.fn((driver) => driver),
+}));
+const providerConfigPolicyMock = vi.hoisted(() => ({
+    parseProviderConfigJson: vi.fn(() => ({ headers: {} })),
 }));
 
 vi.mock('@/services/AgentService/infrastructure/providers', () => providerRegistryMock);
+vi.mock('@/application/providerConfigPolicy', () => providerConfigPolicyMock);
 
 function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvider {
     return {

@@ -4,6 +4,7 @@ export { AiError, AiErrorCode } from './agentErrors';
 export type * from './attachments';
 export type * from './builtInToolPresentation';
 export type * from './json';
+export type * from './providerConfig';
 export type * from './sessionStatus';
 export type * from './tooling';
 export type * from './widgets';

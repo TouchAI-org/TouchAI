@@ -26,7 +26,6 @@ const importPattern =
 
 const allowedBaselineViolationFragments = [
     'database -> services/NativeService',
-    'services/AuthService -> services/AgentService',
     'services/EventService -> services/PopupService',
     'services/PopupService -> views/PopupView',
 ];

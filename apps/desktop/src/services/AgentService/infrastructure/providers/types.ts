@@ -2,27 +2,17 @@
 
 import type { ProviderDriver } from '@database/schema';
 
+import type { ProviderConfigJson } from '@/contracts/providerConfig';
+
 import type { AiError } from '../../contracts/errors';
 import type { AiRequestOptions, AiResponse, AiStreamChunk } from '../../contracts/protocol';
 import type { AttachmentTransportMode } from '../../contracts/protocol';
 
+export type { ProviderConfigJson } from '@/contracts/providerConfig';
+
 export interface ModelInfo {
     id: string;
     name: string;
-}
-
-export interface ProviderConfigJson {
-    headers?: Record<string, string>;
-    queryParams?: Record<string, string>;
-    managedAuth?: {
-        login?: string;
-        avatarUrl?: string;
-    };
-    touchAiMode?: 'managed' | 'custom';
-    touchAiCustom?: {
-        apiEndpoint?: string;
-        apiKey?: string;
-    };
 }
 
 export interface ProviderApiTargets {

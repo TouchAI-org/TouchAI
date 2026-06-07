@@ -2,11 +2,14 @@
 
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
+import {
+    isTouchAiManagedMode,
+    TOUCHAI_HUB_GATEWAY_BASE_URL,
+} from '@/application/providerConfigPolicy';
 import { z } from '@/utils/zod';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import { AiSdkProviderBase, buildUrlWithQueryParams } from '../ai-sdk/base';
-import { isTouchAiManagedMode, TOUCHAI_HUB_GATEWAY_BASE_URL } from '../config';
 import type { ModelInfo, ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 

@@ -2,6 +2,7 @@
 
 import type { ProviderDriver } from '@database/schema';
 
+import { MIMO_CUSTOM_API_BASE_URL } from '@/application/providerConfigPolicy';
 import { tt } from '@/i18n';
 
 import { AlibabaProviderAdapter } from './adapters/alibaba';
@@ -16,7 +17,6 @@ import { OpenAIProviderAdapter } from './adapters/openai';
 import { OpenAICompatibleProviderAdapter } from './adapters/openai-compatible';
 import { XaiProviderAdapter } from './adapters/xai';
 import { ZhipuProviderAdapter } from './adapters/zhipu';
-import { MIMO_CUSTOM_API_BASE_URL } from './config';
 import type { AiProvider, AiProviderConfig } from './types';
 
 export interface ProviderDriverDefinition {

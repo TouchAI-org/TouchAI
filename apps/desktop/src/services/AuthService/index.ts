@@ -4,15 +4,15 @@ import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 import {
+    parseProviderConfigJson,
+    TOUCHAI_HUB_GATEWAY_BASE_URL,
+} from '@/application/providerConfigPolicy';
+import type { ProviderConfigJson } from '@/contracts/providerConfig';
+import {
     findAllProvidersSorted,
     reassignModelsAndDeleteProvider,
     updateProvider,
 } from '@/database/queries';
-import {
-    parseProviderConfigJson,
-    TOUCHAI_HUB_GATEWAY_BASE_URL,
-} from '@/services/AgentService/infrastructure/providers/config';
-import type { ProviderConfigJson } from '@/services/AgentService/infrastructure/providers/types';
 import { AppEvent, eventService } from '@/services/EventService';
 
 const MIMO_DRIVER = 'mimo';
