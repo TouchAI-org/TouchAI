@@ -4,8 +4,8 @@ import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
 import { MetaKey } from '@database/schema';
 import { notify } from '@services/NotificationService';
 
-import type { ImportMode } from '@/database/backup';
 import { t } from '@/i18n';
+import type { ImportMode } from '@/services/DataManagementService';
 
 interface ImportSuccessStartupPayload {
     type: 'import-success';

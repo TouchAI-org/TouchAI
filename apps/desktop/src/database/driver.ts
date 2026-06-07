@@ -1,12 +1,12 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { native } from '@services/NativeService';
-import type { DatabaseQueryMethod } from '@services/NativeService/database';
 import { DefaultLogger } from 'drizzle-orm/logger';
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from 'drizzle-orm/relations';
 import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core/dialect';
 import { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy/driver';
 import { SQLiteProxyTransaction, SQLiteRemoteSession } from 'drizzle-orm/sqlite-proxy/session';
+
+import { type DatabaseQueryMethod, databaseRuntime } from '@/services/DatabaseRuntimeService';
 
 import type { SqlValue } from './schema';
 import * as schema from './schema';
@@ -288,12 +288,12 @@ function mapQueryResponse(
 function createRuntimeQueryCallback(options?: { txId?: string }): ProxyQueryCallback {
     return async (sql, params, method) => {
         const response = options?.txId
-            ? await native.database.txQuery(options.txId, {
+            ? await databaseRuntime.txQuery(options.txId, {
                   sql,
                   params,
                   method,
               })
-            : await native.database.query({
+            : await databaseRuntime.query({
                   sql,
                   params,
                   method,
@@ -306,8 +306,8 @@ function createRuntimeQueryCallback(options?: { txId?: string }): ProxyQueryCall
 function createRuntimeBatchCallback(options?: { txId?: string }): ProxyBatchCallback {
     return async (queries) => {
         const responses = options?.txId
-            ? await native.database.txBatch(options.txId, queries)
-            : await native.database.batch(queries);
+            ? await databaseRuntime.txBatch(options.txId, queries)
+            : await databaseRuntime.batch(queries);
 
         return responses.map((response, index) => {
             const query = queries[index]!;
@@ -342,7 +342,7 @@ export function createDrizzleDb(): DrizzleDb {
     const db = new SqliteRemoteDatabase('async', dialect, session, relationalSchema) as DrizzleDb;
 
     db.transaction = (async (transaction, config) => {
-        const txId = await native.database.txBegin(config?.behavior);
+        const txId = await databaseRuntime.txBegin(config?.behavior);
         const txSession = new SQLiteRemoteSession(
             createRuntimeQueryCallback({
                 txId,
@@ -363,11 +363,11 @@ export function createDrizzleDb(): DrizzleDb {
 
         try {
             const result = await transaction(tx);
-            await native.database.txCommit(txId);
+            await databaseRuntime.txCommit(txId);
             return result;
         } catch (error) {
             try {
-                await native.database.txRollback(txId);
+                await databaseRuntime.txRollback(txId);
             } catch (rollbackError) {
                 console.error('[Database] Failed to rollback transaction:', rollbackError);
             }
@@ -385,7 +385,7 @@ export async function rawQuery<T = Record<string, unknown>>(
     sql: string,
     params: SqlValue[] = []
 ): Promise<T[]> {
-    const response = await native.database.query({
+    const response = await databaseRuntime.query({
         sql,
         params,
         method: 'all',

@@ -24,7 +24,7 @@ interface RawImport {
 const importPattern =
     /\b(?:import|export)\s+(?:type\s+)?(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
 
-const allowedBaselineViolationFragments = ['database -> services/NativeService'];
+const allowedBaselineViolationFragments: string[] = [];
 
 const allowedBaselineCycles = [
     ['database', 'services/NativeService'],
