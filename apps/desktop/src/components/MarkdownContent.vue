@@ -154,14 +154,39 @@
     const SHELL_VARIABLE_PATTERN =
         /^\$(?:\{(?:env:)?[A-Za-z_][A-Za-z0-9_]*\}|env:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)/;
 
+    function startsInlineMathSpan(content: string, index: number): boolean {
+        for (let cursor = index + 1; cursor < content.length; cursor += 1) {
+            const char = content[cursor];
+            if (char === '\n') {
+                return false;
+            }
+            if (char === '\\') {
+                cursor += 1;
+                continue;
+            }
+            if (char === '$') {
+                const firstContentChar = content[index + 1];
+                const lastContentChar = content[cursor - 1];
+                return (
+                    cursor > index + 1 &&
+                    firstContentChar !== undefined &&
+                    lastContentChar !== undefined &&
+                    !/\s/.test(firstContentChar) &&
+                    !/\s/.test(lastContentChar)
+                );
+            }
+        }
+
+        return false;
+    }
+
     function shouldEscapeShellVariable(content: string, index: number): boolean {
-        const match = content.slice(index).match(SHELL_VARIABLE_PATTERN);
-        if (!match) {
+        if (startsInlineMathSpan(content, index)) {
             return false;
         }
 
-        const nextChar = content[index + match[0].length];
-        return nextChar !== '$';
+        const match = content.slice(index).match(SHELL_VARIABLE_PATTERN);
+        return match !== null;
     }
 
     function escapeShellVariablesOutsideCode(content: string): string {

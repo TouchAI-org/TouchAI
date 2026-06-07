@@ -88,12 +88,12 @@ describe('MarkdownContent i18n', () => {
         mount(MarkdownContent, {
             props: {
                 content:
-                    'paths: $env:USERPROFILE\\Desktop, $HOME/project, ${USERPROFILE}\\Desktop, ${env:APPDATA}; math: $x$; code: `echo $HOME`',
+                    'paths: $env:USERPROFILE\\Desktop, $HOME/project, ${USERPROFILE}\\Desktop, ${env:APPDATA}; math: $x$ and $x+y$; code: `echo $HOME`',
             },
         });
 
         expect(parseMarkdownToStructureMock).toHaveBeenCalledWith(
-            'paths: \\$env:USERPROFILE\\Desktop, \\$HOME/project, \\${USERPROFILE}\\Desktop, \\${env:APPDATA}; math: $x$; code: `echo $HOME`',
+            'paths: \\$env:USERPROFILE\\Desktop, \\$HOME/project, \\${USERPROFILE}\\Desktop, \\${env:APPDATA}; math: $x$ and $x+y$; code: `echo $HOME`',
             expect.anything(),
             expect.anything()
         );
