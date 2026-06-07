@@ -1,15 +1,15 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { type MessageKey, t } from '@/i18n';
-
-import { builtInToolRegistry } from './registry';
 import type {
     BuiltInToolConversationPresentation,
     BuiltInToolConversationSemantic,
     BuiltInToolConversationSemanticAction,
     BuiltInToolConversationStatus,
-    BuiltInToolId,
-} from './types';
+} from '@/contracts/builtInToolPresentation';
+import { type MessageKey, t } from '@/i18n';
+
+import { builtInToolRegistry } from './registry';
+import type { BuiltInToolId } from './types';
 
 const BUILTIN_TOOL_PREFIX = 'builtin__';
 const BUILTIN_TOOL_VERB_KEYS: Record<

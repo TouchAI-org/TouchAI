@@ -3,10 +3,11 @@
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ProviderDriver } from '@database/schema';
 
+import { parseProviderConfigJson } from '@/application/providerConfigPolicy';
+
 import {
     type AiProvider,
     createProviderFromRegistry,
-    parseProviderConfigJson,
     parseProviderDriver,
 } from '../infrastructure/providers';
 

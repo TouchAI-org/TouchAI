@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import type { AttachmentIndex } from '@/contracts/attachments';
 import type { InputHistorySnapshot, PendingToolApproval, SessionMessage } from '@/types/session';
 
 import type { AskUserQuestion } from '../contracts/tooling';

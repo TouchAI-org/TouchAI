@@ -10,8 +10,7 @@ import {
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ToolLogKind } from '@database/schema';
 
-import { tt } from '@/i18n';
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -20,7 +19,8 @@ import type {
     ToolApprovalDecisionRequest,
     ToolApprovalRequest,
     ToolEvent,
-} from '@/services/AgentService/contracts/tooling';
+} from '@/contracts/tooling';
+import { tt } from '@/i18n';
 
 import { builtInToolRegistry } from './registry';
 import type {

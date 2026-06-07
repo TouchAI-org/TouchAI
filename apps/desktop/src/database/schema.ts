@@ -3,18 +3,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
-// ==================== Tauri 相关类型 ====================
-
-/**
- * SQL 参数类型
- */
-export type SqlValue = string | number | boolean | null | Uint8Array;
-
-/**
- * SQL 参数类型
- */
-export type SqlParams = SqlValue[];
-
 // ==================== 表定义（Drizzle） ====================
 
 /**

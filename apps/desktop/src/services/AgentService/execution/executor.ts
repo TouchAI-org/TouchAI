@@ -4,6 +4,7 @@ import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ProviderDriver, ToolLogKind } from '@database/schema';
 
+import { parseProviderConfigJson } from '@/application/providerConfigPolicy';
 import { tt } from '@/i18n';
 import {
     type BuiltInToolControlSignal,
@@ -30,11 +31,7 @@ import {
     getUnsupportedAttachmentTypes,
 } from '../infrastructure/attachments';
 import { mcpManager } from '../infrastructure/mcp';
-import {
-    type AiProvider,
-    createProviderFromRegistry,
-    parseProviderConfigJson,
-} from '../infrastructure/providers';
+import { type AiProvider, createProviderFromRegistry } from '../infrastructure/providers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import type { TurnEvent } from './runtime';

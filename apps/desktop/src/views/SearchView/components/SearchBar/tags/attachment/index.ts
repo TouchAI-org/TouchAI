@@ -12,7 +12,7 @@ import { TextSelection } from '@tiptap/pm/state';
 import { VueNodeViewRenderer } from '@tiptap/vue-3';
 import type { Component } from 'vue';
 
-import { type AttachmentSupportStatus } from '@/services/AgentService/infrastructure/attachments';
+import { type AttachmentSupportStatus } from '@/contracts/attachments';
 
 import { createSearchTagNode, createTagCloseButton } from '../factory';
 import { isRegisteredTagNode, registerSearchTag } from '../registry';

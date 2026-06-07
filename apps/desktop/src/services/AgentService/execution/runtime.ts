@@ -3,17 +3,17 @@
 import { updateModelLastUsed } from '@database/queries';
 import type { SessionTurnEntity } from '@database/types';
 
+import { isTouchAiManagedMode, parseProviderConfigJson } from '@/application/providerConfigPolicy';
 import { t } from '@/i18n';
 import {
     type AttachmentIndex,
     ensurePersistedAttachmentIndex,
     getModelAttachmentCapabilities,
     getUnsupportedAttachmentTypes,
-} from '@/services/AgentService/infrastructure/attachments';
+} from '@/services/AttachmentService';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
-import { isTouchAiManagedMode, parseProviderConfigJson } from '../infrastructure/providers/config';
 import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';

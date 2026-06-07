@@ -3,8 +3,8 @@
 import { findModelByProviderAndModelId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
 
+import type { ToolApprovalRequest } from '@/contracts/tooling';
 import { tt } from '@/i18n';
-import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 
 import {
     type BaseBuiltInToolExecutionContext,

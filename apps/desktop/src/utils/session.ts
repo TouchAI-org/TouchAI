@@ -1,7 +1,8 @@
+import type { SessionStatusReminderKind } from '@/contracts/sessionStatus';
 import { tt } from '@/i18n';
 import type { TextMessagePart } from '@/types/session';
 
-export type SessionStatusReminderKind = 'completed' | 'failed' | 'waiting_approval';
+export type { SessionStatusReminderKind } from '@/contracts/sessionStatus';
 
 /**
  * 创建带唯一 ID 的文本消息片段。

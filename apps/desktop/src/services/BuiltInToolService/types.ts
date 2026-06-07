@@ -3,16 +3,22 @@
 import type { ModelWithProvider } from '@database/queries/models';
 import type { BuiltInToolEntity } from '@database/types';
 
+import type { AttachmentIndex } from '@/contracts/attachments';
+import type { BuiltInToolConversationSemantic } from '@/contracts/builtInToolPresentation';
 import type {
     AiToolDefinition,
     AskUserAnswer,
     AskUserQuestion,
     ToolApprovalRequest,
     ToolEvent,
-    ToolEventBuiltInConversationSemantic,
-    ToolEventBuiltInConversationSemanticAction,
-} from '@/services/AgentService/contracts/tooling';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+} from '@/contracts/tooling';
+
+export type {
+    BuiltInToolConversationPresentation,
+    BuiltInToolConversationSemantic,
+    BuiltInToolConversationSemanticAction,
+    BuiltInToolConversationStatus,
+} from '@/contracts/builtInToolPresentation';
 
 /**
  * 当前内置工具体系允许暴露给模型的稳定工具标识。
@@ -69,23 +75,6 @@ export interface BuiltInToolExecutionResult {
     approvalSummary?: string | null;
     attachments?: AttachmentIndex[];
     controlSignal?: BuiltInToolControlSignal;
-}
-
-export type BuiltInToolConversationStatus =
-    | 'executing'
-    | 'awaiting_approval'
-    | 'completed'
-    | 'error'
-    | 'rejected'
-    | 'cancelled';
-
-export type BuiltInToolConversationSemanticAction = ToolEventBuiltInConversationSemanticAction;
-
-export type BuiltInToolConversationSemantic = ToolEventBuiltInConversationSemantic;
-
-export interface BuiltInToolConversationPresentation {
-    verb: string;
-    content?: string;
 }
 
 /**

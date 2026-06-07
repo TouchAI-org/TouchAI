@@ -4,7 +4,7 @@ import {
     type AttachmentCapabilities,
     type AttachmentIndex,
     getUnsupportedAttachmentTypes,
-} from '@/services/AgentService/infrastructure/attachments';
+} from '@/services/AttachmentService';
 
 import type { AiContentPart, AiMessage } from '../contracts/protocol';
 import { buildAttachmentParts } from '../infrastructure/attachments';

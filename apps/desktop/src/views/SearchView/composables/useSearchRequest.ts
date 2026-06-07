@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SearchView 请求层。
  * 收口请求提交、排队与会话续发逻辑，让输入层与页面层保持解耦。
  */
@@ -7,11 +7,8 @@ import type { SessionEntity } from '@database/types';
 import { notify } from '@services/NotificationService';
 import { onUnmounted, type Ref, ref } from 'vue';
 
-import {
-    type Index,
-    isAttachmentSupported,
-} from '@/services/AgentService/infrastructure/attachments';
 import { dismissSessionTerminalStatus, listSessions } from '@/services/AgentService/session';
+import { type Index, isAttachmentSupported } from '@/services/AttachmentService';
 import { eventService } from '@/services/EventService';
 import { AppEvent } from '@/services/EventService/types';
 import {

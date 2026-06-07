@@ -35,7 +35,7 @@ describe('database backup native dialog i18n', () => {
 
     it('uses English save dialog title and filter labels when exporting in English', async () => {
         setLocale('en-US');
-        const { databaseBackup } = await import('@/database/backup');
+        const { databaseBackup } = await import('@/services/DataManagementService');
         const onProgress = vi.fn();
 
         await databaseBackup.exportDatabase(onProgress);
@@ -52,7 +52,7 @@ describe('database backup native dialog i18n', () => {
 
     it('uses English open dialog title and filter labels when importing in English', async () => {
         setLocale('en-US');
-        const { databaseBackup } = await import('@/database/backup');
+        const { databaseBackup } = await import('@/services/DataManagementService');
         const onProgress = vi.fn();
 
         await databaseBackup.importDatabase('full', onProgress);
@@ -73,7 +73,7 @@ describe('database backup native dialog i18n', () => {
         setLocale('en-US');
         saveMock.mockResolvedValueOnce(null);
         const { databaseBackup, isDatabaseBackupCancelledError } =
-            await import('@/database/backup');
+            await import('@/services/DataManagementService');
 
         let caughtError: unknown;
         await databaseBackup.exportDatabase().catch((error: unknown) => {
@@ -89,7 +89,7 @@ describe('database backup native dialog i18n', () => {
 
     it('returns an empty import result when the import dialog is cancelled', async () => {
         openMock.mockResolvedValueOnce(null);
-        const { databaseBackup } = await import('@/database/backup');
+        const { databaseBackup } = await import('@/services/DataManagementService');
 
         await expect(databaseBackup.importDatabase('chat_only')).resolves.toEqual({
             sourcePath: '',

@@ -4,7 +4,7 @@ import type {
     AskUserAnswer,
     AskUserQuestion,
     ToolApprovalDecisionRequest,
-} from '@/services/AgentService/contracts/tooling';
+} from '@/contracts/tooling';
 import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
 
 export function useAskUser() {

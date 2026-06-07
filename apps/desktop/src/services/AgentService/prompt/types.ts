@@ -2,7 +2,7 @@
 
 import type { JSONContent } from '@tiptap/core';
 
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import type { AttachmentIndex } from '@/contracts/attachments';
 
 import type { AttachmentDerivedKind, AttachmentSemanticIntent } from '../contracts/protocol';
 import type { ModelLanguageContext } from '../languageContext';

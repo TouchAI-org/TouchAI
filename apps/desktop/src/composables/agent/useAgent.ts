@@ -1,16 +1,16 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { findSessionById } from '@database/queries/sessions';
 import type { SessionTurn } from '@database/schema';
 import { notify } from '@services/NotificationService';
 import { computed, onUnmounted, ref } from 'vue';
 
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import { t } from '@/i18n';
 import { sessionTaskCenter } from '@/services/AgentService';
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import { type Index } from '@/services/AgentService/infrastructure/attachments';
 import { buildSessionHistoryFromData } from '@/services/AgentService/session';
 import { getSessionData } from '@/services/AgentService/session';
+import { type Index } from '@/services/AttachmentService';
 import type { InputHistorySnapshot, LoadedSessionInfo } from '@/types/session';
 
 import { useAgentState } from './useAgentState';
@@ -328,7 +328,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
 
     function settleUserQuestion(
         callId: string,
-        answers: import('@/services/AgentService/contracts/tooling').AskUserAnswer[] | null
+        answers: import('@/contracts/tooling').AskUserAnswer[] | null
     ): boolean {
         if (!attachedTaskId.value) {
             return false;

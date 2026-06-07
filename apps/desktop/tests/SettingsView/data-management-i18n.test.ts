@@ -40,7 +40,7 @@ vi.mock('@database/queries/touchaiMeta', () => ({
     setMeta: setMetaMock,
 }));
 
-vi.mock('@database/backup', () => ({
+vi.mock('@services/DataManagementService', () => ({
     databaseBackup: {
         exportDatabase: vi.fn(),
         importDatabase: importDatabaseMock,

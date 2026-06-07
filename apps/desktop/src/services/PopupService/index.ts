@@ -14,6 +14,7 @@ export type {
     PopupKeydownPayload,
     PopupModelSelectPayload,
     PopupPosition,
+    PopupPositionStrategy,
     PopupReadyPayload,
     PopupSessionIdentity,
     PopupSessionOpenPayload,

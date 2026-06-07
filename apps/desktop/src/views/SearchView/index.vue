@@ -3,23 +3,12 @@
 
     import { useSessionStatus } from '@composables/useSessionStatus';
     import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
-    import type { QuickShortcutItem } from '@services/NativeService';
-    import { native } from '@services/NativeService';
-    import { notify } from '@services/NotificationService';
-    import {
-        popupManager as popupService,
-        type SessionHistoryData,
-        type SessionHistorySessionItem,
-    } from '@services/PopupService';
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
+    import type { SessionHistoryData, SessionHistorySessionItem } from '@/contracts/popup';
     import { t } from '@/i18n';
-    import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
-    import { clipboardService } from '@/services/ClipboardService';
-    import { useAskUserStore } from '@/stores/askUser';
-    import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
     import {
         createInputHistorySnapshot,
@@ -50,7 +39,13 @@
         useQuickSearchCoordinator,
         useSearchOverlayMachine,
     } from './composables/searchInteraction';
+    import { useSearchAskUserBridge } from './composables/useSearchAskUserBridge';
+    import { useSearchInfrastructureController } from './composables/useSearchInfrastructureController';
     import { useSearchAttachments, useSearchDraftController } from './composables/useSearchInput';
+    import {
+        type QuickShortcutItem,
+        useSearchNativeController,
+    } from './composables/useSearchNativeController';
     import {
         useSearchKeyboard,
         useSearchModelDropdownCoordinator,
@@ -59,6 +54,7 @@
         useSearchPanelFocusRestore,
         useSearchWindowPin,
     } from './composables/useSearchPage';
+    import { useSearchPopupController } from './composables/useSearchPopupController';
     import { useSearchRequestFlow } from './composables/useSearchRequest';
     import { useSearchWindowResize } from './composables/useSearchWindowResize';
     import { useSessionHistoryPopup } from './composables/useSessionHistoryPopup';
@@ -114,8 +110,11 @@
     );
     const suppressInputHistoryBrowseReset = ref(false);
     const inputHistoryRestoreVersion = ref(0);
-    const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
+    const nativeController = useSearchNativeController();
+    const infrastructureController = useSearchInfrastructureController();
+    const popupController = useSearchPopupController();
+    const { askUserStore } = useSearchAskUserBridge();
     const { searchWindowDefaultSize } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin();
@@ -124,6 +123,9 @@
         openLink?: (url: string) => void;
         __TOUCHAI_E2E__?: {
             openSettingsWindow: () => Promise<void>;
+            openModelDropdownPopup: () => Promise<void>;
+            openSessionHistoryPopup: () => Promise<void>;
+            closePopups: () => Promise<void>;
             setSearchQuery: (text: string) => void;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
         };
@@ -132,7 +134,6 @@
     const searchEntryPolicy = createSearchEntryPolicy();
     const popupSurfaceCoordinator = createPopupSurfaceCoordinator(searchInteractionContext);
     const suppressQuickSearchAutoOpenOnce = ref(false);
-    const askUserStore = useAskUserStore();
     let lastBridgedApprovalCallId: string | null = null;
     let lastBridgedQuestionCallId: string | null = null;
 
@@ -178,13 +179,7 @@
      */
     function isLiveActivePopupSession() {
         const activeIdentity = searchInteractionContext.state.activePopupIdentity;
-        return (
-            popupService.state.isOpen === true &&
-            activeIdentity !== null &&
-            popupService.state.currentPopupId === activeIdentity.popupId &&
-            popupService.state.currentWindowLabel === activeIdentity.windowLabel &&
-            popupService.state.currentPopupSessionVersion === activeIdentity.popupSessionVersion
-        );
+        return popupController.isLivePopupSession(activeIdentity);
     }
 
     const controller = useSearchPageController({
@@ -570,7 +565,7 @@
             await setWindowPinned(value);
         } catch (error) {
             console.error('[SearchView] Failed to update window pin state:', error);
-            await notify({
+            await nativeController.notify({
                 title: t('notification.pinToggleFailed.title'),
                 body: t('notification.pinToggleFailed.body'),
             });
@@ -592,7 +587,7 @@
         event.preventDefault();
         event.stopPropagation();
 
-        const payload = await clipboardService.readExplicitPastePayload();
+        const payload = await nativeController.readExplicitPastePayload();
         if (!payload) return;
 
         const hasOnlyText = !payload.imagePaths?.length && !payload.filePaths?.length;
@@ -669,7 +664,7 @@
                 return;
             }
 
-            const payload = await clipboardService.consumeShortcutAutoPastePayload(3000);
+            const payload = await nativeController.consumeShortcutAutoPastePayload(3000);
             if (!payload) {
                 return;
             }
@@ -714,11 +709,7 @@
     }
 
     async function openHistoryDialog() {
-        if (
-            sessionHistoryPopupOpen.value ||
-            (popupService.state.isOpen &&
-                popupService.state.currentType === 'session-history-popup')
-        ) {
+        if (sessionHistoryPopupOpen.value || popupController.isSessionHistoryOpen()) {
             await closeSessionHistoryPopup();
             return;
         }
@@ -818,7 +809,7 @@
             await toggleWindowPin();
         } catch (error) {
             console.error('[SearchView] Failed to toggle window pin state:', error);
-            await notify({
+            await nativeController.notify({
                 title: t('notification.pinToggleFailed.title'),
                 body: t('notification.pinToggleFailed.body'),
             });
@@ -869,7 +860,7 @@
                 });
             }
 
-            await notify({
+            await nativeController.notify({
                 title: t('notification.openSessionFailed.title'),
                 body: t(
                     isMissingSession
@@ -970,7 +961,18 @@
 
         widgetBridgeWindow.__TOUCHAI_E2E__ = {
             async openSettingsWindow() {
-                await native.window.openSettingsWindow();
+                await nativeController.openSettingsWindow();
+            },
+            async openModelDropdownPopup() {
+                await hideAllPopups();
+                await handleToggleModelDropdownRequest();
+            },
+            async openSessionHistoryPopup() {
+                await hideAllPopups();
+                await openHistoryDialog();
+            },
+            async closePopups() {
+                await hideAllPopups();
             },
             setSearchQuery(text: string) {
                 applyE2eSearchQuery(text);
@@ -1023,13 +1025,13 @@
     async function initialize() {
         await initializeSearchViewForFirstPaint({
             initializeSettings: () => settingsStore.initialize(),
-            initializeMcpStore: () => mcpStore.initialize(),
-            initializePopups: () => popupService.initialize(),
+            initializeMcpStore: () => infrastructureController.initializeMcpStore(),
+            initializePopups: () => popupController.initialize(),
             syncWindowPinState,
             syncSearchWindowState,
             isE2eTestMode,
             autoConnectMcp: async () => {
-                await mcpManager.autoConnect();
+                await infrastructureController.autoConnectMcp();
             },
             onReady: (ready) => {
                 viewReady.value = ready;

@@ -1,9 +1,9 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { SearchWindowSizePreset as SearchWindowSizePresets } from '@/config/searchWindow';
+import type { AiToolDefinition } from '@/contracts/tooling';
 import { SUPPORTED_LOCALES } from '@/i18n/locales';
 import type { SourceText } from '@/i18n/textMap';
-import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 
 import { arrayFromScalarSchema, nonEmptyTrimmedStringSchema, z } from '../../utils/toolSchema';
 

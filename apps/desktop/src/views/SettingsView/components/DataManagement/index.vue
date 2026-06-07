@@ -2,11 +2,6 @@
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
     import {
-        databaseBackup,
-        type ImportMode,
-        isDatabaseBackupCancelledError,
-    } from '@database/backup';
-    import {
         countMessages,
         countSessions,
         countSessionTurns,
@@ -17,6 +12,11 @@
     } from '@database/queries';
     import { setMeta } from '@database/queries/touchaiMeta';
     import { MetaKey, StatisticKey } from '@database/schema';
+    import {
+        databaseBackup,
+        type ImportMode,
+        isDatabaseBackupCancelledError,
+    } from '@services/DataManagementService';
     import { relaunch } from '@tauri-apps/plugin-process';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 

@@ -2,14 +2,14 @@ import type { MessageRow, ToolLogHistoryRow } from '@database/queries/messages';
 import type { ModelWithProvider } from '@database/queries/models';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AiErrorCode } from '@/services/AgentService/contracts/errors';
+import { AiErrorCode } from '@/application/agentErrors';
+import type { AttachmentIndex } from '@/contracts/attachments';
 import { AiConversationRuntime } from '@/services/AgentService/execution/runtime';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import { findUnsupportedSessionAttachmentTypes } from '@/services/AgentService/session/transport';
 import {
     getModelAttachmentCapabilities,
     getUnsupportedAttachmentTypes,
-} from '@/services/AgentService/infrastructure/attachments';
-import { findUnsupportedSessionAttachmentTypes } from '@/services/AgentService/session/transport';
+} from '@/services/AttachmentService';
 
 const BASE_TIME = '2026-06-03T10:00:00.000Z';
 

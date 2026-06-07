@@ -1,9 +1,14 @@
 ﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import ModelDropdownPopup from '@/views/PopupView/components/ModelDropdownPopup/index.vue';
-import SessionHistoryPopover from '@/views/PopupView/components/SessionHistoryPopover/index.vue';
+import { POPUP_MANIFEST_ENTRIES, type PopupPositionStrategy } from '@/contracts/popupManifest';
 
-import type { PopupConfig, PopupType, SerializablePopupConfig, WindowInfo } from './types';
+import type {
+    PopupConfig,
+    PopupType,
+    PositionCalculator,
+    SerializablePopupConfig,
+    WindowInfo,
+} from './types';
 
 const GAP = 5;
 const SHADOW_WIDTH = 7;
@@ -112,6 +117,30 @@ function calculateRightAlignedPopupX(
     return x;
 }
 
+function resolvePopupPositionCalculator(strategy: PopupPositionStrategy): PositionCalculator {
+    if (strategy === 'window-edge-left') {
+        return (triggerElement, mainWindow, dimensions) => {
+            const x = mainWindow.position.x - SHADOW_WIDTH;
+            const y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
+            return { x, y };
+        };
+    }
+
+    return (triggerElement, mainWindow, dimensions) => {
+        const isSearchViewContainer = triggerElement.classList.contains('search-view-container');
+
+        if (isSearchViewContainer) {
+            const x = mainWindow.position.x - SHADOW_WIDTH;
+            const y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
+            return { x, y };
+        }
+
+        const x = calculateRightAlignedPopupX(triggerElement, mainWindow, dimensions.width);
+        const y = calculateTriggerAnchoredPopupY(triggerElement, mainWindow, dimensions.height);
+        return { x, y };
+    };
+}
+
 /**
  * Popup 注册表类
  */
@@ -167,43 +196,10 @@ export const popupRegistry = new PopupRegistry();
  * 初始化内置 popup 注册
  */
 export function initializeBuiltInPopups(): void {
-    // 注册模型下拉框（左侧）
-    popupRegistry.register({
-        id: 'model-dropdown-popup',
-        width: 320,
-        height: 384,
-        component: ModelDropdownPopup,
-        calculatePosition: (triggerElement, mainWindow, dimensions) => {
-            const x = mainWindow.position.x - SHADOW_WIDTH;
-            const y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
-            return { x, y };
-        },
-    });
-
-    popupRegistry.register({
-        id: 'session-history-popup',
-        width: 320,
-        height: 384,
-        component: SessionHistoryPopover,
-        calculatePosition: (triggerElement, mainWindow, dimensions) => {
-            // 判断是否是搜索框状态
-            const isSearchViewContainer =
-                triggerElement.classList.contains('search-view-container');
-
-            let x: number;
-            let y: number;
-
-            if (isSearchViewContainer) {
-                // 搜索框状态：左对齐，贴窗口边缘
-                x = mainWindow.position.x - SHADOW_WIDTH;
-                y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
-            } else {
-                // 会话面板状态：右对齐，锚定在触发元素
-                x = calculateRightAlignedPopupX(triggerElement, mainWindow, dimensions.width);
-                y = calculateTriggerAnchoredPopupY(triggerElement, mainWindow, dimensions.height);
-            }
-
-            return { x, y };
-        },
-    });
+    for (const entry of POPUP_MANIFEST_ENTRIES) {
+        popupRegistry.register({
+            ...entry,
+            calculatePosition: resolvePopupPositionCalculator(entry.positionStrategy),
+        });
+    }
 }

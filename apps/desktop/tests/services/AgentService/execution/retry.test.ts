@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import { AiError, AiErrorCode } from '@/application/agentErrors';
 import { shouldRetryRequestFailure } from '@/services/AgentService/execution/retry';
 
 describe('AgentService retry policy', () => {

@@ -3,9 +3,8 @@
 import { native } from '@services/NativeService';
 
 import { resolveSearchWindowDefaultSize } from '@/config/searchWindow';
+import type { ToolApprovalRequest } from '@/contracts/tooling';
 import { tt } from '@/i18n';
-import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
-import type { GeneralSettingsData } from '@/stores/settings';
 import { truncateText } from '@/utils/text';
 
 import {
@@ -25,6 +24,7 @@ import {
 import {
     formatShortcutRegistrationError,
     formatSingleUpdate,
+    type GeneralSettingsData,
     getSettings,
     listSupportedSettings,
     type ParsedSettingRequest,

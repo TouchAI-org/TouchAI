@@ -4,12 +4,6 @@ export { normalizeProviderBaseUrl } from './ai-sdk/base';
 export { createTauriFetch } from './ai-sdk/tauriFetch';
 export { getProviderAttachmentCapabilities } from './capabilities';
 export {
-    isTouchAiManagedMode,
-    MIMO_CUSTOM_API_BASE_URL,
-    parseProviderConfigJson,
-    TOUCHAI_HUB_GATEWAY_BASE_URL,
-} from './config';
-export {
     createProviderFromRegistry,
     getProviderDriverDefinition,
     getProviderDriverDefinitions,
@@ -28,3 +22,9 @@ export type {
     ProviderConfigJson,
 } from './types';
 export { resolveOpenAiStyleSdkBaseUrl } from './utils';
+export {
+    isTouchAiManagedMode,
+    MIMO_CUSTOM_API_BASE_URL,
+    parseProviderConfigJson,
+    TOUCHAI_HUB_GATEWAY_BASE_URL,
+} from '@/application/providerConfigPolicy';

@@ -2,13 +2,13 @@
 
 import type { JSONContent } from '@tiptap/core';
 
-import type { ToolExecutionSource as AiToolExecutionSource } from '@/services/AgentService/contracts/tooling';
-import type { Index } from '@/services/AgentService/infrastructure/attachments';
+import type { AttachmentIndex as Index } from '@/contracts/attachments';
 import type {
     BuiltInToolConversationPresentation,
     BuiltInToolConversationSemantic,
-} from '@/services/BuiltInToolService';
-import type { ShowWidgetPayload } from '@/services/BuiltInToolService/tools/widgetTool';
+} from '@/contracts/builtInToolPresentation';
+import type { ToolExecutionSource as AiToolExecutionSource } from '@/contracts/tooling';
+import type { ShowWidgetPayload } from '@/contracts/widgets';
 
 /**
  * SearchView 与 agent 运行时共享的会话展示模型。

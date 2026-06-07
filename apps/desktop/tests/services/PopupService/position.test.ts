@@ -22,7 +22,7 @@ describe('createPopupPositionCalculator', () => {
             id: 'session-history-popup',
             width: 320,
             height: 384,
-            component: {} as PopupConfig['component'],
+            positionStrategy: 'session-history-adaptive',
             calculatePosition,
         };
 

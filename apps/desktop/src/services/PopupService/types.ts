@@ -1,29 +1,13 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { SessionEntity } from '@database/types';
-import type { Component } from 'vue';
+import type { WindowInfo } from '@/contracts/popup';
+import type { PopupPositionStrategy, PopupType } from '@/contracts/popupManifest';
 
-import type { SessionTaskStatus } from '@/services/AgentService/task/types';
-
-/**
- * 弹窗窗口内容类型
- */
-export type PopupType = 'model-dropdown-popup' | 'session-history-popup';
+export type * from '@/contracts/popup';
+export type { PopupPositionStrategy, PopupType } from '@/contracts/popupManifest';
 
 /**
- * 窗口信息，用于位置计算
- */
-export interface WindowInfo {
-    position: { x: number; y: number };
-    size: { width: number; height: number };
-    innerSize: { width: number; height: number };
-    scaleFactor: number;
-    screenSize?: { width: number; height: number }; // 屏幕尺寸
-    screenPosition?: { x: number; y: number }; // 屏幕位置
-}
-
-/**
- * 位置计算函数类型
+ * 位置计算函数类型。
  */
 export type PositionCalculator = (
     triggerElement: HTMLElement,
@@ -32,7 +16,7 @@ export type PositionCalculator = (
 ) => { x: number; y: number };
 
 /**
- * Popup 配置接口
+ * Popup 服务侧配置接口。
  */
 export interface PopupConfig<TData = unknown> {
     /** 唯一标识符 */
@@ -43,142 +27,10 @@ export interface PopupConfig<TData = unknown> {
     height: number;
     /** 窗口最小高度（逻辑像素），用于内容不足时保持最低高度 */
     minHeight?: number;
-    /** Vue 组件 */
-    component: Component;
+    /** 声明式定位策略 */
+    positionStrategy: PopupPositionStrategy;
     /** 位置计算函数 */
     calculatePosition: PositionCalculator;
     /** 可选的数据验证器 */
     dataValidator?: (data: unknown) => data is TData;
-}
-
-/**
- * 可序列化的 Popup 配置（用于传递给 Rust）
- */
-export interface SerializablePopupConfig {
-    id: string;
-    width: number;
-    height: number;
-}
-
-/**
- * 弹窗窗口位置和大小
- */
-export interface PopupPosition {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
-/**
- * 模型下拉框弹窗数据
- */
-export interface ModelDropdownData {
-    activeModelId: string;
-    activeProviderId: number | null;
-    selectedModelId: string;
-    selectedProviderId: number | null;
-    searchQuery: string;
-    models?: ModelDropdownPopupItem[];
-}
-
-/**
- * 模型下拉框弹窗项数据（从父窗口传递）
- */
-export interface ModelDropdownPopupItem {
-    id: number;
-    modelId: string;
-    name: string;
-    providerId: number;
-    providerName: string;
-    reasoning: number;
-    tool_call: number;
-    modalities: string | null;
-    attachment: number;
-    open_weights: number;
-}
-
-export interface SessionHistorySessionItem extends SessionEntity {
-    displayStatus: Exclude<SessionTaskStatus, 'cancelled'> | null;
-}
-
-/**
- * 历史会话弹窗数据
- */
-export interface SessionHistoryData {
-    sessions: SessionHistorySessionItem[];
-    activeSessionId: number | null;
-    searchQuery: string;
-    isLoading: boolean;
-}
-
-export type PopupData = ModelDropdownData | SessionHistoryData;
-
-/**
- * 根据 PopupType 获取对应的数据类型
- */
-export type PopupDataFor<T extends PopupType> = T extends 'model-dropdown-popup'
-    ? ModelDropdownData
-    : T extends 'session-history-popup'
-      ? SessionHistoryData
-      : never;
-
-export interface PopupSessionIdentity {
-    popupId: string;
-    windowLabel: string;
-    popupSessionVersion: number;
-}
-
-export interface PopupClosedPayload extends PopupSessionIdentity {
-    type: PopupType;
-}
-
-export interface PopupReadyPayload {
-    windowLabel: string;
-}
-
-/**
- * 弹窗数据更新事件载荷
- */
-export interface PopupDataPayload extends PopupSessionIdentity {
-    type: PopupType;
-    data: PopupData;
-    /** true 表示弹窗首次展示（来自 show()），缺省/false 表示纯数据更新（来自 updateData()）。
-     *  原生窗口显示由 PopupManager.show() 负责，PopupView 仅用它区分首次聚焦和普通数据刷新。 */
-    isShow?: boolean;
-}
-
-/**
- * 转发给特定 popup 窗口的键盘事件载荷。
- */
-export interface PopupKeydownPayload {
-    key: string;
-    targetType: PopupType;
-}
-
-export interface PopupModelSelectPayload extends PopupSessionIdentity {
-    modelDbId: number;
-}
-
-export interface PopupSessionOpenPayload extends PopupSessionIdentity {
-    sessionId: number;
-}
-
-export interface PopupSessionSearchQueryChangePayload extends PopupSessionIdentity {
-    query: string;
-}
-
-export interface PopupModelSearchQueryChangePayload extends PopupSessionIdentity {
-    query: string;
-}
-
-/**
- * 弹窗事件处理器
- */
-export interface PopupEventHandlers {
-    onModelSelect?: (modelDbId: number) => void;
-    onModelSearchQueryChange?: (query: string) => void;
-    onSessionOpen?: (sessionId: number) => void;
-    onSessionSearchQueryChange?: (query: string) => void;
-    onClose?: (payload: PopupClosedPayload) => void;
 }

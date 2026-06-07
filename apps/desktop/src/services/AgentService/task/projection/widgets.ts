@@ -7,10 +7,10 @@
  * 负责会话消息中 `WidgetInfo` 的创建、更新、匹配与删除。
  */
 
+import type { ShowWidgetPayload } from '@/contracts/widgets';
 import {
     buildShowWidgetDraftFromArgumentsBuffer,
     SHOW_WIDGET_TOOL_NAME,
-    type ShowWidgetPayload,
 } from '@/services/BuiltInToolService/tools/widgetTool';
 import type { SessionMessage, WidgetInfo } from '@/types/session';
 import { normalizeString } from '@/utils/text';

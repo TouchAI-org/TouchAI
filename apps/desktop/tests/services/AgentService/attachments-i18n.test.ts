@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import type { AttachmentIndex } from '@/contracts/attachments';
 import { setLocale } from '@/i18n';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import {
     getAttachmentSupportMessage,
     isAttachmentSupported,
     resolveAttachmentSupportStatus,
-} from '@/services/AgentService/infrastructure/attachments';
+} from '@/services/AttachmentService';
 
 function attachment(supportStatus: AttachmentIndex['supportStatus']): AttachmentIndex {
     return {

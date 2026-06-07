@@ -1,6 +1,6 @@
-﻿import type { ModelWithProvider } from '@database/queries/models';
+import type { ModelWithProvider } from '@database/queries/models';
 
-import type { Index } from '@/services/AgentService/infrastructure/attachments';
+import type { AttachmentIndex as Index } from '@/contracts/attachments';
 import type { InputHistorySnapshot, SessionMessage } from '@/types/session';
 
 import type {

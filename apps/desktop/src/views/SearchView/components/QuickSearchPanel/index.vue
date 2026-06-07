@@ -36,6 +36,8 @@
                     "
                     type="button"
                     :title="getItemHoverTitle(item)"
+                    data-testid="quick-search-result-item"
+                    :data-result-name="item.name"
                     data-no-i18n="true"
                     translate="no"
                     :class="[
@@ -98,6 +100,8 @@
                     :icon-src="isImageItem(item) ? imagePreviewMap[item.path] : iconMap[item.path]"
                     :name-segments="getNameSegments(item.name)"
                     :highlighted="index === highlightedIndex"
+                    data-testid="quick-search-result-item"
+                    :data-result-name="item.name"
                     @click="handleItemClick(index)"
                     @contextmenu="handleContextMenu($event, index)"
                 />
@@ -117,6 +121,7 @@
             </span>
             <button
                 type="button"
+                data-testid="quick-search-view-toggle"
                 class="quick-search-view-toggle flex h-4 w-4 items-center justify-center text-gray-400 outline-none hover:text-gray-600"
                 :title="viewToggleTitle"
                 @click="toggleViewMode"

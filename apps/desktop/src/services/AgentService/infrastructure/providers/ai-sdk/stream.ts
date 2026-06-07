@@ -2,8 +2,8 @@
 
 import type { FinishReason, TextStreamPart, ToolSet } from 'ai';
 
+import type { AiToolCall } from '@/contracts/tooling';
 import type { AiStreamChunk, JsonObject } from '@/services/AgentService/contracts/protocol';
-import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 
 import { normalizeToolName, toJsonObjectRecord } from './utils';
 
