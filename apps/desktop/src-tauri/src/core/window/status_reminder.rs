@@ -72,6 +72,8 @@ pub struct SessionStatusReminderNotificationRuntime {
     active_toasts: Mutex<Vec<windows::UI::Notifications::ToastNotification>>,
     #[cfg(target_os = "macos")]
     active_notification_ids: Mutex<Vec<String>>,
+    #[cfg(target_os = "linux")]
+    active_notifications: Mutex<Vec<notify_rust::NotificationHandle>>,
 }
 
 impl SessionStatusReminderNotificationRuntime {
@@ -85,6 +87,8 @@ impl SessionStatusReminderNotificationRuntime {
             active_toasts: Mutex::new(Vec::new()),
             #[cfg(target_os = "macos")]
             active_notification_ids: Mutex::new(Vec::new()),
+            #[cfg(target_os = "linux")]
+            active_notifications: Mutex::new(Vec::new()),
         }
     }
 
@@ -158,16 +162,37 @@ impl SessionStatusReminderNotificationRuntime {
     }
 
     #[cfg(target_os = "linux")]
-    pub fn track_active_notification(&self, _id: u32) {
-        // Tracking IDs for future dismissal is not yet supported on Linux
-        // because notify-rust's wait_for_action consumes the handle.
+    pub fn track_active_notification(&self, handle: notify_rust::NotificationHandle) {
+        self.active_notifications
+            .lock()
+            .expect("session status reminder runtime poisoned")
+            .push(handle);
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn release_active_notification(&self, id: u32) {
+        let mut handles = self
+            .active_notifications
+            .lock()
+            .expect("session status reminder runtime poisoned");
+        if let Some(index) = handles.iter().position(|handle| handle.id() == id) {
+            handles.remove(index);
+        }
     }
 
     #[cfg(target_os = "linux")]
     pub fn clear_active_notifications(&self) {
-        // No-op on Linux: notify-rust's NotificationHandle is consumed by
-        // wait_for_action, so we cannot close notifications programmatically.
-        // Reminders auto-expire, which keeps residual notifications bounded.
+        let handles = {
+            let mut handles = self
+                .active_notifications
+                .lock()
+                .expect("session status reminder runtime poisoned");
+            std::mem::take(&mut *handles)
+        };
+
+        for handle in handles {
+            handle.close();
+        }
     }
 }
 
@@ -185,11 +210,13 @@ fn restore_search_window_from_status_reminder<R: Runtime>(
     tauri::async_runtime::spawn(async move {
         let task_handle = app_handle.clone();
         if let Err(error) = app_handle.run_on_main_thread(move || {
-            if let Err(error) = crate::core::window::show_search_window(task_handle.clone()) {
-                log::warn!(
-                    "Failed to restore search window from session status notification: {}",
-                    error
-                );
+            if should_restore_search_window_from_status_reminder(payload.as_ref()) {
+                if let Err(error) = crate::core::window::show_search_window(task_handle.clone()) {
+                    log::warn!(
+                        "Failed to restore search window from session status notification: {}",
+                        error
+                    );
+                }
             }
 
             let Some(payload) = payload.as_ref() else {
@@ -212,6 +239,17 @@ fn restore_search_window_from_status_reminder<R: Runtime>(
             );
         }
     });
+}
+
+fn should_restore_search_window_from_status_reminder(
+    payload: Option<&SessionStatusReminderActionPayload>,
+) -> bool {
+    !matches!(
+        payload,
+        Some(payload)
+            if payload.kind == SessionStatusReminderKind::WaitingApproval
+                && payload.action == SessionStatusReminderAction::Approve
+    )
 }
 
 fn has_windows_installation_marker(exe_path: &std::path::Path) -> bool {
@@ -490,6 +528,11 @@ fn build_toast_document(
     toast
         .SetAttribute(&HSTRING::from("launch"), &HSTRING::from(&launch))
         .map_err(|error| error.to_string())?;
+    if payload.kind == SessionStatusReminderKind::WaitingApproval && payload.approval.is_some() {
+        toast
+            .SetAttribute(&HSTRING::from("scenario"), &HSTRING::from("reminder"))
+            .map_err(|error| error.to_string())?;
+    }
 
     let visual = doc
         .CreateElement(&HSTRING::from("visual"))
@@ -705,9 +748,11 @@ fn extract_reply_text(
 mod macos_notifications {
     use std::sync::{Mutex, OnceLock};
 
+    use block2::RcBlock;
+    use dispatch2::{run_on_main, MainThreadBound};
     use log::warn;
-    use objc2::declare_class;
-    use objc2_foundation::{NSArray, NSObject, NSString};
+    use objc2::{define_class, msg_send, rc::Retained, runtime::ProtocolObject, MainThreadOnly};
+    use objc2_foundation::{NSArray, NSDictionary, NSObject, NSObjectProtocol, NSSet, NSString};
     use objc2_user_notifications::{
         UNMutableNotificationContent, UNNotificationAction, UNNotificationCategory,
         UNNotificationRequest, UNNotificationResponse, UNTextInputNotificationResponse,
@@ -724,7 +769,8 @@ mod macos_notifications {
     type ActionCallback = Box<dyn Fn(&str) + Send>;
 
     static ACTION_CALLBACK: OnceLock<Mutex<Option<ActionCallback>>> = OnceLock::new();
-    static DELEGATE_INSTANCE: OnceLock<TouchAINotificationDelegate> = OnceLock::new();
+    static DELEGATE_INSTANCE: OnceLock<MainThreadBound<Retained<TouchAINotificationDelegate>>> =
+        OnceLock::new();
 
     /// Register the callback invoked from the notification-center delegate when
     /// the user interacts with a delivered notification.
@@ -737,44 +783,49 @@ mod macos_notifications {
     /// entire process lifetime. `UNUserNotificationCenter.delegate` is a weak
     /// property, so the delegate object must be held in a static to prevent
     /// deallocation.
-    fn ensure_delegate_registered(center: &UNUserNotificationCenter) {
-        DELEGATE_INSTANCE.get_or_init(|| {
-            let delegate = TouchAINotificationDelegate::new();
-            center.setDelegate(&delegate);
-            delegate
+    fn ensure_delegate_registered() {
+        run_on_main(|mtm| {
+            let center = UNUserNotificationCenter::currentNotificationCenter();
+            let delegate = DELEGATE_INSTANCE.get_or_init(|| {
+                let delegate = TouchAINotificationDelegate::new(mtm);
+                MainThreadBound::new(delegate, mtm)
+            });
+            center.setDelegate(Some(ProtocolObject::from_ref(&**delegate.get(mtm))));
         });
     }
 
     /// Objective-C delegate that translates `UNUserNotificationCenter` action
     /// responses into serialised Rust payloads and forwards them through the
     /// registered callback.
-    declare_class!(
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
         pub(crate) struct TouchAINotificationDelegate;
 
-        unsafe impl ClassType for TouchAINotificationDelegate {
-            type Super = NSObject;
-        }
+        unsafe impl NSObjectProtocol for TouchAINotificationDelegate {}
 
         unsafe impl UNUserNotificationCenterDelegate for TouchAINotificationDelegate {
-            #[method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:)]
+            #[unsafe(method(
+                userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:
+            ))]
             fn did_receive_response(
                 &self,
                 _center: &UNUserNotificationCenter,
                 response: &UNNotificationResponse,
-                completion_handler: &objc2_foundation::Block<dyn Fn()>,
+                completion_handler: &block2::DynBlock<dyn Fn()>,
             ) {
                 let action_id = response.actionIdentifier().to_string();
                 let request = response.notification().request();
-                let raw_payload = request
-                    .content()
-                    .userInfo()
-                    .and_then(|dict| dict.objectForKey(&NSString::from_str("touchai_payload")))
+                let payload_key = NSString::from_str("touchai_payload");
+                let user_info = request.content().userInfo();
+                let raw_payload = unsafe { user_info.cast_unchecked::<NSString, NSString>() }
+                    .objectForKey(&payload_key)
                     .map(|obj| obj.to_string());
 
                 let reply_text = if let Some(text_response) =
                     response.downcast_ref::<UNTextInputNotificationResponse>()
                 {
-                    text_response.userText().map(|s| s.to_string())
+                    Some(text_response.userText().to_string())
                 } else {
                     None
                 };
@@ -797,10 +848,17 @@ mod macos_notifications {
                     }
                 }
 
-                completion_handler.call();
+                completion_handler.call(());
             }
         }
     );
+
+    impl TouchAINotificationDelegate {
+        fn new(mtm: objc2::MainThreadMarker) -> Retained<Self> {
+            let delegate = Self::alloc(mtm);
+            unsafe { msg_send![delegate, init] }
+        }
+    }
 
     /// Enrich the base payload JSON with the action identifier and optional
     /// reply text so that the frontend receives a complete action payload.
@@ -810,7 +868,7 @@ mod macos_notifications {
         reply_text: Option<&str>,
     ) -> Option<String> {
         let mut base: serde_json::Value = serde_json::from_str(base_json).ok()?;
-        if let obj @ serde_json::Value::Object(_) = &mut base {
+        if let serde_json::Value::Object(obj) = &mut base {
             obj.insert(
                 "action".to_string(),
                 serde_json::Value::String(action_id.to_string()),
@@ -841,94 +899,73 @@ mod macos_notifications {
         let approve_label = payload
             .approval
             .as_ref()
-            .map(|a| a.approve_label.as_str())
+            .map(|approval| approval.approve_label.as_str())
             .unwrap_or("Approve");
         let reject_label = payload
             .approval
             .as_ref()
-            .map(|a| a.reject_label.as_str())
+            .map(|approval| approval.reject_label.as_str())
             .unwrap_or("Reject");
+        let open_label = payload.open_label.as_deref().unwrap_or("Open");
         let reply_label = payload.reply_label.as_deref().unwrap_or("Reply");
         let reply_placeholder = payload
             .reply_placeholder
             .as_deref()
             .unwrap_or("Reply to TouchAI");
+        let empty_intents = NSArray::from_slice(&[]);
 
-        let existing_categories = center.notificationCategories();
+        let approve_action = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("approve"),
+            &NSString::from_str(approve_label),
+            objc2_user_notifications::UNNotificationActionOptions::Foreground,
+        );
+        let reject_action = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("reject"),
+            &NSString::from_str(reject_label),
+            objc2_user_notifications::UNNotificationActionOptions::Destructive,
+        );
+        let waiting_actions = NSArray::from_retained_slice(&[approve_action, reject_action]);
+        let waiting_category =
+            UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                &NSString::from_str("touchai-waiting-approval"),
+                &waiting_actions,
+                &empty_intents,
+                objc2_user_notifications::UNNotificationCategoryOptions::empty(),
+            );
 
-        if payload.kind == SessionStatusReminderKind::WaitingApproval && payload.approval.is_some()
-        {
-            let approve_action = UNNotificationAction::actionWithIdentifier_title_options(
-                &NSString::from_str("approve"),
-                &NSString::from_str(approve_label),
-                objc2_user_notifications::UNNotificationActionOptions::Foreground,
+        let open_action = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("open"),
+            &NSString::from_str(open_label),
+            objc2_user_notifications::UNNotificationActionOptions::Foreground,
+        );
+        let open_actions = NSArray::from_retained_slice(&[open_action]);
+        let open_category =
+            UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                &NSString::from_str("touchai-open-only"),
+                &open_actions,
+                &empty_intents,
+                objc2_user_notifications::UNNotificationCategoryOptions::empty(),
             );
-            let reject_action = UNNotificationAction::actionWithIdentifier_title_options(
-                &NSString::from_str("reject"),
-                &NSString::from_str(reject_label),
-                objc2_user_notifications::UNNotificationActionOptions::Destructive,
+
+        let reply_action = objc2_user_notifications::UNTextInputNotificationAction::actionWithIdentifier_title_options_textInputButtonTitle_textInputPlaceholder(
+            &NSString::from_str("reply"),
+            &NSString::from_str(reply_label),
+            objc2_user_notifications::UNNotificationActionOptions::Foreground,
+            &NSString::from_str(reply_label),
+            &NSString::from_str(reply_placeholder),
+        );
+        let reply_actions = NSArray::from_retained_slice(&[reply_action.into_super()]);
+        let reply_category =
+            UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+                &NSString::from_str("touchai-completed-failed"),
+                &reply_actions,
+                &empty_intents,
+                objc2_user_notifications::UNNotificationCategoryOptions::empty(),
             );
-            let actions = NSArray::from_vec(vec![approve_action, reject_action]);
-            let category =
-                UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
-                    &NSString::from_str("touchai-waiting-approval"),
-                    &actions,
-                    &NSArray::new(),
-                    objc2_user_notifications::UNNotificationCategoryOptions::empty(),
-                );
-            let mut all: Vec<UNNotificationCategory> = existing_categories
-                .to_vec()
-                .into_iter()
-                .filter(|category| category.identifier().to_string() != "touchai-waiting-approval")
-                .collect();
-            all.push(category);
-            center.setNotificationCategories(&NSArray::from_vec(all));
-        } else if payload.kind == SessionStatusReminderKind::WaitingApproval {
-            let open_label = payload.open_label.as_deref().unwrap_or("Open");
-            let open_action = UNNotificationAction::actionWithIdentifier_title_options(
-                &NSString::from_str("open"),
-                &NSString::from_str(open_label),
-                objc2_user_notifications::UNNotificationActionOptions::Foreground,
-            );
-            let actions = NSArray::from_vec(vec![open_action]);
-            let category =
-                UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
-                    &NSString::from_str("touchai-open-only"),
-                    &actions,
-                    &NSArray::new(),
-                    objc2_user_notifications::UNNotificationCategoryOptions::empty(),
-                );
-            let mut all: Vec<UNNotificationCategory> = existing_categories
-                .to_vec()
-                .into_iter()
-                .filter(|category| category.identifier().to_string() != "touchai-open-only")
-                .collect();
-            all.push(category);
-            center.setNotificationCategories(&NSArray::from_vec(all));
-        } else {
-            let reply_action = objc2_user_notifications::UNTextInputNotificationAction::actionWithIdentifier_title_options_textInputButtonTitle_textInputPlaceholder(
-                &NSString::from_str("reply"),
-                &NSString::from_str(reply_label),
-                objc2_user_notifications::UNNotificationActionOptions::Foreground,
-                &NSString::from_str(reply_label),
-                &NSString::from_str(reply_placeholder),
-            );
-            let actions = NSArray::from_vec(vec![reply_action]);
-            let category =
-                UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
-                    &NSString::from_str("touchai-completed-failed"),
-                    &actions,
-                    &NSArray::new(),
-                    objc2_user_notifications::UNNotificationCategoryOptions::empty(),
-                );
-            let mut all: Vec<UNNotificationCategory> = existing_categories
-                .to_vec()
-                .into_iter()
-                .filter(|category| category.identifier().to_string() != "touchai-completed-failed")
-                .collect();
-            all.push(category);
-            center.setNotificationCategories(&NSArray::from_vec(all));
-        }
+
+        let categories =
+            NSSet::from_retained_slice(&[waiting_category, open_category, reply_category]);
+        center.setNotificationCategories(&categories);
     }
 
     /// Show a session status reminder notification through the macOS
@@ -945,7 +982,7 @@ mod macos_notifications {
         center.requestAuthorizationWithOptions_completionHandler(
             objc2_user_notifications::UNAuthorizationOptions::Alert
                 | objc2_user_notifications::UNAuthorizationOptions::Sound,
-            &objc2_foundation::Block::new(|_granted, _error| {}),
+            &RcBlock::new(|_granted, _error| {}),
         );
 
         // Persist an action callback that captures the producing app handle so
@@ -1013,7 +1050,7 @@ mod macos_notifications {
 
         // Ensure the delegate is registered exactly once and held by the static
         // so it lives for the process lifetime.
-        ensure_delegate_registered(&center);
+        ensure_delegate_registered();
 
         // Register the appropriate category (actions) for this notification.
         ensure_categories_registered(&center, payload);
@@ -1042,11 +1079,15 @@ mod macos_notifications {
         )
         .map_err(|e| format!("Failed to serialize activation payload: {e}"))?;
 
-        let keys = NSArray::from_vec(vec![NSString::from_str("touchai_payload")]);
-        let values = NSArray::from_vec(vec![NSString::from_str(&base_payload)]);
-        let user_info =
-            objc2_foundation::NSDictionary::dictionaryWithObjects_forKeys(&values, &keys);
-        content.setUserInfo(&user_info);
+        let key = NSString::from_str("touchai_payload");
+        let value = NSString::from_str(&base_payload);
+        let user_info = NSDictionary::from_slices(&[&*key], &[&*value]);
+        let user_info = unsafe {
+            user_info.cast_unchecked::<objc2::runtime::AnyObject, objc2::runtime::AnyObject>()
+        };
+        unsafe {
+            content.setUserInfo(user_info);
+        }
 
         let identifier = make_notification_identifier(payload);
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
@@ -1057,7 +1098,7 @@ mod macos_notifications {
 
         center.addNotificationRequest_withCompletionHandler(
             &request,
-            &objc2_foundation::Block::new(|_error| {}),
+            Some(&RcBlock::new(|_error| {})),
         );
 
         runtime.track_active_notification(identifier);
@@ -1078,8 +1119,10 @@ mod macos_notifications {
         if ids.is_empty() {
             return;
         }
-        let identifiers: Vec<NSString> = ids.iter().map(|id| NSString::from_str(id)).collect();
-        center.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_vec(identifiers));
+        let identifiers: Vec<Retained<NSString>> =
+            ids.iter().map(|id| NSString::from_str(id)).collect();
+        let identifier_array = NSArray::from_retained_slice(&identifiers);
+        center.removeDeliveredNotificationsWithIdentifiers(&identifier_array);
     }
 }
 
@@ -1089,8 +1132,8 @@ mod macos_notifications {
 
 #[cfg(target_os = "linux")]
 mod linux_notifications {
-    use notify_rust::{Notification, Timeout};
-    use tauri::{AppHandle, Runtime};
+    use notify_rust::{ActionResponse, Notification, Timeout};
+    use tauri::{AppHandle, Manager, Runtime};
 
     use super::{
         SessionStatusReminderAction, SessionStatusReminderActionPayload, SessionStatusReminderKind,
@@ -1098,13 +1141,9 @@ mod linux_notifications {
     };
 
     const STANDARD_REMINDER_TIMEOUT_MS: u32 = 15_000;
-    const APPROVAL_REMINDER_TIMEOUT_MS: u32 = 300_000;
-
     fn notification_timeout(kind: SessionStatusReminderKind) -> Timeout {
         match kind {
-            SessionStatusReminderKind::WaitingApproval => {
-                Timeout::Milliseconds(APPROVAL_REMINDER_TIMEOUT_MS)
-            }
+            SessionStatusReminderKind::WaitingApproval => Timeout::Never,
             SessionStatusReminderKind::Completed | SessionStatusReminderKind::Failed => {
                 Timeout::Milliseconds(STANDARD_REMINDER_TIMEOUT_MS)
             }
@@ -1170,11 +1209,23 @@ mod linux_notifications {
             reply_text: None,
         };
 
-        // wait_for_action blocks until the notification closes or the user acts,
-        // so it must run off the Tauri invoke thread.
+        runtime.track_active_notification(handle);
+
+        // Listen for the notification action on a background thread while
+        // keeping the original handle available for explicit closing.
         std::thread::spawn(move || {
-            handle.wait_for_action(move |action_name| {
-                let Some(resolved_action) = resolve_action(action_name) else {
+            notify_rust::handle_action(notification_id, move |action| {
+                if let Some(runtime) =
+                    app_handle.try_state::<super::SessionStatusReminderNotificationRuntime>()
+                {
+                    runtime.release_active_notification(notification_id);
+                }
+
+                let resolved_action = match action {
+                    ActionResponse::Custom(action_name) => resolve_action(action_name),
+                    ActionResponse::Closed(_) => None,
+                };
+                let Some(resolved_action) = resolved_action else {
                     return;
                 };
 
@@ -1190,16 +1241,13 @@ mod linux_notifications {
             });
         });
 
-        runtime.track_active_notification(notification_id);
-
         Ok(())
     }
 
     /// Clear tracked Linux notifications.
     pub fn clear(runtime: &super::SessionStatusReminderNotificationRuntime) {
-        // Linux reminder notifications auto-expire, so clearing here is
-        // best-effort even though notify-rust does not expose a cross-desktop
-        // close primitive once action waiting is detached.
+        // Close any still-tracked notifications. Notifications that already
+        // received an action are released from tracking by the action listener.
         runtime.clear_active_notifications();
     }
 }
@@ -1211,7 +1259,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        finalize_activation_payload, has_windows_installation_marker, SessionStatusReminderAction,
+        finalize_activation_payload, has_windows_installation_marker,
+        should_restore_search_window_from_status_reminder, SessionStatusReminderAction,
         SessionStatusReminderActionPayload, SessionStatusReminderKind,
     };
 
@@ -1261,6 +1310,50 @@ mod tests {
 
         fs::write(dir.path().join("uninstall.exe"), b"stub").expect("write uninstall");
         assert!(has_windows_installation_marker(&exe_path));
+    }
+
+    #[test]
+    fn waiting_approval_approve_does_not_restore_search_window() {
+        let payload = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Approve,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            call_id: Some("call-1".to_string()),
+            reply_text: None,
+        };
+
+        assert!(!should_restore_search_window_from_status_reminder(Some(
+            &payload
+        )));
+    }
+
+    #[test]
+    fn other_status_reminder_actions_still_restore_search_window() {
+        let approve_completed = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Approve,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::Completed,
+            call_id: None,
+            reply_text: None,
+        };
+        let reject_waiting = SessionStatusReminderActionPayload {
+            action: SessionStatusReminderAction::Reject,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            call_id: Some("call-1".to_string()),
+            reply_text: None,
+        };
+
+        assert!(should_restore_search_window_from_status_reminder(None));
+        assert!(should_restore_search_window_from_status_reminder(Some(
+            &approve_completed
+        )));
+        assert!(should_restore_search_window_from_status_reminder(Some(
+            &reject_waiting
+        )));
     }
 }
 
@@ -1313,6 +1406,7 @@ mod tests_windows {
         .expect("toast xml");
 
         assert!(xml.contains("<actions>"));
+        assert!(xml.contains("scenario=\"reminder\""));
         assert!(xml.contains("Approve"));
         assert!(xml.contains("Reject"));
         assert!(!xml.contains("Reply to TouchAI"));

@@ -14,6 +14,15 @@ export interface ModelInfo {
 export interface ProviderConfigJson {
     headers?: Record<string, string>;
     queryParams?: Record<string, string>;
+    managedAuth?: {
+        login?: string;
+        avatarUrl?: string;
+    };
+    touchAiMode?: 'managed' | 'custom';
+    touchAiCustom?: {
+        apiEndpoint?: string;
+        apiKey?: string;
+    };
 }
 
 export interface ProviderApiTargets {

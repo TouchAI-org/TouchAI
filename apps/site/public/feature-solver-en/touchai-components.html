@@ -1,0 +1,2157 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>TouchAI Math Problem Solver</title>
+        <link rel="stylesheet" href="/demo-vendor/katex/katex.min.css" />
+        <style>
+            :root {
+                --panel: #fffefa;
+                --panel-line: #e7e8e8;
+                --copy: #667182;
+                --copy-strong: #5b6678;
+                --muted-icon: #9aa6b5;
+                --bubble: #f0ece9;
+                --orange: #ff6908;
+                --overlay-fade: rgba(255, 255, 255, 0.95);
+                --window-width: clamp(640px, 58vw, 760px);
+                --stage-width: clamp(696px, 64vw, 820px);
+                --window-min-height: 657px;
+                --serif-font:
+                    'Source Han Serif SC', 'Source Han Serif CN', 'Noto Serif SC',
+                    'Source Han Serif', 'Source Serif Pro', serif;
+                --sans-font:
+                    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+                    sans-serif;
+                --paragraph-indent: 0;
+                --response-paragraph-gap: 14px;
+                --response-category-gap: 22px;
+                --response-item-gap: 9px;
+                --marker-text-gap: 18px;
+                --actions-composer-gap: 26px;
+                --response-left-inset: 32px;
+                --response-right-inset: 32px;
+                --math-line-width: var(--window-width);
+                --math-line-offset: calc(-1 * var(--response-left-inset));
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                min-height: 100vh;
+                display: grid;
+                place-items: center;
+                background: transparent;
+                color: var(--copy);
+                font-family: var(--sans-font);
+            }
+
+            .stage {
+                width: var(--window-width);
+                min-height: 100vh;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+            }
+
+            .chat-panel {
+                width: var(--window-width);
+                min-height: 0;
+                margin-left: 0;
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                border-radius: 8px;
+                background: var(--panel);
+                box-shadow:
+                    0 1px 1px rgb(0 0 0 / 4%),
+                    0 18px 36px rgba(15, 23, 42, 0.16);
+                transform-origin: bottom center;
+                will-change: max-height, min-height, transform;
+                transition:
+                    max-height 640ms cubic-bezier(0.22, 1, 0.36, 1),
+                    min-height 640ms cubic-bezier(0.22, 1, 0.36, 1),
+                    opacity 360ms ease,
+                    transform 640ms cubic-bezier(0.22, 1, 0.36, 1),
+                    margin-bottom 640ms cubic-bezier(0.22, 1, 0.36, 1);
+            }
+
+            body.is-idle .chat-panel {
+                max-height: 56px;
+                min-height: 56px;
+                margin-bottom: 0;
+                opacity: 1;
+                pointer-events: auto;
+                transform: translateY(0) scale(1);
+            }
+
+            body.is-idle .stage {
+                justify-content: center;
+            }
+
+            body.is-idle .composer {
+                height: 56px;
+                flex-basis: 56px;
+                border-top-color: transparent;
+            }
+
+            body.is-answering .chat-panel {
+                max-height: var(--window-min-height);
+                min-height: 0;
+                margin-bottom: 0;
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+
+            body.is-complete .chat-panel {
+                max-height: var(--window-min-height);
+                min-height: var(--window-min-height);
+                height: var(--window-min-height);
+                margin-bottom: 0;
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+
+            body.is-idle .panel-top {
+                display: none;
+            }
+
+            body.is-idle .conversation-content {
+                display: none;
+            }
+
+            .prompt-layer {
+                flex: 0 0 auto;
+                width: 100%;
+                padding-top: 5.25rem;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                padding-bottom: 26px;
+            }
+
+            .chat-panel > .prompt-layer {
+                display: none;
+            }
+
+            .conversation-content {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                scrollbar-width: none;
+                padding-top: 0;
+                padding-bottom: 20px;
+            }
+
+            body.is-answering .conversation-content {
+                flex: 0 0 auto;
+                overflow: visible;
+                padding-bottom: 0;
+            }
+
+            body.is-answering.is-scrolling .conversation-content {
+                flex: 1 1 auto;
+                overflow-y: auto;
+                padding-top: 0;
+                padding-bottom: 20px;
+            }
+
+            .scroll-fade-overlay {
+                position: absolute;
+                right: 0;
+                bottom: 55px;
+                left: 0;
+                z-index: 3;
+                display: flex;
+                height: 5rem;
+                align-items: flex-end;
+                justify-content: center;
+                padding-bottom: 4px;
+                border-radius: 8px;
+                pointer-events: none;
+                opacity: 0;
+                background: linear-gradient(to bottom, transparent 0%, var(--overlay-fade) 100%);
+                transition: opacity 180ms ease;
+            }
+
+            body.has-below-content .scroll-fade-overlay {
+                opacity: 1;
+            }
+
+            .conversation-content::-webkit-scrollbar {
+                display: none;
+            }
+
+            .panel-top,
+            .toolbar-fade-overlay {
+                position: absolute;
+                top: 0;
+                right: 0;
+                left: 0;
+                z-index: 3;
+                height: 4.5rem;
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                padding: 12px 24px 0;
+                gap: 8px;
+                background: linear-gradient(to bottom, var(--overlay-fade) 0%, transparent 100%);
+            }
+
+            .icon-btn,
+            .small-icon {
+                width: 16px;
+                height: 16px;
+                color: var(--muted-icon);
+                fill: currentColor;
+                flex: 0 0 auto;
+            }
+
+            .toolbar-button {
+                height: 1.9rem;
+                width: 1.9rem;
+                border: 0;
+                border-radius: 0.75rem;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                background: transparent;
+                color: rgb(156, 163, 175);
+                padding: 0;
+                transition:
+                    color 0.2s ease,
+                    background-color 0.2s ease,
+                    box-shadow 0.2s ease;
+            }
+
+            .toolbar-button:hover,
+            .toolbar-button--active {
+                background: rgba(255, 255, 255, 0.92);
+                color: rgb(82, 82, 91);
+                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+            }
+
+            .toolbar-button--pinned {
+                background: #f4f1ee;
+                color: rgb(107, 114, 128);
+                box-shadow:
+                    inset 0 0 0 1px rgba(214, 210, 205, 0.9),
+                    0 6px 14px rgba(15, 23, 42, 0.14);
+            }
+
+            .toolbar-button--pinned:hover {
+                background: #f8f6f3;
+                color: rgb(82, 82, 91);
+            }
+
+            .prompt-pill {
+                width: max-content;
+                margin: 24px 48px 0 auto;
+                align-self: flex-end;
+                min-height: 40px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0 17px;
+                border-radius: 8px;
+                background: var(--bubble);
+                color: #14223a;
+                font-family: var(--serif-font);
+                font-size: 15px;
+                line-height: 1.6;
+                letter-spacing: 0.02em;
+            }
+
+            .prompt-card {
+                width: min(392px, calc(100% - 96px));
+                min-height: 112px;
+                flex-direction: column;
+                align-items: flex-start;
+                justify-content: flex-start;
+                gap: 8px;
+                padding: 12px 16px 10px;
+                color: #182437;
+                line-height: 1.45;
+            }
+
+            .prompt-card-title {
+                display: flex;
+                align-items: center;
+                gap: 0;
+                font-family: var(--serif-font);
+                font-size: 15px;
+                line-height: 20px;
+                color: #182437;
+            }
+
+            .problem-image {
+                width: 100%;
+                min-height: 62px;
+                overflow: hidden;
+                border-radius: 7px;
+                background: #fff;
+                box-shadow: inset 0 0 0 1px rgba(211, 214, 218, 0.8);
+            }
+
+            .problem-image img {
+                display: block;
+                width: 100%;
+                height: auto;
+                min-height: 62px;
+                object-fit: contain;
+            }
+
+            .problem-sheet {
+                display: grid;
+                gap: 5px;
+                padding: 9px 12px 10px;
+                font-family: 'Times New Roman', 'Source Han Serif SC', serif;
+                font-size: 12px;
+                line-height: 1.35;
+                color: #111827;
+            }
+
+            .problem-sheet p {
+                margin: 0;
+            }
+
+            .prompt-copy {
+                width: 16px;
+                height: 16px;
+                margin: 8px 57px 0 auto;
+                border: 0;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--muted-icon);
+                background: transparent;
+                cursor: pointer;
+                opacity: 0.95;
+                transition:
+                    color 180ms ease,
+                    opacity 180ms ease;
+            }
+
+            .prompt-copy:hover {
+                color: #667182;
+                opacity: 1;
+            }
+
+            .response {
+                margin: 28px var(--response-right-inset) 0 var(--response-left-inset);
+                width: calc(100% - var(--response-left-inset) - var(--response-right-inset));
+                display: flex;
+                flex-direction: column;
+                flex: 0 0 auto;
+                min-height: 0;
+                overflow: visible;
+                font-family: var(--serif-font);
+                font-size: 15px;
+                line-height: 2.05;
+                letter-spacing: 0.02em;
+                color: var(--copy);
+                opacity: 0;
+                transition: opacity 240ms ease 220ms;
+            }
+
+            .response.math-response {
+                font-size: 16px;
+                line-height: 2.05;
+                color: #697487;
+            }
+
+            .touchai-markdown {
+                font-family: var(--serif-font);
+                font-size: 16px;
+                line-height: 2.05;
+                letter-spacing: 0.02em;
+                color: #697487;
+            }
+
+            body.is-answering .response,
+            body.is-complete .response {
+                opacity: 1;
+            }
+
+            body.is-answering .response {
+                flex: 0 0 auto;
+            }
+
+            body.is-complete .response {
+                flex: 0 0 auto;
+            }
+
+            body.is-answering .composer {
+                margin-top: 0;
+            }
+
+            body.is-answering.is-scrolling .composer {
+                margin-top: auto;
+            }
+
+            .response > p,
+            .response > ul,
+            .response > .math-block,
+            .response > .response-divider {
+                margin: 0;
+            }
+
+            .response > p + p,
+            .response > p + .response-divider,
+            .response > .response-divider + p,
+            .response > p + .math-block,
+            .response > .math-block + p,
+            .response > .math-block + .math-block {
+                margin-top: var(--response-paragraph-gap);
+            }
+
+            .response > p + ul,
+            .response > ul + p {
+                margin-top: var(--response-category-gap);
+            }
+
+            .response p {
+                text-indent: var(--paragraph-indent);
+            }
+
+            .math-display,
+            .answer-line,
+            .math-narrative,
+            .math-block {
+                width: var(--math-line-width);
+                margin-left: var(--math-line-offset);
+                text-align: center;
+            }
+
+            .math-display,
+            .answer-line,
+            .math-block {
+                font-style: italic;
+                font-size: 17px;
+                line-height: 2.1;
+                color: #5f6a7d;
+            }
+
+            .math-block {
+                display: block;
+                overflow-x: hidden;
+                text-indent: 0;
+            }
+
+            .math-narrative {
+                text-indent: 0;
+            }
+
+            .math-type-shell {
+                position: relative;
+                display: inline-grid;
+                grid-template-areas: 'formula';
+                justify-items: stretch;
+                width: 100%;
+                max-width: 100%;
+                vertical-align: top;
+            }
+
+            .math-ghost,
+            .math-live {
+                grid-area: formula;
+                display: block;
+                width: 100%;
+                max-width: none;
+                text-align: center;
+                white-space: normal;
+            }
+
+            .math-ghost {
+                visibility: hidden;
+                pointer-events: none;
+                user-select: none;
+            }
+
+            .math-live {
+                position: relative;
+                z-index: 1;
+                min-width: 0;
+            }
+
+            .formula-module {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.22em;
+                max-width: 100%;
+                font-family:
+                    'Cambria Math', 'Latin Modern Math', 'STIX Two Math', 'Times New Roman', serif;
+                font-style: italic;
+                line-height: 1.45;
+                white-space: normal;
+            }
+
+            .katex-formula {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                max-width: 100%;
+                font-family:
+                    'KaTeX_Main', 'Cambria Math', 'Latin Modern Math', 'STIX Two Math',
+                    'Times New Roman', serif;
+                font-style: normal;
+                white-space: normal;
+            }
+
+            .math-display-frame {
+                width: 100%;
+                display: grid;
+                justify-items: center;
+                text-align: center;
+                overflow: hidden;
+            }
+
+            .math-display-frame > .katex-display {
+                width: auto;
+                max-width: 100%;
+                margin: 0;
+                text-align: center;
+            }
+
+            .katex {
+                font-size: 1.04em;
+                color: inherit;
+                max-width: 100%;
+            }
+
+            .katex .base {
+                margin: 0 auto;
+            }
+
+            .inline-formula {
+                font-size: 1em;
+                vertical-align: -0.05em;
+            }
+
+            .formula-module .op,
+            .formula-module .punct {
+                font-style: normal;
+            }
+
+            .frac {
+                display: inline-grid;
+                grid-template-rows: auto auto;
+                place-items: center;
+                line-height: 1.05;
+                vertical-align: middle;
+                margin: 0 0.08em;
+                font-size: 0.95em;
+            }
+
+            .frac .num {
+                min-width: 100%;
+                padding: 0 0.18em 0.06em;
+                border-bottom: 1px solid currentColor;
+                text-align: center;
+            }
+
+            .frac .den {
+                padding: 0.06em 0.18em 0;
+                text-align: center;
+            }
+
+            .root {
+                display: inline-flex;
+                align-items: flex-start;
+                gap: 0.03em;
+            }
+
+            .root::before {
+                content: '√';
+                font-style: normal;
+                transform: translateY(-0.02em);
+            }
+
+            .radicand {
+                padding: 0.02em 0.08em 0;
+                border-top: 1px solid currentColor;
+            }
+
+            .math-display.compact {
+                line-height: 1.8;
+            }
+
+            .boxed-formula,
+            .answer-box {
+                display: inline-block;
+                padding: 7px 12px;
+                border: 1px solid #687383;
+                background: rgba(255, 255, 255, 0.58);
+                color: #566276;
+            }
+
+            .response-divider {
+                width: 100%;
+                height: 1px;
+                border: 0;
+                background: #dfe4ea;
+                text-indent: 0;
+            }
+
+            .response ul {
+                padding: 0;
+                list-style: none;
+            }
+
+            .response li {
+                display: flex;
+                gap: var(--marker-text-gap);
+                padding-left: 0;
+                margin: 0;
+            }
+
+            .response li + li {
+                margin-top: var(--response-item-gap);
+            }
+
+            .response li > span:last-child {
+                display: block;
+                text-indent: var(--paragraph-indent);
+            }
+
+            body.is-answering .response p:not(.is-visible),
+            body.is-answering .response li:not(.is-visible),
+            body.is-answering .response ul:not(.is-visible),
+            body.is-answering .response .math-block:not(.is-visible),
+            body.is-answering .response .response-divider:not(.is-visible) {
+                display: none;
+            }
+
+            .typed-marker {
+                width: 12px;
+                flex: 0 0 12px;
+                height: calc(15px * 2.05);
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                align-self: flex-start;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 1.38em;
+                line-height: 1;
+                color: #b3b4b0;
+                font-weight: 400;
+                transform: translateY(0);
+                text-align: center;
+            }
+
+            .response strong {
+                color: var(--copy-strong);
+                font-weight: 700;
+            }
+
+            .kbd {
+                display: inline-block;
+                padding: 0 8px;
+                border-radius: 5px;
+                background: #f4eee9;
+                color: #7b2119;
+                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                font-size: 12px;
+                font-weight: 700;
+                line-height: 20px;
+                vertical-align: 1px;
+            }
+
+            .response-actions {
+                position: relative;
+                width: 44px;
+                height: 20px;
+                display: flex;
+                align-items: center;
+                overflow: visible;
+                margin: calc(var(--response-category-gap) + 2px) 0 var(--actions-composer-gap) 0;
+                opacity: 1;
+                transform: translateY(0);
+                transition:
+                    opacity 240ms ease,
+                    transform 240ms ease;
+            }
+
+            .scroll-bottom-button {
+                width: 40px;
+                height: 40px;
+                border: 0;
+                border-radius: 50%;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                background: #ffffff;
+                color: rgb(75, 85, 99);
+                box-shadow:
+                    0 10px 15px -3px rgba(15, 23, 42, 0.12),
+                    0 4px 6px -4px rgba(15, 23, 42, 0.12);
+                pointer-events: none;
+                transition:
+                    background-color 180ms ease,
+                    box-shadow 180ms ease,
+                    transform 180ms ease;
+            }
+
+            .scroll-bottom-button:hover {
+                background: rgb(249, 250, 251);
+                box-shadow:
+                    0 20px 25px -5px rgba(15, 23, 42, 0.12),
+                    0 8px 10px -6px rgba(15, 23, 42, 0.12);
+                transform: translateY(-1px);
+            }
+
+            .scroll-bottom-button svg {
+                width: 20px;
+                height: 20px;
+                fill: currentColor;
+            }
+
+            body.has-below-content .scroll-bottom-button {
+                pointer-events: auto;
+            }
+
+            body.is-idle .response-actions {
+                display: none;
+            }
+
+            body.is-answering .response-actions {
+                margin: 10px 0 8px 0;
+            }
+
+            .thinking-dots {
+                position: absolute;
+                inset: 4px auto auto 0;
+                width: 44px;
+                height: 16px;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                opacity: 0;
+                transition: opacity 180ms ease;
+            }
+
+            .thinking-dots span {
+                width: 4px;
+                height: 4px;
+                border-radius: 50%;
+                background: #a8b0ba;
+                opacity: 0.54;
+                animation: thinkingPulse 960ms ease-in-out infinite;
+            }
+
+            .thinking-dots span:nth-child(2) {
+                animation-delay: 160ms;
+            }
+
+            .thinking-dots span:nth-child(3) {
+                animation-delay: 320ms;
+            }
+
+            body.is-answering .thinking-dots {
+                opacity: 1;
+            }
+
+            .action-button {
+                position: absolute;
+                top: 5px;
+                width: 16px;
+                height: 16px;
+                border: 0;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--muted-icon);
+                background: transparent;
+                cursor: pointer;
+                opacity: 0;
+                transition:
+                    color 180ms ease,
+                    opacity 180ms ease;
+            }
+
+            .copy-answer {
+                left: 0;
+            }
+
+            .replay-answer {
+                left: 34px;
+            }
+
+            .action-button:hover {
+                color: #667182;
+            }
+
+            body.is-complete .thinking-dots {
+                opacity: 0;
+            }
+
+            body.is-complete .action-button {
+                opacity: 1;
+            }
+
+            body.is-complete .response-actions {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            @keyframes thinkingPulse {
+                0%,
+                100% {
+                    opacity: 0.5;
+                    transform: translateY(0);
+                }
+
+                45% {
+                    opacity: 1;
+                    transform: translateY(0) scale(1.18);
+                }
+            }
+
+            .composer {
+                margin-top: auto;
+                height: 55px;
+                flex: 0 0 55px;
+                border-top: 1px solid var(--panel-line);
+                display: flex;
+                align-items: center;
+                padding: 0 12px;
+                background: var(--panel);
+            }
+
+            .composer-form {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                display: flex;
+                align-items: center;
+            }
+
+            .mi-logo {
+                width: 32px;
+                height: 32px;
+                border: 2px solid rgb(209 213 219);
+                border-radius: 50%;
+                flex: 0 0 auto;
+                object-fit: cover;
+                display: block;
+            }
+
+            .prompt-form {
+                margin: 0;
+            }
+
+            .prompt-input {
+                min-width: 0;
+                flex: 1 1 auto;
+                margin-left: 10px;
+                border: 0;
+                outline: 0;
+                background: transparent;
+                color: #14223a;
+                font: 18px/1.5rem var(--sans-font);
+            }
+
+            .prompt-input::placeholder {
+                color: #9aa6b5;
+                opacity: 1;
+            }
+
+            .prompt-input::selection {
+                background: rgb(255 105 8 / 20%);
+            }
+
+            .submit-btn {
+                width: 32px;
+                height: 32px;
+                margin-left: 10px;
+                border: 0;
+                border-radius: 6px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                color: var(--orange);
+                background: rgb(255 105 8 / 9%);
+                cursor: pointer;
+            }
+
+            .submit-btn svg {
+                width: 16px;
+                height: 16px;
+                fill: currentColor;
+            }
+
+            @media (max-width: 840px) {
+                :root {
+                    --window-width: 100%;
+                    --stage-width: 100%;
+                }
+
+                .stage {
+                    padding: 0;
+                    width: 100%;
+                    justify-content: center;
+                    align-items: center;
+                }
+
+                .chat-panel {
+                    width: 100%;
+                    margin-left: 0;
+                }
+
+                .chat-panel {
+                    min-height: 0;
+                }
+
+                body.is-answering .chat-panel {
+                    max-height: calc(100vh - 48px);
+                    min-height: 0;
+                }
+
+                body.is-complete .chat-panel {
+                    max-height: calc(100vh - 48px);
+                    min-height: 0;
+                }
+
+                .response {
+                    margin-right: 32px;
+                    margin-top: 12px;
+                }
+            }
+        </style>
+    </head>
+    <body class="is-idle">
+        <main class="stage">
+            <section class="chat-panel is-unified" aria-label="TouchAI 对话组件">
+                <header class="panel-top toolbar-fade-overlay" aria-label="窗口工具栏">
+                    <button class="toolbar-button" type="button" aria-label="新建会话">
+                        <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z" />
+                        </svg>
+                    </button>
+                    <button class="toolbar-button" type="button" aria-label="历史记录">
+                        <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 8v5h5v-2h-3V8z" />
+                            <path
+                                d="M21.292 8.497a9 9 0 0 0-1.928-2.862a9 9 0 0 0-4.55-2.452a9.1 9.1 0 0 0-3.626 0a8.97 8.97 0 0 0-4.552 2.453a9 9 0 0 0-1.928 2.86A9 9 0 0 0 4 12l.001.025H2L5 16l3-3.975H6.001L6 12a6.96 6.96 0 0 1 1.195-3.913a7.1 7.1 0 0 1 1.891-1.892a7 7 0 0 1 2.503-1.054a7.003 7.003 0 0 1 8.269 5.445a7.1 7.1 0 0 1 0 2.824a6.9 6.9 0 0 1-1.054 2.503c-.25.371-.537.72-.854 1.036a7.1 7.1 0 0 1-2.225 1.501a7 7 0 0 1-1.313.408a7.1 7.1 0 0 1-2.823 0a7 7 0 0 1-2.501-1.053a7 7 0 0 1-1.037-.855l-1.414 1.414A9 9 0 0 0 13 21a9.1 9.1 0 0 0 3.503-.707a9 9 0 0 0 3.959-3.26A8.97 8.97 0 0 0 22 12a8.9 8.9 0 0 0-.708-3.503"
+                            />
+                        </svg>
+                    </button>
+                    <button class="toolbar-button" type="button" aria-label="最大化窗口">
+                        <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                                d="M5 5h5V3H3v7h2zm5 14H5v-5H3v7h7zm11-5h-2v5h-5v2h7zm-2-4h2V3h-7v2h5z"
+                            />
+                        </svg>
+                    </button>
+                    <button
+                        class="toolbar-button toolbar-button--pinned"
+                        type="button"
+                        aria-label="固定窗口"
+                    >
+                        <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                                d="m12 22l1-2v-3h5a1 1 0 0 0 1-1v-1.586c0-.526-.214-1.042-.586-1.414L17 11.586V8a1 1 0 0 0 1-1V4c0-1.103-.897-2-2-2H8c-1.103 0-2 .897-2 2v3a1 1 0 0 0 1 1v3.586L5.586 13A2 2 0 0 0 5 14.414V16a1 1 0 0 0 1 1h5v3zM8 4h8v2H8zM7 14.414l1.707-1.707A1 1 0 0 0 9 12V8h6v4c0 .266.105.52.293.707L17 14.414V15H7z"
+                            />
+                        </svg>
+                    </button>
+                </header>
+
+                <div class="prompt-layer">
+                    <div class="prompt-pill prompt-card" aria-label="用户输入">
+                        <div class="prompt-card-title">Solve this problem</div>
+                        <div class="problem-image" role="img" aria-label="圆锥曲线题目截图">
+                            <img src="./problem-card.svg" alt="圆锥曲线题目截图" />
+                        </div>
+                    </div>
+                    <button class="prompt-copy" type="button" aria-label="复制问题">
+                        <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                                d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"
+                            />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="conversation-content">
+                    <div class="prompt-layer">
+                        <div class="prompt-pill prompt-card" aria-label="用户输入">
+                            <div class="prompt-card-title">Solve this problem</div>
+                            <div class="problem-image" role="img" aria-label="圆锥曲线题目截图">
+                                <img src="./problem-card.svg" alt="圆锥曲线题目截图" />
+                            </div>
+                        </div>
+                        <button class="prompt-copy" type="button" aria-label="复制问题">
+                            <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                    d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+                    <article class="response math-response" aria-live="polite">
+                        <p>Here is the short solution:</p>
+                        <p class="math-narrative">
+                            设过
+                            <span class="formula-module inline-formula">
+                                M
+                                <span class="punct">(</span>
+                                0
+                                <span class="punct">,</span>
+                                1
+                                <span class="punct">)</span>
+                            </span>
+                            的直线为
+                            <span class="formula-module inline-formula">
+                                y
+                                <span class="op">=</span>
+                                kx
+                                <span class="op">+</span>
+                                1
+                            </span>
+                            ，与椭圆
+                        </p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                x
+                                <sup>2</sup>
+                                <span class="op">+</span>
+                                <span class="frac">
+                                    <span class="num">
+                                        y
+                                        <sup>2</sup>
+                                    </span>
+                                    <span class="den">4</span>
+                                </span>
+                                <span class="op">=</span>
+                                1
+                            </span>
+                        </p>
+                        <p>
+                            交于
+                            <em>(A,B)</em>
+                            。
+                        </p>
+                        <p>代入得</p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                <span class="punct">(</span>
+                                k
+                                <sup>2</sup>
+                                <span class="op">+</span>
+                                4
+                                <span class="punct">)</span>
+                                x
+                                <sup>2</sup>
+                                <span class="op">+</span>
+                                2kx
+                                <span class="op">−</span>
+                                3
+                                <span class="op">=</span>
+                                0
+                            </span>
+                        </p>
+                        <p class="math-narrative">
+                            设两根为
+                            <span class="formula-module inline-formula">
+                                x
+                                <sub>1</sub>
+                                <span class="punct">,</span>
+                                x
+                                <sub>2</sub>
+                            </span>
+                            ，则
+                        </p>
+                        <p class="math-display compact">
+                            <span class="formula-module">
+                                x
+                                <sub>1</sub>
+                                <span class="op">+</span>
+                                x
+                                <sub>2</sub>
+                                <span class="op">=</span>
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">2k</span>
+                                    <span class="den">
+                                        k
+                                        <sup>2</sup>
+                                        <span class="op">+</span>
+                                        4
+                                    </span>
+                                </span>
+                                <span class="punct">,</span>
+                                　y
+                                <sub>1</sub>
+                                <span class="op">+</span>
+                                y
+                                <sub>2</sub>
+                                <span class="op">=</span>
+                                k
+                                <span class="punct">(</span>
+                                x
+                                <sub>1</sub>
+                                <span class="op">+</span>
+                                x
+                                <sub>2</sub>
+                                <span class="punct">)</span>
+                                <span class="op">+</span>
+                                2
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">8</span>
+                                    <span class="den">
+                                        k
+                                        <sup>2</sup>
+                                        <span class="op">+</span>
+                                        4
+                                    </span>
+                                </span>
+                            </span>
+                        </p>
+                        <p>又</p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                P
+                                <span class="punct">(</span>
+                                <span class="frac">
+                                    <span class="num">
+                                        x
+                                        <sub>1</sub>
+                                        <span class="op">+</span>
+                                        x
+                                        <sub>2</sub>
+                                    </span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="punct">,</span>
+                                <span class="frac">
+                                    <span class="num">
+                                        y
+                                        <sub>1</sub>
+                                        <span class="op">+</span>
+                                        y
+                                        <sub>2</sub>
+                                    </span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="punct">)</span>
+                            </span>
+                        </p>
+                        <p>所以</p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                x
+                                <span class="op">=</span>
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">k</span>
+                                    <span class="den">
+                                        k
+                                        <sup>2</sup>
+                                        <span class="op">+</span>
+                                        4
+                                    </span>
+                                </span>
+                                <span class="punct">,</span>
+                                　y
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">4</span>
+                                    <span class="den">
+                                        k
+                                        <sup>2</sup>
+                                        <span class="op">+</span>
+                                        4
+                                    </span>
+                                </span>
+                            </span>
+                        </p>
+                        <p>
+                            消去
+                            <em>k</em>
+                            得
+                        </p>
+                        <p class="math-display">
+                            <span class="boxed-formula">
+                                <span class="formula-module">
+                                    4x
+                                    <sup>2</sup>
+                                    <span class="op">+</span>
+                                    <span class="punct">(</span>
+                                    y
+                                    <span class="op">−</span>
+                                    <span class="frac">
+                                        <span class="num">1</span>
+                                        <span class="den">2</span>
+                                    </span>
+                                    <span class="punct">)</span>
+                                    <sup>2</sup>
+                                    <span class="op">=</span>
+                                    <span class="frac">
+                                        <span class="num">1</span>
+                                        <span class="den">4</span>
+                                    </span>
+                                </span>
+                            </span>
+                        </p>
+                        <p class="response-divider" aria-hidden="true"></p>
+                        <p>再求</p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                N
+                                <span class="punct">(</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="punct">,</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="punct">)</span>
+                            </span>
+                        </p>
+                        <p>
+                            到轨迹上的点
+                            <em>P(x,y)</em>
+                            的距离。
+                        </p>
+                        <p>由轨迹方程可设</p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                4x
+                                <sup>2</sup>
+                                <span class="op">+</span>
+                                <span class="punct">(</span>
+                                y
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="punct">)</span>
+                                <sup>2</sup>
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">4</span>
+                                </span>
+                            </span>
+                        </p>
+                        <p>令</p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                x
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">4</span>
+                                </span>
+                                cosθ
+                                <span class="punct">,</span>
+                                　y
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                sinθ
+                            </span>
+                        </p>
+                        <p>则</p>
+                        <p class="math-display compact">
+                            <span class="formula-module">
+                                |NP|
+                                <sup>2</sup>
+                                <span class="op">=</span>
+                                <span class="punct">(</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">4</span>
+                                </span>
+                                cosθ
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="punct">)</span>
+                                <sup>2</sup>
+                                <span class="op">+</span>
+                                <span class="punct">(</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                sinθ
+                                <span class="punct">)</span>
+                                <sup>2</sup>
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">4</span>
+                                </span>
+                                cosθ
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">3</span>
+                                    <span class="den">16</span>
+                                </span>
+                                cos
+                                <sup>2</sup>
+                                θ
+                            </span>
+                        </p>
+                        <p class="math-narrative">
+                            设
+                            <span class="formula-module inline-formula">
+                                t
+                                <span class="op">=</span>
+                                cosθ
+                                <span class="op">∈</span>
+                                <span class="punct">[</span>
+                                −1
+                                <span class="punct">,</span>
+                                1
+                                <span class="punct">]</span>
+                            </span>
+                            ，则
+                        </p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                |NP|
+                                <sup>2</sup>
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">2</span>
+                                </span>
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">4</span>
+                                </span>
+                                t
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">3</span>
+                                    <span class="den">16</span>
+                                </span>
+                                t
+                                <sup>2</sup>
+                            </span>
+                        </p>
+                        <p class="math-narrative">
+                            <span class="typed-marker">•</span>
+                            当
+                            <span class="formula-module inline-formula">
+                                t
+                                <span class="op">=</span>
+                                <span class="op">−</span>
+                                <span class="frac">
+                                    <span class="num">2</span>
+                                    <span class="den">3</span>
+                                </span>
+                            </span>
+                            时取最大值：
+                        </p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                |NP|
+                                <sup>2</sup>
+                                <sub>max</sub>
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">7</span>
+                                    <span class="den">12</span>
+                                </span>
+                                <span class="op">⇒</span>
+                                <span class="boxed-formula">
+                                    |NP|
+                                    <sub>max</sub>
+                                    <span class="op">=</span>
+                                    <span class="frac">
+                                        <span class="num">
+                                            <span class="root">
+                                                <span class="radicand">21</span>
+                                            </span>
+                                        </span>
+                                        <span class="den">6</span>
+                                    </span>
+                                </span>
+                            </span>
+                        </p>
+                        <p>
+                            <span class="typed-marker">•</span>
+                            比较端点：
+                        </p>
+                        <p class="math-display">
+                            <span class="formula-module">
+                                t
+                                <span class="op">=</span>
+                                1
+                                <span class="op">⇒</span>
+                                |NP|
+                                <sup>2</sup>
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">1</span>
+                                    <span class="den">16</span>
+                                </span>
+                                <span class="punct">,</span>
+                                　t
+                                <span class="op">=</span>
+                                <span class="op">−</span>
+                                1
+                                <span class="op">⇒</span>
+                                |NP|
+                                <sup>2</sup>
+                                <span class="op">=</span>
+                                <span class="frac">
+                                    <span class="num">9</span>
+                                    <span class="den">16</span>
+                                </span>
+                            </span>
+                        </p>
+                        <p>所以</p>
+                        <p class="math-display">
+                            <span class="boxed-formula">
+                                <span class="formula-module">
+                                    |NP|
+                                    <sub>min</sub>
+                                    <span class="op">=</span>
+                                    <span class="frac">
+                                        <span class="num">1</span>
+                                        <span class="den">4</span>
+                                    </span>
+                                </span>
+                            </span>
+                        </p>
+                        <p class="response-divider" aria-hidden="true"></p>
+                        <p>答案：</p>
+                        <p class="answer-line">
+                            <span class="answer-box">
+                                <span class="formula-module">
+                                    P的轨迹方程　4x
+                                    <sup>2</sup>
+                                    <span class="op">+</span>
+                                    <span class="punct">(</span>
+                                    y
+                                    <span class="op">−</span>
+                                    <span class="frac">
+                                        <span class="num">1</span>
+                                        <span class="den">2</span>
+                                    </span>
+                                    <span class="punct">)</span>
+                                    <sup>2</sup>
+                                    <span class="op">=</span>
+                                    <span class="frac">
+                                        <span class="num">1</span>
+                                        <span class="den">4</span>
+                                    </span>
+                                </span>
+                            </span>
+                        </p>
+                        <p class="answer-line">
+                            <span class="answer-box">
+                                <span class="formula-module">
+                                    |NP|
+                                    <sub>min</sub>
+                                    <span class="op">=</span>
+                                    <span class="frac">
+                                        <span class="num">1</span>
+                                        <span class="den">4</span>
+                                    </span>
+                                    <span class="punct">,</span>
+                                    　|NP|
+                                    <sub>max</sub>
+                                    <span class="op">=</span>
+                                    <span class="frac">
+                                        <span class="num">
+                                            <span class="root">
+                                                <span class="radicand">21</span>
+                                            </span>
+                                        </span>
+                                        <span class="den">6</span>
+                                    </span>
+                                </span>
+                            </span>
+                        </p>
+                        <div class="response-actions" aria-label="回答操作">
+                            <span class="thinking-dots" aria-label="正在思考">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </span>
+                            <button
+                                class="action-button copy-answer"
+                                type="button"
+                                aria-label="复制回答"
+                            >
+                                <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"
+                                    />
+                                </svg>
+                            </button>
+                            <button
+                                class="action-button replay-answer"
+                                type="button"
+                                aria-label="重新生成"
+                            >
+                                <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path
+                                        d="M10 11H7.101l.001-.009a5 5 0 0 1 .752-1.787a5.05 5.05 0 0 1 2.2-1.811q.455-.193.938-.291a5.1 5.1 0 0 1 2.018 0a5 5 0 0 1 2.525 1.361l1.416-1.412a7 7 0 0 0-2.224-1.501a7 7 0 0 0-1.315-.408a7.1 7.1 0 0 0-2.819 0a7 7 0 0 0-1.316.409a7.04 7.04 0 0 0-3.08 2.534a7 7 0 0 0-1.054 2.505c-.028.135-.043.273-.063.41H2l4 4zm4 2h2.899l-.001.008a4.98 4.98 0 0 1-2.103 3.138a4.9 4.9 0 0 1-1.787.752a5.1 5.1 0 0 1-2.017 0a5 5 0 0 1-1.787-.752a5 5 0 0 1-.74-.61L7.05 16.95a7 7 0 0 0 2.225 1.5c.424.18.867.317 1.315.408a7.1 7.1 0 0 0 2.818 0a7.03 7.03 0 0 0 4.395-2.945a7 7 0 0 0 1.053-2.503c.027-.135.043-.273.063-.41H22l-4-4z"
+                                    />
+                                </svg>
+                            </button>
+                        </div>
+                    </article>
+                    <div class="scroll-fade-overlay">
+                        <button class="scroll-bottom-button" type="button" aria-label="回到底部">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                    d="M11 16.414V5h2v11.414l5.707-5.707l1.414 1.414L12 20.243l-8.121-8.122l1.414-1.414z"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <footer class="composer" aria-label="输入框">
+                    <form class="composer-form prompt-form" aria-label="输入框">
+                        <img class="mi-logo" src="./mimo.png" alt="Mimo" />
+                        <input
+                            class="prompt-input"
+                            type="text"
+                            value=""
+                            placeholder="Type your request..."
+                            aria-label="输入问题"
+                            autocomplete="off"
+                        />
+                        <button class="submit-btn" type="submit" aria-label="发送">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M10 17l5-5-5-5v10z" />
+                            </svg>
+                        </button>
+                    </form>
+                </footer>
+            </section>
+        </main>
+        <script src="/demo-vendor/katex/katex.min.js"></script>
+        <script src="/demo-vendor/markdown-it/markdown-it.min.js"></script>
+        <script>
+            (() => {
+                const expectedPrompt = 'Solve this problem';
+                const form = document.querySelector('.prompt-form');
+                const input = document.querySelector('.prompt-input');
+                const submitButton = document.querySelector('.submit-btn');
+                const panel = document.querySelector('.chat-panel');
+                const content = document.querySelector('.conversation-content');
+                const response = document.querySelector('.response');
+                const scrollBottomButton = document.querySelector('.scroll-bottom-button');
+                const promptCopy = content.querySelector('.prompt-copy');
+                const toolbarButtons = document.querySelectorAll('.toolbar-button');
+                let actions = null;
+                let copyAnswer = null;
+                let replayAnswer = null;
+                let panelObserver = null;
+                let textNodes = [];
+                let hasStarted = false;
+                let typingTimer = 0;
+                let promptTypingTimer = 0;
+                let isPromptTyping = false;
+                let startSequenceActive = false;
+                let externalScrollProgress = 0;
+
+                const answerMarkdown = String.raw`
+Here is the short solution:
+
+Let the line through $M(0,1)$ be $y = kx + 1$, and let it intersect the ellipse
+
+$$x^2 + \frac{y^2}{4} = 1$$
+
+at $(A,B)$.
+
+Substituting gives
+
+$$(k^2 + 4)x^2 + 2kx - 3 = 0$$
+
+If the two roots are $x_1, x_2$, then
+
+$$x_1 + x_2 = -\frac{2k}{k^2 + 4}, \quad y_1 + y_2 = k(x_1 + x_2) + 2 = \frac{8}{k^2 + 4}$$
+
+Also,
+
+$$P\left(\frac{x_1 + x_2}{2}, \frac{y_1 + y_2}{2}\right)$$
+
+so
+
+$$x = -\frac{k}{k^2 + 4}, \quad y = \frac{4}{k^2 + 4}$$
+
+Eliminating $k$, we get
+
+$$\boxed{4x^2 + \left(y - \frac12\right)^2 = \frac14}$$
+
+---
+
+Now find the distance from $N\left(\frac12, \frac12\right)$ to a point $P(x,y)$ on the locus.
+
+From the locus equation, let
+
+$$4x^2 + \left(y - \frac12\right)^2 = \frac14$$
+
+and set
+
+$$x = \frac14 \cos\theta, \quad y - \frac12 = \frac12 \sin\theta$$
+
+Then
+
+$$|NP|^2 = \left(\frac14\cos\theta - \frac12\right)^2 + \left(\frac12\sin\theta\right)^2 = \frac12 - \frac14\cos\theta - \frac{3}{16}\cos^2\theta$$
+
+Let $t = \cos\theta \in [-1,1]$, then
+
+$$|NP|^2 = \frac12 - \frac14 t - \frac{3}{16} t^2$$
+
+The maximum occurs when $t = -\frac23$:
+
+$$|NP|^2_{\max} = \frac7{12} \Rightarrow \boxed{|NP|_{\max} = \frac{\sqrt{21}}6}$$
+
+Checking the endpoints:
+
+$$t = 1 \Rightarrow |NP|^2 = \frac1{16}, \quad t = -1 \Rightarrow |NP|^2 = \frac9{16}$$
+
+So
+
+$$\boxed{|NP|_{\min} = \frac14}$$
+
+---
+
+Answer:
+
+$$\boxed{\text{Locus of } P: \; 4x^2 + \left(y - \frac12\right)^2 = \frac14}$$
+
+$$\boxed{|NP|_{\min} = \frac14, \quad |NP|_{\max} = \frac{\sqrt{21}}6}$$
+`.trim();
+
+                const actionHtml = `
+          <div class="response-actions" aria-label="回答操作">
+            <span class="thinking-dots" aria-label="正在思考">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+            <button class="action-button copy-answer" type="button" aria-label="复制回答">
+              <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"/></svg>
+            </button>
+            <button class="action-button replay-answer" type="button" aria-label="重新生成">
+              <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 11H7.101l.001-.009a5 5 0 0 1 .752-1.787a5.05 5.05 0 0 1 2.2-1.811q.455-.193.938-.291a5.1 5.1 0 0 1 2.018 0a5 5 0 0 1 2.525 1.361l1.416-1.412a7 7 0 0 0-2.224-1.501a7 7 0 0 0-1.315-.408a7.1 7.1 0 0 0-2.819 0a7 7 0 0 0-1.316.409a7.04 7.04 0 0 0-3.08 2.534a7 7 0 0 0-1.054 2.505c-.028.135-.043.273-.063.41H2l4 4zm4 2h2.899l-.001.008a4.98 4.98 0 0 1-2.103 3.138a4.9 4.9 0 0 1-1.787.752a5.1 5.1 0 0 1-2.017 0a5 5 0 0 1-1.787-.752a5 5 0 0 1-.74-.61L7.05 16.95a7 7 0 0 0 2.225 1.5c.424.18.867.317 1.315.408a7.1 7.1 0 0 0 2.818 0a7.03 7.03 0 0 0 4.395-2.945a7 7 0 0 0 1.053-2.503c.027-.135.043-.273.063-.41H22l-4-4z"/></svg>
+            </button>
+          </div>`;
+
+                function escapeHtml(value) {
+                    return value
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;');
+                }
+
+                function renderFormula(source, displayMode) {
+                    if (window.katex) {
+                        return window.katex.renderToString(source, {
+                            displayMode,
+                            throwOnError: false,
+                            strict: 'ignore',
+                            output: 'html',
+                        });
+                    }
+
+                    return `<span class="katex-fallback">${escapeHtml(source)}</span>`;
+                }
+
+                function renderMarkdownWithMath(markdown) {
+                    const mathTokens = [];
+                    const protectedMarkdown = markdown
+                        .replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
+                            const token = `@@MATH_BLOCK_${mathTokens.length}@@`;
+                            mathTokens.push({ token, formula: formula.trim(), display: true });
+                            return `\n\n${token}\n\n`;
+                        })
+                        .replace(/\$([^$\n]+?)\$/g, (_, formula) => {
+                            const token = `@@MATH_INLINE_${mathTokens.length}@@`;
+                            mathTokens.push({ token, formula: formula.trim(), display: false });
+                            return token;
+                        });
+
+                    const md = window.markdownit
+                        ? window.markdownit({ html: false, linkify: false, breaks: false })
+                        : null;
+                    let html = md
+                        ? md.render(protectedMarkdown)
+                        : protectedMarkdown
+                              .split(/\n{2,}/)
+                              .map((part) => {
+                                  if (part === '---') {
+                                      return `<hr />`;
+                                  }
+
+                                  return `<p>${escapeHtml(part).replace(/\n/g, '<br>')}</p>`;
+                              })
+                              .join('\n');
+
+                    mathTokens.forEach(({ token, formula, display }) => {
+                        const rendered = renderFormula(formula, display);
+                        const replacement = display
+                            ? `<div class="math-block"><span class="math-display-frame">${rendered}</span></div>`
+                            : `<span class="katex-formula">${rendered}</span>`;
+                        html = html
+                            .replace(new RegExp(`<p>${token}</p>`, 'g'), replacement)
+                            .replace(new RegExp(token, 'g'), replacement);
+                    });
+
+                    return html
+                        .replace(/<hr>/g, `<p class="response-divider" aria-hidden="true"></p>`)
+                        .replace(/<p>/g, `<p class="paragraph-node">`);
+                }
+
+                function prepareTypewriterNodes() {
+                    textNodes = [];
+                    response.querySelectorAll('.math-block').forEach((block) => {
+                        const original = block.innerHTML;
+                        const shell = document.createElement('span');
+                        shell.className = 'math-type-shell';
+
+                        const ghost = document.createElement('span');
+                        ghost.className = 'math-ghost';
+                        ghost.innerHTML = original;
+
+                        const live = document.createElement('span');
+                        live.className = 'math-live';
+                        live.innerHTML = original;
+
+                        shell.append(ghost, live);
+                        block.replaceChildren(shell);
+                    });
+
+                    const walker = document.createTreeWalker(response, NodeFilter.SHOW_TEXT, {
+                        acceptNode(node) {
+                            if (actions && actions.contains(node.parentElement)) {
+                                return NodeFilter.FILTER_REJECT;
+                            }
+
+                            if (node.parentElement.closest('.math-ghost')) {
+                                return NodeFilter.FILTER_REJECT;
+                            }
+
+                            return node.nodeValue.trim()
+                                ? NodeFilter.FILTER_ACCEPT
+                                : NodeFilter.FILTER_REJECT;
+                        },
+                    });
+
+                    while (walker.nextNode()) {
+                        textNodes.push({
+                            node: walker.currentNode,
+                            text: walker.currentNode.nodeValue,
+                        });
+                    }
+                }
+
+                function hydrateMarkdownAnswer() {
+                    response.classList.add('touchai-markdown');
+                    response.innerHTML = renderMarkdownWithMath(answerMarkdown) + actionHtml;
+                    actions = response.querySelector('.response-actions');
+                    copyAnswer = response.querySelector('.copy-answer');
+                    replayAnswer = response.querySelector('.replay-answer');
+                    syncMathLineGeometry();
+                    prepareTypewriterNodes();
+                    bindAnswerActions();
+                }
+
+                function syncMathLineGeometry() {
+                    const panelRect = panel.getBoundingClientRect();
+                    const responseRect = response.getBoundingClientRect();
+                    const mathLineWidth = `${panel.clientWidth}px`;
+                    const mathLineOffset = `${panelRect.left - responseRect.left}px`;
+                    response.style.setProperty('--math-line-width', mathLineWidth);
+                    response.style.setProperty('--math-line-offset', mathLineOffset);
+                    response.querySelectorAll('.math-block').forEach((block) => {
+                        block.style.width = mathLineWidth;
+                        block.style.marginLeft = mathLineOffset;
+                    });
+                }
+
+                function watchPanelGeometry() {
+                    syncMathLineGeometry();
+
+                    if ('ResizeObserver' in window) {
+                        panelObserver = new ResizeObserver(syncMathLineGeometry);
+                        panelObserver.observe(panel);
+                        panelObserver.observe(response);
+                    }
+
+                    window.addEventListener('resize', syncMathLineGeometry);
+                }
+
+                function bindAnswerActions() {
+                    copyAnswer.addEventListener('click', async () => {
+                        const answerText = answerMarkdown.replace(/\s+/g, ' ').trim();
+                        try {
+                            await navigator.clipboard.writeText(answerText);
+                        } catch (error) {
+                            clearPromptInput();
+                        }
+                    });
+
+                    replayAnswer.addEventListener('click', () => {
+                        showAnswer();
+                    });
+                }
+
+                hydrateMarkdownAnswer();
+                watchPanelGeometry();
+
+                function resetResponseText() {
+                    window.clearTimeout(typingTimer);
+                    document.body.classList.remove('is-scrolling');
+                    document.body.classList.remove('has-below-content');
+                    resetVisibleBlocks();
+                    textNodes.forEach(({ node }) => {
+                        node.nodeValue = '';
+                    });
+                    content.scrollTop = 0;
+                }
+
+                function resetVisibleBlocks() {
+                    response
+                        .querySelectorAll('p, ul, li, .math-block, .response-divider')
+                        .forEach((block) => {
+                            block.classList.remove('is-visible');
+                        });
+                }
+
+                function markVisibleBlock(node) {
+                    const textBlock = node.parentElement.closest('p, li, .math-block');
+
+                    if (textBlock) {
+                        textBlock.classList.add('is-visible');
+                    }
+
+                    const listBlock = node.parentElement.closest('ul');
+
+                    if (listBlock) {
+                        listBlock.classList.add('is-visible');
+                    }
+                }
+
+                function markMathBlock(node) {
+                    const mathBlock = node.closest('.math-type-shell');
+
+                    if (mathBlock) {
+                        mathBlock.classList.add('is-visible');
+                    }
+                }
+
+                function clearPromptInput() {
+                    input.value = '';
+                    input.blur();
+                }
+
+                function clearPromptTyping() {
+                    window.clearTimeout(promptTypingTimer);
+                    promptTypingTimer = 0;
+                    isPromptTyping = false;
+                    startSequenceActive = false;
+                }
+
+                function syncScrollMode() {
+                    syncMathLineGeometry();
+                    const shouldScroll =
+                        document.body.classList.contains('is-scrolling') ||
+                        panel.scrollHeight > panel.clientHeight + 1;
+
+                    document.body.classList.toggle('is-scrolling', shouldScroll);
+
+                    if (shouldScroll) {
+                        content.scrollTop = content.scrollHeight;
+                    }
+                }
+
+                function updateScrollAffordance() {
+                    const hasBelow =
+                        content.scrollHeight - content.scrollTop - content.clientHeight > 6;
+
+                    document.body.classList.toggle('has-below-content', hasBelow);
+                }
+
+                function applyExternalScrollProgress(progress) {
+                    externalScrollProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+
+                    if (!hasStarted || !document.body.classList.contains('is-complete')) {
+                        return;
+                    }
+
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                    content.scrollTop = Math.round(maxScroll * externalScrollProgress);
+                    updateScrollAffordance();
+                }
+
+                function setResponseProgress(progress) {
+                    const ratio = Math.max(0, Math.min(1, Number(progress) || 0));
+                    const totalUnits = textNodes.reduce(
+                        (sum, item) => sum + (item.instant ? 1 : item.text.length),
+                        0
+                    );
+                    let remaining = Math.round(totalUnits * ratio);
+
+                    resetVisibleBlocks();
+                    if (ratio > 0 && typeof revealToolCalls === 'function') {
+                        revealToolCalls();
+                    }
+
+                    textNodes.forEach((item) => {
+                        const visibleLength = item.instant
+                            ? remaining > 0
+                                ? item.text.length
+                                : 0
+                            : Math.max(0, Math.min(item.text.length, remaining));
+
+                        item.node.nodeValue = item.text.slice(0, visibleLength);
+
+                        if (visibleLength > 0) {
+                            markVisibleBlock(item.node);
+                            markMathBlock(item.node.parentElement);
+                        }
+
+                        remaining -= item.instant && visibleLength > 0 ? 1 : visibleLength;
+                    });
+                }
+
+                function renderScrollProgress(progress) {
+                    const scrubProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+                    externalScrollProgress = scrubProgress;
+                    window.clearTimeout(typingTimer);
+                    window.clearTimeout(promptTypingTimer);
+                    typingTimer = 0;
+                    promptTypingTimer = 0;
+                    isPromptTyping = false;
+                    startSequenceActive = false;
+
+                    const promptProgress = Math.max(0, Math.min(1, scrubProgress / 0.18));
+                    input.value = expectedPrompt.slice(
+                        0,
+                        Math.round(expectedPrompt.length * promptProgress)
+                    );
+
+                    if (scrubProgress < 0.18) {
+                        hasStarted = false;
+                        resetResponseText();
+                        document.body.classList.remove(
+                            'is-answering',
+                            'is-complete',
+                            'is-scrolling'
+                        );
+                        document.body.classList.add('is-idle');
+                        updateScrollAffordance();
+                        return;
+                    }
+
+                    if (!hasStarted) {
+                        resetResponseText();
+                        hasStarted = true;
+                    }
+
+                    const answerProgress = Math.max(0, Math.min(1, (scrubProgress - 0.18) / 0.5));
+                    const scrollProgress = Math.max(0, Math.min(1, (scrubProgress - 0.66) / 0.34));
+                    document.body.classList.remove('is-idle', 'is-answering', 'is-complete');
+                    document.body.classList.add(
+                        answerProgress >= 1 ? 'is-complete' : 'is-answering'
+                    );
+
+                    setResponseProgress(answerProgress);
+                    syncMathLineGeometry();
+
+                    window.requestAnimationFrame(() => {
+                        const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                        document.body.classList.toggle(
+                            'is-scrolling',
+                            maxScroll > 1 && scrubProgress >= 0.66
+                        );
+                        content.scrollTop =
+                            answerProgress >= 1
+                                ? Math.round(maxScroll * scrollProgress)
+                                : Math.round(maxScroll * answerProgress);
+                        updateScrollAffordance();
+                    });
+                }
+                function startTypewriter() {
+                    let nodeIndex = 0;
+                    let charIndex = 0;
+
+                    function writeNextCharacter() {
+                        if (nodeIndex >= textNodes.length) {
+                            document.body.classList.remove('is-answering');
+                            document.body.classList.add('is-complete');
+                            syncScrollMode();
+                            applyExternalScrollProgress(externalScrollProgress);
+                            updateScrollAffordance();
+                            return;
+                        }
+
+                        const current = textNodes[nodeIndex];
+                        markVisibleBlock(current.node);
+                        markMathBlock(current.node.parentElement);
+                        current.node.nodeValue += current.text.charAt(charIndex);
+                        charIndex += 1;
+                        syncScrollMode();
+                        updateScrollAffordance();
+
+                        if (charIndex >= current.text.length) {
+                            nodeIndex += 1;
+                            charIndex = 0;
+                        }
+
+                        typingTimer = window.setTimeout(writeNextCharacter, 18);
+                    }
+
+                    writeNextCharacter();
+                }
+
+                function showAnswer() {
+                    clearPromptTyping();
+                    clearPromptInput();
+                    hydrateMarkdownAnswer();
+                    resetResponseText();
+                    hasStarted = true;
+                    startSequenceActive = false;
+                    document.body.classList.remove('is-idle', 'is-complete');
+                    document.body.classList.add('is-answering');
+                    window.requestAnimationFrame(syncMathLineGeometry);
+                    typingTimer = window.setTimeout(startTypewriter, 560);
+                }
+
+                function submitPrompt(event) {
+                    event.preventDefault();
+                    const prompt = input.value.trim();
+
+                    if (
+                        document.body.classList.contains('is-answering') ||
+                        prompt !== expectedPrompt
+                    ) {
+                        return;
+                    }
+
+                    showAnswer();
+                }
+
+                function typePromptThenSubmit() {
+                    if (
+                        hasStarted ||
+                        startSequenceActive ||
+                        isPromptTyping ||
+                        document.body.classList.contains('is-answering')
+                    ) {
+                        return;
+                    }
+
+                    clearPromptTyping();
+                    startSequenceActive = true;
+                    isPromptTyping = true;
+                    input.value = '';
+                    input.focus({ preventScroll: true });
+
+                    let promptIndex = 0;
+
+                    function typeNextPromptCharacter() {
+                        if (hasStarted) {
+                            clearPromptTyping();
+                            return;
+                        }
+
+                        input.value += expectedPrompt.charAt(promptIndex);
+                        promptIndex += 1;
+
+                        if (promptIndex < expectedPrompt.length) {
+                            promptTypingTimer = window.setTimeout(typeNextPromptCharacter, 86);
+                            return;
+                        }
+
+                        promptTypingTimer = window.setTimeout(() => {
+                            isPromptTyping = false;
+                            submitPrompt(new Event('submit'));
+                        }, 520);
+                    }
+
+                    promptTypingTimer = window.setTimeout(typeNextPromptCharacter, 520);
+                }
+
+                resetResponseText();
+                window.parent?.postMessage?.({ type: 'touchai-solver-ready' });
+                form.addEventListener('submit', submitPrompt);
+                window.addEventListener('message', (event) => {
+                    if (event.data?.type === 'touchai-page-bg') {
+                        document.documentElement.style.setProperty(
+                            '--page-bg',
+                            event.data.background || 'transparent'
+                        );
+                        return;
+                    }
+
+                    if (event.data?.type === 'touchai-solver-start') {
+                        typePromptThenSubmit();
+                        return;
+                    }
+
+                    if (event.data?.type === 'touchai-set-scroll-progress') {
+                        renderScrollProgress(event.data.progress);
+                    }
+                });
+                toolbarButtons.forEach((button) => {
+                    button.addEventListener('click', () => {
+                        if (!button.classList.contains('toolbar-button--pinned')) {
+                            button.classList.toggle('toolbar-button--active');
+                        }
+                    });
+                });
+                promptCopy.addEventListener('click', async () => {
+                    try {
+                        await navigator.clipboard.writeText(expectedPrompt);
+                    } catch (error) {
+                        clearPromptInput();
+                    }
+                });
+                scrollBottomButton.addEventListener('click', () => {
+                    content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
+                    document.body.classList.remove('has-below-content');
+                });
+                content.addEventListener('scroll', updateScrollAffordance);
+            })();
+        </script>
+    </body>
+</html>

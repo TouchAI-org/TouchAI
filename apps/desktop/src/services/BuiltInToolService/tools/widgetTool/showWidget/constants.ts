@@ -24,6 +24,14 @@ export const FORBIDDEN_WIDGET_RULES = [
         reason: 'Do not use gradients.',
     },
     {
+        pattern: /<(?:linearGradient|radialGradient|pattern|filter)\b/i,
+        reason: 'Do not use SVG gradients, patterns, or filters.',
+    },
+    {
+        pattern: /\sfilter\s*=\s*(?:(["'])(?!none\1)[^"']*\1|(?!["'])(?!none(?=[\s>/]))[^>\s]+)/i,
+        reason: 'Do not use SVG filter attributes.',
+    },
+    {
         pattern: /box-shadow\s*:/i,
         reason: 'Do not use shadows.',
     },
@@ -60,6 +68,7 @@ export const SHOW_WIDGET_STYLE_GUIDELINES = [
     'Inside widget_code, keep CSS brief, then emit visible HTML or SVG structure early, and put script blocks last.',
     'Stream visible structure first: SVG skeletons, rows, axes, labels, controls, placeholders, then progressively fill details.',
     'Prefer a single rooted HTML fragment with inline <style>; do not build a full-page layout.',
+    'In SVG, do not use linearGradient/radialGradient, pattern, filter, or filter attributes; use flat fills, strokes, opacity, and shape repetition instead.',
     'Do not use fixed positioning, viewport-filling wrappers, page chrome, external assets, or network requests.',
     'If scripts are necessary, the static HTML must already look meaningful before scripts run.',
 ].join(' ');
@@ -85,8 +94,8 @@ export const SHOW_WIDGET_TOOL_DESCRIPTION = [
     'Output visible structure first, metadata fields last.',
     'Use this tool to create live inline visual artifacts.',
     'TouchAI renders widgets as native DOM (not iframe) that streams progressively token-by-token.',
-    "Before using this tool, call visualize_read_me with relevant modules (['diagram'], ['chart'], ['interactive'], ['mockup'], ['art']) and pass i_have_seen_read_me=true in the next round.",
-    'Structure: CSS first (brief), visible HTML/SVG immediately, scripts last.',
+    "This tool is exposed to the model as builtin__show_widget. Before using it, call builtin__visualize_read_me with relevant modules (['diagram'], ['chart'], ['interactive'], ['mockup'], ['art']) and pass i_have_seen_read_me=true in the next round.",
+    'Structure: visible root and visible HTML/SVG first, optional inline <style> inside that root after the first visible content, scripts last.',
     'Outputs using gradients, shadows, blur, glass effects, full-page HTML, iframe/object, or non-allowlisted external resources will be rejected.',
     SHOW_WIDGET_STYLE_GUIDELINES,
 ].join(' ');
@@ -104,12 +113,12 @@ export const SHOW_WIDGET_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
         i_have_seen_read_me: {
             type: 'boolean',
             description:
-                'Set this to true only after you have called visualize_read_me and carefully read the returned guideline.',
+                'Set this to true only after you have called builtin__visualize_read_me and carefully read the returned guideline.',
         },
         widget_code: {
             type: 'string',
             description: withExamples(
-                'STREAMING CRITICAL: Start this parameter FIRST. The opening characters must already be a visible root element (<svg viewBox="...", <div>, <section>). Structure: optional <style> (under 15 lines) -> visible HTML/SVG structure -> optional <script> last. The widget streams token-by-token, so emit structure early. Self-contained HTML, CSS, and JavaScript. Transparent background by default. No outer card shell, gradient, shadow, blur, or rounded wrapper unless explicitly a mockup. Feel like a natural conversation extension.',
+                'STREAMING CRITICAL: Start this parameter FIRST. The opening characters must already be a visible root element (<svg viewBox="...", <div>, <section>) with visible structure or labels immediately inside it. Use inline styles for controls that must look correct mid-stream, or place a short <style> inside the visible root after the first visible content. Put optional <script> last. The widget streams token-by-token, so emit structure early. Self-contained HTML, CSS, and JavaScript. Transparent background by default. No outer card shell, gradient, shadow, blur, or rounded wrapper unless explicitly a mockup. Feel like a natural conversation extension.',
                 '"<svg viewBox=\\"0 0 320 140\\" role=\\"img\\" aria-label=\\"Weekly revenue trend\\"><path d=\\"...\\" /></svg>"',
                 '"<section><style>.root{display:grid;gap:8px}.row{display:flex;justify-content:space-between;border-bottom:1px solid color-mix(in oklch, currentColor 18%, transparent)}</style><div class=\\"root\\">...</div></section>"'
             ),

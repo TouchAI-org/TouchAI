@@ -62,6 +62,7 @@
     import { useSearchRequestFlow } from './composables/useSearchRequest';
     import { useSearchWindowResize } from './composables/useSearchWindowResize';
     import { useSessionHistoryPopup } from './composables/useSessionHistoryPopup';
+    import { initializeSearchViewForFirstPaint } from './startup';
     import type {
         ConversationPanelHandle,
         QuickSearchHandle,
@@ -409,6 +410,7 @@
         clearSession: clearSessionToIdle,
         shouldClearSessionAfterTimeout,
         reconcilePopupSurfaces: hideAllPopups,
+        remeasureSearchWindowHeight: remeasureTargetHeight,
         onSurfaceHidden: clearSurfaceUiAfterHidden,
         handleSearchSurfaceCommand: async (payload) => {
             if (payload.command === 'toggle-model-dropdown') {
@@ -1019,38 +1021,23 @@
     }
 
     async function initialize() {
-        try {
-            viewReady.value = false;
-
-            await Promise.all([
-                mcpStore.initialize(),
-                settingsStore.initialize(),
-                popupService.initialize(),
-            ]);
-            await syncWindowPinState().catch((error) => {
-                console.error('[SearchView] Failed to sync window pin state on initialize:', error);
-            });
-            await syncSearchWindowState().catch((error) => {
-                console.error(
-                    '[SearchView] Failed to sync search window state on initialize:',
-                    error
-                );
-            });
-
-            viewReady.value = true;
-
-            if (!(await isE2eTestMode())) {
-                mcpManager.autoConnect().catch((initializeError) => {
-                    console.error(
-                        '[SearchView] Failed to auto-connect MCP servers:',
-                        initializeError
-                    );
-                });
-            }
-        } catch (initializeError) {
-            console.error('[SearchView] Failed to initialize dependencies:', initializeError);
-            viewReady.value = false;
-        }
+        await initializeSearchViewForFirstPaint({
+            initializeSettings: () => settingsStore.initialize(),
+            initializeMcpStore: () => mcpStore.initialize(),
+            initializePopups: () => popupService.initialize(),
+            syncWindowPinState,
+            syncSearchWindowState,
+            isE2eTestMode,
+            autoConnectMcp: async () => {
+                await mcpManager.autoConnect();
+            },
+            onReady: (ready) => {
+                viewReady.value = ready;
+            },
+            logError: (message, error) => {
+                console.error(message, error);
+            },
+        });
     }
 
     watch(
@@ -1280,7 +1267,7 @@
         tabindex="-1"
         data-testid="search-view"
         :class="[
-            'search-view-container bg-background-primary relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden rounded-lg backdrop-blur-xl focus:outline-none',
+            'search-view-container bg-background-primary relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden backdrop-blur-xl focus:outline-none',
             fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
             isLoading && !askUserStore.current ? 'loading' : '',
         ]"
@@ -1323,7 +1310,7 @@
             class="ask-user-divider relative z-10 w-full"
         ></div>
         <AskUserPanel v-if="searchViewContentReady && askUserStore.current" />
-        <div v-if="searchViewContentReady && !askUserStore.current" class="relative w-full">
+        <div v-if="viewReady && !askUserStore.current" class="relative w-full">
             <SearchBar
                 ref="searchBar"
                 :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"
@@ -1340,7 +1327,10 @@
                 @drag-start="isDragging = true"
                 @drag-end="isDragging = false"
             />
-            <div v-if="sessionHistory.length === 0" v-show="quickSearchOpen">
+            <div
+                v-if="searchViewContentReady && sessionHistory.length === 0"
+                v-show="quickSearchOpen"
+            >
                 <QuickSearchPanel
                     ref="quickSearchPanel"
                     :open="quickSearchOpen"
@@ -1353,85 +1343,3 @@
         </div>
     </div>
 </template>
-
-<style scoped>
-    .search-view-container.loading {
-        border: 2px solid transparent;
-        background-image:
-            linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-            linear-gradient(
-                90deg,
-                var(--color-blue-500),
-                var(--color-violet-500),
-                var(--color-pink-500),
-                var(--color-violet-500),
-                var(--color-blue-500)
-            );
-        background-origin: border-box;
-        background-clip: padding-box, border-box;
-        animation: border-flow 1.5s linear infinite;
-    }
-
-    @keyframes border-flow {
-        0% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-blue-500),
-                    var(--color-violet-500),
-                    var(--color-pink-500),
-                    var(--color-violet-500),
-                    var(--color-blue-500)
-                );
-        }
-        25% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-violet-500),
-                    var(--color-pink-500),
-                    var(--color-violet-500),
-                    var(--color-blue-500),
-                    var(--color-violet-500)
-                );
-        }
-        50% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-pink-500),
-                    var(--color-violet-500),
-                    var(--color-blue-500),
-                    var(--color-violet-500),
-                    var(--color-pink-500)
-                );
-        }
-        75% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-violet-500),
-                    var(--color-blue-500),
-                    var(--color-violet-500),
-                    var(--color-pink-500),
-                    var(--color-violet-500)
-                );
-        }
-        100% {
-            background-image:
-                linear-gradient(var(--color-background-primary), var(--color-background-primary)),
-                linear-gradient(
-                    90deg,
-                    var(--color-blue-500),
-                    var(--color-violet-500),
-                    var(--color-pink-500),
-                    var(--color-violet-500),
-                    var(--color-blue-500)
-                );
-        }
-    }
-</style>

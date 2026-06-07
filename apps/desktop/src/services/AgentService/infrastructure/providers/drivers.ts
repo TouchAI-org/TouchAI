@@ -16,6 +16,7 @@ import { OpenAIProviderAdapter } from './adapters/openai';
 import { OpenAICompatibleProviderAdapter } from './adapters/openai-compatible';
 import { XaiProviderAdapter } from './adapters/xai';
 import { ZhipuProviderAdapter } from './adapters/zhipu';
+import { MIMO_CUSTOM_API_BASE_URL } from './config';
 import type { AiProvider, AiProviderConfig } from './types';
 
 export interface ProviderDriverDefinition {
@@ -115,7 +116,7 @@ const providerDrivers: ProviderDriverEntry[] = [
         driver: 'mimo',
         label: 'Xiaomi MiMo',
         logo: 'mimo.png',
-        placeholder: 'https://token-plan-cn.xiaomimimo.com/v1',
+        placeholder: MIMO_CUSTOM_API_BASE_URL,
         create: (config) => new MiMoProviderAdapter(config),
     },
 ];
