@@ -16,6 +16,7 @@ export type SearchKeybindingActionId = (typeof SEARCH_KEYBINDING_ACTION_IDS)[num
 export interface SearchKeybindingDefinition {
     id: SearchKeybindingActionId;
     labelKey: MessageKey;
+    descriptionKey: MessageKey;
     defaultShortcut: string | null;
     allowDisable: boolean;
 }
@@ -26,42 +27,49 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
     {
         id: 'search.history.open',
         labelKey: 'settings.general.searchActions.history',
+        descriptionKey: 'settings.general.searchActionDescriptions.history',
         defaultShortcut: 'Mod+H',
         allowDisable: true,
     },
     {
         id: 'search.input.focus',
         labelKey: 'settings.general.searchActions.focusInput',
+        descriptionKey: 'settings.general.searchActionDescriptions.focusInput',
         defaultShortcut: 'Mod+L',
         allowDisable: true,
     },
     {
         id: 'search.session.new',
         labelKey: 'settings.general.searchActions.newSession',
+        descriptionKey: 'settings.general.searchActionDescriptions.newSession',
         defaultShortcut: 'Mod+N',
         allowDisable: true,
     },
     {
         id: 'search.session.reopenLastClosed',
         labelKey: 'settings.general.searchActions.reopenLastClosedSession',
+        descriptionKey: 'settings.general.searchActionDescriptions.reopenLastClosedSession',
         defaultShortcut: 'Mod+Up',
         allowDisable: true,
     },
     {
         id: 'search.model.toggle',
         labelKey: 'settings.general.searchActions.modelToggle',
+        descriptionKey: 'settings.general.searchActionDescriptions.modelToggle',
         defaultShortcut: 'Mod+M',
         allowDisable: true,
     },
     {
         id: 'search.window.pin',
         labelKey: 'settings.general.searchActions.windowPin',
+        descriptionKey: 'settings.general.searchActionDescriptions.windowPin',
         defaultShortcut: 'Mod+P',
         allowDisable: true,
     },
     {
         id: 'search.window.maximize',
         labelKey: 'settings.general.searchActions.windowMaximize',
+        descriptionKey: 'settings.general.searchActionDescriptions.windowMaximize',
         defaultShortcut: 'F11',
         allowDisable: true,
     },

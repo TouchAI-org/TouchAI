@@ -77,6 +77,7 @@ const zhCNMessages = {
     'settings.general.shortcuts': '快捷键',
     'settings.general.globalShortcut': '全局快捷键',
     'settings.general.activationShortcut': '唤起快捷键',
+    'settings.general.activationShortcutDescription': '设置呼出 TouchAI 的全局快捷键。',
     'settings.general.shortcutPlaceholder': '点击输入框设置快捷键',
     'settings.general.shortcutCapturePrompt': '请按下快捷键...',
     'settings.general.shortcutRegistrationFailed': '快捷键注册失败，可能已被其他应用占用',
@@ -106,6 +107,18 @@ const zhCNMessages = {
     'settings.general.fixedSearchActions.previousInputHistory': '上一条会话历史',
     'settings.general.fixedSearchActions.nextInputHistory': '下一条会话历史',
     'settings.general.searchActions.clearAll': '清空草稿与上下文',
+    'settings.general.searchActionDescriptions.history': '快速打开会话历史列表。',
+    'settings.general.searchActionDescriptions.focusInput': '将焦点移动到输入框。',
+    'settings.general.searchActionDescriptions.newSession': '立即开始一段新会话。',
+    'settings.general.searchActionDescriptions.reopenLastClosedSession': '重新打开最近关闭的会话。',
+    'settings.general.searchActionDescriptions.modelToggle': '展开或收起模型选择。',
+    'settings.general.searchActionDescriptions.windowPin': '切换搜索窗口置顶状态。',
+    'settings.general.searchActionDescriptions.windowMaximize': '切换搜索窗口最大化。',
+    'settings.general.searchActionDescriptions.cancelRequest': '停止当前生成或工具执行。',
+    'settings.general.searchActionDescriptions.submitRequest': '发送当前输入内容。',
+    'settings.general.searchActionDescriptions.newLine': '在输入框中插入换行。',
+    'settings.general.searchActionDescriptions.previousInputHistory': '查看上一条输入记录。',
+    'settings.general.searchActionDescriptions.nextInputHistory': '查看下一条输入记录。',
     'settings.general.searchShortcuts.errors.modifierRequired': '快捷键至少需要一个修饰键',
     'settings.general.searchShortcuts.errors.reserved':
         '该快捷键保留给输入/导航行为，请选择其他组合',
@@ -830,6 +843,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.shortcuts': 'Shortcuts',
     'settings.general.globalShortcut': 'Global shortcut',
     'settings.general.activationShortcut': 'Activation shortcut',
+    'settings.general.activationShortcutDescription':
+        'Set the global shortcut used to open TouchAI.',
     'settings.general.shortcutPlaceholder': 'Click the field to set a shortcut',
     'settings.general.shortcutCapturePrompt': 'Press a shortcut...',
     'settings.general.shortcutRegistrationFailed':
@@ -861,6 +876,24 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.fixedSearchActions.previousInputHistory': 'Previous input history',
     'settings.general.fixedSearchActions.nextInputHistory': 'Next input history',
     'settings.general.searchActions.clearAll': 'Clear draft and context',
+    'settings.general.searchActionDescriptions.history': 'Quickly open the session history list.',
+    'settings.general.searchActionDescriptions.focusInput': 'Move focus to the input field.',
+    'settings.general.searchActionDescriptions.newSession': 'Start a new session immediately.',
+    'settings.general.searchActionDescriptions.reopenLastClosedSession':
+        'Reopen the most recently closed session.',
+    'settings.general.searchActionDescriptions.modelToggle': 'Open or close the model picker.',
+    'settings.general.searchActionDescriptions.windowPin':
+        'Toggle whether the search window stays on top.',
+    'settings.general.searchActionDescriptions.windowMaximize':
+        'Toggle the search window maximized state.',
+    'settings.general.searchActionDescriptions.cancelRequest':
+        'Stop the current generation or tool run.',
+    'settings.general.searchActionDescriptions.submitRequest': 'Send the current input.',
+    'settings.general.searchActionDescriptions.newLine': 'Insert a new line in the input field.',
+    'settings.general.searchActionDescriptions.previousInputHistory':
+        'Show the previous input history item.',
+    'settings.general.searchActionDescriptions.nextInputHistory':
+        'Show the next input history item.',
     'settings.general.searchShortcuts.errors.modifierRequired':
         'A shortcut must include at least one modifier key',
     'settings.general.searchShortcuts.errors.reserved':

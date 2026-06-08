@@ -96,6 +96,7 @@
         kind: 'configurable' | 'fixed';
         id: string;
         label: string;
+        description?: string;
         displayValue: string;
         isCapturing?: boolean;
         hasError?: boolean;
@@ -111,12 +112,14 @@
                 kind: 'fixed',
                 id: 'search.inputHistory.older',
                 label: t('settings.general.fixedSearchActions.previousInputHistory'),
+                description: t('settings.general.searchActionDescriptions.previousInputHistory'),
                 displayValue: 'Up',
             },
             {
                 kind: 'fixed',
                 id: 'search.inputHistory.newer',
                 label: t('settings.general.fixedSearchActions.nextInputHistory'),
+                description: t('settings.general.searchActionDescriptions.nextInputHistory'),
                 displayValue: 'Down',
             },
         ],
@@ -125,18 +128,21 @@
                 kind: 'fixed',
                 id: 'search.request.cancel',
                 label: t('settings.general.searchActions.cancelRequest'),
+                description: t('settings.general.searchActionDescriptions.cancelRequest'),
                 displayValue: 'Esc',
             },
             {
                 kind: 'fixed',
                 id: 'search.submit',
                 label: t('settings.general.fixedSearchActions.submitRequest'),
+                description: t('settings.general.searchActionDescriptions.submitRequest'),
                 displayValue: 'Enter',
             },
             {
                 kind: 'fixed',
                 id: 'search.newLine',
                 label: t('settings.general.fixedSearchActions.newLine'),
+                description: t('settings.general.searchActionDescriptions.newLine'),
                 displayValue: 'Shift+Enter',
             },
         ],
@@ -172,6 +178,7 @@
                 ...definition,
                 kind: 'configurable',
                 label: t(definition.labelKey),
+                description: t(definition.descriptionKey),
                 displayValue: searchShortcutDisplayMap.value[definition.id],
                 isCapturing: activeSearchShortcutActionId.value === definition.id,
                 hasError: searchShortcutErrorActionId.value === definition.id,
@@ -1003,7 +1010,10 @@
                             data-testid="settings-general-row-label"
                             class="text-[13px] leading-6 font-normal text-neutral-900"
                         >
-                            {{ t('settings.general.activationShortcut') }}
+                            <div>{{ t('settings.general.activationShortcut') }}</div>
+                            <div class="text-[12px] leading-5 text-neutral-500">
+                                {{ t('settings.general.activationShortcutDescription') }}
+                            </div>
                         </label>
                         <div class="min-w-0 justify-self-end">
                             <div
@@ -1081,6 +1091,12 @@
                                 class="min-w-0 text-[13px] leading-6 font-normal text-neutral-900"
                             >
                                 <div>{{ row.label }}</div>
+                                <div
+                                    v-if="row.description"
+                                    class="text-[12px] leading-5 text-neutral-500"
+                                >
+                                    {{ row.description }}
+                                </div>
                             </div>
                             <div class="min-w-0 justify-self-end">
                                 <div class="flex min-w-0 items-center justify-end">

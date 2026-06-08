@@ -202,21 +202,21 @@ describe('SettingsGeneralSection', () => {
                     .element as HTMLInputElement
             ).value
         ).toBe('Alt+Space');
+        expect(wrapper.text()).toContain('设置呼出 TouchAI 的全局快捷键。');
         expect(wrapper.text()).not.toContain('Ctrl+Space');
         expect(wrapper.find('[data-testid="settings-shortcut-suggestions"]').exists()).toBe(false);
         expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
             false
         );
         expect(wrapper.text()).not.toContain('搜索页快捷键');
-        expect(wrapper.text()).not.toContain(
-            '自定义搜索窗口内的命令型快捷键，不会影响输入导航与全局唤起。'
-        );
         expect(wrapper.text()).toContain('会话');
         expect(wrapper.text()).toContain('输入与请求');
         expect(wrapper.text()).toContain('窗口');
         expect(wrapper.text()).toContain('打开会话历史');
+        expect(wrapper.text()).toContain('快速打开会话历史列表。');
         expect(wrapper.text()).toContain('开始新会话');
         expect(wrapper.text()).toContain('切换窗口最大化');
+        expect(wrapper.text()).toContain('切换搜索窗口最大化。');
         expect(
             (
                 wrapper.get('[data-testid="settings-search-shortcut-input-search.window.maximize"]')

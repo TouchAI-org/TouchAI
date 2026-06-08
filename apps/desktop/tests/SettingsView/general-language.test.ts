@@ -166,9 +166,9 @@ describe('Settings General shortcut capture i18n', () => {
 
         expect(wrapper.text()).toContain('General');
         expect(wrapper.text()).toContain('Shortcuts');
-        expect(wrapper.text()).toContain('Search shortcuts');
+        expect(wrapper.text()).toContain('Set the global shortcut used to open TouchAI.');
         expect(wrapper.text()).toContain('Toggle window maximize');
-        expect(wrapper.text()).toContain('Set the global entry point for opening TouchAI');
+        expect(wrapper.text()).toContain('Toggle the search window maximized state.');
         expect(wrapper.text()).toContain('Activation shortcut');
         expect(wrapper.text()).toContain('Startup and window');
         expect(wrapper.text()).toContain(
