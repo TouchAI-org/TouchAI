@@ -35,8 +35,12 @@ const {
     };
     const settingsStore = {
         lastClosedSessionId: null as number | null,
+        lastActiveSessionId: null as number | null,
         updateLastClosedSessionId: vi.fn(async (sessionId: number | null) => {
             settingsStore.lastClosedSessionId = sessionId;
+        }),
+        updateLastActiveSessionId: vi.fn(async (sessionId: number | null) => {
+            settingsStore.lastActiveSessionId = sessionId;
         }),
     };
 
@@ -143,7 +147,9 @@ describe('useSearchRequestFlow', () => {
         agentState.sessionHistory.value = [];
         agentState.pendingToolApproval.value = null;
         settingsStoreMock.lastClosedSessionId = null;
+        settingsStoreMock.lastActiveSessionId = null;
         settingsStoreMock.updateLastClosedSessionId.mockClear();
+        settingsStoreMock.updateLastActiveSessionId.mockClear();
 
         listSessionsMock.mockResolvedValue([]);
         dismissSessionTerminalStatusMock.mockResolvedValue(undefined);
@@ -343,6 +349,7 @@ describe('useSearchRequestFlow', () => {
             modelId: 'gpt-5',
             providerId: 9,
         });
+        expect(settingsStoreMock.updateLastActiveSessionId).toHaveBeenCalledWith(7);
 
         mounted.unmount();
     });
@@ -391,6 +398,48 @@ describe('useSearchRequestFlow', () => {
         });
         expect(settingsStoreMock.updateLastClosedSessionId).toHaveBeenLastCalledWith(null);
         expect(settingsStoreMock.lastClosedSessionId).toBeNull();
+
+        mounted.unmount();
+    });
+
+    it('falls back to the last active session when no closed session is recorded', async () => {
+        const modelOverride = ref({
+            modelId: null,
+            providerId: null,
+        });
+        settingsStoreMock.lastActiveSessionId = 45;
+
+        const mounted = await mountComposable(() =>
+            useSearchRequestFlow({
+                modelOverride,
+                clearDraft: vi.fn(),
+                getSupportedAttachments: () => [],
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({
+                        text: query,
+                        attachments: [],
+                    }),
+            })
+        );
+
+        agentState.openSession.mockResolvedValueOnce({
+            sessionId: 45,
+            title: 'Last Active Session',
+            modelId: 'gpt-5',
+            providerId: 9,
+        });
+
+        const reopenedSession = await mounted.result.reopenLastClosedSession();
+
+        expect(agentState.openSession).toHaveBeenCalledWith(45);
+        expect(reopenedSession).toEqual({
+            sessionId: 45,
+            title: 'Last Active Session',
+            modelId: 'gpt-5',
+            providerId: 9,
+        });
+        expect(settingsStoreMock.updateLastClosedSessionId).not.toHaveBeenCalledWith(null);
 
         mounted.unmount();
     });

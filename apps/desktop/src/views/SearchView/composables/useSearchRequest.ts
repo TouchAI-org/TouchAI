@@ -5,7 +5,7 @@
 import { useAgent } from '@composables/agent';
 import type { SessionEntity } from '@database/types';
 import { notify } from '@services/NotificationService';
-import { onUnmounted, type Ref, ref } from 'vue';
+import { onUnmounted, type Ref, ref, watch } from 'vue';
 
 import {
     type Index,
@@ -230,6 +230,24 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         stopSessionStatusListener = null;
     });
 
+    watch(
+        () => currentSessionId.value,
+        (sessionId) => {
+            persistLastActiveSessionId(sessionId);
+        },
+        { flush: 'sync' }
+    );
+
+    function persistLastActiveSessionId(sessionId: number | null) {
+        if (sessionId === null || settingsStore.lastActiveSessionId === sessionId) {
+            return;
+        }
+
+        void settingsStore.updateLastActiveSessionId(sessionId).catch((error) => {
+            console.error('[SearchView] Failed to persist last active session id:', error);
+        });
+    }
+
     function clearSessionState() {
         if (currentSessionId.value !== null) {
             void settingsStore.updateLastClosedSessionId(currentSessionId.value).catch((error) => {
@@ -400,16 +418,40 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     async function reopenLastClosedSession(): Promise<LoadedSessionInfo | null> {
-        const sessionId = settingsStore.lastClosedSessionId;
-        if (sessionId === null) {
+        const candidateSessionIds = [
+            settingsStore.lastClosedSessionId,
+            settingsStore.lastActiveSessionId,
+        ].filter(
+            (sessionId, index, sessionIds): sessionId is number =>
+                sessionId !== null && sessionIds.indexOf(sessionId) === index
+        );
+        if (candidateSessionIds.length === 0) {
             return null;
         }
 
-        const loadedSession = await openSession(sessionId);
-        if (currentSessionId.value === sessionId) {
-            await settingsStore.updateLastClosedSessionId(null);
+        let lastOpenError: unknown = null;
+        for (const sessionId of candidateSessionIds) {
+            try {
+                const loadedSession = await openSession(sessionId);
+                if (
+                    settingsStore.lastClosedSessionId !== null &&
+                    currentSessionId.value === settingsStore.lastClosedSessionId
+                ) {
+                    await settingsStore.updateLastClosedSessionId(null);
+                }
+                return loadedSession;
+            } catch (error) {
+                lastOpenError = error;
+                if (sessionId === settingsStore.lastClosedSessionId) {
+                    await settingsStore.updateLastClosedSessionId(null);
+                }
+            }
         }
-        return loadedSession;
+
+        if (lastOpenError) {
+            throw lastOpenError;
+        }
+        return null;
     }
 
     async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
@@ -419,6 +461,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         clearDraft({ preserveModelTag: true });
 
         const loadedSession = await openStoredSession(sessionId);
+        persistLastActiveSessionId(sessionId);
         modelOverride.value = {
             modelId: loadedSession.modelId,
             providerId: loadedSession.providerId,

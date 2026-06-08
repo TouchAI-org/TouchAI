@@ -75,11 +75,13 @@ describe('settings search keybindings state', () => {
             value: JSON.stringify(createDefaultSearchKeybindings()),
         });
         expect(store.settings.lastClosedSessionId).toBeNull();
+        expect(store.settings.lastActiveSessionId).toBeNull();
     });
 
     it('loads and updates the persisted last closed session id', async () => {
         mockSettings({
             last_closed_session_id: '42',
+            last_active_session_id: '84',
         });
 
         const { useSettingsStore } = await import('@/stores/settings');
@@ -88,13 +90,16 @@ describe('settings search keybindings state', () => {
         await store.initialize();
 
         expect(store.settings.lastClosedSessionId).toBe(42);
+        expect(store.settings.lastActiveSessionId).toBe(84);
 
         await store.updateLastClosedSessionId(108);
+        await store.updateLastActiveSessionId(216);
 
         expect(store.settings.lastClosedSessionId).toBe(108);
+        expect(store.settings.lastActiveSessionId).toBe(216);
         expect(setSettingMock).toHaveBeenLastCalledWith({
-            key: 'last_closed_session_id',
-            value: '108',
+            key: 'last_active_session_id',
+            value: '216',
         });
     });
 
