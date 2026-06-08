@@ -58,4 +58,253 @@ describe('SessionTaskCenter status reminders', () => {
             approval: null,
         });
     });
+
+    it('sanitizes markdown from completed assistant summaries before notifying', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'completed',
+                sessionHistory: [
+                    {
+                        id: 'assistant-1',
+                        role: 'assistant',
+                        content:
+                            '# Done\n- Fixed **alert** flow\n- Review [diff](https://example.com)\n`pnpm test`',
+                        parts: [],
+                        timestamp: 1,
+                    },
+                ],
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'completed',
+            title: 'Task completed',
+            body: 'Done: Fixed alert flow, Review diff, pnpm test',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
+
+    it('sanitizes escaped markdown from completed assistant summaries before notifying', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'completed',
+                sessionHistory: [
+                    {
+                        id: 'assistant-escaped',
+                        role: 'assistant',
+                        content:
+                            '\\#\\#\\# \\*\\*🎯 10. 关键实现要点（续）\\*\\* 1. \\*\\*数据预处理\\*\\*：统一图像尺寸（建议224x224）',
+                        parts: [],
+                        timestamp: 2,
+                    },
+                ],
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'completed',
+            title: 'Task completed',
+            body: '🎯 10. 关键实现要点（续） 1. 数据预处理：统一图像尺寸（建议224x224）',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
+
+    it('prefers sanitized failure text over raw markdown error output', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'failed',
+                error: '```bash\nnpm run lint\n```\n[logs](https://example.com) failed',
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'failed',
+            title: 'Task failed',
+            body: 'npm run lint; logs failed',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
+
+    it('sanitizes approval reminders while keeping a readable command preview', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'waiting_approval',
+                pendingToolApproval: {
+                    callId: 'call-1',
+                    messageId: 'assistant-1',
+                    title: 'Need approval',
+                    description: 'Run deployment',
+                    command: '```bash\nnpm run deploy -- --env prod\n```',
+                    riskLabel: 'High risk',
+                    reason: '- Deploy **production** build',
+                    approveLabel: 'Approve',
+                    rejectLabel: 'Reject',
+                    enterHint: 'Enter to approve',
+                    escHint: 'Esc to reject',
+                    keyboardApproveAt: 1,
+                },
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'waiting_approval',
+            title: 'Pending',
+            body: 'Deploy production build. Command: npm run deploy -- --env prod',
+            approval: {
+                callId: 'call-1',
+                approveLabel: 'Approve',
+                rejectLabel: 'Reject',
+            },
+        });
+    });
+
+    it('keeps bracketed log prefixes that are not markdown reference links', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'failed',
+                error: '[ERROR]: deployment failed',
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'failed',
+            title: 'Task failed',
+            body: '[ERROR]: deployment failed',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
+
+    it('does not strip non-markdown path and glob characters from approval content', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'waiting_approval',
+                pendingToolApproval: {
+                    callId: 'call-2',
+                    messageId: 'assistant-2',
+                    title: 'Need approval',
+                    description: 'Inspect __tests__/center.test.ts and packages/**/src',
+                    command: 'rg "__tests__/center.test.ts" packages/**/src',
+                    riskLabel: 'Medium risk',
+                    reason: 'Check __tests__/center.test.ts before touching packages/**/src',
+                    approveLabel: 'Approve',
+                    rejectLabel: 'Reject',
+                    enterHint: 'Enter to approve',
+                    escHint: 'Esc to reject',
+                    keyboardApproveAt: 1,
+                },
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'waiting_approval',
+            title: 'Pending',
+            body: 'Check __tests__/center.test.ts before touching packages/**/src. Command: rg "__tests__/center.test.ts" packages/**/src',
+            approval: {
+                callId: 'call-2',
+                approveLabel: 'Approve',
+                rejectLabel: 'Reject',
+            },
+        });
+    });
+
+    it('keeps shell pipelines intact in command previews', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'waiting_approval',
+                pendingToolApproval: {
+                    callId: 'call-3',
+                    messageId: 'assistant-3',
+                    title: 'Need approval',
+                    description: 'Inspect logs',
+                    command: 'cat app.log | grep ERROR | head -n 20',
+                    riskLabel: 'Low risk',
+                    reason: 'Inspect logs quickly',
+                    approveLabel: 'Approve',
+                    rejectLabel: 'Reject',
+                    enterHint: 'Enter to approve',
+                    escHint: 'Esc to reject',
+                    keyboardApproveAt: 1,
+                },
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'waiting_approval',
+            title: 'Pending',
+            body: 'Inspect logs quickly. Command: cat app.log | grep ERROR | head -n 20',
+            approval: {
+                callId: 'call-3',
+                approveLabel: 'Approve',
+                rejectLabel: 'Reject',
+            },
+        });
+    });
+
+    it('still flattens markdown table rows into readable notification text', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'completed',
+                sessionHistory: [
+                    {
+                        id: 'assistant-2',
+                        role: 'assistant',
+                        content:
+                            '| Step | Result |\n| --- | --- |\n| lint | passed |\n| test | passed |',
+                        parts: [],
+                        timestamp: 2,
+                    },
+                ],
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'completed',
+            title: 'Task completed',
+            body: 'Step, Result: lint, passed; test, passed',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
+
+    it('turns markdown-heavy completion output into plain-text notification content', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'completed',
+                sessionHistory: [
+                    {
+                        id: 'assistant-markdown-heavy',
+                        role: 'assistant',
+                        content: `## 🧠 LangChain Memory（记忆管理）详细实现
+
+### **📋 1. Memory 核心概念**
+Memory 是 LangChain 中管理对话历史和上下文的组件，负责在多轮对话中保持状态。
+
+Memory类型 | 作用 | 适用场景
+--- | --- | ---
+BufferMemory | 短期记忆 | 简单聊天`,
+                        parts: [],
+                        timestamp: 3,
+                    },
+                ],
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'completed',
+            title: 'Task completed',
+            body: '🧠 LangChain Memory（记忆管理）详细实现: 📋 1. Memory 核心概念; Memory 是 LangChain 中管理对话历史和上下文的组件，负责在多轮对话中保持状态。 Memory类型, 作用, 适用场景',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
 });

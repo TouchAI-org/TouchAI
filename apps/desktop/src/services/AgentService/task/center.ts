@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { tt } from '@/i18n';
+import { getLocale, tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
 import type { PendingToolApproval, SessionMessage } from '@/types/session';
@@ -41,6 +41,14 @@ interface MutableSessionTask {
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
 const STATUS_REMINDER_MAX_BODY_CHARS = 220;
 const STATUS_REMINDER_MAX_COMMAND_CHARS = 160;
+const STATUS_REMINDER_MAX_SUMMARY_LINES = 4;
+const MARKDOWN_REFERENCE_LINK_DEFINITION_PATTERN =
+    /^\s*\[[^\]]+\]:\s+(?:<[^>\s]+>|(?:[a-z][a-z0-9+.-]*:|\/|\.{1,2}\/|#)[^\s]*)(?:\s+(?:"[^"]*"|'[^']*'|\([^)\n]*\)))?\s*$/gim;
+const MARKDOWN_TABLE_DIVIDER_PATTERN = /^\s*\|?(?:\s*:?-+:?\s*\|)+(?:\s*:?-+:?\s*)?\|?\s*$/gm;
+const MARKDOWN_EMPHASIS_LEADING_BOUNDARY = `(^|[\\s([{"'“‘（【《])`;
+const MARKDOWN_EMPHASIS_TRAILING_BOUNDARY = `(?=$|[\\s,.;:!?，。；：！？、】【）》」』〕〉>\\]}'"”’])`;
+
+type ReminderTextMode = 'natural' | 'command' | 'summary';
 
 /** 深拷贝任务快照，确保外部订阅者无法直接修改内部状态。 */
 function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
@@ -69,26 +77,256 @@ function isTerminalStatus(status: SessionTaskSnapshot['status']): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
-/** 将文本截断到指定字符数，超出部分以省略号结尾。 */
-function truncateReminderText(value: string, maxChars: number): string {
+function truncateNotificationText(value: string, maxChars: number): string {
     if (value.length <= maxChars) {
         return value;
     }
 
-    return `${value.slice(0, maxChars - 1).trimEnd()}…`;
+    return `${value.slice(0, maxChars - 3).trimEnd()}...`;
 }
 
-/** 规范化空白并截断文本，空字符串返回 null。 */
-function summarizeReminderText(
+function isEnglishReminderLocale(): boolean {
+    return getLocale() === 'en-US';
+}
+
+function getReminderListSeparator(): string {
+    return isEnglishReminderLocale() ? ', ' : '、';
+}
+
+function getReminderClauseSeparator(): string {
+    return isEnglishReminderLocale() ? '; ' : '；';
+}
+
+function getReminderSentenceSeparator(): string {
+    return isEnglishReminderLocale() ? '. ' : '。';
+}
+
+function getReminderColonSeparator(): string {
+    return isEnglishReminderLocale() ? ': ' : '：';
+}
+
+function hasTerminalPunctuation(value: string): boolean {
+    return /[.!?。！？；;:：]$/.test(value.trim());
+}
+
+function stripMarkdownCodeFences(value: string, mode: ReminderTextMode): string {
+    const replacement = mode === 'command' ? '$1' : mode === 'summary' ? '\n' : '\n$1\n';
+    return value
+        .replace(/```(?:[\w-]+)?\n?([\s\S]*?)```/g, replacement)
+        .replace(/~~~(?:[\w-]+)?\n?([\s\S]*?)~~~/g, replacement);
+}
+
+function unescapeMarkdownSyntax(value: string): string {
+    return value.replace(/\\([\\`*_{}[\]()#+.!>-])/g, '$1');
+}
+
+function stripNaturalMarkdownSyntax(value: string): string {
+    return value
+        .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(MARKDOWN_REFERENCE_LINK_DEFINITION_PATTERN, ' ')
+        .replace(/^ {0,3}(?:```|~~~)[\w-]*\s*$/gm, ' ')
+        .replace(/^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/gm, ' ')
+        .replace(/^ {0,3}#{1,6}\s+/gm, '')
+        .replace(/^ {0,3}>\s?/gm, '')
+        .replace(/^ {0,3}(?:[-*+])\s+\[[ xX]\]\s+/gm, '')
+        .replace(/^ {0,3}(?:[-*+])\s+/gm, '')
+        .replace(/^ {0,3}\d+[.)]\s+/gm, '')
+        .replace(MARKDOWN_TABLE_DIVIDER_PATTERN, ' ')
+        .replace(/(^|\s)`([^`\n]+)`(?=\s|$)/g, '$1$2')
+        .replace(
+            new RegExp(
+                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}\\*\\*([^\\s][^\\n]*?[^\\s])\\*\\*${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
+                'g'
+            ),
+            '$1$2'
+        )
+        .replace(
+            new RegExp(
+                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}__([^\\s][^\\n]*?[^\\s])__${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
+                'g'
+            ),
+            '$1$2'
+        )
+        .replace(
+            new RegExp(
+                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}~~([^\\s][^\\n]*?[^\\s])~~${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
+                'g'
+            ),
+            '$1$2'
+        )
+        .replace(
+            new RegExp(
+                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}\\*([^\\s][^\\n]*?[^\\s])\\*${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
+                'g'
+            ),
+            '$1$2'
+        )
+        .replace(
+            new RegExp(
+                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}_([^\\s][^\\n]*?[^\\s])_${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
+                'g'
+            ),
+            '$1$2'
+        );
+}
+
+function isPipeSeparatedMarkdownRow(value: string): boolean {
+    if (!value.includes('|')) {
+        return false;
+    }
+
+    const cells = value
+        .split('|')
+        .map((cell) => collapseWhitespace(cell))
+        .filter(Boolean);
+    return cells.length >= 2;
+}
+
+function sanitizeReminderSourceText(value: string, mode: ReminderTextMode): string {
+    let text = value.replace(/\r\n?/g, '\n');
+    text = stripMarkdownCodeFences(text, mode);
+
+    if (mode === 'command') {
+        return text.replace(/(^|\n)`([^`\n]+)`(?=\n|$)/g, '$1$2');
+    }
+
+    // Some assistant summaries persist escaped markdown (for example \#\#\# or \*\*title\*\*).
+    // Strip markdown once, unescape, then strip again so notifications stay plain text.
+    text = stripNaturalMarkdownSyntax(text);
+    text = unescapeMarkdownSyntax(text);
+    return stripNaturalMarkdownSyntax(text);
+}
+
+function collectReminderClauses(value: string, mode: ReminderTextMode): string[] {
+    const lines = value
+        .split('\n')
+        .map((line) => {
+            if (mode === 'command') {
+                return line;
+            }
+
+            const trimmed = line.trim();
+            const looksLikeTableRow = trimmed.length > 0 && isPipeSeparatedMarkdownRow(trimmed);
+
+            if (!looksLikeTableRow) {
+                return line;
+            }
+
+            return trimmed
+                .split('|')
+                .map((cell) => collapseWhitespace(cell))
+                .filter(Boolean)
+                .join(getReminderListSeparator());
+        })
+        .map((line) => collapseWhitespace(line))
+        .filter(Boolean);
+
+    if (mode === 'summary') {
+        return lines.slice(0, STATUS_REMINDER_MAX_SUMMARY_LINES);
+    }
+
+    return lines;
+}
+
+function isShortReminderClause(value: string): boolean {
+    const trimmed = value.trim();
+    if (!trimmed || hasTerminalPunctuation(trimmed)) {
+        return false;
+    }
+
+    if (trimmed.includes(getReminderListSeparator().trim())) {
+        return false;
+    }
+
+    return trimmed.length <= (isEnglishReminderLocale() ? 32 : 24);
+}
+
+function joinReminderSequence(clauses: string[], separator: string): string {
+    const [firstClause, ...restClauses] = clauses;
+    if (!firstClause) {
+        return '';
+    }
+
+    let result = firstClause;
+    for (const clause of restClauses) {
+        const joiner = hasTerminalPunctuation(result) ? ' ' : separator;
+        result = `${result}${joiner}${clause}`;
+    }
+
+    return result;
+}
+
+function joinReminderClauses(clauses: string[], mode: ReminderTextMode): string {
+    const uniqueClauses: string[] = [];
+    for (const clause of clauses) {
+        if (uniqueClauses[uniqueClauses.length - 1] === clause) {
+            continue;
+        }
+        uniqueClauses.push(clause);
+    }
+
+    if (uniqueClauses.length === 0) {
+        return '';
+    }
+
+    const [firstClause, ...restClauses] = uniqueClauses;
+    if (!firstClause) {
+        return '';
+    }
+
+    if (restClauses.length === 0) {
+        return firstClause;
+    }
+
+    const useTitledSummary =
+        mode === 'summary' &&
+        !hasTerminalPunctuation(firstClause) &&
+        firstClause.length <= (isEnglishReminderLocale() ? 60 : 40);
+    const separator =
+        mode === 'summary' && restClauses.every((clause) => isShortReminderClause(clause))
+            ? getReminderListSeparator()
+            : getReminderClauseSeparator();
+    const restText = joinReminderSequence(restClauses, separator);
+
+    if (!useTitledSummary) {
+        return joinReminderSequence(uniqueClauses, separator);
+    }
+
+    return `${firstClause}${getReminderColonSeparator()}${restText}`;
+}
+
+function appendReminderClause(base: string, clause: string | null): string {
+    if (!clause) {
+        return base;
+    }
+
+    if (!base) {
+        return clause;
+    }
+
+    const separator = hasTerminalPunctuation(base) ? ' ' : getReminderSentenceSeparator();
+    return `${base}${separator}${clause}`;
+}
+
+function formatReminderLabelValue(label: string, value: string): string {
+    return `${label}${getReminderColonSeparator()}${value}`;
+}
+
+function summarizeNotificationText(
     value: string | null | undefined,
-    maxChars = STATUS_REMINDER_MAX_BODY_CHARS
+    maxChars = STATUS_REMINDER_MAX_BODY_CHARS,
+    mode: ReminderTextMode = 'natural'
 ) {
-    const normalized = collapseWhitespace(value ?? '');
+    const normalized = joinReminderClauses(
+        collectReminderClauses(sanitizeReminderSourceText(value ?? '', mode), mode),
+        mode
+    );
     if (!normalized) {
         return null;
     }
 
-    return truncateReminderText(normalized, maxChars);
+    return truncateNotificationText(normalized, maxChars);
 }
 
 /** 从会话历史中提取最后一条 assistant 消息的摘要。 */
@@ -99,7 +337,11 @@ function summarizeLatestAssistantResponse(history: SessionMessage[]): string | n
             continue;
         }
 
-        const summary = summarizeReminderText(message.content);
+        const summary = summarizeNotificationText(
+            message.content,
+            STATUS_REMINDER_MAX_BODY_CHARS,
+            'summary'
+        );
         if (summary) {
             return summary;
         }
@@ -111,26 +353,35 @@ function summarizeLatestAssistantResponse(history: SessionMessage[]): string | n
 /** 为等待审批状态构建通知正文，包含摘要和命令预览。 */
 function buildWaitingApprovalBody(approval: PendingToolApproval): string {
     const summary =
-        summarizeReminderText(approval.reason) ??
-        summarizeReminderText(approval.description) ??
-        summarizeReminderText(approval.title) ??
+        summarizeNotificationText(approval.reason) ??
+        summarizeNotificationText(approval.description) ??
+        summarizeNotificationText(approval.title) ??
         getSessionStatusReminderContent('waiting_approval');
-    const commandPreview = summarizeReminderText(
+    const commandPreview = summarizeNotificationText(
         approval.command,
-        STATUS_REMINDER_MAX_COMMAND_CHARS
+        STATUS_REMINDER_MAX_COMMAND_CHARS,
+        'command'
     );
 
     if (!commandPreview || commandPreview === summary) {
         return summary;
     }
 
-    return `${summary}\n${commandPreview}`;
+    return truncateNotificationText(
+        appendReminderClause(summary, formatReminderLabelValue(tt('命令'), commandPreview)),
+        STATUS_REMINDER_MAX_BODY_CHARS
+    );
 }
 
 function buildWaitingUserQuestionBody(
     question: NonNullable<SessionTaskSnapshot['pendingUserQuestion']>
 ): string {
-    return summarizeReminderText(question.questions[0]?.question) ?? tt('任务正在等待用户回复');
+    const summary = summarizeNotificationText(question.questions[0]?.question);
+    if (summary) {
+        return summary;
+    }
+
+    return tt('任务正在等待用户回复');
 }
 
 /**
@@ -158,7 +409,7 @@ export function buildSessionStatusReminder(
             kind: 'failed',
             title: tt('任务失败'),
             body:
-                summarizeReminderText(snapshot.error) ??
+                summarizeNotificationText(snapshot.error) ??
                 summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
                 getSessionStatusReminderContent('failed'),
             approval: null,
