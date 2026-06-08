@@ -28,6 +28,19 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('workflow_dispatch:');
     });
 
+    it('formats Release Please generated files before pushing the release PR branch', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('Read release PR branch');
+        expect(workflow).toContain('Format Release Please generated files');
+        expect(workflow).toContain('Push formatted release PR files');
+        expect(workflow).toContain("steps.release.outputs.prs_created == 'true'");
+        expect(workflow).toContain('pnpm exec prettier --write');
+        expect(workflow).toContain('.release-please-manifest.json');
+        expect(workflow).toContain('apps/desktop/src-tauri/tauri.conf.json');
+        expect(workflow).toContain('git push origin HEAD:"$RELEASE_PR_BRANCH"');
+    });
+
     it('keeps stable releases on the protected release environment by default', async () => {
         const workflow = await readWorkflow('velopack-build.yml');
 
