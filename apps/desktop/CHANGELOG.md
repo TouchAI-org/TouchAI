@@ -1,5 +1,21 @@
 # 更新日志
 
+## [1.1.1](https://github.com/TouchAI-org/TouchAI/compare/v1.1.0...v1.1.1) (2026-06-08)
+
+
+### Bug Fixes
+
+* **agent-service:** preserve network errors when provider classification fails ([#411](https://github.com/TouchAI-org/TouchAI/issues/411)) ([36044b6](https://github.com/TouchAI-org/TouchAI/commit/36044b6df0ff89b43c07e2585794728f41567a30))
+* **agent:** classify localized cancellation errors ([#339](https://github.com/TouchAI-org/TouchAI/issues/339)) ([c3d675e](https://github.com/TouchAI-org/TouchAI/commit/c3d675ee5b21ca17a2f98223d4ae02e2776808ec))
+* **agent:** sync switched model on active reattach ([#366](https://github.com/TouchAI-org/TouchAI/issues/366)) ([1ddc767](https://github.com/TouchAI-org/TouchAI/commit/1ddc767d81451377cd8e5161c1a12c4075a49791))
+* **ai-sdk:** retain streamed tool call names ([#362](https://github.com/TouchAI-org/TouchAI/issues/362)) ([eb372b1](https://github.com/TouchAI-org/TouchAI/commit/eb372b18708778a031f8a71fb81a9d920232db3c))
+* **desktop:** invalidate MiMo managed auth on bare 401 ([#408](https://github.com/TouchAI-org/TouchAI/issues/408)) ([6199d1c](https://github.com/TouchAI-org/TouchAI/commit/6199d1c65879b9fdca2257b405f627f37df4fa1a))
+* **desktop:** preserve message bubble line breaks ([#412](https://github.com/TouchAI-org/TouchAI/issues/412)) ([691b23a](https://github.com/TouchAI-org/TouchAI/commit/691b23a1fc8b3141887fc80104699b2a6f85ff93))
+* **desktop:** prevent shell vars from rendering as math ([#419](https://github.com/TouchAI-org/TouchAI/issues/419)) ([bd98f76](https://github.com/TouchAI-org/TouchAI/commit/bd98f76b1fbf99c71879e847ef3d8e2502babca7))
+* **markdown:** keep renderer mounted on final output ([#420](https://github.com/TouchAI-org/TouchAI/issues/420)) ([8287c9d](https://github.com/TouchAI-org/TouchAI/commit/8287c9da3637d0cd19fe31d3854402e319b5ca45))
+* **sessions:** retain provider during metadata refresh ([#360](https://github.com/TouchAI-org/TouchAI/issues/360)) ([792512b](https://github.com/TouchAI-org/TouchAI/commit/792512b96dc18b185f12647a4f86558a5a6f0b47))
+* **webfetch:** validate redirect targets ([#306](https://github.com/TouchAI-org/TouchAI/issues/306)) ([4e637a9](https://github.com/TouchAI-org/TouchAI/commit/4e637a992dbdfadcbf72f4e053518e164235fd62))
+
 ## [1.1.0](https://github.com/TouchAI-org/TouchAI/compare/v1.0.0...v1.1.0) (2026-06-03)
 
 
