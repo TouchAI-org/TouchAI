@@ -8,12 +8,17 @@
         useForwardPropsEmits,
     } from 'reka-ui';
     import type { HTMLAttributes } from 'vue';
-    import { computed } from 'vue';
+    import { computed, useAttrs } from 'vue';
 
     import { cn } from '@/lib/utils';
 
+    defineOptions({
+        inheritAttrs: false,
+    });
+
     interface Props extends SelectContentProps {
         class?: HTMLAttributes['class'];
+        disablePortal?: boolean;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -23,23 +28,30 @@
         align: 'start',
         sideOffset: 4,
         avoidCollisions: true,
+        disablePortal: false,
     });
 
     const emits = defineEmits<SelectContentEmits>();
+    const attrs = useAttrs();
 
     const delegatedProps = computed(() => {
         const delegated = { ...props };
         Reflect.deleteProperty(delegated, 'class');
+        Reflect.deleteProperty(delegated, 'disablePortal');
         return delegated;
     });
 
     const forwarded = useForwardPropsEmits(delegatedProps, emits);
+    const contentProps = computed(() => ({
+        ...forwarded.value,
+        ...attrs,
+    }));
 </script>
 
 <template>
-    <SelectPortal>
+    <SelectPortal :disabled="disablePortal">
         <SelectContent
-            v-bind="forwarded"
+            v-bind="contentProps"
             :class="
                 cn(
                     'relative z-50 min-w-[8rem] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-gray-900 shadow-lg',

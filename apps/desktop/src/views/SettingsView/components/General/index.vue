@@ -229,7 +229,6 @@
         });
     });
 
-    const shortcutInput = ref<HTMLInputElement | null>(null);
     const isSaving = ref(false);
     const isCapturing = ref(false);
     const hasCapturedShortcut = ref(false);
@@ -239,7 +238,13 @@
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const shortcutRegistrationFailed = ref(false);
     const showGlobalShortcutPresetMenu = ref(false);
-    const globalShortcutPresetOptions = ['Alt+Space', 'Ctrl+Space'] as const;
+    const globalShortcutPresetShortcuts = ['Alt+Space', 'Ctrl+Space'] as const;
+    const globalShortcutPresetOptions = computed(() =>
+        globalShortcutPresetShortcuts.map((shortcut) => ({
+            label: shortcut,
+            value: shortcut,
+        }))
+    );
     const activeSearchShortcutActionId = ref<SearchKeybindingActionId | null>(null);
     const searchShortcutCapturedValue = ref<string | null>(null);
     const hasCapturedSearchShortcut = ref(false);
@@ -403,6 +408,19 @@
     };
 
     // 保存新快捷键的通用函数
+    const handleGlobalShortcutPresetOpenChange = (open: boolean) => {
+        if (isSaving.value) {
+            return;
+        }
+
+        if (open) {
+            startCapture();
+            return;
+        }
+
+        void stopCaptureAndSave();
+    };
+
     const saveNewShortcut = async (newShortcut: string) => {
         const searchConflict = findGlobalShortcutSearchConflict(newShortcut);
         if (searchConflict) {
@@ -449,6 +467,10 @@
 
     // 使用建议的快捷键
     const useSuggestedShortcut = async (shortcut: string) => {
+        if (isSaving.value) {
+            return;
+        }
+
         showGlobalShortcutPresetMenu.value = false;
 
         // 如果正在捕获，先取消捕获
@@ -457,10 +479,6 @@
         }
 
         // 如果输入框有焦点，先失焦
-        if (shortcutInput.value) {
-            shortcutInput.value.blur();
-        }
-
         await saveNewShortcut(shortcut);
     };
 
@@ -997,35 +1015,41 @@
                                         data-testid="settings-general-shortcut-input-wrap"
                                         class="relative ml-auto w-[220px] shrink-0"
                                     >
-                                        <input
-                                            ref="shortcutInput"
-                                            v-model="displayShortcut"
-                                            data-testid="settings-global-shortcut-input"
-                                            type="text"
-                                            readonly
-                                            :class="[
-                                                'w-full rounded-[10px] border px-3 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors focus:shadow-none focus:[box-shadow:none] focus:outline-none',
-                                                showGlobalShortcutPresetMenu
-                                                    ? 'rounded-b-none border-b-0'
-                                                    : '',
-                                                shortcutRegistrationFailed
-                                                    ? 'border-red-300 bg-red-50 text-red-600'
-                                                    : isCapturing
-                                                      ? 'border-primary-300 bg-white text-neutral-950'
-                                                      : 'focus:border-primary-300 border-transparent bg-[#f0f0ef] text-neutral-900 hover:bg-[#ececea]',
-                                                isSaving
-                                                    ? 'cursor-wait opacity-50'
-                                                    : 'cursor-pointer',
-                                            ]"
+                                        <CustomSelect
+                                            :model-value="displayShortcut"
+                                            :options="globalShortcutPresetOptions"
+                                            :open="showGlobalShortcutPresetMenu"
+                                            :display-label="displayShortcut"
                                             :disabled="isSaving"
-                                            :placeholder="t('settings.general.shortcutPlaceholder')"
-                                            @focus="startCapture"
-                                            @blur="stopCaptureAndSave"
-                                        />
+                                            trigger-as="div"
+                                            content-test-id="settings-global-shortcut-preset-menu"
+                                            option-test-id-prefix="settings-global-shortcut-preset-"
+                                            disable-portal
+                                            protect-option-text
+                                            @update:open="handleGlobalShortcutPresetOpenChange"
+                                            @update:model-value="useSuggestedShortcut"
+                                        >
+                                            <template #trigger>
+                                                <input
+                                                    v-model="displayShortcut"
+                                                    data-testid="settings-global-shortcut-input"
+                                                    type="text"
+                                                    readonly
+                                                    class="min-w-0 flex-1 bg-transparent text-center text-[12px] outline-none"
+                                                    :disabled="isSaving"
+                                                    :placeholder="
+                                                        t('settings.general.shortcutPlaceholder')
+                                                    "
+                                                    @pointerdown.stop
+                                                    @click.stop
+                                                    @focus="startCapture"
+                                                />
+                                            </template>
+                                        </CustomSelect>
                                         <span
                                             v-if="shortcutRegistrationFailed"
                                             data-testid="settings-shortcut-occupied-indicator"
-                                            class="absolute top-1/2 right-2.5 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-red-500"
+                                            class="absolute top-1/2 right-8 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-red-500"
                                             :title="
                                                 t('settings.general.shortcutRegistrationFailed')
                                             "
@@ -1035,24 +1059,6 @@
                                                 class="h-3.5 w-3.5"
                                             />
                                         </span>
-                                        <div
-                                            v-if="showGlobalShortcutPresetMenu"
-                                            data-testid="settings-global-shortcut-preset-menu"
-                                            class="border-primary-300 absolute top-full right-0 z-20 w-full overflow-hidden rounded-[10px] rounded-t-none border border-t-0 bg-white py-1 shadow-lg"
-                                        >
-                                            <button
-                                                v-for="shortcut in globalShortcutPresetOptions"
-                                                :key="shortcut"
-                                                type="button"
-                                                class="block w-full px-3 py-2 text-center text-[12px] text-neutral-800 transition-colors hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-                                                :disabled="isSaving"
-                                                :data-testid="`settings-global-shortcut-preset-${shortcut}`"
-                                                @mousedown.prevent
-                                                @click="useSuggestedShortcut(shortcut)"
-                                            >
-                                                {{ shortcut }}
-                                            </button>
-                                        </div>
                                     </div>
                                 </div>
                             </div>

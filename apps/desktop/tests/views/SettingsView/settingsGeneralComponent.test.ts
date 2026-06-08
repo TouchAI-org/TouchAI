@@ -102,9 +102,27 @@ vi.mock('@components/AppIcon.vue', () => ({
 vi.mock('@components/CustomSelect.vue', () => ({
     default: {
         name: 'CustomSelectStub',
-        props: ['modelValue', 'options'],
-        emits: ['update:modelValue'],
-        template: '<select data-testid="custom-select"><option>{{ modelValue }}</option></select>',
+        props: ['modelValue', 'options', 'open', 'contentTestId', 'optionTestIdPrefix'],
+        emits: ['update:modelValue', 'update:open'],
+        template: `
+            <div data-testid="custom-select">
+                <slot name="trigger" />
+                <select v-if="!$slots.trigger" data-testid="custom-select-native">
+                    <option>{{ modelValue }}</option>
+                </select>
+                <div v-if="open" :data-testid="contentTestId">
+                    <button
+                        v-for="option in options"
+                        :key="option.value"
+                        type="button"
+                        :data-testid="optionTestIdPrefix ? optionTestIdPrefix + option.value : undefined"
+                        @click="$emit('update:modelValue', option.value)"
+                    >
+                        {{ option.label }}
+                    </button>
+                </div>
+            </div>
+        `,
     },
 }));
 
