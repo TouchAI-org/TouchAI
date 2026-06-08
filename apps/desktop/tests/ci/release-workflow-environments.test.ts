@@ -32,12 +32,15 @@ describe('release workflow deployment environments', () => {
         const workflow = await readWorkflow('release-please.yml');
 
         expect(workflow).toContain('Read release PR branch');
+        expect(workflow).toContain('Sync Release Please lockfile version');
+        expect(workflow).toContain('node scripts/ci/set-release-version.mjs "$release_version"');
         expect(workflow).toContain('Format Release Please generated files');
         expect(workflow).toContain('Push formatted release PR files');
         expect(workflow).toContain("steps.release.outputs.prs_created == 'true'");
         expect(workflow).toContain('pnpm exec prettier --write');
         expect(workflow).toContain('--ignore-path .prettierignore');
         expect(workflow).toContain('.release-please-manifest.json');
+        expect(workflow).toContain('apps/desktop/src-tauri/Cargo.lock');
         expect(workflow).toContain('apps/desktop/src-tauri/tauri.conf.json');
         expect(workflow).toContain('git push origin HEAD:"$RELEASE_PR_BRANCH"');
     });

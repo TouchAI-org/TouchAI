@@ -58,6 +58,7 @@ describe('release CODEOWNERS policy', () => {
             '.release-please-manifest.json',
             'apps/desktop/CHANGELOG.md',
             'apps/desktop/package.json',
+            'apps/desktop/src-tauri/Cargo.lock',
             'apps/desktop/src-tauri/Cargo.toml',
             'apps/desktop/src-tauri/tauri.conf.json',
         ];
