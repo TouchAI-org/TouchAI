@@ -109,6 +109,7 @@ pub fn run() {
         .manage(core::window::search::surface::SearchSurfaceRuntime::new())
         .manage(core::window::status_reminder::SessionStatusReminderNotificationRuntime::new())
         .manage(core::window::tray::TrayStatusRuntime::new())
+        .manage(core::app_use::AppUseRuntime::new())
         .manage(BuiltInProcessExecutionRegistry::new())
         .manage(McpClientManager::new())
         .manage(core::updater::AppUpdaterState::default())

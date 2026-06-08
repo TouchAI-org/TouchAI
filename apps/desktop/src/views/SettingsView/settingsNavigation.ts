@@ -6,6 +6,7 @@ export type NavigationSection =
     | 'general'
     | 'ai-services'
     | 'built-in-tools'
+    | 'app-use'
     | 'mcp-tools'
     | 'data-management';
 
@@ -59,6 +60,12 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 icon: 'tool',
                 labelKey: 'settings.nav.builtInTools.label',
                 descriptionKey: 'settings.nav.builtInTools.description',
+            },
+            {
+                id: 'app-use',
+                icon: 'wrench',
+                labelKey: 'settings.nav.appUse.label',
+                descriptionKey: 'settings.nav.appUse.description',
             },
             {
                 id: 'mcp-tools',

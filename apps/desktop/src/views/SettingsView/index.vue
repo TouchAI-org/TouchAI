@@ -30,6 +30,7 @@
     const BuiltInToolsView = defineAsyncComponent(
         () => import('./components/BuiltInTools/index.vue')
     );
+    const AppUseView = defineAsyncComponent(() => import('./components/AppUse/index.vue'));
     const McpToolsView = defineAsyncComponent(() => import('./components/McpTools/index.vue'));
     const DataManagementView = defineAsyncComponent(
         () => import('./components/DataManagement/index.vue')
@@ -291,6 +292,19 @@
                                 <template #fallback>
                                     <LoadingState
                                         :message="t('settings.loading.builtInTools')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
+                                </template>
+                            </Suspense>
+                        </div>
+
+                        <div v-else-if="activeSection === 'app-use'" class="h-full w-full">
+                            <Suspense>
+                                <AppUseView />
+                                <template #fallback>
+                                    <LoadingState
+                                        :message="t('settings.loading.appUse')"
                                         variant="brand"
                                         fill="min"
                                     />

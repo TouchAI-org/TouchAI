@@ -35,6 +35,136 @@ export interface BuiltInBashExecutionResponse {
     compressed?: boolean;
 }
 
+export type AppUseNativeAdapterId =
+    | 'office_word'
+    | 'office_excel'
+    | 'office_powerpoint'
+    | 'wps_writer'
+    | 'wps_spreadsheet'
+    | 'wps_presentation'
+    | 'photoshop'
+    | 'illustrator';
+
+export type AppUseNativeMode = 'read_only' | 'interactive';
+
+export interface AppUseNativeConfig {
+    mode: AppUseNativeMode;
+    adapters: Record<AppUseNativeAdapterId, boolean>;
+    mutatingApprovalMode: 'always';
+    readScope: 'active';
+    allowBackgroundOperation: boolean;
+    allowRawAutomation: false;
+    timeoutMs: number;
+    maxOutputChars: number;
+}
+
+export interface AppUseNativeAdapterDescriptor {
+    id: AppUseNativeAdapterId;
+    label: string;
+    installed: boolean;
+    running: boolean;
+    enabled: boolean;
+    capabilities: string[];
+    activeTargetName: string | null;
+}
+
+export interface AppUseNativeSessionRequest {
+    executionId: string;
+    operation: 'status' | 'discover' | 'capabilities';
+    description: string;
+    config: AppUseNativeConfig;
+}
+
+export interface AppUseNativeSessionResponse {
+    ok: boolean;
+    operation: AppUseNativeSessionRequest['operation'];
+    adapters: AppUseNativeAdapterDescriptor[];
+    message: string | null;
+}
+
+export interface AppUseNativeObserveRequest {
+    executionId: string;
+    adapterId: AppUseNativeAdapterId;
+    scope:
+        | 'active_document'
+        | 'selection'
+        | 'workbook'
+        | 'worksheet'
+        | 'presentation'
+        | 'slide'
+        | 'layers'
+        | 'artboards';
+    description: string;
+    targetId?: string;
+    maxOutputChars: number;
+    config: AppUseNativeConfig;
+}
+
+export interface AppUseNativeObserveResponse {
+    ok: boolean;
+    adapterId: AppUseNativeAdapterId;
+    scope: AppUseNativeObserveRequest['scope'];
+    target: string | null;
+    content: string | null;
+    metadata: Record<string, unknown>;
+    truncated: boolean;
+}
+
+export type AppUseNativeActAction =
+    | 'insert_text'
+    | 'replace_selection'
+    | 'read_cells'
+    | 'write_cells'
+    | 'add_slide_text'
+    | 'select_layer'
+    | 'export_preview'
+    | 'batch_export'
+    | 'format_selection'
+    | 'cross_app_transfer';
+
+export interface AppUseNativeActPermit {
+    callId: string;
+    adapterId: AppUseNativeAdapterId;
+    action: AppUseNativeActAction;
+    targetId?: string;
+    parametersHash: string;
+    token: string;
+}
+
+export interface AppUseNativeAuthorizeActRequest {
+    executionId: string;
+    adapterId: AppUseNativeAdapterId;
+    action: AppUseNativeActAction;
+    targetId?: string;
+    parameters?: Record<string, unknown>;
+    config: AppUseNativeConfig;
+}
+
+export interface AppUseNativeAuthorizeActResponse {
+    permit: AppUseNativeActPermit | null;
+    expiresInMs: number;
+}
+
+export interface AppUseNativeActRequest {
+    executionId: string;
+    adapterId: AppUseNativeAdapterId;
+    action: AppUseNativeActAction;
+    description: string;
+    targetId?: string;
+    parameters?: Record<string, unknown>;
+    permit?: AppUseNativeActPermit;
+    config: AppUseNativeConfig;
+}
+
+export interface AppUseNativeActResponse {
+    ok: boolean;
+    adapterId: AppUseNativeAdapterId;
+    action: AppUseNativeActAction;
+    receipt: string;
+    changed: boolean;
+    metadata: Record<string, unknown>;
+}
+
 export interface ShowPopupWindowParams {
     x: number;
     y: number;

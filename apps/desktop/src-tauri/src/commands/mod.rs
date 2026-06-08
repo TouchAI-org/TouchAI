@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
 //! 命令入口模块。
+pub mod app_use;
 pub mod autostart;
 pub mod built_in_tools;
 pub mod clipboard;
@@ -76,5 +77,9 @@ pub fn invoke_handler<R: tauri::Runtime>(
         updater::updater_check_for_updates,
         updater::updater_download_update,
         updater::updater_install_update,
+        app_use::app_use_session,
+        app_use::app_use_observe,
+        app_use::app_use_authorize_act,
+        app_use::app_use_act,
     ]
 }

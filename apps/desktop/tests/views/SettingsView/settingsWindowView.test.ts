@@ -59,6 +59,13 @@ vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
     },
 }));
 
+vi.mock('@/views/SettingsView/components/AppUse/index.vue', () => ({
+    default: {
+        name: 'AppUseView',
+        template: '<section data-testid="app-use-view-stub" />',
+    },
+}));
+
 vi.mock('@/views/SettingsView/components/McpTools/index.vue', () => ({
     default: {
         name: 'McpToolsView',
@@ -206,6 +213,10 @@ describe('SettingsWindowView', () => {
         await flushPromises();
         expect(loadingState().attributes('variant')).toBe('brand');
 
+        nav.vm.$emit('navigate', 'app-use');
+        await flushPromises();
+        expect(loadingState().attributes('message')).toBe('正在加载 App Use 设置...');
+
         nav.vm.$emit('navigate', 'mcp-tools');
         await flushPromises();
         expect(loadingState().attributes('variant')).toBe('brand');
@@ -232,6 +243,10 @@ describe('SettingsWindowView', () => {
         nav.vm.$emit('navigate', 'built-in-tools');
         await flushPromises();
         expect(wrapper.find('built-in-tools-view-stub').exists()).toBe(true);
+
+        nav.vm.$emit('navigate', 'app-use');
+        await flushPromises();
+        expect(wrapper.find('app-use-view-stub').exists()).toBe(true);
 
         nav.vm.$emit('navigate', 'mcp-tools');
         await flushPromises();

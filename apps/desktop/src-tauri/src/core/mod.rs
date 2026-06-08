@@ -4,6 +4,7 @@
 //!
 //! 分为窗口域与系统能力域。
 
+pub mod app_use;
 pub mod built_in_tools;
 pub mod database;
 pub mod mcp;

@@ -67,6 +67,7 @@ clipboard-rs = "0.3.4"
 html5gum = { version = "0.8.3", default-features = false }
 sha2 = "0.10"
 velopack = { version = "=0.0.1589-ga2c5a97", features = ["public-utils"] }
+uuid = { version = "1.23.1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -116,6 +117,7 @@ windows = { version = "0.58", features = [
 ] }
 webview2-com = "0.38.0"
 windows-core = "0.61.2"
+winreg = "0.10.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
