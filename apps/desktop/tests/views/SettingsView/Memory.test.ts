@@ -41,6 +41,7 @@ vi.mock('@composables/useContextMenu.ts', () => ({
 
 vi.mock('@/database/queries/memoryItems', () => ({
     createMemoryItem: vi.fn(),
+    deleteMemoryItem: vi.fn(),
     disableMemoryItem: vi.fn(),
     findMemoryDirectoryItems: vi.fn(),
     readMemoryItemsByIds: vi.fn(),
@@ -52,10 +53,7 @@ const memoryQueries = await import('@/database/queries/memoryItems');
 const AlertMessageStub = {
     name: 'AlertMessageStub',
     template: '<div />',
-    setup(
-        _props: unknown,
-        { expose }: { expose: (exposed: Record<string, unknown>) => void }
-    ) {
+    setup(_props: unknown, { expose }: { expose: (exposed: Record<string, unknown>) => void }) {
         expose(alertState);
     },
 };
@@ -142,7 +140,9 @@ describe('SettingsMemorySection', () => {
             toDirectoryItem(disabledMemory),
         ]);
         vi.mocked(memoryQueries.readMemoryItemsByIds).mockImplementation(async (ids: number[]) =>
-            [enabledMemory, secondMemory, disabledMemory].filter((memory) => ids.includes(memory.id))
+            [enabledMemory, secondMemory, disabledMemory].filter((memory) =>
+                ids.includes(memory.id)
+            )
         );
         vi.mocked(memoryQueries.createMemoryItem).mockResolvedValue({
             ...enabledMemory,
@@ -163,6 +163,7 @@ describe('SettingsMemorySection', () => {
                   }
                 : undefined;
         });
+        vi.mocked(memoryQueries.deleteMemoryItem).mockResolvedValue(secondMemory);
         vi.mocked(memoryQueries.disableMemoryItem).mockResolvedValue(undefined);
     });
 
@@ -193,17 +194,17 @@ describe('SettingsMemorySection', () => {
         await settle();
 
         expect(wrapper.findAll('[data-testid^="settings-memory-item-"]')).toHaveLength(3);
-        expect(wrapper.get('[data-testid="settings-memory-title-input"]').attributes('placeholder')).toBe(
-            '给这条记忆起个标题'
-        );
         expect(
-            wrapper.get('[data-testid="settings-memory-applicability-input"]').attributes(
-                'placeholder'
-            )
+            wrapper.get('[data-testid="settings-memory-title-input"]').attributes('placeholder')
+        ).toBe('给这条记忆起个标题');
+        expect(
+            wrapper
+                .get('[data-testid="settings-memory-applicability-input"]')
+                .attributes('placeholder')
         ).toBe('说明它在什么情况下适用');
-        expect(wrapper.get('[data-testid="settings-memory-content-input"]').attributes('placeholder')).toBe(
-            '写下希望 TouchAI 记住的内容'
-        );
+        expect(
+            wrapper.get('[data-testid="settings-memory-content-input"]').attributes('placeholder')
+        ).toBe('写下希望 TouchAI 记住的内容');
         expect(wrapper.find('[data-testid="settings-memory-save"]').exists()).toBe(false);
 
         await wrapper.get('[data-testid="settings-memory-item-12"]').trigger('click');
@@ -297,7 +298,90 @@ describe('SettingsMemorySection', () => {
         });
     });
 
-    it('opens a context menu for persisted memories and removes the item after delete without reporting a false failure', async () => {
+    it('flushes pending autosave before switching to another persisted memory', async () => {
+        const wrapper = mountMemorySection();
+        await settle();
+
+        await wrapper
+            .get('[data-testid="settings-memory-title-input"]')
+            .setValue('Switch before autosave');
+        await wrapper
+            .get('[data-testid="settings-memory-applicability-input"]')
+            .setValue('Save before switching to another memory.');
+        await wrapper
+            .get('[data-testid="settings-memory-content-input"]')
+            .setValue('This pending edit should persist immediately on selection change.');
+
+        await wrapper.get('[data-testid="settings-memory-item-11"]').trigger('click');
+        await settle();
+
+        expect(memoryQueries.updateMemoryItem).toHaveBeenCalledWith(12, {
+            title: 'Switch before autosave',
+            applicability: 'Save before switching to another memory.',
+            content: 'This pending edit should persist immediately on selection change.',
+        });
+        expect(
+            (wrapper.get('[data-testid="settings-memory-title-input"]').element as HTMLInputElement)
+                .value
+        ).toBe(enabledMemory.title);
+    });
+
+    it('keeps the current editor open when a flush fails during memory switching', async () => {
+        vi.mocked(memoryQueries.updateMemoryItem).mockRejectedValue(new Error('save failed'));
+
+        const wrapper = mountMemorySection();
+        await settle();
+
+        await wrapper
+            .get('[data-testid="settings-memory-title-input"]')
+            .setValue('Keep current editor open');
+        await wrapper
+            .get('[data-testid="settings-memory-applicability-input"]')
+            .setValue('Do not discard this edit if persistence fails.');
+        await wrapper
+            .get('[data-testid="settings-memory-content-input"]')
+            .setValue('The editor should stay on the current memory after a failed flush.');
+
+        await wrapper.get('[data-testid="settings-memory-item-11"]').trigger('click');
+        await settle();
+
+        expect(memoryQueries.updateMemoryItem).toHaveBeenCalledWith(12, {
+            title: 'Keep current editor open',
+            applicability: 'Do not discard this edit if persistence fails.',
+            content: 'The editor should stay on the current memory after a failed flush.',
+        });
+        expect(
+            (wrapper.get('[data-testid="settings-memory-title-input"]').element as HTMLInputElement)
+                .value
+        ).toBe('Keep current editor open');
+        expect(alertState.error).toHaveBeenCalled();
+    });
+
+    it('flushes pending autosave when the editor unmounts', async () => {
+        const wrapper = mountMemorySection();
+        await settle();
+
+        await wrapper
+            .get('[data-testid="settings-memory-title-input"]')
+            .setValue('Unmount before autosave');
+        await wrapper
+            .get('[data-testid="settings-memory-applicability-input"]')
+            .setValue('Save before leaving the memory settings tab.');
+        await wrapper
+            .get('[data-testid="settings-memory-content-input"]')
+            .setValue('Unmounting the editor should not lose a complete pending edit.');
+
+        wrapper.unmount();
+        await settle();
+
+        expect(memoryQueries.updateMemoryItem).toHaveBeenCalledWith(12, {
+            title: 'Unmount before autosave',
+            applicability: 'Save before leaving the memory settings tab.',
+            content: 'Unmounting the editor should not lose a complete pending edit.',
+        });
+    });
+
+    it('opens a context menu for persisted memories and deletes the item from settings', async () => {
         const wrapper = mountMemorySection();
         await settle();
 
@@ -309,25 +393,46 @@ describe('SettingsMemorySection', () => {
         triggerDeleteFromContextMenu();
         await settle();
 
-        expect(memoryQueries.disableMemoryItem).toHaveBeenCalledWith(12);
-        expect(wrapper.find('[data-testid="settings-memory-item-12"]').exists()).toBe(true);
-        expect(wrapper.get('[data-testid="settings-memory-toggle-12"]').attributes('aria-pressed')).toBe(
-            'false'
-        );
+        expect(memoryQueries.deleteMemoryItem).toHaveBeenCalledWith(12);
+        expect(wrapper.find('[data-testid="settings-memory-item-12"]').exists()).toBe(false);
+        expect(
+            (wrapper.get('[data-testid="settings-memory-title-input"]').element as HTMLInputElement)
+                .value
+        ).toBe(enabledMemory.title);
+        expect(memoryQueries.disableMemoryItem).not.toHaveBeenCalled();
         expect(alertState.error).not.toHaveBeenCalled();
+    });
+
+    it('shows a delete failure when the selected memory cannot be removed', async () => {
+        vi.mocked(memoryQueries.deleteMemoryItem).mockRejectedValueOnce(new Error('delete failed'));
+
+        const wrapper = mountMemorySection();
+        await settle();
+
+        await wrapper.get('[data-testid="settings-memory-item-12"]').trigger('contextmenu');
+        triggerDeleteFromContextMenu();
+        await settle();
+
+        expect(memoryQueries.deleteMemoryItem).toHaveBeenCalledWith(12);
+        expect(wrapper.find('[data-testid="settings-memory-item-12"]').exists()).toBe(true);
+        expect(
+            (wrapper.get('[data-testid="settings-memory-title-input"]').element as HTMLInputElement)
+                .value
+        ).toBe(secondMemory.title);
+        expect(alertState.error).toHaveBeenCalled();
     });
 
     it('applies short character limits to title and applicability inputs', async () => {
         const wrapper = mountMemorySection();
         await settle();
 
-        expect(wrapper.get('[data-testid="settings-memory-title-input"]').attributes('maxlength')).toBe(
-            '24'
-        );
         expect(
-            wrapper.get('[data-testid="settings-memory-applicability-input"]').attributes(
-                'maxlength'
-            )
+            wrapper.get('[data-testid="settings-memory-title-input"]').attributes('maxlength')
+        ).toBe('24');
+        expect(
+            wrapper
+                .get('[data-testid="settings-memory-applicability-input"]')
+                .attributes('maxlength')
         ).toBe('48');
     });
 
@@ -335,7 +440,9 @@ describe('SettingsMemorySection', () => {
         const wrapper = mountMemorySection();
         await settle();
 
-        expect(wrapper.get('[data-testid="settings-memory-item-13"]').text()).toContain('已禁用记忆');
+        expect(wrapper.get('[data-testid="settings-memory-item-13"]').text()).toContain(
+            '已禁用记忆'
+        );
 
         await wrapper.get('[data-testid="settings-memory-toggle-13"]').trigger('click');
         await settle();
@@ -352,7 +459,9 @@ describe('SettingsMemorySection', () => {
         await settle();
 
         expect(wrapper.find('[data-testid="settings-memory-load-error"]').exists()).toBe(true);
-        expect(wrapper.find('[data-testid="settings-memory-empty-workspace"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="settings-memory-empty-workspace"]').exists()).toBe(
+            false
+        );
 
         await wrapper.get('[data-testid="settings-memory-retry-button"]').trigger('click');
         await settle();

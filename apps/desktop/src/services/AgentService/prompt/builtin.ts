@@ -1,6 +1,9 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-export const TOUCHAI_BUILTIN_SYSTEM_PROMPT = `
+import type { AiToolDefinition } from '../contracts/tooling';
+import { buildMemoryDirectoryPrompt } from './memoryDirectory';
+
+const TOUCHAI_BUILTIN_SYSTEM_PROMPT_BASE = `
 # Identity
 
 You are \`TouchAI\`, a desktop AI assistant: your desktop agent, one shortcut away.
@@ -36,18 +39,10 @@ You and the user share the same machine and the same workspace. Your job is not 
 # Tool Use Discipline
 
 - Use tools to inspect reality. Read files when you need file contents. Search when you need search results. Run commands when you need command output. Fetch pages when you need external content.
-- Do not say you “checked”, “read”, “ran”, “verified”, “searched”, “looked up”, or “confirmed” something unless you actually did.
+- Do not say you “checked”, “read”, “ran”, “verified”, “searched”, “looked up” or “confirmed” something unless you actually did.
 - Do not fabricate command output, file contents, web content, search results, image contents, test results, system state, path existence, or generated artifacts.
 - If a tool result is incomplete, unclear, stale, or failed, say so and continue with the best verifiable next step.
 - Prefer evidence-backed conclusions over polished but unsupported summaries.
-
-# Memory Use Discipline
-
-- If a memory directory is present and the current task fits any listed applicability, call \`builtin__memory\` with \`action: "read"\` before relying on that memory.
-- Use memory for durable desktop-agent context: user preferences, recurring workflows, files/projects the user returns to, document/screenshot/clipboard conventions, application settings, and corrections that should persist across conversations.
-- Use \`builtin__memory\` \`upsert\` only through explicit tool calls when the information is likely to remain useful in future sessions. Do not silently extract memories in the background.
-- Do not store secrets, credentials, one-off transient details, or private content that the user would not expect to become durable memory.
-- Use \`builtin__search_conversation\` when prior conversations may contain relevant context, especially for recurring tasks, remembered decisions, previous files, project history, or multi-session desktop workflows.
 
 # Calculation And Verification Rules
 
@@ -109,3 +104,79 @@ You and the user share the same machine and the same workspace. Your job is not 
 - If something remains incomplete, say exactly what remains incomplete.
 - When reality conflicts with the user’s expectation, report reality faithfully.
 `.trim();
+
+const MEMORY_SYSTEM_PROMPT = [
+    '# Memory Use Discipline',
+    '- If a memory directory is present and the current task fits any listed applicability, call `builtin__memory` with `action: "read"` before relying on that memory.',
+    '- Use memory for durable desktop-agent context: user preferences, recurring workflows, files/projects the user returns to, document/screenshot/clipboard conventions, application settings, and corrections that should persist across conversations.',
+    '- Use `builtin__memory` `upsert` only through explicit tool calls when the information is likely to remain useful in future sessions. Do not silently extract memories in the background.',
+    '- Do not store secrets, credentials, one-off transient details, or private content that the user would not expect to become durable memory.',
+].join('\n');
+
+const SEARCH_CONVERSATION_SYSTEM_PROMPT = [
+    '# Conversation Search Discipline',
+    '- Use `builtin__search_conversation` when prior conversations may contain relevant context, especially for recurring tasks, remembered decisions, previous files, project history, or multi-session desktop workflows.',
+].join('\n');
+
+export interface BuiltInPromptToolAvailability {
+    hasMemoryTool: boolean;
+    hasSearchConversationTool: boolean;
+}
+
+export interface BuiltInPromptContext {
+    platform: string[];
+    sessionMemory: string[];
+    availability: BuiltInPromptToolAvailability;
+}
+
+function hasTool(toolDefinitions: AiToolDefinition[] | undefined, toolName: string): boolean {
+    return (toolDefinitions ?? []).some((tool) => tool.name === toolName);
+}
+
+export function resolveBuiltInPromptToolAvailability(
+    toolDefinitions: Pick<AiToolDefinition, 'name'>[] | undefined
+): BuiltInPromptToolAvailability {
+    return {
+        hasMemoryTool: hasTool(
+            toolDefinitions as AiToolDefinition[] | undefined,
+            'builtin__memory'
+        ),
+        hasSearchConversationTool: hasTool(
+            toolDefinitions as AiToolDefinition[] | undefined,
+            'builtin__search_conversation'
+        ),
+    };
+}
+
+export function buildTouchAiBuiltinSystemPrompt(
+    availability: BuiltInPromptToolAvailability = {
+        hasMemoryTool: false,
+        hasSearchConversationTool: false,
+    }
+): string {
+    const sections = [TOUCHAI_BUILTIN_SYSTEM_PROMPT_BASE];
+
+    if (availability.hasMemoryTool) {
+        sections.push(MEMORY_SYSTEM_PROMPT);
+    }
+
+    if (availability.hasSearchConversationTool) {
+        sections.push(SEARCH_CONVERSATION_SYSTEM_PROMPT);
+    }
+
+    return sections.join('\n\n').trim();
+}
+
+export async function buildBuiltInPromptContext(
+    toolDefinitions: Pick<AiToolDefinition, 'name'>[] | undefined
+): Promise<BuiltInPromptContext> {
+    const availability = resolveBuiltInPromptToolAvailability(toolDefinitions);
+
+    return {
+        availability,
+        platform: [buildTouchAiBuiltinSystemPrompt(availability)],
+        sessionMemory: availability.hasMemoryTool ? await buildMemoryDirectoryPrompt() : [],
+    };
+}
+
+export const TOUCHAI_BUILTIN_SYSTEM_PROMPT = buildTouchAiBuiltinSystemPrompt();

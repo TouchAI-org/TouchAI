@@ -7,7 +7,7 @@
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import {
         createMemoryItem,
-        disableMemoryItem,
+        deleteMemoryItem,
         findMemoryDirectoryItems,
         readMemoryItemsByIds,
         updateMemoryItem,
@@ -57,6 +57,7 @@
     const editorState = ref<MemoryEditorState | null>(null);
     const lastHydratedSignature = ref('');
     let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+    let persistPromise: Promise<void> | null = null;
 
     const sortedDirectoryItems = computed(() =>
         [...directoryItems.value].sort(
@@ -139,6 +140,19 @@
         autosaveTimer = null;
     }
 
+    function hasPendingCompleteAutosave(state = editorState.value): boolean {
+        if (!state) {
+            return false;
+        }
+
+        const trimmedState = trimEditorState(state);
+        if (!isCompleteEditorState(trimmedState)) {
+            return false;
+        }
+
+        return serializeEditorState(trimmedState) !== lastHydratedSignature.value;
+    }
+
     function hydrateEditor(
         mode: 'draft' | 'persisted',
         memory: MemoryEditorState,
@@ -146,7 +160,7 @@
     ) {
         const nextState = cloneEditorState(memory);
         editorMode.value = mode;
-        selectedPersistedId.value = mode === 'persisted' ? persistedId ?? null : null;
+        selectedPersistedId.value = mode === 'persisted' ? (persistedId ?? null) : null;
         editorState.value = nextState;
         lastHydratedSignature.value = serializeEditorState(nextState);
         clearAutosaveTimer();
@@ -180,11 +194,7 @@
         );
     }
 
-    function updateDirectoryItemEnabled(
-        memoryId: number,
-        enabled: number,
-        updatedAt?: string
-    ) {
+    function updateDirectoryItemEnabled(memoryId: number, enabled: number, updatedAt?: string) {
         directoryItems.value = directoryItems.value.map((item) =>
             item.id === memoryId
                 ? {
@@ -194,6 +204,10 @@
                   }
                 : item
         );
+    }
+
+    function removeDirectoryItem(memoryId: number) {
+        directoryItems.value = directoryItems.value.filter((item) => item.id !== memoryId);
     }
 
     async function loadPersistedMemory(id: number) {
@@ -254,8 +268,27 @@
         }
     }
 
-    function openDraftEditor() {
+    async function flushPendingAutosave(): Promise<boolean> {
+        if (!hasPendingCompleteAutosave()) {
+            clearAutosaveTimer();
+            return true;
+        }
+
+        await persistEditorState();
+
+        if (hasPendingCompleteAutosave()) {
+            await persistEditorState();
+        }
+
+        return !hasPendingCompleteAutosave();
+    }
+
+    async function openDraftEditor() {
         if (editorMode.value === 'draft' && editorState.value) {
+            return;
+        }
+
+        if (!(await flushPendingAutosave())) {
             return;
         }
 
@@ -271,6 +304,10 @@
     }
 
     async function handleSelectMemory(id: number) {
+        if (!(await flushPendingAutosave())) {
+            return;
+        }
+
         if (editorMode.value === 'draft') {
             resetEditor();
         }
@@ -288,6 +325,12 @@
     async function persistEditorState() {
         clearAutosaveTimer();
 
+        if (persistPromise) {
+            queuedAutosave.value = true;
+            await persistPromise;
+            return;
+        }
+
         const currentState = editorState.value;
         if (!currentState) {
             return;
@@ -303,52 +346,61 @@
             return;
         }
 
-        if (saving.value) {
-            queuedAutosave.value = true;
-            return;
-        }
+        const currentMode = editorMode.value;
+        const currentPersistedId = selectedPersistedId.value;
 
-        saving.value = true;
+        persistPromise = (async () => {
+            saving.value = true;
 
-        try {
-            if (editorMode.value === 'draft') {
-                const created = await createMemoryItem({
-                    ...trimmedState,
-                    enabled: 1,
-                });
-                upsertDirectoryItem(created);
-                hydrateEditor('persisted', created, created.id);
-                return;
-            }
+            try {
+                if (currentMode === 'draft') {
+                    const created = await createMemoryItem({
+                        ...trimmedState,
+                        enabled: 1,
+                    });
+                    upsertDirectoryItem(created);
+                    hydrateEditor('persisted', created, created.id);
+                    return;
+                }
 
-            if (editorMode.value !== 'persisted' || !selectedPersistedId.value) {
-                return;
-            }
+                if (currentMode !== 'persisted' || !currentPersistedId) {
+                    return;
+                }
 
-            const updated = await updateMemoryItem(selectedPersistedId.value, trimmedState);
-            if (!updated) {
-                return;
-            }
+                const updated = await updateMemoryItem(currentPersistedId, trimmedState);
+                if (!updated) {
+                    return;
+                }
 
-            upsertDirectoryItem(updated);
-            hydrateEditor('persisted', updated, updated.id);
-        } catch (error) {
-            console.error('[SettingsMemorySection] Failed to persist memory:', error);
-            alertMessage.value?.error(
-                editorMode.value === 'draft'
-                    ? t('settings.memory.createFailed')
-                    : t('settings.memory.saveFailed'),
-                6000
-            );
-        } finally {
-            saving.value = false;
+                upsertDirectoryItem(updated);
+                hydrateEditor('persisted', updated, updated.id);
+            } catch (error) {
+                console.error('[SettingsMemorySection] Failed to persist memory:', error);
+                alertMessage.value?.error(
+                    currentMode === 'draft'
+                        ? t('settings.memory.createFailed')
+                        : t('settings.memory.saveFailed'),
+                    6000
+                );
+            } finally {
+                saving.value = false;
 
-            if (queuedAutosave.value) {
-                queuedAutosave.value = false;
-                if (editorState.value && editorSignature.value !== lastHydratedSignature.value) {
-                    scheduleAutosave();
+                if (queuedAutosave.value) {
+                    queuedAutosave.value = false;
+                    if (
+                        editorState.value &&
+                        editorSignature.value !== lastHydratedSignature.value
+                    ) {
+                        scheduleAutosave();
+                    }
                 }
             }
+        })();
+
+        try {
+            await persistPromise;
+        } finally {
+            persistPromise = null;
         }
     }
 
@@ -358,14 +410,26 @@
         }
 
         deletingIds.value.add(id);
-        clearAutosaveTimer();
+        const shouldResetSelectedEditor = selectedPersistedId.value === id;
+        const remainingItems = sortedDirectoryItems.value.filter((item) => item.id !== id);
 
         try {
-            const disabled = await disableMemoryItem(id);
-            if (disabled) {
-                upsertDirectoryItem(disabled);
+            const deleted = await deleteMemoryItem(id);
+            if (!deleted) {
+                throw new Error(`Memory ${id} not found.`);
+            }
+
+            removeDirectoryItem(id);
+
+            if (!shouldResetSelectedEditor) {
+                return;
+            }
+
+            const nextSelectedId = remainingItems[0]?.id;
+            if (nextSelectedId) {
+                await loadPersistedMemory(nextSelectedId);
             } else {
-                updateDirectoryItemEnabled(id, 0);
+                resetEditor();
             }
         } catch (error) {
             console.error('[SettingsMemorySection] Failed to delete memory:', error);
@@ -412,6 +476,11 @@
     });
 
     onBeforeUnmount(() => {
+        if (hasPendingCompleteAutosave()) {
+            void flushPendingAutosave();
+            return;
+        }
+
         clearAutosaveTimer();
     });
 </script>
@@ -518,7 +587,9 @@
                                 :class="[
                                     'relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors',
                                     item.enabled ? 'bg-primary-700' : 'bg-neutral-200',
-                                    togglingIds.has(item.id) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                                    togglingIds.has(item.id)
+                                        ? 'cursor-not-allowed opacity-50'
+                                        : 'cursor-pointer',
                                 ]"
                                 :title="t('settings.memory.toggleTitle')"
                                 @click.stop="handleToggleEnabled(item.id, !item.enabled)"
