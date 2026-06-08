@@ -44,9 +44,7 @@
             "assetProtocol": {
                 "enable": true,
                 "scope": {
-                    "allow": [
-                        "**/*"
-                    ],
+                    "allow": ["**/*"],
                     "requireLiteralLeadingDot": false
                 }
             }
@@ -56,9 +54,7 @@
     "plugins": {
         "deep-link": {
             "desktop": {
-                "schemes": [
-                    "touchai"
-                ]
+                "schemes": ["touchai"]
             }
         }
     },
