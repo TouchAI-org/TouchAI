@@ -221,7 +221,7 @@ export interface QuickSearchResult {
 }
 
 export interface BrowserStartRequest {
-    browserId?: string | null;
+    headless?: boolean | null;
     startupUrl?: string | null;
     browserExecutablePath?: string | null;
     browserDataPath?: string | null;
@@ -231,6 +231,12 @@ export interface BrowserStartRequest {
     fingerprintUserAgent?: string | null;
     fingerprintWindowSize?: string | null;
     fingerprintStealthScript?: boolean | null;
+}
+
+export interface BrowserInstalledBrowser {
+    id: string;
+    name: string;
+    path: string;
 }
 
 export interface BrowserExistingSession {

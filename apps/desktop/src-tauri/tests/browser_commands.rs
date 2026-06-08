@@ -120,6 +120,51 @@ fn managed_start_request_accepts_trusted_browser_executable_path_field() {
 }
 
 #[test]
+fn installed_browser_descriptor_serializes_executable_path() {
+    let descriptor = touchai_lib::testing::BrowserDescriptorForTests {
+        id: "chrome".to_string(),
+        name: "Google Chrome".to_string(),
+        path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".into(),
+    };
+
+    let value = serde_json::to_value(descriptor).expect("serialized descriptor");
+
+    assert_eq!(value["id"], json!("chrome"));
+    assert_eq!(value["name"], json!("Google Chrome"));
+    assert_eq!(
+        value["path"],
+        json!("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
+    );
+}
+
+#[test]
+fn managed_start_request_rejects_legacy_browser_id_field() {
+    let error =
+        serde_json::from_value::<touchai_lib::testing::BrowserStartRequestForTests>(json!({
+            "browserId": "chrome",
+            "startupUrl": "about:blank"
+        }))
+        .expect_err("browserId should no longer be accepted by the native browser runtime");
+
+    assert!(
+        error.to_string().contains("unknown field `browserId`"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn managed_start_request_accepts_headless_field() {
+    let request =
+        serde_json::from_value::<touchai_lib::testing::BrowserStartRequestForTests>(json!({
+            "headless": true,
+            "startupUrl": "about:blank"
+        }))
+        .expect("headless field should be accepted");
+
+    assert_eq!(request.headless, Some(true));
+}
+
+#[test]
 fn managed_start_request_accepts_trusted_browser_data_path_field() {
     let request =
         serde_json::from_value::<touchai_lib::testing::BrowserStartRequestForTests>(json!({
@@ -653,15 +698,15 @@ fn browser_start_failure_sets_error_status() {
         "browser_start",
         json!({
             "request": {
-                "browserId": "missing-browser"
+                "browserExecutablePath": "Z:\\missing\\chrome.exe"
             }
         }),
     );
 
     assert!(
-        error.as_str().is_some_and(
-            |message| message.contains("Supported browser 'missing-browser' was not found")
-        ),
+        error
+            .as_str()
+            .is_some_and(|message| message.contains("Browser executable path is not a file")),
         "unexpected error: {error:?}"
     );
 
@@ -679,7 +724,7 @@ fn browser_stop_resets_runtime_to_idle() {
         "browser_start",
         json!({
             "request": {
-                "browserId": "missing-browser"
+                "browserExecutablePath": "Z:\\missing\\chrome.exe"
             }
         }),
     );

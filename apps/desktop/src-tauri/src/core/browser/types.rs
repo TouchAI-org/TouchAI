@@ -22,7 +22,6 @@ impl Default for BrowserStatusKind {
 pub struct BrowserDescriptor {
     pub id: String,
     pub name: String,
-    #[serde(skip_serializing)]
     pub path: PathBuf,
 }
 
@@ -76,7 +75,7 @@ pub struct BrowserConnectExistingResult {
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct BrowserStartRequest {
-    pub browser_id: Option<String>,
+    pub headless: Option<bool>,
     pub startup_url: Option<String>,
     pub browser_executable_path: Option<PathBuf>,
     pub browser_data_path: Option<PathBuf>,

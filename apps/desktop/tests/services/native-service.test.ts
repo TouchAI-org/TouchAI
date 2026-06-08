@@ -31,8 +31,8 @@ import { describe, expect, it } from 'vitest';
 
 import { APP_PRODUCT_CONFIG } from '@/config/product';
 
-async function callAndExpectInvoke<T>(
-    call: () => Promise<T>,
+async function callAndExpectInvoke(
+    call: () => Promise<unknown>,
     expectedCmd: string,
     expectedPayload?: Record<string, unknown>
 ) {
@@ -75,16 +75,28 @@ describe('NativeService browser boundary', () => {
             name: 'starts a managed browser',
             call: () =>
                 browser.start({
-                    browserId: 'chrome',
+                    headless: true,
                     startupUrl: 'https://example.test/start',
                 }),
             cmd: 'browser_start',
             payload: {
                 request: {
-                    browserId: 'chrome',
+                    headless: true,
                     startupUrl: 'https://example.test/start',
                 },
             },
+        },
+        {
+            name: 'discovers installed browsers',
+            call: () => browser.discoverInstalled(),
+            cmd: 'browser_discover_installed',
+            payload: undefined,
+        },
+        {
+            name: 'reads the default managed browser data path',
+            call: () => browser.defaultDataPath(),
+            cmd: 'browser_default_data_path',
+            payload: undefined,
         },
         {
             name: 'stops a managed browser session',

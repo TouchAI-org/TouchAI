@@ -282,5 +282,11 @@ describe('Search settings section', () => {
         expect((wrapper.get('[data-testid="search-searxng-api-key-input"]').element as HTMLInputElement).disabled).toBe(
             true
         );
+        expect(wrapper.get('[data-testid="search-searxng-api-key-input"]').classes()).toContain(
+            'font-serif'
+        );
+        expect(wrapper.get('[data-testid="search-searxng-api-key-input"]').classes()).toContain(
+            'bg-[#f0f0ef]'
+        );
     });
 });

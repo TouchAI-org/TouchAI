@@ -1,9 +1,14 @@
 use std::{
-    env, fs,
+    collections::HashSet,
+    env,
+    fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
+
+#[cfg(target_os = "linux")]
+use std::ffi::OsString;
 
 use super::{
     endpoint::BrowserEndpoint,
@@ -67,6 +72,10 @@ pub fn discover_installed_browsers() -> Vec<BrowserDescriptor> {
     browsers
 }
 
+pub fn default_managed_browser_data_path() -> Result<PathBuf, String> {
+    Ok(app_directory_path(AppDirectory::Data)?.join(DEFAULT_BROWSER_DATA_DIR_NAME))
+}
+
 pub fn launch_managed_browser(
     request: BrowserStartRequest,
 ) -> Result<(BrowserEndpoint, ManagedBrowserProcess), String> {
@@ -77,11 +86,7 @@ pub fn launch_managed_browser(
         .transpose()?
         .unwrap_or_else(|| "about:blank".to_string());
     let browsers = discover_installed_browsers();
-    let browser_path = select_browser_path(
-        &browsers,
-        request.browser_id.as_deref(),
-        request.browser_executable_path.as_deref(),
-    )?;
+    let browser_path = select_browser_path(&browsers, request.browser_executable_path.as_deref())?;
 
     let user_data_dir = create_managed_profile_dir(request.browser_data_path.as_deref())?;
 
@@ -100,6 +105,7 @@ pub fn launch_managed_browser(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    append_headless_args(&mut command, &request);
     append_fingerprint_args(&mut command, &request);
     command.arg(startup_url);
     configure_child_group(&mut command);
@@ -120,6 +126,12 @@ pub fn launch_managed_browser(
     };
 
     Ok((endpoint, process))
+}
+
+fn append_headless_args(command: &mut Command, request: &BrowserStartRequest) {
+    if request.headless == Some(true) {
+        command.arg("--headless=new");
+    }
 }
 
 fn append_fingerprint_args(command: &mut Command, request: &BrowserStartRequest) {
@@ -171,13 +183,13 @@ fn normalized_window_size(value: Option<&str>) -> Option<String> {
 fn create_managed_profile_dir(
     browser_data_path: Option<&Path>,
 ) -> Result<ManagedProfileDir, String> {
-    let app_data_dir = app_directory_path(AppDirectory::Data)?;
-    create_managed_profile_dir_with_app_data_root(browser_data_path, &app_data_dir)
+    let default_path = default_managed_browser_data_path()?;
+    create_managed_profile_dir_with_default_path(browser_data_path, &default_path)
 }
 
-fn create_managed_profile_dir_with_app_data_root(
+fn create_managed_profile_dir_with_default_path(
     browser_data_path: Option<&Path>,
-    app_data_dir: &Path,
+    default_path: &Path,
 ) -> Result<ManagedProfileDir, String> {
     let path = match browser_data_path {
         Some(path) => {
@@ -186,7 +198,7 @@ fn create_managed_profile_dir_with_app_data_root(
             }
             path.to_path_buf()
         }
-        None => app_data_dir.join(DEFAULT_BROWSER_DATA_DIR_NAME),
+        None => default_path.to_path_buf(),
     };
 
     fs::create_dir_all(&path).map_err(|error| {
@@ -213,7 +225,6 @@ fn remove_stale_devtools_active_port(profile_dir: &Path) -> Result<(), String> {
 
 fn select_browser_path(
     browsers: &[BrowserDescriptor],
-    browser_id: Option<&str>,
     browser_executable_path: Option<&Path>,
 ) -> Result<PathBuf, String> {
     if let Some(path) = browser_executable_path {
@@ -229,17 +240,10 @@ fn select_browser_path(
         return Ok(path.to_path_buf());
     }
 
-    match browser_id {
-        Some(id) => browsers
-            .iter()
-            .find(|browser| browser.id == id)
-            .map(|browser| browser.path.clone())
-            .ok_or_else(|| format!("Supported browser '{id}' was not found")),
-        None => browsers
-            .first()
-            .map(|browser| browser.path.clone())
-            .ok_or_else(|| "No installed Chrome or Edge browser was found".to_string()),
-    }
+    browsers
+        .first()
+        .map(|browser| browser.path.clone())
+        .ok_or_else(|| "No installed Chrome, Edge, or Chromium browser was found".to_string())
 }
 
 fn wait_for_devtools_active_port(profile_dir: &Path) -> Result<BrowserEndpoint, String> {
@@ -294,20 +298,12 @@ fn candidate_browser_paths() -> Vec<(&'static str, &'static str, PathBuf)> {
                 ));
             }
         }
+        paths.extend(windows_registry_browser_paths());
     }
 
     #[cfg(target_os = "macos")]
     {
-        paths.push((
-            "chrome",
-            "Google Chrome",
-            PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-        ));
-        paths.push((
-            "edge",
-            "Microsoft Edge",
-            PathBuf::from("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-        ));
+        paths.extend(macos_application_browser_paths(None));
     }
 
     #[cfg(target_os = "linux")]
@@ -325,8 +321,133 @@ fn candidate_browser_paths() -> Vec<(&'static str, &'static str, PathBuf)> {
             "Microsoft Edge",
             PathBuf::from("/usr/bin/microsoft-edge"),
         ));
+        paths.push((
+            "edge",
+            "Microsoft Edge",
+            PathBuf::from("/usr/bin/microsoft-edge-stable"),
+        ));
+        paths.extend(linux_path_browser_paths(env::var_os("PATH")));
     }
 
+    dedupe_browser_candidates(paths)
+}
+
+fn dedupe_browser_candidates(
+    candidates: Vec<(&'static str, &'static str, PathBuf)>,
+) -> Vec<(&'static str, &'static str, PathBuf)> {
+    let mut seen = HashSet::new();
+    let mut deduped = Vec::new();
+    for (id, name, path) in candidates {
+        let key = path.to_string_lossy().to_lowercase();
+        if seen.insert(key) {
+            deduped.push((id, name, path));
+        }
+    }
+    deduped
+}
+
+#[cfg(target_os = "macos")]
+fn macos_application_browser_paths(
+    home_dir: Option<PathBuf>,
+) -> Vec<(&'static str, &'static str, PathBuf)> {
+    let mut roots = vec![PathBuf::from("/Applications")];
+    if let Some(home) = home_dir.or_else(home_dir_from_env) {
+        roots.push(home.join("Applications"));
+    }
+
+    let mut paths = Vec::new();
+    for root in roots {
+        paths.push((
+            "chrome",
+            "Google Chrome",
+            root.join("Google Chrome.app/Contents/MacOS/Google Chrome"),
+        ));
+        paths.push((
+            "edge",
+            "Microsoft Edge",
+            root.join("Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+        ));
+    }
+    paths
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn home_dir_from_env() -> Option<PathBuf> {
+    env::var_os("HOME").map(PathBuf::from)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_path_browser_paths(
+    path_env: Option<OsString>,
+) -> Vec<(&'static str, &'static str, PathBuf)> {
+    let Some(path_env) = path_env else {
+        return Vec::new();
+    };
+
+    let commands = [
+        ("chrome", "Google Chrome", "google-chrome"),
+        ("chrome", "Google Chrome", "google-chrome-stable"),
+        ("chrome", "Chromium", "chromium"),
+        ("chrome", "Chromium", "chromium-browser"),
+        ("edge", "Microsoft Edge", "microsoft-edge"),
+        ("edge", "Microsoft Edge", "microsoft-edge-stable"),
+    ];
+
+    let mut paths = Vec::new();
+    for dir in env::split_paths(&path_env) {
+        for (id, name, executable) in commands {
+            paths.push((id, name, dir.join(executable)));
+        }
+    }
+    paths
+}
+
+#[cfg(windows)]
+fn windows_registry_browser_paths() -> Vec<(&'static str, &'static str, PathBuf)> {
+    const APP_PATHS: [(&str, &'static str, &'static str); 2] = [
+        ("chrome.exe", "chrome", "Google Chrome"),
+        ("msedge.exe", "edge", "Microsoft Edge"),
+    ];
+
+    fn query_default_string(key: &str) -> Option<PathBuf> {
+        let output = Command::new("reg")
+            .args(["query", key, "/ve"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Some((_, value)) = line.split_once("REG_SZ") {
+                let path = value.trim();
+                if !path.is_empty() {
+                    return Some(PathBuf::from(path));
+                }
+            }
+        }
+        None
+    }
+
+    let mut paths = Vec::new();
+    for root in ["HKCU", "HKLM"] {
+        for (exe, id, name) in APP_PATHS {
+            let subkeys = [
+                format!("{root}\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{exe}"),
+                format!(
+                    "{root}\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{exe}"
+                ),
+            ];
+            for subkey in subkeys {
+                if let Some(path) = query_default_string(&subkey) {
+                    paths.push((id, name, path));
+                }
+            }
+        }
+    }
     paths
 }
 
@@ -370,11 +491,64 @@ fn configure_child_group(command: &mut Command) {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{ffi::OsStr, fs};
 
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn appends_headless_flag_when_requested() {
+        let mut command = Command::new("browser");
+        append_headless_args(
+            &mut command,
+            &BrowserStartRequest {
+                headless: Some(true),
+                ..Default::default()
+            },
+        );
+
+        assert!(command
+            .get_args()
+            .any(|arg| arg == OsStr::new("--headless=new")));
+    }
+
+    #[test]
+    fn does_not_append_headless_flag_by_default() {
+        let mut command = Command::new("browser");
+        append_headless_args(&mut command, &BrowserStartRequest::default());
+
+        assert!(!command
+            .get_args()
+            .any(|arg| arg == OsStr::new("--headless=new")));
+    }
+
+    #[test]
+    fn explicit_browser_executable_path_wins() {
+        let temp = TempDir::new().expect("temp dir");
+        let executable = temp.path().join("browser.exe");
+        fs::write(&executable, "").expect("browser executable");
+
+        let selected = select_browser_path(&[], Some(executable.as_path())).expect("selected path");
+
+        assert_eq!(selected, executable);
+    }
+
+    #[test]
+    fn auto_selects_first_discovered_browser() {
+        let path = PathBuf::from("/opt/browser/chrome");
+        let selected = select_browser_path(
+            &[BrowserDescriptor {
+                id: "chrome".to_string(),
+                name: "Google Chrome".to_string(),
+                path: path.clone(),
+            }],
+            None,
+        )
+        .expect("selected path");
+
+        assert_eq!(selected, path);
+    }
 
     #[test]
     fn reads_devtools_active_port_from_owned_profile() {
@@ -404,9 +578,9 @@ mod tests {
     fn default_managed_profile_dir_uses_browser_data_directory_under_app_data() {
         let app_data_dir = TempDir::new().expect("app data dir");
 
-        let profile = create_managed_profile_dir_with_app_data_root(None, app_data_dir.path())
-            .expect("profile dir");
         let expected = app_data_dir.path().join("browser-data");
+        let profile = create_managed_profile_dir_with_default_path(None, &expected)
+            .expect("profile dir");
 
         assert!(expected.is_dir());
         assert_eq!(profile.path(), expected.as_path());
@@ -423,7 +597,7 @@ mod tests {
         )
         .expect("stale DevToolsActivePort");
 
-        let profile = create_managed_profile_dir_with_app_data_root(None, app_data_dir.path())
+        let profile = create_managed_profile_dir_with_default_path(None, &profile_dir)
             .expect("profile dir");
 
         assert_eq!(profile.path(), profile_dir.as_path());

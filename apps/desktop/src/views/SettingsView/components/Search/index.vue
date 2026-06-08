@@ -570,7 +570,7 @@
                                         v-if="providerRequiresEndpoint(provider.id)"
                                         :value="providerCredentialValue(provider.id)"
                                         :data-testid="`search-${provider.id}-api-key-input`"
-                                        class="settings-input min-w-0 flex-1 disabled:bg-neutral-50"
+                                        class="min-w-0 flex-1 rounded-[10px] border border-transparent bg-[#f0f0ef] px-3 py-2 font-serif text-[13px] text-neutral-900 shadow-none transition-colors placeholder:text-neutral-400 hover:bg-[#ececea] focus:border-primary-300 focus:bg-white disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-gray-400"
                                         :class="
                                             shouldHighlightProviderApiKey(provider.id)
                                                 ? 'border-red-300 bg-red-50 text-red-600'

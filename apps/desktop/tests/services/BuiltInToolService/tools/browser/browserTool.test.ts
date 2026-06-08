@@ -51,7 +51,7 @@ function fakeContext(): BaseBuiltInToolExecutionContext {
     };
 }
 
-const defaultBrowserConfig = { mode: 'default' as const, browserId: '', startupUrl: '' };
+const defaultBrowserConfig = { mode: 'default' as const, startupUrl: '' };
 
 beforeEach(() => {
     browserSettingsValues.clear();
@@ -339,7 +339,7 @@ describe('browser tool config', () => {
         );
     });
 
-    it('parses only safe browser config fields and ignores legacy arbitrary paths', () => {
+    it('parses only startup URL config and ignores legacy browser selection fields', () => {
         expect(
             parseBrowserAutomationToolConfig(
                 JSON.stringify({
@@ -352,7 +352,6 @@ describe('browser tool config', () => {
             )
         ).toEqual({
             mode: 'custom',
-            browserId: ' edge ',
             startupUrl: ' https://example.test/start ',
         });
     });
@@ -361,13 +360,11 @@ describe('browser tool config', () => {
         expect(
             serializeBrowserAutomationToolConfig({
                 mode: 'custom',
-                browserId: ' edge ',
                 startupUrl: ' https://example.test/start ',
             })
         ).toBe(
             JSON.stringify({
                 mode: 'custom',
-                browserId: 'edge',
                 startupUrl: 'https://example.test/start',
             })
         );
@@ -573,17 +570,15 @@ describe('browser tool execution formatting', () => {
             {
                 operation: 'start',
                 description: '打开指定浏览器',
-                browserId: 'chrome',
                 startupUrl: 'https://example.test/start',
             },
-            { mode: 'default', browserId: '', startupUrl: '' },
+            { mode: 'default', startupUrl: '' },
             fakeContext()
         );
 
         expect(result.isError).toBe(false);
         expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
             request: {
-                browserId: 'chrome',
                 startupUrl: 'https://example.test/start',
                 fingerprintMode: 'off',
                 fingerprintLocale: 'zh-CN',
@@ -601,10 +596,9 @@ describe('browser tool execution formatting', () => {
             {
                 operation: 'start',
                 description: '打开旧版 URL',
-                browserId: '   ',
                 url: 'https://example.test/legacy-url',
             },
-            { mode: 'custom', browserId: '   ', startupUrl: '   ' },
+            { mode: 'custom', startupUrl: '   ' },
             fakeContext()
         );
 
@@ -629,7 +623,6 @@ describe('browser tool execution formatting', () => {
             browserSessionTool.parseConfig(
                 JSON.stringify({
                     mode: 'custom',
-                    browserId: 'edge',
                     startupUrl: 'https://example.test/configured',
                     browserPath: 'C:/ignored.exe',
                     userDataDir: 'G:/ignored-profile',
@@ -641,8 +634,7 @@ describe('browser tool execution formatting', () => {
         expect(result.isError).toBe(false);
         expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
             request: {
-                browserId: 'edge',
-                startupUrl: 'https://example.test/configured',
+                startupUrl: 'https://touch-ai.org',
                 fingerprintMode: 'off',
                 fingerprintLocale: 'zh-CN',
                 fingerprintTimezone: 'Asia/Shanghai',
@@ -659,21 +651,22 @@ describe('browser tool execution formatting', () => {
             JSON.stringify({
                 defaultHomepage: 'https://example.test/browser-settings-home',
                 browserExecutablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+                headless: true,
             })
         );
 
         const result = await executeBrowserSessionTool(
             { operation: 'start', description: '打开默认主页' },
-            { mode: 'custom', browserId: 'edge', startupUrl: 'https://legacy.example.test' },
+            { mode: 'custom', startupUrl: 'https://legacy.example.test' },
             fakeContext()
         );
 
         expect(result.isError).toBe(false);
         expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
             request: {
-                browserId: 'edge',
                 startupUrl: 'https://example.test/browser-settings-home',
                 browserExecutablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+                headless: true,
                 fingerprintMode: 'off',
                 fingerprintLocale: 'zh-CN',
                 fingerprintTimezone: 'Asia/Shanghai',
@@ -706,6 +699,7 @@ describe('browser tool execution formatting', () => {
         expect(result.isError).toBe(false);
         expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
             request: {
+                startupUrl: 'https://touch-ai.org',
                 fingerprintMode: 'balanced',
                 fingerprintLocale: 'en-US',
                 fingerprintTimezone: 'America/Los_Angeles',
@@ -736,6 +730,7 @@ describe('browser tool execution formatting', () => {
         expect(result.isError).toBe(false);
         expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
             request: {
+                startupUrl: 'https://touch-ai.org',
                 fingerprintMode: 'balanced',
                 fingerprintLocale: 'en-US',
                 fingerprintTimezone: 'America/New_York',
@@ -815,22 +810,22 @@ describe('browser tool execution formatting', () => {
     it('rejects hidden session operation aliases and raw attach/list operations', async () => {
         const listAlias = await executeBrowserSessionTool(
             { operation: 'list_browsers' },
-            { mode: 'default', browserId: '', startupUrl: '' },
+            { mode: 'default', startupUrl: '' },
             fakeContext()
         );
         const connectAlias = await executeBrowserSessionTool(
             { operation: 'connect', endpoint: 'http://127.0.0.1:9222' },
-            { mode: 'default', browserId: '', startupUrl: '' },
+            { mode: 'default', startupUrl: '' },
             fakeContext()
         );
         const list = await executeBrowserSessionTool(
             { operation: 'list' },
-            { mode: 'default', browserId: '', startupUrl: '' },
+            { mode: 'default', startupUrl: '' },
             fakeContext()
         );
         const attach = await executeBrowserSessionTool(
             { operation: 'attach', endpoint: 'http://127.0.0.1:9222' },
-            { mode: 'default', browserId: '', startupUrl: '' },
+            { mode: 'default', startupUrl: '' },
             fakeContext()
         );
 

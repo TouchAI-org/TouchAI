@@ -3,10 +3,11 @@ use tauri::State;
 use crate::core::browser::{
     types::{
         BrowserActRequest, BrowserActResult, BrowserConnectExistingRequest,
-        BrowserConnectExistingResult, BrowserExistingSession, BrowserNavigateRequest,
+        BrowserConnectExistingResult, BrowserDescriptor, BrowserExistingSession, BrowserNavigateRequest,
         BrowserObservation, BrowserObserveRequest, BrowserStartRequest, BrowserStatus,
         BrowserTabRequest,
     },
+    process::{default_managed_browser_data_path, discover_installed_browsers},
     BrowserRuntime,
 };
 
@@ -21,6 +22,16 @@ pub async fn browser_start(
     request: BrowserStartRequest,
 ) -> Result<BrowserStatus, String> {
     runtime.start(request).await
+}
+
+#[tauri::command]
+pub fn browser_discover_installed() -> Vec<BrowserDescriptor> {
+    discover_installed_browsers()
+}
+
+#[tauri::command]
+pub fn browser_default_data_path() -> Result<String, String> {
+    default_managed_browser_data_path().map(|path| path.to_string_lossy().to_string())
 }
 
 #[tauri::command]

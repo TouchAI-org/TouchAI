@@ -41,7 +41,8 @@ describe('browser settings config', () => {
             serializeBrowserSettingsConfig,
         } = await import('@/config/browserSettings');
 
-        expect(DEFAULT_BROWSER_SETTINGS.defaultHomepage).toBe('');
+        expect(DEFAULT_BROWSER_SETTINGS.defaultHomepage).toBe('https://touch-ai.org');
+        expect(DEFAULT_BROWSER_SETTINGS.headless).toBe(false);
         expect(DEFAULT_BROWSER_SETTINGS.existingSessionPolicy).toBe('ask');
         expect(DEFAULT_BROWSER_SETTINGS.permissionMode).toBe('auto');
         expect(DEFAULT_BROWSER_SETTINGS.fingerprintProfile).toBe('off');
@@ -56,6 +57,10 @@ describe('browser settings config', () => {
         expect(serializeBrowserSettingsConfig(parseBrowserSettingsConfig(null))).toBe(
             serializeBrowserSettingsConfig(DEFAULT_BROWSER_SETTINGS)
         );
+        expect(parseBrowserSettingsConfig('{}').defaultHomepage).toBe('https://touch-ai.org');
+        expect(parseBrowserSettingsConfig(JSON.stringify({ defaultHomepage: '' })).defaultHomepage).toBe(
+            ''
+        );
     });
 
     it('trims string fields and preserves configured permissions', async () => {
@@ -67,6 +72,7 @@ describe('browser settings config', () => {
                     browserExecutablePath: '  C:/Program Files/Browser/browser.exe  ',
                     browserDataPath: '  D:/TouchAI/BrowserData  ',
                     defaultHomepage: '  https://example.test/start  ',
+                    headless: true,
                     existingSessionPolicy: 'auto',
                     permissionMode: 'allow',
                     screenshotAttachmentMode: 'always',
@@ -89,6 +95,7 @@ describe('browser settings config', () => {
             browserExecutablePath: 'C:/Program Files/Browser/browser.exe',
             browserDataPath: 'D:/TouchAI/BrowserData',
             defaultHomepage: 'https://example.test/start',
+            headless: true,
             existingSessionPolicy: 'auto',
             permissionMode: 'allow',
             screenshotAttachmentMode: 'always',
@@ -162,11 +169,16 @@ describe('browser settings config', () => {
         await store.updateBrowserSettings({
             ...store.settings.browserSettings,
             defaultHomepage: 'https://example.test/next',
+            headless: true,
         });
 
         expect(setSettingMock).toHaveBeenLastCalledWith({
             key: 'browser_settings',
             value: expect.stringContaining('https://example.test/next'),
+        });
+        expect(setSettingMock).toHaveBeenLastCalledWith({
+            key: 'browser_settings',
+            value: expect.stringContaining('"headless":true'),
         });
     });
 });

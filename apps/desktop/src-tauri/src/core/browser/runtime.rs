@@ -927,8 +927,7 @@ mod tests {
             ..Default::default()
         };
 
-        let fingerprint =
-            fingerprint_config_from_request(&request).expect("stealth script config");
+        let fingerprint = fingerprint_config_from_request(&request).expect("stealth script config");
 
         assert_eq!(fingerprint.locale, None);
         assert_eq!(fingerprint.timezone, None);

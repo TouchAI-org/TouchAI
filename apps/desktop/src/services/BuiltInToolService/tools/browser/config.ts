@@ -4,13 +4,11 @@ export type BrowserAutomationMode = 'default' | 'custom';
 
 export interface BrowserAutomationToolConfig {
     mode: BrowserAutomationMode;
-    browserId: string;
     startupUrl: string;
 }
 
 export const DEFAULT_BROWSER_AUTOMATION_TOOL_CONFIG: BrowserAutomationToolConfig = {
     mode: 'default',
-    browserId: '',
     startupUrl: '',
 };
 
@@ -26,10 +24,6 @@ export function parseBrowserAutomationToolConfig(
         return {
             ...DEFAULT_BROWSER_AUTOMATION_TOOL_CONFIG,
             mode: parsed.mode === 'custom' ? 'custom' : 'default',
-            browserId:
-                typeof parsed.browserId === 'string'
-                    ? parsed.browserId
-                    : DEFAULT_BROWSER_AUTOMATION_TOOL_CONFIG.browserId,
             startupUrl:
                 typeof parsed.startupUrl === 'string'
                     ? parsed.startupUrl
@@ -43,7 +37,6 @@ export function parseBrowserAutomationToolConfig(
 export function serializeBrowserAutomationToolConfig(config: BrowserAutomationToolConfig): string {
     return JSON.stringify({
         mode: config.mode,
-        browserId: config.browserId.trim(),
         startupUrl: config.startupUrl.trim(),
     });
 }

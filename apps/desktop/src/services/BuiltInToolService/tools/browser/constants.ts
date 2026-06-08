@@ -81,11 +81,6 @@ export const BROWSER_SESSION_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema']
             enum: [...BROWSER_SESSION_OPERATIONS],
             description: 'Browser session operation to perform.',
         },
-        browserId: {
-            type: 'string',
-            description:
-                'Optional safe browser id such as chrome or edge for managed browser start.',
-        },
         startupUrl: {
             type: 'string',
             description: 'Optional startup URL for the managed browser start operation.',
@@ -192,11 +187,6 @@ export const BROWSER_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
             type: 'string',
             enum: [...BROWSER_OPERATIONS],
             description: 'Browser operation to perform.',
-        },
-        browserId: {
-            type: 'string',
-            description:
-                'Optional safe browser id such as chrome or edge for managed browser start.',
         },
         startupUrl: {
             type: 'string',

@@ -9,9 +9,11 @@
         SelectValue,
     } from '@components/ui/select';
     import type { AcceptableValue } from 'reka-ui';
-    import { computed, ref } from 'vue';
+    import { computed, ref, useAttrs } from 'vue';
 
     import { type MessageKey, t, tt } from '@/i18n';
+
+    defineOptions({ inheritAttrs: false });
 
     interface Option {
         label: string;
@@ -40,6 +42,7 @@
     });
 
     const emit = defineEmits<Emits>();
+    const attrs = useAttrs();
 
     const isOpen = ref(false);
 
@@ -74,6 +77,7 @@
         @update:open="isOpen = $event"
     >
         <SelectTrigger
+            v-bind="attrs"
             class="w-full rounded-[10px] border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors"
             :class="{
                 'border-transparent bg-[#f0f0ef] text-gray-900 hover:bg-[#ececea]': !disabled,

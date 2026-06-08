@@ -6,6 +6,7 @@ import type {
     BrowserConnectExistingRequest,
     BrowserConnectExistingResponse,
     BrowserExistingSession,
+    BrowserInstalledBrowser,
     BrowserNavigationRequest,
     BrowserObserveRequest,
     BrowserObserveResponse,
@@ -24,6 +25,12 @@ export const browser = {
     },
     start(request: BrowserStartRequest): Promise<BrowserSessionResponse> {
         return invoke('browser_start', { request });
+    },
+    discoverInstalled(): Promise<BrowserInstalledBrowser[]> {
+        return invoke('browser_discover_installed');
+    },
+    defaultDataPath(): Promise<string> {
+        return invoke('browser_default_data_path');
     },
     discoverExisting(): Promise<BrowserExistingSession[]> {
         return invoke('browser_discover_existing');

@@ -13,6 +13,7 @@ export interface BrowserDomainRule {
 
 export interface BrowserSettingsConfig {
     enabled: boolean;
+    headless: boolean;
     browserExecutablePath: string;
     browserDataPath: string;
     defaultHomepage: string;
@@ -45,9 +46,10 @@ export const BROWSER_SETTINGS_KEY = 'browser_settings';
 
 export const DEFAULT_BROWSER_SETTINGS: BrowserSettingsConfig = {
     enabled: true,
+    headless: false,
     browserExecutablePath: '',
     browserDataPath: '',
-    defaultHomepage: '',
+    defaultHomepage: 'https://touch-ai.org',
     screenshotAttachmentMode: 'ask',
     permissionMode: 'auto',
     fingerprintProfile: 'off',
@@ -83,6 +85,7 @@ const fingerprintProfileSchema = z.enum(['off', 'basic', 'enhanced']);
 const browserSettingsSchema = z
     .object({
         enabled: z.boolean().optional(),
+        headless: z.boolean().optional(),
         browserExecutablePath: z.string().optional(),
         browserDataPath: z.string().optional(),
         defaultHomepage: z.string().optional(),
@@ -177,9 +180,10 @@ export function parseBrowserSettingsConfig(configJson: string | null): BrowserSe
             fingerprintProfileFromLegacy(data.fingerprintMode, data.fingerprintStealthScript);
         return {
             enabled: data.enabled ?? DEFAULT_BROWSER_SETTINGS.enabled,
+            headless: data.headless ?? DEFAULT_BROWSER_SETTINGS.headless,
             browserExecutablePath: data.browserExecutablePath?.trim() ?? '',
             browserDataPath: data.browserDataPath?.trim() ?? '',
-            defaultHomepage: data.defaultHomepage?.trim() ?? '',
+            defaultHomepage: data.defaultHomepage?.trim() ?? DEFAULT_BROWSER_SETTINGS.defaultHomepage,
             screenshotAttachmentMode:
                 data.screenshotAttachmentMode ?? DEFAULT_BROWSER_SETTINGS.screenshotAttachmentMode,
             permissionMode: data.permissionMode ?? DEFAULT_BROWSER_SETTINGS.permissionMode,
@@ -213,6 +217,7 @@ export function serializeBrowserSettingsConfig(config: BrowserSettingsConfig): s
         fingerprintProfileFromLegacy(config.fingerprintMode, config.fingerprintStealthScript);
     const normalized: BrowserSettingsConfig = {
         enabled: config.enabled,
+        headless: config.headless,
         browserExecutablePath: config.browserExecutablePath.trim(),
         browserDataPath: config.browserDataPath.trim(),
         defaultHomepage: config.defaultHomepage.trim(),

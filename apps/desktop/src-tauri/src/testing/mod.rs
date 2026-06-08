@@ -10,7 +10,7 @@ use crate::{
     core::{
         browser::{
             actions, endpoint,
-            types::{BrowserActRequest, BrowserDomRef},
+            types::{BrowserActRequest, BrowserDescriptor, BrowserDomRef},
             url_policy, BrowserRuntime,
         },
         database::DatabaseRuntime,
@@ -122,3 +122,4 @@ pub fn validate_browser_url_for_tests(raw: &str) -> Result<String, String> {
 }
 
 pub type BrowserStartRequestForTests = crate::core::browser::types::BrowserStartRequest;
+pub type BrowserDescriptorForTests = BrowserDescriptor;

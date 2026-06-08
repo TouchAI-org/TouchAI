@@ -79,6 +79,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         updater::updater_install_update,
         browser::browser_status,
         browser::browser_start,
+        browser::browser_default_data_path,
+        browser::browser_discover_installed,
         browser::browser_discover_existing,
         browser::browser_connect_existing,
         browser::browser_stop,

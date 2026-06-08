@@ -10,12 +10,15 @@
         type BrowserPermissionMode,
         type BrowserPermissionProfile,
         type BrowserSettingsConfig,
+        DEFAULT_BROWSER_SETTINGS,
         getDefaultHomepageError,
         parseBrowserSettingsConfig,
         serializeBrowserSettingsConfig,
         type ScreenshotAttachmentMode,
     } from '@/config/browserSettings';
     import { type MessageKey, t } from '@/i18n';
+    import { native } from '@/services/NativeService';
+    import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
     import { useSettingsStore } from '@/stores/settings';
 
     defineOptions({ name: 'SettingsBrowserSection' });
@@ -30,6 +33,13 @@
     const blockedDomainDraft = ref('');
     const addingAllowedDomain = ref(false);
     const addingBlockedDomain = ref(false);
+    const isEditingCustomBrowserExecutable = ref(false);
+    const installedBrowsers = ref<BrowserInstalledBrowser[]>([]);
+    const browserDiscoveryError = ref<string | null>(null);
+    const defaultBrowserDataPath = ref('');
+
+    const DEFAULT_BROWSER_VALUE = 'default';
+    const CUSTOM_BROWSER_VALUE = 'custom';
 
     const permissionOptions = computed<Array<{ value: BrowserPermissionMode; label: string }>>(
         () => [
@@ -58,6 +68,12 @@
             { value: 'off', label: t('settings.browser.fingerprint.off') },
             { value: 'basic', label: t('settings.browser.fingerprint.basic') },
             { value: 'enhanced', label: t('settings.browser.fingerprint.enhanced') },
+        ]
+    );
+    const defaultModeOptions = computed<Array<{ value: 'visible' | 'headless'; label: string }>>(
+        () => [
+            { value: 'visible', label: t('settings.browser.defaultMode.visible') },
+            { value: 'headless', label: t('settings.browser.defaultMode.headless') },
         ]
     );
 
@@ -123,12 +139,115 @@
 
     const homepageError = computed(() => getDefaultHomepageError(draft.value));
     const canSave = computed(() => !homepageError.value && saveState.value !== 'saving');
+    const defaultHomepageValue = computed({
+        get() {
+            return draft.value.defaultHomepage.trim() || DEFAULT_BROWSER_SETTINGS.defaultHomepage;
+        },
+        set(value: string) {
+            draft.value.defaultHomepage = value;
+        },
+    });
+    const browserDataPathValue = computed({
+        get() {
+            return draft.value.browserDataPath.trim() || defaultBrowserDataPath.value;
+        },
+        set(value: string) {
+            draft.value.browserDataPath = value;
+        },
+    });
+    const discoveredBrowserPaths = computed(
+        () => new Set(installedBrowsers.value.map((browser) => browser.path))
+    );
+    const browserExecutableMode = computed({
+        get() {
+            if (isEditingCustomBrowserExecutable.value) {
+                return CUSTOM_BROWSER_VALUE;
+            }
+            const configuredPath = draft.value.browserExecutablePath.trim();
+            if (configuredPath) {
+                return discoveredBrowserPaths.value.has(configuredPath)
+                    ? configuredPath
+                    : CUSTOM_BROWSER_VALUE;
+            }
+            return DEFAULT_BROWSER_VALUE;
+        },
+        set(value: string) {
+            if (value === DEFAULT_BROWSER_VALUE) {
+                isEditingCustomBrowserExecutable.value = false;
+                draft.value.browserExecutablePath = '';
+                return;
+            }
+            if (value === CUSTOM_BROWSER_VALUE) {
+                isEditingCustomBrowserExecutable.value = true;
+                if (discoveredBrowserPaths.value.has(draft.value.browserExecutablePath.trim())) {
+                    draft.value.browserExecutablePath = '';
+                }
+                return;
+            }
+            isEditingCustomBrowserExecutable.value = false;
+            draft.value.browserExecutablePath = value;
+        },
+    });
+    const defaultBrowserDescription = computed(() => {
+        const browser = installedBrowsers.value[0];
+        if (!browser) return undefined;
+        return t('settings.browser.executablePath.default.description', {
+            browser: browser.name,
+        });
+    });
+    const browserExecutableOptions = computed(() => [
+        {
+            value: DEFAULT_BROWSER_VALUE,
+            label: t('settings.browser.executablePath.default'),
+            description: defaultBrowserDescription.value,
+        },
+        ...installedBrowsers.value.map((browser) => ({
+            value: browser.path,
+            label: browser.name,
+            description: browser.path,
+        })),
+        {
+            value: CUSTOM_BROWSER_VALUE,
+            label: t('settings.browser.executablePath.custom'),
+        },
+    ]);
+    const isCustomBrowserExecutable = computed(() => browserExecutableMode.value === CUSTOM_BROWSER_VALUE);
+    const selectedDefaultMode = computed({
+        get() {
+            return draft.value.headless ? 'headless' : 'visible';
+        },
+        set(value: 'visible' | 'headless') {
+            draft.value.headless = value === 'headless';
+        },
+    });
+    const fingerprintWindowWidth = computed({
+        get() {
+            return draft.value.fingerprintWindowSize.split(',')[0] ?? '';
+        },
+        set(value: string) {
+            const [, height = ''] = draft.value.fingerprintWindowSize.split(',');
+            draft.value.fingerprintWindowSize = `${value.trim()},${height.trim()}`;
+        },
+    });
+    const fingerprintWindowHeight = computed({
+        get() {
+            return draft.value.fingerprintWindowSize.split(',')[1] ?? '';
+        },
+        set(value: string) {
+            const [width = ''] = draft.value.fingerprintWindowSize.split(',');
+            draft.value.fingerprintWindowSize = `${width.trim()},${value.trim()}`;
+        },
+    });
 
     watch(
         () => settings.value.browserSettings,
         (config) => {
             isSyncingFromStore = true;
             draft.value = cloneConfig(config);
+            isEditingCustomBrowserExecutable.value = Boolean(
+                draft.value.browserExecutablePath.trim() &&
+                    !discoveredBrowserPaths.value.has(draft.value.browserExecutablePath.trim())
+            );
             queueMicrotask(() => {
                 isSyncingFromStore = false;
             });
@@ -138,6 +257,32 @@
 
     function cloneConfig(config: BrowserSettingsConfig): BrowserSettingsConfig {
         return parseBrowserSettingsConfig(serializeBrowserSettingsConfig(config));
+    }
+
+    void loadInstalledBrowsers();
+    void loadDefaultBrowserDataPath();
+
+    async function loadInstalledBrowsers() {
+        try {
+            browserDiscoveryError.value = null;
+            installedBrowsers.value = await native.browser.discoverInstalled();
+            const configuredPath = draft.value.browserExecutablePath.trim();
+            isEditingCustomBrowserExecutable.value = Boolean(
+                configuredPath && !discoveredBrowserPaths.value.has(configuredPath)
+            );
+        } catch (error) {
+            browserDiscoveryError.value = error instanceof Error ? error.message : String(error);
+            installedBrowsers.value = [];
+        }
+    }
+
+    async function loadDefaultBrowserDataPath() {
+        try {
+            defaultBrowserDataPath.value = await native.browser.defaultDataPath();
+        } catch (error) {
+            console.error('[BrowserSettings] Failed to load default browser data path:', error);
+            defaultBrowserDataPath.value = '';
+        }
     }
 
     function normalizeDomain(value: string): string {
@@ -191,7 +336,8 @@
             const picked = await open({
                 directory: true,
                 multiple: false,
-                defaultPath: draft.value.browserDataPath.trim() || undefined,
+                defaultPath:
+                    draft.value.browserDataPath.trim() || defaultBrowserDataPath.value || undefined,
                 title: t('settings.browser.browserDataPath.pick'),
             });
             if (typeof picked === 'string') {
@@ -212,6 +358,7 @@
                 title: t('settings.browser.executablePath.pick'),
             });
             if (typeof picked === 'string') {
+                isEditingCustomBrowserExecutable.value = true;
                 draft.value.browserExecutablePath = picked;
             }
         } catch (error) {
@@ -284,10 +431,10 @@
                         </div>
                         <div class="flex min-w-0 items-center gap-2">
                             <input
-                                v-model="draft.browserDataPath"
+                                v-model="browserDataPathValue"
                                 data-testid="browser-data-path-input"
                                 class="settings-input min-w-0 flex-1 disabled:bg-neutral-50"
-                                placeholder="D:\TouchAI\BrowserData"
+                                placeholder="browser-data"
                                 :disabled="!draft.enabled"
                             />
                             <button
@@ -310,7 +457,32 @@
                                 {{ t('settings.browser.executablePath') }}
                             </label>
                             <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.executablePath.description') }}
+                                {{
+                                    browserDiscoveryError ||
+                                    t('settings.browser.executablePath.description')
+                                }}
+                            </div>
+                        </div>
+                        <div class="min-w-0 space-y-2">
+                            <CustomSelect
+                                v-model="browserExecutableMode"
+                                data-testid="browser-executable-select"
+                                :options="browserExecutableOptions"
+                                :disabled="!draft.enabled"
+                            />
+                        </div>
+                    </div>
+
+                    <div
+                        v-if="isCustomBrowserExecutable"
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                    >
+                        <div>
+                            <label class="text-[13px] leading-6 font-normal text-neutral-900">
+                                {{ t('settings.browser.executablePath.custom') }}
+                            </label>
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.browser.executablePath.custom.description') }}
                             </div>
                         </div>
                         <div class="flex min-w-0 items-center gap-2">
@@ -348,11 +520,30 @@
                             </div>
                         </div>
                         <input
-                            v-model="draft.defaultHomepage"
+                            v-model="defaultHomepageValue"
                             data-testid="browser-default-homepage-input"
                             class="settings-input w-full disabled:bg-neutral-50"
                             :class="homepageError ? 'border-red-300 bg-red-50 text-red-600' : ''"
                             placeholder="https://touch-ai.org"
+                            :disabled="!draft.enabled"
+                        />
+                    </div>
+
+                    <div
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                    >
+                        <div>
+                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                {{ t('settings.browser.defaultMode') }}
+                            </div>
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.browser.defaultMode.description') }}
+                            </div>
+                        </div>
+                        <CustomSelect
+                            v-model="selectedDefaultMode"
+                            data-testid="browser-default-mode-select"
+                            :options="defaultModeOptions"
                             :disabled="!draft.enabled"
                         />
                     </div>
@@ -381,7 +572,7 @@
                 <h2 class="settings-section-title">{{ t('settings.browser.section.permissions') }}</h2>
                 <div class="settings-row-group divide-y divide-neutral-200/70">
                     <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                     >
                         <div>
                             <div class="text-[13px] leading-6 font-normal text-neutral-900">
@@ -393,6 +584,7 @@
                         </div>
                         <CustomSelect
                             v-model="draft.permissionMode"
+                            data-testid="browser-permission-mode-select"
                             :options="permissionModeOptions"
                             :disabled="!draft.enabled"
                         />
@@ -555,7 +747,8 @@
                 <h2 class="settings-section-title">{{ t('settings.browser.section.advanced') }}</h2>
                 <div class="settings-row-group divide-y divide-neutral-200/70">
                     <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                        data-testid="browser-fingerprint-profile-row"
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                     >
                         <div>
                             <div class="text-[13px] leading-6 font-normal text-neutral-900">
@@ -626,12 +819,24 @@
                                 {{ t('settings.browser.windowSize.description') }}
                             </div>
                         </div>
-                        <input
-                            v-model="draft.fingerprintWindowSize"
-                            class="settings-input w-full disabled:bg-neutral-50"
-                            placeholder="1366,768"
-                            :disabled="!draft.enabled"
-                        />
+                        <div class="grid min-w-0 grid-cols-2 gap-2">
+                            <input
+                                v-model="fingerprintWindowWidth"
+                                data-testid="browser-window-width-input"
+                                class="settings-input min-w-0 disabled:bg-neutral-50"
+                                placeholder="1366"
+                                inputmode="numeric"
+                                :disabled="!draft.enabled"
+                            />
+                            <input
+                                v-model="fingerprintWindowHeight"
+                                data-testid="browser-window-height-input"
+                                class="settings-input min-w-0 disabled:bg-neutral-50"
+                                placeholder="768"
+                                inputmode="numeric"
+                                :disabled="!draft.enabled"
+                            />
+                        </div>
                     </div>
                 </div>
             </section>

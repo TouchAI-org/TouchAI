@@ -401,11 +401,7 @@ export async function executeBrowserSessionTool(
                     operation,
                     await native.browser.start(
                         omitUndefinedBrowserStartRequest({
-                            browserId:
-                                stringArg(args, 'browserId') ??
-                                (config.mode === 'custom'
-                                    ? optionalConfigString(config.browserId)
-                                    : undefined),
+                            headless: browserSettings.headless ? true : undefined,
                             startupUrl:
                                 stringArg(args, 'startupUrl') ??
                                 stringArg(args, 'url') ??
