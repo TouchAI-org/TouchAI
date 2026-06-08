@@ -151,7 +151,9 @@
 
     function formatSearchShortcutForSettings(shortcut: string | null | undefined): string {
         const normalizedShortcut = normalizeLocalShortcutString(shortcut);
-        return normalizedShortcut ? formatShortcutForDisplay(normalizedShortcut) : '无';
+        return normalizedShortcut
+            ? formatShortcutForDisplay(normalizedShortcut)
+            : t('settings.general.noShortcut');
     }
 
     function allowsReservedSearchShortcut(

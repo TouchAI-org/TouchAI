@@ -103,6 +103,31 @@ describe('settings search keybindings state', () => {
         });
     });
 
+    it('ignores invalid persisted and updated session ids', async () => {
+        mockSettings({
+            last_closed_session_id: '-1',
+            last_active_session_id: '42.5',
+        });
+
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+
+        await store.initialize();
+
+        expect(store.settings.lastClosedSessionId).toBeNull();
+        expect(store.settings.lastActiveSessionId).toBeNull();
+
+        await store.updateLastClosedSessionId(0);
+        await store.updateLastActiveSessionId(-2);
+
+        expect(store.settings.lastClosedSessionId).toBeNull();
+        expect(store.settings.lastActiveSessionId).toBeNull();
+        expect(setSettingMock).toHaveBeenLastCalledWith({
+            key: 'last_active_session_id',
+            value: '',
+        });
+    });
+
     it('loads persisted search keybindings and merges missing defaults', async () => {
         mockSettings({
             search_keybindings: JSON.stringify({

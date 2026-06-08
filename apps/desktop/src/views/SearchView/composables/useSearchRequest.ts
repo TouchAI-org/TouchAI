@@ -417,6 +417,14 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         clearDraft();
     }
 
+    async function clearLastClosedSessionIdSafely() {
+        try {
+            await settingsStore.updateLastClosedSessionId(null);
+        } catch (error) {
+            console.error('[SearchView] Failed to clear last closed session id:', error);
+        }
+    }
+
     async function reopenLastClosedSession(): Promise<LoadedSessionInfo | null> {
         const candidateSessionIds = [
             settingsStore.lastClosedSessionId,
@@ -437,13 +445,13 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                     settingsStore.lastClosedSessionId !== null &&
                     currentSessionId.value === settingsStore.lastClosedSessionId
                 ) {
-                    await settingsStore.updateLastClosedSessionId(null);
+                    await clearLastClosedSessionIdSafely();
                 }
                 return loadedSession;
             } catch (error) {
                 lastOpenError = error;
                 if (sessionId === settingsStore.lastClosedSessionId) {
-                    await settingsStore.updateLastClosedSessionId(null);
+                    await clearLastClosedSessionIdSafely();
                 }
             }
         }

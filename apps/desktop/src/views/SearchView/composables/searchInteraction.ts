@@ -799,8 +799,10 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
                 case 'search.window.maximize':
                     await toggleWindowMaximize();
                     return;
-                default:
-                    return;
+                default: {
+                    const exhaustiveActionId: never = actionId;
+                    throw new Error(`Unhandled search keybinding action: ${exhaustiveActionId}`);
+                }
             }
         },
     });

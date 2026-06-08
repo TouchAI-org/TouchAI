@@ -2,6 +2,7 @@ import type { AppUpdateState } from '@services/AppUpdateService/types';
 import { flushPromises, mount } from '@vue/test-utils';
 import { vi } from 'vitest';
 
+import { setLocale } from '@/i18n';
 import GeneralSection from '@/views/SettingsView/components/General/index.vue';
 
 const settingsStoreMock = vi.hoisted(() => {
@@ -182,6 +183,7 @@ vi.mock('@services/AppUpdateService', () => ({
 describe('SettingsGeneralSection', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setLocale('zh-CN');
         appUpdateServiceMock.state = appUpdateServiceMock.createState();
         nativeMock.shortcut.getShortcutStatus.mockResolvedValue([false, null]);
         nativeMock.autostart.isAutostartEnabled.mockResolvedValue(false);
@@ -470,6 +472,26 @@ describe('SettingsGeneralSection', () => {
             ...clearedSearchKeybindings,
             'search.history.open': 'Mod+H',
         });
+    });
+
+    it('localizes the cleared search shortcut fallback', async () => {
+        setLocale('en-US');
+        settingsStoreMock.settings.value.language = 'en-US';
+        settingsStoreMock.settings.value.searchKeybindings = {
+            ...settingsStoreMock.settings.value.searchKeybindings,
+            'search.history.open': null,
+        };
+
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.history.open"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('None');
     });
 
     it('shows the current version in the latest update details', async () => {

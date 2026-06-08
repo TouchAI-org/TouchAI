@@ -63,6 +63,20 @@ describe('search keybinding configuration', () => {
         });
     });
 
+    it('rejects persisted shortcuts that bypass capture policy', () => {
+        expect(
+            normalizeSearchKeybindings({
+                'search.history.open': 'H',
+                'search.input.focus': 'Ctrl+L',
+                'search.window.maximize': 'F12',
+            })
+        ).toEqual({
+            ...createDefaultSearchKeybindings(),
+            'search.input.focus': 'Ctrl+L',
+            'search.window.maximize': 'F12',
+        });
+    });
+
     it('falls back to defaults for invalid persisted payloads', () => {
         const defaults = createDefaultSearchKeybindings();
 

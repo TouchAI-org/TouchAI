@@ -444,6 +444,58 @@ describe('useSearchRequestFlow', () => {
         mounted.unmount();
     });
 
+    it('still returns a reopened session when clearing last-closed metadata fails', async () => {
+        const modelOverride = ref({
+            modelId: null,
+            providerId: null,
+        });
+        settingsStoreMock.lastClosedSessionId = 23;
+        settingsStoreMock.updateLastClosedSessionId.mockRejectedValueOnce(
+            new Error('database unavailable')
+        );
+        agentState.openSession.mockImplementationOnce(async () => {
+            agentState.currentSessionId.value = 23;
+            return {
+                sessionId: 23,
+                title: 'Reopened Session',
+                modelId: 'gpt-5',
+                providerId: 9,
+            };
+        });
+
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const mounted = await mountComposable(() =>
+            useSearchRequestFlow({
+                modelOverride,
+                clearDraft: vi.fn(),
+                getSupportedAttachments: () => [],
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({
+                        text: query,
+                        attachments: [],
+                    }),
+            })
+        );
+
+        const reopenedSession = await mounted.result.reopenLastClosedSession();
+
+        expect(reopenedSession).toEqual({
+            sessionId: 23,
+            title: 'Reopened Session',
+            modelId: 'gpt-5',
+            providerId: 9,
+        });
+        expect(settingsStoreMock.updateLastClosedSessionId).toHaveBeenCalledWith(null);
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+            '[SearchView] Failed to clear last closed session id:',
+            expect.any(Error)
+        );
+
+        consoleErrorSpy.mockRestore();
+        mounted.unmount();
+    });
+
     it('regenerates from the nearest preceding user message and drops unsupported attachments', async () => {
         const supportedAttachment = createAttachment('supported-1');
         const unsupportedAttachment = createAttachment('unsupported-1', {

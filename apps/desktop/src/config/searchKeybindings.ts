@@ -1,5 +1,9 @@
 import type { MessageKey } from '@/i18n';
-import { normalizeLocalShortcutString } from '@/utils/shortcuts';
+import {
+    hasRequiredModifier,
+    isModifierlessFunctionShortcut,
+    normalizeLocalShortcutString,
+} from '@/utils/shortcuts';
 
 export const SEARCH_KEYBINDING_ACTION_IDS = [
     'search.history.open',
@@ -129,6 +133,12 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
 
         const shortcut = normalizeLocalShortcutString(candidate);
         if (shortcut) {
+            const allowsModifierlessFunction =
+                definition.allowModifierlessFunctionShortcut &&
+                isModifierlessFunctionShortcut(shortcut);
+            if (!hasRequiredModifier(shortcut) && !allowsModifierlessFunction) {
+                continue;
+            }
             normalized[definition.id] = shortcut;
         }
     }

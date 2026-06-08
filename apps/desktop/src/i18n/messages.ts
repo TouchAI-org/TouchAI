@@ -87,6 +87,7 @@ const zhCNMessages = {
         '点击输入框后按下您想要设置的快捷键组合。支持的修饰键：Ctrl、Alt、Shift',
     'settings.general.winKeyUnsupported': '不支持 Win 键组合，请使用 Ctrl、Alt、Shift',
     'settings.general.shortcutSaved': '快捷键保存成功',
+    'settings.general.noShortcut': '无',
     'settings.general.globalShortcutGroup': '全局唤起',
     'settings.general.searchShortcutsDescription':
         '自定义搜索窗口内的命令型快捷键，不会影响输入导航与全局唤起。',
@@ -865,6 +866,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.winKeyUnsupported':
         'Win key combinations are not supported. Use Ctrl, Alt, or Shift.',
     'settings.general.shortcutSaved': 'Shortcut saved',
+    'settings.general.noShortcut': 'None',
     'settings.general.globalShortcutGroup': 'Global activation',
     'settings.general.searchShortcutsDescription':
         'Customize command shortcuts inside the search window without changing typing, navigation, or the global activation shortcut.',

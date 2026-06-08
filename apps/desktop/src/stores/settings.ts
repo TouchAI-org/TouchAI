@@ -130,6 +130,19 @@ export const useSettingsStore = defineStore('settings', () => {
         settings.value.searchKeybindings = normalizeSearchKeybindings(value);
     }
 
+    function parseOptionalSessionId(value: unknown): number | null {
+        if (value === null || value === '') {
+            return null;
+        }
+
+        if (typeof value === 'string' && !/^\d+$/.test(value)) {
+            return null;
+        }
+
+        const parsed = typeof value === 'number' ? value : Number(value);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+    }
+
     function parsePersistedSearchKeybindings(value: string | null): SearchKeybindings {
         if (!value) {
             return createDefaultSearchKeybindings();
@@ -185,18 +198,10 @@ export const useSettingsStore = defineStore('settings', () => {
                 );
                 break;
             case 'last_closed_session_id':
-                settings.value.lastClosedSessionId =
-                    value === null || value === '' ? null : Number(value);
-                if (Number.isNaN(settings.value.lastClosedSessionId)) {
-                    settings.value.lastClosedSessionId = null;
-                }
+                settings.value.lastClosedSessionId = parseOptionalSessionId(value);
                 break;
             case 'last_active_session_id':
-                settings.value.lastActiveSessionId =
-                    value === null || value === '' ? null : Number(value);
-                if (Number.isNaN(settings.value.lastActiveSessionId)) {
-                    settings.value.lastActiveSessionId = null;
-                }
+                settings.value.lastActiveSessionId = parseOptionalSessionId(value);
                 break;
             case 'start_on_boot':
                 settings.value.startOnBoot =
@@ -339,20 +344,8 @@ export const useSettingsStore = defineStore('settings', () => {
             settings.value.globalShortcut =
                 globalShortcut || DEFAULT_GENERAL_SETTINGS.globalShortcut;
             settings.value.searchKeybindings = parsePersistedSearchKeybindings(searchKeybindings);
-            settings.value.lastClosedSessionId =
-                lastClosedSessionId === null || lastClosedSessionId === ''
-                    ? DEFAULT_GENERAL_SETTINGS.lastClosedSessionId
-                    : Number(lastClosedSessionId);
-            if (Number.isNaN(settings.value.lastClosedSessionId)) {
-                settings.value.lastClosedSessionId = DEFAULT_GENERAL_SETTINGS.lastClosedSessionId;
-            }
-            settings.value.lastActiveSessionId =
-                lastActiveSessionId === null || lastActiveSessionId === ''
-                    ? DEFAULT_GENERAL_SETTINGS.lastActiveSessionId
-                    : Number(lastActiveSessionId);
-            if (Number.isNaN(settings.value.lastActiveSessionId)) {
-                settings.value.lastActiveSessionId = DEFAULT_GENERAL_SETTINGS.lastActiveSessionId;
-            }
+            settings.value.lastClosedSessionId = parseOptionalSessionId(lastClosedSessionId);
+            settings.value.lastActiveSessionId = parseOptionalSessionId(lastActiveSessionId);
             settings.value.startOnBoot =
                 startOnBoot === null
                     ? DEFAULT_GENERAL_SETTINGS.startOnBoot
@@ -494,11 +487,11 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     async function updateLastClosedSessionId(sessionId: number | null) {
-        await updateSetting('last_closed_session_id', sessionId);
+        await updateSetting('last_closed_session_id', parseOptionalSessionId(sessionId));
     }
 
     async function updateLastActiveSessionId(sessionId: number | null) {
-        await updateSetting('last_active_session_id', sessionId);
+        await updateSetting('last_active_session_id', parseOptionalSessionId(sessionId));
     }
 
     async function updateStartOnBoot(enabled: boolean) {
