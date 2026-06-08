@@ -20,7 +20,9 @@ import type { AttachmentIndex } from '@/services/AgentService/infrastructure/att
 export type BuiltInToolId =
     | 'bash'
     | 'file_search'
+    | 'memory'
     | 'read'
+    | 'search_conversation'
     | 'setting'
     | 'web_fetch'
     | 'upgrade_model'
@@ -136,6 +138,21 @@ export abstract class BuiltInTool<
         void namespacedName;
         void context;
         return null;
+    }
+
+    prepareForExecution(
+        args: Record<string, unknown>,
+        config: TConfig,
+        context: TContext
+    ): Record<string, unknown> | Promise<Record<string, unknown>> {
+        void config;
+        void context;
+        return args;
+    }
+
+    sanitizeLogInput(args: Record<string, unknown>, config: TConfig): Record<string, unknown> {
+        void config;
+        return args;
     }
 
     buildConversationSemantic(args: Record<string, unknown>): BuiltInToolConversationSemantic {
