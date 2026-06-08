@@ -112,6 +112,7 @@ const zhCNMessages = {
     'settings.general.searchShortcuts.errors.duplicate': '该快捷键已被“{action}”使用，请换一个组合',
     'settings.general.searchShortcuts.errors.globalConflict':
         '该快捷键与全局唤起快捷键冲突，请换一个组合',
+    'settings.general.searchShortcuts.fixedUnavailable': '暂不支持修改该快捷键',
     'settings.general.saveShortcutFailed': '保存快捷键到数据库失败',
     'settings.general.loadSettingsFailed': '加载设置失败',
     'settings.general.saveStartOnBootFailed': '保存开机自启动设置失败',
@@ -868,6 +869,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'This shortcut is already used by "{action}". Choose another combination.',
     'settings.general.searchShortcuts.errors.globalConflict':
         'This shortcut conflicts with the global activation shortcut. Choose another combination.',
+    'settings.general.searchShortcuts.fixedUnavailable':
+        'Changing this shortcut is not supported yet.',
     'settings.general.saveShortcutFailed': 'Failed to save shortcut to database',
     'settings.general.loadSettingsFailed': 'Failed to load settings',
     'settings.general.saveStartOnBootFailed': 'Failed to save start-on-boot setting',

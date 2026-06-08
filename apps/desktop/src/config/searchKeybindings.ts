@@ -18,7 +18,6 @@ export interface SearchKeybindingDefinition {
     labelKey: MessageKey;
     defaultShortcut: string | null;
     allowDisable: boolean;
-    allowModifierlessFunctionKey?: boolean;
 }
 
 export type SearchKeybindings = Record<SearchKeybindingActionId, string | null>;
@@ -65,7 +64,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.windowMaximize',
         defaultShortcut: 'F11',
         allowDisable: true,
-        allowModifierlessFunctionKey: true,
     },
 ];
 

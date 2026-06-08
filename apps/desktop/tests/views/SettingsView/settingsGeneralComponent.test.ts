@@ -312,25 +312,42 @@ describe('SettingsGeneralSection', () => {
         expect(settingsStoreMock.updateGlobalShortcut).not.toHaveBeenCalled();
         expect((input.element as HTMLInputElement).value).toBe('Alt+Space');
     });
-    it('accepts modifierless F11 for the maximize search shortcut', async () => {
-        settingsStoreMock.settings.value.searchKeybindings['search.window.maximize'] =
-            'Mod+Shift+M';
+    it('accepts modifierless F1-F12 for configurable search shortcuts', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
 
         const input = wrapper.get(
-            '[data-testid="settings-search-shortcut-input-search.window.maximize"]'
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
         );
         await input.trigger('focus');
         await flushPromises();
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F11' }));
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F1' }));
         await flushPromises();
 
         expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
             ...settingsStoreMock.settings.value.searchKeybindings,
-            'search.window.maximize': 'F11',
+            'search.history.open': 'F1',
         });
+    });
+
+    it('shows fixed search shortcuts as unsupported for editing', async () => {
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get('[data-testid="settings-search-shortcut-input-search.submit"]');
+        expect(input.attributes('title')).toBe('暂不支持修改该快捷键');
+        expect(input.attributes('tabindex')).toBe('-1');
+
+        await input.trigger('focus');
+        await flushPromises();
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
+        expect((input.element as HTMLInputElement).value).toBe('Enter');
     });
 
     it('uses an inline x icon to clear a default search shortcut', async () => {

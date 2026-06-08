@@ -105,45 +105,43 @@
 
     const fixedSearchShortcutRows = computed<
         Record<SearchShortcutGroupId, SettingsSearchShortcutGroupRow[]>
-    >(
-        () => ({
-            session: [
-                {
-                    kind: 'fixed',
-                    id: 'search.inputHistory.older',
-                    label: t('settings.general.fixedSearchActions.previousInputHistory'),
-                    displayValue: 'Up',
-                },
-                {
-                    kind: 'fixed',
-                    id: 'search.inputHistory.newer',
-                    label: t('settings.general.fixedSearchActions.nextInputHistory'),
-                    displayValue: 'Down',
-                },
-            ],
-            inputAndRequest: [
-                {
-                    kind: 'fixed',
-                    id: 'search.request.cancel',
-                    label: t('settings.general.searchActions.cancelRequest'),
-                    displayValue: 'Esc',
-                },
-                {
-                    kind: 'fixed',
-                    id: 'search.submit',
-                    label: t('settings.general.fixedSearchActions.submitRequest'),
-                    displayValue: 'Enter',
-                },
-                {
-                    kind: 'fixed',
-                    id: 'search.newLine',
-                    label: t('settings.general.fixedSearchActions.newLine'),
-                    displayValue: 'Shift+Enter',
-                },
-            ],
-            window: [],
-        })
-    );
+    >(() => ({
+        session: [
+            {
+                kind: 'fixed',
+                id: 'search.inputHistory.older',
+                label: t('settings.general.fixedSearchActions.previousInputHistory'),
+                displayValue: 'Up',
+            },
+            {
+                kind: 'fixed',
+                id: 'search.inputHistory.newer',
+                label: t('settings.general.fixedSearchActions.nextInputHistory'),
+                displayValue: 'Down',
+            },
+        ],
+        inputAndRequest: [
+            {
+                kind: 'fixed',
+                id: 'search.request.cancel',
+                label: t('settings.general.searchActions.cancelRequest'),
+                displayValue: 'Esc',
+            },
+            {
+                kind: 'fixed',
+                id: 'search.submit',
+                label: t('settings.general.fixedSearchActions.submitRequest'),
+                displayValue: 'Enter',
+            },
+            {
+                kind: 'fixed',
+                id: 'search.newLine',
+                label: t('settings.general.fixedSearchActions.newLine'),
+                displayValue: 'Shift+Enter',
+            },
+        ],
+        window: [],
+    }));
 
     function formatSearchShortcutForSettings(shortcut: string | null | undefined): string {
         const normalizedShortcut = normalizeLocalShortcutString(shortcut);
@@ -497,9 +495,7 @@
         const normalizedShortcut =
             shortcut === null ? null : normalizeLocalShortcutString(shortcut);
         if (normalizedShortcut) {
-            const definition = getSearchKeybindingDefinition(actionId);
             const allowsModifierlessFunctionShortcut =
-                definition.allowModifierlessFunctionKey &&
                 isModifierlessFunctionShortcut(normalizedShortcut);
 
             if (!hasRequiredModifier(normalizedShortcut) && !allowsModifierlessFunctionShortcut) {
@@ -599,9 +595,7 @@
         }
     };
 
-    const startSearchShortcutCapture = (
-        rowOrActionId: SettingsSearchShortcutGroupRow | string
-    ) => {
+    const startSearchShortcutCapture = (rowOrActionId: SettingsSearchShortcutGroupRow | string) => {
         if (typeof rowOrActionId === 'string') {
             const actionId = rowOrActionId as SearchKeybindingActionId;
             activeSearchShortcutActionId.value = actionId;
@@ -1105,8 +1099,19 @@
                                             ]"
                                             :disabled="isSaving"
                                             :placeholder="t('settings.general.shortcutPlaceholder')"
-                                            @focus="startSearchShortcutCapture(row.id)"
-                                            @blur="stopSearchShortcutCaptureAndSave(row.id)"
+                                            :title="
+                                                row.kind === 'fixed'
+                                                    ? t(
+                                                          'settings.general.searchShortcuts.fixedUnavailable'
+                                                      )
+                                                    : undefined
+                                            "
+                                            :tabindex="row.kind === 'fixed' ? -1 : 0"
+                                            @mousedown="
+                                                row.kind === 'fixed' && $event.preventDefault()
+                                            "
+                                            @focus="startSearchShortcutCapture(row)"
+                                            @blur="stopSearchShortcutCaptureAndSave(row)"
                                         />
                                         <button
                                             v-if="row.shortcutAction"
