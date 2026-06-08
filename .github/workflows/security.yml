@@ -139,6 +139,8 @@ jobs:
 
             - name: Build Rust targets for analysis
               if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
+              env:
+                  TOUCHAI_OPTIONAL_BUNDLED_DOWNLOAD: '1'
               run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --profile ci-check
 
             - name: Analyze

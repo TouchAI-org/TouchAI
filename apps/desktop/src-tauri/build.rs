@@ -181,7 +181,17 @@ fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         .join(&target_triple);
 
     if let Some(target) = manifest.targets.get(&target_triple) {
-        let binary_path = materialize_binary(name, target, &cache_dir)?;
+        let binary_path = match materialize_binary(name, target, &cache_dir) {
+            Ok(binary_path) => binary_path,
+            Err(error) if bundled_downloads_are_optional() => {
+                println!(
+                    "cargo:warning={name}: bundled binary unavailable in optional mode; generating empty asset: {error}"
+                );
+                generate_empty_asset_module(name, &out_dir)?;
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
         let binary_hash = if !target.binary_digest.is_empty() {
             target.binary_digest.clone()
         } else {
@@ -277,6 +287,13 @@ fn download_bundled_archive(name: &str, url: &str) -> Result<Vec<u8>, Box<dyn st
         last_error.unwrap_or_else(|| "unknown error".to_string())
     )
     .into())
+}
+
+fn bundled_downloads_are_optional() -> bool {
+    matches!(
+        std::env::var("TOUCHAI_OPTIONAL_BUNDLED_DOWNLOAD"),
+        Ok(value) if value == "1" || value.eq_ignore_ascii_case("true")
+    )
 }
 
 fn bundled_download_retry_delay_ms(attempt: usize) -> u64 {

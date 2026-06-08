@@ -4,6 +4,10 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const buildScriptSource = readFileSync(resolve(process.cwd(), 'src-tauri/build.rs'), 'utf8');
+const securityWorkflowSource = readFileSync(
+    resolve(process.cwd(), '../../.github/workflows/security.yml'),
+    'utf8'
+);
 
 function readNumericConstant(name: string) {
     const match = buildScriptSource.match(new RegExp(`const ${name}: \\w+ = (\\d+(?:_\\d+)*)`));
@@ -26,5 +30,12 @@ describe('bundled binary download policy', () => {
         expect(buildScriptSource).not.toContain(
             'BUNDLED_DOWNLOAD_RETRY_BASE_DELAY_MS * attempt as u64'
         );
+    });
+
+    it('allows CodeQL analysis to proceed without embedded release binaries', () => {
+        expect(buildScriptSource).toContain('TOUCHAI_OPTIONAL_BUNDLED_DOWNLOAD');
+        expect(buildScriptSource).toContain('bundled_downloads_are_optional');
+        expect(buildScriptSource).toContain('generate_empty_asset_module(name, &out_dir)?');
+        expect(securityWorkflowSource).toMatch(/TOUCHAI_OPTIONAL_BUNDLED_DOWNLOAD:\s*['"]?1['"]?/);
     });
 });
