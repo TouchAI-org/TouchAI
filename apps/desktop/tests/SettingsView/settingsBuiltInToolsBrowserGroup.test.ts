@@ -77,12 +77,7 @@ function createTool(
 }
 
 function createBrowserTools() {
-    return [
-        createTool(1, 'browser_session'),
-        createTool(2, 'browser_observe'),
-        createTool(3, 'browser_act'),
-        createTool(4, 'bash'),
-    ];
+    return [createTool(1, 'browser'), createTool(2, 'bash')];
 }
 
 async function mountSection(tools = createBrowserTools()) {
@@ -142,35 +137,26 @@ describe('settings built-in browser tool group behavior', () => {
         vi.unstubAllGlobals();
     });
 
-    it('toggles all browser automation rows together from any browser row', async () => {
+    it('toggles the consolidated browser automation row', async () => {
         const wrapper = await mountSection();
         const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
 
-        await toolList.vm.$emit('toggle-enabled', 2, false);
+        await toolList.vm.$emit('toggle-enabled', 1, false);
         await flushPromises();
         await nextTick();
 
-        expect(mocks.updateBuiltInToolsMock).toHaveBeenCalledTimes(1);
-        expect(mocks.updateBuiltInToolsMock).toHaveBeenCalledWith([1, 2, 3], { enabled: 0 });
-        expect(mocks.updateBuiltInToolMock).not.toHaveBeenCalled();
+        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledTimes(1);
+        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledWith(1, { enabled: 0 });
+        expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
     });
 
-    it('saves browser automation config across all browser rows', async () => {
+    it('does not show built-in tool config for browser rows because configuration lives in Browser settings', async () => {
         const wrapper = await mountSection();
-        const patch = {
-            config_json: JSON.stringify({
-                mode: 'custom',
-                browserId: 'edge',
-                startupUrl: 'https://example.test',
-            }),
-        };
 
-        await wrapper.getComponent({ name: 'BuiltInToolConfig' }).vm.$emit('save', patch);
-        await flushPromises();
-        await nextTick();
+        expect(wrapper.findComponent({ name: 'BuiltInToolConfig' }).exists()).toBe(false);
+        expect(wrapper.findComponent({ name: 'BuiltInToolLogViewer' }).exists()).toBe(true);
 
-        expect(mocks.updateBuiltInToolsMock).toHaveBeenCalledTimes(1);
-        expect(mocks.updateBuiltInToolsMock).toHaveBeenCalledWith([1, 2, 3], patch);
+        expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
         expect(mocks.updateBuiltInToolMock).not.toHaveBeenCalled();
     });
 
@@ -179,7 +165,7 @@ describe('settings built-in browser tool group behavior', () => {
         const wrapper = await mountSection(tools);
         const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
 
-        await toolList.vm.$emit('select', tools[3]);
+        await toolList.vm.$emit('select', tools[1]);
         await wrapper.getComponent({ name: 'BuiltInToolConfig' }).vm.$emit('save', {
             config_json: '{"timeoutMs":15000}',
         });
@@ -187,16 +173,16 @@ describe('settings built-in browser tool group behavior', () => {
         await nextTick();
 
         expect(mocks.updateBuiltInToolMock).toHaveBeenCalledTimes(1);
-        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledWith(4, {
+        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledWith(2, {
             config_json: '{"timeoutMs":15000}',
         });
         expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
     });
 
-    it('reports grouped browser update failures', async () => {
+    it('reports browser update failures', async () => {
         const wrapper = await mountSection();
         const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
-        mocks.updateBuiltInToolsMock.mockRejectedValue(new Error('browser group failed'));
+        mocks.updateBuiltInToolMock.mockRejectedValue(new Error('browser update failed'));
 
         await wrapper
             .getComponent({ name: 'BuiltInToolList' })
@@ -204,21 +190,15 @@ describe('settings built-in browser tool group behavior', () => {
         await flushPromises();
         await nextTick();
 
-        expect(mocks.updateBuiltInToolsMock).toHaveBeenCalledTimes(1);
-        expect(mocks.updateBuiltInToolsMock).toHaveBeenCalledWith([1, 2, 3], { enabled: 0 });
-        expect(mocks.updateBuiltInToolMock).not.toHaveBeenCalled();
+        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledTimes(1);
+        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledWith(1, { enabled: 0 });
+        expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
         expect(mocks.alertErrorMock).toHaveBeenCalledWith(
             expect.stringContaining('Failed to update'),
             6000
         );
         expect(
-            toolList
-                .props('tools')
-                .filter((tool: BuiltInToolEntity) => tool.tool_id.startsWith('browser_'))
-        ).toEqual([
-            expect.objectContaining({ tool_id: 'browser_session', enabled: 1 }),
-            expect.objectContaining({ tool_id: 'browser_observe', enabled: 1 }),
-            expect.objectContaining({ tool_id: 'browser_act', enabled: 1 }),
-        ]);
+            toolList.props('tools').filter((tool: BuiltInToolEntity) => tool.tool_id === 'browser')
+        ).toEqual([expect.objectContaining({ tool_id: 'browser', enabled: 1 })]);
     });
 });

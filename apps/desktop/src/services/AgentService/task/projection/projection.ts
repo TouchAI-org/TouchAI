@@ -791,6 +791,9 @@ export class SessionTaskProjection {
                 (toolCall) => {
                     toolCall.result = toolEvent.result;
                     toolCall.isError = toolEvent.isError;
+                    if (toolEvent.builtinConversationSemantic) {
+                        toolCall.builtinConversationSemantic = toolEvent.builtinConversationSemantic;
+                    }
                     if (toolEvent.finalStatus === 'rejected') {
                         toolCall.status = 'rejected';
                     } else {

@@ -55,7 +55,33 @@ describe('createPopupSessionState', () => {
 
         expect(emitted).toEqual(initialPayload);
         expect(replay).toEqual(initialPayload);
-        expect(state.markWindowReady(session.windowLabel)).toBeNull();
+        expect(state.markWindowReady(session.windowLabel)).toEqual(initialPayload);
+    });
+
+    it('replays the latest current payload when an already-ready popup reports ready again', () => {
+        const state = createPopupSessionState();
+        const session = state.openSession('model-dropdown-popup');
+        const initialPayload = sessionPayload(
+            session.type,
+            session.popupId,
+            session.popupSessionVersion,
+            session.windowLabel,
+            { isShow: true }
+        );
+        const updatedPayload = sessionPayload(
+            session.type,
+            session.popupId,
+            session.popupSessionVersion,
+            session.windowLabel,
+            { isShow: false }
+        );
+
+        state.preparePopupData(initialPayload);
+        expect(state.markWindowReady(session.windowLabel)).toEqual(initialPayload);
+
+        state.preparePopupData(updatedPayload);
+
+        expect(state.markWindowReady(session.windowLabel)).toEqual(updatedPayload);
     });
 
     it('keeps the initial show marker when the same session receives an update before ready', () => {

@@ -5,18 +5,28 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tempfile::TempDir;
-
 use super::{
     endpoint::BrowserEndpoint,
-    types::{BrowserDescriptor, BrowserStartRequest},
+    types::{BrowserDescriptor, BrowserFingerprintMode, BrowserStartRequest},
     url_policy::validate_browser_url,
 };
+use crate::core::system::paths::{app_directory_path, AppDirectory};
+
+const DEFAULT_BROWSER_DATA_DIR_NAME: &str = "browser-data";
 
 #[derive(Debug)]
 pub struct ManagedBrowserProcess {
     child: Child,
-    profile_dir: Option<TempDir>,
+    profile_dir: Option<ManagedProfileDir>,
+}
+
+#[derive(Debug)]
+struct ManagedProfileDir(PathBuf);
+
+impl ManagedProfileDir {
+    fn path(&self) -> &Path {
+        self.0.as_path()
+    }
 }
 
 impl Drop for ManagedBrowserProcess {
@@ -31,9 +41,6 @@ impl Drop for ManagedBrowserProcess {
             let _ = self.child.kill();
         }
         let _ = self.child.wait();
-        if let Some(profile_dir) = self.profile_dir.take() {
-            remove_profile_dir_with_retry(profile_dir);
-        }
     }
 }
 
@@ -70,12 +77,13 @@ pub fn launch_managed_browser(
         .transpose()?
         .unwrap_or_else(|| "about:blank".to_string());
     let browsers = discover_installed_browsers();
-    let browser_path = select_browser_path(&browsers, request.browser_id.as_deref())?;
+    let browser_path = select_browser_path(
+        &browsers,
+        request.browser_id.as_deref(),
+        request.browser_executable_path.as_deref(),
+    )?;
 
-    let user_data_dir = tempfile::Builder::new()
-        .prefix(&format!("touchai-browser-{}-", std::process::id()))
-        .tempdir_in(env::temp_dir())
-        .map_err(|error| format!("Failed to create browser profile directory: {error}"))?;
+    let user_data_dir = create_managed_profile_dir(request.browser_data_path.as_deref())?;
 
     let mut command = Command::new(&browser_path);
     command
@@ -88,11 +96,12 @@ pub fn launch_managed_browser(
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
         .arg("--disable-background-networking")
-        .arg("--window-size=1280,900")
-        .arg(startup_url)
+        .arg(browser_window_size_arg(&request))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    append_fingerprint_args(&mut command, &request);
+    command.arg(startup_url);
     configure_child_group(&mut command);
 
     let child = command
@@ -113,10 +122,113 @@ pub fn launch_managed_browser(
     Ok((endpoint, process))
 }
 
+fn append_fingerprint_args(command: &mut Command, request: &BrowserStartRequest) {
+    if request.fingerprint_mode != Some(BrowserFingerprintMode::Balanced) {
+        return;
+    }
+
+    if let Some(locale) = normalized_flag_value(request.fingerprint_locale.as_deref()) {
+        command.arg(format!("--lang={locale}"));
+    }
+
+    if let Some(user_agent) = normalized_flag_value(request.fingerprint_user_agent.as_deref()) {
+        command.arg(format!("--user-agent={user_agent}"));
+    }
+}
+
+fn browser_window_size_arg(request: &BrowserStartRequest) -> String {
+    let value = if request.fingerprint_mode == Some(BrowserFingerprintMode::Balanced) {
+        normalized_window_size(request.fingerprint_window_size.as_deref())
+    } else {
+        None
+    }
+    .unwrap_or_else(|| "1280,900".to_string());
+    format!("--window-size={value}")
+}
+
+fn normalized_flag_value(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| !value.starts_with('-') && !value.contains('\0'))
+        .map(str::to_string)
+}
+
+fn normalized_window_size(value: Option<&str>) -> Option<String> {
+    let value = normalized_flag_value(value)?;
+    let (width, height) = value
+        .split_once(',')
+        .or_else(|| value.split_once('x'))
+        .or_else(|| value.split_once('X'))?;
+    let width = width.trim().parse::<u32>().ok()?;
+    let height = height.trim().parse::<u32>().ok()?;
+    if !(800..=3840).contains(&width) || !(600..=2160).contains(&height) {
+        return None;
+    }
+    Some(format!("{width},{height}"))
+}
+
+fn create_managed_profile_dir(
+    browser_data_path: Option<&Path>,
+) -> Result<ManagedProfileDir, String> {
+    let app_data_dir = app_directory_path(AppDirectory::Data)?;
+    create_managed_profile_dir_with_app_data_root(browser_data_path, &app_data_dir)
+}
+
+fn create_managed_profile_dir_with_app_data_root(
+    browser_data_path: Option<&Path>,
+    app_data_dir: &Path,
+) -> Result<ManagedProfileDir, String> {
+    let path = match browser_data_path {
+        Some(path) => {
+            if path.as_os_str().is_empty() {
+                return Err("Browser data path cannot be empty".to_string());
+            }
+            path.to_path_buf()
+        }
+        None => app_data_dir.join(DEFAULT_BROWSER_DATA_DIR_NAME),
+    };
+
+    fs::create_dir_all(&path).map_err(|error| {
+        format!(
+            "Failed to create browser data directory {}: {error}",
+            path.display()
+        )
+    })?;
+    remove_stale_devtools_active_port(&path)?;
+    Ok(ManagedProfileDir(path))
+}
+
+fn remove_stale_devtools_active_port(profile_dir: &Path) -> Result<(), String> {
+    let path = profile_dir.join("DevToolsActivePort");
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "Failed to clear stale DevToolsActivePort {}: {error}",
+            path.display()
+        )),
+    }
+}
+
 fn select_browser_path(
     browsers: &[BrowserDescriptor],
     browser_id: Option<&str>,
+    browser_executable_path: Option<&Path>,
 ) -> Result<PathBuf, String> {
+    if let Some(path) = browser_executable_path {
+        if path.as_os_str().is_empty() {
+            return Err("Browser executable path cannot be empty".to_string());
+        }
+        if !path.is_file() {
+            return Err(format!(
+                "Browser executable path is not a file: {}",
+                path.display()
+            ));
+        }
+        return Ok(path.to_path_buf());
+    }
+
     match browser_id {
         Some(id) => browsers
             .iter()
@@ -160,19 +272,6 @@ fn read_devtools_active_port(profile_dir: &Path) -> Result<BrowserEndpoint, Stri
         host: "127.0.0.1".to_string(),
         port,
     })
-}
-
-fn remove_profile_dir_with_retry(profile_dir: TempDir) {
-    let path = profile_dir.path().to_path_buf();
-    drop(profile_dir);
-    let deadline = Instant::now() + Duration::from_secs(8);
-    while path.exists() && Instant::now() < deadline {
-        let _ = fs::remove_dir_all(&path);
-        if !path.exists() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
 }
 
 fn candidate_browser_paths() -> Vec<(&'static str, &'static str, PathBuf)> {
@@ -299,5 +398,35 @@ mod tests {
             .expect("write DevToolsActivePort");
 
         assert!(read_devtools_active_port(profile.path()).is_err());
+    }
+
+    #[test]
+    fn default_managed_profile_dir_uses_browser_data_directory_under_app_data() {
+        let app_data_dir = TempDir::new().expect("app data dir");
+
+        let profile = create_managed_profile_dir_with_app_data_root(None, app_data_dir.path())
+            .expect("profile dir");
+        let expected = app_data_dir.path().join("browser-data");
+
+        assert!(expected.is_dir());
+        assert_eq!(profile.path(), expected.as_path());
+    }
+
+    #[test]
+    fn managed_profile_dir_clears_stale_devtools_active_port_before_launch() {
+        let app_data_dir = TempDir::new().expect("app data dir");
+        let profile_dir = app_data_dir.path().join("browser-data");
+        fs::create_dir_all(&profile_dir).expect("profile dir");
+        fs::write(
+            profile_dir.join("DevToolsActivePort"),
+            "54321\n/devtools/browser/stale\n",
+        )
+        .expect("stale DevToolsActivePort");
+
+        let profile = create_managed_profile_dir_with_app_data_root(None, app_data_dir.path())
+            .expect("profile dir");
+
+        assert_eq!(profile.path(), profile_dir.as_path());
+        assert!(!profile_dir.join("DevToolsActivePort").exists());
     }
 }

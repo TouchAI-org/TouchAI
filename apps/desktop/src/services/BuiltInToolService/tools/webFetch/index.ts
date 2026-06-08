@@ -12,9 +12,12 @@ import {
     type BuiltInToolGroup,
 } from '../../types';
 import {
+    DEFAULT_ACCEPT_LANGUAGE,
     DEFAULT_ACCEPT_HEADER,
+    DEFAULT_USER_AGENT,
     WEB_FETCH_TOOL_DESCRIPTION,
     WEB_FETCH_TOOL_INPUT_SCHEMA,
+    WEB_FETCH_CACHE_TTL_MS,
 } from './constants';
 import {
     createRequestSignal,
@@ -31,6 +34,60 @@ import {
 } from './helper';
 
 const tauriFetch = createTauriFetch();
+const fetchResultCache = new Map<string, { expiresAt: number; result: BuiltInToolExecutionResult }>();
+
+function cacheKey(args: Record<string, unknown>): string {
+    return JSON.stringify({
+        url: args.url,
+        mode: args.mode,
+        maxChars: args.maxChars,
+        timeoutMs: args.timeoutMs,
+        maxResponseBytes: args.maxResponseBytes,
+    });
+}
+
+function cachedResult(key: string): BuiltInToolExecutionResult | null {
+    const cached = fetchResultCache.get(key);
+    if (!cached) {
+        return null;
+    }
+    if (cached.expiresAt <= Date.now()) {
+        fetchResultCache.delete(key);
+        return null;
+    }
+    return { ...cached.result };
+}
+
+function rememberResult(key: string, result: BuiltInToolExecutionResult): void {
+    if (result.status !== 'success') {
+        return;
+    }
+    fetchResultCache.set(key, {
+        expiresAt: Date.now() + WEB_FETCH_CACHE_TTL_MS,
+        result: { ...result },
+    });
+}
+
+function requestOrigin(url: URL): string {
+    return `${url.protocol}//${url.host}/`;
+}
+
+function buildFetchHeaders(url: URL): Record<string, string> {
+    return {
+        Accept: DEFAULT_ACCEPT_HEADER,
+        'Accept-Language': DEFAULT_ACCEPT_LANGUAGE,
+        Referer: requestOrigin(url),
+        'User-Agent': DEFAULT_USER_AGENT,
+    };
+}
+
+function jinaReaderUrl(url: URL): string {
+    return `https://r.jina.ai/${url.toString()}`;
+}
+
+function shouldTryReaderFallback(response: Response): boolean {
+    return response.status === 403 || response.status === 429 || response.status >= 500;
+}
 
 function formatWebFetchTarget(args: Record<string, unknown>): string {
     const rawUrl = normalizeOptionalString(args.url, { collapseWhitespace: true });
@@ -70,17 +127,28 @@ export async function executeWebFetchTool(
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
     const request = parseWebFetchRequest(args);
+    const key = cacheKey(args);
+    const cached = cachedResult(key);
+    if (cached) {
+        return cached;
+    }
+
     const { signal, cleanup } = createRequestSignal(context.signal, request.timeoutMs);
     void config;
 
     try {
         const response = await tauriFetch(request.url.toString(), {
             method: 'GET',
-            headers: {
-                Accept: DEFAULT_ACCEPT_HEADER,
-            },
+            headers: buildFetchHeaders(request.url),
             signal,
         });
+        if (!response.ok && shouldTryReaderFallback(response)) {
+            const fallbackResult = await executeJinaReaderFallback(request, signal);
+            if (fallbackResult.status === 'success') {
+                rememberResult(key, fallbackResult);
+                return fallbackResult;
+            }
+        }
         const contentType = getContentType(response);
 
         if (!isTextualContentType(contentType)) {
@@ -94,7 +162,11 @@ export async function executeWebFetchTool(
             };
         }
 
-        const sourcePayload = await readResponseText(response);
+        const sourcePayload = await readResponseText(
+            response,
+            undefined,
+            request.maxResponseBytes
+        );
         const normalizedResponseText = sourcePayload.text.trim();
         const normalizedStructuredText = normalizeStructuredText(
             normalizedResponseText,
@@ -123,12 +195,20 @@ export async function executeWebFetchTool(
             };
         }
 
-        return {
+        const resultPayload: BuiltInToolExecutionResult = {
             result,
             isError: false,
             status: 'success',
         };
+        rememberResult(key, resultPayload);
+        return resultPayload;
     } catch (error) {
+        const fallbackResult = await executeJinaReaderFallback(request, signal);
+        if (fallbackResult.status === 'success') {
+            rememberResult(key, fallbackResult);
+            return fallbackResult;
+        }
+
         const errorMessage = error instanceof Error ? error.message : String(error);
         const isTimeout = error instanceof DOMException ? error.name === 'TimeoutError' : false;
 
@@ -144,6 +224,57 @@ export async function executeWebFetchTool(
         };
     } finally {
         cleanup();
+    }
+}
+
+async function executeJinaReaderFallback(
+    request: ReturnType<typeof parseWebFetchRequest>,
+    signal: AbortSignal
+): Promise<BuiltInToolExecutionResult> {
+    try {
+        const response = await tauriFetch(jinaReaderUrl(request.url), {
+            method: 'GET',
+            headers: buildFetchHeaders(request.url),
+            signal,
+        });
+        const contentType = getContentType(response);
+        if (!response.ok || !isTextualContentType(contentType)) {
+            return {
+                result: `Fallback: Jina Reader\nHTTP ${response.status} ${response.statusText}`.trim(),
+                isError: true,
+                status: 'error',
+                errorMessage: `Jina Reader HTTP ${response.status} ${response.statusText}`.trim(),
+            };
+        }
+
+        const sourcePayload = await readResponseText(
+            response,
+            undefined,
+            request.maxResponseBytes
+        );
+        const normalized = normalizeStructuredText(sourcePayload.text.trim(), contentType);
+        const truncated = truncateContent(normalized, request.maxChars);
+        return {
+            result: [
+                'Fallback: Jina Reader',
+                formatFetchResult(request, response, contentType, {
+                    content: truncated.content,
+                    actualMode: request.mode,
+                    bodyTruncated: truncated.bodyTruncated,
+                    sourceTruncated: sourcePayload.sourceTruncated,
+                }),
+            ].join('\n'),
+            isError: false,
+            status: 'success',
+        };
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return {
+            result: `Fallback: Jina Reader failed\nReason: ${errorMessage}`,
+            isError: true,
+            status: 'error',
+            errorMessage,
+        };
     }
 }
 

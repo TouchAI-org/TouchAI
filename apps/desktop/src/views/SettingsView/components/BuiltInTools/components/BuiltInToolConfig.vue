@@ -9,18 +9,12 @@
     import type { BuiltInToolEntity, BuiltInToolUpdateData } from '../types';
     import {
         type BashToolConfig as BashToolConfigValue,
-        type BrowserAutomationToolConfig as BrowserAutomationToolConfigValue,
-        getBrowserAutomationStartupUrlError,
-        isBrowserAutomationToolId,
         parseBashToolConfig,
-        parseBrowserAutomationToolConfig,
         parseUpgradeModelToolConfig,
-        serializeBrowserAutomationToolConfig,
         type UpgradeModelToolConfig as UpgradeModelToolConfigValue,
         usesBuiltInToolEmptyConfig,
     } from '../types';
     import BashToolConfig from './BashToolConfig.vue';
-    import BrowserAutomationToolConfig from './BrowserAutomationToolConfig.vue';
     import UpgradeModelToolConfig from './UpgradeModelToolConfig.vue';
     interface Props {
         tool: BuiltInToolEntity;
@@ -35,9 +29,6 @@
     const emit = defineEmits<Emits>();
 
     const bashConfig = ref<BashToolConfigValue>(parseBashToolConfig(props.tool.config_json));
-    const browserAutomationConfig = ref<BrowserAutomationToolConfigValue>(
-        parseBrowserAutomationToolConfig(props.tool.config_json)
-    );
     const upgradeModelConfig = ref<UpgradeModelToolConfigValue>(
         parseUpgradeModelToolConfig(props.tool.config_json)
     );
@@ -55,7 +46,6 @@
         (tool) => {
             clearAutoSaveTimer();
             bashConfig.value = parseBashToolConfig(tool.config_json);
-            browserAutomationConfig.value = parseBrowserAutomationToolConfig(tool.config_json);
             upgradeModelConfig.value = parseUpgradeModelToolConfig(tool.config_json);
         },
         { deep: true }
@@ -70,42 +60,6 @@
             }
 
             if (nextConfigJson === JSON.stringify(parseBashToolConfig(props.tool.config_json))) {
-                clearAutoSaveTimer();
-                return;
-            }
-
-            clearAutoSaveTimer();
-
-            autoSaveTimer = setTimeout(() => {
-                emit('save', {
-                    config_json: nextConfigJson,
-                });
-                autoSaveTimer = null;
-            }, 450);
-        }
-    );
-
-    watch(
-        () => JSON.stringify(browserAutomationConfig.value),
-        () => {
-            if (!isBrowserAutomationToolId(props.tool.tool_id)) {
-                clearAutoSaveTimer();
-                return;
-            }
-
-            if (getBrowserAutomationStartupUrlError(browserAutomationConfig.value)) {
-                clearAutoSaveTimer();
-                return;
-            }
-
-            const currentConfigJson = serializeBrowserAutomationToolConfig(
-                parseBrowserAutomationToolConfig(props.tool.config_json)
-            );
-            const nextConfigJson = serializeBrowserAutomationToolConfig(
-                browserAutomationConfig.value
-            );
-
-            if (nextConfigJson === currentConfigJson) {
                 clearAutoSaveTimer();
                 return;
             }
@@ -158,11 +112,6 @@
 <template>
     <div class="settings-page-wide space-y-4">
         <BashToolConfig v-if="tool.tool_id === 'bash'" v-model="bashConfig" />
-        <BrowserAutomationToolConfig
-            v-else-if="isBrowserAutomationToolId(tool.tool_id)"
-            v-model="browserAutomationConfig"
-            :disabled="saving || tool.enabled === 0"
-        />
         <UpgradeModelToolConfig
             v-else-if="tool.tool_id === 'upgrade_model'"
             v-model="upgradeModelConfig"

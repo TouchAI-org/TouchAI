@@ -6,7 +6,7 @@
     import { native } from '@services/NativeService';
     import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
     import { exit } from '@tauri-apps/plugin-process';
-    import { onMounted } from 'vue';
+    import { onMounted, onUnmounted } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
 
@@ -41,16 +41,29 @@
             action: quitApp,
         },
     ];
+    let unlistenBlur: (() => void) | null = null;
 
     onMounted(async () => {
         try {
-            await getCurrentWebviewWindow().listen('tauri://blur', () => {
+            unlistenBlur = await getCurrentWebviewWindow().listen('tauri://blur', () => {
                 closeTrayMenu();
             });
         } catch (error) {
             console.error('[TrayMenu] Failed to setup focus listener:', error);
         }
     });
+
+    onUnmounted(() => {
+        unlistenBlur?.();
+        unlistenBlur = null;
+        void closeTrayMenu();
+    });
+
+    if (import.meta.hot) {
+        import.meta.hot.dispose(() => {
+            void closeTrayMenu();
+        });
+    }
 
     async function showMainWindow() {
         try {

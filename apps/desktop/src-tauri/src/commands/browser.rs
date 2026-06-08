@@ -2,8 +2,10 @@ use tauri::State;
 
 use crate::core::browser::{
     types::{
-        BrowserActRequest, BrowserActResult, BrowserNavigateRequest, BrowserObservation,
-        BrowserObserveRequest, BrowserStartRequest, BrowserStatus, BrowserTabRequest,
+        BrowserActRequest, BrowserActResult, BrowserConnectExistingRequest,
+        BrowserConnectExistingResult, BrowserExistingSession, BrowserNavigateRequest,
+        BrowserObservation, BrowserObserveRequest, BrowserStartRequest, BrowserStatus,
+        BrowserTabRequest,
     },
     BrowserRuntime,
 };
@@ -19,6 +21,21 @@ pub async fn browser_start(
     request: BrowserStartRequest,
 ) -> Result<BrowserStatus, String> {
     runtime.start(request).await
+}
+
+#[tauri::command]
+pub async fn browser_discover_existing(
+    runtime: State<'_, BrowserRuntime>,
+) -> Result<Vec<BrowserExistingSession>, String> {
+    runtime.discover_existing_sessions().await
+}
+
+#[tauri::command]
+pub async fn browser_connect_existing(
+    runtime: State<'_, BrowserRuntime>,
+    request: BrowserConnectExistingRequest,
+) -> Result<BrowserConnectExistingResult, String> {
+    runtime.connect_existing(request).await
 }
 
 #[tauri::command]

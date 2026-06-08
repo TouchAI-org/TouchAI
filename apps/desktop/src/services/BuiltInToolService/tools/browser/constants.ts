@@ -3,8 +3,9 @@ import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling
 export const BROWSER_SESSION_TOOL_ID = 'browser_session';
 export const BROWSER_OBSERVE_TOOL_ID = 'browser_observe';
 export const BROWSER_ACT_TOOL_ID = 'browser_act';
+export const BROWSER_TOOL_ID = 'browser';
 
-export const BROWSER_SESSION_OPERATIONS = ['status', 'start', 'stop'] as const;
+export const BROWSER_SESSION_OPERATIONS = ['status', 'start', 'stop', 'connect_existing'] as const;
 
 export const BROWSER_OBSERVE_OPERATIONS = ['current', 'tabs', 'screenshot', 'dom'] as const;
 
@@ -22,6 +23,12 @@ export const BROWSER_ACT_OPERATIONS = [
     'reload',
 ] as const;
 
+export const BROWSER_OPERATIONS = [
+    ...BROWSER_SESSION_OPERATIONS,
+    ...BROWSER_OBSERVE_OPERATIONS,
+    ...BROWSER_ACT_OPERATIONS,
+] as const;
+
 const TAB_ID_PROPERTY = {
     type: 'string',
     description: 'Optional browser tab id. Defaults to the selected tab.',
@@ -29,25 +36,41 @@ const TAB_ID_PROPERTY = {
 
 const REF_PROPERTY = {
     type: 'string',
-    description: 'Stable element ref returned by browser_observe snapshot.',
+    description: 'Stable element ref returned by browser operation=dom.',
+};
+
+const DESCRIPTION_PROPERTY = {
+    type: 'string',
+    description:
+        'Required short semantic description for approval UI and history, except status, tabs, and current where TouchAI uses fixed descriptions.',
 };
 
 export const BROWSER_SESSION_TOOL_DESCRIPTION = [
     'Manage the native browser automation session.',
     'Use this for managed browser status, launch, and stop.',
+    'Provide a short description for start and stop, such as "Open the default homepage".',
     'This tool does not expose raw CDP or JavaScript evaluation.',
 ].join(' ');
 
 export const BROWSER_OBSERVE_TOOL_DESCRIPTION = [
     'Observe the selected browser tab through the native browser runtime.',
     'Returns compact redacted current-tab state, tab list, screenshots, or DOM-like snapshots.',
+    'Provide a short description for screenshot and dom; status-like current and tabs use fixed descriptions.',
     'Screenshot base64 is never returned to the model.',
 ].join(' ');
 
 export const BROWSER_ACT_TOOL_DESCRIPTION = [
-    'Interact with elements in the selected browser tab using refs from browser_observe.',
+    'Interact with elements in the selected browser tab using refs from browser operation=dom.',
     'Supports navigation, clicks, typing, form filling, key presses, scrolling, waits, history actions, and reloads.',
-    'Use browser_observe after actions to verify page state.',
+    'Every action call requires a short semantic description explaining the user-visible intent.',
+    'Use browser operation=current, tabs, dom, or screenshot after actions to verify page state.',
+].join(' ');
+
+export const BROWSER_TOOL_DESCRIPTION = [
+    'Control the browser through one consolidated tool.',
+    'Use operation=status/start/stop/connect_existing for sessions, current/tabs/screenshot/dom for observation, and navigate/click/type/fill/fill_form/press_key/scroll/wait/back/forward/reload for actions.',
+    'Prefer web_search for discovery and web_fetch for reading public URLs; use browser when pages need rendering, interaction, login state, screenshots, or fetch/search is blocked.',
+    'Action, navigation, screenshot, dom, start, stop, and connect_existing calls require a short semantic description for approval UI and history; status, tabs, and current use fixed descriptions.',
 ].join(' ');
 
 export const BROWSER_SESSION_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
@@ -67,6 +90,7 @@ export const BROWSER_SESSION_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema']
             type: 'string',
             description: 'Optional startup URL for the managed browser start operation.',
         },
+        description: DESCRIPTION_PROPERTY,
     },
     required: ['operation'],
     additionalProperties: false,
@@ -90,6 +114,7 @@ export const BROWSER_OBSERVE_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema']
             description:
                 'Include a compact recent failed/error network summary for the selected tab.',
         },
+        description: DESCRIPTION_PROPERTY,
     },
     required: ['operation'],
     additionalProperties: false,
@@ -154,6 +179,69 @@ export const BROWSER_ACT_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
             maximum: 120000,
             description: 'Timeout for wait operation.',
         },
+        description: DESCRIPTION_PROPERTY,
+    },
+    required: ['operation'],
+    additionalProperties: false,
+};
+
+export const BROWSER_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
+    type: 'object',
+    properties: {
+        operation: {
+            type: 'string',
+            enum: [...BROWSER_OPERATIONS],
+            description: 'Browser operation to perform.',
+        },
+        browserId: {
+            type: 'string',
+            description:
+                'Optional safe browser id such as chrome or edge for managed browser start.',
+        },
+        startupUrl: {
+            type: 'string',
+            description: 'Optional startup URL for the managed browser start operation.',
+        },
+        tabId: TAB_ID_PROPERTY,
+        includeConsole: {
+            type: 'boolean',
+            description: 'Include a compact recent console summary for current, tabs, or dom.',
+        },
+        includeNetwork: {
+            type: 'boolean',
+            description: 'Include a compact recent failed/error network summary.',
+        },
+        ref: REF_PROPERTY,
+        navigationToken: {
+            type: 'string',
+            description: 'Navigation token returned with observed refs. Required when acting on refs.',
+        },
+        url: {
+            type: 'string',
+            description: 'URL for navigate operation.',
+        },
+        text: {
+            type: 'string',
+            description: 'Text for type operation.',
+        },
+        value: {
+            type: 'string',
+            description: 'Value for fill operation.',
+        },
+        fields: BROWSER_ACT_TOOL_INPUT_SCHEMA.properties.fields,
+        key: {
+            type: 'string',
+            description: 'Keyboard key for press_key operation.',
+        },
+        deltaX: { type: 'number' },
+        deltaY: { type: 'number' },
+        timeoutMs: {
+            type: 'integer',
+            minimum: 100,
+            maximum: 120000,
+            description: 'Timeout for wait operation.',
+        },
+        description: DESCRIPTION_PROPERTY,
     },
     required: ['operation'],
     additionalProperties: false,

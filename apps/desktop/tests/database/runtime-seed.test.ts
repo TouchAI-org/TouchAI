@@ -38,4 +38,15 @@ describe('runtime seed defaults', () => {
 
         expect(seedSql).not.toContain("DELETE FROM providers\nWHERE driver = 'touchai-mimo';");
     });
+
+    it('seeds the consolidated web discovery and browser control tools', async () => {
+        const seedSql = await readFile(runtimeSeedPath, 'utf8');
+
+        expect(seedSql).toContain("SELECT 'web_search', 'WebSearch'");
+        expect(seedSql).toContain("SELECT 'web_fetch', 'WebFetch'");
+        expect(seedSql).toContain("SELECT 'browser', 'Browser'");
+        expect(seedSql).not.toContain("SELECT 'browser_session'");
+        expect(seedSql).not.toContain("SELECT 'browser_observe'");
+        expect(seedSql).not.toContain("SELECT 'browser_act'");
+    });
 });

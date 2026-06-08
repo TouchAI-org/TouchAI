@@ -223,6 +223,28 @@ export interface QuickSearchResult {
 export interface BrowserStartRequest {
     browserId?: string | null;
     startupUrl?: string | null;
+    browserExecutablePath?: string | null;
+    browserDataPath?: string | null;
+    fingerprintMode?: 'off' | 'balanced' | null;
+    fingerprintLocale?: string | null;
+    fingerprintTimezone?: string | null;
+    fingerprintUserAgent?: string | null;
+    fingerprintWindowSize?: string | null;
+    fingerprintStealthScript?: boolean | null;
+}
+
+export interface BrowserExistingSession {
+    id: string;
+    label: string;
+    endpoint: string;
+    browserName: string;
+    currentUrl?: string | null;
+    title?: string | null;
+    tabs: Array<Record<string, unknown>>;
+}
+
+export interface BrowserConnectExistingRequest {
+    endpoint: string;
 }
 
 export interface BrowserNavigationRequest {
@@ -270,5 +292,6 @@ export interface BrowserActRequest {
 
 export type BrowserStatusResponse = Record<string, unknown>;
 export type BrowserSessionResponse = Record<string, unknown>;
+export type BrowserConnectExistingResponse = Record<string, unknown>;
 export type BrowserObserveResponse = Record<string, unknown>;
 export type BrowserActResponse = Record<string, unknown>;

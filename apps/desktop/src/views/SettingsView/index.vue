@@ -30,6 +30,8 @@
     const BuiltInToolsView = defineAsyncComponent(
         () => import('./components/BuiltInTools/index.vue')
     );
+    const SearchView = defineAsyncComponent(() => import('./components/Search/index.vue'));
+    const BrowserView = defineAsyncComponent(() => import('./components/Browser/index.vue'));
     const McpToolsView = defineAsyncComponent(() => import('./components/McpTools/index.vue'));
     const DataManagementView = defineAsyncComponent(
         () => import('./components/DataManagement/index.vue')
@@ -291,6 +293,38 @@
                                 <template #fallback>
                                     <LoadingState
                                         :message="t('settings.loading.builtInTools')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
+                                </template>
+                            </Suspense>
+                        </div>
+
+                        <div
+                            v-else-if="activeSection === 'search'"
+                            class="settings-scrollbar h-full w-full overflow-y-auto"
+                        >
+                            <Suspense>
+                                <SearchView />
+                                <template #fallback>
+                                    <LoadingState
+                                        :message="t('settings.loading.search')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
+                                </template>
+                            </Suspense>
+                        </div>
+
+                        <div
+                            v-else-if="activeSection === 'browser'"
+                            class="settings-scrollbar h-full w-full overflow-y-auto"
+                        >
+                            <Suspense>
+                                <BrowserView />
+                                <template #fallback>
+                                    <LoadingState
+                                        :message="t('settings.loading.browser')"
                                         variant="brand"
                                         fill="min"
                                     />

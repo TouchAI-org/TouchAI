@@ -18,6 +18,7 @@
     import {
         type BuiltInToolEntity,
         type BuiltInToolUpdateData,
+        isBrowserAutomationToolId,
         isBuiltInToolVisibleInSettings,
         loadBuiltInToolQueries,
         usesBuiltInToolEmptyConfig,
@@ -190,6 +191,10 @@
         }
 
         const currentTool = selectedTool.value;
+        if (isBrowserAutomationToolId(currentTool.tool_id) && 'config_json' in patch) {
+            return;
+        }
+
         const currentToolId = currentTool.id;
         const targetTools = getBuiltInToolUpdateTargets(tools.value, currentTool);
         saving.value = true;

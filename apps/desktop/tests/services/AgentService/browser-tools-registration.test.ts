@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { builtInToolRegistry } from '@/services/BuiltInToolService/registry';
 
 describe('browser built-in tool registration', () => {
-    it('registers exactly three model-visible browser tools', () => {
+    it('registers one consolidated model-visible browser tool', () => {
         const browserToolIds = builtInToolRegistry
             .list()
             .map((tool) => tool.id)
-            .filter((id) => id.startsWith('browser_'))
+            .filter((id) => id === 'browser' || id.startsWith('browser_'))
             .sort();
 
-        expect(browserToolIds).toEqual(['browser_act', 'browser_observe', 'browser_session']);
+        expect(browserToolIds).toEqual(['browser']);
     });
 
     it('does not register raw browser implementation tools', () => {

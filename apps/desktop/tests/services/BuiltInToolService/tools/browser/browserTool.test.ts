@@ -1,12 +1,22 @@
 import { getLastTauriInvokeCall, mockTauriCommand } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const browserSettingsValues = vi.hoisted(() => new Map<string, string | null>());
+
+vi.mock('@database/queries', () => ({
+    getSettingValue: vi.fn(
+        async ({ key }: { key: string }) => browserSettingsValues.get(key) ?? null
+    ),
+}));
 
 import {
     browserActTool,
     browserObserveTool,
     browserSessionTool,
+    browserTool,
     builtInTools,
     createBrowserApprovalRequest,
+    executeBrowserTool,
     executeBrowserActTool,
     executeBrowserObserveTool,
     executeBrowserSessionTool,
@@ -32,18 +42,24 @@ function fakeContext(): BaseBuiltInToolExecutionContext {
         callId: 'call-1',
         iteration: 0,
         hasExecutedBuiltInTool: () => false,
+        requestUserQuestions: async (_callId, questions) =>
+            questions.map((question, questionIndex) => ({
+                questionIndex,
+                selectedLabels: [question.options[0]?.label ?? '允许本次'],
+                skipped: false,
+            })),
     };
 }
 
 const defaultBrowserConfig = { mode: 'default' as const, browserId: '', startupUrl: '' };
 
+beforeEach(() => {
+    browserSettingsValues.clear();
+});
+
 describe('browser built-in tool group', () => {
-    it('exports exactly the three model-visible browser tools', () => {
-        expect(builtInTools.map((tool) => tool.id).sort()).toEqual([
-            'browser_act',
-            'browser_observe',
-            'browser_session',
-        ]);
+    it('exports one consolidated model-visible browser tool', () => {
+        expect(builtInTools.map((tool) => tool.id).sort()).toEqual(['browser']);
     });
 
     it('does not expose raw CDP, debug, extract, or evaluate tools', () => {
@@ -56,9 +72,34 @@ describe('browser built-in tool group', () => {
     });
 
     it('declares the required operation sets in schemas', () => {
+        expect(browserTool.inputSchema.properties.operation).toEqual(
+            expect.objectContaining({
+                enum: [
+                    'status',
+                    'start',
+                    'stop',
+                    'connect_existing',
+                    'current',
+                    'tabs',
+                    'screenshot',
+                    'dom',
+                    'navigate',
+                    'click',
+                    'type',
+                    'fill',
+                    'fill_form',
+                    'press_key',
+                    'scroll',
+                    'wait',
+                    'back',
+                    'forward',
+                    'reload',
+                ],
+            })
+        );
         expect(browserSessionTool.inputSchema.properties.operation).toEqual(
             expect.objectContaining({
-                enum: ['status', 'start', 'stop'],
+                enum: ['status', 'start', 'stop', 'connect_existing'],
             })
         );
         expect(browserObserveTool.inputSchema.properties.operation).toEqual(
@@ -85,21 +126,29 @@ describe('browser built-in tool group', () => {
         );
 
         expect(JSON.stringify(browserSessionTool.inputSchema)).not.toContain('list_browsers');
-        expect(JSON.stringify(browserSessionTool.inputSchema)).not.toContain('connect');
         expect(JSON.stringify(browserSessionTool.inputSchema)).not.toContain('attach');
         expect(JSON.stringify(browserSessionTool.inputSchema)).not.toContain('endpoint');
         expect(JSON.stringify(browserSessionTool.inputSchema)).not.toContain('navigate');
         expect(JSON.stringify(browserSessionTool.inputSchema)).not.toContain('browserPath');
         expect(JSON.stringify(browserSessionTool.inputSchema)).not.toContain('userDataDir');
         expect(browserSessionTool.inputSchema.additionalProperties).toBe(false);
+        expect(browserSessionTool.inputSchema.properties.description).toEqual(
+            expect.objectContaining({ type: 'string' })
+        );
         expect(JSON.stringify(browserObserveTool.inputSchema)).toContain('includeConsole');
         expect(JSON.stringify(browserObserveTool.inputSchema)).toContain('includeNetwork');
+        expect(browserObserveTool.inputSchema.properties.description).toEqual(
+            expect.objectContaining({ type: 'string' })
+        );
         expect(browserObserveTool.inputSchema.additionalProperties).toBe(false);
         expect(JSON.stringify(browserActTool.inputSchema)).not.toContain('selector');
         expect(JSON.stringify(browserActTool.inputSchema)).not.toContain('"x"');
         expect(JSON.stringify(browserActTool.inputSchema)).not.toContain('"y"');
         expect(JSON.stringify(browserActTool.inputSchema)).not.toContain('"field"');
         expect(browserActTool.inputSchema.additionalProperties).toBe(false);
+        expect(browserActTool.inputSchema.properties.description).toEqual(
+            expect.objectContaining({ type: 'string' })
+        );
         expect(browserActTool.inputSchema.properties.fields).toEqual(
             expect.objectContaining({
                 items: expect.objectContaining({
@@ -111,24 +160,106 @@ describe('browser built-in tool group', () => {
     });
 
     it('builds concise conversation semantics for each browser tool', () => {
-        expect(browserSessionTool.buildConversationSemantic({ operation: ' start ' })).toEqual({
-            action: 'process',
-            target: 'browser start',
+        expect(
+            browserTool.buildConversationSemantic({
+                operation: ' start ',
+                description: '  鎵撳紑榛樿涓婚〉  ',
+            })
+        ).toEqual({
+            action: 'cursor',
+            target: '鎵撳紑榛樿涓婚〉',
         });
-        expect(browserObserveTool.buildConversationSemantic({ operation: 'dom' })).toEqual({
-            action: 'read',
-            target: 'browser dom',
+        expect(
+            browserSessionTool.buildConversationSemantic({
+                operation: ' start ',
+                description: '  打开默认主页  ',
+            })
+        ).toEqual({
+            action: 'cursor',
+            target: '打开默认主页',
         });
-        expect(browserActTool.buildConversationSemantic({})).toEqual({
-            action: 'process',
-            target: 'browser act',
+        expect(
+            browserObserveTool.buildConversationSemantic({
+                operation: 'dom',
+                description: '查看页面结构',
+            })
+        ).toEqual({
+            action: 'cursor',
+            target: '查看页面结构',
+        });
+        expect(browserObserveTool.buildConversationSemantic({ operation: 'current' })).toEqual({
+            action: 'cursor',
+            target: '查看当前页面',
+        });
+    });
+
+    it('requires semantic descriptions except fixed passive status operations', async () => {
+        mockTauriCommand('browser_status', { status: 'disconnected' });
+
+        await expect(
+            executeBrowserSessionTool({ operation: 'status' }, defaultBrowserConfig, fakeContext())
+        ).resolves.toMatchObject({ isError: false });
+
+        await expect(
+            executeBrowserSessionTool({ operation: 'start' }, defaultBrowserConfig, fakeContext())
+        ).resolves.toMatchObject({
+            isError: true,
+            errorMessage: expect.stringContaining('description'),
+        });
+
+        await expect(
+            executeBrowserActTool(
+                { operation: 'navigate', url: 'https://example.test' },
+                defaultBrowserConfig,
+                fakeContext()
+            )
+        ).resolves.toMatchObject({
+            isError: true,
+            errorMessage: expect.stringContaining('description'),
+        });
+    });
+
+    it('routes the consolidated browser tool to the underlying native action command', async () => {
+        mockTauriCommand('browser_act', { ok: true, action: 'click' });
+
+        await expect(
+            executeBrowserTool(
+                {
+                    operation: 'click',
+                    ref: 'submit-button',
+                    navigationToken: 'obs-1',
+                    description: '鐐瑰嚮鎻愪氦鎸夐挳',
+                },
+                defaultBrowserConfig,
+                fakeContext()
+            )
+        ).resolves.toMatchObject({ isError: false });
+
+        expect(getLastTauriInvokeCall('browser_act')?.payload).toEqual({
+            request: {
+                action: 'click',
+                ref: 'submit-button',
+                navigationToken: 'obs-1',
+            },
         });
     });
 
     it('delegates approval requests through the tool instances', async () => {
         await expect(
+            browserTool.buildApprovalRequest({ operation: 'click', ref: 'submit-button' })
+        ).resolves.toEqual(expect.objectContaining({ command: 'click submit-button' }));
+        await expect(
             browserActTool.buildApprovalRequest({ operation: 'click', ref: 'submit-button' })
         ).resolves.toEqual(expect.objectContaining({ command: 'click submit-button' }));
+        await expect(
+            browserActTool.buildApprovalRequest({
+                operation: 'click',
+                ref: 'submit-button',
+                description: '点击登录按钮',
+            })
+        ).resolves.toEqual(
+            expect.objectContaining({ command: '点击登录按钮', description: '点击登录按钮' })
+        );
         await expect(
             browserObserveTool.buildApprovalRequest({ operation: 'dom' })
         ).resolves.toBeNull();
@@ -275,6 +406,39 @@ describe('browser tool approval', () => {
         ).resolves.toBeNull();
     });
 
+    it('skips approval prompts when browser permissions allow the operation', async () => {
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                permissions: {
+                    navigate: 'allow',
+                    connectExisting: 'allow',
+                    observeDom: 'allow',
+                    screenshot: 'allow',
+                    click: 'allow',
+                    type: 'allow',
+                    fillForm: 'allow',
+                    history: 'allow',
+                    diagnostics: 'allow',
+                },
+            })
+        );
+
+        await expect(
+            createBrowserApprovalRequest('browser_session', {
+                operation: 'start',
+                description: '启动浏览器访问OpenAI博客',
+            })
+        ).resolves.toBeNull();
+        await expect(
+            createBrowserApprovalRequest('browser_act', {
+                operation: 'navigate',
+                url: 'https://openai.com/blog',
+                description: '访问OpenAI博客',
+            })
+        ).resolves.toBeNull();
+    });
+
     it('requests approval for navigation with a redacted target', async () => {
         const approval = await createBrowserApprovalRequest('browser_act', {
             operation: 'navigate',
@@ -379,7 +543,11 @@ describe('browser tool execution formatting', () => {
             executeBrowserSessionTool({ operation: 'status' }, defaultBrowserConfig, fakeContext())
         ).resolves.toMatchObject({ isError: false });
         await expect(
-            executeBrowserSessionTool({ operation: 'stop' }, defaultBrowserConfig, fakeContext())
+            executeBrowserSessionTool(
+                { operation: 'stop', description: '停止浏览器会话' },
+                defaultBrowserConfig,
+                fakeContext()
+            )
         ).resolves.toMatchObject({ isError: false });
 
         expect(getLastTauriInvokeCall('browser_status')).toBeTruthy();
@@ -404,6 +572,7 @@ describe('browser tool execution formatting', () => {
         const result = await executeBrowserSessionTool(
             {
                 operation: 'start',
+                description: '打开指定浏览器',
                 browserId: 'chrome',
                 startupUrl: 'https://example.test/start',
             },
@@ -416,6 +585,11 @@ describe('browser tool execution formatting', () => {
             request: {
                 browserId: 'chrome',
                 startupUrl: 'https://example.test/start',
+                fingerprintMode: 'off',
+                fingerprintLocale: 'zh-CN',
+                fingerprintTimezone: 'Asia/Shanghai',
+                fingerprintWindowSize: '1366,768',
+                fingerprintStealthScript: false,
             },
         });
     });
@@ -426,6 +600,7 @@ describe('browser tool execution formatting', () => {
         const result = await executeBrowserSessionTool(
             {
                 operation: 'start',
+                description: '打开旧版 URL',
                 browserId: '   ',
                 url: 'https://example.test/legacy-url',
             },
@@ -437,6 +612,11 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
             request: {
                 startupUrl: 'https://example.test/legacy-url',
+                fingerprintMode: 'off',
+                fingerprintLocale: 'zh-CN',
+                fingerprintTimezone: 'Asia/Shanghai',
+                fingerprintWindowSize: '1366,768',
+                fingerprintStealthScript: false,
             },
         });
     });
@@ -445,7 +625,7 @@ describe('browser tool execution formatting', () => {
         mockTauriCommand('browser_start', { status: 'connected' });
 
         const result = await browserSessionTool.execute(
-            { operation: 'start' },
+            { operation: 'start', description: '打开配置主页' },
             browserSessionTool.parseConfig(
                 JSON.stringify({
                     mode: 'custom',
@@ -463,7 +643,172 @@ describe('browser tool execution formatting', () => {
             request: {
                 browserId: 'edge',
                 startupUrl: 'https://example.test/configured',
+                fingerprintMode: 'off',
+                fingerprintLocale: 'zh-CN',
+                fingerprintTimezone: 'Asia/Shanghai',
+                fingerprintWindowSize: '1366,768',
+                fingerprintStealthScript: false,
             },
+        });
+    });
+
+    it('uses browser settings default homepage and executable path for managed start', async () => {
+        mockTauriCommand('browser_start', { status: 'connected' });
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                defaultHomepage: 'https://example.test/browser-settings-home',
+                browserExecutablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+            })
+        );
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'start', description: '打开默认主页' },
+            { mode: 'custom', browserId: 'edge', startupUrl: 'https://legacy.example.test' },
+            fakeContext()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
+            request: {
+                browserId: 'edge',
+                startupUrl: 'https://example.test/browser-settings-home',
+                browserExecutablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+                fingerprintMode: 'off',
+                fingerprintLocale: 'zh-CN',
+                fingerprintTimezone: 'Asia/Shanghai',
+                fingerprintWindowSize: '1366,768',
+                fingerprintStealthScript: false,
+            },
+        });
+    });
+
+    it('passes balanced fingerprint settings to managed browser start', async () => {
+        mockTauriCommand('browser_start', { status: 'connected' });
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                fingerprintMode: 'balanced',
+                fingerprintLocale: 'en-US',
+                fingerprintTimezone: 'America/Los_Angeles',
+                fingerprintUserAgent: 'Mozilla/5.0 TouchAI-compatible',
+                fingerprintWindowSize: '1440,900',
+                fingerprintStealthScript: false,
+            })
+        );
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'start', description: '启动兼容性浏览器' },
+            defaultBrowserConfig,
+            fakeContext()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
+            request: {
+                fingerprintMode: 'balanced',
+                fingerprintLocale: 'en-US',
+                fingerprintTimezone: 'America/Los_Angeles',
+                fingerprintUserAgent: 'Mozilla/5.0 TouchAI-compatible',
+                fingerprintWindowSize: '1440,900',
+                fingerprintStealthScript: false,
+            },
+        });
+    });
+
+    it('derives enhanced fingerprint profile for managed browser start', async () => {
+        mockTauriCommand('browser_start', { status: 'connected' });
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                fingerprintProfile: 'enhanced',
+                fingerprintLocale: 'en-US',
+                fingerprintTimezone: 'America/New_York',
+            })
+        );
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'start', description: '启动增强指纹处理浏览器' },
+            defaultBrowserConfig,
+            fakeContext()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(getLastTauriInvokeCall('browser_start')?.payload).toEqual({
+            request: {
+                fingerprintMode: 'balanced',
+                fingerprintLocale: 'en-US',
+                fingerprintTimezone: 'America/New_York',
+                fingerprintWindowSize: '1366,768',
+                fingerprintStealthScript: true,
+            },
+        });
+    });
+
+    it('blocks browser actions when browser settings deny the target domain', async () => {
+        mockTauriCommand('browser_navigate', { ok: true });
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                blockedDomains: [{ domain: 'example.test' }],
+                permissions: { navigate: 'allow' },
+            })
+        );
+
+        const result = await executeBrowserActTool(
+            {
+                operation: 'navigate',
+                description: '访问被禁止站点',
+                url: 'https://example.test/private',
+            },
+            defaultBrowserConfig,
+            fakeContext()
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.result).toContain('domain-blocked');
+        expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
+    });
+
+    it('reports when no existing browser session is discoverable', async () => {
+        mockTauriCommand('browser_discover_existing', []);
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: '连接当前浏览器' },
+            defaultBrowserConfig,
+            fakeContext()
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.result).toContain('No connectable existing browser session was found');
+    });
+
+    it('discovers and connects an existing browser session after user selection', async () => {
+        mockTauriCommand('browser_discover_existing', [
+            {
+                id: '127.0.0.1:9222',
+                label: 'Google Chrome - github.com',
+                endpoint: 'http://127.0.0.1:9222',
+                browserName: 'Google Chrome',
+                currentUrl: 'https://github.com',
+                title: 'GitHub',
+                tabs: [],
+            },
+        ]);
+        mockTauriCommand('browser_connect_existing', {
+            status: { status: 'connected', managed: false },
+            session: { label: 'Google Chrome - github.com' },
+        });
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: 'Connect GitHub browser session' },
+            defaultBrowserConfig,
+            fakeContext()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(getLastTauriInvokeCall('browser_connect_existing')?.payload).toEqual({
+            request: { endpoint: 'http://127.0.0.1:9222' },
         });
     });
 
@@ -506,7 +851,11 @@ describe('browser tool execution formatting', () => {
         });
 
         const result = await executeBrowserActTool(
-            { operation: 'navigate', url: 'https://example.test/dashboard?token=secret#hash' },
+            {
+                operation: 'navigate',
+                description: '访问仪表盘',
+                url: 'https://example.test/dashboard?token=secret#hash',
+            },
             defaultBrowserConfig,
             fakeContext()
         );
@@ -541,7 +890,11 @@ describe('browser tool execution formatting', () => {
             request: { operation: 'state' },
         });
 
-        await executeBrowserObserveTool({ operation: 'dom' }, defaultBrowserConfig, fakeContext());
+        await executeBrowserObserveTool(
+            { operation: 'dom', description: '读取页面结构' },
+            defaultBrowserConfig,
+            fakeContext()
+        );
         expect(getLastTauriInvokeCall('browser_observe')?.payload).toEqual({
             request: { operation: 'snapshot' },
         });
@@ -575,12 +928,16 @@ describe('browser tool execution formatting', () => {
             fakeContext()
         );
         const ignoredHiddenScreenshot = await executeBrowserObserveTool(
-            { operation: 'screenshot', includeScreenshot: false },
+            {
+                operation: 'screenshot',
+                description: '截取当前页面',
+                includeScreenshot: false,
+            },
             defaultBrowserConfig,
             fakeContext()
         );
         const hiddenDom = await executeBrowserObserveTool(
-            { operation: 'dom', includeDom: false },
+            { operation: 'dom', description: '读取页面结构', includeDom: false },
             defaultBrowserConfig,
             fakeContext()
         );
@@ -608,6 +965,7 @@ describe('browser tool execution formatting', () => {
         const result = await executeBrowserActTool(
             {
                 operation: 'click',
+                description: '点击测试元素',
                 ref: 'ref-1',
                 refId: 'ref-1',
                 navigationToken: 'old-token',
@@ -660,6 +1018,7 @@ describe('browser tool execution formatting', () => {
         const result = await browserActTool.execute(
             {
                 operation: 'fill_form',
+                description: '填写测试表单',
                 tabId: '',
                 ref: 'form-1',
                 targetRef: 'form-1',
@@ -737,6 +1096,7 @@ describe('browser tool execution formatting', () => {
         await executeBrowserActTool(
             {
                 operation: 'fill_form',
+                description: '填写测试表单',
                 fields: [
                     { ref: 'email', navigationToken: 'obs-1', value: 'alice@example.test' },
                     { ref: 'password', navigationToken: 'obs-1', value: 'secret' },
@@ -763,6 +1123,7 @@ describe('browser tool execution formatting', () => {
         await executeBrowserActTool(
             {
                 operation: 'fill',
+                description: '填写测试字段',
                 ref: 'input-1',
                 navigationToken: 'obs-1',
                 value: '',
@@ -782,6 +1143,7 @@ describe('browser tool execution formatting', () => {
         await executeBrowserActTool(
             {
                 operation: 'type',
+                description: '输入测试文本',
                 ref: 'editor',
                 navigationToken: 'obs-1',
                 text: '   ',
@@ -807,7 +1169,11 @@ describe('browser tool execution formatting', () => {
         });
 
         const result = await executeBrowserActTool(
-            { operation: 'navigate', url: 'https://example.test/path?token=secret#hash' },
+            {
+                operation: 'navigate',
+                description: '访问错误页面',
+                url: 'https://example.test/path?token=secret#hash',
+            },
             defaultBrowserConfig,
             fakeContext()
         );
@@ -831,22 +1197,22 @@ describe('browser tool execution formatting', () => {
         mockTauriCommand('browser_observe', { screenshotBase64: 'SECRET', mimeType: 'image/png' });
 
         await executeBrowserActTool(
-            { operation: 'back', tabId: 'tab-1' },
+            { operation: 'back', description: '返回上一页', tabId: 'tab-1' },
             defaultBrowserConfig,
             fakeContext()
         );
         await executeBrowserActTool(
-            { operation: 'forward', tabId: 'tab-1' },
+            { operation: 'forward', description: '前进下一页', tabId: 'tab-1' },
             defaultBrowserConfig,
             fakeContext()
         );
         await executeBrowserActTool(
-            { operation: 'reload', tabId: 'tab-1' },
+            { operation: 'reload', description: '刷新当前页面', tabId: 'tab-1' },
             defaultBrowserConfig,
             fakeContext()
         );
         const screenshot = await executeBrowserActTool(
-            { operation: 'screenshot', tabId: 'tab-1' },
+            { operation: 'screenshot', description: '截取当前页面', tabId: 'tab-1' },
             defaultBrowserConfig,
             fakeContext()
         );
@@ -876,7 +1242,7 @@ describe('browser tool execution formatting', () => {
         });
 
         const result = await executeBrowserObserveTool(
-            { operation: 'screenshot' },
+            { operation: 'screenshot', description: '截取当前页面' },
             defaultBrowserConfig,
             fakeContext()
         );
@@ -916,6 +1282,7 @@ describe('browser tool execution formatting', () => {
     it('returns a real image attachment when screenshot response includes a file path', async () => {
         mockTauriCommand('browser_observe', {
             operation: 'screenshot',
+            url: 'https://example.test/releases',
             filePath: 'D:/TouchAI/screenshots/browser-shot.png',
             screenshotBase64: 'SCREENSHOTBASE64SECRET',
             mimeType: 'image/png',
@@ -924,12 +1291,17 @@ describe('browser tool execution formatting', () => {
         });
 
         const result = await executeBrowserObserveTool(
-            { operation: 'screenshot' },
+            { operation: 'screenshot', description: '截取当前页面' },
             defaultBrowserConfig,
             fakeContext()
         );
 
         expect(result.result).toContain('D:/TouchAI/screenshots/browser-shot.png');
+        expect(result.result).toContain('url: https://example.test/releases');
+        expect(result.result).toContain(
+            'markdown: ![Browser screenshot of https://example.test/releases]('
+        );
+        expect(result.result).toContain('asset.localhost');
         expect(result.result).not.toContain('SCREENSHOTBASE64SECRET');
         expect(result.attachments).toEqual([
             expect.objectContaining({

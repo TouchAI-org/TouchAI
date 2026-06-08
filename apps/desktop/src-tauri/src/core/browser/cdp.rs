@@ -226,6 +226,159 @@ pub async fn navigate_current_page(
     Ok(())
 }
 
+pub async fn apply_page_fingerprint_overrides(
+    endpoint: &BrowserEndpoint,
+    tab_id: Option<&str>,
+    locale: Option<&str>,
+    timezone: Option<&str>,
+    stealth_script: bool,
+) -> Result<(), String> {
+    if locale.is_none() && timezone.is_none() && !stealth_script {
+        return Ok(());
+    }
+    let target = resolve_page_target(endpoint, tab_id).await?;
+    if stealth_script {
+        let script = browser_fingerprint_compat_script(locale);
+        call_page(
+            endpoint,
+            &target,
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": script }),
+        )
+        .await?;
+        call_page(
+            endpoint,
+            &target,
+            "Runtime.evaluate",
+            json!({
+                "expression": script,
+                "awaitPromise": false,
+                "returnByValue": true
+            }),
+        )
+        .await?;
+    }
+    if let Some(locale) = locale.and_then(normalized_override_value) {
+        call_page(
+            endpoint,
+            &target,
+            "Emulation.setLocaleOverride",
+            json!({ "locale": locale }),
+        )
+        .await?;
+    }
+    if let Some(timezone) = timezone.and_then(normalized_override_value) {
+        call_page(
+            endpoint,
+            &target,
+            "Emulation.setTimezoneOverride",
+            json!({ "timezoneId": timezone }),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+fn normalized_override_value(value: &str) -> Option<&str> {
+    let value = value.trim();
+    (!value.is_empty() && !value.starts_with('-') && !value.contains('\0')).then_some(value)
+}
+
+fn browser_fingerprint_compat_script(locale: Option<&str>) -> String {
+    let locale = locale
+        .and_then(normalized_override_value)
+        .unwrap_or("zh-CN")
+        .to_string();
+    let language = locale
+        .split(['-', '_'])
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("zh")
+        .to_string();
+    let locale_json = serde_json::to_string(&locale).unwrap_or_else(|_| "\"zh-CN\"".to_string());
+    let language_json = serde_json::to_string(&language).unwrap_or_else(|_| "\"zh\"".to_string());
+    format!(
+        r#"
+(() => {{
+  if (globalThis.__touchaiFingerprintCompatInstalled) return true;
+  Object.defineProperty(globalThis, '__touchaiFingerprintCompatInstalled', {{ value: true, configurable: false }});
+  const safeDefine = (target, prop, getter) => {{
+    try {{ Object.defineProperty(target, prop, {{ get: getter, configurable: true }}); }} catch {{}}
+  }};
+  const navProto = Navigator.prototype;
+  safeDefine(navProto, 'webdriver', () => undefined);
+  safeDefine(navProto, 'languages', () => [{locale_json}, {language_json}]);
+  safeDefine(navProto, 'language', () => {locale_json});
+  safeDefine(navProto, 'platform', () => 'Win32');
+  safeDefine(navProto, 'hardwareConcurrency', () => 8);
+  safeDefine(navProto, 'deviceMemory', () => 8);
+  const fakePluginArray = (() => {{
+    const plugins = [
+      {{ name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
+      {{ name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
+      {{ name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
+      {{ name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
+      {{ name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }},
+    ];
+    plugins.item = (index) => plugins[index] || null;
+    plugins.namedItem = (name) => plugins.find((plugin) => plugin.name === name) || null;
+    plugins.refresh = () => undefined;
+    return plugins;
+  }})();
+  const fakeMimeTypes = (() => {{
+    const mimeTypes = [{{ type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' }}];
+    mimeTypes.item = (index) => mimeTypes[index] || null;
+    mimeTypes.namedItem = (name) => mimeTypes.find((item) => item.type === name) || null;
+    return mimeTypes;
+  }})();
+  safeDefine(navProto, 'plugins', () => fakePluginArray);
+  safeDefine(navProto, 'mimeTypes', () => fakeMimeTypes);
+  globalThis.chrome = globalThis.chrome || {{}};
+  globalThis.chrome.runtime = globalThis.chrome.runtime || {{}};
+  if (navigator.permissions && navigator.permissions.query) {{
+    const originalQuery = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (parameters) => {{
+      if (parameters && parameters.name === 'notifications') {{
+        return Promise.resolve({{ state: Notification.permission }});
+      }}
+      return originalQuery(parameters);
+    }};
+  }}
+  const patchWebGL = (proto) => {{
+    if (!proto || !proto.getParameter || proto.__touchaiCompatPatched) return;
+    const original = proto.getParameter;
+    Object.defineProperty(proto, '__touchaiCompatPatched', {{ value: true }});
+    proto.getParameter = function(parameter) {{
+      if (parameter === 37445) return 'Intel Inc.';
+      if (parameter === 37446) return 'Intel(R) UHD Graphics';
+      return original.call(this, parameter);
+    }};
+  }};
+  patchWebGL(globalThis.WebGLRenderingContext && WebGLRenderingContext.prototype);
+  patchWebGL(globalThis.WebGL2RenderingContext && WebGL2RenderingContext.prototype);
+  const patchCanvas = (proto) => {{
+    if (!proto || !proto.toDataURL || proto.__touchaiCompatPatched) return;
+    const originalToDataURL = proto.toDataURL;
+    Object.defineProperty(proto, '__touchaiCompatPatched', {{ value: true }});
+    proto.toDataURL = function(...args) {{
+      try {{
+        const ctx = this.getContext && this.getContext('2d');
+        if (ctx && this.width > 0 && this.height > 0) {{
+          const image = ctx.getImageData(0, 0, 1, 1);
+          image.data[0] = (image.data[0] + 1) % 255;
+          ctx.putImageData(image, 0, 0);
+        }}
+      }} catch {{}}
+      return originalToDataURL.apply(this, args);
+    }};
+  }};
+  patchCanvas(globalThis.HTMLCanvasElement && HTMLCanvasElement.prototype);
+  return true;
+}})()
+"#
+    )
+}
+
 pub async fn history_action(
     endpoint: &BrowserEndpoint,
     tab_id: Option<&str>,
@@ -1135,6 +1288,20 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn fingerprint_compat_script_covers_common_automation_surfaces() {
+        let script = browser_fingerprint_compat_script(Some("en-US"));
+
+        assert!(script.contains("'webdriver'"));
+        assert!(script.contains("'plugins'"));
+        assert!(script.contains("'mimeTypes'"));
+        assert!(script.contains("chrome.runtime"));
+        assert!(script.contains("permissions.query"));
+        assert!(script.contains("WebGLRenderingContext"));
+        assert!(script.contains("HTMLCanvasElement"));
+        assert!(script.contains("\"en-US\""));
     }
 
     #[test]

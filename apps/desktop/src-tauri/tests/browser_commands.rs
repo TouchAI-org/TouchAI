@@ -101,6 +101,65 @@ fn managed_start_request_rejects_arbitrary_paths_and_directories() {
 }
 
 #[test]
+fn managed_start_request_accepts_trusted_browser_executable_path_field() {
+    let request =
+        serde_json::from_value::<touchai_lib::testing::BrowserStartRequestForTests>(json!({
+            "browserExecutablePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "startupUrl": "about:blank"
+        }))
+        .expect("browser settings executable path field should be accepted");
+
+    assert_eq!(
+        request
+            .browser_executable_path
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str()),
+        Some("chrome.exe")
+    );
+}
+
+#[test]
+fn managed_start_request_accepts_trusted_browser_data_path_field() {
+    let request =
+        serde_json::from_value::<touchai_lib::testing::BrowserStartRequestForTests>(json!({
+            "browserDataPath": "D:\\TouchAI\\BrowserData",
+            "startupUrl": "about:blank"
+        }))
+        .expect("browser settings data path field should be accepted");
+
+    assert_eq!(
+        request
+            .browser_data_path
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str()),
+        Some("BrowserData")
+    );
+}
+
+#[test]
+fn managed_start_request_accepts_balanced_fingerprint_fields() {
+    let request =
+        serde_json::from_value::<touchai_lib::testing::BrowserStartRequestForTests>(json!({
+            "fingerprintMode": "balanced",
+            "fingerprintLocale": "zh-CN",
+            "fingerprintTimezone": "Asia/Shanghai",
+            "fingerprintUserAgent": "Mozilla/5.0 TouchAI-compatible",
+            "fingerprintWindowSize": "1440,900",
+            "startupUrl": "about:blank"
+        }))
+        .expect("balanced fingerprint fields should be accepted");
+
+    assert_eq!(request.fingerprint_locale.as_deref(), Some("zh-CN"));
+    assert_eq!(
+        request.fingerprint_timezone.as_deref(),
+        Some("Asia/Shanghai")
+    );
+    assert_eq!(request.fingerprint_window_size.as_deref(), Some("1440,900"));
+}
+
+#[test]
 fn browser_url_policy_accepts_only_web_urls_and_about_blank() {
     for url in [
         "https://example.test/path?q=1",
@@ -290,6 +349,51 @@ fn browser_status_defaults_to_idle() {
     assert_eq!(response["managed"], json!(false));
     assert!(response.get("endpoint").is_none());
     assert_eq!(response["tabs"], json!([]));
+}
+
+#[test]
+fn browser_connect_existing_rejects_non_loopback_endpoint_before_network_access() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "browser_connect_existing",
+        json!({
+            "request": {
+                "endpoint": "http://192.168.1.5:9222"
+            }
+        }),
+    );
+
+    assert!(
+        error
+            .as_str()
+            .is_some_and(|message| message.contains("loopback host")),
+        "unexpected existing browser endpoint error: {error:?}"
+    );
+}
+
+#[test]
+fn browser_connect_existing_rejects_unknown_fields() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "browser_connect_existing",
+        json!({
+            "request": {
+                "endpoint": "http://127.0.0.1:9222",
+                "rawCdp": true
+            }
+        }),
+    );
+
+    assert!(
+        error
+            .as_str()
+            .is_some_and(|message| message.contains("unknown field `rawCdp`")),
+        "unexpected existing browser unknown field error: {error:?}"
+    );
 }
 
 #[test]

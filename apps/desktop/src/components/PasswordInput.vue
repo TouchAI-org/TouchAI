@@ -13,6 +13,8 @@
         modelValue: string;
         placeholder?: string;
         disabled?: boolean;
+        inputClass?: string;
+        inputTestId?: string;
     }
 
     interface Emits {
@@ -23,6 +25,8 @@
     withDefaults(defineProps<Props>(), {
         placeholder: '',
         disabled: false,
+        inputClass: '',
+        inputTestId: undefined,
     });
 
     const emit = defineEmits<Emits>();
@@ -48,7 +52,8 @@
             :type="showPassword ? 'text' : 'password'"
             :placeholder="placeholder"
             :disabled="disabled"
-            class="h-auto py-2 pr-10 font-sans tracking-normal"
+            :data-testid="inputTestId"
+            :class="['h-auto py-2 pr-10 tracking-normal', inputClass]"
             @input="handleInput"
         />
         <Button

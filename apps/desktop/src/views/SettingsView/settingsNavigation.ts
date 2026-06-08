@@ -6,6 +6,8 @@ export type NavigationSection =
     | 'general'
     | 'ai-services'
     | 'built-in-tools'
+    | 'search'
+    | 'browser'
     | 'mcp-tools'
     | 'data-management';
 
@@ -59,6 +61,18 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 icon: 'tool',
                 labelKey: 'settings.nav.builtInTools.label',
                 descriptionKey: 'settings.nav.builtInTools.description',
+            },
+            {
+                id: 'search',
+                icon: 'search',
+                labelKey: 'settings.nav.search.label',
+                descriptionKey: 'settings.nav.search.description',
+            },
+            {
+                id: 'browser',
+                icon: 'globe',
+                labelKey: 'settings.nav.browser.label',
+                descriptionKey: 'settings.nav.browser.description',
             },
             {
                 id: 'mcp-tools',

@@ -540,6 +540,7 @@ export interface BuiltInToolLogEntity {
     status: BuiltInToolLogStatus;
     approval_state: BuiltInToolApprovalState;
     approval_summary: string | null;
+    conversation_semantic_json: string | null;
     duration_ms: number | null;
     error_message: string | null;
     created_at: string;
@@ -556,6 +557,7 @@ export interface BuiltInToolLogCreateData {
     status?: BuiltInToolLogStatus;
     approval_state?: BuiltInToolApprovalState;
     approval_summary?: string | null;
+    conversation_semantic_json?: string | null;
     duration_ms?: number | null;
     error_message?: string | null;
     created_at?: string;

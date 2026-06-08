@@ -1,6 +1,6 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, count, eq } from 'drizzle-orm';
+import { asc, count, eq, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import type { PersistedToolLogStatus } from '../schema';
@@ -19,6 +19,7 @@ export interface ToolLogHistoryRow {
     tool_status: PersistedToolLogStatus;
     tool_duration_ms: number | null;
     server_id: number | null;
+    builtin_conversation_semantic_json: string | null;
 }
 
 export interface MessageRow extends MessageEntity {
@@ -30,6 +31,7 @@ export interface MessageRow extends MessageEntity {
     tool_status: PersistedToolLogStatus | null;
     tool_duration_ms: number | null;
     server_id: number | null;
+    builtin_conversation_semantic_json: string | null;
 }
 
 function toNamespacedToolName(toolLog: ToolLogHistoryRow): string {
@@ -81,6 +83,7 @@ function buildMessageRow(
         tool_status: toolLog?.tool_status ?? null,
         tool_duration_ms: toolLog?.tool_duration_ms ?? null,
         server_id: toolLog?.server_id ?? null,
+        builtin_conversation_semantic_json: toolLog?.builtin_conversation_semantic_json ?? null,
     };
 }
 
@@ -233,6 +236,7 @@ export const findToolLogRowsBySessionId = async (
                 tool_status: mcpToolLogs.status,
                 tool_duration_ms: mcpToolLogs.duration_ms,
                 server_id: mcpToolLogs.server_id,
+                builtin_conversation_semantic_json: sql<string | null>`null`,
             })
             .from(mcpToolLogs)
             .where(eq(mcpToolLogs.session_id, sessionId))
@@ -247,6 +251,7 @@ export const findToolLogRowsBySessionId = async (
                 created_at: builtInToolLogs.created_at,
                 tool_status: builtInToolLogs.status,
                 tool_duration_ms: builtInToolLogs.duration_ms,
+                builtin_conversation_semantic_json: builtInToolLogs.conversation_semantic_json,
             })
             .from(builtInToolLogs)
             .where(eq(builtInToolLogs.session_id, sessionId))

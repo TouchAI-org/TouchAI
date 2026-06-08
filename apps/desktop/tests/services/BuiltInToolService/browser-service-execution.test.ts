@@ -34,14 +34,14 @@ const currentModel = {
     provider_name: 'OpenAI',
 } as ModelWithProvider;
 
-function createBrowserActRow() {
+function createBrowserRow() {
     return {
         id: 21,
-        tool_id: 'browser_act',
-        display_name: 'BrowserAct',
+        tool_id: 'browser',
+        display_name: 'Browser',
         description: null,
         enabled: 1,
-        risk_level: 'high',
+        risk_level: 'medium',
         config_json: null,
         last_used_at: null,
         created_at: '2026-05-24T00:00:00.000Z',
@@ -55,15 +55,11 @@ describe('BuiltInToolService browser execution safety', () => {
         createBuiltInToolLogMock.mockResolvedValue({ id: 11 });
         updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
         touchBuiltInToolLastUsedMock.mockResolvedValue(undefined);
-        findBuiltInToolByToolIdMock.mockResolvedValue(createBrowserActRow());
-        findEnabledBuiltInToolsMock.mockResolvedValue([
-            { tool_id: 'browser_session' },
-            { tool_id: 'browser_observe' },
-            { tool_id: 'browser_act' },
-        ]);
+        findBuiltInToolByToolIdMock.mockResolvedValue(createBrowserRow());
+        findEnabledBuiltInToolsMock.mockResolvedValue([{ tool_id: 'browser' }]);
     });
 
-    it('fails closed for missing browser_act operation without approval or native action', async () => {
+    it('fails closed for missing browser operation without approval or native action', async () => {
         const emitToolEvent = vi.fn();
         const requestToolApproval = vi.fn();
         mockTauriCommand('browser_act', { ok: true, action: 'click' });
@@ -71,7 +67,7 @@ describe('BuiltInToolService browser execution safety', () => {
         const result = await builtInToolService.executeTool({
             toolCall: {
                 id: 'tool-call-1',
-                name: 'builtin__browser_act',
+                name: 'builtin__browser',
                 arguments: '{}',
             },
             toolArgs: { ref: 'submit-button', navigationToken: 'obs-1' },
@@ -85,10 +81,10 @@ describe('BuiltInToolService browser execution safety', () => {
         });
 
         expect(result).toMatchObject({
-            builtInToolId: 'browser_act',
+            builtInToolId: 'browser',
             isError: true,
         });
-        expect(result?.result).toContain('Missing required browser_act operation');
+        expect(result?.result).toContain('Missing required browser operation');
         expect(requestToolApproval).not.toHaveBeenCalled();
         expect(getLastTauriInvokeCall('browser_act')).toBeUndefined();
         expect(emitToolEvent).not.toHaveBeenCalledWith(

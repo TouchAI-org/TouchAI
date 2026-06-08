@@ -19,7 +19,6 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
                           action: 'run',
                           target: typeof args.command === 'string' ? args.command : 'Bash',
                       }),
-                      buildConversationSemanticFromResult: () => null,
                   }
                 : null,
         list: () => [
@@ -50,6 +49,7 @@ function createMessageRow(overrides: Partial<MessageRow>): MessageRow {
         tool_status: null,
         tool_duration_ms: null,
         server_id: null,
+        builtin_conversation_semantic_json: null,
         tool_log_id: null,
         tool_log_kind: null,
         created_at: BASE_TIME,

@@ -1,7 +1,8 @@
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { truncateText } from '@/utils/text';
 
-import { formatRedactedJson, redactBrowserValue } from './redaction';
+import { formatRedactedJson, redactBrowserValue, redactUrl } from './redaction';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -42,11 +43,31 @@ function stripScreenshotPayloads(value: unknown): unknown {
     );
 }
 
+function cleanMarkdownAltText(value: string): string {
+    return value.replace(/\s+/g, ' ').replace(/[[\]\\]/g, '').trim();
+}
+
+function formatMarkdownImageUrl(path: string): string {
+    try {
+        return convertFileSrc(path);
+    } catch {
+        return path.replace(/\\/g, '/');
+    }
+}
+
+function formatScreenshotMarkdown(path: string, url: string | null): string {
+    const altText = cleanMarkdownAltText(
+        url ? `Browser screenshot of ${redactUrl(url)}` : 'Browser screenshot'
+    );
+    return `![${altText}](<${formatMarkdownImageUrl(path)}>)`;
+}
+
 function formatScreenshotResponse(response: Record<string, unknown>): {
     result: string;
     attachments?: AttachmentIndex[];
 } {
     const path = getString(response, ['path', 'filePath', 'file_path']);
+    const url = getString(response, ['url', 'currentUrl', 'current_url', 'pageUrl', 'page_url']);
     const mimeType = getString(response, ['mimeType', 'mime_type']) ?? 'image/png';
     const width = typeof response.width === 'number' ? response.width : null;
     const height = typeof response.height === 'number' ? response.height : null;
@@ -62,7 +83,9 @@ function formatScreenshotResponse(response: Record<string, unknown>): {
         return {
             result: [
                 '<browser_screenshot>',
+                url ? `url: ${redactUrl(url)}` : null,
                 `path: ${path}`,
+                `markdown: ${formatScreenshotMarkdown(path, url)}`,
                 `mimeType: ${mimeType}`,
                 `dimensions: ${dimensions}`,
                 hasBase64 ? 'base64 suppressed from model-visible result' : null,
@@ -87,6 +110,7 @@ function formatScreenshotResponse(response: Record<string, unknown>): {
     return {
         result: [
             '<browser_screenshot>',
+            url ? `url: ${redactUrl(url)}` : null,
             `mimeType: ${mimeType}`,
             `dimensions: ${dimensions}`,
             hasBase64

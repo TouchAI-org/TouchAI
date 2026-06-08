@@ -46,12 +46,53 @@ pub struct BrowserStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserExistingSession {
+    pub id: String,
+    pub label: String,
+    pub endpoint: String,
+    pub browser_name: String,
+    pub current_url: Option<String>,
+    pub title: Option<String>,
+    pub tabs: Vec<BrowserTab>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+pub struct BrowserConnectExistingRequest {
+    pub endpoint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserConnectExistingResult {
+    pub status: BrowserStatus,
+    pub session: BrowserExistingSession,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct BrowserStartRequest {
     pub browser_id: Option<String>,
     pub startup_url: Option<String>,
+    pub browser_executable_path: Option<PathBuf>,
+    pub browser_data_path: Option<PathBuf>,
+    pub fingerprint_mode: Option<BrowserFingerprintMode>,
+    pub fingerprint_locale: Option<String>,
+    pub fingerprint_timezone: Option<String>,
+    pub fingerprint_user_agent: Option<String>,
+    pub fingerprint_window_size: Option<String>,
+    pub fingerprint_stealth_script: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserFingerprintMode {
+    Off,
+    Balanced,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -186,6 +227,8 @@ pub struct BrowserEndpointSnapshot {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CdpVersionResponse {
+    #[serde(default, rename = "Browser")]
+    pub browser: Option<String>,
     #[serde(default, rename = "webSocketDebuggerUrl")]
     pub web_socket_debugger_url: Option<String>,
 }

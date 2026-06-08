@@ -40,6 +40,12 @@ describe('Settings navigation sidebar i18n', () => {
         expect(wrapper.get('[data-testid="settings-nav-built-in-tools"]').attributes('title')).toBe(
             'Built-in tools'
         );
+        expect(wrapper.get('[data-testid="settings-nav-search"]').attributes('title')).toBe(
+            'Search'
+        );
+        expect(wrapper.get('[data-testid="settings-nav-browser"]').attributes('title')).toBe(
+            'Browser Control'
+        );
         expect(wrapper.get('[data-testid="settings-nav-mcp-tools"]').attributes('title')).toBe(
             'MCP tools'
         );
@@ -57,6 +63,8 @@ describe('Settings navigation sidebar i18n', () => {
             'General',
             'Providers and models',
             'Built-in tools',
+            'Search',
+            'Browser Control',
             'MCP tools',
             'Data management',
         ]);

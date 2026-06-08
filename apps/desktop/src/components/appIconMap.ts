@@ -19,6 +19,7 @@ import IconFile from '~icons/bx/file';
 import IconFileBlank from '~icons/bx/file-blank';
 import IconFolderOpen from '~icons/bx/folder-open';
 import IconFullscreen from '~icons/bx/fullscreen';
+import IconGlobe from '~icons/bx/globe';
 import IconGridAlt from '~icons/bx/grid-alt';
 import IconHide from '~icons/bx/hide';
 import IconHistory from '~icons/bx/history';
@@ -61,10 +62,12 @@ export const appIconMap = {
     eye: IconShow,
     'eye-off': IconHide,
     file: IconFile,
+    folder: IconFolderOpen,
     'folder-open': IconFolderOpen,
     fullscreen: IconFullscreen,
     github: IconGithub,
     'grid-alt': IconGridAlt,
+    globe: IconGlobe,
     history: IconHistory,
     'list-ul': IconMenu,
     'information-circle': IconInfoCircle,

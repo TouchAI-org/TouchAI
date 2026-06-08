@@ -138,6 +138,12 @@ WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'web_fetch');
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
+SELECT 'web_search', 'WebSearch', '搜索网页候选来源', 1, 'low', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'web_search');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
 SELECT 'upgrade_model', 'UpgradeModel', '升级当前请求模型', 1, 'medium', '{"chain":[]}'
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'upgrade_model');
 
@@ -162,17 +168,5 @@ WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'ask_user_questio
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
-SELECT 'browser_session', 'BrowserSession', '管理浏览器自动化会话与标签页', 1, 'medium', NULL
-WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser_session');
-
-INSERT INTO built_in_tools (
-    tool_id, display_name, description, enabled, risk_level, config_json
-)
-SELECT 'browser_observe', 'BrowserObserve', '观察浏览器页面状态、快照、截图、控制台与网络摘要', 1, 'low', NULL
-WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser_observe');
-
-INSERT INTO built_in_tools (
-    tool_id, display_name, description, enabled, risk_level, config_json
-)
-SELECT 'browser_act', 'BrowserAct', '通过浏览器页面引用执行点击、输入、表单、按键、滚动与等待操作', 1, 'medium', NULL
-WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser_act');
+SELECT 'browser', 'Browser', 'Unified browser control for session, observation, screenshots, and interactions', 1, 'medium', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser');

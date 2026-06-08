@@ -123,25 +123,6 @@ class AskUserTool extends BuiltInTool {
         };
     }
 
-    override buildConversationSemanticFromResult(
-        result: string,
-        args: Record<string, unknown>
-    ): BuiltInToolConversationSemantic | null {
-        void args;
-        const lines = result.split('\n').filter((l) => l.startsWith('Q'));
-        if (lines.length === 0) return null;
-        const summary = lines
-            .map((line) => {
-                const match = line.match(/^Q\d+\s+\[.*?\]\s*->\s*(.+)$/);
-                return match?.[1] ?? line;
-            })
-            .join('; ');
-        return {
-            action: 'ask',
-            target: summary.length > 80 ? summary.slice(0, 77) + '...' : summary,
-        };
-    }
-
     override async execute(
         args: Record<string, unknown>,
         _config: unknown,

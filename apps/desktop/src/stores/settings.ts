@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+﻿// Copyright (c) 2026. 鍗冭瘹. Licensed under GPL v3
 
 import { getSettingValue, setSetting } from '@database/queries';
 import type { GeneralSettingKey, SettingsGeneralUpdatedEvent } from '@services/EventService';
@@ -12,6 +12,20 @@ import {
     DEFAULT_APP_UPDATE_CHANNEL,
     normalizeAppUpdateChannel,
 } from '@/config/appUpdate';
+import {
+    BROWSER_SETTINGS_KEY,
+    type BrowserSettingsConfig,
+    DEFAULT_BROWSER_SETTINGS,
+    parseBrowserSettingsConfig,
+    serializeBrowserSettingsConfig,
+} from '@/config/browserSettings';
+import {
+    DEFAULT_SEARCH_SETTINGS,
+    SEARCH_SETTINGS_KEY,
+    type SearchSettingsConfig,
+    parseSearchSettingsConfig,
+    serializeSearchSettingsConfig,
+} from '@/config/searchSettings';
 import {
     DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
     resolveSearchWindowDefaultSize,
@@ -35,6 +49,8 @@ export interface GeneralSettingsData {
     appUpdateChannel: AppUpdateChannel;
     appUpdateAutoCheck: boolean;
     appUpdateLastCheckedAt: string | null;
+    browserSettings: BrowserSettingsConfig;
+    searchSettings: SearchSettingsConfig;
 }
 
 const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
@@ -48,6 +64,8 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     appUpdateChannel: DEFAULT_APP_UPDATE_CHANNEL,
     appUpdateAutoCheck: true,
     appUpdateLastCheckedAt: null,
+    browserSettings: DEFAULT_BROWSER_SETTINGS,
+    searchSettings: DEFAULT_SEARCH_SETTINGS,
 };
 
 function createDefaultGeneralSettings(): GeneralSettingsData {
@@ -56,6 +74,12 @@ function createDefaultGeneralSettings(): GeneralSettingsData {
         searchWindowDefaultSize: {
             ...DEFAULT_GENERAL_SETTINGS.searchWindowDefaultSize,
         },
+        browserSettings: parseBrowserSettingsConfig(
+            serializeBrowserSettingsConfig(DEFAULT_GENERAL_SETTINGS.browserSettings)
+        ),
+        searchSettings: parseSearchSettingsConfig(
+            serializeSearchSettingsConfig(DEFAULT_GENERAL_SETTINGS.searchSettings)
+        ),
     };
 }
 
@@ -118,6 +142,12 @@ export const useSettingsStore = defineStore('settings', () => {
             searchWindowDefaultSize: {
                 ...settings.value.searchWindowDefaultSize,
             },
+            browserSettings: parseBrowserSettingsConfig(
+                serializeBrowserSettingsConfig(settings.value.browserSettings)
+            ),
+            searchSettings: parseSearchSettingsConfig(
+                serializeSearchSettingsConfig(settings.value.searchSettings)
+            ),
         };
     }
 
@@ -155,6 +185,16 @@ export const useSettingsStore = defineStore('settings', () => {
             case 'app_update_last_checked_at':
                 settings.value.appUpdateLastCheckedAt = value === null ? null : String(value);
                 break;
+            case 'browser_settings':
+                settings.value.browserSettings = parseBrowserSettingsConfig(
+                    typeof value === 'string' ? value : null
+                );
+                break;
+            case 'search_settings':
+                settings.value.searchSettings = parseSearchSettingsConfig(
+                    typeof value === 'string' ? value : null
+                );
+                break;
             default:
                 break;
         }
@@ -180,6 +220,10 @@ export const useSettingsStore = defineStore('settings', () => {
                 return String(settings.value.appUpdateAutoCheck);
             case 'app_update_last_checked_at':
                 return settings.value.appUpdateLastCheckedAt ?? '';
+            case 'browser_settings':
+                return serializeBrowserSettingsConfig(settings.value.browserSettings);
+            case 'search_settings':
+                return serializeSearchSettingsConfig(settings.value.searchSettings);
             default:
                 return '';
         }
@@ -205,6 +249,10 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.appUpdateAutoCheck;
             case 'app_update_last_checked_at':
                 return settings.value.appUpdateLastCheckedAt;
+            case 'browser_settings':
+                return serializeBrowserSettingsConfig(settings.value.browserSettings);
+            case 'search_settings':
+                return serializeSearchSettingsConfig(settings.value.searchSettings);
             default:
                 return '';
         }
@@ -230,6 +278,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 appUpdateChannel,
                 appUpdateAutoCheck,
                 appUpdateLastCheckedAt,
+                browserSettings,
+                searchSettings,
             ] = await Promise.all([
                 getSettingValue({ key: 'global_shortcut' }),
                 getSettingValue({ key: 'start_on_boot' }),
@@ -240,6 +290,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 getSettingValue({ key: 'app_update_channel' }),
                 getSettingValue({ key: 'app_update_auto_check' }),
                 getSettingValue({ key: 'app_update_last_checked_at' }),
+                getSettingValue({ key: BROWSER_SETTINGS_KEY }),
+                getSettingValue({ key: SEARCH_SETTINGS_KEY }),
             ]);
 
             settings.value.globalShortcut =
@@ -261,6 +313,8 @@ export const useSettingsStore = defineStore('settings', () => {
                     ? DEFAULT_GENERAL_SETTINGS.appUpdateAutoCheck
                     : appUpdateAutoCheck !== 'false';
             settings.value.appUpdateLastCheckedAt = appUpdateLastCheckedAt || null;
+            settings.value.browserSettings = parseBrowserSettingsConfig(browserSettings);
+            settings.value.searchSettings = parseSearchSettingsConfig(searchSettings);
 
             await Promise.allSettled([
                 persistDefaultIfMissing('global_shortcut', globalShortcut),
@@ -271,6 +325,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 persistDefaultIfMissing('language', language),
                 persistDefaultIfMissing('app_update_channel', appUpdateChannel),
                 persistDefaultIfMissing('app_update_auto_check', appUpdateAutoCheck),
+                persistDefaultIfMissing(BROWSER_SETTINGS_KEY, browserSettings),
+                persistDefaultIfMissing(SEARCH_SETTINGS_KEY, searchSettings),
             ]);
         } finally {
             loading.value = false;
@@ -404,6 +460,14 @@ export const useSettingsStore = defineStore('settings', () => {
         await updateSetting('app_update_last_checked_at', checkedAt);
     }
 
+    async function updateBrowserSettings(config: BrowserSettingsConfig) {
+        await updateSetting(BROWSER_SETTINGS_KEY, serializeBrowserSettingsConfig(config));
+    }
+
+    async function updateSearchSettings(config: SearchSettingsConfig) {
+        await updateSetting(SEARCH_SETTINGS_KEY, serializeSearchSettingsConfig(config));
+    }
+
     const outputScrollBehavior = computed(() => settings.value.outputScrollBehavior);
     const globalShortcut = computed(() => settings.value.globalShortcut);
     const searchWindowSizePreset = computed(() => settings.value.searchWindowSizePreset);
@@ -412,6 +476,8 @@ export const useSettingsStore = defineStore('settings', () => {
     const appUpdateChannel = computed(() => settings.value.appUpdateChannel);
     const appUpdateAutoCheck = computed(() => settings.value.appUpdateAutoCheck);
     const appUpdateLastCheckedAt = computed(() => settings.value.appUpdateLastCheckedAt);
+    const browserSettings = computed(() => settings.value.browserSettings);
+    const searchSettings = computed(() => settings.value.searchSettings);
 
     return {
         settings,
@@ -425,6 +491,8 @@ export const useSettingsStore = defineStore('settings', () => {
         appUpdateChannel,
         appUpdateAutoCheck,
         appUpdateLastCheckedAt,
+        browserSettings,
+        searchSettings,
         initialize,
         dispose,
         refresh,
@@ -437,5 +505,7 @@ export const useSettingsStore = defineStore('settings', () => {
         updateAppUpdateChannel,
         updateAppUpdateAutoCheck,
         updateAppUpdateLastCheckedAt,
+        updateBrowserSettings,
+        updateSearchSettings,
     };
 });

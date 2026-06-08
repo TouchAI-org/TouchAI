@@ -2,16 +2,25 @@ use std::sync::{Arc, Mutex};
 
 use super::{
     actions, cdp,
-    endpoint::{validate_cdp_version_endpoint, validate_stale_navigation_token, BrowserEndpoint},
+    endpoint::{
+        parse_loopback_endpoint, validate_cdp_version_endpoint, validate_stale_navigation_token,
+        BrowserEndpoint,
+    },
     process::{self, ManagedBrowserProcess},
     snapshot,
     types::{
-        BrowserActRequest, BrowserActResult, BrowserDomRef, BrowserNavigateRequest,
-        BrowserObservation, BrowserObserveOperation, BrowserObserveRequest, BrowserStartRequest,
-        BrowserStatus, BrowserStatusKind, BrowserTab, BrowserTabRequest,
+        BrowserActRequest, BrowserActResult, BrowserConnectExistingRequest,
+        BrowserConnectExistingResult, BrowserDomRef, BrowserExistingSession,
+        BrowserFingerprintMode, BrowserNavigateRequest, BrowserObservation,
+        BrowserObserveOperation, BrowserObserveRequest, BrowserStartRequest, BrowserStatus,
+        BrowserStatusKind, BrowserTab, BrowserTabRequest,
     },
     url_policy::validate_browser_url,
 };
+
+const EXISTING_BROWSER_DISCOVERY_PORTS: &[u16] = &[
+    9222, 9223, 9224, 9225, 9226, 9227, 9228, 9229, 9230, 9231, 9232, 9333,
+];
 
 #[derive(Clone, Default)]
 pub struct BrowserRuntime {
@@ -32,7 +41,15 @@ struct BrowserState {
     observed_observation_token: Option<String>,
     observation_sequence: u64,
     process: Option<ManagedBrowserProcess>,
+    fingerprint: Option<BrowserFingerprintRuntimeConfig>,
     error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct BrowserFingerprintRuntimeConfig {
+    locale: Option<String>,
+    timezone: Option<String>,
+    stealth_script: bool,
 }
 
 impl BrowserRuntime {
@@ -58,6 +75,7 @@ impl BrowserRuntime {
             state.observed_tab_id = None;
             state.observed_page_token = None;
             state.observed_observation_token = None;
+            state.fingerprint = None;
             state.error = None;
             process
         };
@@ -68,6 +86,7 @@ impl BrowserRuntime {
 
     pub async fn start(&self, request: BrowserStartRequest) -> Result<BrowserStatus, String> {
         let generation = self.begin_start();
+        let fingerprint = fingerprint_config_from_request(&request);
         match process::launch_managed_browser(request) {
             Ok((endpoint, process)) => {
                 if !self.is_current_lifecycle_generation(generation) {
@@ -75,6 +94,7 @@ impl BrowserRuntime {
                     return Ok(self.status());
                 }
                 if let Err(error) = wait_for_endpoint(&endpoint).await {
+                    let error = friendly_browser_start_error(&error);
                     if self.is_current_lifecycle_generation(generation) {
                         self.set_error(error.clone());
                     }
@@ -91,6 +111,7 @@ impl BrowserRuntime {
                     } else {
                         state.endpoint = Some(endpoint);
                         state.process = Some(process);
+                        state.fingerprint = fingerprint;
                         state.managed = true;
                         state.status = BrowserStatusKind::Connected;
                         state.error = None;
@@ -115,6 +136,68 @@ impl BrowserRuntime {
                 Err(error)
             }
         }
+    }
+
+    pub async fn discover_existing_sessions(&self) -> Result<Vec<BrowserExistingSession>, String> {
+        let mut sessions = Vec::new();
+        for port in EXISTING_BROWSER_DISCOVERY_PORTS {
+            let endpoint = BrowserEndpoint {
+                host: "127.0.0.1".to_string(),
+                port: *port,
+            };
+            if let Ok(session) = existing_session_from_endpoint(endpoint).await {
+                sessions.push(session);
+            }
+        }
+        Ok(sessions)
+    }
+
+    pub async fn connect_existing(
+        &self,
+        request: BrowserConnectExistingRequest,
+    ) -> Result<BrowserConnectExistingResult, String> {
+        let endpoint = parse_loopback_endpoint(&request.endpoint)?;
+        let (generation, stale_process) = self.begin_unmanaged_connect();
+        drop(stale_process);
+
+        let session = match existing_session_from_endpoint(endpoint.clone()).await {
+            Ok(session) => session,
+            Err(error) => {
+                if self.is_current_lifecycle_generation(generation) {
+                    self.set_error(error.clone());
+                }
+                return Err(error);
+            }
+        };
+
+        {
+            let mut state = self.inner.lock().expect("browser runtime lock");
+            if state.lifecycle_generation != generation {
+                return Err("Browser connection was superseded".to_string());
+            }
+            state.endpoint = Some(endpoint);
+            state.process = None;
+            state.fingerprint = None;
+            state.managed = false;
+            state.status = BrowserStatusKind::Connected;
+            state.error = None;
+            state.active_tab_id = session
+                .tabs
+                .iter()
+                .find(|tab| tab.active)
+                .or_else(|| session.tabs.first())
+                .map(|tab| tab.id.clone());
+            state.tabs = session.tabs.clone();
+            state.refs.clear();
+            state.observed_tab_id = None;
+            state.observed_page_token = None;
+            state.observed_observation_token = None;
+        }
+
+        Ok(BrowserConnectExistingResult {
+            status: self.status(),
+            session,
+        })
     }
 
     pub async fn refresh_tabs(&self) -> Result<BrowserStatus, String> {
@@ -147,6 +230,7 @@ impl BrowserRuntime {
         let fallback_active = self.active_tab_id();
         let tab_id = request.tab_id.as_deref().or(fallback_active.as_deref());
         if tab_id.is_some() {
+            self.apply_fingerprint_overrides(&endpoint, tab_id).await?;
             cdp::navigate_current_page(&endpoint, tab_id, &url).await?;
         } else {
             cdp::create_tab(&endpoint, &url).await?;
@@ -179,6 +263,11 @@ impl BrowserRuntime {
         let include_dom = request.operation == BrowserObserveOperation::Snapshot;
         let include_console = request.include_console.unwrap_or(false);
         let include_network = request.include_network.unwrap_or(false);
+        self.apply_fingerprint_overrides(
+            &endpoint,
+            request.tab_id.as_deref().or(fallback_active.as_deref()),
+        )
+        .await?;
         let mut page = cdp::observe_page(
             &endpoint,
             request.tab_id.as_deref().or(fallback_active.as_deref()),
@@ -238,6 +327,11 @@ impl BrowserRuntime {
             target_tab_id.as_deref().or(status.active_tab_id.as_deref()),
             &self.observation_guard(),
         )?;
+        self.apply_fingerprint_overrides(
+            &endpoint,
+            request.tab_id.as_deref().or(fallback_active.as_deref()),
+        )
+        .await?;
         cdp::dispatch_action(
             &endpoint,
             request.tab_id.as_deref().or(fallback_active.as_deref()),
@@ -291,6 +385,30 @@ impl BrowserRuntime {
             .clone()
     }
 
+    async fn apply_fingerprint_overrides(
+        &self,
+        endpoint: &BrowserEndpoint,
+        tab_id: Option<&str>,
+    ) -> Result<(), String> {
+        let fingerprint = self
+            .inner
+            .lock()
+            .expect("browser runtime lock")
+            .fingerprint
+            .clone();
+        let Some(fingerprint) = fingerprint else {
+            return Ok(());
+        };
+        cdp::apply_page_fingerprint_overrides(
+            endpoint,
+            tab_id,
+            fingerprint.locale.as_deref(),
+            fingerprint.timezone.as_deref(),
+            fingerprint.stealth_script,
+        )
+        .await
+    }
+
     fn begin_start(&self) -> u64 {
         self.begin_lifecycle_transition()
     }
@@ -308,6 +426,23 @@ impl BrowserRuntime {
         state.observed_page_token = None;
         state.observed_observation_token = None;
         state.lifecycle_generation
+    }
+
+    fn begin_unmanaged_connect(&self) -> (u64, Option<ManagedBrowserProcess>) {
+        let mut state = self.inner.lock().expect("browser runtime lock");
+        state.lifecycle_generation = state.lifecycle_generation.saturating_add(1);
+        state.status = BrowserStatusKind::Starting;
+        state.error = None;
+        state.endpoint = None;
+        state.active_tab_id = None;
+        state.tabs.clear();
+        state.refs.clear();
+        state.observed_tab_id = None;
+        state.observed_page_token = None;
+        state.observed_observation_token = None;
+        state.managed = false;
+        let process = state.process.take();
+        (state.lifecycle_generation, process)
     }
 
     fn is_current_lifecycle_generation(&self, generation: u64) -> bool {
@@ -391,6 +526,42 @@ impl BrowserRuntime {
     }
 }
 
+async fn existing_session_from_endpoint(
+    endpoint: BrowserEndpoint,
+) -> Result<BrowserExistingSession, String> {
+    let version = validate_cdp_version_endpoint(&endpoint).await?;
+    let browser_name = version
+        .browser
+        .as_deref()
+        .and_then(|value| value.split('/').next())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("Browser")
+        .to_string();
+    let tabs = cdp::list_tabs(&endpoint, None).await?;
+    let current = tabs.iter().find(|tab| tab.active).or_else(|| tabs.first());
+    let current_url = current
+        .map(|tab| tab.url.clone())
+        .filter(|url| !url.is_empty());
+    let title = current
+        .map(|tab| tab.title.clone())
+        .filter(|title| !title.is_empty());
+    let location = current_url
+        .as_deref()
+        .and_then(|url| reqwest::Url::parse(url).ok())
+        .and_then(|url| url.host_str().map(str::to_string))
+        .unwrap_or_else(|| endpoint.origin());
+
+    Ok(BrowserExistingSession {
+        id: format!("{}:{}", endpoint.host, endpoint.port),
+        label: format!("{browser_name} - {location}"),
+        endpoint: endpoint.origin(),
+        browser_name,
+        current_url,
+        title,
+        tabs,
+    })
+}
+
 impl BrowserState {
     fn status(&self) -> BrowserStatus {
         let connected = self.status == BrowserStatusKind::Connected;
@@ -421,6 +592,48 @@ async fn wait_for_endpoint(endpoint: &BrowserEndpoint) -> Result<(), String> {
         }
     }
     Err(last_error.unwrap_or_else(|| "Browser endpoint did not become ready".to_string()))
+}
+
+fn friendly_browser_start_error(error: &str) -> String {
+    if error.contains("Failed to query browser endpoint")
+        || error.contains("Browser endpoint did not become ready")
+        || error.contains("Browser endpoint returned an error")
+        || error.contains("Browser endpoint did not return valid /json/version")
+        || error.contains("Browser endpoint did not expose webSocketDebuggerUrl")
+    {
+        return format!(
+            "Browser launched but its local debugging endpoint did not respond. This is a local Chrome/Edge startup or CDP port readiness problem, not evidence of an external website/network fetch failure. Detail: {error}"
+        );
+    }
+
+    error.to_string()
+}
+
+fn fingerprint_config_from_request(
+    request: &BrowserStartRequest,
+) -> Option<BrowserFingerprintRuntimeConfig> {
+    if request.fingerprint_mode != Some(BrowserFingerprintMode::Balanced) {
+        return None;
+    }
+    let locale = normalized_runtime_fingerprint_value(request.fingerprint_locale.as_deref());
+    let timezone = normalized_runtime_fingerprint_value(request.fingerprint_timezone.as_deref());
+    let stealth_script = request.fingerprint_stealth_script.unwrap_or(true);
+    if locale.is_none() && timezone.is_none() && !stealth_script {
+        return None;
+    }
+    Some(BrowserFingerprintRuntimeConfig {
+        locale,
+        timezone,
+        stealth_script,
+    })
+}
+
+fn normalized_runtime_fingerprint_value(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| !value.starts_with('-') && !value.contains('\0'))
+        .map(str::to_string)
 }
 
 #[derive(Debug, Clone)]
@@ -691,5 +904,47 @@ mod tests {
         assert!(!error.contains("127.0.0.1"));
         assert!(!error.contains("50123"));
         assert!(!error.contains("/json/version"));
+    }
+
+    #[test]
+    fn browser_endpoint_startup_errors_explain_local_cdp_readiness() {
+        let error =
+            friendly_browser_start_error("Failed to query browser endpoint: connection refused");
+
+        assert!(error.contains("Browser launched but its local debugging endpoint did not respond"));
+        assert!(error.contains("local Chrome/Edge startup"));
+        assert!(error.contains("connection refused"));
+        assert!(!error.contains("browser management service"));
+    }
+
+    #[test]
+    fn balanced_fingerprint_keeps_stealth_script_when_fields_are_empty() {
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Balanced),
+            fingerprint_locale: Some("   ".to_string()),
+            fingerprint_timezone: None,
+            fingerprint_stealth_script: Some(true),
+            ..Default::default()
+        };
+
+        let fingerprint =
+            fingerprint_config_from_request(&request).expect("stealth script config");
+
+        assert_eq!(fingerprint.locale, None);
+        assert_eq!(fingerprint.timezone, None);
+        assert!(fingerprint.stealth_script);
+    }
+
+    #[test]
+    fn balanced_fingerprint_skips_empty_fields_when_stealth_script_is_disabled() {
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Balanced),
+            fingerprint_locale: Some("   ".to_string()),
+            fingerprint_timezone: None,
+            fingerprint_stealth_script: Some(false),
+            ..Default::default()
+        };
+
+        assert!(fingerprint_config_from_request(&request).is_none());
     }
 }

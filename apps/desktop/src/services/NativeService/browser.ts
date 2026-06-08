@@ -3,6 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
     BrowserActRequest,
     BrowserActResponse,
+    BrowserConnectExistingRequest,
+    BrowserConnectExistingResponse,
+    BrowserExistingSession,
     BrowserNavigationRequest,
     BrowserObserveRequest,
     BrowserObserveResponse,
@@ -21,6 +24,14 @@ export const browser = {
     },
     start(request: BrowserStartRequest): Promise<BrowserSessionResponse> {
         return invoke('browser_start', { request });
+    },
+    discoverExisting(): Promise<BrowserExistingSession[]> {
+        return invoke('browser_discover_existing');
+    },
+    connectExisting(
+        request: BrowserConnectExistingRequest
+    ): Promise<BrowserConnectExistingResponse> {
+        return invoke('browser_connect_existing', { request });
     },
     stop(): Promise<BrowserSessionResponse> {
         return invoke('browser_stop');

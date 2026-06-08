@@ -519,6 +519,7 @@ export const builtInToolLogs = sqliteTable('built_in_tool_logs', {
         .notNull()
         .default('none'),
     approval_summary: text('approval_summary'),
+    conversation_semantic_json: text('conversation_semantic_json'),
     duration_ms: integer('duration_ms'),
     error_message: text('error_message'),
     created_at: text('created_at')
