@@ -12,8 +12,9 @@ use std::{
 use quote::ToTokens;
 use tauri_codegen::embedded_assets::{AssetOptions, EmbeddedAssets};
 
-const BUNDLED_DOWNLOAD_MAX_ATTEMPTS: usize = 3;
-const BUNDLED_DOWNLOAD_RETRY_BASE_DELAY_MS: u64 = 750;
+const BUNDLED_DOWNLOAD_MAX_ATTEMPTS: usize = 6;
+const BUNDLED_DOWNLOAD_RETRY_BASE_DELAY_MS: u64 = 1_500;
+const BUNDLED_DOWNLOAD_RETRY_MAX_DELAY_MS: u64 = 30_000;
 
 #[derive(Debug, Deserialize)]
 struct BundledManifest {
@@ -261,7 +262,7 @@ fn download_bundled_archive(name: &str, url: &str) -> Result<Vec<u8>, Box<dyn st
             Err(error) => {
                 last_error = Some(error);
                 if attempt < BUNDLED_DOWNLOAD_MAX_ATTEMPTS {
-                    let delay_ms = BUNDLED_DOWNLOAD_RETRY_BASE_DELAY_MS * attempt as u64;
+                    let delay_ms = bundled_download_retry_delay_ms(attempt);
                     println!(
                         "cargo:warning={name}: bundled download attempt {attempt}/{BUNDLED_DOWNLOAD_MAX_ATTEMPTS} failed for {url}; retrying in {delay_ms}ms"
                     );
@@ -276,6 +277,13 @@ fn download_bundled_archive(name: &str, url: &str) -> Result<Vec<u8>, Box<dyn st
         last_error.unwrap_or_else(|| "unknown error".to_string())
     )
     .into())
+}
+
+fn bundled_download_retry_delay_ms(attempt: usize) -> u64 {
+    let exponent = attempt.saturating_sub(1).min(4) as u32;
+    BUNDLED_DOWNLOAD_RETRY_BASE_DELAY_MS
+        .saturating_mul(1_u64 << exponent)
+        .min(BUNDLED_DOWNLOAD_RETRY_MAX_DELAY_MS)
 }
 
 fn download_bundled_archive_once(url: &str) -> Result<Vec<u8>, String> {
