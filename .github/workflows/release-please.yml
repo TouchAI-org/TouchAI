@@ -83,7 +83,7 @@ jobs:
             - name: Format Release Please generated files
               if: ${{ steps.release.outputs.prs_created == 'true' }}
               run: |
-                  pnpm exec prettier --write \
+                  pnpm exec prettier --write --ignore-path .prettierignore \
                     .release-please-manifest.json \
                     apps/desktop/src-tauri/tauri.conf.json
 
