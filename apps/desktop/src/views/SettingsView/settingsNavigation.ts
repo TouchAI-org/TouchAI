@@ -5,6 +5,7 @@ import { type MessageKey, t } from '@/i18n';
 export type NavigationSection =
     | 'general'
     | 'ai-services'
+    | 'memory'
     | 'built-in-tools'
     | 'mcp-tools'
     | 'data-management';
@@ -53,6 +54,12 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 icon: 'llm',
                 labelKey: 'settings.nav.aiServices.label',
                 descriptionKey: 'settings.nav.aiServices.description',
+            },
+            {
+                id: 'memory',
+                icon: 'history',
+                labelKey: 'settings.nav.memory.label',
+                descriptionKey: 'settings.nav.memory.description',
             },
             {
                 id: 'built-in-tools',

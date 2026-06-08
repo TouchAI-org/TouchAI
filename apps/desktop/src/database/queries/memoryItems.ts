@@ -177,6 +177,12 @@ export const disableMemoryItem = async (id: number): Promise<MemoryItemEntity | 
     return disabled && disabled.id !== undefined ? disabled : undefined;
 };
 
+export const deleteMemoryItem = async (id: number): Promise<MemoryItemEntity | undefined> => {
+    const deleted = await db.delete(memoryItems).where(eq(memoryItems.id, id)).returning().get();
+
+    return deleted && deleted.id !== undefined ? deleted : undefined;
+};
+
 export const findMemoryItemByNormalizedTitle = async (
     title: string
 ): Promise<MemoryItemEntity | undefined> => {

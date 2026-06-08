@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
     createMemoryItem,
+    deleteMemoryItem,
     disableMemoryItem,
     findEnabledMemoryDirectoryItems,
     findMemoryDirectoryItems,
@@ -239,6 +240,18 @@ describe('memory item queries', () => {
         const request = getLastDatabaseRequest()?.request;
         expect(request?.sql).toContain('update "memory_items"');
         expect(request?.sql).toContain('"memory_items"."enabled" = ?');
+    });
+
+    it('deletes a memory item by id for manual settings removal', async () => {
+        mockDatabaseRows([fullMemoryRow]);
+
+        const deleted = await deleteMemoryItem(7);
+
+        expect(deleted?.id).toBe(7);
+        const request = getLastDatabaseRequest()?.request;
+        expect(request?.sql).toContain('delete from "memory_items"');
+        expect(request?.sql).toContain('"memory_items"."id" = ?');
+        expect(request?.params).toContain(7);
     });
 
     it('finds enabled memory by normalized title in query code', async () => {

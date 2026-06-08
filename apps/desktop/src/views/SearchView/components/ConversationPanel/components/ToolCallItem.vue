@@ -1,8 +1,9 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <BuiltInBashToolCallItem
+    <component
         v-if="builtinCardComponent"
+        :is="builtinCardComponent"
         :tool-call="toolCall"
         :verb-text="builtinVerbText"
         :summary-text="builtinSummaryText"
@@ -123,11 +124,13 @@
     import type { ToolCallInfo } from '@/types/session';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
+    import BuiltInMemoryToolCallItem from './BuiltInMemoryToolCallItem.vue';
 
     const BUILTIN_ROOT_CLASS =
         'tool-call-log-wrapper paragraph-node touchai-markdown touchai-markdown--default';
     const BUILTIN_CARD_COMPONENTS: Record<string, Component> = {
         bash: BuiltInBashToolCallItem,
+        memory: BuiltInMemoryToolCallItem,
     };
 
     interface Props {
@@ -150,6 +153,14 @@
     });
     const builtinCardComponent = computed(() => {
         if (!isBuiltinTool.value) {
+            return null;
+        }
+
+        if (
+            builtinToolToken.value === 'memory' &&
+            props.toolCall.builtinConversationSemantic?.action !== 'read' &&
+            props.toolCall.arguments?.action !== 'read'
+        ) {
             return null;
         }
 
