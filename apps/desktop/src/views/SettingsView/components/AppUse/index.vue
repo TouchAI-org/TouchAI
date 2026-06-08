@@ -116,13 +116,14 @@
     }
 
     async function saveSharedConfig(nextConfig: AppUseToolConfig) {
-        config.value = nextConfig;
+        const normalizedConfig = parseAppUseToolConfig(serializeAppUseToolConfig(nextConfig));
+        config.value = normalizedConfig;
         if (appUseTools.value.length === 0) {
             return;
         }
 
         saving.value = true;
-        const configJson = serializeAppUseToolConfig(nextConfig);
+        const configJson = serializeAppUseToolConfig(normalizedConfig);
         try {
             const queries = await loadBuiltInToolQueries();
             await Promise.all(

@@ -215,7 +215,7 @@ describe('SettingsWindowView', () => {
 
         nav.vm.$emit('navigate', 'app-use');
         await flushPromises();
-        expect(loadingState().attributes('message')).toBe('正在加载 App Use 设置...');
+        expect(loadingState().attributes('message')).toBe('正在加载软件控制设置...');
 
         nav.vm.$emit('navigate', 'mcp-tools');
         await flushPromises();

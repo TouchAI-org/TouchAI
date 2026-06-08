@@ -1,5 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+pub mod adobe;
 pub mod discovery;
 pub mod types;
 pub mod wps;
@@ -67,7 +68,6 @@ const APP_USE_ADAPTERS: &[AppUseAdapterDefinition] = &[
             "discover",
             "observe_active_document",
             "observe_selection",
-            "insert_text",
             "replace_selection",
             "format_selection",
         ],
@@ -96,24 +96,12 @@ const APP_USE_ADAPTERS: &[AppUseAdapterDefinition] = &[
     AppUseAdapterDefinition {
         id: "photoshop",
         label: "Adobe Photoshop",
-        capabilities: &[
-            "discover",
-            "observe_layers",
-            "select_layer",
-            "export_preview",
-            "batch_export",
-        ],
+        capabilities: &["discover", "observe_layers"],
     },
     AppUseAdapterDefinition {
         id: "illustrator",
         label: "Adobe Illustrator",
-        capabilities: &[
-            "discover",
-            "observe_artboards",
-            "select_layer",
-            "export_preview",
-            "batch_export",
-        ],
+        capabilities: &["discover", "observe_artboards"],
     },
 ];
 
@@ -151,6 +139,10 @@ pub trait AppUseAdapter: Send + Sync {
             }),
             truncated: false,
         }
+    }
+
+    fn validate_act(&self, _request: &AppUseAuthorizeActRequest) -> Result<(), String> {
+        Err("No structured App Use action adapter is available yet.".to_string())
     }
 
     fn act(&self, request: &AppUseActRequest) -> AppUseActResponse {
@@ -207,12 +199,23 @@ impl AppUseRuntime {
             APP_USE_ADAPTERS
                 .iter()
                 .copied()
-                .map(|definition| {
-                    if definition.id == "wps_writer" {
+                .map(|definition| match definition.id {
+                    "wps_writer" => {
                         Box::new(wps::WpsWriterAdapter::new()) as Box<dyn AppUseAdapter>
-                    } else {
-                        Box::new(StaticAppUseAdapter { definition }) as Box<dyn AppUseAdapter>
                     }
+                    "wps_spreadsheet" => {
+                        Box::new(wps::WpsSpreadsheetAdapter::new()) as Box<dyn AppUseAdapter>
+                    }
+                    "wps_presentation" => {
+                        Box::new(wps::WpsPresentationAdapter::new()) as Box<dyn AppUseAdapter>
+                    }
+                    "photoshop" => {
+                        Box::new(adobe::PhotoshopAdapter::new()) as Box<dyn AppUseAdapter>
+                    }
+                    "illustrator" => {
+                        Box::new(adobe::IllustratorAdapter::new()) as Box<dyn AppUseAdapter>
+                    }
+                    _ => Box::new(StaticAppUseAdapter { definition }) as Box<dyn AppUseAdapter>,
                 })
                 .collect(),
         )
@@ -379,6 +382,19 @@ impl AppUseRuntime {
             };
         }
 
+        let Some(adapter) = self.find_adapter(&request.adapter_id) else {
+            return AppUseAuthorizeActResponse {
+                permit: None,
+                expires_in_ms: 0,
+            };
+        };
+        if adapter.validate_act(&request).is_err() {
+            return AppUseAuthorizeActResponse {
+                permit: None,
+                expires_in_ms: 0,
+            };
+        }
+
         AppUseAuthorizeActResponse {
             permit: Some(self.issue_permit(&request)),
             expires_in_ms: APP_USE_PERMIT_TTL.as_millis() as u64,
@@ -510,6 +526,10 @@ mod tests {
             }
         }
 
+        fn validate_act(&self, _request: &AppUseAuthorizeActRequest) -> Result<(), String> {
+            Ok(())
+        }
+
         fn act(&self, request: &AppUseActRequest) -> AppUseActResponse {
             AppUseActResponse {
                 ok: true,
@@ -526,6 +546,31 @@ mod tests {
         AppUseConfig {
             mode: mode.to_string(),
             adapters: HashMap::from([("mock_app".to_string(), true)]),
+            mutating_approval_mode: "always".to_string(),
+            read_scope: "active".to_string(),
+            allow_background_operation: false,
+            allow_raw_automation: false,
+            timeout_ms: 15_000,
+            max_output_chars: 12_000,
+        }
+    }
+
+    fn default_runtime_config(mode: &str, enabled_adapter: &str) -> AppUseConfig {
+        let mut adapters = HashMap::from([
+            ("office_word".to_string(), false),
+            ("office_excel".to_string(), false),
+            ("office_powerpoint".to_string(), false),
+            ("wps_writer".to_string(), false),
+            ("wps_spreadsheet".to_string(), false),
+            ("wps_presentation".to_string(), false),
+            ("photoshop".to_string(), false),
+            ("illustrator".to_string(), false),
+        ]);
+        adapters.insert(enabled_adapter.to_string(), true);
+
+        AppUseConfig {
+            mode: mode.to_string(),
+            adapters,
             mutating_approval_mode: "always".to_string(),
             read_scope: "active".to_string(),
             allow_background_operation: false,
@@ -556,6 +601,133 @@ mod tests {
         assert_eq!(
             response.adapters[0].active_target_name.as_deref(),
             Some("Mock Document")
+        );
+    }
+
+    #[test]
+    fn default_runtime_refuses_invalid_wps_spreadsheet_authorization() {
+        let runtime = AppUseRuntime::new();
+        let authorization = runtime.authorize_act(AppUseAuthorizeActRequest {
+            execution_id: "runtime-wps-sheet-1".to_string(),
+            adapter_id: "wps_spreadsheet".to_string(),
+            action: "write_cells".to_string(),
+            target_id: Some("not-owned.xlsx".to_string()),
+            parameters: Some(json!({ "range": "A1", "values": [] })),
+            config: default_runtime_config("interactive", "wps_spreadsheet"),
+        });
+
+        assert_eq!(authorization.permit, None);
+        assert_eq!(authorization.expires_in_ms, 0);
+    }
+
+    #[test]
+    fn default_runtime_refuses_invalid_wps_presentation_authorization() {
+        let runtime = AppUseRuntime::new();
+        let authorization = runtime.authorize_act(AppUseAuthorizeActRequest {
+            execution_id: "runtime-wps-presentation-1".to_string(),
+            adapter_id: "wps_presentation".to_string(),
+            action: "add_slide_text".to_string(),
+            target_id: Some("not-owned.pptx".to_string()),
+            parameters: Some(json!({ "text": "" })),
+            config: default_runtime_config("interactive", "wps_presentation"),
+        });
+
+        assert_eq!(authorization.permit, None);
+        assert_eq!(authorization.expires_in_ms, 0);
+    }
+
+    #[test]
+    fn default_runtime_refuses_adobe_action_authorization() {
+        let runtime = AppUseRuntime::new();
+        let authorization = runtime.authorize_act(AppUseAuthorizeActRequest {
+            execution_id: "runtime-adobe-1".to_string(),
+            adapter_id: "photoshop".to_string(),
+            action: "export_preview".to_string(),
+            target_id: None,
+            parameters: None,
+            config: default_runtime_config("interactive", "photoshop"),
+        });
+
+        assert_eq!(authorization.permit, None);
+        assert_eq!(authorization.expires_in_ms, 0);
+    }
+
+    #[test]
+    fn default_runtime_refuses_unimplemented_adapter_authorization() {
+        let runtime = AppUseRuntime::new();
+        let authorization = runtime.authorize_act(AppUseAuthorizeActRequest {
+            execution_id: "runtime-office-1".to_string(),
+            adapter_id: "office_word".to_string(),
+            action: "replace_selection".to_string(),
+            target_id: Some("target-1".to_string()),
+            parameters: Some(json!({ "text": "hello" })),
+            config: default_runtime_config("interactive", "office_word"),
+        });
+
+        assert_eq!(authorization.permit, None);
+        assert_eq!(authorization.expires_in_ms, 0);
+    }
+
+    #[test]
+    fn default_runtime_refuses_non_owned_wps_authorization() {
+        let runtime = AppUseRuntime::new();
+        let authorization = runtime.authorize_act(AppUseAuthorizeActRequest {
+            execution_id: "runtime-wps-unowned-1".to_string(),
+            adapter_id: "wps_writer".to_string(),
+            action: "replace_selection".to_string(),
+            target_id: Some("target-1".to_string()),
+            parameters: Some(json!({ "text": "hello" })),
+            config: default_runtime_config("interactive", "wps_writer"),
+        });
+
+        assert_eq!(authorization.permit, None);
+        assert_eq!(authorization.expires_in_ms, 0);
+    }
+
+    #[test]
+    fn default_runtime_adobe_actions_still_fail_closed_if_called_without_permit() {
+        let runtime = AppUseRuntime::new();
+        let response = runtime.act(AppUseActRequest {
+            execution_id: "runtime-adobe-1".to_string(),
+            adapter_id: "photoshop".to_string(),
+            action: "export_preview".to_string(),
+            description: "try Photoshop export preview".to_string(),
+            target_id: None,
+            parameters: None,
+            permit: None,
+            config: default_runtime_config("interactive", "photoshop"),
+        });
+
+        assert_eq!(response.ok, false);
+        assert_eq!(response.changed, false);
+        assert_eq!(response.metadata["reason"], "approval_required");
+    }
+
+    #[test]
+    fn default_runtime_adobe_descriptors_expose_only_read_only_capabilities() {
+        let runtime = AppUseRuntime::new();
+        let response = runtime.session(AppUseSessionRequest {
+            execution_id: "runtime-adobe-session".to_string(),
+            operation: "capabilities".to_string(),
+            description: "inspect Adobe capabilities".to_string(),
+            config: default_runtime_config("read_only", "photoshop"),
+        });
+
+        let photoshop = response
+            .adapters
+            .iter()
+            .find(|adapter| adapter.id == "photoshop")
+            .expect("photoshop descriptor");
+        let illustrator = response
+            .adapters
+            .iter()
+            .find(|adapter| adapter.id == "illustrator")
+            .expect("illustrator descriptor");
+
+        assert_eq!(photoshop.capabilities, vec!["discover", "observe_layers"]);
+        assert_eq!(
+            illustrator.capabilities,
+            vec!["discover", "observe_artboards"]
         );
     }
 

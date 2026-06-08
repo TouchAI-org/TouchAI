@@ -153,7 +153,7 @@ const zhCNMessages = {
     'settings.loading.general': '正在加载常规设置...',
     'settings.loading.aiServices': '正在加载大模型服务设置...',
     'settings.loading.builtInTools': '正在加载内置工具...',
-    'settings.loading.appUse': '正在加载 App Use 设置...',
+    'settings.loading.appUse': '正在加载软件控制设置...',
     'settings.loading.mcpTools': '正在加载 MCP 工具...',
     'settings.loading.dataManagement': '正在加载数据管理...',
     'settings.loading.about': '正在加载关于页面...',
@@ -371,7 +371,7 @@ const zhCNMessages = {
     'settings.appUse.emptyToolsDescription': '内置工具种子同步完成后会自动展示在这里',
     'settings.appUse.access.title': '访问',
     'settings.appUse.access.description':
-        '统一控制 App Use 工具是否提供给模型，以及是否允许执行写入动作。',
+        '统一控制软件控制工具是否提供给模型，以及是否允许执行写入动作。',
     'settings.appUse.enabled': '启用软件控制工具',
     'settings.appUse.mode.title': '运行模式',
     'settings.appUse.mode.readOnly': '只读',

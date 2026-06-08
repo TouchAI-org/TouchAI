@@ -50,6 +50,15 @@ export const APP_USE_ACT_ACTIONS = [
     'cross_app_transfer',
 ] as const;
 
+type AppUseActAction = (typeof APP_USE_ACT_ACTIONS)[number];
+type AppUseActArgs = {
+    adapterId: AppUseAdapterId;
+    action: AppUseActAction;
+    description: string;
+    targetId?: string;
+    parameters?: Record<string, unknown>;
+};
+
 export const appUseAdapterIdSchema = z.enum(APP_USE_ADAPTER_IDS);
 
 export const appUseSessionArgsSchema = z
@@ -69,6 +78,160 @@ export const appUseObserveArgsSchema = z
     })
     .strict();
 
+function boundedTrimmedStringSchema(maxLength: number) {
+    return z.preprocess(
+        (value) => (typeof value === 'string' ? value.trim() : value),
+        z.string().min(1).max(maxLength)
+    );
+}
+
+const appUseScalarCellValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const appUseTextActionParametersSchema = z
+    .object({
+        text: nonEmptyTrimmedStringSchema,
+    })
+    .strict();
+const appUseFormatSelectionParametersSchema = z
+    .object({
+        bold: z.boolean().optional(),
+        italic: z.boolean().optional(),
+        underline: z.boolean().optional(),
+        fontSize: z.number().min(6).max(96).optional(),
+        fontName: boundedTrimmedStringSchema(128).optional(),
+    })
+    .strict()
+    .refine(
+        (value) =>
+            value.bold !== undefined ||
+            value.italic !== undefined ||
+            value.underline !== undefined ||
+            value.fontSize !== undefined ||
+            value.fontName !== undefined,
+        { message: 'format_selection requires at least one format option' }
+    );
+const appUseWriteCellsParametersSchema = z
+    .object({
+        range: boundedTrimmedStringSchema(64).refine(
+            (value) => /^[A-Za-z0-9:$]+$/.test(value),
+            'range must be an A1-style address'
+        ),
+        sheetName: boundedTrimmedStringSchema(128).optional(),
+        values: z
+            .array(z.array(appUseScalarCellValueSchema).min(1))
+            .min(1)
+            .refine((rows) => {
+                const width = rows[0]?.length;
+                return width !== undefined && rows.every((row) => row.length === width);
+            }, 'values must use rectangular rows'),
+    })
+    .strict();
+const appUseReadCellsParametersSchema = z
+    .object({
+        range: boundedTrimmedStringSchema(64).refine(
+            (value) => /^[A-Za-z0-9:$]+$/.test(value),
+            'range must be an A1-style address'
+        ),
+        sheetName: boundedTrimmedStringSchema(128).optional(),
+    })
+    .strict();
+const appUseAddSlideTextParametersSchema = z
+    .object({
+        text: boundedTrimmedStringSchema(2000),
+        slideIndex: z.number().int().min(1).optional(),
+    })
+    .strict();
+const appUseSelectLayerParametersSchema = z
+    .object({
+        layerId: boundedTrimmedStringSchema(256).optional(),
+        layerName: boundedTrimmedStringSchema(256).optional(),
+    })
+    .strict()
+    .refine((value) => value.layerId !== undefined || value.layerName !== undefined, {
+        message: 'select_layer requires layerId or layerName',
+    });
+const appUseExportPreviewParametersSchema = z
+    .object({
+        format: z.enum(['png', 'jpg', 'jpeg']).optional(),
+        scale: z.number().min(0.1).max(4).optional(),
+        selectionOnly: z.boolean().optional(),
+    })
+    .strict()
+    .optional();
+const appUseBatchExportParametersSchema = z
+    .object({
+        format: z.enum(['png', 'jpg', 'jpeg', 'pdf']).optional(),
+        selectionOnly: z.boolean().optional(),
+        artboardNames: z.array(boundedTrimmedStringSchema(256)).min(1).max(100).optional(),
+        layerNames: z.array(boundedTrimmedStringSchema(256)).min(1).max(100).optional(),
+    })
+    .strict()
+    .optional();
+const appUseCrossAppTransferParametersSchema = z
+    .object({
+        sourceAdapterId: appUseAdapterIdSchema,
+        targetAdapterId: appUseAdapterIdSchema,
+        sourceTargetId: boundedTrimmedStringSchema(512).optional(),
+        targetId: boundedTrimmedStringSchema(512).optional(),
+        mode: z.enum(['copy_text', 'copy_cells', 'copy_slide_text']).optional(),
+    })
+    .strict();
+
+const appUseParametersSchemaByAction: Partial<
+    Record<AppUseActAction, z.ZodType<Record<string, unknown> | undefined>>
+> = {
+    insert_text: appUseTextActionParametersSchema,
+    replace_selection: appUseTextActionParametersSchema,
+    read_cells: appUseReadCellsParametersSchema,
+    format_selection: appUseFormatSelectionParametersSchema,
+    write_cells: appUseWriteCellsParametersSchema,
+    add_slide_text: appUseAddSlideTextParametersSchema,
+    select_layer: appUseSelectLayerParametersSchema,
+    export_preview: appUseExportPreviewParametersSchema,
+    batch_export: appUseBatchExportParametersSchema,
+    cross_app_transfer: appUseCrossAppTransferParametersSchema,
+};
+
+const RAW_AUTOMATION_PARAMETER_KEYS = new Set([
+    'script',
+    'rawscript',
+    'macro',
+    'vba',
+    'com',
+    'uxp',
+    'batchplay',
+    'extendscript',
+    'javascript',
+]);
+
+function rejectRawAutomationParameters(
+    value: unknown,
+    context: z.RefinementCtx,
+    path: Array<string | number>
+) {
+    if (Array.isArray(value)) {
+        value.forEach((item, index) =>
+            rejectRawAutomationParameters(item, context, [...path, index])
+        );
+        return;
+    }
+
+    if (!value || typeof value !== 'object') {
+        return;
+    }
+
+    for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        const nextPath = [...path, key];
+        if (RAW_AUTOMATION_PARAMETER_KEYS.has(key.toLowerCase())) {
+            context.addIssue({
+                code: 'custom',
+                path: nextPath,
+                message: 'Raw automation payloads are not allowed in App Use parameters',
+            });
+        }
+        rejectRawAutomationParameters(nestedValue, context, nextPath);
+    }
+}
+
 export const appUseActArgsSchema = z
     .object({
         adapterId: appUseAdapterIdSchema,
@@ -77,7 +240,43 @@ export const appUseActArgsSchema = z
         targetId: z.string().trim().optional(),
         parameters: z.record(z.string(), z.unknown()).optional(),
     })
-    .strict();
+    .strict()
+    .superRefine((value, context) => {
+        rejectRawAutomationParameters(value.parameters, context, ['parameters']);
+        const parametersSchema = appUseParametersSchemaByAction[value.action];
+        if (!parametersSchema) {
+            return;
+        }
+
+        const parameters = parametersSchema.safeParse(value.parameters);
+        if (!parameters.success) {
+            for (const issue of parameters.error.issues) {
+                context.addIssue({
+                    ...issue,
+                    path: ['parameters', ...issue.path],
+                });
+            }
+        }
+    })
+    .transform((value): AppUseActArgs => {
+        const parametersSchema = appUseParametersSchemaByAction[value.action];
+        if (!parametersSchema) {
+            return value;
+        }
+
+        const parameters = parametersSchema.parse(value.parameters);
+        if (parameters === undefined) {
+            return {
+                ...value,
+                parameters: undefined,
+            };
+        }
+
+        return {
+            ...value,
+            parameters,
+        };
+    });
 
 export const APP_SESSION_TOOL_DESCRIPTION = [
     'Discover and inspect supported local desktop applications for App Use.',
@@ -169,7 +368,7 @@ export const APP_ACT_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
         parameters: {
             type: 'object',
             description:
-                'Structured parameters for the bounded action. Raw scripts are not allowed.',
+                'Structured parameters for the bounded action. Use {text} for replace_selection and add_slide_text; use {range, values, sheetName?} for write_cells; use {bold?, italic?, underline?, fontSize?, fontName?} for format_selection. Raw scripts are not allowed.',
         },
     },
     required: ['adapterId', 'action', 'description'],

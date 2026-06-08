@@ -165,6 +165,51 @@ describe('Settings App Use section', () => {
         expect(queries.updateBuiltInTool).toHaveBeenNthCalledWith(3, 3, { enabled: 1 });
     });
 
+    it('saves safety limits from the dedicated settings tab to all App Use tools', async () => {
+        const wrapper = mount(AppUseSection);
+        await flushPromises();
+
+        await wrapper.get('[data-testid="settings-app-use-background-toggle"]').trigger('click');
+        await flushPromises();
+
+        expect(parseSavedConfig(0).allowBackgroundOperation).toBe(true);
+        expect(queries.updateBuiltInTool).toHaveBeenCalledTimes(3);
+
+        queries.updateBuiltInTool.mockClear();
+        await wrapper.get('[data-testid="settings-app-use-timeout-ms"]').setValue('45000');
+        await wrapper.get('[data-testid="settings-app-use-timeout-ms"]').trigger('change');
+        await flushPromises();
+
+        expect(parseSavedConfig(0).timeoutMs).toBe(45000);
+        expect(queries.updateBuiltInTool).toHaveBeenCalledTimes(3);
+
+        queries.updateBuiltInTool.mockClear();
+        await wrapper.get('[data-testid="settings-app-use-max-output-chars"]').setValue('24000');
+        await wrapper.get('[data-testid="settings-app-use-max-output-chars"]').trigger('change');
+        await flushPromises();
+
+        expect(parseSavedConfig(0).maxOutputChars).toBe(24000);
+        expect(queries.updateBuiltInTool).toHaveBeenCalledTimes(3);
+    });
+
+    it('normalizes out-of-range safety limits before saving', async () => {
+        const wrapper = mount(AppUseSection);
+        await flushPromises();
+
+        await wrapper.get('[data-testid="settings-app-use-timeout-ms"]').setValue('250');
+        await wrapper.get('[data-testid="settings-app-use-timeout-ms"]').trigger('change');
+        await flushPromises();
+
+        expect(parseSavedConfig(0).timeoutMs).toBe(DEFAULT_APP_USE_TOOL_CONFIG.timeoutMs);
+
+        queries.updateBuiltInTool.mockClear();
+        await wrapper.get('[data-testid="settings-app-use-max-output-chars"]').setValue('500000');
+        await wrapper.get('[data-testid="settings-app-use-max-output-chars"]').trigger('change');
+        await flushPromises();
+
+        expect(parseSavedConfig(0).maxOutputChars).toBe(DEFAULT_APP_USE_TOOL_CONFIG.maxOutputChars);
+    });
+
     it('keeps App Use execution logs reachable from the dedicated tab', async () => {
         const wrapper = mount(AppUseSection);
         await flushPromises();

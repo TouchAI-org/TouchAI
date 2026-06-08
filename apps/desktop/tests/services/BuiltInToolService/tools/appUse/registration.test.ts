@@ -55,16 +55,16 @@ describe('App Use built-in tool registration', () => {
         expect(approval?.command).toBe('wps_writer:replace_selection -> owned-document-1');
     });
 
-    it('omits action approval preview when parameters are absent or not serializable', async () => {
+    it('omits action approval preview when parameters are absent', async () => {
         setLocale('en-US');
         const tool = builtInToolRegistry.get('app_act');
 
         const noParametersApproval = await Promise.resolve(
             tool?.buildApprovalRequest(
                 {
-                    adapterId: 'wps_writer',
-                    action: 'replace_selection',
-                    description: 'Replace without preview',
+                    adapterId: 'photoshop',
+                    action: 'export_preview',
+                    description: 'Export without preview',
                 },
                 tool.defaultConfig,
                 'builtin__app_act',
@@ -75,26 +75,8 @@ describe('App Use built-in tool registration', () => {
                 }
             )
         );
-        const unserializableApproval = await Promise.resolve(
-            tool?.buildApprovalRequest(
-                {
-                    adapterId: 'wps_writer',
-                    action: 'replace_selection',
-                    description: 'Replace with unserializable preview',
-                    parameters: { value: 1n },
-                },
-                tool.defaultConfig,
-                'builtin__app_act',
-                {
-                    callId: 'call-3',
-                    iteration: 1,
-                    hasExecutedBuiltInTool: () => false,
-                }
-            )
-        );
 
         expect(noParametersApproval?.description).not.toContain('Preview:');
-        expect(unserializableApproval?.description).not.toContain('Preview:');
     });
 
     it('renders non-text action parameters as a compact JSON preview', async () => {

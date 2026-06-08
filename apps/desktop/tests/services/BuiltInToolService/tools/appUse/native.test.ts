@@ -153,9 +153,9 @@ describe('App Use native bridge construction', () => {
     it('blocks mutating app actions while App Use is read-only', async () => {
         const result = await executeAppActTool(
             {
-                adapterId: 'wps_writer',
-                action: 'replace_selection',
-                description: 'replace current selection',
+                adapterId: 'photoshop',
+                action: 'export_preview',
+                description: 'export a preview',
             },
             DEFAULT_APP_USE_TOOL_CONFIG,
             fakeContext()
@@ -231,9 +231,9 @@ describe('App Use native bridge construction', () => {
         );
         const actResult = await appActTool.execute(
             {
-                adapterId: 'wps_writer',
-                action: 'replace_selection',
-                description: 'replace selection',
+                adapterId: 'photoshop',
+                action: 'export_preview',
+                description: 'export preview',
             },
             interactiveConfig,
             fakeContext()
