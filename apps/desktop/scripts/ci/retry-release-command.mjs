@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 const DEFAULT_ATTEMPTS = 3;
 const DEFAULT_DELAY_MS = 30_000;
+const DEFAULT_MAX_OUTPUT_TAIL_BYTES = 128 * 1024;
 
 const TRANSIENT_RELEASE_DOWNLOAD_PATTERNS = [
     /\bhttp status:\s*50[234]\b/i,
@@ -39,13 +40,23 @@ function sleep(ms) {
     });
 }
 
+function appendOutputTail(outputTail, chunk, maxTailBytes) {
+    const nextOutput = `${outputTail}${chunk}`;
+    if (Buffer.byteLength(nextOutput, 'utf8') <= maxTailBytes) {
+        return nextOutput;
+    }
+
+    return Buffer.from(nextOutput, 'utf8').subarray(-maxTailBytes).toString('utf8');
+}
+
 export function isTransientReleaseDownloadError(output) {
     return TRANSIENT_RELEASE_DOWNLOAD_PATTERNS.some((pattern) => pattern.test(output));
 }
 
 export function spawnReleaseCommand(command, args, options = {}) {
     return new Promise((resolve) => {
-        let output = '';
+        const maxTailBytes = options.maxTailBytes ?? DEFAULT_MAX_OUTPUT_TAIL_BYTES;
+        let outputTail = '';
         const child = spawn(command, args, {
             cwd: options.cwd,
             env: options.env,
@@ -54,29 +65,33 @@ export function spawnReleaseCommand(command, args, options = {}) {
         });
 
         child.stdout.on('data', (chunk) => {
-            output += chunk.toString();
+            outputTail = appendOutputTail(outputTail, chunk.toString(), maxTailBytes);
             process.stdout.write(chunk);
         });
 
         child.stderr.on('data', (chunk) => {
-            output += chunk.toString();
+            outputTail = appendOutputTail(outputTail, chunk.toString(), maxTailBytes);
             process.stderr.write(chunk);
         });
 
         child.on('error', (error) => {
-            output += `${error.message}\n`;
+            outputTail = appendOutputTail(outputTail, `${error.message}\n`, maxTailBytes);
             process.stderr.write(`${error.message}\n`);
-            resolve({ status: 1, output });
+            resolve({ status: 1, output: outputTail });
         });
 
         child.on('close', (code, signal) => {
             if (typeof code === 'number') {
-                resolve({ status: code, output });
+                resolve({ status: code, output: outputTail });
                 return;
             }
 
-            output += `Command terminated by signal ${signal ?? 'unknown'}.\n`;
-            resolve({ status: 1, output });
+            outputTail = appendOutputTail(
+                outputTail,
+                `Command terminated by signal ${signal ?? 'unknown'}.\n`,
+                maxTailBytes
+            );
+            resolve({ status: 1, output: outputTail });
         });
     });
 }
@@ -91,6 +106,7 @@ export async function runReleaseCommandWithRetry(command, args, options) {
             spawnReleaseCommand(nextCommand, nextArgs, {
                 cwd: options.cwd,
                 env: options.env,
+                maxTailBytes: options.maxTailBytes,
             }));
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -139,6 +155,11 @@ async function main() {
             process.env.TOUCHAI_RELEASE_COMMAND_RETRY_DELAY_MS,
             DEFAULT_DELAY_MS,
             'TOUCHAI_RELEASE_COMMAND_RETRY_DELAY_MS'
+        ),
+        maxTailBytes: parsePositiveInteger(
+            process.env.TOUCHAI_RELEASE_COMMAND_OUTPUT_TAIL_BYTES,
+            DEFAULT_MAX_OUTPUT_TAIL_BYTES,
+            'TOUCHAI_RELEASE_COMMAND_OUTPUT_TAIL_BYTES'
         ),
         cwd: process.cwd(),
         env: process.env,

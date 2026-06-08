@@ -1,3 +1,5 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -5,6 +7,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 type RetryReleaseCommandModule = {
     isTransientReleaseDownloadError: (output: string) => boolean;
+    spawnReleaseCommand: (
+        command: string,
+        args: string[],
+        options: { maxTailBytes?: number }
+    ) => Promise<{ status: number; output: string }>;
     runReleaseCommandWithRetry: (
         command: string,
         args: string[],
@@ -66,6 +73,33 @@ describe('retry release command', () => {
 
         expect(status).toBe(0);
         expect(spawnCommand).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps only a bounded output tail for long command logs', async () => {
+        const retryModule = await loadRetryModule();
+        const root = await mkdtemp(join(tmpdir(), 'touchai-retry-command-'));
+        const scriptPath = join(root, 'long-output.mjs');
+
+        try {
+            await writeFile(
+                scriptPath,
+                [
+                    "process.stdout.write('x'.repeat(200));",
+                    "process.stderr.write('failed to bundle project http status: 504');",
+                    'process.exit(1);',
+                ].join('')
+            );
+
+            const result = await retryModule?.spawnReleaseCommand('node', [scriptPath], {
+                maxTailBytes: 96,
+            });
+
+            expect(result?.status).toBe(1);
+            expect(result?.output.length).toBeLessThanOrEqual(96);
+            expect(result?.output).toContain('http status: 504');
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
     });
 
     it('does not retry non-transient command failures', async () => {
