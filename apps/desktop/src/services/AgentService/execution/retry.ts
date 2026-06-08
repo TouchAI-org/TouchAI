@@ -7,6 +7,12 @@ export interface RetryableRequestErrorInfo {
 }
 
 export const MAX_REQUEST_RETRIES = 5;
+const RETRYABLE_PROVIDER_GATEWAY_CODES = new Set([
+    'rate_limited',
+    'upstream_rate_limited',
+    'upstream_unavailable',
+    'upstream_unauthorized',
+]);
 
 // HTTP 状态码：可重试的临时性错误
 const RETRYABLE_STATUS_CODES = new Set([
@@ -35,12 +41,36 @@ export function shouldRetryRequestFailure(
     error: AiError,
     details?: RetryableRequestErrorInfo | null
 ): boolean {
-    if (
-        error.details &&
-        typeof error.details === 'object' &&
-        'requiresRelogin' in error.details &&
-        error.details.requiresRelogin === true
-    ) {
+    const errorDetails =
+        error.details && typeof error.details === 'object'
+            ? (error.details as Record<string, unknown>)
+            : null;
+
+    if (errorDetails?.requiresRelogin === true) {
+        return false;
+    }
+
+    const errorStatusCode =
+        typeof errorDetails?.statusCode === 'number' ? errorDetails.statusCode : undefined;
+    const gatewayCode =
+        typeof errorDetails?.gatewayCode === 'string' ? errorDetails.gatewayCode : undefined;
+
+    if (error.code === AiErrorCode.API_ERROR) {
+        if (gatewayCode && RETRYABLE_PROVIDER_GATEWAY_CODES.has(gatewayCode)) {
+            return true;
+        }
+
+        if (typeof errorStatusCode === 'number' && RETRYABLE_STATUS_CODES.has(errorStatusCode)) {
+            return true;
+        }
+
+        if (
+            typeof details?.statusCode === 'number' &&
+            RETRYABLE_STATUS_CODES.has(details.statusCode)
+        ) {
+            return true;
+        }
+
         return false;
     }
 

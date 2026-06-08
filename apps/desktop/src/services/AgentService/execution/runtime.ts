@@ -4,8 +4,12 @@ import { updateModelLastUsed } from '@database/queries';
 import type { SessionTurnEntity } from '@database/types';
 
 import { t } from '@/i18n';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
-import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import {
+    type AttachmentIndex,
+    ensurePersistedAttachmentIndex,
+    getModelAttachmentCapabilities,
+    getUnsupportedAttachmentTypes,
+} from '@/services/AgentService/infrastructure/attachments';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
@@ -16,6 +20,7 @@ import { composePromptSnapshot } from '../prompt/composer';
 import { buildPromptTransportMessages } from '../prompt/transport';
 import type { PromptSnapshot } from '../prompt/types';
 import { buildSessionTitle } from '../session/title';
+import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
 import type { TaskExecutionMode } from '../task/types';
 import {
     AiRequestExecutor,
@@ -222,6 +227,22 @@ export class AiConversationRuntime {
             providerId: this.options.providerId,
         });
         const attachments = this.options.attachments ?? [];
+        const attachmentCapabilities = getModelAttachmentCapabilities(initialModel);
+        const unsupportedAttachmentTypes = new Set([
+            ...getUnsupportedAttachmentTypes(attachments, attachmentCapabilities),
+            ...(await findUnsupportedSessionAttachmentTypes({
+                sessionId: this.options.sessionId,
+                capabilities: attachmentCapabilities,
+            })),
+        ]);
+        if (unsupportedAttachmentTypes.size > 0) {
+            throw new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
+                unsupportedAttachmentTypes: Array.from(unsupportedAttachmentTypes),
+                modelId: initialModel.model_id,
+                providerId: initialModel.provider_id,
+            });
+        }
+
         if (attachments.length > 0) {
             await this.prepareAttachmentsForTransport(attachments);
         }
@@ -241,7 +262,7 @@ export class AiConversationRuntime {
             sessionId: this.options.sessionId,
             snapshot: promptSnapshot,
             attachments,
-            supportsAttachments: initialModel.attachment === 1,
+            attachmentCapabilities,
         });
         const initialCheckpoint = this.executor.createInitialCheckpoint({
             initialModel,

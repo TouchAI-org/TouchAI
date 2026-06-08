@@ -102,12 +102,16 @@ describe('BuiltInToolService presentation i18n', () => {
             await import('@/services/BuiltInToolService/presentation');
 
         expect(
-            resolveBuiltInToolConversationSemantic('bash', {}, {
-                semantic: {
-                    action: 'run',
-                    target: 'result target',
-                },
-            })
+            resolveBuiltInToolConversationSemantic(
+                'bash',
+                {},
+                {
+                    semantic: {
+                        action: 'run',
+                        target: 'result target',
+                    },
+                }
+            )
         ).toEqual({
             action: 'run',
             target: 'result target',

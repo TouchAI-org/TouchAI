@@ -1,10 +1,10 @@
 import { getSettingValue } from '@database/queries';
 
 import {
+    parseSearchSettingsConfig,
     SEARCH_SETTINGS_KEY,
     type SearchProviderId,
     type SearchSettingsConfig,
-    parseSearchSettingsConfig,
 } from '@/config/searchSettings';
 import { createTauriFetch } from '@/services/AgentService/infrastructure/providers';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
@@ -19,10 +19,10 @@ import {
 import {
     buildWebSearchToolDescription,
     buildWebSearchToolInputSchema,
+    WEB_SEARCH_PROVIDERS,
     WEB_SEARCH_TOOL_DESCRIPTION,
     WEB_SEARCH_TOOL_ID,
     WEB_SEARCH_TOOL_INPUT_SCHEMA,
-    WEB_SEARCH_PROVIDERS,
     type WebSearchProvider,
 } from './constants';
 import {
@@ -294,7 +294,8 @@ async function searchOpenAlex(
     url.searchParams.set('per-page', String(resultLimit(request)));
 
     const payload = await fetchJson(url, signal);
-    const results = payload && typeof payload === 'object' ? (payload as { results?: unknown }).results : null;
+    const results =
+        payload && typeof payload === 'object' ? (payload as { results?: unknown }).results : null;
     if (!Array.isArray(results)) {
         return [];
     }
@@ -324,7 +325,8 @@ async function searchOpenAlex(
             return {
                 title,
                 url,
-                snippet: `${year}${decodeOpenAlexAbstract(record.abstract_inverted_index) ?? ''}`.trim(),
+                snippet:
+                    `${year}${decodeOpenAlexAbstract(record.abstract_inverted_index) ?? ''}`.trim(),
                 source: 'OpenAlex',
             };
         })
@@ -380,7 +382,8 @@ async function searchGitHubRepositories(
     url.searchParams.set('per_page', String(resultLimit(request)));
 
     const payload = await fetchJson(url, signal);
-    const items = payload && typeof payload === 'object' ? (payload as { items?: unknown }).items : null;
+    const items =
+        payload && typeof payload === 'object' ? (payload as { items?: unknown }).items : null;
     if (!Array.isArray(items)) {
         return [];
     }
@@ -571,8 +574,9 @@ function readFirecrawlResults(payload: unknown): unknown[] {
     }
     if (data && typeof data === 'object') {
         const record = data as Record<string, unknown>;
-        return ['web', 'news', 'images']
-            .flatMap((key) => (Array.isArray(record[key]) ? record[key] : []));
+        return ['web', 'news', 'images'].flatMap((key) =>
+            Array.isArray(record[key]) ? record[key] : []
+        );
     }
     return [];
 }
@@ -612,7 +616,12 @@ function isProviderConfigured(
     if (!config?.enabled && provider !== 'auto') {
         return false;
     }
-    if (provider === 'brave' || provider === 'tavily' || provider === 'exa' || provider === 'firecrawl') {
+    if (
+        provider === 'brave' ||
+        provider === 'tavily' ||
+        provider === 'exa' ||
+        provider === 'firecrawl'
+    ) {
         return Boolean(config.apiKey.trim());
     }
     if (provider === 'searxng') {
@@ -659,7 +668,9 @@ function resolveExecutableSearchProvider(
     settings: SearchSettingsConfig
 ): SearchProviderId {
     const provider =
-        request.provider !== 'auto' ? request.provider : routeProviderForSettings(request, settings);
+        request.provider !== 'auto'
+            ? request.provider
+            : routeProviderForSettings(request, settings);
     if (isExecutableSearchProvider(provider) && isProviderConfigured(provider, settings)) {
         return provider;
     }
@@ -744,11 +755,7 @@ export async function executeWebSearchTool(
 ): Promise<BuiltInToolExecutionResult> {
     void config;
     const searchSettings = await loadSearchSettings();
-    const request = applySearchSettingsDefaults(
-        args,
-        parseWebSearchRequest(args),
-        searchSettings
-    );
+    const request = applySearchSettingsDefaults(args, parseWebSearchRequest(args), searchSettings);
     const provider = resolveExecutableSearchProvider(request, searchSettings);
     const { signal, cleanup } = createSearchSignal(context.signal, request.timeoutMs);
 
@@ -766,7 +773,10 @@ export async function executeWebSearchTool(
         return {
             result: `Web search failed\nQuery: ${request.query}\nReason: ${errorMessage}`,
             isError: true,
-            status: error instanceof DOMException && error.name === 'TimeoutError' ? 'timeout' : 'error',
+            status:
+                error instanceof DOMException && error.name === 'TimeoutError'
+                    ? 'timeout'
+                    : 'error',
             errorMessage,
             conversationSemantic: buildSearchSemanticForResults(args, [], provider),
         };

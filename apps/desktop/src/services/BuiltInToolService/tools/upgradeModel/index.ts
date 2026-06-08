@@ -24,11 +24,7 @@ import {
     type UpgradeModelToolConfig,
 } from './config';
 import { UPGRADE_MODEL_TOOL_DESCRIPTION, UPGRADE_MODEL_TOOL_INPUT_SCHEMA } from './constants';
-import {
-    buildUpgradeSummary,
-    formatCurrentModelLabel,
-    parseUpgradeModelArgs,
-} from './helper';
+import { buildUpgradeSummary, formatCurrentModelLabel, parseUpgradeModelArgs } from './helper';
 
 interface ResolvedUpgradeTarget {
     chainEntry: UpgradeModelChainEntry;

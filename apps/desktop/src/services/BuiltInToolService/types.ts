@@ -107,7 +107,10 @@ export abstract class BuiltInTool<
     abstract readonly inputSchema: AiToolDefinition['input_schema'];
     abstract readonly defaultConfig: TConfig;
 
-    buildToolDefinition(namespacedName: string, config: TConfig): AiToolDefinition | Promise<AiToolDefinition> {
+    buildToolDefinition(
+        namespacedName: string,
+        config: TConfig
+    ): AiToolDefinition | Promise<AiToolDefinition> {
         void config;
         return {
             name: namespacedName,

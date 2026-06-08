@@ -21,9 +21,9 @@ import {
 } from '@/config/browserSettings';
 import {
     DEFAULT_SEARCH_SETTINGS,
+    parseSearchSettingsConfig,
     SEARCH_SETTINGS_KEY,
     type SearchSettingsConfig,
-    parseSearchSettingsConfig,
     serializeSearchSettingsConfig,
 } from '@/config/searchSettings';
 import {

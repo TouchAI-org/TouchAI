@@ -6,14 +6,14 @@
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     import {
-        type SearchProviderId,
-        type SearchRouteIntent,
-        type SearchSettingsConfig,
+        parseSearchSettingsConfig,
         SEARCH_PROVIDER_API_KEY_REQUIREMENTS,
         SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS,
         SEARCH_PROVIDER_IDS,
         SEARCH_ROUTE_INTENTS,
-        parseSearchSettingsConfig,
+        type SearchProviderId,
+        type SearchRouteIntent,
+        type SearchSettingsConfig,
         serializeSearchSettingsConfig,
     } from '@/config/searchSettings';
     import { type MessageKey, t } from '@/i18n';
@@ -415,7 +415,7 @@
     <div class="settings-page" data-testid="settings-search-section">
         <div class="settings-section-stack">
             <header class="settings-page-header flex items-start gap-4">
-                <div class="min-w-0 max-w-2xl">
+                <div class="max-w-2xl min-w-0">
                     <h1 class="settings-page-title" data-testid="search-settings-title">
                         {{ t('settings.search.title') }}
                     </h1>
@@ -512,7 +512,9 @@
                 </section>
 
                 <section class="mt-10 space-y-4">
-                    <h2 class="settings-section-title">{{ t('settings.search.section.provider') }}</h2>
+                    <h2 class="settings-section-title">
+                        {{ t('settings.search.section.provider') }}
+                    </h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
                             v-for="provider in providerRows"
@@ -570,7 +572,7 @@
                                         v-if="providerRequiresEndpoint(provider.id)"
                                         :value="providerCredentialValue(provider.id)"
                                         :data-testid="`search-${provider.id}-api-key-input`"
-                                        class="min-w-0 flex-1 rounded-[10px] border border-transparent bg-[#f0f0ef] px-3 py-2 font-serif text-[13px] text-neutral-900 shadow-none transition-colors placeholder:text-neutral-400 hover:bg-[#ececea] focus:border-primary-300 focus:bg-white disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-gray-400"
+                                        class="focus:border-primary-300 min-w-0 flex-1 rounded-[10px] border border-transparent bg-[#f0f0ef] px-3 py-2 font-serif text-[13px] text-neutral-900 shadow-none transition-colors placeholder:text-neutral-400 hover:bg-[#ececea] focus:bg-white disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-gray-400"
                                         :class="
                                             shouldHighlightProviderApiKey(provider.id)
                                                 ? 'border-red-300 bg-red-50 text-red-600'
@@ -614,7 +616,9 @@
                 </section>
 
                 <section class="mt-10 space-y-4">
-                    <h2 class="settings-section-title">{{ t('settings.search.section.routing') }}</h2>
+                    <h2 class="settings-section-title">
+                        {{ t('settings.search.section.routing') }}
+                    </h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
                             v-for="row in routeRows"
@@ -642,7 +646,9 @@
                 </section>
 
                 <section class="mt-10 space-y-4">
-                    <h2 class="settings-section-title">{{ t('settings.search.section.advanced') }}</h2>
+                    <h2 class="settings-section-title">
+                        {{ t('settings.search.section.advanced') }}
+                    </h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
                             v-for="row in advancedRows"

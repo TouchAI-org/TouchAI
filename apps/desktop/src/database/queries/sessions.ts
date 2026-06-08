@@ -389,7 +389,9 @@ export const refreshSessionMetadata = async (
                     (${toolCallPreviewQuery})
                 )
             `,
-            provider_id: sql<number | null>`(${latestProviderIdQuery})`,
+            provider_id: sql<
+                number | null
+            >`coalesce((${latestProviderIdQuery}), ${sessions.provider_id})`,
             updated_at: sql`datetime('now')`,
         })
         .where(eq(sessions.id, sessionId))

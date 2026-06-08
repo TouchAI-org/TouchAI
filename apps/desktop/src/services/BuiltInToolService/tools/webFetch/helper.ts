@@ -8,9 +8,9 @@ import { normalizeOptionalString } from '@/utils/text';
 
 import { parseToolArguments } from '../../utils/toolSchema';
 import {
+    DEFAULT_MAX_RESPONSE_BYTES,
     DEFAULT_SOURCE_CHAR_LIMIT,
     DEFAULT_TIMEOUT_MS,
-    DEFAULT_MAX_RESPONSE_BYTES,
     SUPPORTED_PROTOCOLS,
     WEB_FETCH_TOOL_NAME,
     webFetchArgsSchema,
@@ -32,7 +32,7 @@ const IMAGE_SOURCE_ATTRIBUTES = [
 const SRCSET_ATTRIBUTES = ['srcset', 'data-srcset', 'data-lazy-srcset'];
 const MAX_IMAGE_CANDIDATES = 6;
 
-interface WebFetchRequest {
+export interface WebFetchRequest {
     url: URL;
     mode: WebFetchMode;
     maxChars: number;
@@ -145,6 +145,20 @@ function isDisallowedHostname(hostname: string): boolean {
     return !normalized.includes('.');
 }
 
+export function validateWebFetchUrl(url: URL): void {
+    if (!SUPPORTED_PROTOCOLS.has(url.protocol)) {
+        throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
+    }
+
+    if (url.username || url.password) {
+        throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
+    }
+
+    if (isDisallowedHostname(url.hostname)) {
+        throw new Error(t('builtInTools.webFetch.error.blockedHost'));
+    }
+}
+
 /**
  * 解析 WebFetch 参数，并在真正发请求前完成 URL 安全边界校验。
  *
@@ -162,17 +176,7 @@ export function parseWebFetchRequest(args: Record<string, unknown>): WebFetchReq
         throw new Error(t('builtInTools.webFetch.error.invalidUrl', { url: rawUrl }));
     }
 
-    if (!SUPPORTED_PROTOCOLS.has(parsedUrl.protocol)) {
-        throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
-    }
-
-    if (parsedUrl.username || parsedUrl.password) {
-        throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
-    }
-
-    if (isDisallowedHostname(parsedUrl.hostname)) {
-        throw new Error(t('builtInTools.webFetch.error.blockedHost'));
-    }
+    validateWebFetchUrl(parsedUrl);
 
     return {
         url: parsedUrl,
@@ -361,23 +365,29 @@ export function extractHtmlContent(html: string, request: WebFetchRequest): Form
         const article = extractReadableArticle(html, request.url.toString());
         if (article) {
             const truncated = truncateContent(article.content, request.maxChars);
-            return withImageCandidates({
-                ...article,
-                content: truncated.content,
-                bodyTruncated: truncated.bodyTruncated,
-            }, imageCandidates);
+            return withImageCandidates(
+                {
+                    ...article,
+                    content: truncated.content,
+                    bodyTruncated: truncated.bodyTruncated,
+                },
+                imageCandidates
+            );
         }
     }
 
     if (request.mode === 'page_text') {
         const content = buildPageText(html);
         const truncated = truncateContent(content, request.maxChars);
-        return withImageCandidates({
-            content: truncated.content,
-            actualMode: 'page_text',
-            bodyTruncated: truncated.bodyTruncated,
-            sourceTruncated: false,
-        }, imageCandidates);
+        return withImageCandidates(
+            {
+                content: truncated.content,
+                actualMode: 'page_text',
+                bodyTruncated: truncated.bodyTruncated,
+                sourceTruncated: false,
+            },
+            imageCandidates
+        );
     }
 
     const markdown = buildPageMarkdown(html, request.url.toString());
@@ -386,23 +396,29 @@ export function extractHtmlContent(html: string, request: WebFetchRequest): Form
             new DOMParser().parseFromString(html, 'text/html').title || undefined
         );
         const truncated = truncateContent(markdown, request.maxChars);
-        return withImageCandidates({
-            content: truncated.content,
-            actualMode: 'page_markdown',
-            bodyTruncated: truncated.bodyTruncated,
-            sourceTruncated: false,
-            title: pageTitle,
-        }, imageCandidates);
+        return withImageCandidates(
+            {
+                content: truncated.content,
+                actualMode: 'page_markdown',
+                bodyTruncated: truncated.bodyTruncated,
+                sourceTruncated: false,
+                title: pageTitle,
+            },
+            imageCandidates
+        );
     }
 
     const content = buildPageText(html);
     const truncated = truncateContent(content, request.maxChars);
-    return withImageCandidates({
-        content: truncated.content,
-        actualMode: 'page_text',
-        bodyTruncated: truncated.bodyTruncated,
-        sourceTruncated: false,
-    }, imageCandidates);
+    return withImageCandidates(
+        {
+            content: truncated.content,
+            actualMode: 'page_text',
+            bodyTruncated: truncated.bodyTruncated,
+            sourceTruncated: false,
+        },
+        imageCandidates
+    );
 }
 
 function pruneNonContentNodes(root: ParentNode): void {
@@ -601,7 +617,10 @@ function imageFileName(source: string): string | null {
 }
 
 function cleanMarkdownImageLabel(value: string): string {
-    return value.replace(/\s+/g, ' ').replace(/[[\]\\]/g, '').trim();
+    return value
+        .replace(/\s+/g, ' ')
+        .replace(/[[\]\\]/g, '')
+        .trim();
 }
 
 function extractImageLabel(node: Element, source: string): string {

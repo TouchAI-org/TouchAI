@@ -22,10 +22,7 @@ function createTool(id: number, toolId: string): BuiltInToolEntity {
 }
 
 describe('settings browser built-in tool group logic', () => {
-    const tools = [
-        createTool(1, 'browser'),
-        createTool(2, 'bash'),
-    ];
+    const tools = [createTool(1, 'browser'), createTool(2, 'bash')];
 
     it('selects the consolidated browser automation row', () => {
         expect(getBrowserAutomationTools(tools).map((tool) => tool.tool_id)).toEqual(['browser']);

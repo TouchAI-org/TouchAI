@@ -188,16 +188,19 @@ const zhCNMessages = {
     'settings.search.timeout': '超时时间',
     'settings.search.timeout.description': '单次搜索请求等待时间，单位毫秒',
     'settings.search.parallelProviders': '并行搜索',
-    'settings.search.parallelProviders.description': '允许多个内部来源同时尝试，后续可用于提高召回率',
+    'settings.search.parallelProviders.description':
+        '允许多个内部来源同时尝试，后续可用于提高召回率',
     'settings.search.fallbackEnabled': '失败回退',
     'settings.search.fallbackEnabled.description': '搜索受限或失败时允许使用可用的内部回退来源',
     'settings.search.preferOfficialSources': '优先官方来源',
-    'settings.search.preferOfficialSources.description': '调研时更偏向官方网站、论文、文档、公告和权威机构',
+    'settings.search.preferOfficialSources.description':
+        '调研时更偏向官方网站、论文、文档、公告和权威机构',
     'settings.search.provider.auto': '自动',
     'settings.search.provider.auto.description': '按任务类型自动选择合适的搜索来源',
     'settings.search.provider.auto.keyPlaceholder': '无需密钥',
     'settings.search.provider.anysearch': 'AnySearch',
-    'settings.search.provider.anysearch.description': '面向 AI Agent 的聚合搜索入口，适合常规资料发现',
+    'settings.search.provider.anysearch.description':
+        '面向 AI Agent 的聚合搜索入口，适合常规资料发现',
     'settings.search.provider.anysearch.keyPlaceholder': '可选 AnySearch API Key',
     'settings.search.provider.anysearch.quota': '每日 1000 次',
     'settings.search.provider.wikipedia': 'Wikipedia',
@@ -209,7 +212,8 @@ const zhCNMessages = {
     'settings.search.provider.openalex.keyPlaceholder': '无需密钥',
     'settings.search.provider.openalex.quota': '免费 100k/天',
     'settings.search.provider.semanticScholar': 'Semantic Scholar',
-    'settings.search.provider.semanticScholar.description': '学术论文搜索，适合论文、作者和引用线索',
+    'settings.search.provider.semanticScholar.description':
+        '学术论文搜索，适合论文、作者和引用线索',
     'settings.search.provider.semanticScholar.keyPlaceholder': '可选 Semantic Scholar API Key',
     'settings.search.provider.semanticScholar.quota': '免费 1 RPS',
     'settings.search.provider.github': 'GitHub',
@@ -280,7 +284,6 @@ const zhCNMessages = {
     'settings.ai.apiEndpoint': '请求地址',
     'settings.ai.apiEndpointRequired': '请求地址 *',
 
-
     'settings.browser.description': '管理 TouchAI 控制浏览器的行为。',
     'settings.browser.section.data': '基础',
     'settings.browser.section.permissions': '权限',
@@ -303,14 +306,12 @@ const zhCNMessages = {
     'settings.browser.defaultHomepage': '默认主页',
     'settings.browser.defaultHomepage.description': '启动新浏览器会话时默认打开的主页，可留空',
     'settings.browser.screenshotAttachment': '截图附件',
-    'settings.browser.screenshotAttachment.description':
-        '控制调研结果中是否自动附带当前页面截图',
+    'settings.browser.screenshotAttachment.description': '控制调研结果中是否自动附带当前页面截图',
     'settings.browser.screenshot.ask': '按需询问',
     'settings.browser.screenshot.always': '始终包含',
     'settings.browser.screenshot.never': '不自动附加',
     'settings.browser.permissionMode': '权限模式',
-    'settings.browser.permissionMode.description':
-        '选择全局允许、自动细分或全部拒绝浏览器操作',
+    'settings.browser.permissionMode.description': '选择全局允许、自动细分或全部拒绝浏览器操作',
     'settings.browser.permissionMode.allow': '始终允许',
     'settings.browser.permissionMode.auto': '自动',
     'settings.browser.permissionMode.deny': '拒绝',
@@ -323,8 +324,7 @@ const zhCNMessages = {
     'settings.browser.permission.connectExisting.description':
         '自动连接、询问或拒绝复用本机已打开的浏览器',
     'settings.browser.permission.observeDom': '读取页面',
-    'settings.browser.permission.observeDom.description':
-        '查看当前页面、标签页和 DOM 快照',
+    'settings.browser.permission.observeDom.description': '查看当前页面、标签页和 DOM 快照',
     'settings.browser.permission.screenshot': '截图',
     'settings.browser.permission.screenshot.description': '截取当前页面作为证据',
     'settings.browser.permission.click': '点击/滚动/等待',
@@ -862,6 +862,8 @@ const zhCNMessages = {
     'builtInTools.webFetch.error.embeddedCredentials': 'WebFetch 不允许 URL 中包含凭据。',
     'builtInTools.webFetch.error.blockedHost':
         'WebFetch 会阻止 localhost、私有网络和单标签主机名。',
+    'builtInTools.webFetch.error.tooManyRedirects':
+        'WebFetch 重定向次数超过限制（最多 {maxRedirections} 次）。',
     'builtInTools.webFetch.error.timeout': 'WebFetch 在 {timeoutMs}ms 后超时',
     'builtInTools.webFetch.target': '网页',
     'builtInTools.webFetch.imageAltFallback': '[图片：{altText}]',
@@ -1275,12 +1277,14 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.browser.allowedDomains.empty': 'Domain confirmation is not skipped when unset',
     'settings.browser.addDomain': '+ Add',
     'settings.browser.fingerprintProfile': 'Fingerprint simulation',
-    'settings.browser.fingerprintProfile.description': 'Simulate the state of a real browser environment',
+    'settings.browser.fingerprintProfile.description':
+        'Simulate the state of a real browser environment',
     'settings.browser.fingerprint.off': 'Off',
     'settings.browser.fingerprint.basic': 'Basic',
     'settings.browser.fingerprint.enhanced': 'Enhanced',
     'settings.browser.localeTimezone': 'Language and timezone',
-    'settings.browser.localeTimezone.description': 'Set the language and timezone visible to webpages',
+    'settings.browser.localeTimezone.description':
+        'Set the language and timezone visible to webpages',
     'settings.browser.userAgent.description':
         'User-Agent is the identity information the browser sends to websites; leave blank to use the browser default',
     'settings.browser.windowSize': 'Window size',
@@ -1829,6 +1833,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'WebFetch tool does not allow embedded credentials in URLs.',
     'builtInTools.webFetch.error.blockedHost':
         'WebFetch tool blocks localhost, private-network and single-label hostnames.',
+    'builtInTools.webFetch.error.tooManyRedirects':
+        'WebFetch exceeded the redirect limit ({maxRedirections}).',
     'builtInTools.webFetch.error.timeout': 'WebFetch timed out after {timeoutMs}ms',
     'builtInTools.webFetch.target': 'web page',
     'builtInTools.webFetch.imageAltFallback': '[Image: {altText}]',

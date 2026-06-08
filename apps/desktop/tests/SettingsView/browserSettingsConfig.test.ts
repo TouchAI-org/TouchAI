@@ -2,11 +2,15 @@ import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const settingsValues = new Map<string, string | null>();
-const setSettingMock = vi.hoisted(() => vi.fn(async ({ key, value }: { key: string; value: string }) => {
-    settingsValues.set(key, value);
-    return { id: 1, key, value, created_at: '', updated_at: '' };
-}));
-const getSettingValueMock = vi.hoisted(() => vi.fn(async ({ key }: { key: string }) => settingsValues.get(key) ?? null));
+const setSettingMock = vi.hoisted(() =>
+    vi.fn(async ({ key, value }: { key: string; value: string }) => {
+        settingsValues.set(key, value);
+        return { id: 1, key, value, created_at: '', updated_at: '' };
+    })
+);
+const getSettingValueMock = vi.hoisted(() =>
+    vi.fn(async ({ key }: { key: string }) => settingsValues.get(key) ?? null)
+);
 
 vi.mock('@database/queries', () => ({
     getSettingValue: getSettingValueMock,
@@ -58,9 +62,9 @@ describe('browser settings config', () => {
             serializeBrowserSettingsConfig(DEFAULT_BROWSER_SETTINGS)
         );
         expect(parseBrowserSettingsConfig('{}').defaultHomepage).toBe('https://touch-ai.org');
-        expect(parseBrowserSettingsConfig(JSON.stringify({ defaultHomepage: '' })).defaultHomepage).toBe(
-            ''
-        );
+        expect(
+            parseBrowserSettingsConfig(JSON.stringify({ defaultHomepage: '' })).defaultHomepage
+        ).toBe('');
     });
 
     it('trims string fields and preserves configured permissions', async () => {

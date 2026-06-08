@@ -83,6 +83,28 @@ describe('SessionTaskProjection i18n statuses', () => {
         );
     });
 
+    it('replaces unsupported image endpoint errors with a friendly model capability message', () => {
+        setLocale('zh-CN');
+        const snapshot = createSnapshot();
+        const projection = createProjection(snapshot);
+
+        projection.bootstrap([], 'Hello', []);
+        projection.syncTaskMetadata({
+            type: 'task_failed',
+            taskId: 'task-1',
+            turnId: 1,
+            error: 'No endpoints found that support image input',
+        });
+
+        const statusMessage = snapshot.sessionHistory[snapshot.sessionHistory.length - 1];
+        expect(statusMessage).toMatchObject({
+            role: 'assistant',
+            content: '请求失败: 当前模型不支持图片/文件输入，请选择合适模型继续。',
+            isError: true,
+        });
+        expect(snapshot.error).toBe('当前模型不支持图片/文件输入，请选择合适模型继续。');
+    });
+
     it('uses English cancelled request status when the active locale is English', () => {
         setLocale('en-US');
         const snapshot = createSnapshot();

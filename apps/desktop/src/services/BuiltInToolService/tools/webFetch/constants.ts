@@ -14,10 +14,10 @@ export const SUPPORTED_PROTOCOLS = new Set(['http:', 'https:']);
 export const DEFAULT_TIMEOUT_MS = 20_000;
 export const DEFAULT_SOURCE_CHAR_LIMIT = 1_500_000;
 export const DEFAULT_MAX_RESPONSE_BYTES = 2_000_000;
-export const WEB_FETCH_CACHE_TTL_MS = 10 * 60 * 1000;
 export const DEFAULT_USER_AGENT =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 export const DEFAULT_ACCEPT_LANGUAGE = 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7';
+export const MAX_WEB_FETCH_REDIRECTS = 10;
 export const DEFAULT_ACCEPT_HEADER = [
     'text/html',
     'application/xhtml+xml',

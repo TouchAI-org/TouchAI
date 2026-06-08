@@ -1,13 +1,13 @@
 use tauri::State;
 
 use crate::core::browser::{
+    process::{default_managed_browser_data_path, discover_installed_browsers},
     types::{
         BrowserActRequest, BrowserActResult, BrowserConnectExistingRequest,
-        BrowserConnectExistingResult, BrowserDescriptor, BrowserExistingSession, BrowserNavigateRequest,
-        BrowserObservation, BrowserObserveRequest, BrowserStartRequest, BrowserStatus,
-        BrowserTabRequest,
+        BrowserConnectExistingResult, BrowserDescriptor, BrowserExistingSession,
+        BrowserNavigateRequest, BrowserObservation, BrowserObserveRequest, BrowserStartRequest,
+        BrowserStatus, BrowserTabRequest,
     },
-    process::{default_managed_browser_data_path, discover_installed_browsers},
     BrowserRuntime,
 };
 

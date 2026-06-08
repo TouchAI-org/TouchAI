@@ -113,9 +113,9 @@ fn managed_start_request_accepts_trusted_browser_executable_path_field() {
         request
             .browser_executable_path
             .as_ref()
-            .and_then(|path| path.file_name())
-            .and_then(|name| name.to_str()),
-        Some("chrome.exe")
+            .map(|path| path.to_string_lossy().into_owned())
+            .as_deref(),
+        Some("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
     );
 }
 
@@ -177,9 +177,9 @@ fn managed_start_request_accepts_trusted_browser_data_path_field() {
         request
             .browser_data_path
             .as_ref()
-            .and_then(|path| path.file_name())
-            .and_then(|name| name.to_str()),
-        Some("BrowserData")
+            .map(|path| path.to_string_lossy().into_owned())
+            .as_deref(),
+        Some("D:\\TouchAI\\BrowserData")
     );
 }
 

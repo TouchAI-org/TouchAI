@@ -112,10 +112,7 @@ function domainMatches(hostname: string, domain: string): boolean {
     return hostname === normalizedDomain || hostname.endsWith(`.${normalizedDomain}`);
 }
 
-function hasDomainMatch(
-    hostname: string | null,
-    rules: Array<{ domain: string }>
-): boolean {
+function hasDomainMatch(hostname: string | null, rules: Array<{ domain: string }>): boolean {
     return Boolean(hostname && rules.some((rule) => domainMatches(hostname, rule.domain)));
 }
 

@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -579,8 +578,8 @@ mod tests {
         let app_data_dir = TempDir::new().expect("app data dir");
 
         let expected = app_data_dir.path().join("browser-data");
-        let profile = create_managed_profile_dir_with_default_path(None, &expected)
-            .expect("profile dir");
+        let profile =
+            create_managed_profile_dir_with_default_path(None, &expected).expect("profile dir");
 
         assert!(expected.is_dir());
         assert_eq!(profile.path(), expected.as_path());
@@ -597,8 +596,8 @@ mod tests {
         )
         .expect("stale DevToolsActivePort");
 
-        let profile = create_managed_profile_dir_with_default_path(None, &profile_dir)
-            .expect("profile dir");
+        let profile =
+            create_managed_profile_dir_with_default_path(None, &profile_dir).expect("profile dir");
 
         assert_eq!(profile.path(), profile_dir.as_path());
         assert!(!profile_dir.join("DevToolsActivePort").exists());

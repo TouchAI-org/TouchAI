@@ -28,11 +28,11 @@ import {
     BROWSER_ACT_TOOL_DESCRIPTION,
     BROWSER_ACT_TOOL_ID,
     BROWSER_ACT_TOOL_INPUT_SCHEMA,
-    BROWSER_OPERATIONS,
     BROWSER_OBSERVE_OPERATIONS,
     BROWSER_OBSERVE_TOOL_DESCRIPTION,
     BROWSER_OBSERVE_TOOL_ID,
     BROWSER_OBSERVE_TOOL_INPUT_SCHEMA,
+    BROWSER_OPERATIONS,
     BROWSER_SESSION_OPERATIONS,
     BROWSER_SESSION_TOOL_DESCRIPTION,
     BROWSER_SESSION_TOOL_ID,
@@ -342,11 +342,15 @@ function isNativeActOperation(
     );
 }
 
-function isBrowserSessionOperation(operation: BrowserOperation): operation is BrowserSessionOperation {
+function isBrowserSessionOperation(
+    operation: BrowserOperation
+): operation is BrowserSessionOperation {
     return isOneOf(operation, BROWSER_SESSION_OPERATIONS);
 }
 
-function isBrowserObserveOperation(operation: BrowserOperation): operation is BrowserObserveOperation {
+function isBrowserObserveOperation(
+    operation: BrowserOperation
+): operation is BrowserObserveOperation {
     return isOneOf(operation, BROWSER_OBSERVE_OPERATIONS);
 }
 

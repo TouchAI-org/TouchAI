@@ -53,7 +53,9 @@ export function createSearchSignal(
     }
 
     const timer = globalThis.setTimeout(() => {
-        controller.abort(new DOMException(`WebSearch timed out after ${timeoutMs}ms`, 'TimeoutError'));
+        controller.abort(
+            new DOMException(`WebSearch timed out after ${timeoutMs}ms`, 'TimeoutError')
+        );
     }, timeoutMs);
 
     return {
@@ -78,7 +80,9 @@ export function formatWebSearchResults(
     ];
 
     if (results.length === 0) {
-        lines.push('No candidate sources found. Try a broader query or use browser if the target site is known but search is blocked.');
+        lines.push(
+            'No candidate sources found. Try a broader query or use browser if the target site is known but search is blocked.'
+        );
         return lines.join('\n');
     }
 
@@ -92,7 +96,9 @@ export function formatWebSearchResults(
     });
 
     lines.push('');
-    lines.push('Use web_fetch to read a selected URL. Use browser when the page requires rendering, interaction, login state, or access is blocked.');
+    lines.push(
+        'Use web_fetch to read a selected URL. Use browser when the page requires rendering, interaction, login state, or access is blocked.'
+    );
     return lines.join('\n');
 }
 
@@ -113,9 +119,11 @@ export function decodeOpenAlexAbstract(value: unknown): string | undefined {
         }
     }
 
-    return words
-        .sort((left, right) => left.index - right.index)
-        .map((entry) => entry.word)
-        .join(' ')
-        .trim() || undefined;
+    return (
+        words
+            .sort((left, right) => left.index - right.index)
+            .map((entry) => entry.word)
+            .join(' ')
+            .trim() || undefined
+    );
 }

@@ -1,5 +1,6 @@
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { convertFileSrc } from '@tauri-apps/api/core';
+
+import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { truncateText } from '@/utils/text';
 
 import { formatRedactedJson, redactBrowserValue, redactUrl } from './redaction';
@@ -44,7 +45,10 @@ function stripScreenshotPayloads(value: unknown): unknown {
 }
 
 function cleanMarkdownAltText(value: string): string {
-    return value.replace(/\s+/g, ' ').replace(/[[\]\\]/g, '').trim();
+    return value
+        .replace(/\s+/g, ' ')
+        .replace(/[[\]\\]/g, '')
+        .trim();
 }
 
 function formatMarkdownImageUrl(path: string): string {

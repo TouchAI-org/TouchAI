@@ -16,10 +16,10 @@ import {
     browserTool,
     builtInTools,
     createBrowserApprovalRequest,
-    executeBrowserTool,
     executeBrowserActTool,
     executeBrowserObserveTool,
     executeBrowserSessionTool,
+    executeBrowserTool,
     redactBrowserValue,
 } from '@/services/BuiltInToolService/tools/browser';
 import {
@@ -30,12 +30,19 @@ import {
 } from '@/services/BuiltInToolService/tools/browser/config';
 import { formatBrowserToolResult } from '@/services/BuiltInToolService/tools/browser/format';
 import {
+    browserOperationForSemantic,
+    parseBrowserOperation,
+    resolveBrowserOperationDescription,
+} from '@/services/BuiltInToolService/tools/browser/operation';
+import {
     formatRedactedJson,
     redactBrowserText,
     redactCredentialFieldValue,
     redactUrl,
 } from '@/services/BuiltInToolService/tools/browser/redaction';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
+
+type RequestUserQuestions = NonNullable<BaseBuiltInToolExecutionContext['requestUserQuestions']>;
 
 function fakeContext(): BaseBuiltInToolExecutionContext {
     return {
@@ -48,6 +55,14 @@ function fakeContext(): BaseBuiltInToolExecutionContext {
                 selectedLabels: [question.options[0]?.label ?? '允许本次'],
                 skipped: false,
             })),
+    };
+}
+
+function fakeContextWithoutQuestions(): BaseBuiltInToolExecutionContext {
+    return {
+        callId: 'call-1',
+        iteration: 0,
+        hasExecutedBuiltInTool: () => false,
     };
 }
 
@@ -263,6 +278,36 @@ describe('browser built-in tool group', () => {
         await expect(
             browserObserveTool.buildApprovalRequest({ operation: 'dom' })
         ).resolves.toBeNull();
+    });
+});
+
+describe('browser operation descriptions', () => {
+    it('normalizes operation values and falls back for semantic labels', () => {
+        expect(parseBrowserOperation({ operation: '  navigate   page  ' })).toBe('navigate page');
+        expect(parseBrowserOperation({ operation: '' })).toBeNull();
+        expect(browserOperationForSemantic({ operation: ' tabs ' }, 'current')).toBe('tabs');
+        expect(browserOperationForSemantic({}, 'current')).toBe('current');
+    });
+
+    it('uses fixed labels, provided descriptions, and fallback operations safely', () => {
+        expect(resolveBrowserOperationDescription({ operation: 'tabs' }, 'current')).toBe(
+            '查看浏览器标签页'
+        );
+        expect(
+            resolveBrowserOperationDescription(
+                { operation: 'unknown', description: 'Inspect current page' },
+                'current'
+            )
+        ).toBe('查看当前页面');
+        expect(
+            resolveBrowserOperationDescription(
+                { operation: 'navigate', description: '  Open official docs  ' },
+                'click'
+            )
+        ).toBe('Open official docs');
+        expect(() =>
+            resolveBrowserOperationDescription({ operation: 'navigate' }, 'click')
+        ).toThrow('requires a non-empty description');
     });
 });
 
@@ -765,6 +810,101 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
     });
 
+    it('asks for browser permission and continues when the user approves', async () => {
+        mockTauriCommand('browser_navigate', { ok: true });
+        const requestUserQuestionsImpl: RequestUserQuestions = async (
+            _callId: Parameters<RequestUserQuestions>[0],
+            questions: Parameters<RequestUserQuestions>[1]
+        ) =>
+            questions.map((question, questionIndex) => ({
+                questionIndex,
+                selectedLabels: [question.options[0]?.label ?? '允许本次'],
+                skipped: false,
+            }));
+        const requestUserQuestions = vi.fn(requestUserQuestionsImpl);
+
+        const result = await executeBrowserActTool(
+            {
+                operation: 'navigate',
+                description: '打开官方说明页',
+                url: 'https://example.test/docs',
+            },
+            defaultBrowserConfig,
+            {
+                ...fakeContext(),
+                requestUserQuestions,
+            }
+        );
+
+        expect(result.isError).toBe(false);
+        expect(requestUserQuestions).toHaveBeenCalledWith(
+            'call-1',
+            expect.arrayContaining([
+                expect.objectContaining({
+                    question: expect.stringContaining('打开官方说明页'),
+                }),
+            ])
+        );
+        expect(getLastTauriInvokeCall('browser_navigate')?.payload).toEqual({
+            request: { url: 'https://example.test/docs' },
+        });
+    });
+
+    it('stops browser permission-gated actions when approval is unavailable or rejected', async () => {
+        mockTauriCommand('browser_navigate', { ok: true });
+        const unavailable = await executeBrowserActTool(
+            {
+                operation: 'navigate',
+                description: '打开需要确认的页面',
+                url: 'https://example.test/needs-approval',
+            },
+            defaultBrowserConfig,
+            fakeContextWithoutQuestions()
+        );
+        const rejected = await executeBrowserActTool(
+            {
+                operation: 'navigate',
+                description: '打开被用户拒绝的页面',
+                url: 'https://example.test/rejected',
+            },
+            defaultBrowserConfig,
+            {
+                ...fakeContext(),
+                requestUserQuestions: async (_callId, questions) =>
+                    questions.map((_question, questionIndex) => ({
+                        questionIndex,
+                        selectedLabels: ['拒绝'],
+                        skipped: false,
+                    })),
+            }
+        );
+        const skipped = await executeBrowserActTool(
+            {
+                operation: 'navigate',
+                description: '打开被跳过确认的页面',
+                url: 'https://example.test/skipped',
+            },
+            defaultBrowserConfig,
+            {
+                ...fakeContext(),
+                requestUserQuestions: async (_callId, questions) =>
+                    questions.map((_question, questionIndex) => ({
+                        questionIndex,
+                        selectedLabels: [],
+                        skipped: true,
+                    })),
+            }
+        );
+
+        expect(unavailable.isError).toBe(true);
+        expect(unavailable.result).toContain('requires user confirmation');
+        expect(rejected.isError).toBe(true);
+        expect(rejected.result).toContain('was not approved');
+        expect(skipped.isError).toBe(true);
+        expect(skipped.result).toContain('was not approved');
+        expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
+    });
+
     it('reports when no existing browser session is discoverable', async () => {
         mockTauriCommand('browser_discover_existing', []);
 
@@ -776,6 +916,75 @@ describe('browser tool execution formatting', () => {
 
         expect(result.isError).toBe(true);
         expect(result.result).toContain('No connectable existing browser session was found');
+    });
+
+    it('denies existing browser connection when policy is deny', async () => {
+        mockTauriCommand('browser_discover_existing', [
+            {
+                id: '127.0.0.1:9222',
+                label: 'Google Chrome',
+                endpoint: 'http://127.0.0.1:9222',
+                browserName: 'Google Chrome',
+                currentUrl: 'https://example.test',
+                title: 'Example',
+                tabs: [],
+            },
+        ]);
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                existingSessionPolicy: 'deny',
+            })
+        );
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: '连接已有浏览器' },
+            defaultBrowserConfig,
+            fakeContext()
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.result).toContain('existing-browser-session-policy-deny');
+        expect(getLastTauriInvokeCall('browser_discover_existing')).toBeUndefined();
+        expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
+    });
+
+    it('auto-connects a single existing browser session when policy allows it', async () => {
+        mockTauriCommand('browser_discover_existing', [
+            {
+                id: '127.0.0.1:9222',
+                label: 'Google Chrome - example.test',
+                endpoint: 'http://127.0.0.1:9222',
+                browserName: 'Google Chrome',
+                currentUrl: 'https://example.test',
+                title: 'Example',
+                tabs: [],
+            },
+        ]);
+        mockTauriCommand('browser_connect_existing', { status: { status: 'connected' } });
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                existingSessionPolicy: 'auto',
+                permissionMode: 'allow',
+            })
+        );
+        const requestUserQuestions = vi.fn();
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: '连接唯一已有浏览器' },
+            defaultBrowserConfig,
+            {
+                ...fakeContext(),
+                requestUserQuestions,
+            }
+        );
+
+        expect(result.isError).toBe(false);
+        expect(requestUserQuestions).not.toHaveBeenCalled();
+        expect(getLastTauriInvokeCall('browser_connect_existing')?.payload).toEqual({
+            request: { endpoint: 'http://127.0.0.1:9222' },
+        });
     });
 
     it('discovers and connects an existing browser session after user selection', async () => {
@@ -805,6 +1014,108 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_connect_existing')?.payload).toEqual({
             request: { endpoint: 'http://127.0.0.1:9222' },
         });
+    });
+
+    it('requires explicit selection for multiple existing browser sessions', async () => {
+        mockTauriCommand('browser_discover_existing', [
+            {
+                id: '127.0.0.1:9222',
+                label: '',
+                endpoint: 'http://127.0.0.1:9222',
+                browserName: 'Chrome',
+                currentUrl: '',
+                title: '',
+                tabs: [],
+            },
+            {
+                id: '127.0.0.1:9223',
+                label: 'Edge - docs',
+                endpoint: 'http://127.0.0.1:9223',
+                browserName: 'Microsoft Edge',
+                currentUrl: 'https://docs.example.test',
+                title: 'Docs',
+                tabs: [],
+            },
+        ]);
+        mockTauriCommand('browser_connect_existing', { status: { status: 'connected' } });
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                existingSessionPolicy: 'auto',
+                permissionMode: 'allow',
+            })
+        );
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: '选择已有浏览器' },
+            defaultBrowserConfig,
+            {
+                ...fakeContext(),
+                requestUserQuestions: async () => [
+                    {
+                        questionIndex: 0,
+                        selectedLabels: ['2. Edge - docs'],
+                        skipped: false,
+                    },
+                ],
+            }
+        );
+
+        expect(result.isError).toBe(false);
+        expect(getLastTauriInvokeCall('browser_connect_existing')?.payload).toEqual({
+            request: { endpoint: 'http://127.0.0.1:9223' },
+        });
+    });
+
+    it('handles cancelled or invalid existing browser session selections safely', async () => {
+        const sessions = [
+            {
+                id: '127.0.0.1:9222',
+                label: 'Chrome - dashboard',
+                endpoint: 'http://127.0.0.1:9222',
+                browserName: 'Google Chrome',
+                currentUrl: 'https://example.test/dashboard',
+                title: 'Dashboard',
+                tabs: [],
+            },
+        ];
+        mockTauriCommand('browser_discover_existing', sessions);
+        const cancelled = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: '连接已有浏览器' },
+            defaultBrowserConfig,
+            {
+                ...fakeContext(),
+                requestUserQuestions: async () => [
+                    {
+                        questionIndex: 0,
+                        selectedLabels: ['取消'],
+                        skipped: false,
+                    },
+                ],
+            }
+        );
+
+        mockTauriCommand('browser_discover_existing', sessions);
+        const invalid = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: '连接已有浏览器' },
+            defaultBrowserConfig,
+            {
+                ...fakeContext(),
+                requestUserQuestions: async () => [
+                    {
+                        questionIndex: 0,
+                        selectedLabels: ['9. Missing browser'],
+                        skipped: false,
+                    },
+                ],
+            }
+        );
+
+        expect(cancelled.isError).toBe(true);
+        expect(cancelled.result).toContain('cancelled');
+        expect(invalid.isError).toBe(true);
+        expect(invalid.result).toContain('not found');
+        expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
     });
 
     it('rejects hidden session operation aliases and raw attach/list operations', async () => {

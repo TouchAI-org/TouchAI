@@ -12,6 +12,39 @@ async function readWorkflow(path: string) {
 }
 
 describe('release workflow deployment environments', () => {
+    it('refreshes release PRs with a dedicated bot token so required checks run', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('Validate release bot token');
+        expect(workflow).toContain('RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}');
+        expect(workflow).toContain('token: ${{ secrets.RELEASE_PLEASE_TOKEN }}');
+        expect(workflow).not.toContain('github.token');
+        expect(workflow).not.toContain('secrets.RELEASE_PLEASE_TOKEN ||');
+    });
+
+    it('allows maintainers to manually refresh the release PR after token changes', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('workflow_dispatch:');
+    });
+
+    it('formats Release Please generated files before pushing the release PR branch', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('Read release PR branch');
+        expect(workflow).toContain('Sync Release Please lockfile version');
+        expect(workflow).toContain('node scripts/ci/set-release-version.mjs "$release_version"');
+        expect(workflow).toContain('Format Release Please generated files');
+        expect(workflow).toContain('Push formatted release PR files');
+        expect(workflow).toContain("steps.release.outputs.prs_created == 'true'");
+        expect(workflow).toContain('pnpm exec prettier --write');
+        expect(workflow).toContain('--ignore-path .prettierignore');
+        expect(workflow).toContain('.release-please-manifest.json');
+        expect(workflow).toContain('apps/desktop/src-tauri/Cargo.lock');
+        expect(workflow).toContain('apps/desktop/src-tauri/tauri.conf.json');
+        expect(workflow).toContain('git push origin HEAD:"$RELEASE_PR_BRANCH"');
+    });
+
     it('keeps stable releases on the protected release environment by default', async () => {
         const workflow = await readWorkflow('velopack-build.yml');
 

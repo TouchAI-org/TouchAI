@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { builtInTools, executeWebSearchTool, webSearchTool } from '@/services/BuiltInToolService/tools/webSearch';
+import {
+    builtInTools,
+    executeWebSearchTool,
+    webSearchTool,
+} from '@/services/BuiltInToolService/tools/webSearch';
 
 const { getSettingValueMock, tauriFetchMock } = vi.hoisted(() => ({
     getSettingValueMock: vi.fn<() => Promise<string | null>>(async () => null),

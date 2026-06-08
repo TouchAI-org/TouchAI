@@ -36,7 +36,9 @@ describe('browser error attribution prompt guidance', () => {
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
             'keep expanding until the evidence is sufficient'
         );
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('separate confirmed facts from interpretation');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
+            'separate confirmed facts from interpretation'
+        );
     });
 
     it('tells the model to use browser control when access is restricted', () => {
@@ -50,9 +52,7 @@ describe('browser error attribution prompt guidance', () => {
         );
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('embed them with Markdown image syntax');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('tool result provides a markdown image');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'Do not use copyright as a generic reason'
-        );
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Do not use copyright as a generic reason');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('explain why no suitable image is shown');
     });
 
@@ -91,9 +91,7 @@ describe('browser error attribution prompt guidance', () => {
     });
 
     it('encourages multiple high-value images when several report sections are visual', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'Do not stop at a single token image'
-        );
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Do not stop at a single token image');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('include multiple high-signal images');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('one near each relevant section');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('each image adds real explanatory value');

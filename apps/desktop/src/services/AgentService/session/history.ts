@@ -12,11 +12,11 @@ import {
     buildBuiltInToolConversationPresentation,
     resolveBuiltInToolConversationSemantic,
 } from '@/services/BuiltInToolService/presentation';
-import type { BuiltInToolConversationSemantic } from '@/services/BuiltInToolService/types';
 import {
     SHOW_WIDGET_TOOL_NAME,
     type ShowWidgetPayload,
 } from '@/services/BuiltInToolService/tools/widgetTool';
+import type { BuiltInToolConversationSemantic } from '@/services/BuiltInToolService/types';
 import {
     createInputHistorySnapshot,
     type SessionMessage,
@@ -278,9 +278,7 @@ async function buildPersistedEntries(
                 arguments: parseToolArguments(row.tool_input),
                 builtinConversationSemantic:
                     source === 'builtin'
-                        ? parseBuiltInConversationSemantic(
-                              row.builtin_conversation_semantic_json
-                          )
+                        ? parseBuiltInConversationSemantic(row.builtin_conversation_semantic_json)
                         : undefined,
                 status: 'executing',
             };

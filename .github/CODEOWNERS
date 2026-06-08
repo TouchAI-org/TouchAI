@@ -7,8 +7,8 @@
 /.github/labels.yml @hiqiancheng
 /.github/pull_request_template.md @hiqiancheng
 
-# Release automation and update metadata can publish artifacts or change channels.
+# Release automation controls can publish artifacts or change channels.
+# Release Please generated version files stay mergeable by the release bot.
 /release-please-config.json @hiqiancheng
-/.release-please-manifest.json @hiqiancheng
 /apps/desktop/product.json @hiqiancheng
 /apps/desktop/scripts/ci/ @hiqiancheng

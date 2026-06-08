@@ -13,8 +13,8 @@
         DEFAULT_BROWSER_SETTINGS,
         getDefaultHomepageError,
         parseBrowserSettingsConfig,
-        serializeBrowserSettingsConfig,
         type ScreenshotAttachmentMode,
+        serializeBrowserSettingsConfig,
     } from '@/config/browserSettings';
     import { type MessageKey, t } from '@/i18n';
     import { native } from '@/services/NativeService';
@@ -211,7 +211,9 @@
             label: t('settings.browser.executablePath.custom'),
         },
     ]);
-    const isCustomBrowserExecutable = computed(() => browserExecutableMode.value === CUSTOM_BROWSER_VALUE);
+    const isCustomBrowserExecutable = computed(
+        () => browserExecutableMode.value === CUSTOM_BROWSER_VALUE
+    );
     const selectedDefaultMode = computed({
         get() {
             return draft.value.headless ? 'headless' : 'visible';
@@ -246,7 +248,7 @@
             draft.value = cloneConfig(config);
             isEditingCustomBrowserExecutable.value = Boolean(
                 draft.value.browserExecutablePath.trim() &&
-                    !discoveredBrowserPaths.value.has(draft.value.browserExecutablePath.trim())
+                !discoveredBrowserPaths.value.has(draft.value.browserExecutablePath.trim())
             );
             queueMicrotask(() => {
                 isSyncingFromStore = false;
@@ -387,7 +389,7 @@
     <div class="settings-page" data-testid="settings-browser-section">
         <div class="settings-section-stack">
             <header class="settings-page-header flex items-start gap-4">
-                <div class="min-w-0 max-w-2xl">
+                <div class="max-w-2xl min-w-0">
                     <h1 class="settings-page-title" data-testid="browser-settings-title">
                         {{ t('settings.nav.browser.label') }}
                     </h1>
@@ -417,429 +419,438 @@
             <fieldset :disabled="!draft.enabled" class="contents">
                 <section class="space-y-4">
                     <h2 class="settings-section-title">{{ t('settings.browser.section.data') }}</h2>
-                <div class="settings-row-group divide-y divide-neutral-200/70">
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.browserDataPath') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.browserDataPath.description') }}
-                            </div>
-                        </div>
-                        <div class="flex min-w-0 items-center gap-2">
-                            <input
-                                v-model="browserDataPathValue"
-                                data-testid="browser-data-path-input"
-                                class="settings-input min-w-0 flex-1 disabled:bg-neutral-50"
-                                placeholder="browser-data"
-                                :disabled="!draft.enabled"
-                            />
-                            <button
-                                type="button"
-                                class="settings-icon-button shrink-0"
-                                :disabled="!draft.enabled"
-                                :title="t('settings.browser.browserDataPath.pick')"
-                                @click="pickBrowserDataPath"
-                            >
-                                <AppIcon name="folder-open" class="h-4 w-4" />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <label class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.executablePath') }}
-                            </label>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{
-                                    browserDiscoveryError ||
-                                    t('settings.browser.executablePath.description')
-                                }}
-                            </div>
-                        </div>
-                        <div class="min-w-0 space-y-2">
-                            <CustomSelect
-                                v-model="browserExecutableMode"
-                                data-testid="browser-executable-select"
-                                :options="browserExecutableOptions"
-                                :disabled="!draft.enabled"
-                            />
-                        </div>
-                    </div>
-
-                    <div
-                        v-if="isCustomBrowserExecutable"
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <label class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.executablePath.custom') }}
-                            </label>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.executablePath.custom.description') }}
-                            </div>
-                        </div>
-                        <div class="flex min-w-0 items-center gap-2">
-                            <input
-                                v-model="draft.browserExecutablePath"
-                                data-testid="browser-executable-path-input"
-                                class="settings-input min-w-0 flex-1 disabled:bg-neutral-50"
-                                placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe"
-                                :disabled="!draft.enabled"
-                            />
-                            <button
-                                type="button"
-                                class="settings-icon-button shrink-0"
-                                :disabled="!draft.enabled"
-                                :title="t('settings.browser.executablePath.pick')"
-                                @click="pickBrowserExecutable"
-                            >
-                                <AppIcon name="folder" class="h-4 w-4" />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <label class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.defaultHomepage') }}
-                            </label>
-                            <div
-                                class="mt-1 text-xs"
-                                :class="homepageError ? 'text-red-500' : 'text-neutral-500'"
-                            >
-                                {{ homepageError || t('settings.browser.defaultHomepage.description') }}
-                            </div>
-                        </div>
-                        <input
-                            v-model="defaultHomepageValue"
-                            data-testid="browser-default-homepage-input"
-                            class="settings-input w-full disabled:bg-neutral-50"
-                            :class="homepageError ? 'border-red-300 bg-red-50 text-red-600' : ''"
-                            placeholder="https://touch-ai.org"
-                            :disabled="!draft.enabled"
-                        />
-                    </div>
-
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.defaultMode') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.defaultMode.description') }}
-                            </div>
-                        </div>
-                        <CustomSelect
-                            v-model="selectedDefaultMode"
-                            data-testid="browser-default-mode-select"
-                            :options="defaultModeOptions"
-                            :disabled="!draft.enabled"
-                        />
-                    </div>
-
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.screenshotAttachment') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.screenshotAttachment.description') }}
-                            </div>
-                        </div>
-                        <CustomSelect
-                            v-model="draft.screenshotAttachmentMode"
-                            :options="screenshotOptions"
-                            :disabled="!draft.enabled"
-                        />
-                    </div>
-                </div>
-            </section>
-
-            <section class="mt-10 space-y-4">
-                <h2 class="settings-section-title">{{ t('settings.browser.section.permissions') }}</h2>
-                <div class="settings-row-group divide-y divide-neutral-200/70">
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.permissionMode') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.permissionMode.description') }}
-                            </div>
-                        </div>
-                        <CustomSelect
-                            v-model="draft.permissionMode"
-                            data-testid="browser-permission-mode-select"
-                            :options="permissionModeOptions"
-                            :disabled="!draft.enabled"
-                        />
-                    </div>
-                    <template v-if="draft.permissionMode === 'auto'">
+                    <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
-                            v-for="row in permissionRows"
-                            :key="row.key"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
                                 <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ row.label }}
+                                    {{ t('settings.browser.browserDataPath') }}
                                 </div>
                                 <div class="mt-1 text-xs text-neutral-500">
-                                    {{ row.description }}
+                                    {{ t('settings.browser.browserDataPath.description') }}
+                                </div>
+                            </div>
+                            <div class="flex min-w-0 items-center gap-2">
+                                <input
+                                    v-model="browserDataPathValue"
+                                    data-testid="browser-data-path-input"
+                                    class="settings-input min-w-0 flex-1 disabled:bg-neutral-50"
+                                    placeholder="browser-data"
+                                    :disabled="!draft.enabled"
+                                />
+                                <button
+                                    type="button"
+                                    class="settings-icon-button shrink-0"
+                                    :disabled="!draft.enabled"
+                                    :title="t('settings.browser.browserDataPath.pick')"
+                                    @click="pickBrowserDataPath"
+                                >
+                                    <AppIcon name="folder-open" class="h-4 w-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <label class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.executablePath') }}
+                                </label>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{
+                                        browserDiscoveryError ||
+                                        t('settings.browser.executablePath.description')
+                                    }}
+                                </div>
+                            </div>
+                            <div class="min-w-0 space-y-2">
+                                <CustomSelect
+                                    v-model="browserExecutableMode"
+                                    data-testid="browser-executable-select"
+                                    :options="browserExecutableOptions"
+                                    :disabled="!draft.enabled"
+                                />
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="isCustomBrowserExecutable"
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <label class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.executablePath.custom') }}
+                                </label>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.executablePath.custom.description') }}
+                                </div>
+                            </div>
+                            <div class="flex min-w-0 items-center gap-2">
+                                <input
+                                    v-model="draft.browserExecutablePath"
+                                    data-testid="browser-executable-path-input"
+                                    class="settings-input min-w-0 flex-1 disabled:bg-neutral-50"
+                                    placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe"
+                                    :disabled="!draft.enabled"
+                                />
+                                <button
+                                    type="button"
+                                    class="settings-icon-button shrink-0"
+                                    :disabled="!draft.enabled"
+                                    :title="t('settings.browser.executablePath.pick')"
+                                    @click="pickBrowserExecutable"
+                                >
+                                    <AppIcon name="folder" class="h-4 w-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <label class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.defaultHomepage') }}
+                                </label>
+                                <div
+                                    class="mt-1 text-xs"
+                                    :class="homepageError ? 'text-red-500' : 'text-neutral-500'"
+                                >
+                                    {{
+                                        homepageError ||
+                                        t('settings.browser.defaultHomepage.description')
+                                    }}
+                                </div>
+                            </div>
+                            <input
+                                v-model="defaultHomepageValue"
+                                data-testid="browser-default-homepage-input"
+                                class="settings-input w-full disabled:bg-neutral-50"
+                                :class="
+                                    homepageError ? 'border-red-300 bg-red-50 text-red-600' : ''
+                                "
+                                placeholder="https://touch-ai.org"
+                                :disabled="!draft.enabled"
+                            />
+                        </div>
+
+                        <div
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.defaultMode') }}
+                                </div>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.defaultMode.description') }}
                                 </div>
                             </div>
                             <CustomSelect
-                                v-model="draft.permissions[row.key]"
-                                :options="permissionOptions"
+                                v-model="selectedDefaultMode"
+                                data-testid="browser-default-mode-select"
+                                :options="defaultModeOptions"
                                 :disabled="!draft.enabled"
                             />
                         </div>
-                    </template>
-                </div>
-            </section>
 
-            <section class="mt-10 space-y-10">
-                <div>
-                    <div class="mb-2 flex items-center justify-between">
-                        <h2 class="settings-section-title">
-                            {{ t('settings.browser.blockedDomains') }}
-                        </h2>
-                        <button
-                            type="button"
-                            class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            :disabled="!draft.enabled"
-                            @click="draft.enabled && (addingBlockedDomain = true)"
-                        >
-                            <AppIcon name="plus" class="h-5 w-5" />
-                        </button>
-                    </div>
-                    <div v-if="addingBlockedDomain" class="mb-2 flex gap-2">
-                        <input
-                            v-model="blockedDomainDraft"
-                            :disabled="!draft.enabled"
-                            class="settings-input flex-1 disabled:bg-neutral-50"
-                            placeholder="example.com"
-                            spellcheck="false"
-                            @keydown.enter.prevent="addDomain('blocked')"
-                        />
-                        <button
-                            type="button"
-                            class="settings-button-secondary shrink-0"
-                            :disabled="!draft.enabled"
-                            @click="addDomain('blocked')"
-                        >
-                            {{ t('settings.browser.addDomain') }}
-                        </button>
-                    </div>
-                    <div v-if="draft.blockedDomains.length > 0" class="space-y-2">
                         <div
-                            v-for="rule in draft.blockedDomains"
-                            :key="rule.domain"
-                            class="flex gap-2"
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
-                            <input
-                                :value="rule.domain"
+                            <div>
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.screenshotAttachment') }}
+                                </div>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.screenshotAttachment.description') }}
+                                </div>
+                            </div>
+                            <CustomSelect
+                                v-model="draft.screenshotAttachmentMode"
+                                :options="screenshotOptions"
                                 :disabled="!draft.enabled"
-                                readonly
-                                type="text"
+                            />
+                        </div>
+                    </div>
+                </section>
+
+                <section class="mt-10 space-y-4">
+                    <h2 class="settings-section-title">
+                        {{ t('settings.browser.section.permissions') }}
+                    </h2>
+                    <div class="settings-row-group divide-y divide-neutral-200/70">
+                        <div
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.permissionMode') }}
+                                </div>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.permissionMode.description') }}
+                                </div>
+                            </div>
+                            <CustomSelect
+                                v-model="draft.permissionMode"
+                                data-testid="browser-permission-mode-select"
+                                :options="permissionModeOptions"
+                                :disabled="!draft.enabled"
+                            />
+                        </div>
+                        <template v-if="draft.permissionMode === 'auto'">
+                            <div
+                                v-for="row in permissionRows"
+                                :key="row.key"
+                                class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                            >
+                                <div>
+                                    <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                        {{ row.label }}
+                                    </div>
+                                    <div class="mt-1 text-xs text-neutral-500">
+                                        {{ row.description }}
+                                    </div>
+                                </div>
+                                <CustomSelect
+                                    v-model="draft.permissions[row.key]"
+                                    :options="permissionOptions"
+                                    :disabled="!draft.enabled"
+                                />
+                            </div>
+                        </template>
+                    </div>
+                </section>
+
+                <section class="mt-10 space-y-10">
+                    <div>
+                        <div class="mb-2 flex items-center justify-between">
+                            <h2 class="settings-section-title">
+                                {{ t('settings.browser.blockedDomains') }}
+                            </h2>
+                            <button
+                                type="button"
+                                class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                :disabled="!draft.enabled"
+                                @click="draft.enabled && (addingBlockedDomain = true)"
+                            >
+                                <AppIcon name="plus" class="h-5 w-5" />
+                            </button>
+                        </div>
+                        <div v-if="addingBlockedDomain" class="mb-2 flex gap-2">
+                            <input
+                                v-model="blockedDomainDraft"
+                                :disabled="!draft.enabled"
+                                class="settings-input flex-1 disabled:bg-neutral-50"
+                                placeholder="example.com"
                                 spellcheck="false"
-                                class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
+                                @keydown.enter.prevent="addDomain('blocked')"
                             />
                             <button
                                 type="button"
-                                class="text-neutral-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                class="settings-button-secondary shrink-0"
                                 :disabled="!draft.enabled"
-                                @click="removeDomain('blocked', rule.domain)"
+                                @click="addDomain('blocked')"
                             >
-                                <AppIcon name="x" class="h-5 w-5" />
+                                {{ t('settings.browser.addDomain') }}
                             </button>
                         </div>
-                    </div>
-                    <div
-                        v-else
-                        class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-500"
-                    >
-                        {{ t('settings.browser.blockedDomains.empty') }}
-                    </div>
-                </div>
-
-                <div>
-                    <div class="mb-2 flex items-center justify-between">
-                        <h2 class="settings-section-title">
-                            {{ t('settings.browser.allowedDomains') }}
-                        </h2>
-                        <button
-                            type="button"
-                            class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            :disabled="!draft.enabled"
-                            @click="draft.enabled && (addingAllowedDomain = true)"
-                        >
-                            <AppIcon name="plus" class="h-5 w-5" />
-                        </button>
-                    </div>
-                    <div v-if="addingAllowedDomain" class="mb-2 flex gap-2">
-                        <input
-                            v-model="allowedDomainDraft"
-                            :disabled="!draft.enabled"
-                            class="settings-input flex-1 disabled:bg-neutral-50"
-                            placeholder="github.com"
-                            spellcheck="false"
-                            @keydown.enter.prevent="addDomain('allowed')"
-                        />
-                        <button
-                            type="button"
-                            class="settings-button-secondary shrink-0"
-                            :disabled="!draft.enabled"
-                            @click="addDomain('allowed')"
-                        >
-                            {{ t('settings.browser.addDomain') }}
-                        </button>
-                    </div>
-                    <div v-if="draft.allowedDomains.length > 0" class="space-y-2">
+                        <div v-if="draft.blockedDomains.length > 0" class="space-y-2">
+                            <div
+                                v-for="rule in draft.blockedDomains"
+                                :key="rule.domain"
+                                class="flex gap-2"
+                            >
+                                <input
+                                    :value="rule.domain"
+                                    :disabled="!draft.enabled"
+                                    readonly
+                                    type="text"
+                                    spellcheck="false"
+                                    class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
+                                />
+                                <button
+                                    type="button"
+                                    class="text-neutral-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                    :disabled="!draft.enabled"
+                                    @click="removeDomain('blocked', rule.domain)"
+                                >
+                                    <AppIcon name="x" class="h-5 w-5" />
+                                </button>
+                            </div>
+                        </div>
                         <div
-                            v-for="rule in draft.allowedDomains"
-                            :key="rule.domain"
-                            class="flex gap-2"
+                            v-else
+                            class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-500"
                         >
-                            <input
-                                :value="rule.domain"
+                            {{ t('settings.browser.blockedDomains.empty') }}
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="mb-2 flex items-center justify-between">
+                            <h2 class="settings-section-title">
+                                {{ t('settings.browser.allowedDomains') }}
+                            </h2>
+                            <button
+                                type="button"
+                                class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 :disabled="!draft.enabled"
-                                readonly
-                                type="text"
+                                @click="draft.enabled && (addingAllowedDomain = true)"
+                            >
+                                <AppIcon name="plus" class="h-5 w-5" />
+                            </button>
+                        </div>
+                        <div v-if="addingAllowedDomain" class="mb-2 flex gap-2">
+                            <input
+                                v-model="allowedDomainDraft"
+                                :disabled="!draft.enabled"
+                                class="settings-input flex-1 disabled:bg-neutral-50"
+                                placeholder="github.com"
                                 spellcheck="false"
-                                class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
+                                @keydown.enter.prevent="addDomain('allowed')"
                             />
                             <button
                                 type="button"
-                                class="text-neutral-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                class="settings-button-secondary shrink-0"
                                 :disabled="!draft.enabled"
-                                @click="removeDomain('allowed', rule.domain)"
+                                @click="addDomain('allowed')"
                             >
-                                <AppIcon name="x" class="h-5 w-5" />
+                                {{ t('settings.browser.addDomain') }}
                             </button>
                         </div>
+                        <div v-if="draft.allowedDomains.length > 0" class="space-y-2">
+                            <div
+                                v-for="rule in draft.allowedDomains"
+                                :key="rule.domain"
+                                class="flex gap-2"
+                            >
+                                <input
+                                    :value="rule.domain"
+                                    :disabled="!draft.enabled"
+                                    readonly
+                                    type="text"
+                                    spellcheck="false"
+                                    class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
+                                />
+                                <button
+                                    type="button"
+                                    class="text-neutral-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                    :disabled="!draft.enabled"
+                                    @click="removeDomain('allowed', rule.domain)"
+                                >
+                                    <AppIcon name="x" class="h-5 w-5" />
+                                </button>
+                            </div>
+                        </div>
+                        <div
+                            v-else
+                            class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-500"
+                        >
+                            {{ t('settings.browser.allowedDomains.empty') }}
+                        </div>
                     </div>
-                    <div
-                        v-else
-                        class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-500"
-                    >
-                        {{ t('settings.browser.allowedDomains.empty') }}
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <section class="mt-10 space-y-4">
-                <h2 class="settings-section-title">{{ t('settings.browser.section.advanced') }}</h2>
-                <div class="settings-row-group divide-y divide-neutral-200/70">
-                    <div
-                        data-testid="browser-fingerprint-profile-row"
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.fingerprintProfile') }}
+                <section class="mt-10 space-y-4">
+                    <h2 class="settings-section-title">
+                        {{ t('settings.browser.section.advanced') }}
+                    </h2>
+                    <div class="settings-row-group divide-y divide-neutral-200/70">
+                        <div
+                            data-testid="browser-fingerprint-profile-row"
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.fingerprintProfile') }}
+                                </div>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.fingerprintProfile.description') }}
+                                </div>
                             </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.fingerprintProfile.description') }}
-                            </div>
-                        </div>
-                        <CustomSelect
-                            v-model="draft.fingerprintProfile"
-                            :options="fingerprintOptions"
-                            :disabled="!draft.enabled"
-                        />
-                    </div>
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.localeTimezone') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.localeTimezone.description') }}
-                            </div>
-                        </div>
-                        <div class="grid min-w-0 grid-cols-2 gap-2">
-                            <input
-                                v-model="draft.fingerprintLocale"
-                                class="settings-input min-w-0 disabled:bg-neutral-50"
-                                placeholder="zh-CN"
-                                :disabled="!draft.enabled"
-                            />
-                            <input
-                                v-model="draft.fingerprintTimezone"
-                                class="settings-input min-w-0 disabled:bg-neutral-50"
-                                placeholder="Asia/Shanghai"
+                            <CustomSelect
+                                v-model="draft.fingerprintProfile"
+                                :options="fingerprintOptions"
                                 :disabled="!draft.enabled"
                             />
                         </div>
-                    </div>
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                User-Agent
+                        <div
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.localeTimezone') }}
+                                </div>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.localeTimezone.description') }}
+                                </div>
                             </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.userAgent.description') }}
-                            </div>
-                        </div>
-                        <input
-                            v-model="draft.fingerprintUserAgent"
-                            class="settings-input w-full disabled:bg-neutral-50"
-                            placeholder="Mozilla/5.0 ..."
-                            :disabled="!draft.enabled"
-                        />
-                    </div>
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
-                    >
-                        <div>
-                            <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                {{ t('settings.browser.windowSize') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.browser.windowSize.description') }}
+                            <div class="grid min-w-0 grid-cols-2 gap-2">
+                                <input
+                                    v-model="draft.fingerprintLocale"
+                                    class="settings-input min-w-0 disabled:bg-neutral-50"
+                                    placeholder="zh-CN"
+                                    :disabled="!draft.enabled"
+                                />
+                                <input
+                                    v-model="draft.fingerprintTimezone"
+                                    class="settings-input min-w-0 disabled:bg-neutral-50"
+                                    placeholder="Asia/Shanghai"
+                                    :disabled="!draft.enabled"
+                                />
                             </div>
                         </div>
-                        <div class="grid min-w-0 grid-cols-2 gap-2">
+                        <div
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    User-Agent
+                                </div>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.userAgent.description') }}
+                                </div>
+                            </div>
                             <input
-                                v-model="fingerprintWindowWidth"
-                                data-testid="browser-window-width-input"
-                                class="settings-input min-w-0 disabled:bg-neutral-50"
-                                placeholder="1366"
-                                inputmode="numeric"
-                                :disabled="!draft.enabled"
-                            />
-                            <input
-                                v-model="fingerprintWindowHeight"
-                                data-testid="browser-window-height-input"
-                                class="settings-input min-w-0 disabled:bg-neutral-50"
-                                placeholder="768"
-                                inputmode="numeric"
+                                v-model="draft.fingerprintUserAgent"
+                                class="settings-input w-full disabled:bg-neutral-50"
+                                placeholder="Mozilla/5.0 ..."
                                 :disabled="!draft.enabled"
                             />
                         </div>
+                        <div
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.windowSize') }}
+                                </div>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.windowSize.description') }}
+                                </div>
+                            </div>
+                            <div class="grid min-w-0 grid-cols-2 gap-2">
+                                <input
+                                    v-model="fingerprintWindowWidth"
+                                    data-testid="browser-window-width-input"
+                                    class="settings-input min-w-0 disabled:bg-neutral-50"
+                                    placeholder="1366"
+                                    inputmode="numeric"
+                                    :disabled="!draft.enabled"
+                                />
+                                <input
+                                    v-model="fingerprintWindowHeight"
+                                    data-testid="browser-window-height-input"
+                                    class="settings-input min-w-0 disabled:bg-neutral-50"
+                                    placeholder="768"
+                                    inputmode="numeric"
+                                    :disabled="!draft.enabled"
+                                />
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </section>
+                </section>
             </fieldset>
         </div>
     </div>

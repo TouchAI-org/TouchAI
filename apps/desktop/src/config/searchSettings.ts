@@ -16,7 +16,13 @@ export const SEARCH_PROVIDER_IDS = [
     'searxng',
 ] as const;
 
-export const SEARCH_ROUTE_INTENTS = ['general', 'academic', 'technical', 'official', 'news'] as const;
+export const SEARCH_ROUTE_INTENTS = [
+    'general',
+    'academic',
+    'technical',
+    'official',
+    'news',
+] as const;
 
 export type SearchProviderId = (typeof SEARCH_PROVIDER_IDS)[number];
 export type SearchRouteIntent = (typeof SEARCH_ROUTE_INTENTS)[number];

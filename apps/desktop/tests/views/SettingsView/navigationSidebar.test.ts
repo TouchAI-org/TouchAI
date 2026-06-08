@@ -11,6 +11,8 @@ import {
     SETTINGS_SIDEBAR_MIN_WIDTH,
 } from '@/views/SettingsView/settingsSidebarLayout';
 
+import desktopPackageJson from '../../../package.json';
+
 const openUrlMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@components/AppIcon.vue', () => ({
@@ -76,7 +78,7 @@ describe('NavigationSidebar', () => {
             },
         });
 
-        expect(wrapper.text()).toContain('TouchAI v1.0.0');
+        expect(wrapper.text()).toContain(`TouchAI v${desktopPackageJson.version}`);
         expect(wrapper.find('[data-testid="settings-sidebar-github"]').exists()).toBe(true);
         expect(wrapper.find('[data-testid="settings-sidebar-issues"]').exists()).toBe(true);
 

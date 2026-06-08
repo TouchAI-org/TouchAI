@@ -183,13 +183,15 @@ export function parseBrowserSettingsConfig(configJson: string | null): BrowserSe
             headless: data.headless ?? DEFAULT_BROWSER_SETTINGS.headless,
             browserExecutablePath: data.browserExecutablePath?.trim() ?? '',
             browserDataPath: data.browserDataPath?.trim() ?? '',
-            defaultHomepage: data.defaultHomepage?.trim() ?? DEFAULT_BROWSER_SETTINGS.defaultHomepage,
+            defaultHomepage:
+                data.defaultHomepage?.trim() ?? DEFAULT_BROWSER_SETTINGS.defaultHomepage,
             screenshotAttachmentMode:
                 data.screenshotAttachmentMode ?? DEFAULT_BROWSER_SETTINGS.screenshotAttachmentMode,
             permissionMode: data.permissionMode ?? DEFAULT_BROWSER_SETTINGS.permissionMode,
             fingerprintProfile,
             fingerprintMode: fingerprintModeFromProfile(fingerprintProfile),
-            fingerprintLocale: data.fingerprintLocale?.trim() || DEFAULT_BROWSER_SETTINGS.fingerprintLocale,
+            fingerprintLocale:
+                data.fingerprintLocale?.trim() || DEFAULT_BROWSER_SETTINGS.fingerprintLocale,
             fingerprintTimezone:
                 data.fingerprintTimezone?.trim() || DEFAULT_BROWSER_SETTINGS.fingerprintTimezone,
             fingerprintUserAgent: data.fingerprintUserAgent?.trim() ?? '',
@@ -225,7 +227,8 @@ export function serializeBrowserSettingsConfig(config: BrowserSettingsConfig): s
         permissionMode: config.permissionMode ?? DEFAULT_BROWSER_SETTINGS.permissionMode,
         fingerprintProfile,
         fingerprintMode: fingerprintModeFromProfile(fingerprintProfile),
-        fingerprintLocale: config.fingerprintLocale.trim() || DEFAULT_BROWSER_SETTINGS.fingerprintLocale,
+        fingerprintLocale:
+            config.fingerprintLocale.trim() || DEFAULT_BROWSER_SETTINGS.fingerprintLocale,
         fingerprintTimezone:
             config.fingerprintTimezone.trim() || DEFAULT_BROWSER_SETTINGS.fingerprintTimezone,
         fingerprintUserAgent: config.fingerprintUserAgent.trim(),

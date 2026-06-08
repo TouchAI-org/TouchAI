@@ -204,7 +204,8 @@ export const BROWSER_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
         ref: REF_PROPERTY,
         navigationToken: {
             type: 'string',
-            description: 'Navigation token returned with observed refs. Required when acting on refs.',
+            description:
+                'Navigation token returned with observed refs. Required when acting on refs.',
         },
         url: {
             type: 'string',

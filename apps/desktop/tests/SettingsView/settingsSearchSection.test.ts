@@ -64,18 +64,20 @@ describe('Search settings section', () => {
             created_at: '',
             updated_at: '',
         });
-        updateBuiltInToolMock.mockImplementation(async (id: number, patch: { enabled?: number }) => ({
-            id,
-            tool_id: 'web_search',
-            display_name: 'WebSearch',
-            description: null,
-            enabled: patch.enabled ?? 1,
-            risk_level: 'low',
-            config_json: null,
-            last_used_at: null,
-            created_at: '',
-            updated_at: '',
-        }));
+        updateBuiltInToolMock.mockImplementation(
+            async (id: number, patch: { enabled?: number }) => ({
+                id,
+                tool_id: 'web_search',
+                display_name: 'WebSearch',
+                description: null,
+                enabled: patch.enabled ?? 1,
+                risk_level: 'low',
+                config_json: null,
+                last_used_at: null,
+                created_at: '',
+                updated_at: '',
+            })
+        );
     });
 
     afterEach(() => {
@@ -121,18 +123,14 @@ describe('Search settings section', () => {
         expect(wrapper.get('[data-testid="search-provider-quota-brave"]').classes()).toContain(
             'rounded'
         );
-        expect(wrapper.get('[data-testid="search-provider-quota-brave"]').text()).toContain(
-            '2k'
-        );
-        expect(wrapper.get('[data-testid="search-provider-quota-tavily"]').text()).toContain(
-            '1k'
-        );
+        expect(wrapper.get('[data-testid="search-provider-quota-brave"]').text()).toContain('2k');
+        expect(wrapper.get('[data-testid="search-provider-quota-tavily"]').text()).toContain('1k');
         expect(wrapper.get('[data-testid="search-provider-quota-anysearch"]').text()).not.toBe(
             '免费'
         );
-        expect(wrapper.get('[data-testid="search-provider-quota-semantic_scholar"]').text()).toContain(
-            '1 RPS'
-        );
+        expect(
+            wrapper.get('[data-testid="search-provider-quota-semantic_scholar"]').text()
+        ).toContain('1 RPS');
         expect(wrapper.find('[data-testid="search-save-button"]').exists()).toBe(false);
 
         await wrapper.get('[data-testid="search-max-results-input"]').setValue('5');
@@ -156,7 +154,9 @@ describe('Search settings section', () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 
-        const parallelToggle = wrapper.get('[data-testid="search-advanced-toggle-parallelProviders"]');
+        const parallelToggle = wrapper.get(
+            '[data-testid="search-advanced-toggle-parallelProviders"]'
+        );
         expect(parallelToggle.attributes('aria-pressed')).toBe('false');
         expect(parallelToggle.classes()).toContain('bg-neutral-200');
 
@@ -210,16 +210,16 @@ describe('Search settings section', () => {
         const tavilyInput = wrapper.get('[data-testid="search-tavily-api-key-input"]');
         expect((tavilyInput.element as HTMLInputElement).disabled).toBe(true);
         expect(tavilyInput.classes()).not.toContain('border-red-300');
-        expect(wrapper.find('[data-testid="search-provider-api-key-required-tavily"]').exists()).toBe(
-            false
-        );
+        expect(
+            wrapper.find('[data-testid="search-provider-api-key-required-tavily"]').exists()
+        ).toBe(false);
 
         await wrapper.get('[data-testid="search-provider-toggle-tavily"]').trigger('click');
         await vi.advanceTimersByTimeAsync(300);
 
-        expect(wrapper.get('[data-testid="search-provider-toggle-tavily"]').attributes('aria-pressed')).toBe(
-            'false'
-        );
+        expect(
+            wrapper.get('[data-testid="search-provider-toggle-tavily"]').attributes('aria-pressed')
+        ).toBe('false');
         expect(wrapper.get('[data-testid="search-tavily-api-key-input"]').classes()).toContain(
             'border-red-300'
         );
@@ -227,9 +227,9 @@ describe('Search settings section', () => {
             (wrapper.get('[data-testid="search-tavily-api-key-input"]').element as HTMLInputElement)
                 .disabled
         ).toBe(false);
-        expect(wrapper.find('[data-testid="search-provider-api-key-required-tavily"]').exists()).toBe(
-            false
-        );
+        expect(
+            wrapper.find('[data-testid="search-provider-api-key-required-tavily"]').exists()
+        ).toBe(false);
         expect(updateSearchSettingsMock).not.toHaveBeenCalledWith(
             expect.objectContaining({
                 providers: expect.objectContaining({
@@ -261,27 +261,44 @@ describe('Search settings section', () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 
-        expect((wrapper.get('[data-testid="search-wikipedia-api-key-input"]').element as HTMLInputElement).disabled).toBe(
-            true
-        );
-        expect((wrapper.get('[data-testid="search-openalex-api-key-input"]').element as HTMLInputElement).disabled).toBe(
-            true
-        );
-        expect((wrapper.get('[data-testid="search-github-api-key-input"]').element as HTMLInputElement).disabled).toBe(
-            true
-        );
-        expect((wrapper.get('[data-testid="search-brave-api-key-input"]').element as HTMLInputElement).disabled).toBe(
-            false
-        );
-        expect((wrapper.get('[data-testid="search-semantic_scholar-api-key-input"]').element as HTMLInputElement).disabled).toBe(
-            false
-        );
-        expect((wrapper.get('[data-testid="search-anysearch-api-key-input"]').element as HTMLInputElement).disabled).toBe(
-            false
-        );
-        expect((wrapper.get('[data-testid="search-searxng-api-key-input"]').element as HTMLInputElement).disabled).toBe(
-            true
-        );
+        expect(
+            (
+                wrapper.get('[data-testid="search-wikipedia-api-key-input"]')
+                    .element as HTMLInputElement
+            ).disabled
+        ).toBe(true);
+        expect(
+            (
+                wrapper.get('[data-testid="search-openalex-api-key-input"]')
+                    .element as HTMLInputElement
+            ).disabled
+        ).toBe(true);
+        expect(
+            (wrapper.get('[data-testid="search-github-api-key-input"]').element as HTMLInputElement)
+                .disabled
+        ).toBe(true);
+        expect(
+            (wrapper.get('[data-testid="search-brave-api-key-input"]').element as HTMLInputElement)
+                .disabled
+        ).toBe(false);
+        expect(
+            (
+                wrapper.get('[data-testid="search-semantic_scholar-api-key-input"]')
+                    .element as HTMLInputElement
+            ).disabled
+        ).toBe(false);
+        expect(
+            (
+                wrapper.get('[data-testid="search-anysearch-api-key-input"]')
+                    .element as HTMLInputElement
+            ).disabled
+        ).toBe(false);
+        expect(
+            (
+                wrapper.get('[data-testid="search-searxng-api-key-input"]')
+                    .element as HTMLInputElement
+            ).disabled
+        ).toBe(true);
         expect(wrapper.get('[data-testid="search-searxng-api-key-input"]').classes()).toContain(
             'font-serif'
         );

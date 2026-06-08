@@ -54,13 +54,20 @@ describe('WebFetch execution', () => {
         );
     });
 
-    it('reuses a short-lived cache entry for repeated identical requests', async () => {
-        tauriFetchMock.mockResolvedValueOnce(
-            new Response('<main>Cached page</main>', {
-                status: 200,
-                headers: { 'content-type': 'text/html' },
-            })
-        );
+    it('fetches repeated identical requests freshly instead of reusing stale content', async () => {
+        tauriFetchMock
+            .mockResolvedValueOnce(
+                new Response('<main>First page version</main>', {
+                    status: 200,
+                    headers: { 'content-type': 'text/html' },
+                })
+            )
+            .mockResolvedValueOnce(
+                new Response('<main>Second page version</main>', {
+                    status: 200,
+                    headers: { 'content-type': 'text/html' },
+                })
+            );
 
         const args = { url: 'https://example.test/cache', mode: 'reader', maxChars: 1000 };
         const first = await executeWebFetchTool(args, {}, createExecutionContext());
@@ -68,8 +75,9 @@ describe('WebFetch execution', () => {
 
         expect(first.isError).toBe(false);
         expect(second.isError).toBe(false);
-        expect(second.result).toBe(first.result);
-        expect(tauriFetchMock).toHaveBeenCalledTimes(1);
+        expect(first.result).toContain('First page version');
+        expect(second.result).toContain('Second page version');
+        expect(tauriFetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('falls back to Jina Reader when the ordinary fetch path is blocked', async () => {

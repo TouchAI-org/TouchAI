@@ -166,6 +166,36 @@ describe('AgentService session history i18n', () => {
         );
     });
 
+    it('rebuilds unsupported file endpoint errors as friendly model capability messages', async () => {
+        setLocale('zh-CN');
+
+        const history = await buildSessionHistory({
+            messages: [
+                createMessageRow({
+                    id: 10,
+                    role: 'user',
+                    content: '继续刚才的对话',
+                }),
+            ],
+            turns: [
+                createTurn({
+                    id: 1,
+                    prompt_message_id: 10,
+                    status: 'failed',
+                    error_message: 'No endpoints found that support file input',
+                }),
+            ],
+            attempts: [],
+            resolveServerName: () => '',
+        });
+
+        expect(history[1]).toMatchObject({
+            role: 'assistant',
+            content: '请求失败: 当前模型不支持图片/文件输入，请选择合适模型继续。',
+            isError: true,
+        });
+    });
+
     it('localizes restored built-in tool presentation verbs in English history', async () => {
         setLocale('en-US');
 

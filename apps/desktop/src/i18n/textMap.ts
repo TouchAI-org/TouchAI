@@ -578,6 +578,8 @@ export const zhToEnTextMap = {
         'The current model does not support images. Remove unsupported attachments or switch models.',
     '当前模型不支持文件，请移除不支持的附件或切换模型':
         'The current model does not support files. Remove unsupported attachments or switch models.',
+    '当前模型不支持图片/文件输入，请选择合适模型继续。':
+        'The current model does not support image or file input. Choose a compatible model to continue.',
     该模型不支持图片: 'This model does not support images.',
     该模型不支持文件: 'This model does not support files.',
     '（当前模型不支持图片）': ' (current model does not support images)',

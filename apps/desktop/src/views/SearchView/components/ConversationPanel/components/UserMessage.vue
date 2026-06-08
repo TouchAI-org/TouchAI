@@ -85,8 +85,7 @@
 
 <style scoped>
     .user-text {
-        font-family:
-            'Source Han Serif CN', 'Noto Serif SC', 'Source Han Serif', 'Noto Serif CJK SC', serif;
+        font-family: 'TouchAI Source Han Serif SC', 'Noto Serif SC', serif;
     }
 
     .user-text::selection {

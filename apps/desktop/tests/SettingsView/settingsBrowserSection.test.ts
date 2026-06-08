@@ -1,9 +1,9 @@
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { mockTauriCommand } from '@tests/utils/tauri';
 import BrowserSettingsView from '@/views/SettingsView/components/Browser/index.vue';
 
 const updateBrowserSettingsMock = vi.hoisted(() => vi.fn(async () => undefined));
@@ -75,7 +75,9 @@ describe('Browser settings section', () => {
     it('renders dedicated browser controls and auto-saves edits through settings store', async () => {
         const wrapper = mount(BrowserSettingsView);
 
-        expect(wrapper.get('[data-testid="browser-settings-title"]').text()).toContain('浏览器控制');
+        expect(wrapper.get('[data-testid="browser-settings-title"]').text()).toContain(
+            '浏览器控制'
+        );
         expect(wrapper.get('[data-testid="browser-enabled-toggle"]')).toBeTruthy();
         expect(wrapper.text()).toContain('管理 TouchAI 控制浏览器的行为。');
         expect(wrapper.text()).not.toContain('可在本页设置默认主页');
@@ -83,9 +85,9 @@ describe('Browser settings section', () => {
             value: 'D:/TouchAI/BrowserData',
         });
         expect(wrapper.text()).toContain('留空时使用 TouchAI 数据目录');
-        expect(wrapper.get('[data-testid="browser-data-path-input"]').attributes('placeholder')).toBe(
-            'browser-data'
-        );
+        expect(
+            wrapper.get('[data-testid="browser-data-path-input"]').attributes('placeholder')
+        ).toBe('browser-data');
         await vi.runOnlyPendingTimersAsync();
         expect(wrapper.get('[data-testid="browser-executable-select"]').element).toMatchObject({
             value: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -93,14 +95,18 @@ describe('Browser settings section', () => {
         expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
             'Google Chrome|C:/Program Files/Google/Chrome/Application/chrome.exe'
         );
-        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain('Microsoft Edge');
-        expect(wrapper.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
-        expect(wrapper.get('[data-testid="browser-default-homepage-input"]').element).toMatchObject({
-            value: 'https://example.test/home',
-        });
-        expect(wrapper.get('[data-testid="browser-default-homepage-input"]').attributes('placeholder')).toBe(
-            'https://touch-ai.org'
+        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
+            'Microsoft Edge'
         );
+        expect(wrapper.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
+        expect(wrapper.get('[data-testid="browser-default-homepage-input"]').element).toMatchObject(
+            {
+                value: 'https://example.test/home',
+            }
+        );
+        expect(
+            wrapper.get('[data-testid="browser-default-homepage-input"]').attributes('placeholder')
+        ).toBe('https://touch-ai.org');
         expect(wrapper.text()).toContain('连接已有会话');
         expect(wrapper.text()).toContain('询问');
         expect(wrapper.text()).toContain('权限模式');
@@ -187,8 +193,12 @@ describe('Browser settings section', () => {
 
         await wrapper.get('[data-testid="browser-enabled-toggle"]').trigger('click');
 
-        expect(wrapper.get('[data-testid="browser-data-path-input"]').attributes('disabled')).toBeDefined();
-        expect(wrapper.get('[data-testid="browser-executable-select"]').attributes('disabled')).toBeDefined();
+        expect(
+            wrapper.get('[data-testid="browser-data-path-input"]').attributes('disabled')
+        ).toBeDefined();
+        expect(
+            wrapper.get('[data-testid="browser-executable-select"]').attributes('disabled')
+        ).toBeDefined();
         expect(
             wrapper.get('[data-testid="browser-default-homepage-input"]').attributes('disabled')
         ).toBeDefined();
@@ -232,7 +242,9 @@ describe('Browser settings section', () => {
         expect(wrapper.get('[data-testid="browser-executable-select"]').element).toMatchObject({
             value: 'default',
         });
-        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain('Google Chrome');
+        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
+            'Google Chrome'
+        );
         expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
             '默认浏览器|当前将使用 Google Chrome'
         );
@@ -259,9 +271,11 @@ describe('Browser settings section', () => {
         browserSettingsPatch.value = { defaultHomepage: '' };
         const wrapper = mount(BrowserSettingsView);
 
-        expect(wrapper.get('[data-testid="browser-default-homepage-input"]').element).toMatchObject({
-            value: 'https://touch-ai.org',
-        });
+        expect(wrapper.get('[data-testid="browser-default-homepage-input"]').element).toMatchObject(
+            {
+                value: 'https://touch-ai.org',
+            }
+        );
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
     });
 
@@ -273,8 +287,10 @@ describe('Browser settings section', () => {
         await wrapper.get('[data-testid="browser-executable-select"]').setValue('custom');
 
         expect(
-            (wrapper.get('[data-testid="browser-executable-path-input"]').element as HTMLInputElement)
-                .value
+            (
+                wrapper.get('[data-testid="browser-executable-path-input"]')
+                    .element as HTMLInputElement
+            ).value
         ).toBe('');
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
 

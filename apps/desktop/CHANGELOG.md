@@ -1,5 +1,41 @@
 # 更新日志
 
+## [1.1.1](https://github.com/TouchAI-org/TouchAI/compare/v1.1.0...v1.1.1) (2026-06-08)
+
+
+### Bug Fixes
+
+* **agent-service:** preserve network errors when provider classification fails ([#411](https://github.com/TouchAI-org/TouchAI/issues/411)) ([36044b6](https://github.com/TouchAI-org/TouchAI/commit/36044b6df0ff89b43c07e2585794728f41567a30))
+* **agent:** classify localized cancellation errors ([#339](https://github.com/TouchAI-org/TouchAI/issues/339)) ([c3d675e](https://github.com/TouchAI-org/TouchAI/commit/c3d675ee5b21ca17a2f98223d4ae02e2776808ec))
+* **agent:** sync switched model on active reattach ([#366](https://github.com/TouchAI-org/TouchAI/issues/366)) ([1ddc767](https://github.com/TouchAI-org/TouchAI/commit/1ddc767d81451377cd8e5161c1a12c4075a49791))
+* **ai-sdk:** retain streamed tool call names ([#362](https://github.com/TouchAI-org/TouchAI/issues/362)) ([eb372b1](https://github.com/TouchAI-org/TouchAI/commit/eb372b18708778a031f8a71fb81a9d920232db3c))
+* **desktop:** invalidate MiMo managed auth on bare 401 ([#408](https://github.com/TouchAI-org/TouchAI/issues/408)) ([6199d1c](https://github.com/TouchAI-org/TouchAI/commit/6199d1c65879b9fdca2257b405f627f37df4fa1a))
+* **desktop:** preserve message bubble line breaks ([#412](https://github.com/TouchAI-org/TouchAI/issues/412)) ([691b23a](https://github.com/TouchAI-org/TouchAI/commit/691b23a1fc8b3141887fc80104699b2a6f85ff93))
+* **desktop:** prevent shell vars from rendering as math ([#419](https://github.com/TouchAI-org/TouchAI/issues/419)) ([bd98f76](https://github.com/TouchAI-org/TouchAI/commit/bd98f76b1fbf99c71879e847ef3d8e2502babca7))
+* **markdown:** keep renderer mounted on final output ([#420](https://github.com/TouchAI-org/TouchAI/issues/420)) ([8287c9d](https://github.com/TouchAI-org/TouchAI/commit/8287c9da3637d0cd19fe31d3854402e319b5ca45))
+* **sessions:** retain provider during metadata refresh ([#360](https://github.com/TouchAI-org/TouchAI/issues/360)) ([792512b](https://github.com/TouchAI-org/TouchAI/commit/792512b96dc18b185f12647a4f86558a5a6f0b47))
+* **webfetch:** validate redirect targets ([#306](https://github.com/TouchAI-org/TouchAI/issues/306)) ([4e637a9](https://github.com/TouchAI-org/TouchAI/commit/4e637a992dbdfadcbf72f4e053518e164235fd62))
+
+## [1.1.0](https://github.com/TouchAI-org/TouchAI/compare/v1.0.0...v1.1.0) (2026-06-03)
+
+
+### Features
+
+* **notification:** adjust approval reminder notification behavior ([#384](https://github.com/TouchAI-org/TouchAI/issues/384)) ([75b93d8](https://github.com/TouchAI-org/TouchAI/commit/75b93d82a6cf1963fe2169a909b3c40cf2653cd0))
+
+
+### Bug Fixes
+
+* **agent-service:** refresh model metadata on startup ([#383](https://github.com/TouchAI-org/TouchAI/issues/383)) ([fcb3cd9](https://github.com/TouchAI-org/TouchAI/commit/fcb3cd9c9afaf7dcf8d4d02693e8b55dc1937a05))
+* **agent-service:** show friendly unsupported input errors ([#407](https://github.com/TouchAI-org/TouchAI/issues/407)) ([b35f7ce](https://github.com/TouchAI-org/TouchAI/commit/b35f7ce2ec26b368090a00faf6e13a00eebe3c4b))
+* **desktop:** add win10 rounded corner fallback ([#403](https://github.com/TouchAI-org/TouchAI/issues/403)) ([4517de8](https://github.com/TouchAI-org/TouchAI/commit/4517de8cab416437de4176ec4332f4f9deb51061))
+* **desktop:** improve cold startup first paint ([#401](https://github.com/TouchAI-org/TouchAI/issues/401)) ([1dd33ca](https://github.com/TouchAI-org/TouchAI/commit/1dd33cae8e54be364f2af05e2f801becbd733bf4))
+* **desktop:** improve font loading diagnostics ([#405](https://github.com/TouchAI-org/TouchAI/issues/405)) ([e425600](https://github.com/TouchAI-org/TouchAI/commit/e425600f9dc64978f13c2353fac1f98a8a3513de))
+* **desktop:** make font loading deterministic ([#392](https://github.com/TouchAI-org/TouchAI/issues/392)) ([7aef4f7](https://github.com/TouchAI-org/TouchAI/commit/7aef4f7f55c07f4b8c51074a467836e1aba38801))
+* **desktop:** preserve generated visualization styling ([#387](https://github.com/TouchAI-org/TouchAI/issues/387)) ([edac12c](https://github.com/TouchAI-org/TouchAI/commit/edac12ccdc66d6e21b1de2b3709f17f33e427ec1))
+* **search:** center single-line search bar content ([#399](https://github.com/TouchAI-org/TouchAI/issues/399)) ([04650bb](https://github.com/TouchAI-org/TouchAI/commit/04650bb93b4d6a17efbbc986dc75d7ce30374b89))
+* **search:** remeasure window height on activation ([#382](https://github.com/TouchAI-org/TouchAI/issues/382)) ([d71a223](https://github.com/TouchAI-org/TouchAI/commit/d71a22310839a2003bbe88d553cf70f2447bd9e3))
+
 ## [1.0.0](https://github.com/TouchAI-org/TouchAI/compare/v0.1.0...v1.0.0) (2026-06-02)
 
 <p align="center">
@@ -161,4 +197,3 @@ For any questions, suggestions, or issues:
 **TouchAI v1.0.0 — Not just conversation, but action.**
 
 [Download Now](https://github.com/TouchAI-org/TouchAI/releases) · [Open Source](https://github.com/TouchAI-org/TouchAI) · [Feedback](https://github.com/TouchAI-org/TouchAI/discussions/348)
-

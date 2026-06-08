@@ -12,12 +12,12 @@ import {
     type BuiltInToolGroup,
 } from '../../types';
 import {
-    DEFAULT_ACCEPT_LANGUAGE,
     DEFAULT_ACCEPT_HEADER,
+    DEFAULT_ACCEPT_LANGUAGE,
     DEFAULT_USER_AGENT,
+    MAX_WEB_FETCH_REDIRECTS,
     WEB_FETCH_TOOL_DESCRIPTION,
     WEB_FETCH_TOOL_INPUT_SCHEMA,
-    WEB_FETCH_CACHE_TTL_MS,
 } from './constants';
 import {
     createRequestSignal,
@@ -31,41 +31,20 @@ import {
     parseWebFetchRequest,
     readResponseText,
     truncateContent,
+    validateWebFetchUrl,
+    type WebFetchRequest,
 } from './helper';
 
 const tauriFetch = createTauriFetch();
-const fetchResultCache = new Map<string, { expiresAt: number; result: BuiltInToolExecutionResult }>();
 
-function cacheKey(args: Record<string, unknown>): string {
-    return JSON.stringify({
-        url: args.url,
-        mode: args.mode,
-        maxChars: args.maxChars,
-        timeoutMs: args.timeoutMs,
-        maxResponseBytes: args.maxResponseBytes,
-    });
+class WebFetchControlError extends Error {}
+
+function toErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
-function cachedResult(key: string): BuiltInToolExecutionResult | null {
-    const cached = fetchResultCache.get(key);
-    if (!cached) {
-        return null;
-    }
-    if (cached.expiresAt <= Date.now()) {
-        fetchResultCache.delete(key);
-        return null;
-    }
-    return { ...cached.result };
-}
-
-function rememberResult(key: string, result: BuiltInToolExecutionResult): void {
-    if (result.status !== 'success') {
-        return;
-    }
-    fetchResultCache.set(key, {
-        expiresAt: Date.now() + WEB_FETCH_CACHE_TTL_MS,
-        result: { ...result },
-    });
+function webFetchControlError(error: unknown): WebFetchControlError {
+    return new WebFetchControlError(toErrorMessage(error));
 }
 
 function requestOrigin(url: URL): string {
@@ -114,6 +93,82 @@ function buildWebFetchConversationSemantic(
     };
 }
 
+function responseWithUrl(response: Response, url: URL): Response {
+    try {
+        Object.defineProperty(response, 'url', {
+            value: url.toString(),
+            configurable: true,
+        });
+    } catch {
+        // Best effort only; Response.url is read-only on some implementations.
+    }
+
+    return response;
+}
+
+function isRedirectResponse(response: Response): boolean {
+    return response.status >= 300 && response.status < 400;
+}
+
+function resolveRedirectUrl(location: string, baseUrl: URL): URL {
+    try {
+        return new URL(location, baseUrl);
+    } catch {
+        throw new WebFetchControlError(
+            t('builtInTools.webFetch.error.invalidUrl', { url: location })
+        );
+    }
+}
+
+async function cancelRedirectBody(response: Response): Promise<void> {
+    try {
+        await response.body?.cancel('WebFetch redirect');
+    } catch {
+        // Redirect bodies are discarded; cancellation failures should not mask fetch results.
+    }
+}
+
+async function fetchWithSafeRedirects(
+    request: WebFetchRequest,
+    signal: AbortSignal
+): Promise<Response> {
+    let currentUrl = request.url;
+
+    for (let redirectCount = 0; ; redirectCount += 1) {
+        const init = {
+            method: 'GET',
+            headers: buildFetchHeaders(currentUrl),
+            maxRedirections: 0,
+            redirect: 'manual',
+            signal,
+        } satisfies RequestInit & { maxRedirections: number };
+        const response = responseWithUrl(await tauriFetch(currentUrl.toString(), init), currentUrl);
+        const location = response.headers.get('location');
+
+        if (!isRedirectResponse(response) || !location) {
+            return response;
+        }
+
+        if (redirectCount >= MAX_WEB_FETCH_REDIRECTS) {
+            await cancelRedirectBody(response);
+            throw new WebFetchControlError(
+                t('builtInTools.webFetch.error.tooManyRedirects', {
+                    maxRedirections: MAX_WEB_FETCH_REDIRECTS,
+                })
+            );
+        }
+
+        const nextUrl = resolveRedirectUrl(location, currentUrl);
+        try {
+            validateWebFetchUrl(nextUrl);
+        } catch (error) {
+            throw webFetchControlError(error);
+        }
+        await cancelRedirectBody(response);
+        currentUrl = nextUrl;
+    }
+}
+
 /**
  * 执行网页抓取，并把响应规范化为可继续喂给模型的文本结果。
  * @param args 工具参数。
@@ -127,25 +182,14 @@ export async function executeWebFetchTool(
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
     const request = parseWebFetchRequest(args);
-    const key = cacheKey(args);
-    const cached = cachedResult(key);
-    if (cached) {
-        return cached;
-    }
-
     const { signal, cleanup } = createRequestSignal(context.signal, request.timeoutMs);
     void config;
 
     try {
-        const response = await tauriFetch(request.url.toString(), {
-            method: 'GET',
-            headers: buildFetchHeaders(request.url),
-            signal,
-        });
+        const response = await fetchWithSafeRedirects(request, signal);
         if (!response.ok && shouldTryReaderFallback(response)) {
             const fallbackResult = await executeJinaReaderFallback(request, signal);
             if (fallbackResult.status === 'success') {
-                rememberResult(key, fallbackResult);
                 return fallbackResult;
             }
         }
@@ -162,11 +206,7 @@ export async function executeWebFetchTool(
             };
         }
 
-        const sourcePayload = await readResponseText(
-            response,
-            undefined,
-            request.maxResponseBytes
-        );
+        const sourcePayload = await readResponseText(response, undefined, request.maxResponseBytes);
         const normalizedResponseText = sourcePayload.text.trim();
         const normalizedStructuredText = normalizeStructuredText(
             normalizedResponseText,
@@ -200,16 +240,16 @@ export async function executeWebFetchTool(
             isError: false,
             status: 'success',
         };
-        rememberResult(key, resultPayload);
         return resultPayload;
     } catch (error) {
-        const fallbackResult = await executeJinaReaderFallback(request, signal);
-        if (fallbackResult.status === 'success') {
-            rememberResult(key, fallbackResult);
-            return fallbackResult;
+        if (!(error instanceof WebFetchControlError)) {
+            const fallbackResult = await executeJinaReaderFallback(request, signal);
+            if (fallbackResult.status === 'success') {
+                return fallbackResult;
+            }
         }
 
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = toErrorMessage(error);
         const isTimeout = error instanceof DOMException ? error.name === 'TimeoutError' : false;
 
         return {
@@ -247,11 +287,7 @@ async function executeJinaReaderFallback(
             };
         }
 
-        const sourcePayload = await readResponseText(
-            response,
-            undefined,
-            request.maxResponseBytes
-        );
+        const sourcePayload = await readResponseText(response, undefined, request.maxResponseBytes);
         const normalized = normalizeStructuredText(sourcePayload.text.trim(), contentType);
         const truncated = truncateContent(normalized, request.maxChars);
         return {
