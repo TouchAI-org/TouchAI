@@ -171,6 +171,43 @@ export interface SettingEntity {
     updated_at: string;
 }
 
+// ==================== 记忆 ====================
+
+export interface MemoryItemEntity {
+    id: number;
+    title: string;
+    applicability: string;
+    content: string;
+    enabled: number;
+    source_session_id: number | null;
+    source_message_id: number | null;
+    created_at: string;
+    updated_at: string;
+    last_used_at: string | null;
+}
+
+export interface MemoryDirectoryItemEntity {
+    id: number;
+    title: string;
+    applicability: string;
+    enabled: number;
+    updated_at: string;
+}
+
+export interface MemoryItemCreateData {
+    title: string;
+    applicability: string;
+    content: string;
+    enabled?: number;
+    source_session_id?: number | null;
+    source_message_id?: number | null;
+    created_at?: string;
+    updated_at?: string;
+    last_used_at?: string | null;
+}
+
+export type MemoryItemUpdateData = Partial<MemoryItemCreateData>;
+
 // ==================== 统计 ====================
 
 // ==================== 元数据（touchai_meta） ====================
