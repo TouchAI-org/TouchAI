@@ -8,6 +8,8 @@ use base64::{engine::general_purpose, Engine as _};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
+    fs::{self, File},
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
@@ -21,13 +23,10 @@ pub trait WpsAutomationRunner: Send + Sync {
 
 struct PowerShellWpsAutomationRunner;
 
-fn powershell_executable() -> PathBuf {
+fn powershell_executable() -> Result<PathBuf, String> {
     #[cfg(windows)]
     {
-        let windows_root = std::env::var_os("WINDIR")
-            .or_else(|| std::env::var_os("SystemRoot"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        let windows_root = PathBuf::from(r"C:\Windows");
         let wow64_powershell = windows_root
             .join("SysWOW64")
             .join("WindowsPowerShell")
@@ -35,11 +34,19 @@ fn powershell_executable() -> PathBuf {
             .join("powershell.exe");
 
         if wow64_powershell.exists() {
-            return wow64_powershell;
+            return Ok(wow64_powershell);
         }
+
+        return Err(format!(
+            "Trusted Windows PowerShell executable is unavailable at {}.",
+            wow64_powershell.display()
+        ));
     }
 
-    PathBuf::from("powershell.exe")
+    #[cfg(not(windows))]
+    {
+        Err("WPS App Use automation is only available on Windows.".to_string())
+    }
 }
 
 fn powershell_arguments(encoded_script: &str) -> Vec<String> {
@@ -65,7 +72,7 @@ impl WpsAutomationRunner for PowerShellWpsAutomationRunner {
                 .flat_map(u16::to_le_bytes)
                 .collect::<Vec<_>>(),
         );
-        let shell_path = powershell_executable();
+        let shell_path = powershell_executable()?;
         let mut child = Command::new(&shell_path)
             .args(powershell_arguments(&encoded_script))
             .stdin(Stdio::null())
@@ -194,9 +201,25 @@ impl AppUseAdapter for WpsWriterAdapter {
             "discover",
             "observe_active_document",
             "observe_selection",
-            "replace_selection",
-            "format_selection",
+            "replace_document_text",
+            "format_document_text",
         ]
+    }
+
+    fn vendor(&self) -> &'static str {
+        "WPS Office"
+    }
+
+    fn contract_version(&self) -> &'static str {
+        "wps-com-v1"
+    }
+
+    fn observe_scopes(&self) -> &'static [&'static str] {
+        &["active_document", "selection"]
+    }
+
+    fn actions(&self) -> &'static [&'static str] {
+        &["replace_document_text", "format_document_text"]
     }
 
     fn installed(&self) -> bool {
@@ -204,22 +227,25 @@ impl AppUseAdapter for WpsWriterAdapter {
     }
 
     fn observe(&self, request: &AppUseObserveRequest) -> AppUseObserveResponse {
-        if let Err(error) = validate_owned_target(request.target_id.as_deref(), false) {
-            return AppUseObserveResponse {
-                ok: false,
-                adapter_id: request.adapter_id.clone(),
-                scope: request.scope.clone(),
-                target: request.target_id.clone(),
-                content: Some(error),
-                metadata: json!({
-                    "executionId": request.execution_id,
-                    "reason": "target_not_owned",
-                }),
-                truncated: false,
-            };
-        }
-
-        let script = wps_observe_script(request.target_id.as_deref());
+        let owned_target = match validate_owned_target(request.target_id.as_deref(), false) {
+            Ok(owned_target) => owned_target,
+            Err(error) => {
+                return AppUseObserveResponse {
+                    ok: false,
+                    adapter_id: request.adapter_id.clone(),
+                    scope: request.scope.clone(),
+                    target: request.target_id.clone(),
+                    content: Some(error),
+                    metadata: json!({
+                        "executionId": request.execution_id,
+                        "reason": "target_not_owned",
+                    }),
+                    truncated: false,
+                };
+            }
+        };
+        let target_path = owned_target.as_ref().map(OwnedTargetGuard::path_string);
+        let script = wps_observe_script(target_path.as_deref(), &request.scope);
         match run_json_script(self.runner.as_ref(), &script, request.config.timeout_ms) {
             Ok(metadata) => {
                 let content = format_observe_content(&metadata, &request.scope);
@@ -228,10 +254,7 @@ impl AppUseAdapter for WpsWriterAdapter {
                     ok: true,
                     adapter_id: request.adapter_id.clone(),
                     scope: request.scope.clone(),
-                    target: metadata
-                        .get("fullName")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
+                    target: target_path,
                     content: Some(content),
                     metadata,
                     truncated,
@@ -255,23 +278,23 @@ impl AppUseAdapter for WpsWriterAdapter {
     fn validate_act(&self, request: &AppUseAuthorizeActRequest) -> Result<(), String> {
         if !matches!(
             request.action.as_str(),
-            "replace_selection" | "format_selection"
+            "replace_document_text" | "format_document_text"
         ) {
             return Err(format!("Unsupported WPS Writer action: {}", request.action));
         }
 
-        if request.action == "format_selection" {
-            format_selection_parameters(request.parameters.as_ref()).map(|_| ())?;
+        if request.action == "format_document_text" {
+            format_document_text_parameters(request.parameters.as_ref()).map(|_| ())?;
         } else {
             text_parameter(request.parameters.as_ref()).map(|_| ())?;
         }
-        validate_owned_target(request.target_id.as_deref(), true)
+        validate_owned_target(request.target_id.as_deref(), true).map(|_| ())
     }
 
     fn act(&self, request: &AppUseActRequest) -> AppUseActResponse {
         if !matches!(
             request.action.as_str(),
-            "replace_selection" | "format_selection"
+            "replace_document_text" | "format_document_text"
         ) {
             return AppUseActResponse {
                 ok: false,
@@ -286,9 +309,14 @@ impl AppUseAdapter for WpsWriterAdapter {
             };
         }
 
-        let script = if request.action == "format_selection" {
-            let format = match format_selection_parameters(request.parameters.as_ref()) {
-                Ok(format) => format,
+        enum WpsWriterActionPayload {
+            Format(WpsSelectionFormat),
+            Replace(String),
+        }
+
+        let payload = if request.action == "format_document_text" {
+            match format_document_text_parameters(request.parameters.as_ref()) {
+                Ok(format) => WpsWriterActionPayload::Format(format),
                 Err(error) => {
                     return AppUseActResponse {
                         ok: false,
@@ -302,12 +330,10 @@ impl AppUseAdapter for WpsWriterAdapter {
                         }),
                     };
                 }
-            };
-
-            wps_format_selection_script(&format, request.target_id.as_deref())
+            }
         } else {
-            let text = match text_parameter(request.parameters.as_ref()) {
-                Ok(text) => text,
+            match text_parameter(request.parameters.as_ref()) {
+                Ok(text) => WpsWriterActionPayload::Replace(text),
                 Err(error) => {
                     return AppUseActResponse {
                         ok: false,
@@ -321,24 +347,47 @@ impl AppUseAdapter for WpsWriterAdapter {
                         }),
                     };
                 }
-            };
-
-            wps_type_text_script(&text, request.target_id.as_deref())
+            }
         };
 
-        if let Err(error) = validate_owned_target(request.target_id.as_deref(), true) {
-            return AppUseActResponse {
-                ok: false,
-                adapter_id: request.adapter_id.clone(),
-                action: request.action.clone(),
-                receipt: error,
-                changed: false,
-                metadata: json!({
-                    "executionId": request.execution_id,
-                    "reason": "target_not_owned",
-                }),
-            };
-        }
+        let owned_target = match validate_owned_target(request.target_id.as_deref(), true) {
+            Ok(Some(owned_target)) => owned_target,
+            Ok(None) => {
+                return AppUseActResponse {
+                    ok: false,
+                    adapter_id: request.adapter_id.clone(),
+                    action: request.action.clone(),
+                    receipt: "WPS Writer targetId must reference a TouchAI-owned document before running write actions.".to_string(),
+                    changed: false,
+                    metadata: json!({
+                        "executionId": request.execution_id,
+                        "reason": "target_not_owned",
+                    }),
+                };
+            }
+            Err(error) => {
+                return AppUseActResponse {
+                    ok: false,
+                    adapter_id: request.adapter_id.clone(),
+                    action: request.action.clone(),
+                    receipt: error,
+                    changed: false,
+                    metadata: json!({
+                        "executionId": request.execution_id,
+                        "reason": "target_not_owned",
+                    }),
+                };
+            }
+        };
+        let target_path = owned_target.path_string();
+        let script = match payload {
+            WpsWriterActionPayload::Format(format) => {
+                wps_format_document_text_script(&format, Some(&target_path))
+            }
+            WpsWriterActionPayload::Replace(text) => {
+                wps_type_text_script(&text, Some(&target_path))
+            }
+        };
 
         match run_json_script(self.runner.as_ref(), &script, request.config.timeout_ms) {
             Ok(metadata) => {
@@ -390,9 +439,24 @@ impl AppUseAdapter for WpsSpreadsheetAdapter {
             "discover",
             "observe_workbook",
             "observe_worksheet",
-            "read_cells",
             "write_cells",
         ]
+    }
+
+    fn vendor(&self) -> &'static str {
+        "WPS Office"
+    }
+
+    fn contract_version(&self) -> &'static str {
+        "wps-com-v1"
+    }
+
+    fn observe_scopes(&self) -> &'static [&'static str] {
+        &["workbook", "worksheet"]
+    }
+
+    fn actions(&self) -> &'static [&'static str] {
+        &["write_cells"]
     }
 
     fn installed(&self) -> bool {
@@ -400,24 +464,29 @@ impl AppUseAdapter for WpsSpreadsheetAdapter {
     }
 
     fn observe(&self, request: &AppUseObserveRequest) -> AppUseObserveResponse {
-        if let Err(error) =
-            validate_owned_target_for_app(request.target_id.as_deref(), false, self.label())
-        {
-            return AppUseObserveResponse {
-                ok: false,
-                adapter_id: request.adapter_id.clone(),
-                scope: request.scope.clone(),
-                target: request.target_id.clone(),
-                content: Some(error),
-                metadata: json!({
-                    "executionId": request.execution_id,
-                    "reason": "target_not_owned",
-                }),
-                truncated: false,
-            };
-        }
-
-        let script = wps_spreadsheet_observe_script(request.target_id.as_deref());
+        let owned_target = match validate_owned_target_for_app(
+            request.target_id.as_deref(),
+            false,
+            self.label(),
+        ) {
+            Ok(owned_target) => owned_target,
+            Err(error) => {
+                return AppUseObserveResponse {
+                    ok: false,
+                    adapter_id: request.adapter_id.clone(),
+                    scope: request.scope.clone(),
+                    target: request.target_id.clone(),
+                    content: Some(error),
+                    metadata: json!({
+                        "executionId": request.execution_id,
+                        "reason": "target_not_owned",
+                    }),
+                    truncated: false,
+                };
+            }
+        };
+        let target_path = owned_target.as_ref().map(OwnedTargetGuard::path_string);
+        let script = wps_spreadsheet_observe_script(target_path.as_deref());
         match run_json_script(self.runner.as_ref(), &script, request.config.timeout_ms) {
             Ok(metadata) => {
                 let content = format_spreadsheet_observe_content(&metadata, &request.scope);
@@ -426,10 +495,7 @@ impl AppUseAdapter for WpsSpreadsheetAdapter {
                     ok: true,
                     adapter_id: request.adapter_id.clone(),
                     scope: request.scope.clone(),
-                    target: metadata
-                        .get("fullName")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
+                    target: target_path,
                     content: Some(content),
                     metadata,
                     truncated,
@@ -459,7 +525,7 @@ impl AppUseAdapter for WpsSpreadsheetAdapter {
         }
 
         spreadsheet_write_parameters(request.parameters.as_ref()).map(|_| ())?;
-        validate_owned_target_for_app(request.target_id.as_deref(), true, self.label())
+        validate_owned_target_for_app(request.target_id.as_deref(), true, self.label()).map(|_| ())
     }
 
     fn act(&self, request: &AppUseActRequest) -> AppUseActResponse {
@@ -494,23 +560,44 @@ impl AppUseAdapter for WpsSpreadsheetAdapter {
             }
         };
 
-        if let Err(error) =
-            validate_owned_target_for_app(request.target_id.as_deref(), true, self.label())
-        {
-            return AppUseActResponse {
-                ok: false,
-                adapter_id: request.adapter_id.clone(),
-                action: request.action.clone(),
-                receipt: error,
-                changed: false,
-                metadata: json!({
-                    "executionId": request.execution_id,
-                    "reason": "target_not_owned",
-                }),
-            };
-        }
-
-        let script = wps_spreadsheet_write_cells_script(&cells, request.target_id.as_deref());
+        let owned_target = match validate_owned_target_for_app(
+            request.target_id.as_deref(),
+            true,
+            self.label(),
+        ) {
+            Ok(Some(owned_target)) => owned_target,
+            Ok(None) => {
+                return AppUseActResponse {
+                        ok: false,
+                        adapter_id: request.adapter_id.clone(),
+                        action: request.action.clone(),
+                        receipt: format!(
+                            "{} targetId must reference a TouchAI-owned document before running write actions.",
+                            self.label()
+                        ),
+                        changed: false,
+                        metadata: json!({
+                            "executionId": request.execution_id,
+                            "reason": "target_not_owned",
+                        }),
+                    };
+            }
+            Err(error) => {
+                return AppUseActResponse {
+                    ok: false,
+                    adapter_id: request.adapter_id.clone(),
+                    action: request.action.clone(),
+                    receipt: error,
+                    changed: false,
+                    metadata: json!({
+                        "executionId": request.execution_id,
+                        "reason": "target_not_owned",
+                    }),
+                };
+            }
+        };
+        let target_path = owned_target.path_string();
+        let script = wps_spreadsheet_write_cells_script(&cells, Some(&target_path));
         match run_json_script(self.runner.as_ref(), &script, request.config.timeout_ms) {
             Ok(metadata) => {
                 let workbook_name = metadata
@@ -562,29 +649,50 @@ impl AppUseAdapter for WpsPresentationAdapter {
         ]
     }
 
+    fn vendor(&self) -> &'static str {
+        "WPS Office"
+    }
+
+    fn contract_version(&self) -> &'static str {
+        "wps-com-v1"
+    }
+
+    fn observe_scopes(&self) -> &'static [&'static str] {
+        &["presentation", "slide"]
+    }
+
+    fn actions(&self) -> &'static [&'static str] {
+        &["add_slide_text"]
+    }
+
     fn installed(&self) -> bool {
         discovery::discover_adapter_install_status(self.id()).installed
     }
 
     fn observe(&self, request: &AppUseObserveRequest) -> AppUseObserveResponse {
-        if let Err(error) =
-            validate_owned_target_for_app(request.target_id.as_deref(), false, self.label())
-        {
-            return AppUseObserveResponse {
-                ok: false,
-                adapter_id: request.adapter_id.clone(),
-                scope: request.scope.clone(),
-                target: request.target_id.clone(),
-                content: Some(error),
-                metadata: json!({
-                    "executionId": request.execution_id,
-                    "reason": "target_not_owned",
-                }),
-                truncated: false,
-            };
-        }
-
-        let script = wps_presentation_observe_script(request.target_id.as_deref());
+        let owned_target = match validate_owned_target_for_app(
+            request.target_id.as_deref(),
+            false,
+            self.label(),
+        ) {
+            Ok(owned_target) => owned_target,
+            Err(error) => {
+                return AppUseObserveResponse {
+                    ok: false,
+                    adapter_id: request.adapter_id.clone(),
+                    scope: request.scope.clone(),
+                    target: request.target_id.clone(),
+                    content: Some(error),
+                    metadata: json!({
+                        "executionId": request.execution_id,
+                        "reason": "target_not_owned",
+                    }),
+                    truncated: false,
+                };
+            }
+        };
+        let target_path = owned_target.as_ref().map(OwnedTargetGuard::path_string);
+        let script = wps_presentation_observe_script(target_path.as_deref());
         match run_json_script(self.runner.as_ref(), &script, request.config.timeout_ms) {
             Ok(metadata) => {
                 let content = format_presentation_observe_content(&metadata, &request.scope);
@@ -593,10 +701,7 @@ impl AppUseAdapter for WpsPresentationAdapter {
                     ok: true,
                     adapter_id: request.adapter_id.clone(),
                     scope: request.scope.clone(),
-                    target: metadata
-                        .get("fullName")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
+                    target: target_path,
                     content: Some(content),
                     metadata,
                     truncated,
@@ -626,7 +731,7 @@ impl AppUseAdapter for WpsPresentationAdapter {
         }
 
         presentation_text_parameters(request.parameters.as_ref()).map(|_| ())?;
-        validate_owned_target_for_app(request.target_id.as_deref(), true, self.label())
+        validate_owned_target_for_app(request.target_id.as_deref(), true, self.label()).map(|_| ())
     }
 
     fn act(&self, request: &AppUseActRequest) -> AppUseActResponse {
@@ -661,24 +766,44 @@ impl AppUseAdapter for WpsPresentationAdapter {
             }
         };
 
-        if let Err(error) =
-            validate_owned_target_for_app(request.target_id.as_deref(), true, self.label())
-        {
-            return AppUseActResponse {
-                ok: false,
-                adapter_id: request.adapter_id.clone(),
-                action: request.action.clone(),
-                receipt: error,
-                changed: false,
-                metadata: json!({
-                    "executionId": request.execution_id,
-                    "reason": "target_not_owned",
-                }),
-            };
-        }
-
-        let script =
-            wps_presentation_add_slide_text_script(&slide_text, request.target_id.as_deref());
+        let owned_target = match validate_owned_target_for_app(
+            request.target_id.as_deref(),
+            true,
+            self.label(),
+        ) {
+            Ok(Some(owned_target)) => owned_target,
+            Ok(None) => {
+                return AppUseActResponse {
+                        ok: false,
+                        adapter_id: request.adapter_id.clone(),
+                        action: request.action.clone(),
+                        receipt: format!(
+                            "{} targetId must reference a TouchAI-owned document before running write actions.",
+                            self.label()
+                        ),
+                        changed: false,
+                        metadata: json!({
+                            "executionId": request.execution_id,
+                            "reason": "target_not_owned",
+                        }),
+                    };
+            }
+            Err(error) => {
+                return AppUseActResponse {
+                    ok: false,
+                    adapter_id: request.adapter_id.clone(),
+                    action: request.action.clone(),
+                    receipt: error,
+                    changed: false,
+                    metadata: json!({
+                        "executionId": request.execution_id,
+                        "reason": "target_not_owned",
+                    }),
+                };
+            }
+        };
+        let target_path = owned_target.path_string();
+        let script = wps_presentation_add_slide_text_script(&slide_text, Some(&target_path));
         match run_json_script(self.runner.as_ref(), &script, request.config.timeout_ms) {
             Ok(metadata) => {
                 let presentation_name = metadata
@@ -734,6 +859,9 @@ fn text_parameter(parameters: Option<&Value>) -> Result<String, String> {
     if text.trim().is_empty() {
         return Err("WPS Writer action requires a non-empty text parameter.".to_string());
     }
+    if text.chars().count() > 20_000 {
+        return Err("WPS Writer text must be 20000 characters or fewer.".to_string());
+    }
 
     Ok(text)
 }
@@ -757,38 +885,38 @@ impl WpsSelectionFormat {
     }
 }
 
-fn format_selection_parameters(parameters: Option<&Value>) -> Result<WpsSelectionFormat, String> {
+fn format_document_text_parameters(
+    parameters: Option<&Value>,
+) -> Result<WpsSelectionFormat, String> {
     let Some(parameters) = parameters.and_then(Value::as_object) else {
         return Err(
-            "WPS Writer format_selection requires structured format parameters.".to_string(),
+            "WPS Writer format_document_text requires structured format parameters.".to_string(),
         );
     };
 
     let mut format = WpsSelectionFormat::default();
     if let Some(value) = parameters.get("bold") {
-        format.bold =
-            Some(value.as_bool().ok_or_else(|| {
-                "WPS Writer format_selection bold must be a boolean.".to_string()
-            })?);
+        format.bold = Some(value.as_bool().ok_or_else(|| {
+            "WPS Writer format_document_text bold must be a boolean.".to_string()
+        })?);
     }
     if let Some(value) = parameters.get("italic") {
-        format.italic =
-            Some(value.as_bool().ok_or_else(|| {
-                "WPS Writer format_selection italic must be a boolean.".to_string()
-            })?);
+        format.italic = Some(value.as_bool().ok_or_else(|| {
+            "WPS Writer format_document_text italic must be a boolean.".to_string()
+        })?);
     }
     if let Some(value) = parameters.get("underline") {
         format.underline = Some(value.as_bool().ok_or_else(|| {
-            "WPS Writer format_selection underline must be a boolean.".to_string()
+            "WPS Writer format_document_text underline must be a boolean.".to_string()
         })?);
     }
     if let Some(value) = parameters.get("fontSize") {
-        let font_size = value
-            .as_f64()
-            .ok_or_else(|| "WPS Writer format_selection fontSize must be a number.".to_string())?;
+        let font_size = value.as_f64().ok_or_else(|| {
+            "WPS Writer format_document_text fontSize must be a number.".to_string()
+        })?;
         if !(6.0..=96.0).contains(&font_size) {
             return Err(
-                "WPS Writer format_selection fontSize must be between 6 and 96.".to_string(),
+                "WPS Writer format_document_text fontSize must be between 6 and 96.".to_string(),
             );
         }
         format.font_size = Some(font_size);
@@ -799,18 +927,21 @@ fn format_selection_parameters(parameters: Option<&Value>) -> Result<WpsSelectio
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
-                "WPS Writer format_selection fontName must be a non-empty string.".to_string()
+                "WPS Writer format_document_text fontName must be a non-empty string.".to_string()
             })?;
         if font_name.chars().count() > 128 {
             return Err(
-                "WPS Writer format_selection fontName must be 128 characters or fewer.".to_string(),
+                "WPS Writer format_document_text fontName must be 128 characters or fewer."
+                    .to_string(),
             );
         }
         format.font_name = Some(font_name.to_string());
     }
 
     if format.is_empty() {
-        return Err("WPS Writer format_selection requires at least one format option.".to_string());
+        return Err(
+            "WPS Writer format_document_text requires at least one format option.".to_string(),
+        );
     }
 
     Ok(format)
@@ -1006,8 +1137,55 @@ fn spreadsheet_write_parameters(
     })
 }
 
+const WPS_OWNED_ROOT_ENV: &str = "TOUCHAI_APP_USE_WPS_OWNED_ROOT";
+const OWNED_SECRET_ENV: &str = "TOUCHAI_APP_USE_OWNED_SECRET";
+
 fn owned_wps_target_root() -> PathBuf {
-    std::env::temp_dir().join("touchai-wps-smoke")
+    if cfg!(debug_assertions) {
+        if let Some(path) = std::env::var_os(WPS_OWNED_ROOT_ENV) {
+            return PathBuf::from(path);
+        }
+    }
+
+    app_use_owned_data_root().join("wps")
+}
+
+pub(crate) fn owned_wps_target_root_path() -> PathBuf {
+    owned_wps_target_root()
+}
+
+fn app_use_owned_data_root() -> PathBuf {
+    crate::core::system::paths::app_directory_path_without_app_root_override(
+        crate::core::system::paths::AppDirectory::Data,
+    )
+    .unwrap_or_else(|_| fallback_app_data_root())
+    .join("app-use")
+    .join("owned-targets")
+}
+
+fn fallback_app_data_root() -> PathBuf {
+    if cfg!(target_os = "windows") {
+        if let Some(path) = std::env::var_os("LOCALAPPDATA")
+            .or_else(|| std::env::var_os("APPDATA"))
+            .map(PathBuf::from)
+        {
+            return path.join("TouchAI").join("data");
+        }
+    }
+
+    if let Some(path) = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from) {
+        return path.join("TouchAI").join("data");
+    }
+
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        return home
+            .join(".local")
+            .join("share")
+            .join("TouchAI")
+            .join("data");
+    }
+
+    PathBuf::from(".").join("touchai-data")
 }
 
 fn owned_marker_path(target_path: &Path) -> PathBuf {
@@ -1025,6 +1203,323 @@ fn hash_owned_path(target_path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+#[cfg(windows)]
+fn owned_file_information(
+    file: &File,
+    label: &str,
+) -> Result<windows::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION, String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe {
+        GetFileInformationByHandle(
+            HANDLE(file.as_raw_handle() as *mut core::ffi::c_void),
+            &mut information,
+        )
+    }
+    .map_err(|error| format!("TouchAI-owned {label} metadata is unavailable: {error}"))?;
+
+    Ok(information)
+}
+
+#[cfg(windows)]
+fn file_identity(file: &File) -> Result<String, String> {
+    let information = owned_file_information(file, "file identity")?;
+
+    Ok(format!(
+        "{}:{}:{}",
+        information.dwVolumeSerialNumber, information.nFileIndexHigh, information.nFileIndexLow
+    ))
+}
+
+#[cfg(not(windows))]
+fn file_identity(_file: &File) -> Result<String, String> {
+    Ok("non-windows-test-file".to_string())
+}
+
+fn hash_owned_marker(canonical_path: &Path, file_identity: &str, nonce: Option<&str>) -> String {
+    let canonical = canonical_path.to_string_lossy().to_ascii_lowercase();
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(file_identity.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(nonce.unwrap_or_default().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn read_owned_marker_secret(secret_path: &Path) -> Result<Option<String>, String> {
+    if !secret_path.exists() {
+        return Ok(None);
+    }
+
+    if let Some(parent) = secret_path.parent() {
+        ensure_path_chain_not_reparse(parent, "secret root")?;
+    }
+    let mut secret_file = match open_owned_guard_file(secret_path, "secret", false) {
+        Ok(file) => file,
+        Err(_) if !secret_path.exists() => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "TouchAI owned-target secret could not be opened: {error}"
+            ));
+        }
+    };
+    let mut secret = String::new();
+    secret_file
+        .read_to_string(&mut secret)
+        .map_err(|error| format!("TouchAI owned-target secret could not be read: {error}"))?;
+    let secret = secret.trim().to_string();
+    if secret.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(secret))
+    }
+}
+
+fn owned_marker_secret() -> Result<String, String> {
+    if cfg!(debug_assertions) {
+        if let Some(secret) = std::env::var_os(OWNED_SECRET_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
+            return Ok(secret);
+        }
+    }
+
+    let root = app_use_owned_data_root();
+    if root.exists() {
+        ensure_path_chain_not_reparse(&root, "secret root")?;
+    }
+    let secret_path = root.join(".ownership-secret");
+    if let Some(secret) = read_owned_marker_secret(&secret_path)? {
+        return Ok(secret);
+    }
+
+    fs::create_dir_all(&root)
+        .map_err(|error| format!("TouchAI owned-target secret root is unavailable: {error}"))?;
+    ensure_path_chain_not_reparse(&root, "secret root")?;
+    let secret = uuid::Uuid::new_v4().to_string();
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&secret_path)
+    {
+        Ok(mut file) => file.write_all(secret.as_bytes()).map_err(|error| {
+            format!("TouchAI owned-target secret could not be written: {error}")
+        })?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if let Some(secret) = read_owned_marker_secret(&secret_path)? {
+                return Ok(secret);
+            }
+            return Err("TouchAI owned-target secret already exists but is empty.".to_string());
+        }
+        Err(error) => {
+            return Err(format!(
+                "TouchAI owned-target secret could not be created: {error}"
+            ));
+        }
+    }
+    Ok(secret)
+}
+
+fn hmac_sha256_hex(secret: &str, parts: &[&[u8]]) -> String {
+    const BLOCK_SIZE: usize = 64;
+
+    let mut key = secret.as_bytes().to_vec();
+    if key.len() > BLOCK_SIZE {
+        key = Sha256::digest(&key).to_vec();
+    }
+    key.resize(BLOCK_SIZE, 0);
+
+    let mut inner_pad = [0x36; BLOCK_SIZE];
+    let mut outer_pad = [0x5c; BLOCK_SIZE];
+    for (index, byte) in key.iter().enumerate() {
+        inner_pad[index] ^= byte;
+        outer_pad[index] ^= byte;
+    }
+
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    for part in parts {
+        inner.update(part);
+    }
+    let inner_hash = inner.finalize();
+
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner_hash);
+    format!("{:x}", outer.finalize())
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let mut diff = left.len() ^ right.len();
+    for index in 0..left.len().max(right.len()) {
+        let left_byte = left.get(index).copied().unwrap_or_default();
+        let right_byte = right.get(index).copied().unwrap_or_default();
+        diff |= (left_byte ^ right_byte) as usize;
+    }
+    diff == 0
+}
+
+fn sign_owned_marker(
+    canonical_path: &Path,
+    file_identity: &str,
+    nonce: &str,
+) -> Result<String, String> {
+    let secret = owned_marker_secret()?;
+    let canonical = canonical_path.to_string_lossy().to_ascii_lowercase();
+    Ok(hmac_sha256_hex(
+        &secret,
+        &[
+            b"touchai-owned-target-v1",
+            canonical.as_bytes(),
+            file_identity.as_bytes(),
+            nonce.as_bytes(),
+        ],
+    ))
+}
+
+fn create_owned_marker_file(
+    marker_path: &Path,
+    marker: &Value,
+    app_label: &str,
+) -> Result<(), String> {
+    if marker_path.exists() {
+        ensure_path_chain_not_reparse(marker_path, "marker")?;
+        if is_path_symlink(marker_path) || has_windows_reparse_point(marker_path) {
+            return Err(format!(
+                "{app_label} owned marker must not be a symlink or reparse point."
+            ));
+        }
+        return Err(format!(
+            "{app_label} owned target marker already exists; create a fresh TouchAI-owned target before issuing a new marker."
+        ));
+    }
+
+    if let Some(parent) = marker_path.parent() {
+        ensure_path_chain_not_reparse(parent, "marker parent")?;
+    }
+    let marker_json = marker.to_string();
+    let mut marker_file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(marker_path)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                format!("{app_label} owned target marker already exists.")
+            } else {
+                format!("{app_label} owned target marker could not be created: {error}")
+            }
+        })?;
+    if let Err(error) = marker_file.write_all(marker_json.as_bytes()) {
+        drop(marker_file);
+        let _ = fs::remove_file(marker_path);
+        return Err(format!(
+            "{app_label} owned target marker could not be written: {error}"
+        ));
+    }
+
+    Ok(())
+}
+
+pub(crate) fn mark_owned_wps_target(
+    target_path: &Path,
+    app_label: &str,
+    created_by: &str,
+) -> Result<PathBuf, String> {
+    if !target_path.is_absolute() {
+        return Err(format!(
+            "{app_label} owned target must be an absolute document path."
+        ));
+    }
+
+    let root_path = owned_wps_target_root();
+    fs::create_dir_all(&root_path)
+        .map_err(|error| format!("{app_label} owned target root is unavailable: {error}"))?;
+    ensure_path_chain_not_reparse(&root_path, "target root")?;
+    let canonical_root = root_path.canonicalize().map_err(|_| {
+        format!("{app_label} owned target root is not available for marker issuance.")
+    })?;
+
+    let canonical_candidate = target_path.canonicalize().map_err(|_| {
+        format!("{app_label} owned target must reference an existing TouchAI document.")
+    })?;
+    validate_owned_target_extension(&canonical_candidate, app_label)?;
+    if !canonical_candidate.starts_with(&canonical_root) {
+        return Err(format!(
+            "{app_label} owned target must live inside the TouchAI-owned document root."
+        ));
+    }
+    ensure_path_chain_not_reparse(&canonical_candidate, "target")?;
+
+    let target_file =
+        open_owned_guard_file(&canonical_candidate, "target", true).map_err(|error| {
+            format!("{app_label} owned target must reference an existing TouchAI document: {error}")
+        })?;
+
+    let marker_path = owned_marker_path(&canonical_candidate);
+    let identity = file_identity(&target_file)?;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let marker = json!({
+        "version": "touchai-owned-target/v1",
+        "createdBy": created_by,
+        "pathHash": hash_owned_path(&canonical_candidate),
+        "nonce": nonce,
+        "identityHash": hash_owned_marker(&canonical_candidate, &identity, Some(&nonce)),
+        "signature": sign_owned_marker(&canonical_candidate, &identity, &nonce)?,
+    });
+    create_owned_marker_file(&marker_path, &marker, app_label)?;
+    let _marker_file = verify_owned_marker(&canonical_candidate, &target_file)?;
+
+    Ok(canonical_candidate)
+}
+
+#[cfg(windows)]
+fn open_owned_guard_file(
+    path: &Path,
+    label: &str,
+    allow_shared_writes: bool,
+) -> Result<File, String> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 0x00000001;
+    const FILE_SHARE_WRITE: u32 = 0x00000002;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x00200000;
+
+    let share_mode = if allow_shared_writes {
+        FILE_SHARE_READ | FILE_SHARE_WRITE
+    } else {
+        FILE_SHARE_READ
+    };
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(share_mode)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|error| format!("TouchAI-owned {label} guard could not be opened: {error}"))?;
+    ensure_owned_guard_file_handle(&file, label)?;
+    Ok(file)
+}
+
+#[cfg(not(windows))]
+fn open_owned_guard_file(
+    path: &Path,
+    label: &str,
+    _allow_shared_writes: bool,
+) -> Result<File, String> {
+    File::open(path)
+        .map_err(|error| format!("TouchAI-owned {label} guard could not be opened: {error}"))
 }
 
 fn is_path_symlink(path: &Path) -> bool {
@@ -1048,25 +1543,49 @@ fn has_windows_reparse_point(_path: &Path) -> bool {
     false
 }
 
-#[cfg(windows)]
-fn ensure_not_hardlinked(path: &Path, label: &str) -> Result<(), String> {
-    use std::os::windows::io::AsRawHandle;
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::Storage::FileSystem::{
-        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
-    };
-
-    let file = std::fs::File::open(path)
-        .map_err(|_| format!("TouchAI-owned {label} metadata is unavailable."))?;
-    let mut information = BY_HANDLE_FILE_INFORMATION::default();
-    unsafe {
-        GetFileInformationByHandle(
-            HANDLE(file.as_raw_handle() as *mut core::ffi::c_void),
-            &mut information,
-        )
+fn ensure_path_chain_not_reparse(path: &Path, label: &str) -> Result<(), String> {
+    for candidate in path.ancestors() {
+        if candidate.as_os_str().is_empty() || !candidate.exists() {
+            continue;
+        }
+        if is_path_symlink(candidate) || has_windows_reparse_point(candidate) {
+            return Err(format!(
+                "TouchAI-owned {label} path must not include a symlink or reparse point."
+            ));
+        }
     }
-    .map_err(|error| format!("TouchAI-owned {label} metadata is unavailable: {error}"))?;
+    Ok(())
+}
 
+#[cfg(windows)]
+fn path_has_root_prefix(candidate: &Path, root: &Path) -> bool {
+    let candidate = candidate
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    let root = root
+        .to_string_lossy()
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase();
+    candidate == root || candidate.starts_with(&format!("{root}\\"))
+}
+
+#[cfg(not(windows))]
+fn path_has_root_prefix(candidate: &Path, root: &Path) -> bool {
+    candidate.starts_with(root)
+}
+
+#[cfg(windows)]
+fn ensure_owned_guard_file_handle(file: &File, label: &str) -> Result<(), String> {
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+
+    let information = owned_file_information(file, label)?;
+    if information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(format!(
+            "TouchAI-owned {label} must not be a symlink or reparse point."
+        ));
+    }
     if information.nNumberOfLinks > 1 {
         return Err(format!("TouchAI-owned {label} must not be a hard link."));
     }
@@ -1074,34 +1593,97 @@ fn ensure_not_hardlinked(path: &Path, label: &str) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn ensure_not_hardlinked(_path: &Path, _label: &str) -> Result<(), String> {
+fn ensure_owned_guard_file_handle(_file: &File, _label: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn verify_owned_marker(target_path: &Path) -> Result<(), String> {
+struct OwnedTargetGuard {
+    canonical_path: PathBuf,
+    _target_file: File,
+    _marker_file: File,
+}
+
+impl OwnedTargetGuard {
+    fn path_string(&self) -> String {
+        self.canonical_path.to_string_lossy().to_string()
+    }
+}
+
+fn verify_owned_marker(target_path: &Path, target_file: &File) -> Result<File, String> {
     let marker_path = owned_marker_path(target_path);
+    ensure_path_chain_not_reparse(&marker_path, "marker")?;
     if is_path_symlink(&marker_path) || has_windows_reparse_point(&marker_path) {
         return Err("TouchAI-owned marker must not be a symlink or reparse point.".to_string());
     }
-    ensure_not_hardlinked(&marker_path, "marker")?;
 
-    let marker = std::fs::read_to_string(&marker_path)
-        .map_err(|_| "TouchAI-owned marker is missing for this target.".to_string())?;
+    let mut marker_file = open_owned_guard_file(&marker_path, "marker", false)
+        .map_err(|error| format!("TouchAI-owned marker is missing for this target: {error}"))?;
+    let mut marker = String::new();
+    marker_file
+        .read_to_string(&mut marker)
+        .map_err(|_| "TouchAI-owned marker is unreadable.".to_string())?;
     let marker: Value = serde_json::from_str(&marker)
         .map_err(|_| "TouchAI-owned marker is not valid JSON.".to_string())?;
     let marker_hash = marker
         .get("pathHash")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    let marker_nonce = marker
+        .get("nonce")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "TouchAI-owned marker nonce is missing.".to_string())?;
+    let identity = file_identity(target_file)?;
+    let identity_hash = marker
+        .get("identityHash")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let marker_signature = marker
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let expected_identity_hash = hash_owned_marker(target_path, &identity, Some(marker_nonce));
+    let expected_signature = sign_owned_marker(target_path, &identity, marker_nonce)?;
 
-    if marker_hash == hash_owned_path(target_path) {
+    if marker_hash != hash_owned_path(target_path) {
+        return Err("TouchAI-owned marker does not match this target path.".to_string());
+    }
+    if identity_hash != expected_identity_hash {
+        return Err("TouchAI-owned marker does not match this target identity.".to_string());
+    }
+    if !constant_time_eq(marker_signature, &expected_signature) {
+        return Err("TouchAI-owned marker is not signed by this TouchAI installation.".to_string());
+    }
+
+    Ok(marker_file)
+}
+
+fn validate_owned_target_extension(target_path: &Path, app_label: &str) -> Result<(), String> {
+    let extension = target_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let allowed = match app_label {
+        "WPS Writer" => ["docx"].contains(&extension.as_str()),
+        "WPS Spreadsheet" => ["xlsx"].contains(&extension.as_str()),
+        "WPS Presentation" => ["pptx"].contains(&extension.as_str()),
+        _ => false,
+    };
+
+    if allowed {
         Ok(())
     } else {
-        Err("TouchAI-owned marker does not match this target path.".to_string())
+        Err(format!(
+            "{app_label} targetId must use a macro-free TouchAI-owned document format."
+        ))
     }
 }
 
-fn validate_owned_target(target_path: Option<&str>, required: bool) -> Result<(), String> {
+fn validate_owned_target(
+    target_path: Option<&str>,
+    required: bool,
+) -> Result<Option<OwnedTargetGuard>, String> {
     validate_owned_target_for_app(target_path, required, "WPS Writer")
 }
 
@@ -1109,14 +1691,14 @@ fn validate_owned_target_for_app(
     target_path: Option<&str>,
     required: bool,
     app_label: &str,
-) -> Result<(), String> {
+) -> Result<Option<OwnedTargetGuard>, String> {
     let Some(target_path) = target_path else {
         return if required {
             Err(format!(
                 "{app_label} targetId must reference a TouchAI-owned document before running write actions."
             ))
         } else {
-            Ok(())
+            Ok(None)
         };
     };
 
@@ -1127,7 +1709,7 @@ fn validate_owned_target_for_app(
                 "{app_label} targetId must reference a TouchAI-owned document before running write actions."
             ))
         } else {
-            Ok(())
+            Ok(None)
         };
     }
 
@@ -1147,27 +1729,37 @@ fn validate_owned_target_for_app(
     let canonical_root = root_path.canonicalize().map_err(|_| {
         format!("{app_label} targetId root is not available for owned document access.")
     })?;
+    if !path_has_root_prefix(candidate, &root_path)
+        && !path_has_root_prefix(candidate, &canonical_root)
+    {
+        return Err(format!(
+            "{app_label} targetId is not a TouchAI-owned document path."
+        ));
+    }
     let canonical_candidate = candidate.canonicalize().map_err(|_| {
         format!("{app_label} targetId must reference an existing TouchAI-owned document.")
     })?;
-    if is_path_symlink(candidate) || has_windows_reparse_point(candidate) {
+    validate_owned_target_extension(&canonical_candidate, app_label)?;
+    if !canonical_candidate.starts_with(&canonical_root) {
         return Err(format!(
-            "{app_label} targetId must not be a symlink or reparse point."
+            "{app_label} targetId is not a TouchAI-owned document path."
         ));
     }
-    ensure_not_hardlinked(&canonical_candidate, "target").map_err(|error| {
+    ensure_path_chain_not_reparse(&canonical_candidate, "target")?;
+    let target_file =
+        open_owned_guard_file(&canonical_candidate, "target", true).map_err(|error| {
+            format!(
+                "{app_label} targetId must reference an existing TouchAI-owned document: {error}"
+            )
+        })?;
+    let marker_file = verify_owned_marker(&canonical_candidate, &target_file).map_err(|error| {
         format!("{app_label} targetId is missing valid TouchAI ownership proof: {error}")
     })?;
-
-    if canonical_candidate.starts_with(&canonical_root) {
-        verify_owned_marker(&canonical_candidate).map_err(|error| {
-            format!("{app_label} targetId is missing valid TouchAI ownership proof: {error}")
-        })
-    } else {
-        Err(format!(
-            "{app_label} targetId is not a TouchAI-owned document path."
-        ))
-    }
+    Ok(Some(OwnedTargetGuard {
+        canonical_path: canonical_candidate,
+        _target_file: target_file,
+        _marker_file: marker_file,
+    }))
 }
 
 fn format_observe_content(metadata: &Value, scope: &str) -> String {
@@ -1280,8 +1872,13 @@ fn encoded_utf8_script_value(value: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-fn wps_observe_script(target_path: Option<&str>) -> String {
+fn wps_observe_script(target_path: Option<&str>, scope: &str) -> String {
     let encoded_target_path = encoded_utf8_script_value(target_path);
+    let include_document_text = if scope == "active_document" {
+        "$true"
+    } else {
+        "$false"
+    };
     r#"
 $ErrorActionPreference = 'Stop'
 function Invoke-WithComRetry([scriptblock]$Operation) {
@@ -1297,6 +1894,7 @@ function Invoke-WithComRetry([scriptblock]$Operation) {
     throw $lastError
 }
 $targetPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__TARGET_PATH__'))
+$includeDocumentText = __INCLUDE_DOCUMENT_TEXT__
 $ownsDocument = $false
 if ([string]::IsNullOrWhiteSpace($targetPath)) {
     $app = Invoke-WithComRetry { [Runtime.InteropServices.Marshal]::GetActiveObject('KWPS.Application') }
@@ -1319,7 +1917,10 @@ try {
 } catch {
     $fullName = $null
 }
-$documentText = Invoke-WithComRetry { [string]$doc.Content.Text }
+$documentText = ''
+if ($includeDocumentText) {
+    $documentText = Invoke-WithComRetry { [string]$doc.Content.Text }
+}
 $result = [ordered]@{
     documentName = Invoke-WithComRetry { [string]$doc.Name }
     fullName = $fullName
@@ -1334,6 +1935,7 @@ $result | ConvertTo-Json -Compress -Depth 4
 "#
     .trim()
     .replace("__TARGET_PATH__", &encoded_target_path)
+    .replace("__INCLUDE_DOCUMENT_TEXT__", include_document_text)
     .to_string()
 }
 
@@ -1416,14 +2018,35 @@ function Invoke-WithComRetry([scriptblock]$Operation) {{
     }}
     throw $lastError
 }}
-function Convert-UsedRangeValues($range) {{
+function Convert-ColumnIndexToName([int]$index) {{
+    $name = ''
+    while ($index -gt 0) {{
+        $index--
+        $name = ([char](65 + ($index % 26))).ToString() + $name
+        $index = [math]::Floor($index / 26)
+    }}
+    return $name
+}}
+function Get-CellAddress([int]$row, [int]$column) {{
+    return "$(Convert-ColumnIndexToName $column)$row"
+}}
+function Convert-FirstInt($value) {{
+    if ($value -is [array]) {{
+        return [int]$value[0]
+    }}
+    return [int]$value
+}}
+function Convert-UsedRangeValues($sheet, $range) {{
     $values = @()
     $rowCount = Invoke-WithComRetry {{ [int]$range.Rows.Count }}
     $columnCount = Invoke-WithComRetry {{ [int]$range.Columns.Count }}
+    $startRow = Invoke-WithComRetry {{ Convert-FirstInt $range.Row }}
+    $startColumn = Invoke-WithComRetry {{ Convert-FirstInt $range.Column }}
     for ($row = 1; $row -le $rowCount; $row++) {{
         $rowValues = @()
         for ($column = 1; $column -le $columnCount; $column++) {{
-            $rowValues += Invoke-WithComRetry {{ $range.Cells.Item($row, $column).Value2 }}
+            $cellAddress = Get-CellAddress ($startRow + $row - 1) ($startColumn + $column - 1)
+            $rowValues += Invoke-WithComRetry {{ $sheet.Range($cellAddress).Value2 }}
         }}
         $values += ,$rowValues
     }}
@@ -1448,6 +2071,8 @@ for ($i = 1; $i -le $workbook.Worksheets.Count; $i++) {{
     $sheetNames += Invoke-WithComRetry {{ [string]$workbook.Worksheets.Item($i).Name }}
 }}
 $usedRange = Invoke-WithComRetry {{ $sheet.UsedRange }}
+$usedRangeRows = Invoke-WithComRetry {{ [int]$usedRange.Rows.Count }}
+$usedRangeColumns = Invoke-WithComRetry {{ [int]$usedRange.Columns.Count }}
 $fullName = $null
 try {{
     $fullName = Invoke-WithComRetry {{ [string]$workbook.FullName }}
@@ -1459,8 +2084,8 @@ $result = [ordered]@{{
     fullName = $fullName
     activeSheetName = Invoke-WithComRetry {{ [string]$sheet.Name }}
     sheetNames = $sheetNames
-    usedRange = Invoke-WithComRetry {{ [string]$usedRange.Address($false, $false) }}
-    values = Convert-UsedRangeValues $usedRange
+    usedRange = "$usedRangeRows x $usedRangeColumns"
+    values = Convert-UsedRangeValues $sheet $usedRange
 }}
 if ($ownsWorkbook) {{
     Invoke-WithComRetry {{ $workbook.Close($false) }} | Out-Null
@@ -1497,32 +2122,57 @@ function Invoke-WithComRetry([scriptblock]$Operation) {{
     }}
     throw $lastError
 }}
+function Convert-ColumnIndexToName([int]$index) {{
+    $name = ''
+    while ($index -gt 0) {{
+        $index--
+        $name = ([char](65 + ($index % 26))).ToString() + $name
+        $index = [math]::Floor($index / 26)
+    }}
+    return $name
+}}
+function Get-CellAddress([int]$row, [int]$column) {{
+    return "$(Convert-ColumnIndexToName $column)$row"
+}}
+function Convert-FirstInt($value) {{
+    if ($value -is [array]) {{
+        return [int]$value[0]
+    }}
+    return [int]$value
+}}
 $targetPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_target_path}'))
 $rangeAddress = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_range}'))
 $sheetName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_sheet_name}'))
 $valuesJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_values}'))
-$rows = @($valuesJson | ConvertFrom-Json)
+$rows = $valuesJson | ConvertFrom-Json
 $app = Invoke-WithComRetry {{ New-Object -ComObject KET.Application }}
 $workbook = Invoke-WithComRetry {{ $app.Workbooks.Open($targetPath) }}
 if ($null -eq $workbook) {{
     throw 'WPS Spreadsheet does not have an active workbook.'
 }}
 if ([string]::IsNullOrWhiteSpace($sheetName)) {{
-    $sheet = Invoke-WithComRetry {{ $app.ActiveSheet }}
+    $sheet = Invoke-WithComRetry {{ $workbook.Worksheets.Item(1) }}
 }} else {{
     $sheet = Invoke-WithComRetry {{ $workbook.Worksheets.Item($sheetName) }}
 }}
+$openedFullName = Invoke-WithComRetry {{ [string]$workbook.FullName }}
+if ([string]::Compare($openedFullName, $targetPath, $true, [Globalization.CultureInfo]::InvariantCulture) -ne 0) {{
+    throw 'WPS Spreadsheet opened a workbook that does not match the requested target.'
+}}
 $range = Invoke-WithComRetry {{ $sheet.Range($rangeAddress) }}
+$startRow = Invoke-WithComRetry {{ Convert-FirstInt $range.Row }}
+$startColumn = Invoke-WithComRetry {{ Convert-FirstInt $range.Column }}
 for ($rowIndex = 0; $rowIndex -lt $rows.Count; $rowIndex++) {{
     $row = @($rows[$rowIndex])
     for ($columnIndex = 0; $columnIndex -lt $row.Count; $columnIndex++) {{
         $value = $row[$columnIndex]
-        Invoke-WithComRetry {{ $range.Cells.Item($rowIndex + 1, $columnIndex + 1).Value2 = $value }} | Out-Null
+        $cellAddress = Get-CellAddress ($startRow + $rowIndex) ($startColumn + $columnIndex)
+        Invoke-WithComRetry {{ $sheet.Range($cellAddress).Value2 = $value }} | Out-Null
     }}
 }}
 $fullName = $null
 try {{
-    $fullName = Invoke-WithComRetry {{ [string]$workbook.FullName }}
+    $fullName = $openedFullName
 }} catch {{
     $fullName = $null
 }}
@@ -1531,7 +2181,7 @@ $result = [ordered]@{{
     workbookName = Invoke-WithComRetry {{ [string]$workbook.Name }}
     fullName = $fullName
     sheetName = Invoke-WithComRetry {{ [string]$sheet.Name }}
-    range = Invoke-WithComRetry {{ [string]$range.Address($false, $false) }}
+    range = $rangeAddress
     changed = $true
     values = $rows
 }}
@@ -1699,7 +2349,10 @@ fn powershell_optional_number(value: Option<f64>) -> String {
         .unwrap_or_else(|| "$null".to_string())
 }
 
-fn wps_format_selection_script(format: &WpsSelectionFormat, target_path: Option<&str>) -> String {
+fn wps_format_document_text_script(
+    format: &WpsSelectionFormat,
+    target_path: Option<&str>,
+) -> String {
     let encoded_target_path = encoded_utf8_script_value(target_path);
     let encoded_font_name = encoded_utf8_script_value(format.font_name.as_deref());
     let bold = powershell_optional_bool(format.bold);
@@ -1805,7 +2458,9 @@ $result | ConvertTo-Json -Compress -Depth 5
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::app_use::types::{AppUseActRequest, AppUseConfig, AppUseObserveRequest};
+    use crate::core::app_use::types::{
+        AppUseActRequest, AppUseAdvancedConfig, AppUseConfig, AppUseObserveRequest,
+    };
     use crate::core::app_use::AppUseAdapter;
     use serde_json::json;
     use std::collections::HashMap;
@@ -1849,29 +2504,45 @@ mod tests {
             allow_raw_automation: false,
             timeout_ms: 15_000,
             max_output_chars: 12_000,
+            advanced: AppUseAdvancedConfig::default(),
         }
     }
 
+    fn prepare_owned_test_root() -> PathBuf {
+        static OWNED_TEST_ROOT_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = OWNED_TEST_ROOT_LOCK.lock().expect("owned test root lock");
+        let root = std::env::temp_dir().join("touchai-wps-owned-tests");
+        std::env::set_var(WPS_OWNED_ROOT_ENV, &root);
+        std::env::set_var(OWNED_SECRET_ENV, "app-use-owned-test-secret");
+        std::fs::create_dir_all(&root).expect("owned root");
+        root
+    }
+
     fn write_owned_test_file(path: &Path) {
+        remove_owned_test_file(path);
         std::fs::write(path, b"owned").expect("owned file");
-        let canonical_path = path.canonicalize().expect("canonical owned file");
-        let marker = json!({
-            "createdBy": "TouchAI App Use test",
-            "pathHash": hash_owned_path(&canonical_path),
-        });
-        std::fs::write(owned_marker_path(&canonical_path), marker.to_string())
-            .expect("owned marker");
+        let app_label = match path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("docx") => "WPS Writer",
+            Some("xlsx") => "WPS Spreadsheet",
+            Some("pptx") => "WPS Presentation",
+            _ => panic!("unsupported WPS test target extension"),
+        };
+        mark_owned_wps_target(path, app_label, "TouchAI App Use test").expect("owned marker");
     }
 
     fn remove_owned_test_file(path: &Path) {
         let marker = path
             .canonicalize()
             .ok()
-            .map(|canonical_path| owned_marker_path(&canonical_path));
+            .map(|canonical_path| owned_marker_path(&canonical_path))
+            .unwrap_or_else(|| owned_marker_path(path));
         let _ = std::fs::remove_file(path);
-        if let Some(marker) = marker {
-            let _ = std::fs::remove_file(marker);
-        }
+        let _ = std::fs::remove_file(marker);
     }
 
     #[test]
@@ -1945,7 +2616,7 @@ mod tests {
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-act-1".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "replace_selection".to_string(),
+            action: "replace_document_text".to_string(),
             description: "replace WPS selection".to_string(),
             target_id: None,
             parameters: Some(json!({ "text": "hello from app use" })),
@@ -1962,8 +2633,7 @@ mod tests {
 
     #[test]
     fn act_with_target_path_opens_owned_document_without_raw_path_interpolation() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-target.docx");
         write_owned_test_file(&owned_path);
         let owned_path_string = owned_path.to_string_lossy().to_string();
@@ -1978,7 +2648,7 @@ mod tests {
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-act-3".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "replace_selection".to_string(),
+            action: "replace_document_text".to_string(),
             description: "replace owned WPS document".to_string(),
             target_id: Some(owned_path_string.clone()),
             parameters: Some(json!({ "text": "hello target" })),
@@ -1998,8 +2668,7 @@ mod tests {
 
     #[test]
     fn act_rejects_temp_root_target_without_owned_marker_before_running_wps() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let unmarked_path = owned_root.join("unmarked-target.docx");
         std::fs::write(&unmarked_path, b"not owned").expect("unmarked file");
         let runner = Arc::new(RecordingRunner::new(Ok(json!({}).to_string())));
@@ -2008,7 +2677,7 @@ mod tests {
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-act-unmarked".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "replace_selection".to_string(),
+            action: "replace_document_text".to_string(),
             description: "replace unmarked WPS document".to_string(),
             target_id: Some(unmarked_path.to_string_lossy().to_string()),
             parameters: Some(json!({ "text": "hello target" })),
@@ -2024,25 +2693,103 @@ mod tests {
         let _ = std::fs::remove_file(&unmarked_path);
     }
 
+    #[test]
+    fn act_rejects_self_minted_owned_target_marker_before_running_wps() {
+        let owned_root = prepare_owned_test_root();
+        let owned_path = owned_root.join("owned-unsigned-marker.docx");
+        std::fs::write(&owned_path, b"owned").expect("owned file");
+        let canonical_path = owned_path.canonicalize().expect("canonical owned file");
+        let target_file = std::fs::File::open(&canonical_path).expect("owned target file");
+        let identity = file_identity(&target_file).expect("owned identity");
+        let nonce = "self-minted-wps-marker";
+        let marker = json!({
+            "createdBy": "legacy TouchAI App Use test",
+            "pathHash": hash_owned_path(&canonical_path),
+            "nonce": nonce,
+            "identityHash": hash_owned_marker(&canonical_path, &identity, Some(nonce)),
+        });
+        std::fs::write(owned_marker_path(&canonical_path), marker.to_string())
+            .expect("owned marker");
+        let runner = Arc::new(RecordingRunner::new(Ok(json!({}).to_string())));
+        let adapter = WpsWriterAdapter::with_runner(runner.clone());
+
+        let response = adapter.act(&AppUseActRequest {
+            execution_id: "wps-act-unsigned-marker".to_string(),
+            adapter_id: "wps_writer".to_string(),
+            action: "replace_document_text".to_string(),
+            description: "replace legacy marked WPS document".to_string(),
+            target_id: Some(owned_path.to_string_lossy().to_string()),
+            parameters: Some(json!({ "text": "safe" })),
+            permit: None,
+            config: config(),
+        });
+
+        assert_eq!(response.ok, false);
+        assert_eq!(response.changed, false);
+        assert!(response.receipt.contains("signed"));
+        assert!(runner.scripts().is_empty());
+        remove_owned_test_file(&owned_path);
+    }
+
+    #[test]
+    fn mark_owned_wps_target_refuses_to_overwrite_existing_marker() {
+        let owned_root = prepare_owned_test_root();
+        let owned_path = owned_root.join("owned-existing-marker.docx");
+        remove_owned_test_file(&owned_path);
+        std::fs::write(&owned_path, b"owned").expect("owned file");
+        let canonical_path = owned_path.canonicalize().expect("canonical owned file");
+        std::fs::write(owned_marker_path(&canonical_path), "{}").expect("existing marker");
+
+        let error = mark_owned_wps_target(&owned_path, "WPS Writer", "TouchAI App Use test")
+            .expect_err("existing marker must not be overwritten");
+
+        assert!(error.contains("already exists"));
+        remove_owned_test_file(&owned_path);
+    }
+
+    #[test]
+    fn act_rejects_macro_enabled_owned_target_extension_before_running_wps() {
+        let owned_root = prepare_owned_test_root();
+        let owned_path = owned_root.join("owned-macro-target.docm");
+        std::fs::write(&owned_path, b"owned").expect("owned file");
+        let runner = Arc::new(RecordingRunner::new(Ok(json!({}).to_string())));
+        let adapter = WpsWriterAdapter::with_runner(runner.clone());
+
+        let response = adapter.act(&AppUseActRequest {
+            execution_id: "wps-act-macro-extension".to_string(),
+            adapter_id: "wps_writer".to_string(),
+            action: "replace_document_text".to_string(),
+            description: "replace macro WPS document".to_string(),
+            target_id: Some(owned_path.to_string_lossy().to_string()),
+            parameters: Some(json!({ "text": "safe" })),
+            permit: None,
+            config: config(),
+        });
+
+        assert_eq!(response.ok, false);
+        assert_eq!(response.changed, false);
+        assert!(response.receipt.contains("macro-free"));
+        assert!(runner.scripts().is_empty());
+        remove_owned_test_file(&owned_path);
+    }
+
     #[cfg(windows)]
     #[test]
     fn act_rejects_hardlinked_owned_target_before_running_wps() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let source_path = owned_root.join("owned-hardlink-source.docx");
         let linked_path = owned_root.join("owned-hardlink-target.docx");
         let _ = std::fs::remove_file(&source_path);
         let _ = std::fs::remove_file(&linked_path);
-        std::fs::write(&source_path, b"owned source").expect("source file");
-        std::fs::hard_link(&source_path, &linked_path).expect("hardlink");
         write_owned_test_file(&linked_path);
+        std::fs::hard_link(&linked_path, &source_path).expect("hardlink");
         let runner = Arc::new(RecordingRunner::new(Ok(json!({}).to_string())));
         let adapter = WpsWriterAdapter::with_runner(runner.clone());
 
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-act-hardlink".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "replace_selection".to_string(),
+            action: "replace_document_text".to_string(),
             description: "replace hardlinked WPS document".to_string(),
             target_id: Some(linked_path.to_string_lossy().to_string()),
             parameters: Some(json!({ "text": "do not write" })),
@@ -2062,8 +2809,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn act_rejects_hardlinked_owned_marker_before_running_wps() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-hardlink-marker-target.docx");
         let marker_link_path = owned_root.join("owned-hardlink-marker-source.json");
         let _ = std::fs::remove_file(&owned_path);
@@ -2080,7 +2826,7 @@ mod tests {
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-act-hardlinked-marker".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "replace_selection".to_string(),
+            action: "replace_document_text".to_string(),
             description: "replace WPS document with hardlinked marker".to_string(),
             target_id: Some(owned_path.to_string_lossy().to_string()),
             parameters: Some(json!({ "text": "do not write" })),
@@ -2098,9 +2844,8 @@ mod tests {
     }
 
     #[test]
-    fn format_selection_with_target_path_applies_structured_font_options() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+    fn format_document_text_with_target_path_applies_structured_font_options() {
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-format-target.docx");
         write_owned_test_file(&owned_path);
         let owned_path_string = owned_path.to_string_lossy().to_string();
@@ -2122,7 +2867,7 @@ mod tests {
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-format-1".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "format_selection".to_string(),
+            action: "format_document_text".to_string(),
             description: "format owned WPS document".to_string(),
             target_id: Some(owned_path_string.clone()),
             parameters: Some(json!({
@@ -2152,9 +2897,8 @@ mod tests {
     }
 
     #[test]
-    fn format_selection_rejects_empty_format_before_running_wps() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+    fn format_document_text_rejects_empty_format_before_running_wps() {
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-empty-format.docx");
         write_owned_test_file(&owned_path);
         let runner = Arc::new(RecordingRunner::new(Ok("{}".to_string())));
@@ -2163,7 +2907,7 @@ mod tests {
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-format-2".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "format_selection".to_string(),
+            action: "format_document_text".to_string(),
             description: "format owned WPS document".to_string(),
             target_id: Some(owned_path.to_string_lossy().to_string()),
             parameters: Some(json!({})),
@@ -2181,8 +2925,7 @@ mod tests {
 
     #[test]
     fn spreadsheet_write_cells_with_target_path_uses_ket_and_base64_payload() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-sheet-target.xlsx");
         write_owned_test_file(&owned_path);
         let owned_path_string = owned_path.to_string_lossy().to_string();
@@ -2216,8 +2959,14 @@ mod tests {
         let script = runner.scripts().join("\n");
         assert!(script.contains("KET.Application"));
         assert!(script.contains("Workbooks.Open"));
+        assert!(script.contains("$workbook.Worksheets.Item(1)"));
+        assert!(script.contains("$openedFullName"));
+        assert!(script.contains("does not match the requested target"));
         assert!(script.contains(".Range($rangeAddress)"));
         assert!(script.contains(".Value2"));
+        assert!(!script.contains("$app.ActiveSheet"));
+        assert!(!script.contains("$rows = @($valuesJson | ConvertFrom-Json)"));
+        assert!(!script.contains("Cells.Item($rowIndex + 1, $columnIndex + 1)"));
         assert!(!script.contains(&owned_path_string));
         assert!(!script.contains("hello"));
         assert!(!script.contains("Excel.Application"));
@@ -2226,8 +2975,7 @@ mod tests {
 
     #[test]
     fn spreadsheet_write_cells_rejects_empty_values_before_running_wps() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-empty-cells.xlsx");
         write_owned_test_file(&owned_path);
         let runner = Arc::new(RecordingRunner::new(Ok("{}".to_string())));
@@ -2257,8 +3005,7 @@ mod tests {
 
     #[test]
     fn spreadsheet_write_cells_rejects_formula_like_strings_before_running_wps() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-formula-cells.xlsx");
         write_owned_test_file(&owned_path);
         let runner = Arc::new(RecordingRunner::new(Ok("{}".to_string())));
@@ -2288,8 +3035,7 @@ mod tests {
 
     #[test]
     fn spreadsheet_write_cells_rejects_oversized_payload_before_running_wps() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-large-cells.xlsx");
         write_owned_test_file(&owned_path);
         let runner = Arc::new(RecordingRunner::new(Ok("{}".to_string())));
@@ -2319,8 +3065,7 @@ mod tests {
 
     #[test]
     fn presentation_add_slide_text_with_target_path_uses_kwpp_and_base64_payload() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-presentation-target.pptx");
         write_owned_test_file(&owned_path);
         let owned_path_string = owned_path.to_string_lossy().to_string();
@@ -2363,8 +3108,7 @@ mod tests {
 
     #[test]
     fn presentation_add_slide_text_rejects_empty_text_before_running_wps() {
-        let owned_root = owned_wps_target_root();
-        std::fs::create_dir_all(&owned_root).expect("owned root");
+        let owned_root = prepare_owned_test_root();
         let owned_path = owned_root.join("owned-empty-slide-text.pptx");
         write_owned_test_file(&owned_path);
         let runner = Arc::new(RecordingRunner::new(Ok("{}".to_string())));
@@ -2419,7 +3163,7 @@ mod tests {
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-act-4".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "replace_selection".to_string(),
+            action: "replace_document_text".to_string(),
             description: "replace arbitrary WPS document".to_string(),
             target_id: Some("C:\\Users\\Alice\\Documents\\report.docx".to_string()),
             parameters: Some(json!({ "text": "do not write" })),
@@ -2441,7 +3185,7 @@ mod tests {
         let response = adapter.act(&AppUseActRequest {
             execution_id: "wps-act-2".to_string(),
             adapter_id: "wps_writer".to_string(),
-            action: "replace_selection".to_string(),
+            action: "replace_document_text".to_string(),
             description: "replace WPS selection".to_string(),
             target_id: None,
             parameters: Some(json!({})),
@@ -2452,6 +3196,28 @@ mod tests {
         assert_eq!(response.ok, false);
         assert_eq!(response.changed, false);
         assert!(response.receipt.contains("text"));
+        assert!(runner.scripts().is_empty());
+    }
+
+    #[test]
+    fn act_rejects_oversized_text_parameter_before_running_wps() {
+        let runner = Arc::new(RecordingRunner::new(Ok("{}".to_string())));
+        let adapter = WpsWriterAdapter::with_runner(runner.clone());
+
+        let response = adapter.act(&AppUseActRequest {
+            execution_id: "wps-act-large-text".to_string(),
+            adapter_id: "wps_writer".to_string(),
+            action: "replace_document_text".to_string(),
+            description: "replace WPS selection".to_string(),
+            target_id: None,
+            parameters: Some(json!({ "text": "x".repeat(20_001) })),
+            permit: None,
+            config: config(),
+        });
+
+        assert_eq!(response.ok, false);
+        assert_eq!(response.changed, false);
+        assert!(response.receipt.contains("20000"));
         assert!(runner.scripts().is_empty());
     }
 

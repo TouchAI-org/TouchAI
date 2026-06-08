@@ -3,13 +3,14 @@ mod common;
 use base64::Engine as _;
 use common::{build_test_app, invoke_command_ok, TestAppOptions};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tempfile::TempDir;
+use touchai_lib::testing;
 
 fn app_use_config(enabled_adapter: &str) -> Value {
     json!({
@@ -26,7 +27,6 @@ fn app_use_config(enabled_adapter: &str) -> Value {
         },
         "mutatingApprovalMode": "always",
         "readScope": "active",
-        "allowBackgroundOperation": false,
         "allowRawAutomation": false,
         "timeoutMs": 30000,
         "maxOutputChars": 12000
@@ -45,34 +45,29 @@ fn wps_presentation_config() -> Value {
     app_use_config("wps_presentation")
 }
 
-fn owned_marker_path(target_path: &Path) -> PathBuf {
-    let mut marker_name = target_path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("target")
-        .to_string();
-    marker_name.push_str(".touchai-owned.json");
-    target_path.with_file_name(marker_name)
+struct OwnedWpsSmokeRoot {
+    _root: TempDir,
+    path: PathBuf,
 }
 
-fn hash_owned_path(target_path: &Path) -> String {
-    let canonical = target_path.to_string_lossy().to_ascii_lowercase();
-    let mut hasher = Sha256::new();
-    hasher.update(canonical.as_bytes());
-    format!("{:x}", hasher.finalize())
+impl OwnedWpsSmokeRoot {
+    fn new() -> Result<Self, String> {
+        let root =
+            TempDir::new().map_err(|error| format!("Failed to create WPS smoke root: {error}"))?;
+        testing::configure_app_use_wps_owned_root_for_tests(root.path())?;
+        Ok(Self {
+            path: root.path().to_path_buf(),
+            _root: root,
+        })
+    }
 }
 
-fn mark_owned_wps_target(path: String) -> Result<String, String> {
+fn mark_owned_wps_target(path: String, app_label: &str) -> Result<String, String> {
     let canonical_path = PathBuf::from(&path)
         .canonicalize()
         .map_err(|error| format!("Failed to canonicalize owned WPS target: {error}"))?;
-    let marker = json!({
-        "createdBy": "TouchAI App Use smoke",
-        "pathHash": hash_owned_path(&canonical_path),
-    });
-    std::fs::write(owned_marker_path(&canonical_path), marker.to_string())
-        .map_err(|error| format!("Failed to write owned WPS marker: {error}"))?;
-    Ok(path)
+    testing::mark_app_use_wps_owned_target_for_tests(&canonical_path, app_label)?;
+    Ok(canonical_path.to_string_lossy().to_string())
 }
 
 fn powershell_executable() -> PathBuf {
@@ -150,8 +145,10 @@ fn run_powershell(script: &str) -> Result<String, String> {
     }
 }
 
-fn create_owned_wps_document(sentinel: &str) -> Result<String, String> {
+fn create_owned_wps_document(root: &Path, sentinel: &str) -> Result<String, String> {
     let encoded_sentinel = base64::engine::general_purpose::STANDARD.encode(sentinel.as_bytes());
+    let encoded_root =
+        base64::engine::general_purpose::STANDARD.encode(root.to_string_lossy().as_bytes());
     let script = format!(
         r#"
 $ErrorActionPreference = 'Stop'
@@ -168,7 +165,7 @@ function Invoke-WithComRetry([scriptblock]$Operation) {{
     throw $lastError
 }}
 $sentinel = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_sentinel}'))
-$root = Join-Path $env:TEMP 'touchai-wps-smoke'
+$root = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_root}'))
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $path = Join-Path $root ($sentinel + '.docx')
 $app = Invoke-WithComRetry {{ New-Object -ComObject KWPS.Application }}
@@ -181,11 +178,13 @@ $path
 "#
     );
 
-    mark_owned_wps_target(run_powershell(&script)?)
+    mark_owned_wps_target(run_powershell(&script)?, "WPS Writer")
 }
 
-fn create_owned_wps_workbook(sentinel: &str) -> Result<String, String> {
+fn create_owned_wps_workbook(root: &Path, sentinel: &str) -> Result<String, String> {
     let encoded_sentinel = base64::engine::general_purpose::STANDARD.encode(sentinel.as_bytes());
+    let encoded_root =
+        base64::engine::general_purpose::STANDARD.encode(root.to_string_lossy().as_bytes());
     let script = format!(
         r#"
 $ErrorActionPreference = 'Stop'
@@ -202,7 +201,7 @@ function Invoke-WithComRetry([scriptblock]$Operation) {{
     throw $lastError
 }}
 $sentinel = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_sentinel}'))
-$root = Join-Path $env:TEMP 'touchai-wps-smoke'
+$root = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_root}'))
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $path = Join-Path $root ($sentinel + '.xlsx')
 $app = Invoke-WithComRetry {{ New-Object -ComObject KET.Application }}
@@ -216,11 +215,13 @@ $path
 "#
     );
 
-    mark_owned_wps_target(run_powershell(&script)?)
+    mark_owned_wps_target(run_powershell(&script)?, "WPS Spreadsheet")
 }
 
-fn create_owned_wps_presentation(sentinel: &str) -> Result<String, String> {
+fn create_owned_wps_presentation(root: &Path, sentinel: &str) -> Result<String, String> {
     let encoded_sentinel = base64::engine::general_purpose::STANDARD.encode(sentinel.as_bytes());
+    let encoded_root =
+        base64::engine::general_purpose::STANDARD.encode(root.to_string_lossy().as_bytes());
     let script = format!(
         r#"
 $ErrorActionPreference = 'Stop'
@@ -237,7 +238,7 @@ function Invoke-WithComRetry([scriptblock]$Operation) {{
     throw $lastError
 }}
 $sentinel = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_sentinel}'))
-$root = Join-Path $env:TEMP 'touchai-wps-smoke'
+$root = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_root}'))
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $path = Join-Path $root ($sentinel + '.pptx')
 $app = Invoke-WithComRetry {{ New-Object -ComObject KWPP.Application }}
@@ -252,7 +253,7 @@ $path
 "#
     );
 
-    mark_owned_wps_target(run_powershell(&script)?)
+    mark_owned_wps_target(run_powershell(&script)?, "WPS Presentation")
 }
 
 fn close_owned_wps_target(path: &str, prog_id: &str, collection_name: &str) -> Result<(), String> {
@@ -348,7 +349,8 @@ fn app_use_wps_writer_owned_document_smoke() {
         .expect("clock")
         .as_millis();
     let sentinel = format!("touchai-app-use-smoke-{millis}");
-    let path = create_owned_wps_document(&sentinel).expect("owned WPS document");
+    let smoke_root = OwnedWpsSmokeRoot::new().expect("owned WPS smoke root");
+    let path = create_owned_wps_document(&smoke_root.path, &sentinel).expect("owned WPS document");
     let _owned_document = OwnedWpsDocument { path: path.clone() };
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
@@ -379,7 +381,7 @@ fn app_use_wps_writer_owned_document_smoke() {
             "request": {
                 "executionId": "wps-smoke-act",
                 "adapterId": "wps_writer",
-                "action": "replace_selection",
+                "action": "replace_document_text",
                 "targetId": path,
                 "parameters": { "text": inserted },
                 "config": wps_writer_config()
@@ -398,7 +400,7 @@ fn app_use_wps_writer_owned_document_smoke() {
             "request": {
                 "executionId": "wps-smoke-act",
                 "adapterId": "wps_writer",
-                "action": "replace_selection",
+                "action": "replace_document_text",
                 "description": "write sentinel text to owned WPS document",
                 "targetId": path,
                 "parameters": { "text": inserted },
@@ -440,7 +442,7 @@ fn app_use_wps_writer_owned_document_smoke() {
             "request": {
                 "executionId": "wps-smoke-format",
                 "adapterId": "wps_writer",
-                "action": "format_selection",
+                "action": "format_document_text",
                 "targetId": path,
                 "parameters": { "bold": true, "fontSize": 18 },
                 "config": wps_writer_config()
@@ -459,7 +461,7 @@ fn app_use_wps_writer_owned_document_smoke() {
             "request": {
                 "executionId": "wps-smoke-format",
                 "adapterId": "wps_writer",
-                "action": "format_selection",
+                "action": "format_document_text",
                 "description": "format sentinel text in owned WPS document",
                 "targetId": path,
                 "parameters": { "bold": true, "fontSize": 18 },
@@ -468,11 +470,123 @@ fn app_use_wps_writer_owned_document_smoke() {
             }
         }),
     );
-    eprintln!("app_use format_selection response: {formatted}");
+    eprintln!("app_use format_document_text response: {formatted}");
     assert_eq!(formatted["ok"], true);
     assert_eq!(formatted["changed"], true);
 
     assert!(std::path::Path::new(&path).exists());
+}
+
+#[test]
+#[ignore = "Runs real WPS Spreadsheet COM automation and creates an owned temp workbook."]
+fn app_use_wps_spreadsheet_create_owned_target_smoke() {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_millis();
+    let sentinel = format!("touchai-app-use-sheet-created-smoke-{millis}");
+    let smoke_root = OwnedWpsSmokeRoot::new().expect("owned WPS smoke root");
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let created: Value = invoke_command_ok(
+        &test_app.main_webview,
+        "app_use_session",
+        json!({
+            "request": {
+                "executionId": "wps-sheet-create-target-smoke",
+                "operation": "create_owned_target",
+                "description": "create a WPS Spreadsheet target for App Use smoke",
+                "adapterId": "wps_spreadsheet",
+                "targetKind": "spreadsheet",
+                "config": wps_spreadsheet_config()
+            }
+        }),
+    );
+    eprintln!("app_use create_owned_target response: {created}");
+    assert_eq!(created["ok"], true);
+    assert_eq!(created["adapterId"], "wps_spreadsheet");
+    assert_eq!(created["targetKind"], "spreadsheet");
+    let path = created["target"].as_str().expect("target").to_string();
+    assert!(path.ends_with(".xlsx"));
+    let canonical_smoke_root = smoke_root
+        .path
+        .canonicalize()
+        .expect("canonical smoke root");
+    assert!(
+        Path::new(&path).starts_with(&canonical_smoke_root),
+        "target {path} should live under {}",
+        canonical_smoke_root.display()
+    );
+    let _owned_workbook = OwnedWpsWorkbook { path: path.clone() };
+
+    let authorization: Value = invoke_command_ok(
+        &test_app.main_webview,
+        "app_use_authorize_act",
+        json!({
+            "request": {
+                "executionId": "wps-sheet-create-target-act",
+                "adapterId": "wps_spreadsheet",
+                "action": "write_cells",
+                "targetId": path,
+                "parameters": {
+                    "range": "A1:B2",
+                    "values": [[sentinel, "42"], ["status", "ok"]]
+                },
+                "config": wps_spreadsheet_config()
+            }
+        }),
+    );
+    let permit = authorization["permit"].clone();
+    assert!(permit["token"]
+        .as_str()
+        .is_some_and(|token| !token.is_empty()));
+
+    let act: Value = invoke_command_ok(
+        &test_app.main_webview,
+        "app_use_act",
+        json!({
+            "request": {
+                "executionId": "wps-sheet-create-target-act",
+                "adapterId": "wps_spreadsheet",
+                "action": "write_cells",
+                "description": "write sentinel cells to an App Use-created WPS workbook",
+                "targetId": path,
+                "parameters": {
+                    "range": "A1:B2",
+                    "values": [[sentinel, "42"], ["status", "ok"]]
+                },
+                "permit": permit,
+                "config": wps_spreadsheet_config()
+            }
+        }),
+    );
+    eprintln!("app_use created workbook write_cells response: {act}");
+    assert_eq!(act["ok"], true);
+    assert_eq!(act["changed"], true);
+
+    let observed: Value = invoke_command_ok(
+        &test_app.main_webview,
+        "app_use_observe",
+        json!({
+            "request": {
+                "executionId": "wps-sheet-create-target-observe",
+                "adapterId": "wps_spreadsheet",
+                "scope": "worksheet",
+                "description": "verify sentinel cells from an App Use-created WPS workbook",
+                "targetId": path,
+                "maxOutputChars": 12000,
+                "config": wps_spreadsheet_config()
+            }
+        }),
+    );
+    eprintln!("app_use created workbook observe response: {observed}");
+    assert_eq!(observed["ok"], true);
+    let observed_text = observed["content"].as_str().expect("content");
+    assert!(observed_text.contains(&sentinel));
+    assert!(observed_text.contains("42"));
+    assert!(observed_text.contains("ok"));
+
+    assert!(Path::new(&path).exists());
 }
 
 #[test]
@@ -483,7 +597,8 @@ fn app_use_wps_spreadsheet_owned_workbook_smoke() {
         .expect("clock")
         .as_millis();
     let sentinel = format!("touchai-app-use-sheet-smoke-{millis}");
-    let path = create_owned_wps_workbook(&sentinel).expect("owned WPS workbook");
+    let smoke_root = OwnedWpsSmokeRoot::new().expect("owned WPS smoke root");
+    let path = create_owned_wps_workbook(&smoke_root.path, &sentinel).expect("owned WPS workbook");
     let _owned_workbook = OwnedWpsWorkbook { path: path.clone() };
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
@@ -584,7 +699,9 @@ fn app_use_wps_presentation_owned_deck_smoke() {
         .expect("clock")
         .as_millis();
     let sentinel = format!("touchai-app-use-deck-smoke-{millis}");
-    let path = create_owned_wps_presentation(&sentinel).expect("owned WPS presentation");
+    let smoke_root = OwnedWpsSmokeRoot::new().expect("owned WPS smoke root");
+    let path =
+        create_owned_wps_presentation(&smoke_root.path, &sentinel).expect("owned WPS presentation");
     let _owned_presentation = OwnedWpsPresentation { path: path.clone() };
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 

@@ -20,13 +20,10 @@ pub trait AdobeAutomationRunner: Send + Sync {
 
 struct PowerShellAdobeAutomationRunner;
 
-fn powershell_executable() -> PathBuf {
+fn powershell_executable() -> Result<PathBuf, String> {
     #[cfg(windows)]
     {
-        let windows_root = std::env::var_os("WINDIR")
-            .or_else(|| std::env::var_os("SystemRoot"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        let windows_root = PathBuf::from(r"C:\Windows");
         let wow64_powershell = windows_root
             .join("SysWOW64")
             .join("WindowsPowerShell")
@@ -34,11 +31,19 @@ fn powershell_executable() -> PathBuf {
             .join("powershell.exe");
 
         if wow64_powershell.exists() {
-            return wow64_powershell;
+            return Ok(wow64_powershell);
         }
+
+        return Err(format!(
+            "Trusted Windows PowerShell executable is unavailable at {}.",
+            wow64_powershell.display()
+        ));
     }
 
-    PathBuf::from("powershell.exe")
+    #[cfg(not(windows))]
+    {
+        Err("Adobe App Use automation is only available on Windows.".to_string())
+    }
 }
 
 fn powershell_arguments(encoded_script: &str) -> Vec<String> {
@@ -64,7 +69,7 @@ impl AdobeAutomationRunner for PowerShellAdobeAutomationRunner {
                 .flat_map(u16::to_le_bytes)
                 .collect::<Vec<_>>(),
         );
-        let shell_path = powershell_executable();
+        let shell_path = powershell_executable()?;
         let mut child = Command::new(&shell_path)
             .args(powershell_arguments(&encoded_script))
             .stdin(Stdio::null())
@@ -169,6 +174,18 @@ impl AppUseAdapter for PhotoshopAdapter {
         &["discover", "observe_layers"]
     }
 
+    fn vendor(&self) -> &'static str {
+        "Adobe"
+    }
+
+    fn contract_version(&self) -> &'static str {
+        "adobe-readonly-v1"
+    }
+
+    fn observe_scopes(&self) -> &'static [&'static str] {
+        &["layers"]
+    }
+
     fn installed(&self) -> bool {
         discovery::discover_adapter_install_status(self.id()).installed
     }
@@ -202,6 +219,18 @@ impl AppUseAdapter for IllustratorAdapter {
 
     fn capabilities(&self) -> &'static [&'static str] {
         &["discover", "observe_artboards"]
+    }
+
+    fn vendor(&self) -> &'static str {
+        "Adobe"
+    }
+
+    fn contract_version(&self) -> &'static str {
+        "adobe-readonly-v1"
+    }
+
+    fn observe_scopes(&self) -> &'static [&'static str] {
+        &["artboards"]
     }
 
     fn installed(&self) -> bool {
@@ -495,7 +524,9 @@ $result | ConvertTo-Json -Compress -Depth 6
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::app_use::types::{AppUseActRequest, AppUseConfig, AppUseObserveRequest};
+    use crate::core::app_use::types::{
+        AppUseActRequest, AppUseAdvancedConfig, AppUseConfig, AppUseObserveRequest,
+    };
     use crate::core::app_use::AppUseAdapter;
     use serde_json::json;
     use std::collections::HashMap;
@@ -542,6 +573,7 @@ mod tests {
             allow_raw_automation: false,
             timeout_ms: 15_000,
             max_output_chars: 12_000,
+            advanced: AppUseAdvancedConfig::default(),
         }
     }
 

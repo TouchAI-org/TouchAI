@@ -128,22 +128,26 @@ fn resolve_local_server(registry: &dyn RegistryReader, prog_id: &str) -> Option<
 
 fn local_server_matches_rule(local_server: &str, rule: &AdapterDetectionRule) -> bool {
     let normalized = local_server.to_ascii_lowercase();
-    if !normalized.contains(rule.expected_executable) {
-        return false;
-    }
 
     match rule.vendor {
         AdapterVendor::Wps => {
-            normalized.contains("kingsoft")
-                || normalized.contains("wps office")
-                || normalized.contains("\\wps.exe")
+            let executable_matches = normalized.contains(rule.expected_executable)
+                || normalized.contains("\\wpsoffice.exe");
+            executable_matches
+                && (normalized.contains("kingsoft")
+                    || normalized.contains("wps office")
+                    || normalized.contains("\\wps.exe")
+                    || normalized.contains("\\wpsoffice.exe"))
         }
         AdapterVendor::MicrosoftOffice => {
-            !normalized.contains("kingsoft")
+            normalized.contains(rule.expected_executable)
+                && !normalized.contains("kingsoft")
                 && !normalized.contains("wps office")
                 && !normalized.contains("\\wps.exe")
         }
-        AdapterVendor::Adobe => normalized.contains("adobe"),
+        AdapterVendor::Adobe => {
+            normalized.contains(rule.expected_executable) && normalized.contains("adobe")
+        }
     }
 }
 
@@ -218,6 +222,27 @@ mod tests {
             discover_installed_adapter(&registry, "office_word").installed,
             false
         );
+    }
+
+    #[test]
+    fn discovers_wps_writer_from_unified_wpsoffice_local_server() {
+        let registry = MockRegistry::default()
+            .with_value(
+                r"KWPS.Application\CLSID",
+                "{000209FF-0000-4b30-A977-D214852036FF}",
+            )
+            .with_value(
+                r"CLSID\{000209FF-0000-4b30-A977-D214852036FF}\LocalServer32",
+                r#""C:\Users\demo\AppData\Local\Kingsoft\WPS Office\12.1.0.26895\office6\wpsoffice.exe" /Automation"#,
+            );
+
+        let status = discover_installed_adapter(&registry, "wps_writer");
+
+        assert_eq!(status.installed, true);
+        assert!(status
+            .evidence
+            .unwrap_or_default()
+            .contains("wpsoffice.exe"));
     }
 
     #[test]

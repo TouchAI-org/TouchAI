@@ -46,8 +46,8 @@ describe('App Use native bridge construction', () => {
         mockTauriCommand('app_use_act', {
             ok: true,
             adapterId: 'wps_writer',
-            action: 'replace_selection',
-            receipt: 'replaced selection',
+            action: 'replace_document_text',
+            receipt: 'replaced document text',
             changed: true,
             metadata: {},
         } satisfies AppUseNativeActResponse);
@@ -55,8 +55,8 @@ describe('App Use native bridge construction', () => {
             permit: {
                 callId: 'call-app-use-1',
                 adapterId: 'wps_writer',
-                action: 'replace_selection',
-                targetId: undefined,
+                action: 'replace_document_text',
+                targetId: 'owned-document-1',
                 parametersHash: 'hash-1',
                 token: 'permit-1',
             },
@@ -76,6 +76,32 @@ describe('App Use native bridge construction', () => {
                 executionId: 'call-app-use-1',
                 operation: 'discover',
                 description: '列出软件控制能力',
+                adapterId: undefined,
+                targetKind: undefined,
+                config: DEFAULT_APP_USE_TOOL_CONFIG,
+            },
+        });
+    });
+
+    it('passes create_owned_target session fields to app_session', async () => {
+        await executeAppSessionTool(
+            {
+                operation: 'create_owned_target',
+                description: 'create owned spreadsheet target',
+                adapterId: 'wps_spreadsheet',
+                targetKind: 'spreadsheet',
+            },
+            DEFAULT_APP_USE_TOOL_CONFIG,
+            fakeContext()
+        );
+
+        expect(getLastTauriInvokeCall('app_use_session')?.payload).toEqual({
+            request: {
+                executionId: 'call-app-use-1',
+                operation: 'create_owned_target',
+                description: 'create owned spreadsheet target',
+                adapterId: 'wps_spreadsheet',
+                targetKind: 'spreadsheet',
                 config: DEFAULT_APP_USE_TOOL_CONFIG,
             },
         });
@@ -111,8 +137,9 @@ describe('App Use native bridge construction', () => {
         await executeAppActTool(
             {
                 adapterId: 'wps_writer',
-                action: 'replace_selection',
+                action: 'replace_document_text',
                 description: '替换当前选区',
+                targetId: 'owned-document-1',
                 parameters: { text: 'hello' },
             },
             interactiveConfig,
@@ -123,8 +150,8 @@ describe('App Use native bridge construction', () => {
             request: {
                 executionId: 'call-app-use-1',
                 adapterId: 'wps_writer',
-                action: 'replace_selection',
-                targetId: undefined,
+                action: 'replace_document_text',
+                targetId: 'owned-document-1',
                 parameters: { text: 'hello' },
                 config: interactiveConfig,
             },
@@ -133,15 +160,15 @@ describe('App Use native bridge construction', () => {
             request: {
                 executionId: 'call-app-use-1',
                 adapterId: 'wps_writer',
-                action: 'replace_selection',
+                action: 'replace_document_text',
                 description: '替换当前选区',
-                targetId: undefined,
+                targetId: 'owned-document-1',
                 parameters: { text: 'hello' },
                 permit: {
                     callId: 'call-app-use-1',
                     adapterId: 'wps_writer',
-                    action: 'replace_selection',
-                    targetId: undefined,
+                    action: 'replace_document_text',
+                    targetId: 'owned-document-1',
                     parametersHash: 'hash-1',
                     token: 'permit-1',
                 },
@@ -153,9 +180,11 @@ describe('App Use native bridge construction', () => {
     it('blocks mutating app actions while App Use is read-only', async () => {
         const result = await executeAppActTool(
             {
-                adapterId: 'photoshop',
-                action: 'export_preview',
-                description: 'export a preview',
+                adapterId: 'wps_writer',
+                action: 'replace_document_text',
+                description: 'replace text in read-only mode',
+                targetId: 'owned-document-1',
+                parameters: { text: 'hello' },
             },
             DEFAULT_APP_USE_TOOL_CONFIG,
             fakeContext()
@@ -179,8 +208,9 @@ describe('App Use native bridge construction', () => {
         const result = await executeAppActTool(
             {
                 adapterId: 'wps_writer',
-                action: 'replace_selection',
+                action: 'replace_document_text',
                 description: 'replace current selection',
+                targetId: 'owned-document-1',
                 parameters: { text: 'hello' },
             },
             interactiveConfig,
@@ -231,9 +261,11 @@ describe('App Use native bridge construction', () => {
         );
         const actResult = await appActTool.execute(
             {
-                adapterId: 'photoshop',
-                action: 'export_preview',
-                description: 'export preview',
+                adapterId: 'wps_writer',
+                action: 'replace_document_text',
+                description: 'replace document text',
+                targetId: 'owned-document-1',
+                parameters: { text: 'hello' },
             },
             interactiveConfig,
             fakeContext()

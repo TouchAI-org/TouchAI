@@ -2,8 +2,11 @@ mod common;
 
 use common::{build_test_app, invoke_command_ok, TestAppOptions};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::{path::Path, sync::Mutex};
+use tempfile::TempDir;
+use touchai_lib::testing;
+
+static APP_USE_OWNED_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn app_use_config() -> Value {
     json!({
@@ -20,7 +23,6 @@ fn app_use_config() -> Value {
         },
         "mutatingApprovalMode": "always",
         "readScope": "active",
-        "allowBackgroundOperation": false,
         "allowRawAutomation": false,
         "timeoutMs": 15000,
         "maxOutputChars": 12000
@@ -34,43 +36,20 @@ fn interactive_office_config() -> Value {
     config
 }
 
-fn owned_marker_path(target_path: &Path) -> PathBuf {
-    let mut marker_name = target_path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("target")
-        .to_string();
-    marker_name.push_str(".touchai-owned.json");
-    target_path.with_file_name(marker_name)
+fn prepare_owned_wps_test_root() -> TempDir {
+    let root = TempDir::new().expect("owned WPS temp root");
+    testing::configure_app_use_wps_owned_root_for_tests(root.path()).expect("owned WPS root");
+    root
 }
 
-fn hash_owned_path(target_path: &Path) -> String {
-    let canonical = target_path.to_string_lossy().to_ascii_lowercase();
-    let mut hasher = Sha256::new();
-    hasher.update(canonical.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
-fn write_owned_wps_test_file(path: &Path) {
+fn write_owned_wps_test_file(path: &Path, app_label: &str) {
     std::fs::create_dir_all(path.parent().expect("owned file parent")).expect("owned root");
     std::fs::write(path, b"owned").expect("owned file");
-    let canonical_path = path.canonicalize().expect("canonical owned file");
-    let marker = json!({
-        "createdBy": "TouchAI App Use command test",
-        "pathHash": hash_owned_path(&canonical_path),
-    });
-    std::fs::write(owned_marker_path(&canonical_path), marker.to_string()).expect("owned marker");
+    testing::mark_app_use_wps_owned_target_for_tests(path, app_label).expect("owned marker");
 }
 
 fn remove_owned_wps_test_file(path: &Path) {
-    let marker = path
-        .canonicalize()
-        .ok()
-        .map(|canonical_path| owned_marker_path(&canonical_path));
     let _ = std::fs::remove_file(path);
-    if let Some(marker) = marker {
-        let _ = std::fs::remove_file(marker);
-    }
 }
 
 #[test]
@@ -95,6 +74,71 @@ fn app_use_session_reports_first_batch_adapters() {
     let adapters = response["adapters"].as_array().expect("adapter list");
     assert_eq!(adapters.len(), 8);
     assert!(adapters.iter().any(|adapter| adapter["id"] == "wps_writer"));
+}
+
+#[test]
+fn app_use_session_create_owned_target_returns_signed_target() {
+    let _guard = APP_USE_OWNED_ENV_LOCK
+        .lock()
+        .expect("app use owned env lock");
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+    let owned_root = prepare_owned_wps_test_root();
+
+    let response: Value = invoke_command_ok(
+        &test_app.main_webview,
+        "app_use_session",
+        json!({
+            "request": {
+                "executionId": "app-use-create-target-1",
+                "operation": "create_owned_target",
+                "description": "create an owned WPS spreadsheet target",
+                "adapterId": "wps_spreadsheet",
+                "targetKind": "spreadsheet",
+                "config": {
+                    "mode": "interactive",
+                    "adapters": {
+                        "office_word": false,
+                        "office_excel": false,
+                        "office_powerpoint": false,
+                        "wps_writer": false,
+                        "wps_spreadsheet": true,
+                        "wps_presentation": false,
+                        "photoshop": false,
+                        "illustrator": false
+                    },
+                    "mutatingApprovalMode": "always",
+                    "readScope": "active",
+                    "allowRawAutomation": false,
+                    "timeoutMs": 15000,
+                    "maxOutputChars": 12000
+                }
+            }
+        }),
+    );
+
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["adapterId"], "wps_spreadsheet");
+    assert_eq!(response["targetKind"], "spreadsheet");
+    let target = response["target"].as_str().expect("target path");
+    assert!(target.ends_with(".xlsx"));
+    let canonical_owned_root = owned_root
+        .path()
+        .canonicalize()
+        .expect("canonical owned root");
+    assert!(
+        Path::new(target).starts_with(&canonical_owned_root),
+        "target {target} should live under {}",
+        canonical_owned_root.display()
+    );
+    let marker_path = Path::new(target).with_file_name(format!(
+        "{}.touchai-owned.json",
+        Path::new(target)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .expect("target filename")
+    ));
+    let marker = std::fs::read_to_string(&marker_path).expect("owned marker");
+    assert!(marker.contains("\"signature\""));
 }
 
 #[test]
@@ -136,7 +180,7 @@ fn app_use_act_rejects_read_only_mode() {
             "request": {
                 "executionId": "app-use-test-3",
                 "adapterId": "wps_writer",
-                "action": "replace_selection",
+                "action": "replace_document_text",
                 "description": "replace current selection",
                 "parameters": { "text": "hello" },
                 "config": app_use_config()
@@ -163,13 +207,13 @@ fn app_use_act_rejects_direct_native_call_without_approval() {
             "request": {
                 "executionId": "app-use-test-4",
                 "adapterId": "office_word",
-                "action": "replace_selection",
+                "action": "replace_document_text",
                 "description": "direct native call should not mutate",
                 "parameters": { "text": "hello" },
                 "approval": {
                     "callId": "app-use-test-4",
                     "adapterId": "office_word",
-                    "action": "replace_selection",
+                    "action": "replace_document_text",
                     "approved": true
                 },
                 "config": interactive_office_config()
@@ -193,7 +237,7 @@ fn app_use_authorize_act_refuses_unimplemented_adapter() {
             "request": {
                 "executionId": "app-use-test-5",
                 "adapterId": "office_word",
-                "action": "replace_selection",
+                "action": "replace_document_text",
                 "targetId": "target-1",
                 "parameters": { "text": "hello" },
                 "config": interactive_office_config()
@@ -207,11 +251,13 @@ fn app_use_authorize_act_refuses_unimplemented_adapter() {
 
 #[test]
 fn app_use_authorize_act_refuses_unimplemented_writer_insert_text() {
+    let _guard = APP_USE_OWNED_ENV_LOCK
+        .lock()
+        .expect("app use owned env lock");
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
-    let target_path = std::env::temp_dir()
-        .join("touchai-wps-smoke")
-        .join("command-insert-text-owned.docx");
-    write_owned_wps_test_file(&target_path);
+    let owned_root = prepare_owned_wps_test_root();
+    let target_path = owned_root.path().join("command-insert-text-owned.docx");
+    write_owned_wps_test_file(&target_path, "WPS Writer");
 
     let authorization: Value = invoke_command_ok(
         &test_app.main_webview,
@@ -237,7 +283,6 @@ fn app_use_authorize_act_refuses_unimplemented_writer_insert_text() {
                     },
                     "mutatingApprovalMode": "always",
                     "readScope": "active",
-                    "allowBackgroundOperation": false,
                     "allowRawAutomation": false,
                     "timeoutMs": 15000,
                     "maxOutputChars": 12000

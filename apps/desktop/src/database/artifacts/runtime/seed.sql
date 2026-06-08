@@ -162,17 +162,17 @@ WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'ask_user_questio
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
-SELECT 'app_session', 'AppSession', '软件控制：发现本地应用与能力', 0, 'high', '{"mode":"read_only","adapters":{"office_word":false,"office_excel":false,"office_powerpoint":false,"wps_writer":false,"wps_spreadsheet":false,"wps_presentation":false,"photoshop":false,"illustrator":false},"mutatingApprovalMode":"always","readScope":"active","allowBackgroundOperation":false,"allowRawAutomation":false,"timeoutMs":15000,"maxOutputChars":12000}'
+SELECT 'app_session', 'AppSession', '软件控制：发现本地应用与能力', 0, 'high', '{"mode":"read_only","adapters":{"office_word":false,"office_excel":false,"office_powerpoint":false,"wps_writer":false,"wps_spreadsheet":false,"wps_presentation":false,"photoshop":false,"illustrator":false},"mutatingApprovalMode":"always","readScope":"active","allowRawAutomation":false,"timeoutMs":15000,"maxOutputChars":12000}'
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'app_session');
 
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
-SELECT 'app_observe', 'AppObserve', '软件控制：读取本地应用上下文', 0, 'high', '{"mode":"read_only","adapters":{"office_word":false,"office_excel":false,"office_powerpoint":false,"wps_writer":false,"wps_spreadsheet":false,"wps_presentation":false,"photoshop":false,"illustrator":false},"mutatingApprovalMode":"always","readScope":"active","allowBackgroundOperation":false,"allowRawAutomation":false,"timeoutMs":15000,"maxOutputChars":12000}'
+SELECT 'app_observe', 'AppObserve', '软件控制：读取本地应用上下文', 0, 'high', '{"mode":"read_only","adapters":{"office_word":false,"office_excel":false,"office_powerpoint":false,"wps_writer":false,"wps_spreadsheet":false,"wps_presentation":false,"photoshop":false,"illustrator":false},"mutatingApprovalMode":"always","readScope":"active","allowRawAutomation":false,"timeoutMs":15000,"maxOutputChars":12000}'
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'app_observe');
 
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
-SELECT 'app_act', 'AppAct', '软件控制：执行一个受控应用动作', 0, 'high', '{"mode":"read_only","adapters":{"office_word":false,"office_excel":false,"office_powerpoint":false,"wps_writer":false,"wps_spreadsheet":false,"wps_presentation":false,"photoshop":false,"illustrator":false},"mutatingApprovalMode":"always","readScope":"active","allowBackgroundOperation":false,"allowRawAutomation":false,"timeoutMs":15000,"maxOutputChars":12000}'
+SELECT 'app_act', 'AppAct', '软件控制：执行一个受控应用动作', 0, 'high', '{"mode":"read_only","adapters":{"office_word":false,"office_excel":false,"office_powerpoint":false,"wps_writer":false,"wps_spreadsheet":false,"wps_presentation":false,"photoshop":false,"illustrator":false},"mutatingApprovalMode":"always","readScope":"active","allowRawAutomation":false,"timeoutMs":15000,"maxOutputChars":12000}'
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'app_act');

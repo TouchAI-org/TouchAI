@@ -45,6 +45,14 @@ export type AppUseNativeAdapterId =
     | 'photoshop'
     | 'illustrator';
 
+export type AppUseNativeActAdapterId =
+    | 'office_word'
+    | 'office_excel'
+    | 'office_powerpoint'
+    | 'wps_writer'
+    | 'wps_spreadsheet'
+    | 'wps_presentation';
+
 export type AppUseNativeMode = 'read_only' | 'interactive';
 
 export interface AppUseNativeConfig {
@@ -52,7 +60,6 @@ export interface AppUseNativeConfig {
     adapters: Record<AppUseNativeAdapterId, boolean>;
     mutatingApprovalMode: 'always';
     readScope: 'active';
-    allowBackgroundOperation: boolean;
     allowRawAutomation: false;
     timeoutMs: number;
     maxOutputChars: number;
@@ -65,13 +72,23 @@ export interface AppUseNativeAdapterDescriptor {
     running: boolean;
     enabled: boolean;
     capabilities: string[];
+    contract: {
+        vendor: string;
+        version: string;
+        observeScopes: string[];
+        actions: AppUseNativeActAction[];
+        riskLevel: 'high' | string;
+        rawAutomationAllowed: false;
+    };
     activeTargetName: string | null;
 }
 
 export interface AppUseNativeSessionRequest {
     executionId: string;
-    operation: 'status' | 'discover' | 'capabilities';
+    operation: 'status' | 'discover' | 'capabilities' | 'create_owned_target';
     description: string;
+    adapterId?: AppUseNativeActAdapterId;
+    targetKind?: 'document' | 'spreadsheet' | 'presentation';
     config: AppUseNativeConfig;
 }
 
@@ -80,6 +97,9 @@ export interface AppUseNativeSessionResponse {
     operation: AppUseNativeSessionRequest['operation'];
     adapters: AppUseNativeAdapterDescriptor[];
     message: string | null;
+    adapterId?: AppUseNativeActAdapterId;
+    targetKind?: 'document' | 'spreadsheet' | 'presentation';
+    target?: string;
 }
 
 export interface AppUseNativeObserveRequest {
@@ -111,31 +131,25 @@ export interface AppUseNativeObserveResponse {
 }
 
 export type AppUseNativeActAction =
-    | 'insert_text'
-    | 'replace_selection'
-    | 'read_cells'
+    | 'replace_document_text'
     | 'write_cells'
     | 'add_slide_text'
-    | 'select_layer'
-    | 'export_preview'
-    | 'batch_export'
-    | 'format_selection'
-    | 'cross_app_transfer';
+    | 'format_document_text';
 
 export interface AppUseNativeActPermit {
     callId: string;
-    adapterId: AppUseNativeAdapterId;
+    adapterId: AppUseNativeActAdapterId;
     action: AppUseNativeActAction;
-    targetId?: string;
+    targetId: string;
     parametersHash: string;
     token: string;
 }
 
 export interface AppUseNativeAuthorizeActRequest {
     executionId: string;
-    adapterId: AppUseNativeAdapterId;
+    adapterId: AppUseNativeActAdapterId;
     action: AppUseNativeActAction;
-    targetId?: string;
+    targetId: string;
     parameters?: Record<string, unknown>;
     config: AppUseNativeConfig;
 }
@@ -147,10 +161,10 @@ export interface AppUseNativeAuthorizeActResponse {
 
 export interface AppUseNativeActRequest {
     executionId: string;
-    adapterId: AppUseNativeAdapterId;
+    adapterId: AppUseNativeActAdapterId;
     action: AppUseNativeActAction;
     description: string;
-    targetId?: string;
+    targetId: string;
     parameters?: Record<string, unknown>;
     permit?: AppUseNativeActPermit;
     config: AppUseNativeConfig;
@@ -158,7 +172,7 @@ export interface AppUseNativeActRequest {
 
 export interface AppUseNativeActResponse {
     ok: boolean;
-    adapterId: AppUseNativeAdapterId;
+    adapterId: AppUseNativeActAdapterId;
     action: AppUseNativeActAction;
     receipt: string;
     changed: boolean;

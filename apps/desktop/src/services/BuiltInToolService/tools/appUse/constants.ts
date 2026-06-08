@@ -25,7 +25,23 @@ export const APP_USE_ADAPTER_IDS = [
 
 export type AppUseAdapterId = (typeof APP_USE_ADAPTER_IDS)[number];
 
-export const APP_USE_SESSION_OPERATIONS = ['status', 'discover', 'capabilities'] as const;
+export const APP_USE_ACT_ADAPTER_IDS = [
+    'office_word',
+    'office_excel',
+    'office_powerpoint',
+    'wps_writer',
+    'wps_spreadsheet',
+    'wps_presentation',
+] as const;
+
+type AppUseActAdapterId = (typeof APP_USE_ACT_ADAPTER_IDS)[number];
+
+export const APP_USE_SESSION_OPERATIONS = [
+    'status',
+    'discover',
+    'capabilities',
+    'create_owned_target',
+] as const;
 export const APP_USE_OBSERVE_SCOPES = [
     'active_document',
     'selection',
@@ -38,35 +54,53 @@ export const APP_USE_OBSERVE_SCOPES = [
 ] as const;
 
 export const APP_USE_ACT_ACTIONS = [
-    'insert_text',
-    'replace_selection',
-    'read_cells',
+    'replace_document_text',
     'write_cells',
     'add_slide_text',
-    'select_layer',
-    'export_preview',
-    'batch_export',
-    'format_selection',
-    'cross_app_transfer',
+    'format_document_text',
 ] as const;
 
 type AppUseActAction = (typeof APP_USE_ACT_ACTIONS)[number];
 type AppUseActArgs = {
-    adapterId: AppUseAdapterId;
+    adapterId: AppUseActAdapterId;
     action: AppUseActAction;
     description: string;
-    targetId?: string;
-    parameters?: Record<string, unknown>;
+    targetId: string;
+    parameters: Record<string, unknown>;
 };
 
 export const appUseAdapterIdSchema = z.enum(APP_USE_ADAPTER_IDS);
+const appUseActAdapterIdSchema = z.enum(APP_USE_ACT_ADAPTER_IDS);
+
+const APP_USE_ACT_ACTIONS_BY_ADAPTER = {
+    office_word: ['replace_document_text', 'format_document_text'],
+    office_excel: ['write_cells'],
+    office_powerpoint: ['add_slide_text'],
+    wps_writer: ['replace_document_text', 'format_document_text'],
+    wps_spreadsheet: ['write_cells'],
+    wps_presentation: ['add_slide_text'],
+} as const satisfies Record<AppUseActAdapterId, readonly AppUseActAction[]>;
 
 export const appUseSessionArgsSchema = z
     .object({
         operation: z.enum(APP_USE_SESSION_OPERATIONS).default('discover'),
         description: nonEmptyTrimmedStringSchema,
+        adapterId: appUseActAdapterIdSchema.optional(),
+        targetKind: z.enum(['document', 'spreadsheet', 'presentation']).optional(),
     })
-    .strict();
+    .strict()
+    .superRefine((value, context) => {
+        if (value.operation !== 'create_owned_target') {
+            return;
+        }
+        if (!value.adapterId) {
+            context.addIssue({
+                code: 'custom',
+                path: ['adapterId'],
+                message: 'create_owned_target requires an Office or WPS write adapterId',
+            });
+        }
+    });
 
 export const appUseObserveArgsSchema = z
     .object({
@@ -88,10 +122,10 @@ function boundedTrimmedStringSchema(maxLength: number) {
 const appUseScalarCellValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const appUseTextActionParametersSchema = z
     .object({
-        text: nonEmptyTrimmedStringSchema,
+        text: boundedTrimmedStringSchema(20000),
     })
     .strict();
-const appUseFormatSelectionParametersSchema = z
+const appUseFormatDocumentTextParametersSchema = z
     .object({
         bold: z.boolean().optional(),
         italic: z.boolean().optional(),
@@ -107,7 +141,7 @@ const appUseFormatSelectionParametersSchema = z
             value.underline !== undefined ||
             value.fontSize !== undefined ||
             value.fontName !== undefined,
-        { message: 'format_selection requires at least one format option' }
+        { message: 'format_document_text requires at least one format option' }
     );
 const appUseWriteCellsParametersSchema = z
     .object({
@@ -125,70 +159,21 @@ const appUseWriteCellsParametersSchema = z
             }, 'values must use rectangular rows'),
     })
     .strict();
-const appUseReadCellsParametersSchema = z
-    .object({
-        range: boundedTrimmedStringSchema(64).refine(
-            (value) => /^[A-Za-z0-9:$]+$/.test(value),
-            'range must be an A1-style address'
-        ),
-        sheetName: boundedTrimmedStringSchema(128).optional(),
-    })
-    .strict();
 const appUseAddSlideTextParametersSchema = z
     .object({
         text: boundedTrimmedStringSchema(2000),
         slideIndex: z.number().int().min(1).optional(),
     })
     .strict();
-const appUseSelectLayerParametersSchema = z
-    .object({
-        layerId: boundedTrimmedStringSchema(256).optional(),
-        layerName: boundedTrimmedStringSchema(256).optional(),
-    })
-    .strict()
-    .refine((value) => value.layerId !== undefined || value.layerName !== undefined, {
-        message: 'select_layer requires layerId or layerName',
-    });
-const appUseExportPreviewParametersSchema = z
-    .object({
-        format: z.enum(['png', 'jpg', 'jpeg']).optional(),
-        scale: z.number().min(0.1).max(4).optional(),
-        selectionOnly: z.boolean().optional(),
-    })
-    .strict()
-    .optional();
-const appUseBatchExportParametersSchema = z
-    .object({
-        format: z.enum(['png', 'jpg', 'jpeg', 'pdf']).optional(),
-        selectionOnly: z.boolean().optional(),
-        artboardNames: z.array(boundedTrimmedStringSchema(256)).min(1).max(100).optional(),
-        layerNames: z.array(boundedTrimmedStringSchema(256)).min(1).max(100).optional(),
-    })
-    .strict()
-    .optional();
-const appUseCrossAppTransferParametersSchema = z
-    .object({
-        sourceAdapterId: appUseAdapterIdSchema,
-        targetAdapterId: appUseAdapterIdSchema,
-        sourceTargetId: boundedTrimmedStringSchema(512).optional(),
-        targetId: boundedTrimmedStringSchema(512).optional(),
-        mode: z.enum(['copy_text', 'copy_cells', 'copy_slide_text']).optional(),
-    })
-    .strict();
 
-const appUseParametersSchemaByAction: Partial<
-    Record<AppUseActAction, z.ZodType<Record<string, unknown> | undefined>>
+const appUseParametersSchemaByAction: Record<
+    AppUseActAction,
+    z.ZodType<Record<string, unknown>>
 > = {
-    insert_text: appUseTextActionParametersSchema,
-    replace_selection: appUseTextActionParametersSchema,
-    read_cells: appUseReadCellsParametersSchema,
-    format_selection: appUseFormatSelectionParametersSchema,
+    replace_document_text: appUseTextActionParametersSchema,
+    format_document_text: appUseFormatDocumentTextParametersSchema,
     write_cells: appUseWriteCellsParametersSchema,
     add_slide_text: appUseAddSlideTextParametersSchema,
-    select_layer: appUseSelectLayerParametersSchema,
-    export_preview: appUseExportPreviewParametersSchema,
-    batch_export: appUseBatchExportParametersSchema,
-    cross_app_transfer: appUseCrossAppTransferParametersSchema,
 };
 
 const RAW_AUTOMATION_PARAMETER_KEYS = new Set([
@@ -234,21 +219,27 @@ function rejectRawAutomationParameters(
 
 export const appUseActArgsSchema = z
     .object({
-        adapterId: appUseAdapterIdSchema,
+        adapterId: appUseActAdapterIdSchema,
         action: z.enum(APP_USE_ACT_ACTIONS),
         description: nonEmptyTrimmedStringSchema,
-        targetId: z.string().trim().optional(),
-        parameters: z.record(z.string(), z.unknown()).optional(),
+        targetId: nonEmptyTrimmedStringSchema,
+        parameters: z.record(z.string(), z.unknown()),
     })
     .strict()
     .superRefine((value, context) => {
         rejectRawAutomationParameters(value.parameters, context, ['parameters']);
-        const parametersSchema = appUseParametersSchemaByAction[value.action];
-        if (!parametersSchema) {
-            return;
+        const supportedActions = APP_USE_ACT_ACTIONS_BY_ADAPTER[
+            value.adapterId
+        ] as readonly AppUseActAction[];
+        if (!supportedActions.includes(value.action)) {
+            context.addIssue({
+                code: 'custom',
+                path: ['action'],
+                message: `${value.adapterId} does not support ${value.action}`,
+            });
         }
 
-        const parameters = parametersSchema.safeParse(value.parameters);
+        const parameters = appUseParametersSchemaByAction[value.action].safeParse(value.parameters);
         if (!parameters.success) {
             for (const issue of parameters.error.issues) {
                 context.addIssue({
@@ -259,35 +250,22 @@ export const appUseActArgsSchema = z
         }
     })
     .transform((value): AppUseActArgs => {
-        const parametersSchema = appUseParametersSchemaByAction[value.action];
-        if (!parametersSchema) {
-            return value;
-        }
-
-        const parameters = parametersSchema.parse(value.parameters);
-        if (parameters === undefined) {
-            return {
-                ...value,
-                parameters: undefined,
-            };
-        }
-
         return {
             ...value,
-            parameters,
+            parameters: appUseParametersSchemaByAction[value.action].parse(value.parameters),
         };
     });
 
 export const APP_SESSION_TOOL_DESCRIPTION = [
     'Discover and inspect supported local desktop applications for App Use.',
-    'Use this before observing or acting on Office, WPS, Photoshop, or Illustrator.',
+    'Use create_owned_target before Office or WPS write actions to create a TouchAI-owned signed target path.',
     'This tool only reports structured status and capabilities; it does not execute raw scripts.',
 ].join(' ');
 
 export const APP_OBSERVE_TOOL_DESCRIPTION = [
     'Read structured App Use context from an enabled local application adapter.',
     'Supported scopes include active documents, selections, workbooks, worksheets, presentations, slides, layers, and artboards.',
-    'Do not request broad background reads unless the user explicitly asks.',
+    'Only request the active, bounded observation scope needed for the user task.',
 ].join(' ');
 
 export const APP_ACT_TOOL_DESCRIPTION = [
@@ -301,12 +279,25 @@ export const APP_SESSION_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
         operation: {
             type: 'string',
             enum: [...APP_USE_SESSION_OPERATIONS],
-            description: 'Session operation to run.',
+            description:
+                'Session operation to run. Use create_owned_target to create a TouchAI-owned signed target path for Office or WPS write actions.',
             default: 'discover',
         },
         description: {
             type: 'string',
             description: 'User-facing reason for discovering or inspecting local app capabilities.',
+        },
+        adapterId: {
+            type: 'string',
+            enum: [...APP_USE_ACT_ADAPTER_IDS],
+            description:
+                'Required for create_owned_target. Office or WPS write adapter that will use the created target.',
+        },
+        targetKind: {
+            type: 'string',
+            enum: ['document', 'spreadsheet', 'presentation'],
+            description:
+                'Optional create_owned_target target kind. It must match the selected adapter family.',
         },
     },
     required: ['description'],
@@ -333,7 +324,8 @@ export const APP_OBSERVE_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
         },
         targetId: {
             type: 'string',
-            description: 'Optional target id returned by app_session or a prior app_observe call.',
+            description:
+                'Optional TouchAI-owned signed target path returned by a trusted App Use target creation or owned-target observation flow. Do not invent or reuse arbitrary local paths.',
         },
         maxOutputChars: {
             type: 'number',
@@ -349,13 +341,15 @@ export const APP_ACT_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
     properties: {
         adapterId: {
             type: 'string',
-            enum: [...APP_USE_ADAPTER_IDS],
-            description: 'Enabled App Use adapter that should execute the action.',
+            enum: [...APP_USE_ACT_ADAPTER_IDS],
+            description:
+                'Enabled App Use adapter that should execute the action. Adobe adapters are observe-only in this phase.',
         },
         action: {
             type: 'string',
             enum: [...APP_USE_ACT_ACTIONS],
-            description: 'Single bounded action to execute.',
+            description:
+                'Single bounded action to execute. Use app_observe for read-only cells, layers, artboards, documents, and slides.',
         },
         description: {
             type: 'string',
@@ -363,14 +357,15 @@ export const APP_ACT_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
         },
         targetId: {
             type: 'string',
-            description: 'Optional target id returned by app_session or app_observe.',
+            description:
+                'Required for Office and WPS write actions. Must be a TouchAI-owned signed target path, not an arbitrary local path or a raw app_session/app_observe value.',
         },
         parameters: {
             type: 'object',
             description:
-                'Structured parameters for the bounded action. Use {text} for replace_selection and add_slide_text; use {range, values, sheetName?} for write_cells; use {bold?, italic?, underline?, fontSize?, fontName?} for format_selection. Raw scripts are not allowed.',
+                'Structured parameters for the bounded action. Use {text} for replace_document_text and add_slide_text; use {range, values, sheetName?} for write_cells; use {bold?, italic?, underline?, fontSize?, fontName?} for format_document_text. Raw scripts are not allowed.',
         },
     },
-    required: ['adapterId', 'action', 'description'],
+    required: ['adapterId', 'action', 'description', 'targetId', 'parameters'],
     additionalProperties: false,
 };

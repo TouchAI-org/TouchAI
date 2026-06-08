@@ -26,7 +26,7 @@ describe('App Use built-in tool registration', () => {
             tool?.buildApprovalRequest(
                 {
                     adapterId: 'wps_writer',
-                    action: 'replace_selection',
+                    action: 'replace_document_text',
                     description: 'Replace text in an owned WPS document',
                     targetId: 'owned-document-1',
                     parameters: { text: 'replacement preview' },
@@ -52,19 +52,19 @@ describe('App Use built-in tool registration', () => {
         expect(approval?.description).toContain('Replace text in an owned WPS document');
         expect(approval?.description).toContain('Target: owned-document-1');
         expect(approval?.description).toContain('Preview: replacement preview');
-        expect(approval?.command).toBe('wps_writer:replace_selection -> owned-document-1');
+        expect(approval?.command).toBe('wps_writer:replace_document_text -> owned-document-1');
     });
 
-    it('omits action approval preview when parameters are absent', async () => {
+    it('does not build approvals for observe-only Adobe actions', async () => {
         setLocale('en-US');
         const tool = builtInToolRegistry.get('app_act');
 
-        const noParametersApproval = await Promise.resolve(
+        expect(() =>
             tool?.buildApprovalRequest(
                 {
                     adapterId: 'photoshop',
                     action: 'export_preview',
-                    description: 'Export without preview',
+                    description: 'Export a Photoshop preview',
                 },
                 tool.defaultConfig,
                 'builtin__app_act',
@@ -74,9 +74,7 @@ describe('App Use built-in tool registration', () => {
                     hasExecutedBuiltInTool: () => false,
                 }
             )
-        );
-
-        expect(noParametersApproval?.description).not.toContain('Preview:');
+        ).toThrow();
     });
 
     it('renders non-text action parameters as a compact JSON preview', async () => {
@@ -89,6 +87,7 @@ describe('App Use built-in tool registration', () => {
                     adapterId: 'wps_spreadsheet',
                     action: 'write_cells',
                     description: 'Write spreadsheet cells',
+                    targetId: 'owned-spreadsheet-1',
                     parameters: {
                         range: 'A1:B1',
                         values: [
@@ -110,5 +109,32 @@ describe('App Use built-in tool registration', () => {
         expect(approval?.description).toContain(
             'Preview: {"range":"A1:B1","values":[["Name","Status"],["App Use","Ready"]]}'
         );
+    });
+
+    it('truncates long approval previews', async () => {
+        setLocale('en-US');
+        const tool = builtInToolRegistry.get('app_act');
+        const longText = 'x'.repeat(230);
+
+        const approval = await Promise.resolve(
+            tool?.buildApprovalRequest(
+                {
+                    adapterId: 'wps_writer',
+                    action: 'replace_document_text',
+                    description: 'Replace text in an owned WPS document',
+                    targetId: 'owned-document-1',
+                    parameters: { text: longText },
+                },
+                tool.defaultConfig,
+                'builtin__app_act',
+                {
+                    callId: 'call-5',
+                    iteration: 1,
+                    hasExecutedBuiltInTool: () => false,
+                }
+            )
+        );
+
+        expect(approval?.description).toContain(`Preview: ${'x'.repeat(200)}...`);
     });
 });

@@ -165,15 +165,27 @@ describe('Settings App Use section', () => {
         expect(queries.updateBuiltInTool).toHaveBeenNthCalledWith(3, 3, { enabled: 1 });
     });
 
+    it('keeps controls usable when the master switch save fails', async () => {
+        queries.updateBuiltInTool.mockRejectedValueOnce(new Error('save failed'));
+        const wrapper = mount(AppUseSection);
+        await flushPromises();
+
+        await wrapper.get('[data-testid="settings-app-use-enabled-toggle"]').trigger('click');
+        await flushPromises();
+
+        expect(queries.updateBuiltInTool).toHaveBeenCalledTimes(3);
+        expect(
+            wrapper.get('[data-testid="settings-app-use-enabled-toggle"]').attributes()
+        ).not.toHaveProperty('disabled');
+    });
+
     it('saves safety limits from the dedicated settings tab to all App Use tools', async () => {
         const wrapper = mount(AppUseSection);
         await flushPromises();
 
-        await wrapper.get('[data-testid="settings-app-use-background-toggle"]').trigger('click');
-        await flushPromises();
-
-        expect(parseSavedConfig(0).allowBackgroundOperation).toBe(true);
-        expect(queries.updateBuiltInTool).toHaveBeenCalledTimes(3);
+        expect(wrapper.find('[data-testid="settings-app-use-background-toggle"]').exists()).toBe(
+            false
+        );
 
         queries.updateBuiltInTool.mockClear();
         await wrapper.get('[data-testid="settings-app-use-timeout-ms"]').setValue('45000');
@@ -192,7 +204,86 @@ describe('Settings App Use section', () => {
         expect(queries.updateBuiltInTool).toHaveBeenCalledTimes(3);
     });
 
-    it('normalizes out-of-range safety limits before saving', async () => {
+    it('does not save unchanged mode or invalid numeric limits', async () => {
+        const wrapper = mount(AppUseSection);
+        await flushPromises();
+
+        queries.updateBuiltInTool.mockClear();
+        await wrapper.get('[data-testid="settings-app-use-mode-read-only"]').trigger('click');
+        await flushPromises();
+
+        expect(queries.updateBuiltInTool).not.toHaveBeenCalled();
+
+        await wrapper.get('[data-testid="settings-app-use-timeout-ms"]').setValue('not-a-number');
+        await wrapper.get('[data-testid="settings-app-use-timeout-ms"]').trigger('change');
+        await flushPromises();
+
+        expect(queries.updateBuiltInTool).not.toHaveBeenCalled();
+    });
+
+    it('shows the full App Use phase plan as read-only planning', async () => {
+        const wrapper = mount(AppUseSection);
+        await flushPromises();
+
+        const sectionText = wrapper.get('[data-testid="settings-app-use-section"]').text();
+        expect(sectionText).toContain('Phase plan');
+        expect(sectionText).toContain('raw scripts');
+        expect(sectionText).toContain('raw automation fallbacks');
+        expect(sectionText).toContain('P6: Computer Use boundary');
+        expect(sectionText).toContain('Out of scope');
+        expect(sectionText).not.toContain('UI Automation fallback');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p0-definition-framework"]').text()
+        ).toContain('Current');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p1-settings"]').text()
+        ).toContain('Current');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p2-discovery"]').text()
+        ).toContain('Current');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p3-structured-observe"]').text()
+        ).toContain('Current');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p4-approval-governance"]').text()
+        ).toContain('Current');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p5-office-wps-actions"]').text()
+        ).toContain('Current');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p6-computer-use-boundary"]').text()
+        ).toContain('Out of scope');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p7-advanced-workflows"]').text()
+        ).toContain('Planned');
+        expect(
+            wrapper.get('[data-testid="settings-app-use-advanced-p8-adapter-extension"]').text()
+        ).toContain('Planned');
+
+        queries.updateBuiltInTool.mockClear();
+        await wrapper
+            .get('[data-testid="settings-app-use-advanced-p7-advanced-workflows"]')
+            .trigger('click');
+        await flushPromises();
+
+        expect(queries.updateBuiltInTool).not.toHaveBeenCalled();
+    });
+
+    it('keeps localized App Use naming and neutral safety copy', async () => {
+        setLocale('zh-CN');
+        const wrapper = mount(AppUseSection);
+        await flushPromises();
+
+        const sectionText = wrapper.get('[data-testid="settings-app-use-section"]').text();
+        expect(sectionText).toContain('软件控制');
+        expect(sectionText).toContain('原始脚本');
+        expect(sectionText).toContain('原始自动化兜底');
+        expect(sectionText).toContain('P6：Computer Use 边界');
+        expect(sectionText).toContain('不属于软件控制');
+        expect(sectionText).not.toContain('UI Automation fallback');
+    });
+
+    it('clamps out-of-range safety limits before saving', async () => {
         const wrapper = mount(AppUseSection);
         await flushPromises();
 
@@ -200,14 +291,14 @@ describe('Settings App Use section', () => {
         await wrapper.get('[data-testid="settings-app-use-timeout-ms"]').trigger('change');
         await flushPromises();
 
-        expect(parseSavedConfig(0).timeoutMs).toBe(DEFAULT_APP_USE_TOOL_CONFIG.timeoutMs);
+        expect(parseSavedConfig(0).timeoutMs).toBe(1000);
 
         queries.updateBuiltInTool.mockClear();
         await wrapper.get('[data-testid="settings-app-use-max-output-chars"]').setValue('500000');
         await wrapper.get('[data-testid="settings-app-use-max-output-chars"]').trigger('change');
         await flushPromises();
 
-        expect(parseSavedConfig(0).maxOutputChars).toBe(DEFAULT_APP_USE_TOOL_CONFIG.maxOutputChars);
+        expect(parseSavedConfig(0).maxOutputChars).toBe(50000);
     });
 
     it('keeps App Use execution logs reachable from the dedicated tab', async () => {

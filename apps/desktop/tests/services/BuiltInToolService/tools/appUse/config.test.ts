@@ -4,6 +4,7 @@ import {
     APP_USE_ADAPTER_IDS,
     DEFAULT_APP_USE_TOOL_CONFIG,
     parseAppUseToolConfig,
+    serializeAppUseToolConfig,
 } from '@/services/BuiltInToolService/tools/appUse';
 
 describe('App Use tool config', () => {
@@ -11,7 +12,6 @@ describe('App Use tool config', () => {
         expect(parseAppUseToolConfig(null)).toEqual(DEFAULT_APP_USE_TOOL_CONFIG);
         expect(DEFAULT_APP_USE_TOOL_CONFIG.mode).toBe('read_only');
         expect(DEFAULT_APP_USE_TOOL_CONFIG.mutatingApprovalMode).toBe('always');
-        expect(DEFAULT_APP_USE_TOOL_CONFIG.allowBackgroundOperation).toBe(false);
         expect(DEFAULT_APP_USE_TOOL_CONFIG.allowRawAutomation).toBe(false);
         expect(Object.keys(DEFAULT_APP_USE_TOOL_CONFIG.adapters).sort()).toEqual(
             [...APP_USE_ADAPTER_IDS].sort()
@@ -55,9 +55,30 @@ describe('App Use tool config', () => {
         expect(parsed.mode).toBe(DEFAULT_APP_USE_TOOL_CONFIG.mode);
         expect(parsed.mutatingApprovalMode).toBe('always');
         expect(parsed.readScope).toBe(DEFAULT_APP_USE_TOOL_CONFIG.readScope);
-        expect(parsed.allowBackgroundOperation).toBe(true);
         expect(parsed.allowRawAutomation).toBe(false);
         expect(parsed.timeoutMs).toBe(DEFAULT_APP_USE_TOOL_CONFIG.timeoutMs);
         expect(parsed.maxOutputChars).toBe(DEFAULT_APP_USE_TOOL_CONFIG.maxOutputChars);
+        expect(parsed).not.toHaveProperty('allowBackgroundOperation');
+        expect(JSON.parse(serializeAppUseToolConfig(parsed))).not.toHaveProperty(
+            'allowBackgroundOperation'
+        );
+    });
+
+    it('ignores legacy advanced workflow switches and does not persist them', () => {
+        const parsed = parseAppUseToolConfig(
+            JSON.stringify({
+                advanced: {
+                    exportPreviews: true,
+                    batchWorkflows: 'yes',
+                    crossAppWorkflows: true,
+                    unknown: true,
+                },
+                allowRawAutomation: true,
+            })
+        );
+
+        expect(parsed.allowRawAutomation).toBe(false);
+        expect(parsed).not.toHaveProperty('advanced');
+        expect(JSON.parse(serializeAppUseToolConfig(parsed))).not.toHaveProperty('advanced');
     });
 });

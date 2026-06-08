@@ -14,7 +14,6 @@ export interface AppUseToolConfig {
     adapters: AppUseAdapterConfig;
     mutatingApprovalMode: AppUseApprovalMode;
     readScope: AppUseReadScope;
-    allowBackgroundOperation: boolean;
     allowRawAutomation: false;
     timeoutMs: number;
     maxOutputChars: number;
@@ -29,7 +28,6 @@ export const DEFAULT_APP_USE_TOOL_CONFIG: AppUseToolConfig = {
     adapters: { ...DEFAULT_APP_USE_ADAPTER_CONFIG },
     mutatingApprovalMode: 'always',
     readScope: 'active',
-    allowBackgroundOperation: false,
     allowRawAutomation: false,
     timeoutMs: 15000,
     maxOutputChars: 12000,
@@ -41,7 +39,6 @@ const appUseToolConfigSchema = z
         adapters: z.record(z.string(), z.boolean()).optional().catch(undefined),
         mutatingApprovalMode: z.literal('always').optional().catch(undefined),
         readScope: z.literal('active').optional().catch(undefined),
-        allowBackgroundOperation: z.boolean().optional().catch(undefined),
         allowRawAutomation: z.boolean().optional().catch(undefined),
         timeoutMs: z.number().int().min(1000).max(120000).optional().catch(undefined),
         maxOutputChars: z.number().int().min(1000).max(50000).optional().catch(undefined),
@@ -57,9 +54,6 @@ const appUseToolConfigSchema = z
             adapters,
             mutatingApprovalMode: 'always',
             readScope: 'active',
-            allowBackgroundOperation:
-                value.allowBackgroundOperation ??
-                DEFAULT_APP_USE_TOOL_CONFIG.allowBackgroundOperation,
             allowRawAutomation: false,
             timeoutMs: value.timeoutMs ?? DEFAULT_APP_USE_TOOL_CONFIG.timeoutMs,
             maxOutputChars: value.maxOutputChars ?? DEFAULT_APP_USE_TOOL_CONFIG.maxOutputChars,
@@ -76,7 +70,6 @@ export function serializeAppUseToolConfig(config: AppUseToolConfig): string {
         adapters: config.adapters,
         mutatingApprovalMode: 'always',
         readScope: 'active',
-        allowBackgroundOperation: config.allowBackgroundOperation,
         allowRawAutomation: false,
         timeoutMs: config.timeoutMs,
         maxOutputChars: config.maxOutputChars,

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tauri::{
     test::{mock_builder, MockRuntime},
@@ -33,6 +33,42 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .manage(TrayStatusRuntime::new())
         .manage(AppUseRuntime::new())
         .manage(AppUpdaterState::default())
+}
+
+pub fn configure_app_use_wps_owned_root_for_tests(root: &Path) -> Result<(), String> {
+    std::env::set_var("TOUCHAI_APP_USE_WPS_OWNED_ROOT", root);
+    std::env::set_var("TOUCHAI_APP_USE_OWNED_SECRET", "app-use-owned-test-secret");
+    std::fs::create_dir_all(root)
+        .map_err(|error| format!("Failed to create WPS App Use owned root: {error}"))
+}
+
+pub fn configure_app_use_office_owned_root_for_tests(root: &Path) -> Result<(), String> {
+    std::env::set_var("TOUCHAI_APP_USE_OFFICE_OWNED_ROOT", root);
+    std::env::set_var("TOUCHAI_APP_USE_OWNED_SECRET", "app-use-owned-test-secret");
+    std::fs::create_dir_all(root)
+        .map_err(|error| format!("Failed to create Office App Use owned root: {error}"))
+}
+
+pub fn mark_app_use_wps_owned_target_for_tests(
+    path: &Path,
+    app_label: &str,
+) -> Result<PathBuf, String> {
+    crate::core::app_use::wps::mark_owned_wps_target(
+        path,
+        app_label,
+        "TouchAI App Use integration test",
+    )
+}
+
+pub fn mark_app_use_office_owned_target_for_tests(
+    path: &Path,
+    app_label: &str,
+) -> Result<PathBuf, String> {
+    crate::core::app_use::office::mark_owned_office_target(
+        path,
+        app_label,
+        "TouchAI App Use integration test",
+    )
 }
 
 pub fn attach_test_database_runtime(

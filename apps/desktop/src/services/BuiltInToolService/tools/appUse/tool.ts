@@ -53,26 +53,18 @@ function truncatePreview(value: string): string {
     return normalized.length > 200 ? `${normalized.slice(0, 200)}...` : normalized;
 }
 
-function buildParameterPreview(parameters: Record<string, unknown> | undefined): string | null {
-    if (!parameters) {
-        return null;
-    }
-
+function buildParameterPreview(parameters: Record<string, unknown>): string {
     if (typeof parameters.text === 'string') {
         return truncatePreview(parameters.text);
     }
 
-    try {
-        return truncatePreview(JSON.stringify(parameters));
-    } catch {
-        return null;
-    }
+    return truncatePreview(JSON.stringify(parameters));
 }
 
 function buildActionApprovalDescription(parsed: {
     description: string;
     targetId?: string;
-    parameters?: Record<string, unknown>;
+    parameters: Record<string, unknown>;
 }): string {
     const lines = [parsed.description];
     if (parsed.targetId) {
@@ -80,9 +72,7 @@ function buildActionApprovalDescription(parsed: {
     }
 
     const preview = buildParameterPreview(parsed.parameters);
-    if (preview) {
-        lines.push(`${t('builtInTools.appUse.approval.previewLabel')}: ${preview}`);
-    }
+    lines.push(`${t('builtInTools.appUse.approval.previewLabel')}: ${preview}`);
 
     return lines.join('\n');
 }
@@ -98,6 +88,8 @@ export async function executeAppSessionTool(
             executionId: context.callId,
             operation: parsed.operation,
             description: parsed.description,
+            adapterId: parsed.adapterId,
+            targetKind: parsed.targetKind,
             config,
         })
     );

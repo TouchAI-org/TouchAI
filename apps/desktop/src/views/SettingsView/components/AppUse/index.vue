@@ -27,6 +27,12 @@
     });
 
     const APP_USE_TOOL_IDS = ['app_session', 'app_observe', 'app_act'] as const;
+    const APP_USE_NUMERIC_LIMITS = {
+        timeoutMs: { min: 1000, max: 120000 },
+        maxOutputChars: { min: 1000, max: 50000 },
+    } as const;
+
+    type AppUseNumericLimitKey = keyof typeof APP_USE_NUMERIC_LIMITS;
 
     const APP_USE_ADAPTER_LABEL_KEYS: Record<AppUseAdapterId, MessageKey> = {
         office_word: 'settings.appUse.adapter.officeWord',
@@ -38,6 +44,57 @@
         photoshop: 'settings.appUse.adapter.photoshop',
         illustrator: 'settings.appUse.adapter.illustrator',
     };
+    const APP_USE_PHASE_PLAN: Array<{
+        id: string;
+        labelKey: MessageKey;
+        statusKey: MessageKey;
+    }> = [
+        {
+            id: 'p0-definition-framework',
+            labelKey: 'settings.appUse.advanced.p0DefinitionFramework',
+            statusKey: 'settings.appUse.advanced.current',
+        },
+        {
+            id: 'p1-settings',
+            labelKey: 'settings.appUse.advanced.p1Settings',
+            statusKey: 'settings.appUse.advanced.current',
+        },
+        {
+            id: 'p2-discovery',
+            labelKey: 'settings.appUse.advanced.p2Discovery',
+            statusKey: 'settings.appUse.advanced.current',
+        },
+        {
+            id: 'p3-structured-observe',
+            labelKey: 'settings.appUse.advanced.p3StructuredObserve',
+            statusKey: 'settings.appUse.advanced.current',
+        },
+        {
+            id: 'p4-approval-governance',
+            labelKey: 'settings.appUse.advanced.p4ApprovalGovernance',
+            statusKey: 'settings.appUse.advanced.current',
+        },
+        {
+            id: 'p5-office-wps-actions',
+            labelKey: 'settings.appUse.advanced.p5OfficeWpsActions',
+            statusKey: 'settings.appUse.advanced.current',
+        },
+        {
+            id: 'p6-computer-use-boundary',
+            labelKey: 'settings.appUse.advanced.p6ComputerUseBoundary',
+            statusKey: 'settings.appUse.advanced.outOfScope',
+        },
+        {
+            id: 'p7-advanced-workflows',
+            labelKey: 'settings.appUse.advanced.p7AdvancedWorkflows',
+            statusKey: 'settings.appUse.advanced.planned',
+        },
+        {
+            id: 'p8-adapter-extension',
+            labelKey: 'settings.appUse.advanced.p8AdapterExtension',
+            statusKey: 'settings.appUse.advanced.planned',
+        },
+    ];
 
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const tools = ref<BuiltInToolEntity[]>([]);
@@ -76,6 +133,13 @@
             enabled: config.value.adapters[adapterId],
         }))
     );
+    const phasePlanItems = computed(() =>
+        APP_USE_PHASE_PLAN.map((phase) => ({
+            id: phase.id,
+            label: t(phase.labelKey),
+            status: t(phase.statusKey),
+        }))
+    );
 
     function readSharedConfig(nextTools: BuiltInToolEntity[]): AppUseToolConfig {
         const preferredTool = APP_USE_TOOL_IDS.map((toolId) =>
@@ -83,6 +147,24 @@
         ).find((tool): tool is BuiltInToolEntity => Boolean(tool));
 
         return parseAppUseToolConfig(preferredTool?.config_json ?? null);
+    }
+
+    function clampNumericLimit(key: AppUseNumericLimitKey, value: number): number {
+        const limit = APP_USE_NUMERIC_LIMITS[key];
+        return Math.min(limit.max, Math.max(limit.min, value));
+    }
+
+    function normalizeConfigForSave(nextConfig: AppUseToolConfig): AppUseToolConfig {
+        const parsedConfig = parseAppUseToolConfig(serializeAppUseToolConfig(nextConfig));
+        return {
+            ...parsedConfig,
+            timeoutMs: Number.isFinite(nextConfig.timeoutMs)
+                ? clampNumericLimit('timeoutMs', Math.trunc(nextConfig.timeoutMs))
+                : parsedConfig.timeoutMs,
+            maxOutputChars: Number.isFinite(nextConfig.maxOutputChars)
+                ? clampNumericLimit('maxOutputChars', Math.trunc(nextConfig.maxOutputChars))
+                : parsedConfig.maxOutputChars,
+        };
     }
 
     function patchLocalTool(toolId: string, patch: Partial<BuiltInToolEntity>) {
@@ -116,7 +198,7 @@
     }
 
     async function saveSharedConfig(nextConfig: AppUseToolConfig) {
-        const normalizedConfig = parseAppUseToolConfig(serializeAppUseToolConfig(nextConfig));
+        const normalizedConfig = normalizeConfigForSave(nextConfig);
         config.value = normalizedConfig;
         if (appUseTools.value.length === 0) {
             return;
@@ -170,18 +252,7 @@
         });
     }
 
-    async function setBackgroundOperation(enabled: boolean) {
-        if (config.value.allowBackgroundOperation === enabled) {
-            return;
-        }
-
-        await saveSharedConfig({
-            ...config.value,
-            allowBackgroundOperation: enabled,
-        });
-    }
-
-    async function setNumericLimit(key: 'timeoutMs' | 'maxOutputChars', rawValue: string) {
+    async function setNumericLimit(key: AppUseNumericLimitKey, rawValue: string) {
         const parsedValue = Number.parseInt(rawValue, 10);
         if (!Number.isFinite(parsedValue) || config.value[key] === parsedValue) {
             return;
@@ -415,38 +486,6 @@
                             </div>
 
                             <div
-                                class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-                            >
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.appUse.safety.backgroundOperation') }}
-                                </div>
-                                <button
-                                    type="button"
-                                    data-testid="settings-app-use-background-toggle"
-                                    :aria-pressed="config.allowBackgroundOperation"
-                                    :disabled="saving"
-                                    :class="[
-                                        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:cursor-wait disabled:opacity-60',
-                                        config.allowBackgroundOperation
-                                            ? 'settings-toggle-enabled'
-                                            : 'bg-neutral-200',
-                                    ]"
-                                    @click="
-                                        setBackgroundOperation(!config.allowBackgroundOperation)
-                                    "
-                                >
-                                    <span
-                                        :class="[
-                                            'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                                            config.allowBackgroundOperation
-                                                ? 'translate-x-[18px]'
-                                                : 'translate-x-1',
-                                        ]"
-                                    />
-                                </button>
-                            </div>
-
-                            <div
                                 class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
                             >
                                 <label class="text-[13px] leading-6 font-normal text-neutral-900">
@@ -492,6 +531,35 @@
                                         )
                                     "
                                 />
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="space-y-4">
+                        <div>
+                            <h2 class="settings-section-title">
+                                {{ t('settings.appUse.advanced.title') }}
+                            </h2>
+                            <p class="settings-section-description">
+                                {{ t('settings.appUse.advanced.description') }}
+                            </p>
+                        </div>
+
+                        <div class="settings-row-group divide-y divide-neutral-200/70">
+                            <div
+                                v-for="phase in phasePlanItems"
+                                :key="phase.id"
+                                class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                                :data-testid="`settings-app-use-advanced-${phase.id}`"
+                            >
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ phase.label }}
+                                </div>
+                                <span
+                                    class="inline-flex h-7 items-center rounded-[8px] bg-neutral-100 px-3 text-[12px] text-neutral-600"
+                                >
+                                    {{ phase.status }}
+                                </span>
                             </div>
                         </div>
                     </section>

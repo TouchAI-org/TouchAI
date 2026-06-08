@@ -1,12 +1,26 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    APP_ACT_TOOL_INPUT_SCHEMA,
+    APP_OBSERVE_TOOL_INPUT_SCHEMA,
+    APP_SESSION_TOOL_INPUT_SCHEMA,
     appUseActArgsSchema,
     appUseObserveArgsSchema,
     appUseSessionArgsSchema,
 } from '@/services/BuiltInToolService/tools/appUse';
 
 describe('App Use tool schemas', () => {
+    function expectRawAutomationRejection(
+        result: ReturnType<typeof appUseActArgsSchema.safeParse>
+    ) {
+        expect(result.success).toBe(false);
+        if (!result.success) {
+            expect(
+                result.error.issues.some((issue) => issue.message.includes('Raw automation'))
+            ).toBe(true);
+        }
+    }
+
     it('requires a user-facing description for every model-facing tool', () => {
         expect(appUseSessionArgsSchema.safeParse({ operation: 'discover' }).success).toBe(false);
         expect(
@@ -18,7 +32,7 @@ describe('App Use tool schemas', () => {
         expect(
             appUseActArgsSchema.safeParse({
                 adapterId: 'wps_writer',
-                action: 'replace_selection',
+                action: 'replace_document_text',
             }).success
         ).toBe(false);
     });
@@ -30,6 +44,27 @@ describe('App Use tool schemas', () => {
                 description: '列出可用软件',
             })
         ).toEqual({ operation: 'discover', description: '列出可用软件' });
+
+        expect(
+            appUseSessionArgsSchema.parse({
+                operation: 'create_owned_target',
+                description: 'create owned spreadsheet target',
+                adapterId: 'wps_spreadsheet',
+                targetKind: 'spreadsheet',
+            })
+        ).toEqual({
+            operation: 'create_owned_target',
+            description: 'create owned spreadsheet target',
+            adapterId: 'wps_spreadsheet',
+            targetKind: 'spreadsheet',
+        });
+
+        expect(
+            appUseSessionArgsSchema.safeParse({
+                operation: 'create_owned_target',
+                description: 'create owned target without adapter',
+            }).success
+        ).toBe(false);
 
         expect(
             appUseObserveArgsSchema.parse({
@@ -47,22 +82,29 @@ describe('App Use tool schemas', () => {
     it('rejects raw automation payloads even when hidden under common field names', () => {
         for (const hiddenField of ['script', 'rawScript', 'macro', 'vba', 'batchPlay']) {
             const result = appUseActArgsSchema.safeParse({
-                adapterId: 'wps_writer',
-                action: 'replace_selection',
+                adapterId: 'wps_spreadsheet',
+                action: 'write_cells',
                 description: '替换当前选区文本',
-                [hiddenField]: 'dangerous()',
+                targetId: 'owned-spreadsheet-1',
+                parameters: {
+                    range: 'A1:B1',
+                    values: [['safe']],
+                    [hiddenField]: 'dangerous()',
+                },
             });
 
-            expect(result.success).toBe(false);
+            expectRawAutomationRejection(result);
         }
 
         expect(
             appUseActArgsSchema.safeParse({
-                adapterId: 'illustrator',
-                action: 'batch_export',
-                description: 'export selected artboards',
+                adapterId: 'wps_spreadsheet',
+                action: 'write_cells',
+                description: 'write selected cells',
+                targetId: 'owned-spreadsheet-1',
                 parameters: {
-                    format: 'png',
+                    range: 'A1:B1',
+                    values: [['safe']],
                     nested: {
                         uxp: { rawScript: 'dangerous()' },
                     },
@@ -75,9 +117,94 @@ describe('App Use tool schemas', () => {
         expect(
             appUseActArgsSchema.safeParse({
                 adapterId: 'office_word',
-                action: 'replace_selection',
-                actions: ['replace_selection', 'save_as'],
+                action: 'replace_document_text',
+                actions: ['replace_document_text', 'save_as'],
                 description: '替换选区并另存为',
+                targetId: 'owned-document-1',
+            }).success
+        ).toBe(false);
+    });
+
+    it('does not expose unsupported Writer insert or Adobe actions to models', () => {
+        const actionSchema = APP_ACT_TOOL_INPUT_SCHEMA.properties.action as {
+            enum: string[];
+            description: string;
+        };
+        const sessionOperationSchema = APP_SESSION_TOOL_INPUT_SCHEMA.properties.operation as {
+            enum: string[];
+            description: string;
+        };
+        const adapterSchema = APP_ACT_TOOL_INPUT_SCHEMA.properties.adapterId as { enum: string[] };
+        const parameterSchema = APP_ACT_TOOL_INPUT_SCHEMA.properties.parameters as {
+            description: string;
+        };
+
+        expect(APP_ACT_TOOL_INPUT_SCHEMA.required).toContain('parameters');
+        expect(APP_ACT_TOOL_INPUT_SCHEMA.required).toContain('targetId');
+        expect(sessionOperationSchema.enum).toContain('create_owned_target');
+        expect(sessionOperationSchema.description).toContain('TouchAI-owned signed target path');
+        expect(actionSchema.enum).not.toContain('replace_selection');
+        expect(actionSchema.enum).not.toContain('format_selection');
+        expect(actionSchema.enum).not.toContain('insert_text');
+        expect(actionSchema.enum).not.toContain('select_layer');
+        expect(actionSchema.enum).not.toContain('export_preview');
+        expect(actionSchema.enum).not.toContain('batch_export');
+        expect(actionSchema.enum).not.toContain('cross_app_transfer');
+        expect(actionSchema.description).not.toContain('insert_text');
+        expect(parameterSchema.description).not.toContain('select_layer');
+        expect(parameterSchema.description).not.toContain('export_preview');
+        expect(adapterSchema.enum).not.toContain('photoshop');
+        expect(adapterSchema.enum).not.toContain('illustrator');
+
+        expect(
+            appUseActArgsSchema.safeParse({
+                adapterId: 'wps_writer',
+                action: 'insert_text',
+                description: 'insert text at the cursor',
+                targetId: 'owned-document-1',
+                parameters: { text: 'hello' },
+            }).success
+        ).toBe(false);
+        expect(
+            appUseActArgsSchema.safeParse({
+                adapterId: 'photoshop',
+                action: 'export_preview',
+                description: 'export a preview',
+            }).success
+        ).toBe(false);
+    });
+
+    it('describes targetId as a TouchAI-owned signed target path', () => {
+        const observeTargetSchema = APP_OBSERVE_TOOL_INPUT_SCHEMA.properties.targetId as {
+            description: string;
+        };
+        const actTargetSchema = APP_ACT_TOOL_INPUT_SCHEMA.properties.targetId as {
+            description: string;
+        };
+
+        expect(observeTargetSchema.description).toContain('TouchAI-owned signed target path');
+        expect(actTargetSchema.description).toContain('TouchAI-owned signed target path');
+        expect(actTargetSchema.description).toContain('not an arbitrary local path');
+        expect(actTargetSchema.description).not.toContain('returned by app_session');
+    });
+
+    it('rejects actions for adapters that do not implement them', () => {
+        expect(
+            appUseActArgsSchema.safeParse({
+                adapterId: 'wps_writer',
+                action: 'write_cells',
+                description: 'write cells from a writer adapter',
+                targetId: 'owned-document-1',
+                parameters: { range: 'A1:B1', values: [['Name', 'Status']] },
+            }).success
+        ).toBe(false);
+        expect(
+            appUseActArgsSchema.safeParse({
+                adapterId: 'wps_spreadsheet',
+                action: 'replace_document_text',
+                description: 'replace text from a spreadsheet adapter',
+                targetId: 'owned-spreadsheet-1',
+                parameters: { text: 'hello' },
             }).success
         ).toBe(false);
     });
@@ -86,8 +213,9 @@ describe('App Use tool schemas', () => {
         expect(
             appUseActArgsSchema.safeParse({
                 adapterId: 'wps_writer',
-                action: 'format_selection',
+                action: 'format_document_text',
                 description: 'format owned document',
+                targetId: 'owned-document-1',
                 parameters: {},
             }).success
         ).toBe(false);
@@ -96,6 +224,7 @@ describe('App Use tool schemas', () => {
                 adapterId: 'wps_spreadsheet',
                 action: 'write_cells',
                 description: 'write owned sheet',
+                targetId: 'owned-spreadsheet-1',
                 parameters: { range: 'A1:B1', values: [] },
             }).success
         ).toBe(false);
@@ -104,15 +233,26 @@ describe('App Use tool schemas', () => {
                 adapterId: 'wps_presentation',
                 action: 'add_slide_text',
                 description: 'add text to owned slide',
+                targetId: 'owned-presentation-1',
                 parameters: { text: ' ' },
+            }).success
+        ).toBe(false);
+        expect(
+            appUseActArgsSchema.safeParse({
+                adapterId: 'wps_writer',
+                action: 'replace_document_text',
+                description: 'replace owned document',
+                targetId: 'owned-document-1',
+                parameters: { text: 'x'.repeat(20_001) },
             }).success
         ).toBe(false);
 
         expect(
             appUseActArgsSchema.safeParse({
                 adapterId: 'wps_writer',
-                action: 'format_selection',
+                action: 'format_document_text',
                 description: 'format owned document',
+                targetId: 'owned-document-1',
                 parameters: { bold: true, fontSize: 18, fontName: 'Arial' },
             }).success
         ).toBe(true);
@@ -121,6 +261,7 @@ describe('App Use tool schemas', () => {
                 adapterId: 'wps_spreadsheet',
                 action: 'write_cells',
                 description: 'write owned sheet',
+                targetId: 'owned-spreadsheet-1',
                 parameters: { range: 'A1:B1', values: [['Name', 'Status']] },
             }).success
         ).toBe(true);
@@ -129,6 +270,7 @@ describe('App Use tool schemas', () => {
                 adapterId: 'wps_presentation',
                 action: 'add_slide_text',
                 description: 'add text to owned slide',
+                targetId: 'owned-presentation-1',
                 parameters: { text: 'hello slide', slideIndex: 1 },
             }).success
         ).toBe(true);
@@ -140,72 +282,30 @@ describe('App Use tool schemas', () => {
                 adapterId: 'wps_presentation',
                 action: 'add_slide_text',
                 description: 'add text to owned slide',
+                targetId: 'owned-presentation-1',
                 parameters: { text: '   hello slide   ', slideIndex: 1 },
             }).parameters
         ).toEqual({ text: 'hello slide', slideIndex: 1 });
-
-        expect(
-            appUseActArgsSchema.parse({
-                adapterId: 'photoshop',
-                action: 'select_layer',
-                description: 'select a layer',
-                parameters: { layerName: '   Logo   ' },
-            }).parameters
-        ).toEqual({ layerName: 'Logo' });
     });
 
-    it('validates parameter shapes for planned actions without allowing arbitrary objects', () => {
+    it('uses app_observe, not app_act, for structured read-only cell access', () => {
+        expect(
+            appUseObserveArgsSchema.safeParse({
+                adapterId: 'wps_spreadsheet',
+                scope: 'worksheet',
+                description: 'read cells',
+            }).success
+        ).toBe(true);
+    });
+
+    it('validates parameter shapes for supported actions without allowing arbitrary objects', () => {
         expect(
             appUseActArgsSchema.safeParse({
                 adapterId: 'wps_spreadsheet',
-                action: 'read_cells',
-                description: 'read cells',
-                parameters: { range: 'A1:B2' },
-            }).success
-        ).toBe(true);
-        expect(
-            appUseActArgsSchema.safeParse({
-                adapterId: 'photoshop',
-                action: 'select_layer',
-                description: 'select a layer',
-                parameters: { layerName: 'Logo' },
-            }).success
-        ).toBe(true);
-        expect(
-            appUseActArgsSchema.safeParse({
-                adapterId: 'photoshop',
-                action: 'export_preview',
-                description: 'export preview',
-                parameters: { format: 'png', selectionOnly: true },
-            }).success
-        ).toBe(true);
-        expect(
-            appUseActArgsSchema.safeParse({
-                adapterId: 'illustrator',
-                action: 'cross_app_transfer',
-                description: 'transfer selected text',
-                parameters: {
-                    sourceAdapterId: 'illustrator',
-                    targetAdapterId: 'wps_writer',
-                    mode: 'copy_text',
-                },
-            }).success
-        ).toBe(true);
-
-        expect(
-            appUseActArgsSchema.safeParse({
-                adapterId: 'photoshop',
-                action: 'select_layer',
-                description: 'select no layer',
-                parameters: {},
-            }).success
-        ).toBe(false);
-        expect(
-            appUseActArgsSchema.safeParse({
-                adapterId: 'photoshop',
-                action: 'export_preview',
-                description: 'export preview with raw code',
-                parameters: { format: 'png', command: 'raw()', rawScript: 'dangerous()' },
+                action: 'write_cells',
+                description: 'write cells with raw code',
+                targetId: 'owned-spreadsheet-1',
+                parameters: { range: 'A1:B1', values: [['safe']], rawScript: 'dangerous()' },
             }).success
         ).toBe(false);
     });

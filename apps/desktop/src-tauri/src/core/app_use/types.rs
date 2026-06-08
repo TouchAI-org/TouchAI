@@ -26,6 +26,27 @@ fn default_max_output_chars() -> usize {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct AppUseAdvancedConfig {
+    #[serde(default)]
+    pub export_previews: bool,
+    #[serde(default)]
+    pub batch_workflows: bool,
+    #[serde(default)]
+    pub cross_app_workflows: bool,
+}
+
+impl Default for AppUseAdvancedConfig {
+    fn default() -> Self {
+        Self {
+            export_previews: false,
+            batch_workflows: false,
+            cross_app_workflows: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppUseConfig {
     #[serde(default = "default_mode")]
     pub mode: String,
@@ -43,6 +64,8 @@ pub struct AppUseConfig {
     pub timeout_ms: u64,
     #[serde(default = "default_max_output_chars")]
     pub max_output_chars: usize,
+    #[serde(default)]
+    pub advanced: AppUseAdvancedConfig,
 }
 
 impl AppUseConfig {
@@ -91,6 +114,10 @@ pub struct AppUseSessionRequest {
     pub execution_id: String,
     pub operation: String,
     pub description: String,
+    #[serde(default)]
+    pub adapter_id: Option<String>,
+    #[serde(default)]
+    pub target_kind: Option<String>,
     pub config: AppUseConfig,
 }
 
@@ -125,6 +152,17 @@ pub struct AppUseActRequest {
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct AppUseAdapterContract {
+    pub vendor: String,
+    pub version: String,
+    pub observe_scopes: Vec<String>,
+    pub actions: Vec<String>,
+    pub risk_level: String,
+    pub raw_automation_allowed: bool,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppUseAdapterDescriptor {
     pub id: String,
     pub label: String,
@@ -132,6 +170,7 @@ pub struct AppUseAdapterDescriptor {
     pub running: bool,
     pub enabled: bool,
     pub capabilities: Vec<String>,
+    pub contract: AppUseAdapterContract,
     pub active_target_name: Option<String>,
 }
 
@@ -142,6 +181,12 @@ pub struct AppUseSessionResponse {
     pub operation: String,
     pub adapters: Vec<AppUseAdapterDescriptor>,
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

@@ -61,8 +61,8 @@
 | P3 结构化读取 | 读取应用上下文 | 文档、选区、工作表、幻灯片、图层、画板等信息 |
 | P4 审批治理 | 写动作统一审批 | 目标软件、目标文件、动作说明、影响预览、日志 |
 | P5 Office/WPS 写动作 | 第一批实用闭环 | 插入/替换文本、读写单元格、简单幻灯片文本操作 |
-| P6 Adobe 读取与轻动作 | PS/AI 初步深化 | 当前文档、画布、图层、对象、画板读取，后续少量安全动作 |
-| P7 高级工作流 | 扩展复杂软件任务 | 导出、批处理、格式调整、跨软件联动 |
+| P6 Computer Use 边界 | 明确不在 App Use 中实现 | 通用屏幕观察、鼠标键盘、前台 UI Automation 兜底属于 Computer Use，不作为软件控制功能 |
+| P7 高级工作流 | 扩展复杂软件任务 | 导出、批处理、格式调整、跨软件联动；Adobe 若增加轻动作也必须限定在结构化 adapter 内 |
 | P8 Adapter 扩展规范 | 支持长期扩展 | 新 adapter 接入规范、测试规范、风险策略、示例 |
 
 ## 6. 工具设计
@@ -92,7 +92,7 @@
 | `photoshop` | 当前文档、画布尺寸、图层列表、当前图层 | 少量安全动作，如选择图层、导出前预览 |
 | `illustrator` | 当前文档、画板、图层、选中对象摘要 | 少量安全动作，如选择对象、读取对象属性 |
 
-Office/WPS 是第一批实用闭环重点。Adobe 先做 discovery 和 read-only observation，再逐步增加轻动作。
+Office/WPS 是第一批实用闭环重点。Adobe 先做 discovery 和 read-only observation；后续如增加轻动作，必须在 P7 之后以结构化 adapter 形式单独评估，不能滑向 P6 的通用 Computer Use。
 
 ## 8. 设置功能
 
@@ -230,8 +230,8 @@ Office/WPS 如果走 COM 或类似自动化接口，应使用 Windows STA 兼容
 7. 补 Excel / WPS Spreadsheet 的选区和单元格读写。
 8. 补 PowerPoint / WPS Presentation 的幻灯片文本读取和简单写入。
 9. 补 Photoshop / Illustrator 的 read-only 深化。
-10. 实现 Photoshop / Illustrator 的安全轻动作。
-11. 实现高级工作流，例如导出、批处理、格式调整和跨软件联动。
+10. 明确保留 P6 Computer Use 边界，不实现通用前台鼠标、键盘或 UI Automation fallback。
+11. 实现高级工作流，例如导出、批处理、格式调整和跨软件联动；如需 Adobe 安全轻动作，应作为结构化 adapter 的高级工作流单独推进。
 12. 补充 adapter 扩展规范，让新增软件可以按统一接口接入。
 
 ## 14. 测试计划
