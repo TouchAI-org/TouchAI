@@ -8,15 +8,13 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
 import {
-    createGeneralSettingsComputedRefs,
-    createGeneralSettingUpdaters,
-} from './settingsBindings';
-import {
     applyGeneralSettingValue,
     applyParsedGeneralSettingValue,
     applyPersistedGeneralSettingValue,
     cloneGeneralSettingsSnapshot,
     createDefaultGeneralSettings,
+    createGeneralSettingsComputedRefs,
+    createGeneralSettingUpdaters,
     GENERAL_SETTING_DEFINITIONS,
     type GeneralSettingsData,
     getGeneralSettingDefinition,
