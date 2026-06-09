@@ -155,18 +155,68 @@ async fn ensure_import_required_tables(
     ];
 
     for &table in REQUIRED_TABLES {
-        let exists = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM imported.sqlite_master WHERE type = 'table' AND name = ?",
-        )
-        .bind(table)
-        .fetch_one(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to inspect import table '{table}': {error}"))?;
-
-        if exists == 0 {
+        if !imported_table_exists(connection, table).await? {
             return Err(format!("导入数据库缺少必需数据表: {table}"));
         }
     }
+
+    Ok(())
+}
+
+async fn imported_table_exists(
+    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
+    table: &str,
+) -> Result<bool, String> {
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM imported.sqlite_master WHERE type = 'table' AND name = ?",
+    )
+    .bind(table)
+    .fetch_one(&mut **connection)
+    .await
+    .map_err(|error| format!("Failed to inspect import table '{table}': {error}"))?;
+
+    Ok(exists > 0)
+}
+
+async fn prepare_full_import_memory_items(
+    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
+) -> Result<(), String> {
+    sqlx::raw_sql(
+        "DROP TABLE IF EXISTS temp_imported_memory_items;
+         CREATE TEMP TABLE temp_imported_memory_items (
+             id INTEGER PRIMARY KEY,
+             title TEXT NOT NULL,
+             applicability TEXT NOT NULL,
+             content TEXT NOT NULL,
+             enabled INTEGER NOT NULL,
+             source_session_id INTEGER,
+             source_message_id INTEGER,
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL,
+             last_used_at TEXT
+         );",
+    )
+    .execute(&mut **connection)
+    .await
+    .map_err(|error| format!("Failed to prepare imported memory staging table: {error}"))?;
+
+    if !imported_table_exists(connection, "memory_items").await? {
+        return Ok(());
+    }
+
+    sqlx::raw_sql(
+        "INSERT INTO temp_imported_memory_items (
+             id, title, applicability, content, enabled, source_session_id, source_message_id,
+             created_at, updated_at, last_used_at
+         )
+         SELECT
+             id, title, applicability, content, enabled, source_session_id, source_message_id,
+             created_at, updated_at, last_used_at
+         FROM imported.memory_items;",
+    )
+    .execute(&mut **connection)
+    .await
+    .map_err(|error| format!("Failed to stage imported memory items: {error}"))?;
 
     Ok(())
 }
@@ -194,6 +244,7 @@ async fn merge_full_data(
     )
     .await?;
     merge_chat_data(connection, database_contract).await?;
+    prepare_full_import_memory_items(connection).await?;
     execute_sql_artifact_on_connection(
         connection,
         database_contract,

@@ -12,10 +12,12 @@ import {
 } from '@/services/AgentService/infrastructure/attachments';
 import type { InputHistorySnapshot } from '@/types/session';
 
+import { resolveToolDefinitions } from '../catalog';
 import { AiError, AiErrorCode } from '../contracts/errors';
 import { isTouchAiManagedMode, parseProviderConfigJson } from '../infrastructure/providers/config';
 import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
+import { buildBuiltInPromptContext } from '../prompt/builtin';
 import { composePromptSnapshot } from '../prompt/composer';
 import { buildPromptTransportMessages } from '../prompt/transport';
 import type { PromptSnapshot } from '../prompt/types';
@@ -246,6 +248,9 @@ export class AiConversationRuntime {
         if (attachments.length > 0) {
             await this.prepareAttachmentsForTransport(attachments);
         }
+        const builtInPromptContext = this.options.promptSnapshot
+            ? null
+            : await buildBuiltInPromptContext(await resolveToolDefinitions(initialModel));
         // prompt 快照在整个 turn 生命周期内只生成一次。
         // 后续 retry、tool iteration、checkpoint resume 都必须复用它。
         const promptSnapshot =
@@ -255,6 +260,8 @@ export class AiConversationRuntime {
                 attachments,
                 executionMode: this.options.executionMode ?? 'foreground',
                 inputSnapshot: this.options.inputSnapshot,
+                platform: builtInPromptContext?.platform,
+                sessionMemory: builtInPromptContext?.sessionMemory ?? [],
             }));
         const modelLanguageContext =
             promptSnapshot.modelLanguageContext ?? getCurrentModelLanguageContext();

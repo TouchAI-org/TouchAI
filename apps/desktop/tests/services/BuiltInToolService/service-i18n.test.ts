@@ -15,6 +15,8 @@ const {
         id: 'setting',
         displayName: 'Setting',
         parseConfig: vi.fn(() => ({})),
+        prepareForExecution: vi.fn(async (args) => args),
+        sanitizeLogInput: vi.fn((args) => args),
         buildConversationSemanticWithContext: vi.fn(() => ({
             action: 'process',
             target: 'Setting',

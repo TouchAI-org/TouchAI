@@ -27,6 +27,7 @@
 
     const GeneralView = defineAsyncComponent(() => import('./components/General/index.vue'));
     const AiServicesView = defineAsyncComponent(() => import('./components/AiServices/index.vue'));
+    const MemoryView = defineAsyncComponent(() => import('./components/Memory/index.vue'));
     const BuiltInToolsView = defineAsyncComponent(
         () => import('./components/BuiltInTools/index.vue')
     );
@@ -278,6 +279,19 @@
                                 <template #fallback>
                                     <LoadingState
                                         :message="t('settings.loading.aiServices')"
+                                        variant="brand"
+                                        fill="min"
+                                    />
+                                </template>
+                            </Suspense>
+                        </div>
+
+                        <div v-else-if="activeSection === 'memory'" class="h-full w-full">
+                            <Suspense>
+                                <MemoryView />
+                                <template #fallback>
+                                    <LoadingState
+                                        :message="t('settings.loading.memory')"
                                         variant="brand"
                                         fill="min"
                                     />

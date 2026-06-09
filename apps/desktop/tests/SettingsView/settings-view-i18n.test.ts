@@ -65,6 +65,16 @@ vi.mock('@/views/SettingsView/components/AiServices/index.vue', () => ({
         },
     },
 }));
+vi.mock('@/views/SettingsView/components/Memory/index.vue', () => ({
+    __esModule: true,
+    default: {
+        name: 'MemoryViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
+}));
 vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
     __esModule: true,
     default: {
@@ -130,6 +140,9 @@ describe('SettingsView lazy loading i18n', () => {
 
         await wrapper.get('[data-testid="settings-nav-ai-services"]').trigger('click');
         expect(wrapper.text()).toContain('Loading model service settings...');
+
+        await wrapper.get('[data-testid="settings-nav-memory"]').trigger('click');
+        expect(wrapper.text()).toContain('Loading memory settings...');
 
         await wrapper.get('[data-testid="settings-nav-built-in-tools"]').trigger('click');
         expect(wrapper.text()).toContain('Loading built-in tools...');

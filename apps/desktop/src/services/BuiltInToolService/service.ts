@@ -21,6 +21,7 @@ import type {
     ToolApprovalRequest,
     ToolEvent,
 } from '@/services/AgentService/contracts/tooling';
+import { redactAllStringValues, redactSecretLikeContent } from '@/utils/secretLikeContent';
 
 import { builtInToolRegistry } from './registry';
 import type {
@@ -100,6 +101,10 @@ async function throwIfCancelledAndMarkToolLog(options: {
     await markCancelledToolLog(options);
 
     throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
@@ -235,6 +240,57 @@ class BuiltInToolService {
         return result;
     }
 
+    async sanitizeToolCallForHistory(toolCall: AiToolCall): Promise<AiToolCall> {
+        const resolved = await this.resolveToolCall(toolCall.name);
+        if (!resolved) {
+            if (toolCall.name.startsWith(BUILT_IN_TOOL_PREFIX)) {
+                try {
+                    const parsedArgs: unknown = JSON.parse(toolCall.arguments);
+                    if (isRecord(parsedArgs)) {
+                        return {
+                            ...toolCall,
+                            arguments: JSON.stringify(redactAllStringValues(parsedArgs)),
+                        };
+                    }
+                } catch {
+                    return {
+                        ...toolCall,
+                        arguments: redactSecretLikeContent(toolCall.arguments),
+                    };
+                }
+
+                return {
+                    ...toolCall,
+                    arguments: redactSecretLikeContent(toolCall.arguments),
+                };
+            }
+
+            return toolCall;
+        }
+
+        try {
+            const parsedArgs: unknown = JSON.parse(toolCall.arguments);
+            if (!isRecord(parsedArgs)) {
+                return {
+                    ...toolCall,
+                    arguments: redactSecretLikeContent(toolCall.arguments),
+                };
+            }
+
+            return {
+                ...toolCall,
+                arguments: JSON.stringify(
+                    resolved.tool.sanitizeLogInput(parsedArgs, resolved.config)
+                ),
+            };
+        } catch {
+            return {
+                ...toolCall,
+                arguments: redactSecretLikeContent(toolCall.arguments),
+            };
+        }
+    }
+
     /**
      * 统一执行 built-in tool 的完整生命周期。
      *
@@ -260,9 +316,28 @@ class BuiltInToolService {
         };
 
         const callStartTime = Date.now();
+        let preparedArgs = options.toolArgs;
+        let logSafeArgs = resolved.tool.sanitizeLogInput(preparedArgs, resolved.config);
+        let preparationError: unknown;
+        try {
+            throwIfCancelled(options.signal);
+            preparedArgs = await resolved.tool.prepareForExecution(
+                options.toolArgs,
+                resolved.config,
+                executionContext
+            );
+            logSafeArgs = resolved.tool.sanitizeLogInput(preparedArgs, resolved.config);
+        } catch (error) {
+            const aiError = AiError.fromError(error);
+            if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
+                throw aiError;
+            }
+            preparationError = error;
+        }
+
         const conversationSemantic = await this.buildConversationSemantic(
             resolved,
-            options.toolArgs,
+            logSafeArgs,
             executionContext
         );
         // `call_start` 要尽早发给 UI，前端可展示工具调用开始了
@@ -273,9 +348,33 @@ class BuiltInToolService {
             namespacedName: options.toolCall.name,
             source: 'builtin',
             sourceLabel: '内置工具',
-            arguments: options.toolArgs,
+            arguments: logSafeArgs,
             builtinConversationSemantic: conversationSemantic,
         });
+
+        if (preparationError) {
+            const toolResult = this.buildFailedToolResult(preparationError);
+            const durationMs = Date.now() - callStartTime;
+            options.emitToolEvent({
+                type: 'call_end',
+                callId: options.toolCall.id,
+                result: toolResult.result,
+                isError: toolResult.isError,
+                durationMs,
+                finalStatus: 'error',
+            });
+
+            return {
+                toolCall: options.toolCall,
+                builtInToolId: resolved.tool.id,
+                result: toolResult.result,
+                isError: toolResult.isError,
+                toolLogId: null,
+                toolLogKind: 'builtin',
+                attachments: toolResult.attachments,
+                controlSignal: toolResult.controlSignal,
+            };
+        }
 
         let toolLogId: number | null = null;
         try {
@@ -287,7 +386,7 @@ class BuiltInToolService {
                 session_id: options.sessionId,
                 message_id: options.toolCallMessageId,
                 iteration: options.iteration,
-                input: JSON.stringify(options.toolArgs),
+                input: JSON.stringify(logSafeArgs),
                 status: 'pending',
                 approval_state: 'none',
             });
@@ -311,7 +410,7 @@ class BuiltInToolService {
             });
             const approvalRequest = await this.buildApprovalRequest(
                 resolved,
-                options.toolArgs,
+                preparedArgs,
                 executionContext
             );
             if (approvalRequest) {
@@ -415,11 +514,7 @@ class BuiltInToolService {
             }
 
             // 5. 执行工具
-            toolResult = await this.executeResolvedTool(
-                resolved,
-                options.toolArgs,
-                executionContext
-            );
+            toolResult = await this.executeResolvedTool(resolved, preparedArgs, executionContext);
         } catch (error) {
             try {
                 toolResult = this.buildFailedToolResult(error);

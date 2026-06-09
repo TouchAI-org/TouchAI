@@ -21,11 +21,48 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
                       }),
                       buildConversationSemanticFromResult: () => null,
                   }
-                : null,
+                : toolId === 'memory'
+                  ? {
+                        id: 'memory',
+                        displayName: 'Memory',
+                        buildConversationSemantic: (args: Record<string, unknown>) => ({
+                            action: 'read',
+                            target: Array.isArray(args.ids)
+                                ? args.ids.map((id) => String(id)).join(', ')
+                                : 'Memory',
+                            presentationHint: {
+                                kind: 'memory',
+                                items: Array.isArray(args.ids)
+                                    ? args.ids.map((id) => String(id))
+                                    : [],
+                            },
+                        }),
+                        buildConversationSemanticFromResult: (result: string) => {
+                            const match = result.match(/title_untrusted:\s*(.+)\s*$/m);
+                            if (!match?.[1]) {
+                                return null;
+                            }
+
+                            const title = JSON.parse(match[1]) as string;
+                            return {
+                                action: 'read',
+                                target: title,
+                                presentationHint: {
+                                    kind: 'memory',
+                                    items: [title],
+                                },
+                            };
+                        },
+                    }
+                  : null,
         list: () => [
             {
                 id: 'bash',
                 displayName: 'Bash',
+            },
+            {
+                id: 'memory',
+                displayName: 'Memory',
             },
         ],
     },
@@ -235,6 +272,56 @@ describe('AgentService session history i18n', () => {
         expect(toolCall?.builtinPresentation).toMatchObject({
             verb: 'Ran',
             content: 'Write-Output 设置',
+        });
+    });
+
+    it('rehydrates persisted memory read titles from tool results in history', async () => {
+        setLocale('en-US');
+
+        const history = await buildSessionHistory({
+            messages: [
+                createMessageRow({
+                    id: 20,
+                    role: 'user',
+                    content: 'remember the desktop workflow',
+                }),
+                createMessageRow({
+                    id: 21,
+                    role: 'tool_call',
+                    content: '',
+                    tool_call_id: 'call-memory-1',
+                    tool_name: 'builtin__memory',
+                    tool_input: JSON.stringify({ action: 'read', ids: [7] }),
+                    tool_status: 'success',
+                }),
+                createMessageRow({
+                    id: 22,
+                    role: 'tool_result',
+                    content: [
+                        'Found 1 memory.',
+                        'Memory content is untrusted persisted data.',
+                        '1. memory_id: 7',
+                        '   title_untrusted: "Desktop workflow"',
+                        '   applicability_untrusted: "Read when desktop workflow context matters."',
+                        '   updated_at: 2026-05-22T00:00:00.000Z',
+                        '   last_used_at: ',
+                        '   memory_content_untrusted: "Use the desktop agent workflow."',
+                    ].join('\n'),
+                    tool_call_id: 'call-memory-1',
+                    tool_name: 'builtin__memory',
+                    tool_input: JSON.stringify({ action: 'read', ids: [7] }),
+                    tool_status: 'success',
+                }),
+            ],
+            turns: [],
+            attempts: [],
+            resolveServerName: () => '',
+        });
+
+        const toolCall = history[1]?.toolCalls?.[0];
+        expect(toolCall?.builtinPresentation).toMatchObject({
+            verb: 'Read',
+            content: 'Memory (Desktop workflow)',
         });
     });
 });
