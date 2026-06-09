@@ -16,10 +16,9 @@ import {
 import type { AppLocale } from '@/i18n';
 
 import {
-    GENERAL_COMPUTED_BINDINGS,
+    GENERAL_DERIVED_COMPUTED_BINDINGS,
     GENERAL_SCALAR_SETTING_SPECS,
     GENERAL_SETTINGS_DEFAULTS,
-    GENERAL_UPDATER_BINDINGS,
 } from './general';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
@@ -53,7 +52,14 @@ type GeneralSettingFieldValue =
     | BrowserSettingsConfig
     | SearchSettingsConfig;
 
-type GeneralSettingStateKey = Exclude<keyof GeneralSettingsData, 'searchWindowDefaultSize'>;
+type GeneralScalarSettingStateKey = Exclude<
+    keyof GeneralSettingsData,
+    'browserSettings' | 'searchSettings' | 'searchWindowDefaultSize'
+>;
+type GeneralPersistedSettingStateKey = Exclude<
+    keyof GeneralSettingsData,
+    'searchWindowDefaultSize'
+>;
 
 type GeneralSettingsComputedRefMap = Record<
     keyof GeneralSettingsComputedRefs,
@@ -104,13 +110,19 @@ export interface GeneralSettingUpdaters {
 
 export interface ScalarSettingDefinitionOptions {
     key: GeneralSettingKey;
-    stateKey: GeneralSettingStateKey;
+    stateKey: GeneralScalarSettingStateKey;
+    defaultValue: GeneralSettingFieldValue;
     parsePersisted(raw: string | null): GeneralSettingFieldValue;
     parseUpdate(value: GeneralSettingValue): GeneralSettingFieldValue;
     serializeValue?(value: GeneralSettingFieldValue): string;
     eventValue?(value: GeneralSettingFieldValue): GeneralSettingValue;
     afterApply?(target: GeneralSettingsData, value: GeneralSettingFieldValue): void;
     persistBeforeApply?: boolean;
+    store?: {
+        computedName?: keyof GeneralSettingsComputedRefs;
+        updaterName?: keyof GeneralSettingUpdaters;
+        normalizeUpdate?: (value: unknown) => GeneralSettingValue;
+    };
 }
 
 export interface GeneralSettingComputedBinding {
@@ -130,18 +142,19 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
 
 function assignGeneralSettingField(
     target: GeneralSettingsData,
-    stateKey: GeneralSettingStateKey,
+    stateKey: GeneralPersistedSettingStateKey,
     value: GeneralSettingFieldValue
 ): void {
-    (target as unknown as Record<GeneralSettingStateKey, GeneralSettingFieldValue>)[stateKey] =
-        value;
+    (target as unknown as Record<GeneralPersistedSettingStateKey, GeneralSettingFieldValue>)[
+        stateKey
+    ] = value;
 }
 
 function readGeneralSettingField(
     source: GeneralSettingsData,
-    stateKey: GeneralSettingStateKey
+    stateKey: GeneralPersistedSettingStateKey
 ): GeneralSettingFieldValue {
-    return (source as unknown as Record<GeneralSettingStateKey, GeneralSettingFieldValue>)[
+    return (source as unknown as Record<GeneralPersistedSettingStateKey, GeneralSettingFieldValue>)[
         stateKey
     ];
 }
@@ -197,6 +210,37 @@ function jsonUpdaterBinding(section: RegisteredJsonSettingsSection): GeneralSett
     };
 }
 
+function scalarComputedBindings(
+    specs: readonly ScalarSettingDefinitionOptions[]
+): GeneralSettingComputedBinding[] {
+    return specs.flatMap((spec) =>
+        spec.store?.computedName
+            ? [
+                  {
+                      exposedName: spec.store.computedName,
+                      stateKey: spec.stateKey,
+                  },
+              ]
+            : []
+    );
+}
+
+function scalarUpdaterBindings(
+    specs: readonly ScalarSettingDefinitionOptions[]
+): GeneralSettingUpdaterBinding[] {
+    return specs.flatMap((spec) =>
+        spec.store?.updaterName
+            ? [
+                  {
+                      exposedName: spec.store.updaterName,
+                      key: spec.key,
+                      normalize: spec.store.normalizeUpdate ?? String,
+                  },
+              ]
+            : []
+    );
+}
+
 export const JSON_GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] =
     JSON_SETTINGS_SECTIONS.map(jsonSettingDefinition);
 
@@ -206,12 +250,13 @@ export const GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = 
 ];
 
 export const GENERAL_SETTING_COMPUTED_BINDINGS: readonly GeneralSettingComputedBinding[] = [
-    ...GENERAL_COMPUTED_BINDINGS,
+    ...scalarComputedBindings(GENERAL_SCALAR_SETTING_SPECS),
+    ...GENERAL_DERIVED_COMPUTED_BINDINGS,
     ...JSON_SETTINGS_SECTIONS.map(jsonComputedBinding),
 ];
 
 export const GENERAL_SETTING_UPDATER_BINDINGS: readonly GeneralSettingUpdaterBinding[] = [
-    ...GENERAL_UPDATER_BINDINGS,
+    ...scalarUpdaterBindings(GENERAL_SCALAR_SETTING_SPECS),
     ...JSON_SETTINGS_SECTIONS.map(jsonUpdaterBinding),
 ];
 

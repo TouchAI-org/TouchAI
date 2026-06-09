@@ -11,37 +11,30 @@ import { z } from '@/utils/zod';
 import type {
     GeneralSettingComputedBinding,
     GeneralSettingsData,
-    GeneralSettingUpdaterBinding,
     OutputScrollBehavior,
     ScalarSettingDefinitionOptions,
 } from './index';
-
-export const GENERAL_SETTINGS_DEFAULTS = {
-    globalShortcut: 'Alt+Space',
-    startOnBoot: false,
-    startMinimized: true,
-    outputScrollBehavior: 'follow_output',
-    searchWindowSizePreset: DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
-    searchWindowDefaultSize: resolveSearchWindowDefaultSize(DEFAULT_SEARCH_WINDOW_SIZE_PRESET),
-    language: 'zh-CN',
-    appUpdateChannel: DEFAULT_APP_UPDATE_CHANNEL,
-    appUpdateAutoCheck: true,
-    appUpdateLastCheckedAt: null,
-} satisfies Omit<GeneralSettingsData, 'browserSettings' | 'searchSettings'>;
 
 const outputScrollBehaviorSchema = z.enum(['follow_output', 'stay_position', 'jump_to_top']);
 const searchWindowSizePresetSchema = z.enum(
     Object.keys(SearchWindowSizePresets) as [SearchWindowSizePreset, ...SearchWindowSizePreset[]]
 );
 
+const DEFAULT_GLOBAL_SHORTCUT = 'Alt+Space';
+const DEFAULT_OUTPUT_SCROLL_BEHAVIOR: OutputScrollBehavior = 'follow_output';
+const DEFAULT_LANGUAGE: AppLocale = 'zh-CN';
+const DEFAULT_SEARCH_WINDOW_DEFAULT_SIZE = resolveSearchWindowDefaultSize(
+    DEFAULT_SEARCH_WINDOW_SIZE_PRESET
+);
+
 function normalizeOutputScrollBehavior(value: string | null): OutputScrollBehavior {
     const result = outputScrollBehaviorSchema.safeParse(value);
-    return result.success ? result.data : GENERAL_SETTINGS_DEFAULTS.outputScrollBehavior;
+    return result.success ? result.data : DEFAULT_OUTPUT_SCROLL_BEHAVIOR;
 }
 
 function normalizeSearchWindowSizePreset(value: string | null): SearchWindowSizePreset {
     const result = searchWindowSizePresetSchema.safeParse(value);
-    return result.success ? result.data : GENERAL_SETTINGS_DEFAULTS.searchWindowSizePreset;
+    return result.success ? result.data : DEFAULT_SEARCH_WINDOW_SIZE_PRESET;
 }
 
 function booleanFromString(value: unknown, defaultValue: boolean): boolean {
@@ -76,32 +69,55 @@ export const GENERAL_SCALAR_SETTING_SPECS: readonly ScalarSettingDefinitionOptio
     {
         key: 'global_shortcut',
         stateKey: 'globalShortcut',
-        parsePersisted: (raw) => stringValue(raw, GENERAL_SETTINGS_DEFAULTS.globalShortcut),
-        parseUpdate: (value) => stringValue(value, GENERAL_SETTINGS_DEFAULTS.globalShortcut),
+        defaultValue: DEFAULT_GLOBAL_SHORTCUT,
+        parsePersisted: (raw) => stringValue(raw, DEFAULT_GLOBAL_SHORTCUT),
+        parseUpdate: (value) => stringValue(value, DEFAULT_GLOBAL_SHORTCUT),
+        store: {
+            computedName: 'globalShortcut',
+            updaterName: 'updateGlobalShortcut',
+            normalizeUpdate: String,
+        },
     },
     {
         key: 'start_on_boot',
         stateKey: 'startOnBoot',
-        parsePersisted: (raw) => booleanFromString(raw, GENERAL_SETTINGS_DEFAULTS.startOnBoot),
-        parseUpdate: (value) => booleanFromString(value, GENERAL_SETTINGS_DEFAULTS.startOnBoot),
+        defaultValue: false,
+        parsePersisted: (raw) => booleanFromString(raw, false),
+        parseUpdate: (value) => booleanFromString(value, false),
         eventValue: (value) => value as boolean,
+        store: {
+            updaterName: 'updateStartOnBoot',
+            normalizeUpdate: Boolean,
+        },
     },
     {
         key: 'start_minimized',
         stateKey: 'startMinimized',
-        parsePersisted: (raw) => booleanFromString(raw, GENERAL_SETTINGS_DEFAULTS.startMinimized),
-        parseUpdate: (value) => booleanFromString(value, GENERAL_SETTINGS_DEFAULTS.startMinimized),
+        defaultValue: true,
+        parsePersisted: (raw) => booleanFromString(raw, true),
+        parseUpdate: (value) => booleanFromString(value, true),
         eventValue: (value) => value as boolean,
+        store: {
+            updaterName: 'updateStartMinimized',
+            normalizeUpdate: Boolean,
+        },
     },
     {
         key: 'output_scroll_behavior',
         stateKey: 'outputScrollBehavior',
+        defaultValue: DEFAULT_OUTPUT_SCROLL_BEHAVIOR,
         parsePersisted: normalizeOutputScrollBehavior,
         parseUpdate: (value) => normalizeOutputScrollBehavior(String(value)),
+        store: {
+            computedName: 'outputScrollBehavior',
+            updaterName: 'updateOutputScrollBehavior',
+            normalizeUpdate: String,
+        },
     },
     {
         key: 'search_window_size_preset',
         stateKey: 'searchWindowSizePreset',
+        defaultValue: DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
         parsePersisted: normalizeSearchWindowSizePreset,
         parseUpdate: (value) => normalizeSearchWindowSizePreset(String(value)),
         afterApply: (target, value) => {
@@ -109,70 +125,74 @@ export const GENERAL_SCALAR_SETTING_SPECS: readonly ScalarSettingDefinitionOptio
                 ...resolveSearchWindowDefaultSize(value as SearchWindowSizePreset),
             };
         },
+        store: {
+            computedName: 'searchWindowSizePreset',
+            updaterName: 'updateSearchWindowSizePreset',
+            normalizeUpdate: String,
+        },
     },
     {
         key: 'language',
         stateKey: 'language',
+        defaultValue: DEFAULT_LANGUAGE,
         parsePersisted: (raw) => (raw === null ? resolveFirstLaunchLocale() : normalizeLocale(raw)),
         parseUpdate: normalizeLocale,
         afterApply: (_target, value) => setLocale(value as AppLocale),
         persistBeforeApply: true,
+        store: {
+            computedName: 'language',
+            updaterName: 'updateLanguage',
+            normalizeUpdate: normalizeLocale,
+        },
     },
     {
         key: 'app_update_channel',
         stateKey: 'appUpdateChannel',
+        defaultValue: DEFAULT_APP_UPDATE_CHANNEL,
         parsePersisted: normalizeAppUpdateChannel,
         parseUpdate: normalizeAppUpdateChannel,
+        store: {
+            computedName: 'appUpdateChannel',
+            updaterName: 'updateAppUpdateChannel',
+            normalizeUpdate: normalizeAppUpdateChannel,
+        },
     },
     {
         key: 'app_update_auto_check',
         stateKey: 'appUpdateAutoCheck',
-        parsePersisted: (raw) => booleanNotFalse(raw, GENERAL_SETTINGS_DEFAULTS.appUpdateAutoCheck),
-        parseUpdate: (value) =>
-            booleanNotFalse(value, GENERAL_SETTINGS_DEFAULTS.appUpdateAutoCheck),
+        defaultValue: true,
+        parsePersisted: (raw) => booleanNotFalse(raw, true),
+        parseUpdate: (value) => booleanNotFalse(value, true),
         eventValue: (value) => value as boolean,
+        store: {
+            computedName: 'appUpdateAutoCheck',
+            updaterName: 'updateAppUpdateAutoCheck',
+            normalizeUpdate: Boolean,
+        },
     },
     {
         key: 'app_update_last_checked_at',
         stateKey: 'appUpdateLastCheckedAt',
+        defaultValue: null,
         parsePersisted: (raw) => raw || null,
         parseUpdate: nullableString,
         serializeValue: (value) => (value as string | null) ?? '',
         eventValue: (value) => value as string | null,
+        store: {
+            computedName: 'appUpdateLastCheckedAt',
+            updaterName: 'updateAppUpdateLastCheckedAt',
+            normalizeUpdate: (value) => (value === null ? null : String(value)),
+        },
     },
 ];
 
-export const GENERAL_COMPUTED_BINDINGS: readonly GeneralSettingComputedBinding[] = [
-    { exposedName: 'outputScrollBehavior', stateKey: 'outputScrollBehavior' },
-    { exposedName: 'globalShortcut', stateKey: 'globalShortcut' },
-    { exposedName: 'searchWindowSizePreset', stateKey: 'searchWindowSizePreset' },
+export const GENERAL_SETTINGS_DEFAULTS = {
+    ...Object.fromEntries(
+        GENERAL_SCALAR_SETTING_SPECS.map((setting) => [setting.stateKey, setting.defaultValue])
+    ),
+    searchWindowDefaultSize: { ...DEFAULT_SEARCH_WINDOW_DEFAULT_SIZE },
+} as Omit<GeneralSettingsData, 'browserSettings' | 'searchSettings'>;
+
+export const GENERAL_DERIVED_COMPUTED_BINDINGS: readonly GeneralSettingComputedBinding[] = [
     { exposedName: 'searchWindowDefaultSize', stateKey: 'searchWindowDefaultSize' },
-    { exposedName: 'language', stateKey: 'language' },
-    { exposedName: 'appUpdateChannel', stateKey: 'appUpdateChannel' },
-    { exposedName: 'appUpdateAutoCheck', stateKey: 'appUpdateAutoCheck' },
-    { exposedName: 'appUpdateLastCheckedAt', stateKey: 'appUpdateLastCheckedAt' },
-];
-
-export const GENERAL_UPDATER_BINDINGS: readonly GeneralSettingUpdaterBinding[] = [
-    { exposedName: 'updateGlobalShortcut', key: 'global_shortcut', normalize: String },
-    { exposedName: 'updateStartOnBoot', key: 'start_on_boot', normalize: Boolean },
-    { exposedName: 'updateStartMinimized', key: 'start_minimized', normalize: Boolean },
-    { exposedName: 'updateOutputScrollBehavior', key: 'output_scroll_behavior', normalize: String },
-    {
-        exposedName: 'updateSearchWindowSizePreset',
-        key: 'search_window_size_preset',
-        normalize: String,
-    },
-    { exposedName: 'updateLanguage', key: 'language', normalize: normalizeLocale },
-    {
-        exposedName: 'updateAppUpdateChannel',
-        key: 'app_update_channel',
-        normalize: normalizeAppUpdateChannel,
-    },
-    { exposedName: 'updateAppUpdateAutoCheck', key: 'app_update_auto_check', normalize: Boolean },
-    {
-        exposedName: 'updateAppUpdateLastCheckedAt',
-        key: 'app_update_last_checked_at',
-        normalize: (value) => (value === null ? null : String(value)),
-    },
 ];

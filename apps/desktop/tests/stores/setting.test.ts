@@ -115,14 +115,14 @@ describe('setting registry', () => {
 
     it('declares stable computed and updater bindings in the settings registry', () => {
         expect(GENERAL_SETTING_COMPUTED_BINDINGS.map((binding) => binding.exposedName)).toEqual([
-            'outputScrollBehavior',
             'globalShortcut',
+            'outputScrollBehavior',
             'searchWindowSizePreset',
-            'searchWindowDefaultSize',
             'language',
             'appUpdateChannel',
             'appUpdateAutoCheck',
             'appUpdateLastCheckedAt',
+            'searchWindowDefaultSize',
             'browserSettings',
             'searchSettings',
         ]);
