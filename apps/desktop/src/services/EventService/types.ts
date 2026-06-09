@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026. 鍗冭瘹. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type {
     PopupClosedPayload,
@@ -18,32 +18,34 @@ export type { GeneralSettingKey, GeneralSettingValue } from '@/stores/setting';
 export type { SessionStatusReminderKind } from '@/utils/session';
 
 /**
- * 浜嬩欢绫诲瀷瀹氫箟
+ * 事件类型定义
  *
- * 鎵€鏈夊簲鐢ㄧ骇浜嬩欢閮藉湪杩欓噷瀹氫箟锛屼互纭繚绫诲瀷瀹夊叏銆? */
+ * 所有应用级事件都在这里定义，以确保类型安全。
+ */
 
-// ==================== 浜嬩欢鍚嶇О鏋氫妇 ====================
+// ==================== 事件名称枚举 ====================
 
 /**
- * 搴旂敤浜嬩欢鍚嶇О鏋氫妇
- * 浣跨敤杩欎簺甯搁噺鑰屼笉鏄‖缂栫爜瀛楃涓? */
+ * 应用事件名称枚举
+ * 使用这些常量而不是硬编码字符串
+ */
 export enum AppEvent {
-    // MCP 浜嬩欢
+    // MCP 事件
     MCP_STATUS = 'mcp:status',
 
-    // 璁剧疆浜嬩欢
+    // 设置事件
     SETTINGS_GENERAL_UPDATED = 'settings:general-updated',
     SETTINGS_AI_SERVICES_FOCUS_PROVIDER = 'settings:ai-services:focus-provider',
     AI_MODELS_UPDATED = 'ai-models:updated',
 
-    // 绐楀彛浜嬩欢
+    // 窗口事件
     WINDOW_FOCUS = 'window:focus',
     WINDOW_RESIZE = 'window:resize',
 
-    // 璧勬簮浜嬩欢
+    // 资源事件
     FONT_READY = 'font:ready',
 
-    // Popup 浜嬩欢
+    // Popup 事件
     POPUP_READY = 'popup-ready',
     POPUP_DATA = 'popup-data',
     POPUP_CLOSED = 'popup-closed',
@@ -59,7 +61,7 @@ export enum AppEvent {
     SESSION_STATUS_REMINDER_ACTION = 'session-status-reminder:action',
 }
 
-// ==================== MCP 浜嬩欢 ====================
+// ==================== MCP 事件 ====================
 
 export type McpServerStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
 
@@ -69,7 +71,7 @@ export interface McpStatusChangeEvent {
     error?: string;
 }
 
-// ==================== 璁剧疆浜嬩欢 ====================
+// ==================== 设置事件 ====================
 
 export interface SettingsGeneralUpdatedEvent {
     sourceId: string;
@@ -91,7 +93,7 @@ export interface AiModelsUpdatedEvent {
     updatedAt: number;
 }
 
-// ==================== 绐楀彛浜嬩欢 ====================
+// ==================== 窗口事件 ====================
 
 export interface WindowFocusEvent {
     windowLabel: string;
@@ -143,11 +145,11 @@ export interface SessionStatusReminderActionEvent {
     replyText?: string | null;
 }
 
-// ==================== 璧勬簮浜嬩欢 ====================
+// ==================== 资源事件 ====================
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface FontReadyEvent {
-    // 绌?payload锛屼粎浣滀负閫氱煡
+    // 空 payload，仅作为通知
 }
 
 export interface SessionTaskStatusChangedEvent {
@@ -158,28 +160,28 @@ export interface SessionTaskStatusChangedEvent {
     reminder: SessionStatusReminderPayload | null;
 }
 
-// ==================== 浜嬩欢鏄犲皠 ====================
+// ==================== 事件映射 ====================
 
 /**
- * 浜嬩欢娉ㄥ唽琛紝灏嗕簨浠跺悕绉版槧灏勫埌鍏?payload 绫诲瀷
+ * 事件注册表，将事件名称映射到其 payload 类型
  */
 export interface AppEventMap {
-    // MCP 浜嬩欢
+    // MCP 事件
     [AppEvent.MCP_STATUS]: McpStatusChangeEvent;
 
-    // 璁剧疆浜嬩欢
+    // 设置事件
     [AppEvent.SETTINGS_GENERAL_UPDATED]: SettingsGeneralUpdatedEvent;
     [AppEvent.SETTINGS_AI_SERVICES_FOCUS_PROVIDER]: SettingsAiServicesFocusProviderEvent;
     [AppEvent.AI_MODELS_UPDATED]: AiModelsUpdatedEvent;
 
-    // 绐楀彛浜嬩欢
+    // 窗口事件
     [AppEvent.WINDOW_FOCUS]: WindowFocusEvent;
     [AppEvent.WINDOW_RESIZE]: WindowResizeEvent;
 
-    // 璧勬簮浜嬩欢
+    // 资源事件
     [AppEvent.FONT_READY]: FontReadyEvent;
 
-    // Popup 浜嬩欢
+    // Popup 事件
     [AppEvent.POPUP_READY]: PopupReadyPayload;
     [AppEvent.POPUP_DATA]: PopupDataPayload;
     [AppEvent.POPUP_CLOSED]: PopupClosedPayload;
