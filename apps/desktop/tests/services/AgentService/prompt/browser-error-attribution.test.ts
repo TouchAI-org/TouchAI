@@ -16,17 +16,14 @@ describe('browser error attribution prompt guidance', () => {
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('official or primary sources');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('daily-life decisions');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('original images');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('complete, usable report');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('useful reference links');
     });
 
     it('requires a research plan before deep high-impact investigations', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'major, high-impact, broad, ambiguous, or domain-level research questions'
-        );
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('formulate a detailed research plan');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('core questions');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('source strategy');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('execute the plan step by step');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Match research depth to stakes');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('require a research plan');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('multiple authoritative sources');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('enough detail for audit');
     });
 
     it('matches research depth to topic stakes and keeps expanding evidence', () => {
@@ -42,72 +39,58 @@ describe('browser error attribution prompt guidance', () => {
     });
 
     it('tells the model to use browser control when access is restricted', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('access is restricted');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('anti-bot/access friction');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('browser control');
     });
 
     it('requires visual evidence to be embedded when research images are available', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'must actively try to collect relevant visuals'
-        );
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('embed them with Markdown image syntax');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('tool result provides a markdown image');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Actively look for software screenshots');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('include suitable Markdown images');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Markdown image references');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Do not use copyright as a generic reason');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('explain why no suitable image is shown');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('state why no suitable image is shown');
     });
 
     it('prevents decorative or misplaced research images', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('explanatory value');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('materially improves understanding');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('software screenshots');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'embed them with Markdown image syntax near the related sections'
+            'include suitable Markdown images near related sections'
         );
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('not as a detached gallery at the end');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Avoid low-signal logos');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('decorative stock photos');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('avoid decorative logos');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('generic hero art');
     });
 
     it('treats visuals as a default deliverable for source collection reports', () => {
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'Treat visual evidence as a default deliverable'
+            'Treat useful visual evidence as a default deliverable'
         );
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Actively look for software screenshots');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'explicitly search or inspect for useful images'
-        );
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'Do not finish with text only when suitable visuals are available'
+            'include suitable Markdown images near related sections'
         );
     });
 
     it('requires a visual evidence workflow and final audit for research reports', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('visual evidence workflow');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'decide which sections need visual evidence'
-        );
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('run a visual audit');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'the report is incomplete until it includes'
-        );
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('state why no suitable image is shown');
     });
 
     it('encourages multiple high-value images when several report sections are visual', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Do not stop at a single token image');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('include multiple high-signal images');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('one near each relevant section');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('each image adds real explanatory value');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Use high-signal visuals only');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('near the point it supports');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('why it matters');
     });
 
     it('requires every embedded image to be explained and sourced in context', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Every embedded image must earn its place');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('what it shows');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('why it matters');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain("webpage's original image");
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('prefer original webpage images');
     });
 
     it('tells the model to reuse useful original images returned by web_fetch', () => {
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('web_fetch returns article images');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('original page images');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('reuse the best ones');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('web_fetch` article/original image');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Reuse useful Markdown image references');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
             'Use browser screenshots when original images are unavailable'
         );

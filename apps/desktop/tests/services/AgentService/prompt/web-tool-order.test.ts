@@ -8,16 +8,16 @@ describe('web tool ordering prompt', () => {
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('builtin__web_search');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('builtin__web_fetch');
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'Never simulate `builtin__web_search` by calling `builtin__web_fetch`'
+            'Never simulate `builtin__web_search` by fetching search result pages'
         );
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'Only fetch a search-results URL when the user explicitly provided that URL'
+            'Only fetch a search-results URL when the user explicitly asks to read that exact URL'
         );
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'choose its `provider` parameter deliberately'
+            'Choose `builtin__web_search.provider` deliberately'
         );
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
-            'use `anysearch` as the recommended default for general research'
+            '`anysearch` is the recommended general default'
         );
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain(
             '`auto` follows user settings and normally resolves to `anysearch`'

@@ -13,16 +13,12 @@ import {
     normalizeAppUpdateChannel,
 } from '@/config/appUpdate';
 import {
-    BROWSER_SETTINGS_KEY,
     type BrowserSettingsConfig,
     DEFAULT_BROWSER_SETTINGS,
-    parseBrowserSettingsConfig,
     serializeBrowserSettingsConfig,
 } from '@/config/browserSettings';
 import {
     DEFAULT_SEARCH_SETTINGS,
-    parseSearchSettingsConfig,
-    SEARCH_SETTINGS_KEY,
     type SearchSettingsConfig,
     serializeSearchSettingsConfig,
 } from '@/config/searchSettings';
@@ -33,6 +29,15 @@ import {
     type SearchWindowSizePreset,
     SearchWindowSizePreset as SearchWindowSizePresets,
 } from '@/config/searchWindow';
+import {
+    cloneJsonSettingsDefault,
+    findJsonSettingsSection,
+    JSON_SETTINGS_SECTIONS,
+    parseJsonSettingsValue,
+    type RegisteredJsonSettingsSection,
+    type RegisteredJsonSettingsValue,
+    serializeJsonSettingsValue,
+} from '@/config/settingsRegistry';
 import { type AppLocale, normalizeLocale, resolveFirstLaunchLocale, setLocale } from '@/i18n';
 import { z } from '@/utils/zod';
 
@@ -69,18 +74,16 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
 };
 
 function createDefaultGeneralSettings(): GeneralSettingsData {
-    return {
+    const defaults = {
         ...DEFAULT_GENERAL_SETTINGS,
         searchWindowDefaultSize: {
             ...DEFAULT_GENERAL_SETTINGS.searchWindowDefaultSize,
         },
-        browserSettings: parseBrowserSettingsConfig(
-            serializeBrowserSettingsConfig(DEFAULT_GENERAL_SETTINGS.browserSettings)
-        ),
-        searchSettings: parseSearchSettingsConfig(
-            serializeSearchSettingsConfig(DEFAULT_GENERAL_SETTINGS.searchSettings)
-        ),
     };
+    for (const section of JSON_SETTINGS_SECTIONS) {
+        assignJsonSettingsToData(defaults, section, cloneJsonSettingsDefault(section));
+    }
+    return defaults;
 }
 
 type GeneralSettingValue = SettingsGeneralUpdatedEvent['value'];
@@ -89,6 +92,30 @@ const outputScrollBehaviorSchema = z.enum(['follow_output', 'stay_position', 'ju
 const searchWindowSizePresetSchema = z.enum(
     Object.keys(SearchWindowSizePresets) as [SearchWindowSizePreset, ...SearchWindowSizePreset[]]
 );
+
+function assignJsonSettingsToData(
+    target: GeneralSettingsData,
+    section: RegisteredJsonSettingsSection,
+    value: RegisteredJsonSettingsValue
+): void {
+    if (section.stateKey === 'browserSettings') {
+        target.browserSettings = value as BrowserSettingsConfig;
+        return;
+    }
+
+    target.searchSettings = value as SearchSettingsConfig;
+}
+
+function readJsonSettingsFromData(
+    source: GeneralSettingsData,
+    section: RegisteredJsonSettingsSection
+): RegisteredJsonSettingsValue {
+    if (section.stateKey === 'browserSettings') {
+        return source.browserSettings;
+    }
+
+    return source.searchSettings;
+}
 
 export const useSettingsStore = defineStore('settings', () => {
     const settings = ref<GeneralSettingsData>(createDefaultGeneralSettings());
@@ -137,21 +164,55 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     function cloneSettingsSnapshot(): GeneralSettingsData {
-        return {
+        const snapshot = {
             ...settings.value,
             searchWindowDefaultSize: {
                 ...settings.value.searchWindowDefaultSize,
             },
-            browserSettings: parseBrowserSettingsConfig(
-                serializeBrowserSettingsConfig(settings.value.browserSettings)
-            ),
-            searchSettings: parseSearchSettingsConfig(
-                serializeSearchSettingsConfig(settings.value.searchSettings)
-            ),
         };
+        for (const section of JSON_SETTINGS_SECTIONS) {
+            assignJsonSettingsToData(
+                snapshot,
+                section,
+                parseJsonSettingsValue(
+                    section,
+                    serializeJsonSettingsValue(
+                        section,
+                        readJsonSettingsFromData(settings.value, section)
+                    )
+                )
+            );
+        }
+        return snapshot;
+    }
+
+    function applyJsonSetting(key: GeneralSettingKey, value: GeneralSettingValue): boolean {
+        const section = findJsonSettingsSection(key);
+        if (!section) {
+            return false;
+        }
+
+        assignJsonSettingsToData(settings.value, section, parseJsonSettingsValue(section, value));
+        return true;
+    }
+
+    function serializeJsonSetting(key: GeneralSettingKey): string | null {
+        const section = findJsonSettingsSection(key);
+        if (!section) {
+            return null;
+        }
+
+        return serializeJsonSettingsValue(
+            section,
+            readJsonSettingsFromData(settings.value, section)
+        );
     }
 
     function applySetting(key: GeneralSettingKey, value: GeneralSettingValue): void {
+        if (applyJsonSetting(key, value)) {
+            return;
+        }
+
         switch (key) {
             case 'global_shortcut':
                 settings.value.globalShortcut = String(
@@ -185,22 +246,17 @@ export const useSettingsStore = defineStore('settings', () => {
             case 'app_update_last_checked_at':
                 settings.value.appUpdateLastCheckedAt = value === null ? null : String(value);
                 break;
-            case 'browser_settings':
-                settings.value.browserSettings = parseBrowserSettingsConfig(
-                    typeof value === 'string' ? value : null
-                );
-                break;
-            case 'search_settings':
-                settings.value.searchSettings = parseSearchSettingsConfig(
-                    typeof value === 'string' ? value : null
-                );
-                break;
             default:
                 break;
         }
     }
 
     function serializeSetting(key: GeneralSettingKey): string {
+        const serializedJsonSetting = serializeJsonSetting(key);
+        if (serializedJsonSetting !== null) {
+            return serializedJsonSetting;
+        }
+
         switch (key) {
             case 'global_shortcut':
                 return settings.value.globalShortcut;
@@ -220,16 +276,17 @@ export const useSettingsStore = defineStore('settings', () => {
                 return String(settings.value.appUpdateAutoCheck);
             case 'app_update_last_checked_at':
                 return settings.value.appUpdateLastCheckedAt ?? '';
-            case 'browser_settings':
-                return serializeBrowserSettingsConfig(settings.value.browserSettings);
-            case 'search_settings':
-                return serializeSearchSettingsConfig(settings.value.searchSettings);
             default:
                 return '';
         }
     }
 
     function payloadValueForEvent(key: GeneralSettingKey): GeneralSettingValue {
+        const serializedJsonSetting = serializeJsonSetting(key);
+        if (serializedJsonSetting !== null) {
+            return serializedJsonSetting;
+        }
+
         switch (key) {
             case 'global_shortcut':
                 return settings.value.globalShortcut;
@@ -249,10 +306,6 @@ export const useSettingsStore = defineStore('settings', () => {
                 return settings.value.appUpdateAutoCheck;
             case 'app_update_last_checked_at':
                 return settings.value.appUpdateLastCheckedAt;
-            case 'browser_settings':
-                return serializeBrowserSettingsConfig(settings.value.browserSettings);
-            case 'search_settings':
-                return serializeSearchSettingsConfig(settings.value.searchSettings);
             default:
                 return '';
         }
@@ -278,8 +331,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 appUpdateChannel,
                 appUpdateAutoCheck,
                 appUpdateLastCheckedAt,
-                browserSettings,
-                searchSettings,
+                ...jsonSettingsValues
             ] = await Promise.all([
                 getSettingValue({ key: 'global_shortcut' }),
                 getSettingValue({ key: 'start_on_boot' }),
@@ -290,8 +342,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 getSettingValue({ key: 'app_update_channel' }),
                 getSettingValue({ key: 'app_update_auto_check' }),
                 getSettingValue({ key: 'app_update_last_checked_at' }),
-                getSettingValue({ key: BROWSER_SETTINGS_KEY }),
-                getSettingValue({ key: SEARCH_SETTINGS_KEY }),
+                ...JSON_SETTINGS_SECTIONS.map((section) => getSettingValue({ key: section.key })),
             ]);
 
             settings.value.globalShortcut =
@@ -313,8 +364,13 @@ export const useSettingsStore = defineStore('settings', () => {
                     ? DEFAULT_GENERAL_SETTINGS.appUpdateAutoCheck
                     : appUpdateAutoCheck !== 'false';
             settings.value.appUpdateLastCheckedAt = appUpdateLastCheckedAt || null;
-            settings.value.browserSettings = parseBrowserSettingsConfig(browserSettings);
-            settings.value.searchSettings = parseSearchSettingsConfig(searchSettings);
+            JSON_SETTINGS_SECTIONS.forEach((section, index) => {
+                assignJsonSettingsToData(
+                    settings.value,
+                    section,
+                    parseJsonSettingsValue(section, jsonSettingsValues[index] ?? null)
+                );
+            });
 
             await Promise.allSettled([
                 persistDefaultIfMissing('global_shortcut', globalShortcut),
@@ -325,8 +381,12 @@ export const useSettingsStore = defineStore('settings', () => {
                 persistDefaultIfMissing('language', language),
                 persistDefaultIfMissing('app_update_channel', appUpdateChannel),
                 persistDefaultIfMissing('app_update_auto_check', appUpdateAutoCheck),
-                persistDefaultIfMissing(BROWSER_SETTINGS_KEY, browserSettings),
-                persistDefaultIfMissing(SEARCH_SETTINGS_KEY, searchSettings),
+                ...JSON_SETTINGS_SECTIONS.map((section, index) =>
+                    persistDefaultIfMissing(
+                        section.key as GeneralSettingKey,
+                        jsonSettingsValues[index] ?? null
+                    )
+                ),
             ]);
         } finally {
             loading.value = false;
@@ -461,11 +521,11 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     async function updateBrowserSettings(config: BrowserSettingsConfig) {
-        await updateSetting(BROWSER_SETTINGS_KEY, serializeBrowserSettingsConfig(config));
+        await updateSetting('browser_settings', serializeBrowserSettingsConfig(config));
     }
 
     async function updateSearchSettings(config: SearchSettingsConfig) {
-        await updateSetting(SEARCH_SETTINGS_KEY, serializeSearchSettingsConfig(config));
+        await updateSetting('search_settings', serializeSearchSettingsConfig(config));
     }
 
     const outputScrollBehavior = computed(() => settings.value.outputScrollBehavior);
