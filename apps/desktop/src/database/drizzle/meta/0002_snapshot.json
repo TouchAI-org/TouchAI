@@ -1,8 +1,8 @@
 {
     "version": "6",
     "dialect": "sqlite",
-    "id": "113fedfb-1a4c-492c-a6e8-e70ec1c32d01",
-    "prevId": "83d0a63f-c589-4088-bc42-d6b61c909c42",
+    "id": "83d0a63f-c589-4088-bc42-d6b61c909c42",
+    "prevId": "4249a1ff-27fa-4b85-a8e5-beb3ce8d3a45",
     "tables": {
         "attachment_remote_refs": {
             "name": "attachment_remote_refs",
@@ -267,13 +267,6 @@
                 },
                 "approval_summary": {
                     "name": "approval_summary",
-                    "type": "text",
-                    "primaryKey": false,
-                    "notNull": false,
-                    "autoincrement": false
-                },
-                "conversation_semantic_json": {
-                    "name": "conversation_semantic_json",
                     "type": "text",
                     "primaryKey": false,
                     "notNull": false,

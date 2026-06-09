@@ -1,1 +1,0 @@
-ALTER TABLE `built_in_tool_logs` ADD `conversation_semantic_json` text;--> statement-breakpoint
