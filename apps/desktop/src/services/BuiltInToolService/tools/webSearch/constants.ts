@@ -1,4 +1,10 @@
 import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
+import {
+    SEARCH_PROVIDER_METADATA,
+    SEARCH_ROUTE_INTENTS,
+    type SearchProviderId,
+    type SearchRouteIntent,
+} from '@/stores/setting/sections/search';
 
 import {
     integerInRangeSchema,
@@ -9,8 +15,7 @@ import {
 } from '../../utils/toolSchema';
 
 export const WEB_SEARCH_TOOL_ID = 'web_search';
-export const WEB_SEARCH_INTENTS = ['general', 'academic', 'technical', 'official', 'news'] as const;
-
+export const WEB_SEARCH_INTENTS = SEARCH_ROUTE_INTENTS;
 export const WEB_SEARCH_PROVIDERS = [
     'auto',
     'anysearch',
@@ -23,29 +28,20 @@ export const WEB_SEARCH_PROVIDERS = [
     'semantic_scholar',
     'github',
     'searxng',
-] as const;
+] as const satisfies readonly SearchProviderId[];
 
-export type WebSearchIntent = (typeof WEB_SEARCH_INTENTS)[number];
-export type WebSearchProvider = (typeof WEB_SEARCH_PROVIDERS)[number];
+export type WebSearchIntent = SearchRouteIntent;
+export type WebSearchProvider = SearchProviderId;
 
 export const DEFAULT_WEB_SEARCH_MAX_RESULTS = 6;
 export const DEFAULT_WEB_SEARCH_TIMEOUT_MS = 15_000;
 
-export const WEB_SEARCH_PROVIDER_RECOMMENDATIONS: Record<WebSearchProvider, string> = {
-    auto: 'Follow user settings; by default this resolves to anysearch for general discovery.',
-    anysearch:
-        'Recommended default for general research, broad web discovery, newsy topics, and zero/low-config search.',
-    brave: 'Fresh broad web/news discovery when a Brave Search API key is configured.',
-    tavily: 'Research-style broad web search with concise snippets when configured.',
-    exa: 'Semantic web discovery for companies, products, articles, and high-signal pages when configured.',
-    firecrawl: 'Search plus crawl-oriented discovery when configured.',
-    wikipedia:
-        'Encyclopedic background only; avoid using it as the only source for recent or project-specific research.',
-    openalex: 'Scholarly papers, authors, institutions, and academic metadata.',
-    semantic_scholar: 'Academic paper search and abstracts, especially AI/CS papers.',
-    github: 'Repositories, releases, issues, code projects, maintainers, and project activity.',
-    searxng: 'Configured metasearch instance when the user provides one.',
-};
+export const WEB_SEARCH_PROVIDER_RECOMMENDATIONS = Object.fromEntries(
+    WEB_SEARCH_PROVIDERS.map((provider) => [
+        provider,
+        SEARCH_PROVIDER_METADATA[provider].recommendation,
+    ])
+) as Record<WebSearchProvider, string>;
 
 export const webSearchArgsSchema = z.object({
     query: nonEmptyTrimmedStringSchema,

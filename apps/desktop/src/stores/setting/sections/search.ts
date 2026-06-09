@@ -30,39 +30,132 @@ export type SearchRouteIntent = (typeof SEARCH_ROUTE_INTENTS)[number];
 export type SearchProviderApiKeyRequirement = 'none' | 'optional' | 'required';
 export type SearchProviderEndpointRequirement = 'none' | 'required';
 
-export const SEARCH_PROVIDER_API_KEY_REQUIREMENTS: Record<
-    SearchProviderId,
-    SearchProviderApiKeyRequirement
-> = {
-    auto: 'none',
-    anysearch: 'optional',
-    wikipedia: 'none',
-    openalex: 'none',
-    semantic_scholar: 'optional',
-    github: 'none',
-    brave: 'required',
-    tavily: 'required',
-    exa: 'required',
-    firecrawl: 'required',
-    searxng: 'none',
+export interface SearchProviderMetadata {
+    id: SearchProviderId;
+    enabledByDefault: boolean;
+    apiKeyRequirement: SearchProviderApiKeyRequirement;
+    endpointRequirement: SearchProviderEndpointRequirement;
+    displayName: string;
+    sourceName: string;
+    recommendation: string;
+}
+
+export const SEARCH_PROVIDER_METADATA: Record<SearchProviderId, SearchProviderMetadata> = {
+    auto: {
+        id: 'auto',
+        enabledByDefault: true,
+        apiKeyRequirement: 'none',
+        endpointRequirement: 'none',
+        displayName: 'Auto',
+        sourceName: 'Auto',
+        recommendation: 'Follow user settings; by default this resolves to anysearch.',
+    },
+    anysearch: {
+        id: 'anysearch',
+        enabledByDefault: true,
+        apiKeyRequirement: 'optional',
+        endpointRequirement: 'none',
+        displayName: 'AnySearch',
+        sourceName: 'AnySearch',
+        recommendation: 'Recommended default for general research and broad web discovery.',
+    },
+    wikipedia: {
+        id: 'wikipedia',
+        enabledByDefault: true,
+        apiKeyRequirement: 'none',
+        endpointRequirement: 'none',
+        displayName: 'Wikipedia',
+        sourceName: 'Wikipedia',
+        recommendation: 'Encyclopedic background only; avoid as the only source for recent topics.',
+    },
+    openalex: {
+        id: 'openalex',
+        enabledByDefault: true,
+        apiKeyRequirement: 'none',
+        endpointRequirement: 'none',
+        displayName: 'OpenAlex',
+        sourceName: 'OpenAlex',
+        recommendation: 'Scholarly papers, authors, institutions, and academic metadata.',
+    },
+    semantic_scholar: {
+        id: 'semantic_scholar',
+        enabledByDefault: true,
+        apiKeyRequirement: 'optional',
+        endpointRequirement: 'none',
+        displayName: 'Semantic Scholar',
+        sourceName: 'Semantic Scholar',
+        recommendation: 'Academic paper search and abstracts, especially AI/CS papers.',
+    },
+    github: {
+        id: 'github',
+        enabledByDefault: true,
+        apiKeyRequirement: 'none',
+        endpointRequirement: 'none',
+        displayName: 'GitHub',
+        sourceName: 'GitHub',
+        recommendation: 'Repositories, releases, issues, code projects, and project activity.',
+    },
+    brave: {
+        id: 'brave',
+        enabledByDefault: false,
+        apiKeyRequirement: 'required',
+        endpointRequirement: 'none',
+        displayName: 'Brave',
+        sourceName: 'Brave',
+        recommendation: 'Fresh broad web/news discovery when a Brave Search API key is configured.',
+    },
+    tavily: {
+        id: 'tavily',
+        enabledByDefault: false,
+        apiKeyRequirement: 'required',
+        endpointRequirement: 'none',
+        displayName: 'Tavily',
+        sourceName: 'Tavily',
+        recommendation: 'Research-style broad web search with concise snippets when configured.',
+    },
+    exa: {
+        id: 'exa',
+        enabledByDefault: false,
+        apiKeyRequirement: 'required',
+        endpointRequirement: 'none',
+        displayName: 'Exa',
+        sourceName: 'Exa',
+        recommendation:
+            'Semantic web discovery for companies, products, articles, and high-signal pages.',
+    },
+    firecrawl: {
+        id: 'firecrawl',
+        enabledByDefault: false,
+        apiKeyRequirement: 'required',
+        endpointRequirement: 'none',
+        displayName: 'Firecrawl',
+        sourceName: 'Firecrawl',
+        recommendation: 'Search plus crawl-oriented discovery when configured.',
+    },
+    searxng: {
+        id: 'searxng',
+        enabledByDefault: false,
+        apiKeyRequirement: 'none',
+        endpointRequirement: 'required',
+        displayName: 'SearXNG',
+        sourceName: 'SearXNG',
+        recommendation: 'Configured metasearch instance when the user provides one.',
+    },
 };
 
-export const SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS: Record<
-    SearchProviderId,
-    SearchProviderEndpointRequirement
-> = {
-    auto: 'none',
-    anysearch: 'none',
-    wikipedia: 'none',
-    openalex: 'none',
-    semantic_scholar: 'none',
-    github: 'none',
-    brave: 'none',
-    tavily: 'none',
-    exa: 'none',
-    firecrawl: 'none',
-    searxng: 'required',
-};
+export const SEARCH_PROVIDER_API_KEY_REQUIREMENTS = Object.fromEntries(
+    SEARCH_PROVIDER_IDS.map((providerId) => [
+        providerId,
+        SEARCH_PROVIDER_METADATA[providerId].apiKeyRequirement,
+    ])
+) as Record<SearchProviderId, SearchProviderApiKeyRequirement>;
+
+export const SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS = Object.fromEntries(
+    SEARCH_PROVIDER_IDS.map((providerId) => [
+        providerId,
+        SEARCH_PROVIDER_METADATA[providerId].endpointRequirement,
+    ])
+) as Record<SearchProviderId, SearchProviderEndpointRequirement>;
 
 export interface SearchProviderConfig {
     enabled: boolean;
@@ -108,13 +201,7 @@ function createDefaultProviders(): Record<SearchProviderId, SearchProviderConfig
         SEARCH_PROVIDER_IDS.map((providerId) => [
             providerId,
             {
-                enabled:
-                    providerId === 'auto' ||
-                    providerId === 'anysearch' ||
-                    providerId === 'wikipedia' ||
-                    providerId === 'openalex' ||
-                    providerId === 'semantic_scholar' ||
-                    providerId === 'github',
+                enabled: SEARCH_PROVIDER_METADATA[providerId].enabledByDefault,
                 apiKey: '',
                 endpoint: '',
             },
