@@ -42,6 +42,9 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('.release-please-manifest.json');
         expect(workflow).toContain('apps/desktop/src-tauri/Cargo.lock');
         expect(workflow).toContain('apps/desktop/src-tauri/tauri.conf.json');
+        expect(workflow).toContain(
+            'git commit --no-verify -m "chore: format release please files"'
+        );
         expect(workflow).toContain('git push origin HEAD:"$RELEASE_PR_BRANCH"');
     });
 
@@ -66,6 +69,21 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('--msi');
         expect(workflow).toContain('--noPortable');
         expect(workflow).not.toMatch(/--noInst[\s\S]*--noPortable|--noPortable[\s\S]*--noInst/);
+    });
+
+    it('retries release Tauri builds when external binary downloads transiently fail', async () => {
+        const workflow = await readWorkflow('velopack-build.yml');
+
+        expect(workflow).toContain(
+            'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --no-bundle --ci'
+        );
+        expect(workflow).toContain(
+            'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles app,dmg --ci'
+        );
+        expect(workflow).toContain(
+            'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles appimage,deb,rpm --ci'
+        );
+        expect(workflow).not.toMatch(/run:\s+pnpm tauri build/);
     });
 
     it('attaches public release assets to GitHub releases from the staged asset directory', async () => {

@@ -12,9 +12,31 @@ const REQUIRED_HEADERS = [
 
 const ISSUE_REFERENCE_PATTERN =
     /(?:\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|related to)\s+#\d+\b|(?:^|\s)#\d+\b|TouchAI-org\/TouchAI#\d+\b|https:\/\/github\.com\/[^/\s]+\/[^/\s]+(?:\/(?:issues|pull|discussions)\/\d+)?\b)/im;
+const RELEASE_PLEASE_HEAD_PREFIX = 'release-please--branches--';
 
 function normalizeBody(body) {
     return body.replace(/\r\n/g, '\n');
+}
+
+function isReleasePleaseGeneratedBody(body) {
+    const normalizedBody = normalizeBody(body).trim();
+
+    return (
+        normalizedBody.startsWith(':robot: I have created a release *beep* *boop*\n---') &&
+        normalizedBody.includes(
+            'This PR was generated with [Release Please](https://github.com/googleapis/release-please)'
+        )
+    );
+}
+
+function isReleasePleasePr(body, options) {
+    return (
+        options?.headRepoFullName &&
+        options?.baseRepository &&
+        options.headRepoFullName === options.baseRepository &&
+        options?.headRef?.startsWith(RELEASE_PLEASE_HEAD_PREFIX) &&
+        isReleasePleaseGeneratedBody(body)
+    );
 }
 
 export function extractMarkdownSection(body, header) {
@@ -32,14 +54,20 @@ export function extractMarkdownSection(body, header) {
     return section.trim();
 }
 
-export function validatePrTemplateBody(body) {
+export function validatePrTemplateBody(body, options = {}) {
+    const normalizedBody = normalizeBody(body);
+
+    if (isReleasePleasePr(normalizedBody, options)) {
+        return null;
+    }
+
     for (const header of REQUIRED_HEADERS) {
-        if (!body.includes(header)) {
+        if (!normalizedBody.includes(header)) {
             return `Missing required PR template section: ${header}`;
         }
     }
 
-    const relatedSection = extractMarkdownSection(body, '## Related issue or RFC');
+    const relatedSection = extractMarkdownSection(normalizedBody, '## Related issue or RFC');
     if (relatedSection === null) {
         return 'Missing body for "## Related issue or RFC".';
     }
@@ -57,7 +85,11 @@ export function validatePrTemplateBody(body) {
 
 function main() {
     const body = process.env.PR_BODY ?? '';
-    const error = validatePrTemplateBody(body);
+    const error = validatePrTemplateBody(body, {
+        headRef: process.env.PR_HEAD_REF ?? '',
+        headRepoFullName: process.env.PR_HEAD_REPO_FULL_NAME ?? '',
+        baseRepository: process.env.GITHUB_REPOSITORY ?? '',
+    });
 
     if (error) {
         console.error(error);
