@@ -125,52 +125,68 @@ export function createDefaultSearchKeybindings(): SearchKeybindings {
 }
 
 export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
-    const normalized = createDefaultSearchKeybindings();
+    const defaults = createDefaultSearchKeybindings();
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return normalized;
+        return defaults;
     }
 
     const candidates = value as Record<string, unknown>;
+
+    // First pass: resolve each action's desired shortcut (validated custom value,
+    // explicit disable, or its default) without considering conflicts yet.
+    const resolved = new Map<SearchKeybindingActionId, string | null>();
     for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
         const candidate = candidates[definition.id];
+
         if (candidate === null && definition.allowDisable) {
-            normalized[definition.id] = null;
-        }
-    }
-
-    function hasShortcutConflict(actionId: SearchKeybindingActionId, shortcut: string): boolean {
-        return SEARCH_KEYBINDING_DEFINITIONS.some((definition) => {
-            if (definition.id === actionId) {
-                return false;
-            }
-            return normalizeLocalShortcutString(normalized[definition.id]) === shortcut;
-        });
-    }
-
-    for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
-        const candidate = candidates[definition.id];
-
-        if (typeof candidate !== 'string') {
+            resolved.set(definition.id, null);
             continue;
         }
 
-        const shortcut = normalizeLocalShortcutString(candidate);
-        if (shortcut) {
-            const allowsModifierlessFunction =
-                definition.allowModifierlessFunctionShortcut &&
-                isModifierlessFunctionShortcut(shortcut);
-            if (!hasCommandModifier(shortcut) && !allowsModifierlessFunction) {
-                continue;
+        if (typeof candidate === 'string') {
+            const shortcut = normalizeLocalShortcutString(candidate);
+            if (shortcut) {
+                const allowsModifierlessFunction =
+                    definition.allowModifierlessFunctionShortcut &&
+                    isModifierlessFunctionShortcut(shortcut);
+                const passesModifierPolicy =
+                    hasCommandModifier(shortcut) || allowsModifierlessFunction;
+                if (passesModifierPolicy && !isReservedLocalShortcut(shortcut)) {
+                    resolved.set(definition.id, shortcut);
+                    continue;
+                }
             }
-            if (isReservedLocalShortcut(shortcut)) {
-                continue;
-            }
-            if (hasShortcutConflict(definition.id, shortcut)) {
-                continue;
-            }
-            normalized[definition.id] = shortcut;
+        }
+
+        resolved.set(definition.id, defaults[definition.id]);
+    }
+
+    // Second pass: resolve conflicts deterministically (first action in
+    // definition order keeps the shortcut). This lets clean swaps survive
+    // instead of both sides colliding with the other's default.
+    const result = createDefaultSearchKeybindings();
+    const usedShortcuts = new Set<string>();
+    for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
+        const desired = resolved.get(definition.id) ?? null;
+        if (desired === null) {
+            result[definition.id] = null;
+            continue;
+        }
+
+        if (!usedShortcuts.has(desired)) {
+            usedShortcuts.add(desired);
+            result[definition.id] = desired;
+            continue;
+        }
+
+        const fallback = normalizeLocalShortcutString(definition.defaultShortcut);
+        if (fallback && !usedShortcuts.has(fallback)) {
+            usedShortcuts.add(fallback);
+            result[definition.id] = definition.defaultShortcut;
+        } else {
+            result[definition.id] = definition.allowDisable ? null : definition.defaultShortcut;
         }
     }
 
-    return normalized;
+    return result;
 }
