@@ -6,7 +6,7 @@ import {
     fixedBrowserDescription,
     normalizeBrowserDescription,
     requiresBrowserDescription,
-} from '@/stores/setting/sections/browserPermissions';
+} from '@/stores/setting/sections/browserPolicy';
 
 describe('browser settings permissions', () => {
     it('uses fixed descriptions for passive status operations only', () => {

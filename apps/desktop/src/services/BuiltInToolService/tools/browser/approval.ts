@@ -10,7 +10,7 @@ import {
     type BrowserToolOperation,
     evaluateBrowserPermission,
     normalizeBrowserDescription,
-} from '@/stores/setting/sections/browserPermissions';
+} from '@/stores/setting/sections/browserPolicy';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import type { BrowserToolId } from './index';

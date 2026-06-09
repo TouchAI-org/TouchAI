@@ -3,7 +3,7 @@ import {
     fixedBrowserDescription,
     normalizeBrowserDescription,
     requiresBrowserDescription,
-} from '@/stores/setting/sections/browserPermissions';
+} from '@/stores/setting/sections/browserPolicy';
 import { normalizeOptionalString } from '@/utils/text';
 
 export function parseBrowserOperation(args: Record<string, unknown>): string | null {

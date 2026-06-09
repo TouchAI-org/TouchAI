@@ -11,7 +11,7 @@ import {
 import {
     type BrowserToolOperation,
     evaluateBrowserPermission,
-} from '@/stores/setting/sections/browserPermissions';
+} from '@/stores/setting/sections/browserPolicy';
 
 import {
     type BaseBuiltInToolExecutionContext,
