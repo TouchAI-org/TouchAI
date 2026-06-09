@@ -31,6 +31,9 @@ function isReleasePleaseGeneratedBody(body) {
 
 function isReleasePleasePr(body, options) {
     return (
+        options?.headRepoFullName &&
+        options?.baseRepository &&
+        options.headRepoFullName === options.baseRepository &&
         options?.headRef?.startsWith(RELEASE_PLEASE_HEAD_PREFIX) &&
         isReleasePleaseGeneratedBody(body)
     );
@@ -84,6 +87,8 @@ function main() {
     const body = process.env.PR_BODY ?? '';
     const error = validatePrTemplateBody(body, {
         headRef: process.env.PR_HEAD_REF ?? '',
+        headRepoFullName: process.env.PR_HEAD_REPO_FULL_NAME ?? '',
+        baseRepository: process.env.GITHUB_REPOSITORY ?? '',
     });
 
     if (error) {

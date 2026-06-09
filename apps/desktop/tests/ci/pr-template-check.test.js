@@ -30,6 +30,8 @@ describe('validatePrTemplateBody', () => {
         expect(
             validatePrTemplateBody(releasePleaseBody, {
                 headRef: 'release-please--branches--main--components--TouchAI',
+                headRepoFullName: 'TouchAI-org/TouchAI',
+                baseRepository: 'TouchAI-org/TouchAI',
             })
         ).toBeNull();
     });
@@ -38,6 +40,16 @@ describe('validatePrTemplateBody', () => {
         expect(
             validatePrTemplateBody(releasePleaseBody, {
                 headRef: 'feature/release-text',
+            })
+        ).toBe('Missing required PR template section: ## Summary');
+    });
+
+    it('does not allow fork branches to spoof Release Please PRs', () => {
+        expect(
+            validatePrTemplateBody(releasePleaseBody, {
+                headRef: 'release-please--branches--main--components--TouchAI',
+                headRepoFullName: 'attacker/TouchAI',
+                baseRepository: 'TouchAI-org/TouchAI',
             })
         ).toBe('Missing required PR template section: ## Summary');
     });
@@ -74,5 +86,8 @@ describe('PR template check workflow', () => {
         );
 
         expect(workflow).toContain('PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}');
+        expect(workflow).toContain(
+            'PR_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}'
+        );
     });
 });
