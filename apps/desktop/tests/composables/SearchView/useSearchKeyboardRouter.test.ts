@@ -162,17 +162,16 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.history.open');
     });
 
-    it('routes the default Ctrl+Up shortcut through the action callback', async () => {
+    it('does not route Ctrl+Up through default search shortcuts or input history', async () => {
         const { router, callbacks } = createKeyboardRouter({
             getSearchKeybindings: () => createDefaultSearchKeybindings(),
         });
 
-        expect(router.route({ key: 'ArrowUp', ctrlKey: true })).toBe(true);
+        expect(router.route({ key: 'ArrowUp', ctrlKey: true })).toBe(false);
         await flushAsyncWork();
 
-        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
-            'search.session.reopenLastClosed'
-        );
+        expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+        expect(callbacks.onNavigateInputHistory).not.toHaveBeenCalled();
     });
 
     it('routes the default maximize shortcut through the action callback', async () => {

@@ -2,6 +2,7 @@ import type { MessageKey } from '@/i18n';
 import {
     hasRequiredModifier,
     isModifierlessFunctionShortcut,
+    isReservedLocalShortcut,
     normalizeLocalShortcutString,
 } from '@/utils/shortcuts';
 
@@ -58,7 +59,7 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         id: 'search.session.reopenLastClosed',
         labelKey: 'settings.general.searchActions.reopenLastClosedSession',
         descriptionKey: 'settings.general.searchActionDescriptions.reopenLastClosedSession',
-        defaultShortcut: 'Mod+Up',
+        defaultShortcut: null,
         allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
@@ -146,6 +147,9 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
                 definition.allowModifierlessFunctionShortcut &&
                 isModifierlessFunctionShortcut(shortcut);
             if (!hasRequiredModifier(shortcut) && !allowsModifierlessFunction) {
+                continue;
+            }
+            if (isReservedLocalShortcut(shortcut)) {
                 continue;
             }
             normalized[definition.id] = shortcut;

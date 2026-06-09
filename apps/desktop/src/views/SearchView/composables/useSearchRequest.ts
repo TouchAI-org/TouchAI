@@ -426,49 +426,38 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     async function reopenLastClosedSession(): Promise<LoadedSessionInfo | null> {
-        const candidateSessionIds = [
-            settingsStore.lastClosedSessionId,
-            settingsStore.lastActiveSessionId,
-        ].filter(
-            (sessionId, index, sessionIds): sessionId is number =>
-                sessionId !== null && sessionIds.indexOf(sessionId) === index
-        );
-        if (candidateSessionIds.length === 0) {
+        const sessionId = settingsStore.lastClosedSessionId;
+        if (sessionId === null || sessionId === currentSessionId.value) {
             return null;
         }
 
-        let lastOpenError: unknown = null;
-        for (const sessionId of candidateSessionIds) {
-            try {
-                const loadedSession = await openSession(sessionId);
-                if (
-                    settingsStore.lastClosedSessionId !== null &&
-                    currentSessionId.value === settingsStore.lastClosedSessionId
-                ) {
-                    await clearLastClosedSessionIdSafely();
-                }
-                return loadedSession;
-            } catch (error) {
-                lastOpenError = error;
-                if (sessionId === settingsStore.lastClosedSessionId) {
-                    await clearLastClosedSessionIdSafely();
-                }
+        try {
+            const loadedSession = await openSession(sessionId);
+            if (currentSessionId.value === sessionId) {
+                await clearLastClosedSessionIdSafely();
             }
+            return loadedSession;
+        } catch (error) {
+            await clearLastClosedSessionIdSafely();
+            throw error;
         }
-
-        if (lastOpenError) {
-            throw lastOpenError;
-        }
-        return null;
     }
 
     async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
-        // 切换会话时必须丢弃当前页面暂存的排队请求，
+        if (sessionId === currentSessionId.value) {
+            return {
+                sessionId,
+                title: '',
+                modelId: modelOverride.value.modelId,
+                providerId: modelOverride.value.providerId,
+            };
+        }
+
+        const loadedSession = await openStoredSession(sessionId);
+        // 切换会话成功后必须丢弃当前页面暂存的排队请求，
         // 否则新会话会错误继承旧会话的“等待发送”锁态。
         clearPendingRequestState();
         clearDraft({ preserveModelTag: true });
-
-        const loadedSession = await openStoredSession(sessionId);
         persistLastActiveSessionId(sessionId);
         modelOverride.value = {
             modelId: loadedSession.modelId,

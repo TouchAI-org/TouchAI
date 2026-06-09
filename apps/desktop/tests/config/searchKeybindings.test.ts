@@ -39,7 +39,7 @@ describe('search keybinding configuration', () => {
             'search.history.open': 'Mod+H',
             'search.input.focus': 'Mod+L',
             'search.session.new': 'Mod+N',
-            'search.session.reopenLastClosed': 'Mod+Up',
+            'search.session.reopenLastClosed': null,
             'search.model.toggle': 'Mod+M',
             'search.window.pin': 'Mod+P',
             'search.window.maximize': 'F11',
@@ -53,16 +53,18 @@ describe('search keybinding configuration', () => {
                 'search.history.open': ' ctrl + shift + h ',
                 'search.input.focus': null,
                 'search.session.new': '   ',
+                'search.session.reopenLastClosed': 'Mod+Up',
+                'search.model.toggle': 'Ctrl+Backspace',
                 'search.window.maximize': 'f2',
                 'search.settings.open': 'ctrl + ,',
                 unknown: 'Alt+U',
             })
         ).toEqual({
             ...createDefaultSearchKeybindings(),
-            'search.history.open': 'Ctrl+Shift+H',
+            'search.history.open': 'Mod+Shift+H',
             'search.input.focus': null,
             'search.window.maximize': 'F2',
-            'search.settings.open': 'Ctrl+,',
+            'search.settings.open': 'Mod+,',
         });
     });
 
@@ -75,7 +77,7 @@ describe('search keybinding configuration', () => {
             })
         ).toEqual({
             ...createDefaultSearchKeybindings(),
-            'search.input.focus': 'Ctrl+L',
+            'search.input.focus': 'Mod+L',
             'search.window.maximize': 'F12',
         });
     });

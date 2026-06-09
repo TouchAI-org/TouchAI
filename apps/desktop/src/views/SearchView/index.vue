@@ -816,6 +816,11 @@
     }
 
     async function handleReopenLastClosedSession() {
+        if (queryText.value.trim() || attachments.value.length > 0) {
+            await controller.focusSearchInput();
+            return;
+        }
+
         controller.closeQuickSearch();
         await hideAllPopups();
         resetSessionInputHistoryTracking();

@@ -413,12 +413,15 @@ describe('createSearchKeydownHandler', () => {
         expect(escapeEvent.defaultPrevented).toBe(true);
     });
 
-    it('routes Ctrl+Up to reopen the most recently closed session', async () => {
+    it('routes a configured Ctrl+Up shortcut to reopen the most recently closed session', async () => {
         const controller = createControllerStub();
         const reopenLastClosedSession = vi.fn().mockResolvedValue(undefined);
         const handleKeyDown = createSearchKeydownHandler({
             viewReady: ref(true),
-            searchKeybindings: ref(createDefaultSearchKeybindings()),
+            searchKeybindings: ref({
+                ...createDefaultSearchKeybindings(),
+                'search.session.reopenLastClosed': 'Mod+Up',
+            }),
             queryText: ref(''),
             attachments: ref([]),
             cursorContext: ref<SearchCursorContext>({

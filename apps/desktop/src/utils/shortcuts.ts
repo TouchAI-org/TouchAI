@@ -15,8 +15,14 @@ export interface CapturedShortcutResult {
 const MODIFIER_DISPLAY_ORDER = ['Mod', 'Ctrl', 'Alt', 'Shift'] as const;
 const SUPPORTED_CAPTURE_MODIFIERS = new Set(['Ctrl', 'Alt', 'Shift', 'Mod']);
 const RESERVED_LOCAL_SHORTCUT_KEYS = new Set([
+    'Backspace',
+    'Del',
     'Enter',
     'Esc',
+    'Home',
+    'End',
+    'PageUp',
+    'PageDown',
     'Tab',
     'Up',
     'Down',
@@ -162,6 +168,11 @@ function createShortcutParts(shortcut: string): { modifiers: string[]; key: stri
             return { modifiers: [], key: null };
         }
         key = part;
+    }
+
+    if (!isMacPlatform() && modifierSet.has('Ctrl')) {
+        modifierSet.delete('Ctrl');
+        modifierSet.add('Mod');
     }
 
     const modifiers = MODIFIER_DISPLAY_ORDER.filter((modifier) => modifierSet.has(modifier));

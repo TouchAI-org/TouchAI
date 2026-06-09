@@ -33,13 +33,17 @@ describe('shortcut utilities', () => {
 
     it('normalizes shortcut strings with aliases and stable modifier ordering', () => {
         expect(normalizeLocalShortcutString(' shift + cmd + option + k ')).toBe('Mod+Alt+Shift+K');
-        expect(normalizeLocalShortcutString('control+delete')).toBe('Ctrl+Del');
+        expect(normalizeLocalShortcutString('control+delete')).toBe('Mod+Del');
         expect(normalizeLocalShortcutString('return')).toBe('Enter');
         expect(normalizeLocalShortcutString('f12')).toBe('F12');
         expect(normalizeLocalShortcutString(null)).toBeNull();
         expect(normalizeLocalShortcutString('Ctrl+Alt')).toBeNull();
         expect(normalizeLocalShortcutString('Ctrl+A+B')).toBeNull();
         expect(normalizeLocalShortcutString('   ')).toBeNull();
+
+        setPlatform('MacIntel');
+
+        expect(normalizeLocalShortcutString('control+delete')).toBe('Ctrl+Del');
     });
 
     it('formats display shortcuts for the current platform', () => {
@@ -66,7 +70,7 @@ describe('shortcut utilities', () => {
     it('matches shortcuts using platform-specific Mod behavior', () => {
         expect(matchShortcut('Mod+H', { key: 'h', ctrlKey: true })).toBe(true);
         expect(matchShortcut('Mod+H', { key: 'h', metaKey: true })).toBe(false);
-        expect(matchShortcut('Ctrl+H', { key: 'h', ctrlKey: true })).toBe(false);
+        expect(matchShortcut('Ctrl+H', { key: 'h', ctrlKey: true })).toBe(true);
         expect(matchShortcut('Ctrl+H', { key: 'h' })).toBe(false);
         expect(
             matchShortcut('Alt+Shift+Del', { key: 'Delete', altKey: true, shiftKey: true })
@@ -127,6 +131,12 @@ describe('shortcut utilities', () => {
 
     it('classifies reserved, modifierless, and conflicting shortcuts', () => {
         expect(isReservedLocalShortcut('Enter')).toBe(true);
+        expect(isReservedLocalShortcut('Mod+Backspace')).toBe(true);
+        expect(isReservedLocalShortcut('Ctrl+Delete')).toBe(true);
+        expect(isReservedLocalShortcut('Alt+Home')).toBe(true);
+        expect(isReservedLocalShortcut('Shift+End')).toBe(true);
+        expect(isReservedLocalShortcut('Mod+PageUp')).toBe(true);
+        expect(isReservedLocalShortcut('Mod+PageDown')).toBe(true);
         expect(isReservedLocalShortcut('Mod+K')).toBe(false);
         expect(isReservedLocalShortcut(null)).toBe(false);
 

@@ -354,6 +354,88 @@ describe('useSearchRequestFlow', () => {
         mounted.unmount();
     });
 
+    it('keeps draft and queue state when opening a stored session fails', async () => {
+        const queuedAttachment = createAttachment('queued-failed-open');
+        const modelOverride = ref({
+            modelId: 'stale-model',
+            providerId: 2,
+        });
+        const clearDraft = vi.fn();
+        const openError = new Error('session not found');
+
+        agentState.isLoading.value = true;
+        agentState.openSession.mockRejectedValueOnce(openError);
+
+        const mounted = await mountComposable(() =>
+            useSearchRequestFlow({
+                modelOverride,
+                clearDraft,
+                getSupportedAttachments: () => [queuedAttachment],
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({
+                        text: query,
+                        attachments: [queuedAttachment],
+                    }),
+            })
+        );
+
+        await mounted.result.handleSubmit('queued before failed open');
+
+        await expect(mounted.result.openSession(7)).rejects.toThrow(openError);
+
+        expect(clearDraft).not.toHaveBeenCalledWith({
+            preserveModelTag: true,
+        });
+        expect(mounted.result.pendingRequest.value?.query).toBe('queued before failed open');
+        expect(mounted.result.isWaitingForCompletion.value).toBe(true);
+        expect(modelOverride.value).toEqual({
+            modelId: 'stale-model',
+            providerId: 2,
+        });
+        expect(settingsStoreMock.updateLastActiveSessionId).not.toHaveBeenCalledWith(7);
+
+        mounted.unmount();
+    });
+
+    it('does not clear draft or reopen when opening the current session', async () => {
+        const modelOverride = ref({
+            modelId: 'current-model',
+            providerId: 12,
+        });
+        const clearDraft = vi.fn();
+        agentState.currentSessionId.value = 7;
+
+        const mounted = await mountComposable(() =>
+            useSearchRequestFlow({
+                modelOverride,
+                clearDraft,
+                getSupportedAttachments: () => [],
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({
+                        text: query,
+                        attachments: [],
+                    }),
+            })
+        );
+
+        const loadedSession = await mounted.result.openSession(7);
+
+        expect(agentState.openSession).not.toHaveBeenCalled();
+        expect(clearDraft).not.toHaveBeenCalled();
+        expect(dismissSessionTerminalStatusMock).not.toHaveBeenCalledWith(7);
+        expect(settingsStoreMock.updateLastActiveSessionId).not.toHaveBeenCalledWith(7);
+        expect(loadedSession).toEqual({
+            sessionId: 7,
+            title: '',
+            modelId: 'current-model',
+            providerId: 12,
+        });
+
+        mounted.unmount();
+    });
+
     it('reopens the most recently closed session', async () => {
         const modelOverride = ref({
             modelId: null,
@@ -380,11 +462,15 @@ describe('useSearchRequestFlow', () => {
         expect(settingsStoreMock.updateLastClosedSessionId).toHaveBeenCalledWith(23);
         expect(settingsStoreMock.lastClosedSessionId).toBe(23);
 
-        agentState.openSession.mockResolvedValueOnce({
-            sessionId: 23,
-            title: 'Reopened Session',
-            modelId: 'gpt-5',
-            providerId: 9,
+        agentState.currentSessionId.value = null;
+        agentState.openSession.mockImplementationOnce(async () => {
+            agentState.currentSessionId.value = 23;
+            return {
+                sessionId: 23,
+                title: 'Reopened Session',
+                modelId: 'gpt-5',
+                providerId: 9,
+            };
         });
 
         const reopenedSession = await mounted.result.reopenLastClosedSession();
@@ -402,17 +488,18 @@ describe('useSearchRequestFlow', () => {
         mounted.unmount();
     });
 
-    it('falls back to the last active session when no closed session is recorded', async () => {
+    it('does not fall back to the last active session when no closed session is recorded', async () => {
         const modelOverride = ref({
             modelId: null,
             providerId: null,
         });
+        const clearDraft = vi.fn();
         settingsStoreMock.lastActiveSessionId = 45;
 
         const mounted = await mountComposable(() =>
             useSearchRequestFlow({
                 modelOverride,
-                clearDraft: vi.fn(),
+                clearDraft,
                 getSupportedAttachments: () => [],
                 getUnsupportedAttachmentMessage: () => null,
                 getCurrentInputSnapshot: (query) =>
@@ -423,23 +510,44 @@ describe('useSearchRequestFlow', () => {
             })
         );
 
-        agentState.openSession.mockResolvedValueOnce({
-            sessionId: 45,
-            title: 'Last Active Session',
-            modelId: 'gpt-5',
-            providerId: 9,
+        const reopenedSession = await mounted.result.reopenLastClosedSession();
+
+        expect(agentState.openSession).not.toHaveBeenCalled();
+        expect(clearDraft).not.toHaveBeenCalled();
+        expect(reopenedSession).toBeNull();
+        expect(settingsStoreMock.updateLastClosedSessionId).not.toHaveBeenCalledWith(null);
+
+        mounted.unmount();
+    });
+
+    it('does not reopen or clear draft when the last closed session is already current', async () => {
+        const modelOverride = ref({
+            modelId: null,
+            providerId: null,
         });
+        const clearDraft = vi.fn();
+        settingsStoreMock.lastClosedSessionId = 23;
+        agentState.currentSessionId.value = 23;
+
+        const mounted = await mountComposable(() =>
+            useSearchRequestFlow({
+                modelOverride,
+                clearDraft,
+                getSupportedAttachments: () => [],
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({
+                        text: query,
+                        attachments: [],
+                    }),
+            })
+        );
 
         const reopenedSession = await mounted.result.reopenLastClosedSession();
 
-        expect(agentState.openSession).toHaveBeenCalledWith(45);
-        expect(reopenedSession).toEqual({
-            sessionId: 45,
-            title: 'Last Active Session',
-            modelId: 'gpt-5',
-            providerId: 9,
-        });
-        expect(settingsStoreMock.updateLastClosedSessionId).not.toHaveBeenCalledWith(null);
+        expect(agentState.openSession).not.toHaveBeenCalled();
+        expect(clearDraft).not.toHaveBeenCalled();
+        expect(reopenedSession).toBeNull();
 
         mounted.unmount();
     });

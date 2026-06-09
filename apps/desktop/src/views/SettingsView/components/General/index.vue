@@ -156,16 +156,6 @@
             : t('settings.general.noShortcut');
     }
 
-    function allowsReservedSearchShortcut(
-        actionId: SearchKeybindingActionId,
-        shortcut: string | null | undefined
-    ): boolean {
-        return (
-            actionId === 'search.session.reopenLastClosed' &&
-            normalizeLocalShortcutString(shortcut) === 'Mod+Up'
-        );
-    }
-
     const searchShortcutRows = computed<SettingsSearchShortcutGroupRow[]>(() =>
         SEARCH_KEYBINDING_DEFINITIONS.map((definition) => {
             const currentShortcut = settings.value.searchKeybindings[definition.id];
@@ -539,10 +529,7 @@
                 return;
             }
 
-            if (
-                isReservedLocalShortcut(normalizedShortcut) &&
-                !allowsReservedSearchShortcut(actionId, normalizedShortcut)
-            ) {
+            if (isReservedLocalShortcut(normalizedShortcut)) {
                 reportSearchShortcutError(
                     actionId,
                     'settings.general.searchShortcuts.errors.reserved'

@@ -83,6 +83,10 @@ function isTypingAttemptDuringApproval(input: SearchKeyboardRouteInput) {
     return input.key.length === 1 || input.key === 'Backspace' || input.key === 'Delete';
 }
 
+function hasNavigationModifier(input: SearchKeyboardRouteInput) {
+    return Boolean(input.ctrlKey || input.metaKey || input.altKey || input.shiftKey);
+}
+
 function resolveSearchKeybindingAction(
     input: SearchKeyboardRouteInput,
     keybindings: SearchKeybindings
@@ -277,6 +281,10 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
         if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
             if (input.key === 'ArrowUp') {
+                if (hasNavigationModifier(input)) {
+                    return false;
+                }
+
                 if (isMultiLineCursor() && !isCursorAtTextStart()) {
                     return false;
                 }
@@ -285,6 +293,10 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             }
 
             if (input.key === 'ArrowDown') {
+                if (hasNavigationModifier(input)) {
+                    return false;
+                }
+
                 if (isMultiLineCursor() && !isCursorAtEnd()) {
                     return false;
                 }
