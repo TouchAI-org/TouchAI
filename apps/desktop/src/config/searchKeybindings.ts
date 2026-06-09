@@ -182,9 +182,9 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
         const fallback = normalizeLocalShortcutString(definition.defaultShortcut);
         if (fallback && !usedShortcuts.has(fallback)) {
             usedShortcuts.add(fallback);
-            result[definition.id] = definition.defaultShortcut;
+            result[definition.id] = fallback;
         } else {
-            result[definition.id] = definition.allowDisable ? null : definition.defaultShortcut;
+            result[definition.id] = null;
         }
     }
 
