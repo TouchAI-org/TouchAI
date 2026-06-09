@@ -46,8 +46,11 @@ const STATUS_REMINDER_MAX_COMMAND_CHARS = 160;
 const STATUS_REMINDER_MAX_SUMMARY_LINES = 4;
 const REMINDER_MARKDOWN_ESCAPE_PATTERN = /\\([\\`*_{}[\]()#+.!>-])/g;
 const REMINDER_PATH_LIKE_TOKEN_PATTERN = /\S*[\\/]\S*/g;
+const REMINDER_PATH_WRAPPER_TRIM_PATTERN = /^[("'[{]+|[)"'\],.;:!?}]+$/g;
 
 type ReminderTextMode = 'natural' | 'command' | 'summary';
+// markstream emits standard markdown-it tokens and may also surface a custom
+// inline `link` token with pre-flattened label text.
 type ReminderMarkdownToken = {
     type: string;
     tag?: string;
@@ -129,8 +132,35 @@ function unescapeReminderMarkdown(value: string): string {
     return value.replace(REMINDER_MARKDOWN_ESCAPE_PATTERN, '$1');
 }
 
+/** Identify tokens that look like filesystem paths or globs rather than markdown escapes. */
+function isReminderPathLikeToken(token: string): boolean {
+    const core = token.replace(REMINDER_PATH_WRAPPER_TRIM_PATTERN, '');
+    const pathSegment = '(?:[A-Za-z0-9._-]+|\\*{1,2})';
+    const posixRelativePattern = new RegExp(`^(?:${pathSegment}/)+${pathSegment}$`);
+    const windowsRelativePattern = new RegExp(`^(?:${pathSegment}\\\\)+${pathSegment}$`);
+    const posixAbsolutePattern = new RegExp(
+        `^(?:/|\\.{1,2}/|~/)(?:${pathSegment}/)*${pathSegment}$`
+    );
+    const windowsAbsolutePattern = new RegExp(
+        `^(?:[A-Za-z]:\\\\|\\.{1,2}\\\\|~\\\\)(?:${pathSegment}\\\\)*${pathSegment}$`
+    );
+    const windowsUncPattern = new RegExp(`^\\\\\\\\${pathSegment}(?:\\\\${pathSegment})+$`);
+
+    return (
+        posixRelativePattern.test(core) ||
+        windowsRelativePattern.test(core) ||
+        posixAbsolutePattern.test(core) ||
+        windowsAbsolutePattern.test(core) ||
+        windowsUncPattern.test(core)
+    );
+}
+
 /** Escape path-like fragments so markdown emphasis markers inside file paths are preserved. */
 function protectPathLikeMarkdownToken(token: string): string {
+    if (!isReminderPathLikeToken(token)) {
+        return token;
+    }
+
     if (!/[`*_]/.test(token)) {
         return token;
     }
@@ -139,14 +169,36 @@ function protectPathLikeMarkdownToken(token: string): string {
         return token;
     }
 
-    return token.replace(/([`*_])/g, '\\$1');
+    return token.replace(/([\\`*_])/g, '\\$1');
+}
+
+/** Protect path-like fragments before parsing so later markdown cleanup does not corrupt them. */
+function protectReminderPathLikeTokens(value: string): string {
+    return value.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, protectPathLikeMarkdownToken);
 }
 
 /** Normalize reminder input before markdown parsing and protect path and glob syntax. */
 function prepareReminderMarkdownSource(value: string, mode: ReminderTextMode): string {
     const normalized = value.replace(/\r\n?/g, '\n');
-    const unescaped = mode === 'command' ? normalized : unescapeReminderMarkdown(normalized);
-    return unescaped.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, protectPathLikeMarkdownToken);
+    if (mode === 'command') {
+        return protectReminderPathLikeTokens(normalized);
+    }
+
+    const protectedPaths: string[] = [];
+    const withPlaceholders = normalized.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, (token) => {
+        if (!isReminderPathLikeToken(token)) {
+            return token;
+        }
+
+        const placeholder = `%%TOUCHAI_REMINDER_PATH_${protectedPaths.length}%%`;
+        protectedPaths.push(protectPathLikeMarkdownToken(token));
+        return placeholder;
+    });
+    const unescaped = unescapeReminderMarkdown(withPlaceholders);
+    return protectedPaths.reduce(
+        (text, token, index) => text.replace(`%%TOUCHAI_REMINDER_PATH_${index}%%`, token),
+        unescaped
+    );
 }
 
 /** Reduce inline or block HTML to plain text for notification-safe summaries. */
@@ -195,9 +247,13 @@ function extractReminderInlineText(
                 text += stripHtmlToText(token.content ?? token.raw ?? '');
                 break;
             case 'link':
-                text +=
-                    token.text ??
-                    extractReminderInlineText(token.children, token.content ?? token.raw ?? '');
+                text += extractReminderInlineText(
+                    token.children,
+                    token.text ?? token.content ?? ''
+                );
+                break;
+            case 'link_open':
+            case 'link_close':
                 break;
             default:
                 if (token.children?.length) {

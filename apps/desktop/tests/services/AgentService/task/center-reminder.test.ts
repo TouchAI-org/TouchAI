@@ -215,6 +215,40 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
+    it('preserves windows paths and escaped markdown markers in approval content', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'waiting_approval',
+                pendingToolApproval: {
+                    callId: 'call-2b',
+                    messageId: 'assistant-2b',
+                    title: 'Need approval',
+                    description: 'Inspect C:\\Users\\admin\\__tests__\\center.test.ts',
+                    command:
+                        'rg "C:\\Users\\admin\\__tests__\\center.test.ts" D:\\work\\packages\\**\\src',
+                    riskLabel: 'Medium risk',
+                    reason: 'Check C:\\Users\\admin\\__tests__\\center.test.ts before touching D:\\work\\packages\\**\\src',
+                    approveLabel: 'Approve',
+                    rejectLabel: 'Reject',
+                    enterHint: 'Enter to approve',
+                    escHint: 'Esc to reject',
+                    keyboardApproveAt: 1,
+                },
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'waiting_approval',
+            title: 'Pending',
+            body: 'Check C:\\Users\\admin\\__tests__\\center.test.ts before touching D:\\work\\packages\\**\\src. Command: rg "C:\\Users\\admin\\__tests__\\center.test.ts" D:\\work\\packages\\**\\src',
+            approval: {
+                callId: 'call-2b',
+                approveLabel: 'Approve',
+                rejectLabel: 'Reject',
+            },
+        });
+    });
+
     it('keeps shell pipelines intact in command previews', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
