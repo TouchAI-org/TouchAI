@@ -19,7 +19,7 @@ import {
     getGeneralSettingEventValue,
     JSON_GENERAL_SETTING_DEFINITIONS,
     serializeGeneralSetting,
-} from '@/stores/settingsDefinitions';
+} from '@/stores/setting';
 
 type GeneralSettingValue = SettingsGeneralUpdatedEvent['value'];
 
@@ -37,7 +37,7 @@ const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
     'search_settings',
 ];
 
-describe('settings definitions', () => {
+describe('setting registry', () => {
     it('declares every persisted general setting key in one registry', () => {
         expect(GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key)).toEqual(
             EXPECTED_GENERAL_SETTING_KEYS

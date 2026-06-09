@@ -22,8 +22,8 @@ import {
     parseGeneralSettingUpdateValue,
     serializeGeneralSetting,
     serializeParsedGeneralSettingValue,
-} from './settingsDefinitions';
-export type { GeneralSettingsData, OutputScrollBehavior } from './settingsDefinitions';
+} from './setting';
+export type { GeneralSettingsData, OutputScrollBehavior } from './setting';
 
 type GeneralSettingValue = SettingsGeneralUpdatedEvent['value'];
 

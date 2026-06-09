@@ -1,38 +1,38 @@
 import type { GeneralSettingKey, SettingsGeneralUpdatedEvent } from '@services/EventService';
 import { computed, type ComputedRef, type Ref } from 'vue';
 
-import {
-    type AppUpdateChannel,
-    DEFAULT_APP_UPDATE_CHANNEL,
-    normalizeAppUpdateChannel,
-} from '@/config/appUpdate';
-import {
-    type BrowserSettingsConfig,
-    DEFAULT_BROWSER_SETTINGS,
-    serializeBrowserSettingsConfig,
-} from '@/config/browserSettings';
-import {
-    DEFAULT_SEARCH_SETTINGS,
-    type SearchSettingsConfig,
-    serializeSearchSettingsConfig,
-} from '@/config/searchSettings';
-import {
-    DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
-    resolveSearchWindowDefaultSize,
-    type SearchWindowDefaultSize,
-    type SearchWindowSizePreset,
-    SearchWindowSizePreset as SearchWindowSizePresets,
-} from '@/config/searchWindow';
+import type { AppUpdateChannel } from '@/config/appUpdate';
+import type { BrowserSettingsConfig } from '@/config/browserSettings';
+import type { SearchSettingsConfig } from '@/config/searchSettings';
+import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
 import {
     cloneJsonSettingsDefault,
-    JSON_SETTINGS_SECTIONS,
+    findJsonSettingsSection,
     parseJsonSettingsValue,
     type RegisteredJsonSettingsSection,
     type RegisteredJsonSettingsValue,
     serializeJsonSettingsValue,
 } from '@/config/settingsRegistry';
-import { type AppLocale, normalizeLocale, resolveFirstLaunchLocale, setLocale } from '@/i18n';
-import { z } from '@/utils/zod';
+import type { AppLocale } from '@/i18n';
+
+import {
+    BROWSER_COMPUTED_BINDINGS,
+    BROWSER_JSON_SETTING_KEYS,
+    BROWSER_SETTINGS_DEFAULTS,
+    BROWSER_UPDATER_BINDINGS,
+} from './browser';
+import {
+    GENERAL_COMPUTED_BINDINGS,
+    GENERAL_SCALAR_SETTING_SPECS,
+    GENERAL_SETTINGS_DEFAULTS,
+    GENERAL_UPDATER_BINDINGS,
+} from './general';
+import {
+    SEARCH_COMPUTED_BINDINGS,
+    SEARCH_JSON_SETTING_KEYS,
+    SEARCH_SETTINGS_DEFAULTS,
+    SEARCH_UPDATER_BINDINGS,
+} from './search';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
 
@@ -114,7 +114,7 @@ export interface GeneralSettingUpdaters {
     updateSearchSettings(config: SearchSettingsConfig): Promise<void>;
 }
 
-interface ScalarSettingDefinitionOptions {
+export interface ScalarSettingDefinitionOptions {
     key: GeneralSettingKey;
     stateKey: GeneralSettingStateKey;
     parsePersisted(raw: string | null): GeneralSettingFieldValue;
@@ -125,77 +125,22 @@ interface ScalarSettingDefinitionOptions {
     persistBeforeApply?: boolean;
 }
 
-interface GeneralSettingComputedBinding {
+export interface GeneralSettingComputedBinding {
     exposedName: keyof GeneralSettingsComputedRefs;
     stateKey: keyof GeneralSettingsData;
 }
 
-interface GeneralSettingUpdaterBinding {
+export interface GeneralSettingUpdaterBinding {
     exposedName: keyof GeneralSettingUpdaters;
     key: GeneralSettingKey;
     normalize(value: unknown): GeneralSettingValue;
 }
 
-const outputScrollBehaviorSchema = z.enum(['follow_output', 'stay_position', 'jump_to_top']);
-const searchWindowSizePresetSchema = z.enum(
-    Object.keys(SearchWindowSizePresets) as [SearchWindowSizePreset, ...SearchWindowSizePreset[]]
-);
-
 const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
-    globalShortcut: 'Alt+Space',
-    startOnBoot: false,
-    startMinimized: true,
-    outputScrollBehavior: 'follow_output',
-    searchWindowSizePreset: DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
-    searchWindowDefaultSize: resolveSearchWindowDefaultSize(DEFAULT_SEARCH_WINDOW_SIZE_PRESET),
-    language: 'zh-CN',
-    appUpdateChannel: DEFAULT_APP_UPDATE_CHANNEL,
-    appUpdateAutoCheck: true,
-    appUpdateLastCheckedAt: null,
-    browserSettings: DEFAULT_BROWSER_SETTINGS,
-    searchSettings: DEFAULT_SEARCH_SETTINGS,
+    ...GENERAL_SETTINGS_DEFAULTS,
+    ...BROWSER_SETTINGS_DEFAULTS,
+    ...SEARCH_SETTINGS_DEFAULTS,
 };
-
-function normalizeOutputScrollBehavior(value: string | null): OutputScrollBehavior {
-    const result = outputScrollBehaviorSchema.safeParse(value);
-    return result.success ? result.data : DEFAULT_GENERAL_SETTINGS.outputScrollBehavior;
-}
-
-function normalizeSearchWindowSizePreset(value: string | null): SearchWindowSizePreset {
-    const result = searchWindowSizePresetSchema.safeParse(value);
-    return result.success ? result.data : DEFAULT_GENERAL_SETTINGS.searchWindowSizePreset;
-}
-
-function booleanFromString(
-    value: GeneralSettingValue,
-    defaultValue: boolean,
-    trueWhenMissing = defaultValue
-): boolean {
-    if (typeof value === 'boolean') {
-        return value;
-    }
-    if (value === null) {
-        return trueWhenMissing;
-    }
-    return String(value) === 'true';
-}
-
-function booleanNotFalse(value: GeneralSettingValue, defaultValue: boolean): boolean {
-    if (typeof value === 'boolean') {
-        return value;
-    }
-    if (value === null) {
-        return defaultValue;
-    }
-    return String(value) !== 'false';
-}
-
-function applySearchWindowSizePreset(
-    target: GeneralSettingsData,
-    preset: SearchWindowSizePreset
-): void {
-    target.searchWindowDefaultSize = { ...resolveSearchWindowDefaultSize(preset) };
-}
 
 function assignGeneralSettingField(
     target: GeneralSettingsData,
@@ -213,14 +158,6 @@ function readGeneralSettingField(
     return (source as unknown as Record<GeneralSettingStateKey, GeneralSettingFieldValue>)[
         stateKey
     ];
-}
-
-function stringValue(value: GeneralSettingValue, fallback: string): string {
-    return String(value || fallback);
-}
-
-function nullableString(value: GeneralSettingValue): string | null {
-    return value === null ? null : String(value);
 }
 
 function scalarSettingDefinition(
@@ -256,121 +193,34 @@ function jsonSettingDefinition(section: RegisteredJsonSettingsSection): GeneralS
     };
 }
 
-export const JSON_GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] =
-    JSON_SETTINGS_SECTIONS.map(jsonSettingDefinition);
+function jsonSettingDefinitionForKey(key: string): GeneralSettingDefinition {
+    const section = findJsonSettingsSection(key);
+    if (!section) {
+        throw new Error(`Unknown json settings section: ${key}`);
+    }
+    return jsonSettingDefinition(section);
+}
+
+export const JSON_GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = [
+    ...BROWSER_JSON_SETTING_KEYS,
+    ...SEARCH_JSON_SETTING_KEYS,
+].map(jsonSettingDefinitionForKey);
 
 export const GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = [
-    scalarSettingDefinition({
-        key: 'global_shortcut',
-        stateKey: 'globalShortcut',
-        parsePersisted: (raw) => stringValue(raw, DEFAULT_GENERAL_SETTINGS.globalShortcut),
-        parseUpdate: (value) => stringValue(value, DEFAULT_GENERAL_SETTINGS.globalShortcut),
-    }),
-    scalarSettingDefinition({
-        key: 'start_on_boot',
-        stateKey: 'startOnBoot',
-        parsePersisted: (raw) => booleanFromString(raw, DEFAULT_GENERAL_SETTINGS.startOnBoot),
-        parseUpdate: (value) => booleanFromString(value, DEFAULT_GENERAL_SETTINGS.startOnBoot),
-        eventValue: (value) => value as boolean,
-    }),
-    scalarSettingDefinition({
-        key: 'start_minimized',
-        stateKey: 'startMinimized',
-        parsePersisted: (raw) => booleanFromString(raw, DEFAULT_GENERAL_SETTINGS.startMinimized),
-        parseUpdate: (value) => booleanFromString(value, DEFAULT_GENERAL_SETTINGS.startMinimized),
-        eventValue: (value) => value as boolean,
-    }),
-    scalarSettingDefinition({
-        key: 'output_scroll_behavior',
-        stateKey: 'outputScrollBehavior',
-        parsePersisted: normalizeOutputScrollBehavior,
-        parseUpdate: (value) => normalizeOutputScrollBehavior(String(value)),
-    }),
-    scalarSettingDefinition({
-        key: 'search_window_size_preset',
-        stateKey: 'searchWindowSizePreset',
-        parsePersisted: normalizeSearchWindowSizePreset,
-        parseUpdate: (value) => normalizeSearchWindowSizePreset(String(value)),
-        afterApply: (target, value) =>
-            applySearchWindowSizePreset(target, value as SearchWindowSizePreset),
-    }),
-    scalarSettingDefinition({
-        key: 'language',
-        stateKey: 'language',
-        parsePersisted: (raw) => (raw === null ? resolveFirstLaunchLocale() : normalizeLocale(raw)),
-        parseUpdate: normalizeLocale,
-        afterApply: (_target, value) => setLocale(value as AppLocale),
-        persistBeforeApply: true,
-    }),
-    scalarSettingDefinition({
-        key: 'app_update_channel',
-        stateKey: 'appUpdateChannel',
-        parsePersisted: normalizeAppUpdateChannel,
-        parseUpdate: normalizeAppUpdateChannel,
-    }),
-    scalarSettingDefinition({
-        key: 'app_update_auto_check',
-        stateKey: 'appUpdateAutoCheck',
-        parsePersisted: (raw) => booleanNotFalse(raw, DEFAULT_GENERAL_SETTINGS.appUpdateAutoCheck),
-        parseUpdate: (value) => booleanNotFalse(value, DEFAULT_GENERAL_SETTINGS.appUpdateAutoCheck),
-        eventValue: (value) => value as boolean,
-    }),
-    scalarSettingDefinition({
-        key: 'app_update_last_checked_at',
-        stateKey: 'appUpdateLastCheckedAt',
-        parsePersisted: (raw) => raw || null,
-        parseUpdate: nullableString,
-        serializeValue: (value) => (value as string | null) ?? '',
-        eventValue: (value) => value as string | null,
-    }),
+    ...GENERAL_SCALAR_SETTING_SPECS.map(scalarSettingDefinition),
     ...JSON_GENERAL_SETTING_DEFINITIONS,
 ];
 
 export const GENERAL_SETTING_COMPUTED_BINDINGS: readonly GeneralSettingComputedBinding[] = [
-    { exposedName: 'outputScrollBehavior', stateKey: 'outputScrollBehavior' },
-    { exposedName: 'globalShortcut', stateKey: 'globalShortcut' },
-    { exposedName: 'searchWindowSizePreset', stateKey: 'searchWindowSizePreset' },
-    { exposedName: 'searchWindowDefaultSize', stateKey: 'searchWindowDefaultSize' },
-    { exposedName: 'language', stateKey: 'language' },
-    { exposedName: 'appUpdateChannel', stateKey: 'appUpdateChannel' },
-    { exposedName: 'appUpdateAutoCheck', stateKey: 'appUpdateAutoCheck' },
-    { exposedName: 'appUpdateLastCheckedAt', stateKey: 'appUpdateLastCheckedAt' },
-    { exposedName: 'browserSettings', stateKey: 'browserSettings' },
-    { exposedName: 'searchSettings', stateKey: 'searchSettings' },
+    ...GENERAL_COMPUTED_BINDINGS,
+    ...BROWSER_COMPUTED_BINDINGS,
+    ...SEARCH_COMPUTED_BINDINGS,
 ];
 
 export const GENERAL_SETTING_UPDATER_BINDINGS: readonly GeneralSettingUpdaterBinding[] = [
-    { exposedName: 'updateGlobalShortcut', key: 'global_shortcut', normalize: String },
-    { exposedName: 'updateStartOnBoot', key: 'start_on_boot', normalize: Boolean },
-    { exposedName: 'updateStartMinimized', key: 'start_minimized', normalize: Boolean },
-    { exposedName: 'updateOutputScrollBehavior', key: 'output_scroll_behavior', normalize: String },
-    {
-        exposedName: 'updateSearchWindowSizePreset',
-        key: 'search_window_size_preset',
-        normalize: String,
-    },
-    { exposedName: 'updateLanguage', key: 'language', normalize: normalizeLocale },
-    {
-        exposedName: 'updateAppUpdateChannel',
-        key: 'app_update_channel',
-        normalize: normalizeAppUpdateChannel,
-    },
-    { exposedName: 'updateAppUpdateAutoCheck', key: 'app_update_auto_check', normalize: Boolean },
-    {
-        exposedName: 'updateAppUpdateLastCheckedAt',
-        key: 'app_update_last_checked_at',
-        normalize: (value) => (value === null ? null : String(value)),
-    },
-    {
-        exposedName: 'updateBrowserSettings',
-        key: 'browser_settings',
-        normalize: (value) => serializeBrowserSettingsConfig(value as BrowserSettingsConfig),
-    },
-    {
-        exposedName: 'updateSearchSettings',
-        key: 'search_settings',
-        normalize: (value) => serializeSearchSettingsConfig(value as SearchSettingsConfig),
-    },
+    ...GENERAL_UPDATER_BINDINGS,
+    ...BROWSER_UPDATER_BINDINGS,
+    ...SEARCH_UPDATER_BINDINGS,
 ];
 
 const generalSettingDefinitionByKey = new Map(
@@ -409,8 +259,15 @@ export function createDefaultGeneralSettings(): GeneralSettingsData {
         ...DEFAULT_GENERAL_SETTINGS,
         searchWindowDefaultSize: { ...DEFAULT_GENERAL_SETTINGS.searchWindowDefaultSize },
     };
-    for (const section of JSON_SETTINGS_SECTIONS) {
-        assignGeneralSettingField(defaults, section.stateKey, cloneJsonSettingsDefault(section));
+    for (const definition of JSON_GENERAL_SETTING_DEFINITIONS) {
+        const section = findJsonSettingsSection(definition.key);
+        if (section) {
+            assignGeneralSettingField(
+                defaults,
+                section.stateKey,
+                cloneJsonSettingsDefault(section)
+            );
+        }
     }
     return defaults;
 }
@@ -420,7 +277,11 @@ export function cloneGeneralSettingsSnapshot(source: GeneralSettingsData): Gener
         ...source,
         searchWindowDefaultSize: { ...source.searchWindowDefaultSize },
     };
-    for (const section of JSON_SETTINGS_SECTIONS) {
+    for (const definition of JSON_GENERAL_SETTING_DEFINITIONS) {
+        const section = findJsonSettingsSection(definition.key);
+        if (!section) {
+            continue;
+        }
         assignGeneralSettingField(
             snapshot,
             section.stateKey,
