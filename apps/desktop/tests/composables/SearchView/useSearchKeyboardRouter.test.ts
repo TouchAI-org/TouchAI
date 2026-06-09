@@ -196,6 +196,19 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.settings.open');
     });
 
+    it('routes the default reopen-last-closed-session shortcut through the action callback', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getSearchKeybindings: () => createDefaultSearchKeybindings(),
+        });
+
+        expect(router.route({ key: 't', ctrlKey: true, shiftKey: true })).toBe(true);
+        await flushAsyncWork();
+
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
+            'search.session.reopenLastClosed'
+        );
+    });
+
     it('stops routing raw F11 after the maximize shortcut is remapped', async () => {
         const { router, callbacks } = createKeyboardRouter({
             getSearchKeybindings: () => ({

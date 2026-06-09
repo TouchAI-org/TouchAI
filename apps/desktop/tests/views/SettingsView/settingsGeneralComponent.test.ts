@@ -12,7 +12,7 @@ const settingsStoreMock = vi.hoisted(() => {
             'search.history.open': 'Mod+H',
             'search.input.focus': 'Mod+L',
             'search.session.new': 'Mod+N',
-            'search.session.reopenLastClosed': null,
+            'search.session.reopenLastClosed': 'Mod+Shift+T',
             'search.model.toggle': 'Mod+M',
             'search.window.pin': 'Mod+P',
             'search.window.maximize': 'F11',

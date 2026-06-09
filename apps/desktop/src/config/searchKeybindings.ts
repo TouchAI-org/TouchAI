@@ -59,7 +59,7 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         id: 'search.session.reopenLastClosed',
         labelKey: 'settings.general.searchActions.reopenLastClosedSession',
         descriptionKey: 'settings.general.searchActionDescriptions.reopenLastClosedSession',
-        defaultShortcut: null,
+        defaultShortcut: 'Mod+Shift+T',
         allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
