@@ -5,17 +5,12 @@ import type { GeneralSettingKey, SettingsGeneralUpdatedEvent } from '@services/E
 import { AppEvent, eventService } from '@services/EventService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 
-import { type AppUpdateChannel, normalizeAppUpdateChannel } from '@/config/appUpdate';
 import {
-    type BrowserSettingsConfig,
-    serializeBrowserSettingsConfig,
-} from '@/config/browserSettings';
-import { type SearchSettingsConfig, serializeSearchSettingsConfig } from '@/config/searchSettings';
-import { type SearchWindowSizePreset } from '@/config/searchWindow';
-import { type AppLocale, normalizeLocale } from '@/i18n';
-
+    createGeneralSettingsComputedRefs,
+    createGeneralSettingUpdaters,
+} from './settingsBindings';
 import {
     applyGeneralSettingValue,
     applyParsedGeneralSettingValue,
@@ -26,7 +21,6 @@ import {
     type GeneralSettingsData,
     getGeneralSettingDefinition,
     getGeneralSettingEventValue,
-    type OutputScrollBehavior,
     parseGeneralSettingUpdateValue,
     serializeGeneralSetting,
     serializeParsedGeneralSettingValue,
@@ -193,88 +187,17 @@ export const useSettingsStore = defineStore('settings', () => {
         await loadFromDatabase();
     }
 
-    async function updateGlobalShortcut(shortcut: string) {
-        await updateSetting('global_shortcut', shortcut);
-    }
-
-    async function updateStartOnBoot(enabled: boolean) {
-        await updateSetting('start_on_boot', enabled);
-    }
-
-    async function updateStartMinimized(enabled: boolean) {
-        await updateSetting('start_minimized', enabled);
-    }
-
-    async function updateOutputScrollBehavior(mode: OutputScrollBehavior) {
-        await updateSetting('output_scroll_behavior', mode);
-    }
-
-    async function updateSearchWindowSizePreset(preset: SearchWindowSizePreset) {
-        await updateSetting('search_window_size_preset', preset);
-    }
-
-    async function updateLanguage(language: AppLocale) {
-        await updateSetting('language', normalizeLocale(language));
-    }
-
-    async function updateAppUpdateChannel(channel: AppUpdateChannel) {
-        await updateSetting('app_update_channel', normalizeAppUpdateChannel(channel));
-    }
-
-    async function updateAppUpdateAutoCheck(enabled: boolean) {
-        await updateSetting('app_update_auto_check', enabled);
-    }
-
-    async function updateAppUpdateLastCheckedAt(checkedAt: string | null) {
-        await updateSetting('app_update_last_checked_at', checkedAt);
-    }
-
-    async function updateBrowserSettings(config: BrowserSettingsConfig) {
-        await updateSetting('browser_settings', serializeBrowserSettingsConfig(config));
-    }
-
-    async function updateSearchSettings(config: SearchSettingsConfig) {
-        await updateSetting('search_settings', serializeSearchSettingsConfig(config));
-    }
-
-    const outputScrollBehavior = computed(() => settings.value.outputScrollBehavior);
-    const globalShortcut = computed(() => settings.value.globalShortcut);
-    const searchWindowSizePreset = computed(() => settings.value.searchWindowSizePreset);
-    const searchWindowDefaultSize = computed(() => settings.value.searchWindowDefaultSize);
-    const language = computed(() => settings.value.language);
-    const appUpdateChannel = computed(() => settings.value.appUpdateChannel);
-    const appUpdateAutoCheck = computed(() => settings.value.appUpdateAutoCheck);
-    const appUpdateLastCheckedAt = computed(() => settings.value.appUpdateLastCheckedAt);
-    const browserSettings = computed(() => settings.value.browserSettings);
-    const searchSettings = computed(() => settings.value.searchSettings);
+    const settingComputedRefs = createGeneralSettingsComputedRefs(settings);
+    const settingUpdaters = createGeneralSettingUpdaters(updateSetting);
 
     return {
         settings,
         initialized,
         loading,
-        outputScrollBehavior,
-        globalShortcut,
-        searchWindowSizePreset,
-        searchWindowDefaultSize,
-        language,
-        appUpdateChannel,
-        appUpdateAutoCheck,
-        appUpdateLastCheckedAt,
-        browserSettings,
-        searchSettings,
         initialize,
         dispose,
         refresh,
-        updateGlobalShortcut,
-        updateStartOnBoot,
-        updateStartMinimized,
-        updateOutputScrollBehavior,
-        updateSearchWindowSizePreset,
-        updateLanguage,
-        updateAppUpdateChannel,
-        updateAppUpdateAutoCheck,
-        updateAppUpdateLastCheckedAt,
-        updateBrowserSettings,
-        updateSearchSettings,
+        ...settingComputedRefs,
+        ...settingUpdaters,
     };
 });
