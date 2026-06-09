@@ -1,9 +1,9 @@
 import { computed, type ComputedRef, type Ref } from 'vue';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
-import type { BrowserSettingsConfig } from '@/config/browserSettings';
-import type { SearchSettingsConfig } from '@/config/searchSettings';
 import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
+import type { AppLocale } from '@/i18n';
+import type { BrowserSettingsConfig } from '@/stores/setting/sections/browser';
 import {
     cloneJsonSettingsDefault,
     JSON_SETTINGS_SECTIONS,
@@ -12,8 +12,8 @@ import {
     type RegisteredJsonSettingsSection,
     type RegisteredJsonSettingsValue,
     serializeJsonSettingsValue,
-} from '@/config/settingsRegistry';
-import type { AppLocale } from '@/i18n';
+} from '@/stores/setting/sections/registry';
+import type { SearchSettingsConfig } from '@/stores/setting/sections/search';
 
 import {
     GENERAL_DERIVED_COMPUTED_BINDINGS,

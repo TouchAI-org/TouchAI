@@ -42,7 +42,7 @@ describe('search settings config', () => {
             DEFAULT_SEARCH_SETTINGS,
             parseSearchSettingsConfig,
             serializeSearchSettingsConfig,
-        } = await import('@/config/searchSettings');
+        } = await import('@/stores/setting/sections/search');
 
         expect(DEFAULT_SEARCH_SETTINGS.version).toBe(1);
         expect(DEFAULT_SEARCH_SETTINGS.defaultProvider).toBe('anysearch');
@@ -60,7 +60,7 @@ describe('search settings config', () => {
     });
 
     it('trims provider keys and preserves intent routing', async () => {
-        const { parseSearchSettingsConfig } = await import('@/config/searchSettings');
+        const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
 
         expect(
             parseSearchSettingsConfig(
@@ -106,7 +106,7 @@ describe('search settings config', () => {
     });
 
     it('does not enable required-key providers without API keys', async () => {
-        const { parseSearchSettingsConfig } = await import('@/config/searchSettings');
+        const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
 
         expect(
             parseSearchSettingsConfig(

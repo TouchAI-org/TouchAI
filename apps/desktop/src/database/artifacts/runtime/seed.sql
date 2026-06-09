@@ -1,22 +1,6 @@
 INSERT OR IGNORE INTO touchai_meta (key, value)
 VALUES ('app_id', 'touchai');
 
-INSERT INTO settings (key, value)
-SELECT 'theme', 'light'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'theme');
-
-INSERT INTO settings (key, value)
-SELECT 'auto_start', 'false'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'auto_start');
-
-INSERT INTO settings (key, value)
-SELECT 'output_scroll_behavior', 'follow_output'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'output_scroll_behavior');
-
-INSERT INTO settings (key, value)
-SELECT 'search_window_size_preset', 'normal'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'search_window_size_preset');
-
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )

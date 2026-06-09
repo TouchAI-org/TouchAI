@@ -4,7 +4,6 @@ import type {
     BuiltInToolLog,
     MessageRole,
     ProviderDriver,
-    SettingKey,
     StatisticKey,
     ToolLogKind,
     ToolLogStatus,
@@ -14,7 +13,7 @@ import type {
 
 // ==================== 基础类型 ====================
 
-export type SettingIdentifier = string | SettingKey;
+export type SettingIdentifier = string;
 export type StatisticIdentifier = string | StatisticKey;
 
 export type DbMessageRole = MessageRole;

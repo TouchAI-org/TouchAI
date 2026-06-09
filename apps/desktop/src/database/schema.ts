@@ -17,17 +17,6 @@ export type SqlParams = SqlValue[];
 
 // ==================== 表定义（Drizzle） ====================
 
-/**
- * 设置键枚举
- */
-export enum SettingKey {
-    THEME = 'theme',
-    LANGUAGE = 'language',
-    AUTO_START = 'auto_start',
-    OUTPUT_SCROLL_BEHAVIOR = 'output_scroll_behavior',
-    SEARCH_WINDOW_SIZE_PRESET = 'search_window_size_preset',
-}
-
 export type ToolLogKind = 'mcp' | 'builtin';
 
 /**

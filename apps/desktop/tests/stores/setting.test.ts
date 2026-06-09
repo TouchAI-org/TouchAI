@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-import { DEFAULT_BROWSER_SETTINGS } from '@/config/browserSettings';
-import { DEFAULT_SEARCH_SETTINGS } from '@/config/searchSettings';
-import { JSON_SETTINGS_SECTIONS } from '@/config/settingsRegistry';
 import {
     applyGeneralSettingValue,
     applyPersistedGeneralSettingValue,
@@ -21,6 +18,9 @@ import {
     JSON_GENERAL_SETTING_DEFINITIONS,
     serializeGeneralSetting,
 } from '@/stores/setting';
+import { DEFAULT_BROWSER_SETTINGS } from '@/stores/setting/sections/browser';
+import { JSON_SETTINGS_SECTIONS } from '@/stores/setting/sections/registry';
+import { DEFAULT_SEARCH_SETTINGS } from '@/stores/setting/sections/search';
 
 const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
     'global_shortcut',

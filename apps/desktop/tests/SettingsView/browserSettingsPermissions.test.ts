@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import { DEFAULT_BROWSER_SETTINGS } from '@/stores/setting/sections/browser';
 import {
     evaluateBrowserPermission,
     fixedBrowserDescription,
     normalizeBrowserDescription,
     requiresBrowserDescription,
-} from '@/config/browserPermissions';
-import { DEFAULT_BROWSER_SETTINGS } from '@/config/browserSettings';
+} from '@/stores/setting/sections/browserPermissions';
 
 describe('browser settings permissions', () => {
     it('uses fixed descriptions for passive status operations only', () => {

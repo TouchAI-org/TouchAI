@@ -1,13 +1,16 @@
 import { getSettingValue } from '@database/queries';
 
+import { tt } from '@/i18n';
+import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
+import {
+    BROWSER_SETTINGS_KEY,
+    parseBrowserSettingsConfig,
+} from '@/stores/setting/sections/browser';
 import {
     type BrowserToolOperation,
     evaluateBrowserPermission,
     normalizeBrowserDescription,
-} from '@/config/browserPermissions';
-import { BROWSER_SETTINGS_KEY, parseBrowserSettingsConfig } from '@/config/browserSettings';
-import { tt } from '@/i18n';
-import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
+} from '@/stores/setting/sections/browserPermissions';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import type { BrowserToolId } from './index';

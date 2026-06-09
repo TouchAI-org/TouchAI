@@ -1,7 +1,7 @@
 import type { AppIconName } from '@components/appIconMap';
 
-import { JSON_SETTINGS_SECTIONS } from '@/config/settingsRegistry';
 import { type MessageKey, t } from '@/i18n';
+import { JSON_SETTINGS_SECTIONS } from '@/stores/setting/sections/registry';
 
 export type NavigationSection =
     | 'general'

@@ -1,14 +1,17 @@
 import { getSettingValue } from '@database/queries';
 import { native } from '@services/NativeService';
 
-import { type BrowserToolOperation, evaluateBrowserPermission } from '@/config/browserPermissions';
+import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
+import type { BrowserExistingSession, BrowserStartRequest } from '@/services/NativeService/types';
 import {
     BROWSER_SETTINGS_KEY,
     type BrowserSettingsConfig,
     parseBrowserSettingsConfig,
-} from '@/config/browserSettings';
-import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
-import type { BrowserExistingSession, BrowserStartRequest } from '@/services/NativeService/types';
+} from '@/stores/setting/sections/browser';
+import {
+    type BrowserToolOperation,
+    evaluateBrowserPermission,
+} from '@/stores/setting/sections/browserPermissions';
 
 import {
     type BaseBuiltInToolExecutionContext,

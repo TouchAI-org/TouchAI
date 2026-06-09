@@ -43,7 +43,7 @@ describe('browser settings config', () => {
             getDefaultHomepageError,
             parseBrowserSettingsConfig,
             serializeBrowserSettingsConfig,
-        } = await import('@/config/browserSettings');
+        } = await import('@/stores/setting/sections/browser');
 
         expect(DEFAULT_BROWSER_SETTINGS.version).toBe(1);
         expect(DEFAULT_BROWSER_SETTINGS.defaultHomepage).toBe('https://touch-ai.org');
@@ -73,7 +73,7 @@ describe('browser settings config', () => {
     });
 
     it('trims string fields and preserves configured permissions', async () => {
-        const { parseBrowserSettingsConfig } = await import('@/config/browserSettings');
+        const { parseBrowserSettingsConfig } = await import('@/stores/setting/sections/browser');
 
         expect(
             parseBrowserSettingsConfig(
@@ -126,7 +126,7 @@ describe('browser settings config', () => {
     });
 
     it('derives the merged fingerprint profile from legacy fingerprint fields', async () => {
-        const { parseBrowserSettingsConfig } = await import('@/config/browserSettings');
+        const { parseBrowserSettingsConfig } = await import('@/stores/setting/sections/browser');
 
         expect(
             parseBrowserSettingsConfig(
@@ -156,7 +156,7 @@ describe('browser settings config', () => {
     });
 
     it('loads and saves browser settings through the existing settings store', async () => {
-        const { DEFAULT_BROWSER_SETTINGS } = await import('@/config/browserSettings');
+        const { DEFAULT_BROWSER_SETTINGS } = await import('@/stores/setting/sections/browser');
         const { useSettingsStore } = await import('@/stores/settings');
         settingsValues.set(
             'browser_settings',

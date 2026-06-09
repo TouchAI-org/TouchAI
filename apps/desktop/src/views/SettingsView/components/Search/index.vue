@@ -5,6 +5,7 @@
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+    import { type MessageKey, t } from '@/i18n';
     import {
         parseSearchSettingsConfig,
         SEARCH_PROVIDER_API_KEY_REQUIREMENTS,
@@ -15,8 +16,7 @@
         type SearchRouteIntent,
         type SearchSettingsConfig,
         serializeSearchSettingsConfig,
-    } from '@/config/searchSettings';
-    import { type MessageKey, t } from '@/i18n';
+    } from '@/stores/setting/sections/search';
     import { useSettingsStore } from '@/stores/settings';
 
     defineOptions({ name: 'SettingsSearchSection' });

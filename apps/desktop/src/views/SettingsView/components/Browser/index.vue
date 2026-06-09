@@ -5,6 +5,9 @@
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
+    import { type MessageKey, t } from '@/i18n';
+    import { native } from '@/services/NativeService';
+    import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
     import {
         type BrowserFingerprintProfile,
         type BrowserPermissionMode,
@@ -15,10 +18,7 @@
         parseBrowserSettingsConfig,
         type ScreenshotAttachmentMode,
         serializeBrowserSettingsConfig,
-    } from '@/config/browserSettings';
-    import { type MessageKey, t } from '@/i18n';
-    import { native } from '@/services/NativeService';
-    import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
+    } from '@/stores/setting/sections/browser';
     import { useSettingsStore } from '@/stores/settings';
 
     defineOptions({ name: 'SettingsBrowserSection' });

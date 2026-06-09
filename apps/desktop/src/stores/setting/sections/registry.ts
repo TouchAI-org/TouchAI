@@ -1,5 +1,6 @@
 import type { AppIconName } from '@components/appIconMap';
 
+import type { MessageKey } from '@/i18n';
 import {
     BROWSER_SETTINGS_KEY,
     BROWSER_SETTINGS_VERSION,
@@ -8,7 +9,7 @@ import {
     getDefaultHomepageError,
     parseBrowserSettingsConfig,
     serializeBrowserSettingsConfig,
-} from '@/config/browserSettings';
+} from '@/stores/setting/sections/browser';
 import {
     DEFAULT_SEARCH_SETTINGS,
     parseSearchSettingsConfig,
@@ -19,8 +20,7 @@ import {
     SEARCH_SETTINGS_VERSION,
     type SearchSettingsConfig,
     serializeSearchSettingsConfig,
-} from '@/config/searchSettings';
-import type { MessageKey } from '@/i18n';
+} from '@/stores/setting/sections/search';
 
 export interface SettingsValidationIssue {
     path: string;

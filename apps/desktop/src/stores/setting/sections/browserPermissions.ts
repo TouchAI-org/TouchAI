@@ -1,4 +1,7 @@
-import type { BrowserPermissionMode, BrowserSettingsConfig } from '@/config/browserSettings';
+import type {
+    BrowserPermissionMode,
+    BrowserSettingsConfig,
+} from '@/stores/setting/sections/browser';
 
 export type BrowserToolOperation =
     | 'status'

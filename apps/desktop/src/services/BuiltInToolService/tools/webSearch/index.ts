@@ -1,12 +1,12 @@
 import { getSettingValue } from '@database/queries';
 
+import { createTauriFetch } from '@/services/AgentService/infrastructure/providers';
 import {
     parseSearchSettingsConfig,
     SEARCH_SETTINGS_KEY,
     type SearchProviderId,
     type SearchSettingsConfig,
-} from '@/config/searchSettings';
-import { createTauriFetch } from '@/services/AgentService/infrastructure/providers';
+} from '@/stores/setting/sections/search';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import {
