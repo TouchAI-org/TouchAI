@@ -72,6 +72,8 @@ const SELECT_ALL_MODIFIER: i32 = 2;
 #[derive(Debug)]
 struct FocusedEditableElement {
     tag: String,
+    input_type: String,
+    content_editable: bool,
 }
 
 fn http_client() -> Result<reqwest::Client, String> {
@@ -935,6 +937,9 @@ async fn type_text(
         set_select_value(endpoint, target, reference, text).await?;
         return Ok(());
     }
+    if !is_text_entry_control(&focused) {
+        return Err("Browser type/fill is only supported for text-entry controls".to_string());
+    }
     if replace {
         call_page(
             endpoint,
@@ -970,6 +975,21 @@ async fn type_text(
     )
     .await?;
     Ok(())
+}
+
+fn is_text_entry_control(focused: &FocusedEditableElement) -> bool {
+    if focused.content_editable {
+        return true;
+    }
+
+    match focused.tag.as_str() {
+        "TEXTAREA" => true,
+        "INPUT" => matches!(
+            focused.input_type.as_str(),
+            "" | "text" | "search" | "tel" | "url" | "email" | "password" | "number"
+        ),
+        _ => false,
+    }
 }
 
 async fn set_select_value(
@@ -1013,7 +1033,7 @@ async fn fill_form(
             "Runtime.evaluate",
             json!({
                 "expression": format!(
-                    "(() => {{ const el = document.querySelector({selector}); if (!el) throw new Error('field not found'); el.focus(); el.value = {value}; el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()"
+                    "(() => {{ const el = document.querySelector({selector}); if (!el) throw new Error('field not found'); el.focus(); const tag = el.tagName; const type = String(el.type || '').toLowerCase(); const writable = !el.disabled && !el.readOnly; const textEntry = writable && (el.isContentEditable || tag === 'TEXTAREA' || (tag === 'INPUT' && ['', 'text', 'search', 'tel', 'url', 'email', 'password', 'number'].includes(type))); if (tag === 'SELECT' && !el.disabled) {{ const options = Array.from(el.options || []); const match = options.find((option) => option.value === {value}) || options.find((option) => option.textContent.trim() === {value}); if (!match) throw new Error('select option not found'); el.value = match.value; }} else if (textEntry) {{ el.value = {value}; }} else {{ throw new Error('fill_form is only supported for writable text-entry controls'); }} el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()"
                 ),
                 "awaitPromise": true,
                 "returnByValue": true
@@ -1088,7 +1108,7 @@ async fn focus_and_verify_editable(
         "Runtime.evaluate",
         json!({
             "expression": format!(
-                "(() => {{ const el = document.querySelector({selector}); if (!el) return {{ ok: false, reason: 'not_found' }}; el.focus(); const active = document.activeElement === el; const editable = !el.disabled && !el.readOnly && (el.isContentEditable || ['INPUT','TEXTAREA','SELECT'].includes(el.tagName)); return {{ ok: active && editable, active, editable, tag: el.tagName, type: el.type || '' }}; }})()"
+                "(() => {{ const el = document.querySelector({selector}); if (!el) return {{ ok: false, reason: 'not_found' }}; el.focus(); const active = document.activeElement === el; const editable = !el.disabled && !el.readOnly && (el.isContentEditable || ['INPUT','TEXTAREA','SELECT'].includes(el.tagName)); return {{ ok: active && editable, active, editable, tag: el.tagName, type: el.type || '', contentEditable: Boolean(el.isContentEditable) }}; }})()"
             ),
             "awaitPromise": true,
             "returnByValue": true
@@ -1107,6 +1127,15 @@ async fn focus_and_verify_editable(
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string(),
+            input_type: value
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_ascii_lowercase(),
+            content_editable: value
+                .get("contentEditable")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         })
     } else {
         Err("Browser target is not active and editable".to_string())
@@ -1380,6 +1409,40 @@ mod tests {
             .expect("control frame should not error"),
             None
         );
+    }
+
+    #[test]
+    fn text_entry_control_guard_rejects_non_text_inputs() {
+        assert!(is_text_entry_control(&FocusedEditableElement {
+            tag: "TEXTAREA".to_string(),
+            input_type: String::new(),
+            content_editable: false,
+        }));
+        assert!(is_text_entry_control(&FocusedEditableElement {
+            tag: "INPUT".to_string(),
+            input_type: "email".to_string(),
+            content_editable: false,
+        }));
+        assert!(is_text_entry_control(&FocusedEditableElement {
+            tag: "DIV".to_string(),
+            input_type: String::new(),
+            content_editable: true,
+        }));
+        assert!(!is_text_entry_control(&FocusedEditableElement {
+            tag: "INPUT".to_string(),
+            input_type: "checkbox".to_string(),
+            content_editable: false,
+        }));
+        assert!(!is_text_entry_control(&FocusedEditableElement {
+            tag: "INPUT".to_string(),
+            input_type: "file".to_string(),
+            content_editable: false,
+        }));
+        assert!(!is_text_entry_control(&FocusedEditableElement {
+            tag: "SELECT".to_string(),
+            input_type: "select-one".to_string(),
+            content_editable: false,
+        }));
     }
 
     #[test]

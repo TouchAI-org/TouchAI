@@ -736,6 +736,9 @@ export const zhToEnTextMap = {
     '回复 TouchAI': 'Reply to TouchAI',
     回复: 'Reply',
     浏览器操作确认: 'Browser operation confirmation',
+    '此操作会连接到已有浏览器会话。': 'This operation connects to an existing browser session.',
+    '此操作会读取当前浏览器页面或标签页状态。':
+        'This operation reads the current browser page or tab state.',
     '此操作会截取当前网页内容并作为图片附件返回。':
         'This operation will capture the current webpage and return it as an image attachment.',
     '此操作会启动或停止浏览器自动化会话。':
