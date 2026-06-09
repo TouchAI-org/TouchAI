@@ -1,6 +1,7 @@
 import { z } from '@/utils/zod';
 
 export const SEARCH_SETTINGS_KEY = 'search_settings';
+export const SEARCH_SETTINGS_VERSION = 1;
 
 export const SEARCH_PROVIDER_IDS = [
     'auto',
@@ -70,6 +71,7 @@ export interface SearchProviderConfig {
 }
 
 export interface SearchSettingsConfig {
+    version: typeof SEARCH_SETTINGS_VERSION;
     defaultProvider: SearchProviderId;
     maxResults: number;
     timeoutMs: number;
@@ -89,6 +91,7 @@ const providerConfigSchema = z.object({
 
 const searchSettingsSchema = z
     .object({
+        version: z.number().int().optional(),
         defaultProvider: providerIdSchema.optional(),
         maxResults: z.number().int().min(1).max(10).optional(),
         timeoutMs: z.number().int().min(1000).max(60000).optional(),
@@ -120,6 +123,7 @@ function createDefaultProviders(): Record<SearchProviderId, SearchProviderConfig
 }
 
 export const DEFAULT_SEARCH_SETTINGS: SearchSettingsConfig = {
+    version: SEARCH_SETTINGS_VERSION,
     defaultProvider: 'anysearch',
     maxResults: 6,
     timeoutMs: 15000,
@@ -213,6 +217,7 @@ export function parseSearchSettingsConfig(configJson: string | null): SearchSett
         const data = parsed.data;
         const providers = normalizeProviders(data.providers);
         return {
+            version: SEARCH_SETTINGS_VERSION,
             defaultProvider: normalizeProviderSelection(data.defaultProvider, providers),
             maxResults: data.maxResults ?? DEFAULT_SEARCH_SETTINGS.maxResults,
             timeoutMs: data.timeoutMs ?? DEFAULT_SEARCH_SETTINGS.timeoutMs,
@@ -231,6 +236,7 @@ export function parseSearchSettingsConfig(configJson: string | null): SearchSett
 export function serializeSearchSettingsConfig(config: SearchSettingsConfig): string {
     const providers = normalizeProviders(config.providers);
     const normalized: SearchSettingsConfig = {
+        version: SEARCH_SETTINGS_VERSION,
         defaultProvider: normalizeProviderSelection(config.defaultProvider, providers),
         maxResults: Math.max(1, Math.min(10, Math.trunc(config.maxResults))),
         timeoutMs: Math.max(1000, Math.min(60000, Math.trunc(config.timeoutMs))),

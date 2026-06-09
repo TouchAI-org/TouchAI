@@ -7,11 +7,14 @@ export type ScreenshotAttachmentMode = 'always' | 'ask' | 'never';
 export type BrowserFingerprintMode = 'off' | 'balanced';
 export type BrowserFingerprintProfile = 'off' | 'basic' | 'enhanced';
 
+export const BROWSER_SETTINGS_VERSION = 1;
+
 export interface BrowserDomainRule {
     domain: string;
 }
 
 export interface BrowserSettingsConfig {
+    version: typeof BROWSER_SETTINGS_VERSION;
     enabled: boolean;
     headless: boolean;
     browserExecutablePath: string;
@@ -45,6 +48,7 @@ export interface BrowserSettingsConfig {
 export const BROWSER_SETTINGS_KEY = 'browser_settings';
 
 export const DEFAULT_BROWSER_SETTINGS: BrowserSettingsConfig = {
+    version: BROWSER_SETTINGS_VERSION,
     enabled: true,
     headless: false,
     browserExecutablePath: '',
@@ -84,6 +88,7 @@ const fingerprintProfileSchema = z.enum(['off', 'basic', 'enhanced']);
 
 const browserSettingsSchema = z
     .object({
+        version: z.number().int().optional(),
         enabled: z.boolean().optional(),
         headless: z.boolean().optional(),
         browserExecutablePath: z.string().optional(),
@@ -179,6 +184,7 @@ export function parseBrowserSettingsConfig(configJson: string | null): BrowserSe
             data.fingerprintProfile ??
             fingerprintProfileFromLegacy(data.fingerprintMode, data.fingerprintStealthScript);
         return {
+            version: BROWSER_SETTINGS_VERSION,
             enabled: data.enabled ?? DEFAULT_BROWSER_SETTINGS.enabled,
             headless: data.headless ?? DEFAULT_BROWSER_SETTINGS.headless,
             browserExecutablePath: data.browserExecutablePath?.trim() ?? '',
@@ -218,6 +224,7 @@ export function serializeBrowserSettingsConfig(config: BrowserSettingsConfig): s
         config.fingerprintProfile ??
         fingerprintProfileFromLegacy(config.fingerprintMode, config.fingerprintStealthScript);
     const normalized: BrowserSettingsConfig = {
+        version: BROWSER_SETTINGS_VERSION,
         enabled: config.enabled,
         headless: config.headless,
         browserExecutablePath: config.browserExecutablePath.trim(),

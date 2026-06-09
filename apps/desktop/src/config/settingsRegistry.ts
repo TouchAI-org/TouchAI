@@ -2,6 +2,7 @@ import type { AppIconName } from '@components/appIconMap';
 
 import {
     BROWSER_SETTINGS_KEY,
+    BROWSER_SETTINGS_VERSION,
     type BrowserSettingsConfig,
     DEFAULT_BROWSER_SETTINGS,
     getDefaultHomepageError,
@@ -15,6 +16,7 @@ import {
     SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS,
     SEARCH_PROVIDER_IDS,
     SEARCH_SETTINGS_KEY,
+    SEARCH_SETTINGS_VERSION,
     type SearchSettingsConfig,
     serializeSearchSettingsConfig,
 } from '@/config/searchSettings';
@@ -37,14 +39,23 @@ export type RegisteredJsonSettingsValue = BrowserSettingsConfig | SearchSettings
 
 export type JsonSettingsKey = typeof BROWSER_SETTINGS_KEY | typeof SEARCH_SETTINGS_KEY;
 export type JsonSettingsStateKey = 'browserSettings' | 'searchSettings';
+export type JsonSettingsComputedName = 'browserSettings' | 'searchSettings';
+export type JsonSettingsUpdaterName = 'updateBrowserSettings' | 'updateSearchSettings';
+
+export interface JsonSettingsStoreBinding {
+    computedName: JsonSettingsComputedName;
+    updaterName: JsonSettingsUpdaterName;
+}
 
 export interface RegisteredJsonSettingsSection {
     key: JsonSettingsKey;
+    version: number;
     stateKey: JsonSettingsStateKey;
     defaultValue: RegisteredJsonSettingsValue;
     parse(raw: string | null): RegisteredJsonSettingsValue;
     serialize(value: RegisteredJsonSettingsValue): string;
     validate(value: RegisteredJsonSettingsValue): SettingsValidationIssue[];
+    store: JsonSettingsStoreBinding;
     ui: {
         sectionId: 'browser' | 'search';
         icon: AppIconName;
@@ -54,14 +65,41 @@ export interface RegisteredJsonSettingsSection {
     };
 }
 
+interface JsonSettingsSectionDefinition<T extends RegisteredJsonSettingsValue> {
+    key: JsonSettingsKey;
+    version: number;
+    stateKey: JsonSettingsStateKey;
+    defaultValue: T;
+    parse(raw: string | null): T;
+    serialize(value: T): string;
+    validate(value: T): SettingsValidationIssue[];
+    store: JsonSettingsStoreBinding;
+    ui: RegisteredJsonSettingsSection['ui'];
+}
+
+function defineJsonSettingsSection<T extends RegisteredJsonSettingsValue>(
+    section: JsonSettingsSectionDefinition<T>
+): RegisteredJsonSettingsSection {
+    return {
+        ...section,
+        serialize: (value) => section.serialize(value as T),
+        validate: (value) => section.validate(value as T),
+    };
+}
+
 export const JSON_SETTINGS_SECTIONS: readonly RegisteredJsonSettingsSection[] = [
-    {
+    defineJsonSettingsSection({
         key: BROWSER_SETTINGS_KEY,
+        version: BROWSER_SETTINGS_VERSION,
         stateKey: 'browserSettings',
         defaultValue: DEFAULT_BROWSER_SETTINGS,
         parse: parseBrowserSettingsConfig,
-        serialize: (value) => serializeBrowserSettingsConfig(value as BrowserSettingsConfig),
-        validate: (value) => validateBrowserSettings(value as BrowserSettingsConfig),
+        serialize: serializeBrowserSettingsConfig,
+        validate: validateBrowserSettings,
+        store: {
+            computedName: 'browserSettings',
+            updaterName: 'updateBrowserSettings',
+        },
         ui: {
             sectionId: 'browser',
             icon: 'globe',
@@ -69,14 +107,19 @@ export const JSON_SETTINGS_SECTIONS: readonly RegisteredJsonSettingsSection[] = 
             descriptionKey: 'settings.nav.browser.description',
             navigationOrder: 20,
         },
-    },
-    {
+    }),
+    defineJsonSettingsSection({
         key: SEARCH_SETTINGS_KEY,
+        version: SEARCH_SETTINGS_VERSION,
         stateKey: 'searchSettings',
         defaultValue: DEFAULT_SEARCH_SETTINGS,
         parse: parseSearchSettingsConfig,
-        serialize: (value) => serializeSearchSettingsConfig(value as SearchSettingsConfig),
-        validate: (value) => validateSearchSettings(value as SearchSettingsConfig),
+        serialize: serializeSearchSettingsConfig,
+        validate: validateSearchSettings,
+        store: {
+            computedName: 'searchSettings',
+            updaterName: 'updateSearchSettings',
+        },
         ui: {
             sectionId: 'search',
             icon: 'search',
@@ -84,7 +127,7 @@ export const JSON_SETTINGS_SECTIONS: readonly RegisteredJsonSettingsSection[] = 
             descriptionKey: 'settings.nav.search.description',
             navigationOrder: 10,
         },
-    },
+    }),
 ] as const;
 
 export function findJsonSettingsSection(key: string): RegisteredJsonSettingsSection | null {

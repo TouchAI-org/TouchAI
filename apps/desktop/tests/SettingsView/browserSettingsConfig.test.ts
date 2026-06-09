@@ -45,6 +45,7 @@ describe('browser settings config', () => {
             serializeBrowserSettingsConfig,
         } = await import('@/config/browserSettings');
 
+        expect(DEFAULT_BROWSER_SETTINGS.version).toBe(1);
         expect(DEFAULT_BROWSER_SETTINGS.defaultHomepage).toBe('https://touch-ai.org');
         expect(DEFAULT_BROWSER_SETTINGS.headless).toBe(false);
         expect(DEFAULT_BROWSER_SETTINGS.existingSessionPolicy).toBe('ask');
@@ -62,6 +63,10 @@ describe('browser settings config', () => {
             serializeBrowserSettingsConfig(DEFAULT_BROWSER_SETTINGS)
         );
         expect(parseBrowserSettingsConfig('{}').defaultHomepage).toBe('https://touch-ai.org');
+        expect(parseBrowserSettingsConfig('{}').version).toBe(1);
+        expect(JSON.parse(serializeBrowserSettingsConfig(DEFAULT_BROWSER_SETTINGS))).toMatchObject({
+            version: 1,
+        });
         expect(
             parseBrowserSettingsConfig(JSON.stringify({ defaultHomepage: '' })).defaultHomepage
         ).toBe('');

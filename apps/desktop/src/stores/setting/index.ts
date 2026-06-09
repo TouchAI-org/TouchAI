@@ -7,7 +7,7 @@ import type { SearchSettingsConfig } from '@/config/searchSettings';
 import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
 import {
     cloneJsonSettingsDefault,
-    findJsonSettingsSection,
+    JSON_SETTINGS_SECTIONS,
     parseJsonSettingsValue,
     type RegisteredJsonSettingsSection,
     type RegisteredJsonSettingsValue,
@@ -16,23 +16,11 @@ import {
 import type { AppLocale } from '@/i18n';
 
 import {
-    BROWSER_COMPUTED_BINDINGS,
-    BROWSER_JSON_SETTING_KEYS,
-    BROWSER_SETTINGS_DEFAULTS,
-    BROWSER_UPDATER_BINDINGS,
-} from './browser';
-import {
     GENERAL_COMPUTED_BINDINGS,
     GENERAL_SCALAR_SETTING_SPECS,
     GENERAL_SETTINGS_DEFAULTS,
     GENERAL_UPDATER_BINDINGS,
 } from './general';
-import {
-    SEARCH_COMPUTED_BINDINGS,
-    SEARCH_JSON_SETTING_KEYS,
-    SEARCH_SETTINGS_DEFAULTS,
-    SEARCH_UPDATER_BINDINGS,
-} from './search';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
 
@@ -138,9 +126,7 @@ export interface GeneralSettingUpdaterBinding {
 
 const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     ...GENERAL_SETTINGS_DEFAULTS,
-    ...BROWSER_SETTINGS_DEFAULTS,
-    ...SEARCH_SETTINGS_DEFAULTS,
-};
+} as GeneralSettingsData;
 
 function assignGeneralSettingField(
     target: GeneralSettingsData,
@@ -193,18 +179,26 @@ function jsonSettingDefinition(section: RegisteredJsonSettingsSection): GeneralS
     };
 }
 
-function jsonSettingDefinitionForKey(key: string): GeneralSettingDefinition {
-    const section = findJsonSettingsSection(key);
-    if (!section) {
-        throw new Error(`Unknown json settings section: ${key}`);
-    }
-    return jsonSettingDefinition(section);
+function jsonComputedBinding(
+    section: RegisteredJsonSettingsSection
+): GeneralSettingComputedBinding {
+    return {
+        exposedName: section.store.computedName,
+        stateKey: section.stateKey,
+    };
 }
 
-export const JSON_GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = [
-    ...BROWSER_JSON_SETTING_KEYS,
-    ...SEARCH_JSON_SETTING_KEYS,
-].map(jsonSettingDefinitionForKey);
+function jsonUpdaterBinding(section: RegisteredJsonSettingsSection): GeneralSettingUpdaterBinding {
+    return {
+        exposedName: section.store.updaterName,
+        key: section.key,
+        normalize: (value) =>
+            serializeJsonSettingsValue(section, value as RegisteredJsonSettingsValue),
+    };
+}
+
+export const JSON_GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] =
+    JSON_SETTINGS_SECTIONS.map(jsonSettingDefinition);
 
 export const GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = [
     ...GENERAL_SCALAR_SETTING_SPECS.map(scalarSettingDefinition),
@@ -213,14 +207,12 @@ export const GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = 
 
 export const GENERAL_SETTING_COMPUTED_BINDINGS: readonly GeneralSettingComputedBinding[] = [
     ...GENERAL_COMPUTED_BINDINGS,
-    ...BROWSER_COMPUTED_BINDINGS,
-    ...SEARCH_COMPUTED_BINDINGS,
+    ...JSON_SETTINGS_SECTIONS.map(jsonComputedBinding),
 ];
 
 export const GENERAL_SETTING_UPDATER_BINDINGS: readonly GeneralSettingUpdaterBinding[] = [
     ...GENERAL_UPDATER_BINDINGS,
-    ...BROWSER_UPDATER_BINDINGS,
-    ...SEARCH_UPDATER_BINDINGS,
+    ...JSON_SETTINGS_SECTIONS.map(jsonUpdaterBinding),
 ];
 
 const generalSettingDefinitionByKey = new Map(
@@ -259,15 +251,8 @@ export function createDefaultGeneralSettings(): GeneralSettingsData {
         ...DEFAULT_GENERAL_SETTINGS,
         searchWindowDefaultSize: { ...DEFAULT_GENERAL_SETTINGS.searchWindowDefaultSize },
     };
-    for (const definition of JSON_GENERAL_SETTING_DEFINITIONS) {
-        const section = findJsonSettingsSection(definition.key);
-        if (section) {
-            assignGeneralSettingField(
-                defaults,
-                section.stateKey,
-                cloneJsonSettingsDefault(section)
-            );
-        }
+    for (const section of JSON_SETTINGS_SECTIONS) {
+        assignGeneralSettingField(defaults, section.stateKey, cloneJsonSettingsDefault(section));
     }
     return defaults;
 }
@@ -277,11 +262,7 @@ export function cloneGeneralSettingsSnapshot(source: GeneralSettingsData): Gener
         ...source,
         searchWindowDefaultSize: { ...source.searchWindowDefaultSize },
     };
-    for (const definition of JSON_GENERAL_SETTING_DEFINITIONS) {
-        const section = findJsonSettingsSection(definition.key);
-        if (!section) {
-            continue;
-        }
+    for (const section of JSON_SETTINGS_SECTIONS) {
         assignGeneralSettingField(
             snapshot,
             section.stateKey,

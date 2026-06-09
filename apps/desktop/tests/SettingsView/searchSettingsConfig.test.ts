@@ -44,6 +44,7 @@ describe('search settings config', () => {
             serializeSearchSettingsConfig,
         } = await import('@/config/searchSettings');
 
+        expect(DEFAULT_SEARCH_SETTINGS.version).toBe(1);
         expect(DEFAULT_SEARCH_SETTINGS.defaultProvider).toBe('anysearch');
         expect(DEFAULT_SEARCH_SETTINGS.maxResults).toBe(6);
         expect(DEFAULT_SEARCH_SETTINGS.timeoutMs).toBe(15000);
@@ -52,6 +53,10 @@ describe('search settings config', () => {
         expect(serializeSearchSettingsConfig(parseSearchSettingsConfig(null))).toBe(
             serializeSearchSettingsConfig(DEFAULT_SEARCH_SETTINGS)
         );
+        expect(parseSearchSettingsConfig('{}').version).toBe(1);
+        expect(JSON.parse(serializeSearchSettingsConfig(DEFAULT_SEARCH_SETTINGS))).toMatchObject({
+            version: 1,
+        });
     });
 
     it('trims provider keys and preserves intent routing', async () => {

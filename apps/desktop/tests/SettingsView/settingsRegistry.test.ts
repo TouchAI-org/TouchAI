@@ -18,6 +18,20 @@ describe('settings registry', () => {
         ]);
         expect(findJsonSettingsSection('browser_settings')?.stateKey).toBe('browserSettings');
         expect(findJsonSettingsSection('search_settings')?.stateKey).toBe('searchSettings');
+        expect(findJsonSettingsSection('browser_settings')).toMatchObject({
+            version: 1,
+            store: {
+                computedName: 'browserSettings',
+                updaterName: 'updateBrowserSettings',
+            },
+        });
+        expect(findJsonSettingsSection('search_settings')).toMatchObject({
+            version: 1,
+            store: {
+                computedName: 'searchSettings',
+                updaterName: 'updateSearchSettings',
+            },
+        });
         expect(findJsonSettingsSection('browser_settings')?.ui).toMatchObject({
             sectionId: 'browser',
             icon: 'globe',
