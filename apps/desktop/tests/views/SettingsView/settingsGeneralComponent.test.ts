@@ -377,7 +377,7 @@ describe('SettingsGeneralSection', () => {
         });
     });
 
-    it('does not save shift-only printable search shortcuts', async () => {
+    it('keeps search shortcut capture active after a validation failure', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -391,6 +391,14 @@ describe('SettingsGeneralSection', () => {
         await flushPromises();
 
         expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F1' }));
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
+            ...settingsStoreMock.settings.value.searchKeybindings,
+            'search.history.open': 'F1',
+        });
     });
 
     it('shows fixed search shortcuts as unsupported for editing', async () => {

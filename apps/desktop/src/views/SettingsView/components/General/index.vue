@@ -508,7 +508,7 @@
     const saveSearchShortcut = async (
         actionId: SearchKeybindingActionId,
         shortcut: string | null
-    ) => {
+    ): Promise<boolean> => {
         const normalizedShortcut =
             shortcut === null ? null : normalizeLocalShortcutString(shortcut);
         if (normalizedShortcut) {
@@ -526,7 +526,7 @@
                     actionId,
                     formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
                 );
-                return;
+                return false;
             }
 
             if (isReservedLocalShortcut(normalizedShortcut)) {
@@ -538,7 +538,7 @@
                     actionId,
                     formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
                 );
-                return;
+                return false;
             }
 
             const conflictActionId = findShortcutConflict(
@@ -561,7 +561,7 @@
                     actionId,
                     formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
                 );
-                return;
+                return false;
             }
 
             const comparableGlobalShortcut = normalizeLocalShortcutString(
@@ -583,7 +583,7 @@
                     actionId,
                     formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
                 );
-                return;
+                return false;
             }
         }
 
@@ -599,6 +599,7 @@
                 formatSearchShortcutForSettings(normalizedShortcut)
             );
             alertMessage.value?.success(t('common.saved'), 2000);
+            return true;
         } catch (error) {
             console.error('Failed to save search shortcut:', error);
             reportSearchShortcutError(actionId, 'settings.general.saveSettingsFailed');
@@ -606,6 +607,7 @@
                 actionId,
                 formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
             );
+            return false;
         } finally {
             isSaving.value = false;
         }
@@ -642,7 +644,6 @@
             return;
         }
 
-        activeSearchShortcutActionId.value = null;
         hasCapturedSearchShortcut.value = false;
         searchShortcutCapturedValue.value = null;
 
@@ -654,10 +655,14 @@
                 actionId,
                 formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
             );
+            activeSearchShortcutActionId.value = null;
             return;
         }
 
-        await saveSearchShortcut(actionId, shortcut);
+        const saved = await saveSearchShortcut(actionId, shortcut);
+        if (saved) {
+            activeSearchShortcutActionId.value = null;
+        }
     };
 
     const stopSearchShortcutCaptureAndSave = async (

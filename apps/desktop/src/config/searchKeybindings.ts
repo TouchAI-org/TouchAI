@@ -130,12 +130,25 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
         return normalized;
     }
 
+    const candidates = value as Record<string, unknown>;
     for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
-        const candidate = (value as Record<string, unknown>)[definition.id];
+        const candidate = candidates[definition.id];
         if (candidate === null && definition.allowDisable) {
             normalized[definition.id] = null;
-            continue;
         }
+    }
+
+    function hasShortcutConflict(actionId: SearchKeybindingActionId, shortcut: string): boolean {
+        return SEARCH_KEYBINDING_DEFINITIONS.some((definition) => {
+            if (definition.id === actionId) {
+                return false;
+            }
+            return normalizeLocalShortcutString(normalized[definition.id]) === shortcut;
+        });
+    }
+
+    for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
+        const candidate = candidates[definition.id];
 
         if (typeof candidate !== 'string') {
             continue;
@@ -150,6 +163,9 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
                 continue;
             }
             if (isReservedLocalShortcut(shortcut)) {
+                continue;
+            }
+            if (hasShortcutConflict(definition.id, shortcut)) {
                 continue;
             }
             normalized[definition.id] = shortcut;

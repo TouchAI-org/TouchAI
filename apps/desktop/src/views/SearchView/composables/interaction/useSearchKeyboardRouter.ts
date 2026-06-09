@@ -172,13 +172,13 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             }
         }
 
-        const searchKeybindingAction = resolveSearchKeybindingAction(input, getSearchKeybindings());
-        if (searchKeybindingAction) {
-            runKeyboardEffect(() => onSearchKeybindingAction(searchKeybindingAction));
+        if (hasActivePopupWindowFocus()) {
             return true;
         }
 
-        if (hasActivePopupWindowFocus()) {
+        const searchKeybindingAction = resolveSearchKeybindingAction(input, getSearchKeybindings());
+        if (searchKeybindingAction) {
+            runKeyboardEffect(() => onSearchKeybindingAction(searchKeybindingAction));
             return true;
         }
 

@@ -83,6 +83,22 @@ describe('search keybinding configuration', () => {
         });
     });
 
+    it('rejects persisted shortcut duplicates while preserving disabled actions', () => {
+        expect(
+            normalizeSearchKeybindings({
+                'search.history.open': 'Ctrl+Y',
+                'search.input.focus': 'Ctrl+Y',
+                'search.session.new': null,
+                'search.model.toggle': 'Ctrl+N',
+            })
+        ).toEqual({
+            ...createDefaultSearchKeybindings(),
+            'search.history.open': 'Mod+Y',
+            'search.session.new': null,
+            'search.model.toggle': 'Mod+N',
+        });
+    });
+
     it('falls back to defaults for invalid persisted payloads', () => {
         const defaults = createDefaultSearchKeybindings();
 

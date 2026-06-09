@@ -272,6 +272,18 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onOpenQuickSearch).not.toHaveBeenCalled();
     });
 
+    it('does not route search shortcuts while a popup window owns focus', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            hasActivePopupWindowFocus: () => true,
+        });
+
+        expect(router.route({ key: 'F11' })).toBe(true);
+        expect(router.route({ key: 'h', ctrlKey: true })).toBe(true);
+        await flushAsyncWork();
+
+        expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+    });
+
     it('applies the escape fallback order on the search surface', async () => {
         const loadingRouter = createKeyboardRouter({
             isLoading: () => true,
