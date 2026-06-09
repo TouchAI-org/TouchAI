@@ -42,6 +42,9 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('.release-please-manifest.json');
         expect(workflow).toContain('apps/desktop/src-tauri/Cargo.lock');
         expect(workflow).toContain('apps/desktop/src-tauri/tauri.conf.json');
+        expect(workflow).toContain(
+            'git commit --no-verify -m "chore: format release please files"'
+        );
         expect(workflow).toContain('git push origin HEAD:"$RELEASE_PR_BRANCH"');
     });
 
