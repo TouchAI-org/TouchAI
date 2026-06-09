@@ -163,19 +163,19 @@ export function evaluateBrowserPermission(
         return { decision: 'deny', reason: 'domain-blocked' };
     }
 
+    if (operation === 'connect_existing') {
+        const sessionDecision = existingSessionDecision(config, metadata);
+        if (sessionDecision) {
+            return sessionDecision;
+        }
+    }
+
     if (config.permissionMode === 'allow') {
         return { decision: 'allow', reason: 'permission-mode-allow' };
     }
 
     if (config.permissionMode === 'deny') {
         return { decision: 'deny', reason: 'permission-mode-deny' };
-    }
-
-    if (operation === 'connect_existing') {
-        const sessionDecision = existingSessionDecision(config, metadata);
-        if (sessionDecision) {
-            return sessionDecision;
-        }
     }
 
     const operationPermission = permissionForOperation(config, operation);

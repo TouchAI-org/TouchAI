@@ -1,5 +1,3 @@
-import { convertFileSrc } from '@tauri-apps/api/core';
-
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { truncateText } from '@/utils/text';
 
@@ -51,19 +49,11 @@ function cleanMarkdownAltText(value: string): string {
         .trim();
 }
 
-function formatMarkdownImageUrl(path: string): string {
-    try {
-        return convertFileSrc(path);
-    } catch {
-        return path.replace(/\\/g, '/');
-    }
-}
-
-function formatScreenshotMarkdown(path: string, url: string | null): string {
+function formatScreenshotMarkdown(name: string, url: string | null): string {
     const altText = cleanMarkdownAltText(
         url ? `Browser screenshot of ${redactUrl(url)}` : 'Browser screenshot'
     );
-    return `![${altText}](<${formatMarkdownImageUrl(path)}>)`;
+    return `![${altText}](attachment:${name})`;
 }
 
 function formatScreenshotResponse(response: Record<string, unknown>): {
@@ -84,12 +74,13 @@ function formatScreenshotResponse(response: Record<string, unknown>): {
         typeof response.data_url === 'string';
 
     if (path) {
+        const name = path.split(/[\\/]/).pop() || 'browser-screenshot.png';
         return {
             result: [
                 '<browser_screenshot>',
                 url ? `url: ${redactUrl(url)}` : null,
-                `path: ${path}`,
-                `markdown: ${formatScreenshotMarkdown(path, url)}`,
+                `attachment: ${name}`,
+                `markdown: ${formatScreenshotMarkdown(name, url)}`,
                 `mimeType: ${mimeType}`,
                 `dimensions: ${dimensions}`,
                 hasBase64 ? 'base64 suppressed from model-visible result' : null,
@@ -103,7 +94,7 @@ function formatScreenshotResponse(response: Record<string, unknown>): {
                     type: 'image',
                     path,
                     originPath: path,
-                    name: path.split(/[\\/]/).pop() || 'browser-screenshot.png',
+                    name,
                     mimeType,
                     supportStatus: 'supported',
                 },

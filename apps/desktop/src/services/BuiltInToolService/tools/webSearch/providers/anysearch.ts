@@ -18,7 +18,7 @@ export const anySearchAdapter = createSearchProviderAdapter({
                 max_results: resultLimit(request),
                 ...(request.domains.length > 0 ? { domains: request.domains } : {}),
                 ...(request.intent === 'news' ? { content_types: ['news', 'web'] } : {}),
-                ...(request.recencyDays
+                ...(request.recencyDays !== undefined
                     ? {
                           constraint: {
                               freshness:

@@ -329,6 +329,7 @@
             invalidProviderIds.value = removeInvalidProviderId(providerId);
         }
         if (providerConfig(providerId).enabled && isProviderMissingRequiredCredential(providerId)) {
+            invalidProviderIds.value = new Set([...invalidProviderIds.value, providerId]);
             draft.value.providers[providerId] = {
                 ...draft.value.providers[providerId],
                 enabled: false,
@@ -426,6 +427,7 @@
                 <button
                     type="button"
                     data-testid="search-enabled-toggle"
+                    :aria-label="t('settings.search.title')"
                     :aria-pressed="toolEnabled"
                     :disabled="savingToolEnabled"
                     :class="[
@@ -544,6 +546,7 @@
                                     <button
                                         type="button"
                                         :data-testid="`search-provider-toggle-${provider.id}`"
+                                        :aria-label="provider.label"
                                         :aria-pressed="providerConfig(provider.id).enabled"
                                         :class="[
                                             'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
@@ -666,6 +669,7 @@
                             <button
                                 type="button"
                                 :data-testid="`search-advanced-toggle-${row.key}`"
+                                :aria-label="row.label"
                                 :aria-pressed="draft[row.key]"
                                 :class="[
                                     'relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',

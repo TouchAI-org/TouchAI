@@ -174,7 +174,10 @@ function validateSearchSettings(value: SearchSettingsConfig): SettingsValidation
             continue;
         }
 
-        if (SEARCH_PROVIDER_API_KEY_REQUIREMENTS[providerId] === 'required' && !provider.apiKey) {
+        if (
+            SEARCH_PROVIDER_API_KEY_REQUIREMENTS[providerId] === 'required' &&
+            !provider.apiKey.trim()
+        ) {
             issues.push({
                 path: `providers.${providerId}.apiKey`,
                 message: `${providerId} requires an API key before it can be enabled.`,
@@ -183,7 +186,7 @@ function validateSearchSettings(value: SearchSettingsConfig): SettingsValidation
 
         if (
             SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS[providerId] === 'required' &&
-            !provider.endpoint
+            !provider.endpoint.trim()
         ) {
             issues.push({
                 path: `providers.${providerId}.endpoint`,

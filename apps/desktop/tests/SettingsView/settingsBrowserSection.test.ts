@@ -279,6 +279,22 @@ describe('Browser settings section', () => {
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
     });
 
+    it('renders and saves the existing browser session policy', async () => {
+        browserSettingsPatch.value = { existingSessionPolicy: 'ask' };
+        const wrapper = mount(BrowserSettingsView);
+
+        expect(wrapper.text()).toContain('已有会话连接');
+
+        await wrapper
+            .get('[data-testid="browser-existing-session-policy-select"]')
+            .setValue('deny');
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
+            expect.objectContaining({ existingSessionPolicy: 'deny' })
+        );
+    });
+
     it('switches to custom browser path editing without auto-saving a discovered path first', async () => {
         browserSettingsPatch.value = { browserExecutablePath: '' };
         const wrapper = mount(BrowserSettingsView);

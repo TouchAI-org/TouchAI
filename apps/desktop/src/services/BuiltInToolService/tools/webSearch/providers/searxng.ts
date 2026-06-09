@@ -14,7 +14,12 @@ export const searxngAdapter = createSearchProviderAdapter({
         if (!endpoint) {
             return [];
         }
-        const url = searxngSearchUrl(endpoint);
+        let url: URL;
+        try {
+            url = searxngSearchUrl(endpoint);
+        } catch {
+            return [];
+        }
         url.searchParams.set('q', request.query);
         url.searchParams.set('format', 'json');
         url.searchParams.set('language', 'auto');

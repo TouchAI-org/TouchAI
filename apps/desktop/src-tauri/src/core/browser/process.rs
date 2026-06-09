@@ -370,7 +370,7 @@ fn macos_application_browser_paths(
     paths
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 fn home_dir_from_env() -> Option<PathBuf> {
     env::var_os("HOME").map(PathBuf::from)
 }

@@ -333,6 +333,9 @@ describe('browser tool redaction', () => {
         expect(
             redactUrl('Open https://example.test/reset?token=secret#code before continuing')
         ).toBe('Open https://example.test/reset before continuing');
+        expect(redactUrl('Open https://alice:secret@example.test/reset?token=secret#code')).toBe(
+            'Open https://example.test/reset'
+        );
         expect(
             redactBrowserText(
                 'alice@example.test bearer=secret authorization=abc Bearer abcdefghijklmnopqrstuvwxyz123456'
@@ -1602,12 +1605,13 @@ describe('browser tool execution formatting', () => {
             fakeContext()
         );
 
-        expect(result.result).toContain('D:/TouchAI/screenshots/browser-shot.png');
         expect(result.result).toContain('url: https://example.test/releases');
+        expect(result.result).toContain('attachment: browser-shot.png');
         expect(result.result).toContain(
-            'markdown: ![Browser screenshot of https://example.test/releases]('
+            'markdown: ![Browser screenshot of https://example.test/releases](attachment:browser-shot.png)'
         );
-        expect(result.result).toContain('asset.localhost');
+        expect(result.result).not.toContain('D:/TouchAI/screenshots/browser-shot.png');
+        expect(result.result).not.toContain('asset.localhost');
         expect(result.result).not.toContain('SCREENSHOTBASE64SECRET');
         expect(result.attachments).toEqual([
             expect.objectContaining({
@@ -1627,8 +1631,9 @@ describe('browser tool execution formatting', () => {
             data_url: 'data:image/jpeg;base64,SECRET',
         });
 
-        expect(screenshot.result).toContain('G:\\TouchAI\\browser\\shot.jpeg');
+        expect(screenshot.result).toContain('attachment: shot.jpeg');
         expect(screenshot.result).toContain('unknown dimensions');
+        expect(screenshot.result).not.toContain('G:\\TouchAI\\browser\\shot.jpeg');
         expect(screenshot.result).not.toContain('SECRET');
         expect(screenshot.attachments?.[0]).toEqual(
             expect.objectContaining({

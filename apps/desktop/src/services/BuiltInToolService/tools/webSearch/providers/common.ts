@@ -58,7 +58,7 @@ export function resultFromGenericItem(item: unknown, source: string): WebSearchR
 }
 
 export function recencyStartDate(recencyDays: number | undefined): string | undefined {
-    if (!recencyDays) {
+    if (recencyDays === undefined || !Number.isFinite(recencyDays) || recencyDays < 1) {
         return undefined;
     }
     const date = new Date(Date.now() - recencyDays * 24 * 60 * 60 * 1000);

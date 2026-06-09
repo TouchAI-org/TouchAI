@@ -1,6 +1,7 @@
 import { getSettingValue } from '@database/queries';
 import { native } from '@services/NativeService';
 
+import { t } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import type { BrowserExistingSession, BrowserStartRequest } from '@/services/NativeService/types';
 import {
@@ -153,18 +154,25 @@ async function requestBrowserPermission(
         throw new Error(`Browser permission requires user confirmation: ${reason}`);
     }
 
+    const approveLabel = t('builtInTools.browser.permission.approve');
     const answers = await context.requestUserQuestions(context.callId, [
         {
-            header: '浏览器权限',
-            question: `是否允许浏览器操作：${description}`,
+            header: t('builtInTools.browser.permission.header'),
+            question: t('builtInTools.browser.permission.question', { description }),
             options: [
-                { label: '允许本次', description: '继续执行这一次浏览器操作。' },
-                { label: '拒绝', description: '停止这一次浏览器操作。' },
+                {
+                    label: approveLabel,
+                    description: t('builtInTools.browser.permission.approve.description'),
+                },
+                {
+                    label: t('builtInTools.browser.permission.reject'),
+                    description: t('builtInTools.browser.permission.reject.description'),
+                },
             ],
         },
     ]);
     const selected = answers?.[0];
-    if (!selected || selected.skipped || !selected.selectedLabels.includes('允许本次')) {
+    if (!selected || selected.skipped || !selected.selectedLabels.includes(approveLabel)) {
         throw new Error('Browser permission was not approved by the user');
     }
 }
@@ -186,17 +194,21 @@ async function chooseExistingSession(
         label: sessionOptionLabel(session, index),
         description: session.currentUrl || session.title || session.endpoint,
     }));
-    options.push({ label: '取消', description: '不连接任何已有浏览器会话。' });
+    const cancelLabel = t('builtInTools.browser.existingSession.cancel');
+    options.push({
+        label: cancelLabel,
+        description: t('builtInTools.browser.existingSession.cancel.description'),
+    });
 
     const answers = await context.requestUserQuestions(context.callId, [
         {
-            header: '选择浏览器',
-            question: `${description}。请选择要连接的已有浏览器会话。`,
+            header: t('builtInTools.browser.existingSession.header'),
+            question: t('builtInTools.browser.existingSession.question', { description }),
             options,
         },
     ]);
     const selectedLabel = answers?.[0]?.selectedLabels[0];
-    if (!selectedLabel || selectedLabel === '取消') {
+    if (!selectedLabel || selectedLabel === cancelLabel) {
         throw new Error('Existing browser session connection was cancelled by the user');
     }
 

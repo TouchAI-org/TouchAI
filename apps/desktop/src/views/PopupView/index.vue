@@ -169,8 +169,12 @@
                     return;
                 }
                 await requestResize();
-                // 原生窗口已由 PopupManager.show() 显示；PopupView 只在首次数据到达后接管焦点与初始选中态。
                 if (payload.isShow) {
+                    await getCurrentWindow()
+                        .show()
+                        .catch((error: unknown) => {
+                            console.error('[PopupView] Failed to show popup window:', error);
+                        });
                     await nextTick();
                     if (!isCurrentPayloadSession(payload)) {
                         return;

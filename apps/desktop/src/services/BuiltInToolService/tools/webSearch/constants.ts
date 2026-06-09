@@ -105,6 +105,8 @@ export function buildWebSearchToolInputSchema(
             },
             recencyDays: {
                 type: 'integer',
+                minimum: 1,
+                maximum: 3650,
                 description:
                     'Optional recency hint in days when supported by the selected provider.',
             },

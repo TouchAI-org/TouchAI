@@ -87,7 +87,21 @@ impl BrowserRuntime {
     pub async fn start(&self, request: BrowserStartRequest) -> Result<BrowserStatus, String> {
         let generation = self.begin_start();
         let fingerprint = fingerprint_config_from_request(&request);
-        match process::launch_managed_browser(request) {
+        let launch_result =
+            tokio::task::spawn_blocking(move || process::launch_managed_browser(request))
+                .await
+                .map_err(|error| format!("Failed to join browser launch task: {error}"));
+        let launch_result = match launch_result {
+            Ok(result) => result,
+            Err(error) => {
+                if self.is_current_lifecycle_generation(generation) {
+                    self.set_error(error.clone());
+                }
+                return Err(error);
+            }
+        };
+
+        match launch_result {
             Ok((endpoint, process)) => {
                 if !self.is_current_lifecycle_generation(generation) {
                     drop(process);

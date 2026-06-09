@@ -3,7 +3,7 @@ import { resultFromGenericItem, resultLimit } from './common';
 import { createSearchProviderAdapter } from './define';
 
 function braveFreshness(recencyDays: number | undefined): string | undefined {
-    if (!recencyDays) {
+    if (recencyDays === undefined) {
         return undefined;
     }
     if (recencyDays <= 1) {

@@ -55,6 +55,13 @@
         { value: 'auto', label: t('settings.browser.permissionMode.auto') },
         { value: 'deny', label: t('settings.browser.permissionMode.deny') },
     ]);
+    const existingSessionOptions = computed<
+        Array<{ value: BrowserSettingsConfig['existingSessionPolicy']; label: string }>
+    >(() => [
+        { value: 'auto', label: t('settings.browser.existingSessionPolicy.auto') },
+        { value: 'ask', label: t('settings.browser.existingSessionPolicy.ask') },
+        { value: 'deny', label: t('settings.browser.existingSessionPolicy.deny') },
+    ]);
 
     const screenshotOptions = computed<Array<{ value: ScreenshotAttachmentMode; label: string }>>(
         () => [
@@ -356,7 +363,6 @@
                 directory: false,
                 multiple: false,
                 defaultPath: draft.value.browserExecutablePath.trim() || undefined,
-                filters: [{ name: 'Browser executable', extensions: ['exe', 'app'] }],
                 title: t('settings.browser.executablePath.pick'),
             });
             if (typeof picked === 'string') {
@@ -595,6 +601,24 @@
                                 v-model="draft.permissionMode"
                                 data-testid="browser-permission-mode-select"
                                 :options="permissionModeOptions"
+                                :disabled="!draft.enabled"
+                            />
+                        </div>
+                        <div
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                        >
+                            <div>
+                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                                    {{ t('settings.browser.existingSessionPolicy') }}
+                                </div>
+                                <div class="mt-1 text-xs text-neutral-500">
+                                    {{ t('settings.browser.existingSessionPolicy.description') }}
+                                </div>
+                            </div>
+                            <CustomSelect
+                                v-model="draft.existingSessionPolicy"
+                                data-testid="browser-existing-session-policy-select"
+                                :options="existingSessionOptions"
                                 :disabled="!draft.enabled"
                             />
                         </div>

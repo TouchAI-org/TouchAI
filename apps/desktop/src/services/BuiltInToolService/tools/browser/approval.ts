@@ -31,6 +31,14 @@ function permissionOperationForApproval(
             return 'screenshot';
         }
         if (
+            operation === 'connect_existing' ||
+            operation === 'dom' ||
+            operation === 'current' ||
+            operation === 'tabs'
+        ) {
+            return operation as BrowserToolOperation;
+        }
+        if (
             operation === 'navigate' ||
             operation === 'click' ||
             operation === 'type' ||
@@ -51,7 +59,13 @@ function permissionOperationForApproval(
     }
 
     if (toolId === 'browser_observe') {
-        return operation === 'screenshot' ? 'screenshot' : null;
+        if (operation === 'screenshot') {
+            return 'screenshot';
+        }
+        if (operation === 'dom' || operation === 'current' || operation === 'tabs') {
+            return operation as BrowserToolOperation;
+        }
+        return null;
     }
 
     if (toolId !== 'browser_act') {
@@ -146,6 +160,22 @@ export async function createBrowserApprovalRequest(
 
     if (await isApprovalAllowedByBrowserSettings(toolId, operation, args)) {
         return null;
+    }
+
+    if (operation === 'connect_existing') {
+        return approval(
+            'connect_existing',
+            tt('此操作会连接到已有浏览器会话。'),
+            semanticDescription(args)
+        );
+    }
+
+    if (operation === 'dom' || operation === 'current' || operation === 'tabs') {
+        return approval(
+            operation,
+            tt('此操作会读取当前浏览器页面或标签页状态。'),
+            semanticDescription(args)
+        );
     }
 
     if (toolId === 'browser_observe' || (toolId === 'browser' && operation === 'screenshot')) {

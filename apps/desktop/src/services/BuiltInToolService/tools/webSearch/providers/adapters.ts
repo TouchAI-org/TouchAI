@@ -25,12 +25,12 @@ function requiresEndpoint(provider: SearchProviderId): boolean {
     return SEARCH_PROVIDER_METADATA[provider].endpointRequirement === 'required';
 }
 
-function isAutoProviderConfigured(
+function isConcreteProviderConfigured(
     provider: SearchProviderId,
     settings: SearchSettingsConfig
 ): boolean {
     const config = settings.providers[provider];
-    if (!config?.enabled && provider !== 'auto') {
+    if (!config?.enabled) {
         return false;
     }
     if (requiresApiKey(provider) && !config.apiKey.trim()) {
@@ -40,6 +40,15 @@ function isAutoProviderConfigured(
         return false;
     }
     return true;
+}
+
+function isAutoProviderConfigured(settings: SearchSettingsConfig): boolean {
+    return SEARCH_PROVIDER_IDS.some(
+        (provider) =>
+            provider !== 'auto' &&
+            getSearchProviderAdapter(provider) &&
+            isConcreteProviderConfigured(provider, settings)
+    );
 }
 
 export const WEB_SEARCH_PROVIDER_ADAPTERS = [
@@ -71,9 +80,12 @@ export function isConfiguredSearchProvider(
 ): boolean {
     const adapter = getSearchProviderAdapter(provider);
     if (!adapter) {
-        return provider === 'auto' && isAutoProviderConfigured(provider, settings);
+        return provider === 'auto' && isAutoProviderConfigured(settings);
     }
-    return adapter.isConfigured(settings.providers[provider]);
+    return (
+        isConcreteProviderConfigured(provider, settings) &&
+        adapter.isConfigured(settings.providers[provider])
+    );
 }
 
 export function getAvailableSearchProviders(settings: SearchSettingsConfig): SearchProviderId[] {

@@ -25,6 +25,8 @@ function hasCredentialFieldHint(value: Record<string, unknown>): boolean {
 export function redactUrl(value: string): string {
     try {
         const parsed = new URL(value);
+        parsed.username = '';
+        parsed.password = '';
         parsed.search = '';
         parsed.hash = '';
         return parsed.toString();
@@ -32,6 +34,8 @@ export function redactUrl(value: string): string {
         return value.replace(URL_RE, (match) => {
             try {
                 const parsed = new URL(match);
+                parsed.username = '';
+                parsed.password = '';
                 parsed.search = '';
                 parsed.hash = '';
                 return parsed.toString();

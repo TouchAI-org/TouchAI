@@ -28,8 +28,7 @@ fn managed_browser_live_smoke_launches_observes_acts_and_cleans_up() {
     let test_root =
         PathBuf::from(smoke_root).join(format!("browser-live-smoke-{}", std::process::id()));
     fs::create_dir_all(&test_root).expect("create smoke root");
-    std::env::set_var("TEMP", &test_root);
-    std::env::set_var("TMP", &test_root);
+    let _env_guard = TempEnvGuard::set(&test_root);
     let fixture_path = write_fixture(&test_root);
     let server = FixtureServer::start(fixture_path);
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
@@ -207,6 +206,38 @@ fn managed_browser_live_smoke_launches_observes_acts_and_cleans_up() {
     stop_guard.disarm();
 
     wait_for_owned_profile_cleanup(&test_root);
+}
+
+struct TempEnvGuard {
+    temp: Option<String>,
+    tmp: Option<String>,
+}
+
+impl TempEnvGuard {
+    fn set(path: &Path) -> Self {
+        let guard = Self {
+            temp: std::env::var("TEMP").ok(),
+            tmp: std::env::var("TMP").ok(),
+        };
+        std::env::set_var("TEMP", path);
+        std::env::set_var("TMP", path);
+        guard
+    }
+}
+
+impl Drop for TempEnvGuard {
+    fn drop(&mut self) {
+        restore_env_var("TEMP", self.temp.as_deref());
+        restore_env_var("TMP", self.tmp.as_deref());
+    }
+}
+
+fn restore_env_var(key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        std::env::set_var(key, value);
+    } else {
+        std::env::remove_var(key);
+    }
 }
 
 struct BrowserStopGuard<'a> {

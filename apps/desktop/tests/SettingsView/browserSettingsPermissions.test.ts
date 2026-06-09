@@ -94,6 +94,32 @@ describe('browser settings permissions', () => {
         ).toMatchObject({ decision: 'ask' });
     });
 
+    it('honors existing session policy before global allow and deny modes', () => {
+        expect(
+            evaluateBrowserPermission(
+                {
+                    ...DEFAULT_BROWSER_SETTINGS,
+                    permissionMode: 'allow',
+                    existingSessionPolicy: 'ask',
+                },
+                'connect_existing',
+                { availableSessionCount: 1 }
+            )
+        ).toMatchObject({ decision: 'ask', reason: 'existing-browser-session-policy-ask' });
+
+        expect(
+            evaluateBrowserPermission(
+                {
+                    ...DEFAULT_BROWSER_SETTINGS,
+                    permissionMode: 'allow',
+                    existingSessionPolicy: 'deny',
+                },
+                'connect_existing',
+                { availableSessionCount: 1 }
+            )
+        ).toMatchObject({ decision: 'deny', reason: 'existing-browser-session-policy-deny' });
+    });
+
     it('allows all operations in global allow mode while still honoring blocked domains', () => {
         const config = {
             ...DEFAULT_BROWSER_SETTINGS,

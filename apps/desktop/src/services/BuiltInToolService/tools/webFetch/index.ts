@@ -187,7 +187,11 @@ export async function executeWebFetchTool(
 
     try {
         const response = await fetchWithSafeRedirects(request, signal);
-        if (!response.ok && shouldTryReaderFallback(response)) {
+        if (
+            shouldUseJinaReaderFallback(args) &&
+            !response.ok &&
+            shouldTryReaderFallback(response)
+        ) {
             const fallbackResult = await executeJinaReaderFallback(request, signal);
             if (fallbackResult.status === 'success') {
                 return fallbackResult;
@@ -242,7 +246,7 @@ export async function executeWebFetchTool(
         };
         return resultPayload;
     } catch (error) {
-        if (!(error instanceof WebFetchControlError)) {
+        if (shouldUseJinaReaderFallback(args) && !(error instanceof WebFetchControlError)) {
             const fallbackResult = await executeJinaReaderFallback(request, signal);
             if (fallbackResult.status === 'success') {
                 return fallbackResult;
@@ -265,6 +269,10 @@ export async function executeWebFetchTool(
     } finally {
         cleanup();
     }
+}
+
+function shouldUseJinaReaderFallback(args: Record<string, unknown>): boolean {
+    return args.enableThirdPartyReaderFallback === true;
 }
 
 async function executeJinaReaderFallback(

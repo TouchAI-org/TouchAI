@@ -154,6 +154,9 @@ function resolveExecutableSearchProvider(
     request: WebSearchRequest,
     settings: SearchSettingsConfig
 ): SearchProviderId {
+    const availableProviders = getAvailableSearchProviders(settings).filter(
+        (provider) => provider !== 'auto'
+    );
     const provider =
         request.provider !== 'auto'
             ? request.provider
@@ -162,19 +165,19 @@ function resolveExecutableSearchProvider(
         return provider;
     }
 
-    if (isConfiguredSearchProvider('anysearch', settings)) {
+    if (availableProviders.includes('anysearch')) {
         return 'anysearch';
     }
 
-    if (request.intent === 'academic') {
+    if (request.intent === 'academic' && availableProviders.includes('openalex')) {
         return 'openalex';
     }
 
-    if (request.intent === 'technical') {
+    if (request.intent === 'technical' && availableProviders.includes('github')) {
         return 'github';
     }
 
-    return 'wikipedia';
+    return availableProviders[0] ?? 'auto';
 }
 
 async function runSearchProvider(
@@ -185,7 +188,7 @@ async function runSearchProvider(
 ): Promise<WebSearchResult[]> {
     const adapter = getSearchProviderAdapter(provider);
     if (!adapter) {
-        return [];
+        throw new Error('No enabled search provider is configured.');
     }
 
     return adapter.search({ request, settings, signal, fetchJson });

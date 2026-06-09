@@ -19,7 +19,7 @@ use tokio_tungstenite::{
 
 use super::{
     actions::BrowserResolvedAction,
-    endpoint::{validate_loopback_websocket, BrowserEndpoint},
+    endpoint::{validate_loopback_websocket, validate_stale_navigation_token, BrowserEndpoint},
     types::{BrowserActOperation, BrowserActResult, BrowserDomRef, BrowserTab},
 };
 
@@ -64,6 +64,15 @@ const MAX_SCREENSHOT_ARTIFACT_BASE64_BYTES: usize = ((MAX_SCREENSHOT_ARTIFACT_BY
 const MAX_CDP_COMMAND_MESSAGE_BYTES: usize = MAX_SCREENSHOT_ARTIFACT_BASE64_BYTES + 256 * 1024;
 const SCREENSHOT_ARTIFACT_TTL: Duration = Duration::from_secs(60 * 60);
 const TRUNCATED_SUFFIX: &str = " ...[truncated]";
+#[cfg(target_os = "macos")]
+const SELECT_ALL_MODIFIER: i32 = 4;
+#[cfg(not(target_os = "macos"))]
+const SELECT_ALL_MODIFIER: i32 = 2;
+
+#[derive(Debug)]
+struct FocusedEditableElement {
+    tag: String,
+}
 
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
@@ -412,6 +421,9 @@ pub async fn dispatch_action(
     resolved_action: BrowserResolvedAction<'_>,
 ) -> Result<BrowserActResult, String> {
     let target = resolve_page_target(endpoint, tab_id).await?;
+    let current_navigation_token = navigation_token(&target);
+    revalidate_resolved_action(&resolved_action, &current_navigation_token)?;
+
     match request.action {
         BrowserActOperation::Click => click(endpoint, &target, resolved_action.reference).await?,
         BrowserActOperation::Type => {
@@ -431,6 +443,25 @@ pub async fn dispatch_action(
         action: request.action.as_str().to_string(),
         message: Some("Browser action completed".to_string()),
     })
+}
+
+fn revalidate_resolved_action(
+    resolved_action: &BrowserResolvedAction<'_>,
+    current_navigation_token: &str,
+) -> Result<(), String> {
+    if let Some(reference) = resolved_action.reference {
+        validate_stale_navigation_token(&reference.navigation_token, current_navigation_token)?;
+    }
+
+    if let Some(expected) = resolved_action.page_navigation_token.as_deref() {
+        validate_stale_navigation_token(expected, current_navigation_token)?;
+    }
+
+    for field in &resolved_action.form_fields {
+        validate_stale_navigation_token(&field.navigation_token, current_navigation_token)?;
+    }
+
+    Ok(())
 }
 
 async fn resolve_page_target(
@@ -490,8 +521,8 @@ async fn call_page(
             .ok_or_else(|| format!("Browser websocket closed before {method} completed"))?
             .map_err(|error| format!("Failed to read CDP response for {method}: {error}"))?;
 
-        let Some(text) = cdp_message_text(message, MAX_CDP_COMMAND_MESSAGE_BYTES) else {
-            return Err(format!("CDP response for {method} exceeded the size limit"));
+        let Some(text) = cdp_message_text(message, MAX_CDP_COMMAND_MESSAGE_BYTES)? else {
+            continue;
         };
         let value: Value = serde_json::from_str(&text)
             .map_err(|error| format!("CDP response for {method} was invalid JSON: {error}"))?;
@@ -505,24 +536,24 @@ async fn call_page(
     }
 }
 
-fn cdp_message_text(message: Message, max_bytes: usize) -> Option<String> {
+fn cdp_message_text(message: Message, max_bytes: usize) -> Result<Option<String>, String> {
     match message {
         Message::Text(text) => {
             if text.len() > max_bytes {
-                None
+                Err("CDP message exceeded the size limit".to_string())
             } else {
-                Some(text.to_string())
+                Ok(Some(text.to_string()))
             }
         }
         Message::Binary(bytes) => {
             if bytes.len() > max_bytes {
-                None
+                Err("CDP message exceeded the size limit".to_string())
             } else {
-                Some(String::from_utf8_lossy(&bytes).to_string())
+                Ok(Some(String::from_utf8_lossy(&bytes).to_string()))
             }
         }
-        Message::Close(_) => None,
-        _ => Some(String::new()),
+        Message::Close(_) => Err("Browser websocket closed".to_string()),
+        _ => Ok(None),
     }
 }
 
@@ -558,7 +589,10 @@ async fn connect_page_websocket(
 }
 
 fn diagnostic_message_text(message: Message) -> Option<String> {
-    cdp_message_text(message, MAX_CDP_DIAGNOSTIC_MESSAGE_BYTES).filter(|text| !text.is_empty())
+    cdp_message_text(message, MAX_CDP_DIAGNOSTIC_MESSAGE_BYTES)
+        .ok()
+        .flatten()
+        .filter(|text| !text.is_empty())
 }
 
 #[derive(Debug, Default)]
@@ -885,20 +919,35 @@ async fn type_text(
 ) -> Result<(), String> {
     let reference =
         reference.ok_or_else(|| "Browser type/fill requires an observed ref".to_string())?;
-    focus_and_verify_editable(endpoint, target, reference).await?;
+    let focused = focus_and_verify_editable(endpoint, target, reference).await?;
+    if focused.tag == "SELECT" {
+        let text = if replace {
+            request
+                .value
+                .as_deref()
+                .ok_or_else(|| "fill requires value".to_string())?
+        } else {
+            request
+                .text
+                .as_deref()
+                .ok_or_else(|| "type requires text".to_string())?
+        };
+        set_select_value(endpoint, target, reference, text).await?;
+        return Ok(());
+    }
     if replace {
         call_page(
             endpoint,
             target,
             "Input.dispatchKeyEvent",
-            json!({ "type": "keyDown", "modifiers": 2, "windowsVirtualKeyCode": 65, "code": "KeyA", "key": "a" }),
+            json!({ "type": "keyDown", "modifiers": SELECT_ALL_MODIFIER, "windowsVirtualKeyCode": 65, "code": "KeyA", "key": "a" }),
         )
         .await?;
         call_page(
             endpoint,
             target,
             "Input.dispatchKeyEvent",
-            json!({ "type": "keyUp", "modifiers": 2, "windowsVirtualKeyCode": 65, "code": "KeyA", "key": "a" }),
+            json!({ "type": "keyUp", "modifiers": SELECT_ALL_MODIFIER, "windowsVirtualKeyCode": 65, "code": "KeyA", "key": "a" }),
         )
         .await?;
     }
@@ -918,6 +967,30 @@ async fn type_text(
         target,
         "Input.insertText",
         json!({ "text": text }),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn set_select_value(
+    endpoint: &BrowserEndpoint,
+    target: &CdpTarget,
+    reference: &BrowserDomRef,
+    text: &str,
+) -> Result<(), String> {
+    let selector = css_string(&reference.selector);
+    let value = css_string(text);
+    call_page(
+        endpoint,
+        target,
+        "Runtime.evaluate",
+        json!({
+            "expression": format!(
+                "(() => {{ const el = document.querySelector({selector}); if (!el || el.tagName !== 'SELECT') throw new Error('select target not found'); const options = Array.from(el.options || []); const match = options.find((option) => option.value === {value}) || options.find((option) => option.textContent.trim() === {value}); if (!match) throw new Error('select option not found'); el.value = match.value; el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()"
+            ),
+            "awaitPromise": true,
+            "returnByValue": true
+        }),
     )
     .await?;
     Ok(())
@@ -1007,7 +1080,7 @@ async fn focus_and_verify_editable(
     endpoint: &BrowserEndpoint,
     target: &CdpTarget,
     reference: &BrowserDomRef,
-) -> Result<(), String> {
+) -> Result<FocusedEditableElement, String> {
     let selector = css_string(&reference.selector);
     let result = call_page(
         endpoint,
@@ -1028,7 +1101,13 @@ async fn focus_and_verify_editable(
         .cloned()
         .unwrap_or(Value::Null);
     if value.get("ok").and_then(Value::as_bool) == Some(true) {
-        Ok(())
+        Ok(FocusedEditableElement {
+            tag: value
+                .get("tag")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        })
     } else {
         Err("Browser target is not active and editable".to_string())
     }
@@ -1285,7 +1364,20 @@ mod tests {
             cdp_message_text(
                 Message::Text(oversized.into()),
                 MAX_CDP_COMMAND_MESSAGE_BYTES
-            ),
+            )
+            .expect_err("oversized command message"),
+            "CDP message exceeded the size limit"
+        );
+    }
+
+    #[test]
+    fn command_control_frames_are_skipped() {
+        assert_eq!(
+            cdp_message_text(
+                Message::Ping(Vec::new().into()),
+                MAX_CDP_COMMAND_MESSAGE_BYTES
+            )
+            .expect("control frame should not error"),
             None
         );
     }

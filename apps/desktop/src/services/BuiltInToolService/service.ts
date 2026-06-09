@@ -173,20 +173,27 @@ class BuiltInToolService {
                 continue;
             }
 
-            const config = descriptor.parseConfig(tool.config_json);
-            if (typeof descriptor.buildToolDefinition === 'function') {
-                definitions.push(
-                    await descriptor.buildToolDefinition(
-                        `${BUILT_IN_TOOL_PREFIX}${tool.tool_id}`,
-                        config
-                    )
+            try {
+                const config = descriptor.parseConfig(tool.config_json);
+                if (typeof descriptor.buildToolDefinition === 'function') {
+                    definitions.push(
+                        await descriptor.buildToolDefinition(
+                            `${BUILT_IN_TOOL_PREFIX}${tool.tool_id}`,
+                            config
+                        )
+                    );
+                } else {
+                    definitions.push({
+                        name: `${BUILT_IN_TOOL_PREFIX}${tool.tool_id}`,
+                        description: descriptor.description,
+                        input_schema: descriptor.inputSchema,
+                    });
+                }
+            } catch (error) {
+                console.error(
+                    `[BuiltInToolService] Failed to build tool definition: ${tool.tool_id}`,
+                    error
                 );
-            } else {
-                definitions.push({
-                    name: `${BUILT_IN_TOOL_PREFIX}${tool.tool_id}`,
-                    description: descriptor.description,
-                    input_schema: descriptor.inputSchema,
-                });
             }
         }
 

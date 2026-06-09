@@ -80,7 +80,27 @@ describe('WebFetch execution', () => {
         expect(tauriFetchMock).toHaveBeenCalledTimes(2);
     });
 
-    it('falls back to Jina Reader when the ordinary fetch path is blocked', async () => {
+    it('does not fall back to Jina Reader without explicit opt-in', async () => {
+        tauriFetchMock.mockResolvedValueOnce(
+            new Response('Forbidden', {
+                status: 403,
+                statusText: 'Forbidden',
+                headers: { 'content-type': 'text/plain' },
+            })
+        );
+
+        const result = await executeWebFetchTool(
+            { url: 'https://blocked.example/article', mode: 'reader', maxChars: 2000 },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.result).not.toContain('Fallback: Jina Reader');
+        expect(tauriFetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to Jina Reader when explicitly opted in and the ordinary fetch path is blocked', async () => {
         tauriFetchMock
             .mockResolvedValueOnce(
                 new Response('Forbidden', {
@@ -97,7 +117,12 @@ describe('WebFetch execution', () => {
             );
 
         const result = await executeWebFetchTool(
-            { url: 'https://blocked.example/article', mode: 'reader', maxChars: 2000 },
+            {
+                url: 'https://blocked.example/article',
+                mode: 'reader',
+                maxChars: 2000,
+                enableThirdPartyReaderFallback: true,
+            },
             {},
             createExecutionContext()
         );
