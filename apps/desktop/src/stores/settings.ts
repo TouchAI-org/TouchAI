@@ -1,7 +1,6 @@
 ﻿// Copyright (c) 2026. 鍗冭瘹. Licensed under GPL v3
 
 import { getSettingValue, setSetting } from '@database/queries';
-import type { GeneralSettingKey, SettingsGeneralUpdatedEvent } from '@services/EventService';
 import { AppEvent, eventService } from '@services/EventService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { defineStore } from 'pinia';
@@ -16,7 +15,9 @@ import {
     createGeneralSettingsComputedRefs,
     createGeneralSettingUpdaters,
     GENERAL_SETTING_DEFINITIONS,
+    type GeneralSettingKey,
     type GeneralSettingsData,
+    type GeneralSettingValue,
     getGeneralSettingDefinition,
     getGeneralSettingEventValue,
     parseGeneralSettingUpdateValue,
@@ -24,8 +25,6 @@ import {
     serializeParsedGeneralSettingValue,
 } from './setting';
 export type { GeneralSettingsData, OutputScrollBehavior } from './setting';
-
-type GeneralSettingValue = SettingsGeneralUpdatedEvent['value'];
 
 export const useSettingsStore = defineStore('settings', () => {
     const settings = ref<GeneralSettingsData>(createDefaultGeneralSettings());

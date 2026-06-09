@@ -1,4 +1,3 @@
-import type { GeneralSettingKey, SettingsGeneralUpdatedEvent } from '@services/EventService';
 import { describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
@@ -15,13 +14,13 @@ import {
     GENERAL_SETTING_COMPUTED_BINDINGS,
     GENERAL_SETTING_DEFINITIONS,
     GENERAL_SETTING_UPDATER_BINDINGS,
+    type GeneralSettingKey,
+    type GeneralSettingValue,
     getGeneralSettingDefinition,
     getGeneralSettingEventValue,
     JSON_GENERAL_SETTING_DEFINITIONS,
     serializeGeneralSetting,
 } from '@/stores/setting';
-
-type GeneralSettingValue = SettingsGeneralUpdatedEvent['value'];
 
 const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
     'global_shortcut',

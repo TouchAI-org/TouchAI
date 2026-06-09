@@ -1,4 +1,3 @@
-import type { GeneralSettingKey, SettingsGeneralUpdatedEvent } from '@services/EventService';
 import { computed, type ComputedRef, type Ref } from 'vue';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
@@ -8,6 +7,7 @@ import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/s
 import {
     cloneJsonSettingsDefault,
     JSON_SETTINGS_SECTIONS,
+    type JsonSettingsKey,
     parseJsonSettingsValue,
     type RegisteredJsonSettingsSection,
     type RegisteredJsonSettingsValue,
@@ -19,9 +19,12 @@ import {
     GENERAL_DERIVED_COMPUTED_BINDINGS,
     GENERAL_SCALAR_SETTING_SPECS,
     GENERAL_SETTINGS_DEFAULTS,
+    type GeneralScalarSettingKey,
 } from './general';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
+export type GeneralSettingKey = GeneralScalarSettingKey | JsonSettingsKey;
+export type GeneralSettingValue = string | number | boolean | null;
 
 export interface GeneralSettingsData {
     globalShortcut: string;
@@ -37,8 +40,6 @@ export interface GeneralSettingsData {
     browserSettings: BrowserSettingsConfig;
     searchSettings: SearchSettingsConfig;
 }
-
-type GeneralSettingValue = SettingsGeneralUpdatedEvent['value'];
 
 type GeneralSettingUpdateRunner = (
     key: GeneralSettingKey,
@@ -109,7 +110,7 @@ export interface GeneralSettingUpdaters {
 }
 
 export interface ScalarSettingDefinitionOptions {
-    key: GeneralSettingKey;
+    key: string;
     stateKey: GeneralScalarSettingStateKey;
     defaultValue: GeneralSettingFieldValue;
     parsePersisted(raw: string | null): GeneralSettingFieldValue;
@@ -159,9 +160,11 @@ function readGeneralSettingField(
     ];
 }
 
-function scalarSettingDefinition(
-    options: ScalarSettingDefinitionOptions
-): GeneralSettingDefinition {
+type RegisteredScalarSettingSpec = ScalarSettingDefinitionOptions & {
+    key: GeneralScalarSettingKey;
+};
+
+function scalarSettingDefinition(options: RegisteredScalarSettingSpec): GeneralSettingDefinition {
     return {
         key: options.key,
         parsePersisted: options.parsePersisted,
@@ -211,7 +214,7 @@ function jsonUpdaterBinding(section: RegisteredJsonSettingsSection): GeneralSett
 }
 
 function scalarComputedBindings(
-    specs: readonly ScalarSettingDefinitionOptions[]
+    specs: readonly RegisteredScalarSettingSpec[]
 ): GeneralSettingComputedBinding[] {
     return specs.flatMap((spec) =>
         spec.store?.computedName
@@ -226,7 +229,7 @@ function scalarComputedBindings(
 }
 
 function scalarUpdaterBindings(
-    specs: readonly ScalarSettingDefinitionOptions[]
+    specs: readonly RegisteredScalarSettingSpec[]
 ): GeneralSettingUpdaterBinding[] {
     return specs.flatMap((spec) =>
         spec.store?.updaterName

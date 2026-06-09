@@ -65,7 +65,7 @@ function nullableString(value: unknown): string | null {
     return value === null ? null : String(value);
 }
 
-export const GENERAL_SCALAR_SETTING_SPECS: readonly ScalarSettingDefinitionOptions[] = [
+export const GENERAL_SCALAR_SETTING_SPECS = [
     {
         key: 'global_shortcut',
         stateKey: 'globalShortcut',
@@ -184,7 +184,9 @@ export const GENERAL_SCALAR_SETTING_SPECS: readonly ScalarSettingDefinitionOptio
             normalizeUpdate: (value) => (value === null ? null : String(value)),
         },
     },
-];
+] as const satisfies readonly ScalarSettingDefinitionOptions[];
+
+export type GeneralScalarSettingKey = (typeof GENERAL_SCALAR_SETTING_SPECS)[number]['key'];
 
 export const GENERAL_SETTINGS_DEFAULTS = {
     ...Object.fromEntries(
