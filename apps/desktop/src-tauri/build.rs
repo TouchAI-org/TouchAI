@@ -5,10 +5,16 @@ use std::{
     fs,
     io::{Cursor, Read},
     path::{Path, PathBuf},
+    thread,
+    time::Duration,
 };
 
 use quote::ToTokens;
 use tauri_codegen::embedded_assets::{AssetOptions, EmbeddedAssets};
+
+const BUNDLED_DOWNLOAD_MAX_ATTEMPTS: usize = 6;
+const BUNDLED_DOWNLOAD_RETRY_BASE_DELAY_MS: u64 = 1_500;
+const BUNDLED_DOWNLOAD_RETRY_MAX_DELAY_MS: u64 = 30_000;
 
 #[derive(Debug, Deserialize)]
 struct BundledManifest {
@@ -175,7 +181,17 @@ fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         .join(&target_triple);
 
     if let Some(target) = manifest.targets.get(&target_triple) {
-        let binary_path = materialize_binary(name, target, &cache_dir)?;
+        let binary_path = match materialize_binary(name, target, &cache_dir) {
+            Ok(binary_path) => binary_path,
+            Err(error) if bundled_downloads_are_optional() => {
+                println!(
+                    "cargo:warning={name}: bundled binary unavailable in optional mode; generating empty asset: {error}"
+                );
+                generate_empty_asset_module(name, &out_dir)?;
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
         let binary_hash = if !target.binary_digest.is_empty() {
             target.binary_digest.clone()
         } else {
@@ -232,11 +248,7 @@ fn materialize_binary(
         }
     }
 
-    let response = ureq::get(&target.url).call()?;
-    let bytes = response
-        .into_reader()
-        .bytes()
-        .collect::<Result<Vec<_>, _>>()?;
+    let bytes = download_bundled_archive(name, &target.url)?;
     if bytes.len() as u64 != target.size {
         return Err(format!("{name}: download size mismatch for {}", target.url).into());
     }
@@ -249,6 +261,57 @@ fn materialize_binary(
     let extracted = extract_target_binary(name, &bytes, &target.format, &target.archive_path)?;
     fs::write(&binary_path, extracted)?;
     Ok(binary_path)
+}
+
+fn download_bundled_archive(name: &str, url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut last_error = None;
+
+    for attempt in 1..=BUNDLED_DOWNLOAD_MAX_ATTEMPTS {
+        match download_bundled_archive_once(url) {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < BUNDLED_DOWNLOAD_MAX_ATTEMPTS {
+                    let delay_ms = bundled_download_retry_delay_ms(attempt);
+                    println!(
+                        "cargo:warning={name}: bundled download attempt {attempt}/{BUNDLED_DOWNLOAD_MAX_ATTEMPTS} failed for {url}; retrying in {delay_ms}ms"
+                    );
+                    thread::sleep(Duration::from_millis(delay_ms));
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "{name}: failed to download bundled archive {url} after {BUNDLED_DOWNLOAD_MAX_ATTEMPTS} attempts: {}",
+        last_error.unwrap_or_else(|| "unknown error".to_string())
+    )
+    .into())
+}
+
+fn bundled_downloads_are_optional() -> bool {
+    matches!(
+        std::env::var("TOUCHAI_OPTIONAL_BUNDLED_DOWNLOAD"),
+        Ok(value) if value == "1" || value.eq_ignore_ascii_case("true")
+    )
+}
+
+fn bundled_download_retry_delay_ms(attempt: usize) -> u64 {
+    let exponent = attempt.saturating_sub(1).min(4) as u32;
+    BUNDLED_DOWNLOAD_RETRY_BASE_DELAY_MS
+        .saturating_mul(1_u64 << exponent)
+        .min(BUNDLED_DOWNLOAD_RETRY_MAX_DELAY_MS)
+}
+
+fn download_bundled_archive_once(url: &str) -> Result<Vec<u8>, String> {
+    let response = ureq::get(url)
+        .call()
+        .map_err(|error| format!("request failed: {error}"))?;
+    response
+        .into_reader()
+        .bytes()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("response body read failed: {error}"))
 }
 
 fn generate_asset_module(

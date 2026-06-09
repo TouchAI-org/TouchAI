@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { builtInTools as appUseTools } from './tools/appUse';
 import { builtInTools as askUserTools } from './tools/askUser';
 import { builtInTools as bashTools } from './tools/bash';
 import { builtInTools as fileSearchTools } from './tools/fileSearch';
@@ -54,6 +55,9 @@ class BuiltInToolRegistry {
 export const builtInToolRegistry = new BuiltInToolRegistry();
 
 builtInToolRegistry.register(askUserTools);
+// App Use is disabled by default in the runtime seed, but registering the descriptors
+// keeps tool resolution deterministic once a user enables the group.
+builtInToolRegistry.register(appUseTools);
 builtInToolRegistry.register(bashTools);
 builtInToolRegistry.register(fileSearchTools);
 builtInToolRegistry.register(readTools);

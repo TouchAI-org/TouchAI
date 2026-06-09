@@ -13,6 +13,7 @@ import {
     type BuiltInToolLogEntity,
     formatToolLastUsed,
     getBuiltInToolSummary,
+    isBuiltInToolVisibleInSettings,
 } from '@/views/SettingsView/components/BuiltInTools/types';
 import {
     getBuiltInToolApprovalStateText,
@@ -270,6 +271,13 @@ describe('built-in tools settings i18n', () => {
         setLocale('en-US');
 
         expect(formatToolLastUsed(null)).toBe('Not called yet');
+    });
+
+    it('hides App Use tools from the legacy built-in tools settings list', () => {
+        expect(isBuiltInToolVisibleInSettings('app_session')).toBe(false);
+        expect(isBuiltInToolVisibleInSettings('app_observe')).toBe(false);
+        expect(isBuiltInToolVisibleInSettings('app_act')).toBe(false);
+        expect(isBuiltInToolVisibleInSettings('bash')).toBe(true);
     });
 
     it('localizes tool log status labels for filter chips and badges', () => {

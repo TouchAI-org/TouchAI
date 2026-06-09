@@ -82,7 +82,13 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'visualize_read_me',
 ]);
 
-const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set(['visualize_read_me', 'ask_user_question']);
+const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set([
+    'visualize_read_me',
+    'ask_user_question',
+    'app_session',
+    'app_observe',
+    'app_act',
+]);
 
 export function getBuiltInToolSummary(toolId: string, description?: string | null): string {
     if (toolId === 'bash') {

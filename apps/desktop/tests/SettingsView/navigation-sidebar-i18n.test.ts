@@ -40,6 +40,9 @@ describe('Settings navigation sidebar i18n', () => {
         expect(wrapper.get('[data-testid="settings-nav-built-in-tools"]').attributes('title')).toBe(
             'Built-in tools'
         );
+        expect(wrapper.get('[data-testid="settings-nav-app-use"]').attributes('title')).toBe(
+            'App Use'
+        );
         expect(wrapper.get('[data-testid="settings-nav-mcp-tools"]').attributes('title')).toBe(
             'MCP tools'
         );
@@ -57,9 +60,14 @@ describe('Settings navigation sidebar i18n', () => {
             'General',
             'Providers and models',
             'Built-in tools',
+            'App Use',
             'MCP tools',
             'Data management',
         ]);
+        expect(getSettingsNavigationItem('app-use')?.description).toBe(
+            'Structured local application adapters, approvals, and limits'
+        );
+        expect(getSettingsNavigationItem('app-use')?.label).toBe('App Use');
         expect(getSettingsNavigationItem('mcp-tools')?.description).toBe(
             'External MCP servers and tool call logs'
         );
@@ -67,6 +75,8 @@ describe('Settings navigation sidebar i18n', () => {
         setLocale('zh-CN');
 
         expect(settingsNavigationGroups[0]?.label).toBe('基础体验');
+        expect(flattenSettingsNavigation().map((item) => item.label)).toContain('软件控制');
+        expect(getSettingsNavigationItem('app-use')?.label).toBe('软件控制');
         expect(getSettingsNavigationItem('mcp-tools')?.description).toBe(
             '外部 MCP 服务器与工具调用日志'
         );

@@ -39,6 +39,10 @@ fn resolve_program_root_directory() -> Result<PathBuf, String> {
         return Ok(path);
     }
 
+    resolve_program_root_directory_without_override()
+}
+
+fn resolve_program_root_directory_without_override() -> Result<PathBuf, String> {
     let exe_dir = std::env::current_exe()
         .map_err(|err| format!("Failed to resolve current exe: {err}"))?
         .parent()
@@ -79,8 +83,12 @@ fn resolve_user_data_root_directory() -> Result<PathBuf, String> {
         return Ok(path);
     }
 
+    resolve_user_data_root_directory_without_override()
+}
+
+fn resolve_user_data_root_directory_without_override() -> Result<PathBuf, String> {
     if cfg!(debug_assertions) {
-        return resolve_program_root_directory();
+        return resolve_program_root_directory_without_override();
     }
 
     let base_dir = if cfg!(target_os = "windows") {
@@ -130,6 +138,14 @@ fn directory_relative_path(directory: AppDirectory) -> Result<&'static str, Stri
 pub fn app_directory_path(directory: AppDirectory) -> Result<PathBuf, String> {
     let _ = directory_relative_path(directory)?;
     Ok(user_data_root_directory()?.join(directory_relative_path(directory)?))
+}
+
+pub fn app_directory_path_without_app_root_override(
+    directory: AppDirectory,
+) -> Result<PathBuf, String> {
+    let _ = directory_relative_path(directory)?;
+    Ok(resolve_user_data_root_directory_without_override()?
+        .join(directory_relative_path(directory)?))
 }
 
 pub fn legacy_app_directory_path(directory: AppDirectory) -> Result<PathBuf, String> {

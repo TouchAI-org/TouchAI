@@ -1,3 +1,4 @@
+import { appUse } from './appUse';
 import { autostart } from './autostart';
 import { builtInTools } from './builtInTools';
 import { clipboard } from './clipboard';
@@ -27,6 +28,16 @@ export type {
     AppUpdateDownload,
     AppUpdateInfo,
     AppUpdateRequirement,
+    AppUseNativeActPermit,
+    AppUseNativeActRequest,
+    AppUseNativeActResponse,
+    AppUseNativeAdapterDescriptor,
+    AppUseNativeAuthorizeActRequest,
+    AppUseNativeAuthorizeActResponse,
+    AppUseNativeObserveRequest,
+    AppUseNativeObserveResponse,
+    AppUseNativeSessionRequest,
+    AppUseNativeSessionResponse,
     BuiltInBashExecutionRequest,
     BuiltInBashExecutionResponse,
     ClipboardPayload,
@@ -41,6 +52,7 @@ export type {
 } from './types';
 
 export {
+    appUse,
     autostart,
     builtInTools,
     clipboard,
@@ -56,6 +68,7 @@ export {
 };
 
 export const native = {
+    appUse,
     window,
     shortcut,
     autostart,

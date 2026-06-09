@@ -75,6 +75,16 @@ vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
         },
     },
 }));
+vi.mock('@/views/SettingsView/components/AppUse/index.vue', () => ({
+    __esModule: true,
+    default: {
+        name: 'AppUseViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
+}));
 vi.mock('@/views/SettingsView/components/McpTools/index.vue', () => ({
     __esModule: true,
     default: {
@@ -133,6 +143,9 @@ describe('SettingsView lazy loading i18n', () => {
 
         await wrapper.get('[data-testid="settings-nav-built-in-tools"]').trigger('click');
         expect(wrapper.text()).toContain('Loading built-in tools...');
+
+        await wrapper.get('[data-testid="settings-nav-app-use"]').trigger('click');
+        expect(wrapper.text()).toContain('Loading App Use settings...');
 
         await wrapper.get('[data-testid="settings-nav-mcp-tools"]').trigger('click');
         expect(wrapper.text()).toContain('Loading MCP tools...');

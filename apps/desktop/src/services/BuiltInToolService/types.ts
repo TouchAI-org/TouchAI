@@ -18,6 +18,9 @@ import type { AttachmentIndex } from '@/services/AgentService/infrastructure/att
  * 当前内置工具体系允许暴露给模型的稳定工具标识。
  */
 export type BuiltInToolId =
+    | 'app_session'
+    | 'app_observe'
+    | 'app_act'
     | 'bash'
     | 'file_search'
     | 'read'
