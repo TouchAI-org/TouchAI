@@ -70,6 +70,7 @@ describe('settings search keybindings state', () => {
 
         expect(store.settings.searchKeybindings).toEqual(createDefaultSearchKeybindings());
         expect(store.settings.searchKeybindings['search.window.maximize']).toBe('F11');
+        expect(store.settings.searchKeybindings['search.settings.open']).toBe('Mod+,');
         expect(setSettingMock).toHaveBeenCalledWith({
             key: 'search_keybindings',
             value: JSON.stringify(createDefaultSearchKeybindings()),

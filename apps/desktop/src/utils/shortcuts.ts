@@ -37,6 +37,7 @@ const KEY_DISPLAY_MAP: Record<string, string> = {
     Delete: 'Del',
     Del: 'Del',
     '.': '.',
+    ',': ',',
 };
 
 const ALIAS_MAP: Record<string, string> = {

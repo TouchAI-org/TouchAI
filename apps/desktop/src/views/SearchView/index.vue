@@ -541,6 +541,7 @@
         reopenLastClosedSession: handleReopenLastClosedSession,
         toggleWindowPin: handleToggleWindowPin,
         toggleWindowMaximize: handleToggleMaximize,
+        openSettingsWindow: native.window.openSettingsWindow,
         handleSubmit,
         cancelRequest,
         clearSession: clearSessionToIdle,

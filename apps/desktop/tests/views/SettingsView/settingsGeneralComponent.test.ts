@@ -16,6 +16,7 @@ const settingsStoreMock = vi.hoisted(() => {
             'search.model.toggle': 'Mod+M',
             'search.window.pin': 'Mod+P',
             'search.window.maximize': 'F11',
+            'search.settings.open': 'Mod+,',
         } as Record<string, string | null>,
         startOnBoot: false,
         startMinimized: true,
@@ -219,12 +220,20 @@ describe('SettingsGeneralSection', () => {
         expect(wrapper.text()).toContain('开始新会话');
         expect(wrapper.text()).toContain('切换窗口最大化');
         expect(wrapper.text()).toContain('切换搜索窗口最大化。');
+        expect(wrapper.text()).toContain('打开设置');
+        expect(wrapper.text()).toContain('快速打开设置窗口。');
         expect(
             (
                 wrapper.get('[data-testid="settings-search-shortcut-input-search.window.maximize"]')
                     .element as HTMLInputElement
             ).value
         ).toBe('F11');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.settings.open"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Ctrl+,');
         expect(
             (
                 wrapper.get('[data-testid="settings-search-shortcut-input-search.request.cancel"]')

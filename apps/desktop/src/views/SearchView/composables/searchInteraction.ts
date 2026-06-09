@@ -136,6 +136,7 @@ export interface UseSearchKeyboardOptions {
     reopenLastClosedSession: () => Promise<void>;
     toggleWindowPin: () => Promise<void>;
     toggleWindowMaximize: () => Promise<void>;
+    openSettingsWindow: () => Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
     cancelRequest: () => void;
     clearSession: () => void;
@@ -673,6 +674,7 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         reopenLastClosedSession,
         toggleWindowPin,
         toggleWindowMaximize,
+        openSettingsWindow,
         handleSubmit,
         cancelRequest,
         clearSession,
@@ -798,6 +800,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
                     return;
                 case 'search.window.maximize':
                     await toggleWindowMaximize();
+                    return;
+                case 'search.settings.open':
+                    await openSettingsWindow();
                     return;
                 default: {
                     const exhaustiveActionId: never = actionId;

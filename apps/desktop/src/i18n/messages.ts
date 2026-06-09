@@ -101,6 +101,7 @@ const zhCNMessages = {
     'settings.general.searchActions.modelToggle': '切换模型选择',
     'settings.general.searchActions.windowPin': '切换窗口置顶',
     'settings.general.searchActions.windowMaximize': '切换窗口最大化',
+    'settings.general.searchActions.openSettings': '打开设置',
     'settings.general.searchActions.cancelRequest': '取消当前请求',
     'settings.general.fixedSearchShortcuts': '固定快捷键',
     'settings.general.fixedSearchActions.submitRequest': '发送请求',
@@ -115,6 +116,7 @@ const zhCNMessages = {
     'settings.general.searchActionDescriptions.modelToggle': '展开或收起模型选择。',
     'settings.general.searchActionDescriptions.windowPin': '切换搜索窗口置顶状态。',
     'settings.general.searchActionDescriptions.windowMaximize': '切换搜索窗口最大化。',
+    'settings.general.searchActionDescriptions.openSettings': '快速打开设置窗口。',
     'settings.general.searchActionDescriptions.cancelRequest': '停止当前生成或工具执行。',
     'settings.general.searchActionDescriptions.submitRequest': '发送当前输入内容。',
     'settings.general.searchActionDescriptions.newLine': '在输入框中插入换行。',
@@ -880,6 +882,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.searchActions.modelToggle': 'Toggle model picker',
     'settings.general.searchActions.windowPin': 'Toggle window pin',
     'settings.general.searchActions.windowMaximize': 'Toggle window maximize',
+    'settings.general.searchActions.openSettings': 'Open settings',
     'settings.general.searchActions.cancelRequest': 'Cancel current request',
     'settings.general.fixedSearchShortcuts': 'Fixed shortcuts',
     'settings.general.fixedSearchActions.submitRequest': 'Submit request',
@@ -897,6 +900,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Toggle whether the search window stays on top.',
     'settings.general.searchActionDescriptions.windowMaximize':
         'Toggle the search window maximized state.',
+    'settings.general.searchActionDescriptions.openSettings': 'Quickly open the settings window.',
     'settings.general.searchActionDescriptions.cancelRequest':
         'Stop the current generation or tool run.',
     'settings.general.searchActionDescriptions.submitRequest': 'Send the current input.',

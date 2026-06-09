@@ -43,6 +43,7 @@ describe('search keybinding configuration', () => {
             'search.model.toggle': 'Mod+M',
             'search.window.pin': 'Mod+P',
             'search.window.maximize': 'F11',
+            'search.settings.open': 'Mod+,',
         });
     });
 
@@ -53,6 +54,7 @@ describe('search keybinding configuration', () => {
                 'search.input.focus': null,
                 'search.session.new': '   ',
                 'search.window.maximize': 'f2',
+                'search.settings.open': 'ctrl + ,',
                 unknown: 'Alt+U',
             })
         ).toEqual({
@@ -60,6 +62,7 @@ describe('search keybinding configuration', () => {
             'search.history.open': 'Ctrl+Shift+H',
             'search.input.focus': null,
             'search.window.maximize': 'F2',
+            'search.settings.open': 'Ctrl+,',
         });
     });
 

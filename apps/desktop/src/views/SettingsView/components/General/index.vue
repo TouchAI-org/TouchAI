@@ -219,7 +219,7 @@
             {
                 id: 'window',
                 title: t('settings.general.searchShortcutGroups.window'),
-                actionIds: ['search.window.pin', 'search.window.maximize'],
+                actionIds: ['search.window.pin', 'search.window.maximize', 'search.settings.open'],
             },
         ];
 

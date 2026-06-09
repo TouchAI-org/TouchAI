@@ -13,6 +13,7 @@ export const SEARCH_KEYBINDING_ACTION_IDS = [
     'search.model.toggle',
     'search.window.pin',
     'search.window.maximize',
+    'search.settings.open',
 ] as const;
 
 export type SearchKeybindingActionId = (typeof SEARCH_KEYBINDING_ACTION_IDS)[number];
@@ -84,6 +85,14 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         defaultShortcut: 'F11',
         allowDisable: true,
         allowModifierlessFunctionShortcut: true,
+    },
+    {
+        id: 'search.settings.open',
+        labelKey: 'settings.general.searchActions.openSettings',
+        descriptionKey: 'settings.general.searchActionDescriptions.openSettings',
+        defaultShortcut: 'Mod+,',
+        allowDisable: true,
+        allowModifierlessFunctionShortcut: false,
     },
 ];
 
