@@ -1,5 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { getMarkdown } from 'markstream-vue';
+
 import { getLocale, tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
@@ -42,13 +44,26 @@ const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
 const STATUS_REMINDER_MAX_BODY_CHARS = 220;
 const STATUS_REMINDER_MAX_COMMAND_CHARS = 160;
 const STATUS_REMINDER_MAX_SUMMARY_LINES = 4;
-const MARKDOWN_REFERENCE_LINK_DEFINITION_PATTERN =
-    /^\s*\[[^\]]+\]:\s+(?:<[^>\s]+>|(?:[a-z][a-z0-9+.-]*:|\/|\.{1,2}\/|#)[^\s]*)(?:\s+(?:"[^"]*"|'[^']*'|\([^)\n]*\)))?\s*$/gim;
-const MARKDOWN_TABLE_DIVIDER_PATTERN = /^\s*\|?(?:\s*:?-+:?\s*\|)+(?:\s*:?-+:?\s*)?\|?\s*$/gm;
-const MARKDOWN_EMPHASIS_LEADING_BOUNDARY = `(^|[\\s([{"'“‘（【《])`;
-const MARKDOWN_EMPHASIS_TRAILING_BOUNDARY = `(?=$|[\\s,.;:!?，。；：！？、】【）》」』〕〉>\\]}'"”’])`;
+const REMINDER_MARKDOWN_ESCAPE_PATTERN = /\\([\\`*_{}[\]()#+.!>-])/g;
+const REMINDER_PATH_LIKE_TOKEN_PATTERN = /\S*[\\/]\S*/g;
 
 type ReminderTextMode = 'natural' | 'command' | 'summary';
+type ReminderMarkdownToken = {
+    type: string;
+    tag?: string;
+    content?: string;
+    text?: string;
+    raw?: string;
+    markup?: string;
+    children?: ReminderMarkdownToken[] | null;
+};
+
+const reminderMarkdownParser = getMarkdown('touchai-reminder-markdown', {
+    enableContainers: false,
+    markdownItOptions: {
+        breaks: true,
+    },
+});
 
 /** 深拷贝任务快照，确保外部订阅者无法直接修改内部状态。 */
 function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
@@ -109,126 +124,205 @@ function hasTerminalPunctuation(value: string): boolean {
     return /[.!?。！？；;:：]$/.test(value.trim());
 }
 
-function stripMarkdownCodeFences(value: string, mode: ReminderTextMode): string {
-    const replacement = mode === 'command' ? '$1' : mode === 'summary' ? '\n' : '\n$1\n';
-    return value
-        .replace(/```(?:[\w-]+)?\n?([\s\S]*?)```/g, replacement)
-        .replace(/~~~(?:[\w-]+)?\n?([\s\S]*?)~~~/g, replacement);
+/** Rehydrate backslash-escaped markdown so token parsing sees the intended text. */
+function unescapeReminderMarkdown(value: string): string {
+    return value.replace(REMINDER_MARKDOWN_ESCAPE_PATTERN, '$1');
 }
 
-function unescapeMarkdownSyntax(value: string): string {
-    return value.replace(/\\([\\`*_{}[\]()#+.!>-])/g, '$1');
-}
-
-function stripNaturalMarkdownSyntax(value: string): string {
-    return value
-        .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(MARKDOWN_REFERENCE_LINK_DEFINITION_PATTERN, ' ')
-        .replace(/^ {0,3}(?:```|~~~)[\w-]*\s*$/gm, ' ')
-        .replace(/^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/gm, ' ')
-        .replace(/^ {0,3}#{1,6}\s+/gm, '')
-        .replace(/^ {0,3}>\s?/gm, '')
-        .replace(/^ {0,3}(?:[-*+])\s+\[[ xX]\]\s+/gm, '')
-        .replace(/^ {0,3}(?:[-*+])\s+/gm, '')
-        .replace(/^ {0,3}\d+[.)]\s+/gm, '')
-        .replace(MARKDOWN_TABLE_DIVIDER_PATTERN, ' ')
-        .replace(/(^|\s)`([^`\n]+)`(?=\s|$)/g, '$1$2')
-        .replace(
-            new RegExp(
-                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}\\*\\*([^\\s][^\\n]*?[^\\s])\\*\\*${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
-                'g'
-            ),
-            '$1$2'
-        )
-        .replace(
-            new RegExp(
-                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}__([^\\s][^\\n]*?[^\\s])__${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
-                'g'
-            ),
-            '$1$2'
-        )
-        .replace(
-            new RegExp(
-                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}~~([^\\s][^\\n]*?[^\\s])~~${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
-                'g'
-            ),
-            '$1$2'
-        )
-        .replace(
-            new RegExp(
-                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}\\*([^\\s][^\\n]*?[^\\s])\\*${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
-                'g'
-            ),
-            '$1$2'
-        )
-        .replace(
-            new RegExp(
-                `${MARKDOWN_EMPHASIS_LEADING_BOUNDARY}_([^\\s][^\\n]*?[^\\s])_${MARKDOWN_EMPHASIS_TRAILING_BOUNDARY}`,
-                'g'
-            ),
-            '$1$2'
-        );
-}
-
-function isPipeSeparatedMarkdownRow(value: string): boolean {
-    if (!value.includes('|')) {
-        return false;
+/** Escape path-like fragments so markdown emphasis markers inside file paths are preserved. */
+function protectPathLikeMarkdownToken(token: string): string {
+    if (!/[`*_]/.test(token)) {
+        return token;
     }
 
-    const cells = value
-        .split('|')
-        .map((cell) => collapseWhitespace(cell))
-        .filter(Boolean);
-    return cells.length >= 2;
-}
-
-function sanitizeReminderSourceText(value: string, mode: ReminderTextMode): string {
-    let text = value.replace(/\r\n?/g, '\n');
-    text = stripMarkdownCodeFences(text, mode);
-
-    if (mode === 'command') {
-        return text.replace(/(^|\n)`([^`\n]+)`(?=\n|$)/g, '$1$2');
+    if (/^!?\[[^\]]*]\([^)]+\)$/.test(token)) {
+        return token;
     }
 
-    // Some assistant summaries persist escaped markdown (for example \#\#\# or \*\*title\*\*).
-    // Strip markdown once, unescape, then strip again so notifications stay plain text.
-    text = stripNaturalMarkdownSyntax(text);
-    text = unescapeMarkdownSyntax(text);
-    return stripNaturalMarkdownSyntax(text);
+    return token.replace(/([`*_])/g, '\\$1');
 }
 
-function collectReminderClauses(value: string, mode: ReminderTextMode): string[] {
-    const lines = value
-        .split('\n')
-        .map((line) => {
-            if (mode === 'command') {
-                return line;
-            }
+/** Normalize reminder input before markdown parsing and protect path and glob syntax. */
+function prepareReminderMarkdownSource(value: string, mode: ReminderTextMode): string {
+    const normalized = value.replace(/\r\n?/g, '\n');
+    const unescaped = mode === 'command' ? normalized : unescapeReminderMarkdown(normalized);
+    return unescaped.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, protectPathLikeMarkdownToken);
+}
 
-            const trimmed = line.trim();
-            const looksLikeTableRow = trimmed.length > 0 && isPipeSeparatedMarkdownRow(trimmed);
+/** Reduce inline or block HTML to plain text for notification-safe summaries. */
+function stripHtmlToText(value: string): string {
+    if (!value) {
+        return '';
+    }
 
-            if (!looksLikeTableRow) {
-                return line;
-            }
+    if (typeof DOMParser !== 'undefined') {
+        try {
+            return new DOMParser().parseFromString(value, 'text/html').body.textContent ?? '';
+        } catch {
+            // Fall back to a conservative tag strip when DOM parsing is unavailable.
+        }
+    }
 
-            return trimmed
-                .split('|')
-                .map((cell) => collapseWhitespace(cell))
-                .filter(Boolean)
-                .join(getReminderListSeparator());
-        })
-        .map((line) => collapseWhitespace(line))
-        .filter(Boolean);
+    return value.replace(/<[^>]+>/g, ' ');
+}
 
+/** Keep command previews copyable by converting typographic quotes back to ASCII. */
+function normalizeCommandTypography(value: string): string {
+    return value.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+}
+
+/** Flatten inline markdown tokens into readable plain text for reminder clauses. */
+function extractReminderInlineText(
+    tokens: ReminderMarkdownToken[] | null | undefined,
+    fallback: string
+): string {
+    if (!tokens?.length) {
+        return fallback;
+    }
+
+    let text = '';
+    for (const token of tokens) {
+        switch (token.type) {
+            case 'text':
+            case 'code_inline':
+                text += token.content ?? token.text ?? '';
+                break;
+            case 'softbreak':
+            case 'hardbreak':
+                text += '\n';
+                break;
+            case 'html_inline':
+                text += stripHtmlToText(token.content ?? token.raw ?? '');
+                break;
+            case 'link':
+                text +=
+                    token.text ??
+                    extractReminderInlineText(token.children, token.content ?? token.raw ?? '');
+                break;
+            default:
+                if (token.children?.length) {
+                    text += extractReminderInlineText(token.children, '');
+                    break;
+                }
+
+                if (token.type.endsWith('_open') || token.type.endsWith('_close')) {
+                    break;
+                }
+
+                text += token.content ?? token.text ?? '';
+                break;
+        }
+    }
+
+    return text || fallback;
+}
+
+/** Split normalized text into non-empty clauses for later summary joining. */
+function pushReminderClauses(target: string[], value: string): void {
+    for (const line of value.split('\n')) {
+        const clause = collapseWhitespace(line);
+        if (clause) {
+            target.push(clause);
+        }
+    }
+}
+
+/** Provide a plain-text fallback when markdown tokenization fails. */
+function fallbackReminderClauses(value: string, mode: ReminderTextMode): string[] {
+    const clauses: string[] = [];
+    const fallbackText =
+        mode === 'command' ? normalizeCommandTypography(value) : stripHtmlToText(value);
+    pushReminderClauses(clauses, fallbackText);
     if (mode === 'summary') {
-        return lines.slice(0, STATUS_REMINDER_MAX_SUMMARY_LINES);
+        return clauses.slice(0, STATUS_REMINDER_MAX_SUMMARY_LINES);
     }
 
-    return lines;
+    return clauses;
 }
 
+/** Parse reminder markdown into plain-text clauses, including tables and code blocks. */
+function collectReminderClauses(value: string, mode: ReminderTextMode): string[] {
+    const source = prepareReminderMarkdownSource(value, mode);
+    if (!source.trim()) {
+        return [];
+    }
+
+    try {
+        const tokens = reminderMarkdownParser.parse(source, {}) as ReminderMarkdownToken[];
+        const clauses: string[] = [];
+        let currentTableRow: string[] | null = null;
+        let insideTableCell = false;
+
+        for (const token of tokens) {
+            switch (token.type) {
+                case 'tr_open':
+                    currentTableRow = [];
+                    break;
+                case 'tr_close': {
+                    const row = currentTableRow?.filter(Boolean).join(getReminderListSeparator());
+                    if (row) {
+                        clauses.push(row);
+                    }
+                    currentTableRow = null;
+                    insideTableCell = false;
+                    break;
+                }
+                case 'th_open':
+                case 'td_open':
+                    insideTableCell = true;
+                    break;
+                case 'th_close':
+                case 'td_close':
+                    insideTableCell = false;
+                    break;
+                case 'inline': {
+                    const text = extractReminderInlineText(token.children, token.content ?? '');
+                    if (!text) {
+                        break;
+                    }
+
+                    const normalizedText =
+                        mode === 'command' ? normalizeCommandTypography(text) : text;
+
+                    if (insideTableCell && currentTableRow) {
+                        const cell = collapseWhitespace(normalizedText);
+                        if (cell) {
+                            currentTableRow.push(cell);
+                        }
+                        break;
+                    }
+
+                    pushReminderClauses(clauses, normalizedText);
+                    break;
+                }
+                case 'fence':
+                case 'code_block':
+                    pushReminderClauses(
+                        clauses,
+                        mode === 'command'
+                            ? normalizeCommandTypography(token.content ?? '')
+                            : (token.content ?? '')
+                    );
+                    break;
+                case 'html_block':
+                    pushReminderClauses(clauses, stripHtmlToText(token.content ?? ''));
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (mode === 'summary') {
+            return clauses.slice(0, STATUS_REMINDER_MAX_SUMMARY_LINES);
+        }
+
+        return clauses;
+    } catch {
+        return fallbackReminderClauses(source, mode);
+    }
+}
+
+/** Identify short fragments that can be merged into a compact summary line. */
 function isShortReminderClause(value: string): boolean {
     const trimmed = value.trim();
     if (!trimmed || hasTerminalPunctuation(trimmed)) {
@@ -242,6 +336,7 @@ function isShortReminderClause(value: string): boolean {
     return trimmed.length <= (isEnglishReminderLocale() ? 32 : 24);
 }
 
+/** Join clauses without doubling separators after terminal punctuation. */
 function joinReminderSequence(clauses: string[], separator: string): string {
     const [firstClause, ...restClauses] = clauses;
     if (!firstClause) {
@@ -257,6 +352,7 @@ function joinReminderSequence(clauses: string[], separator: string): string {
     return result;
 }
 
+/** Build the final reminder sentence with locale-aware separators and summary shaping. */
 function joinReminderClauses(clauses: string[], mode: ReminderTextMode): string {
     const uniqueClauses: string[] = [];
     for (const clause of clauses) {
@@ -296,6 +392,7 @@ function joinReminderClauses(clauses: string[], mode: ReminderTextMode): string 
     return `${firstClause}${getReminderColonSeparator()}${restText}`;
 }
 
+/** Append an extra reminder fragment while keeping the sentence readable. */
 function appendReminderClause(base: string, clause: string | null): string {
     if (!clause) {
         return base;
@@ -309,19 +406,18 @@ function appendReminderClause(base: string, clause: string | null): string {
     return `${base}${separator}${clause}`;
 }
 
+/** Format a labeled reminder fragment such as a command preview. */
 function formatReminderLabelValue(label: string, value: string): string {
     return `${label}${getReminderColonSeparator()}${value}`;
 }
 
+/** Convert markdown-rich content into a notification-ready plain-text summary. */
 function summarizeNotificationText(
     value: string | null | undefined,
     maxChars = STATUS_REMINDER_MAX_BODY_CHARS,
     mode: ReminderTextMode = 'natural'
 ) {
-    const normalized = joinReminderClauses(
-        collectReminderClauses(sanitizeReminderSourceText(value ?? '', mode), mode),
-        mode
-    );
+    const normalized = joinReminderClauses(collectReminderClauses(value ?? '', mode), mode);
     if (!normalized) {
         return null;
     }
