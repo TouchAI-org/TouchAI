@@ -64,7 +64,7 @@ export const appIconMap = {
     file: IconFile,
     folder: IconFolderOpen,
     'folder-open': IconFolderOpen,
-    fullscreen: IconStop,
+    'maximize-square': IconStop,
     github: IconGithub,
     'grid-alt': IconGridAlt,
     globe: IconGlobe,
@@ -92,7 +92,7 @@ export const appIconMap = {
     wrench: IconWrench,
     x: IconX,
     'x-circle': IconXCircle,
-    'exit-fullscreen': IconCopy,
+    'restore-square': IconCopy,
 } satisfies Record<string, Component>;
 
 export const appIconFallback = IconInfoCircle;

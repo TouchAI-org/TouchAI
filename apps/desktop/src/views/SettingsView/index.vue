@@ -290,7 +290,7 @@
                             @click="handleToggleMaximize"
                         >
                             <AppIcon
-                                :name="isWindowMaximized ? 'exit-fullscreen' : 'fullscreen'"
+                                :name="isWindowMaximized ? 'restore-square' : 'maximize-square'"
                                 class="h-3.5 w-3.5"
                                 :class="isWindowMaximized ? '-scale-x-100' : ''"
                             />

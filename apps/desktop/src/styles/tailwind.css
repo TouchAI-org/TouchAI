@@ -198,7 +198,7 @@
         background: transparent !important;
     }
 
-    /* 图标线条粗细：hugeicons 原生 1.5，这里统一加粗到 1.8。
+    /* 图标线条粗细：Lucide 原生 2，这里统一调细到 1.8。
        stroke-width 在不同图标里可能挂在 path 或外层 g 上，且 SVG 继承
        盖不住子元素自带的属性，故用后代选择器覆盖根节点与全部子元素。
        想全局调整粗细，只改这一个变量即可。 */
