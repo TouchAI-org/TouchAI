@@ -455,6 +455,7 @@ describe('browser tool approval', () => {
         browserSettingsValues.set(
             'browser_settings',
             JSON.stringify({
+                existingSessionPolicy: 'auto',
                 permissions: {
                     navigate: 'allow',
                     connectExisting: 'allow',
@@ -480,6 +481,24 @@ describe('browser tool approval', () => {
                 operation: 'navigate',
                 url: 'https://openai.com/blog',
                 description: '访问OpenAI博客',
+            })
+        ).resolves.toBeNull();
+        await expect(
+            createBrowserApprovalRequest('browser', {
+                operation: 'connect_existing',
+                description: 'Connect existing browser',
+            })
+        ).resolves.toBeNull();
+        await expect(
+            createBrowserApprovalRequest('browser_observe', { operation: 'current' })
+        ).resolves.toBeNull();
+        await expect(
+            createBrowserApprovalRequest('browser_observe', { operation: 'tabs' })
+        ).resolves.toBeNull();
+        await expect(
+            createBrowserApprovalRequest('browser', {
+                operation: 'dom',
+                description: 'Read page structure',
             })
         ).resolves.toBeNull();
     });
@@ -528,6 +547,38 @@ describe('browser tool approval', () => {
         await expect(
             createBrowserApprovalRequest('browser_act', { operation: 'reload' })
         ).resolves.toEqual(expect.objectContaining({ command: 'reload selected tab' }));
+    });
+
+    it('requests approval for existing-session and browser-read operations when policy asks', async () => {
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                existingSessionPolicy: 'ask',
+                permissions: {
+                    connectExisting: 'ask',
+                    observeDom: 'ask',
+                },
+            })
+        );
+
+        await expect(
+            createBrowserApprovalRequest('browser', {
+                operation: 'connect_existing',
+                description: 'Connect existing browser',
+            })
+        ).resolves.toEqual(expect.objectContaining({ command: 'Connect existing browser' }));
+        await expect(
+            createBrowserApprovalRequest('browser_observe', { operation: 'current' })
+        ).resolves.toEqual(expect.objectContaining({ command: 'current' }));
+        await expect(
+            createBrowserApprovalRequest('browser_observe', { operation: 'tabs' })
+        ).resolves.toEqual(expect.objectContaining({ command: 'tabs' }));
+        await expect(
+            createBrowserApprovalRequest('browser', {
+                operation: 'dom',
+                description: 'Read page structure',
+            })
+        ).resolves.toEqual(expect.objectContaining({ command: 'Read page structure' }));
     });
 
     it('covers all approval command shapes without exposing selector secrets', async () => {
