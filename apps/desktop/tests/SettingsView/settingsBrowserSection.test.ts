@@ -76,15 +76,15 @@ describe('Browser settings section', () => {
         const wrapper = mount(BrowserSettingsView);
 
         expect(wrapper.get('[data-testid="browser-settings-title"]').text()).toContain(
-            '?????'
+            '浏览器控制'
         );
         expect(wrapper.get('[data-testid="browser-enabled-toggle"]')).toBeTruthy();
-        expect(wrapper.text()).toContain('?? TouchAI ?????????');
-        expect(wrapper.text()).not.toContain('??????????');
+        expect(wrapper.text()).toContain('管理 TouchAI 控制浏览器的行为。');
+        expect(wrapper.text()).not.toContain('可在本页设置默认主页');
         expect(wrapper.get('[data-testid="browser-data-path-input"]').element).toMatchObject({
             value: 'D:/TouchAI/BrowserData',
         });
-        expect(wrapper.text()).toContain('????? TouchAI ????');
+        expect(wrapper.text()).toContain('留空时使用 TouchAI 数据目录');
         expect(
             wrapper.get('[data-testid="browser-data-path-input"]').attributes('placeholder')
         ).toBe('browser-data');
@@ -107,25 +107,25 @@ describe('Browser settings section', () => {
         expect(
             wrapper.get('[data-testid="browser-default-homepage-input"]').attributes('placeholder')
         ).toBe('https://touch-ai.org');
-        expect(wrapper.text()).toContain('??????');
-        expect(wrapper.text()).toContain('??');
-        expect(wrapper.text()).toContain('????');
-        expect(wrapper.text()).toContain('????');
-        expect(wrapper.text()).toContain('??');
-        expect(wrapper.text()).toContain('??');
-        expect(wrapper.text()).not.toContain('????');
-        expect(wrapper.text()).toContain('??');
-        expect(wrapper.text()).toContain('?????');
-        expect(wrapper.text()).toContain('?????');
-        expect(wrapper.text()).toContain('??');
-        expect(wrapper.text()).toContain('????');
-        expect(wrapper.text()).toContain('??');
-        expect(wrapper.text()).toContain('??');
-        expect(wrapper.text()).not.toContain('????');
-        expect(wrapper.text()).not.toContain('????');
-        expect(wrapper.text()).not.toContain('??????');
-        expect(wrapper.text()).toContain('User-Agent ?????????????');
-        expect(wrapper.text()).toContain('?????? 1366,768');
+        expect(wrapper.text()).toContain('连接已有会话');
+        expect(wrapper.text()).toContain('询问');
+        expect(wrapper.text()).toContain('权限模式');
+        expect(wrapper.text()).toContain('始终允许');
+        expect(wrapper.text()).toContain('自动');
+        expect(wrapper.text()).toContain('拒绝');
+        expect(wrapper.text()).not.toContain('启用功能');
+        expect(wrapper.text()).toContain('权限');
+        expect(wrapper.text()).toContain('白名单域名');
+        expect(wrapper.text()).toContain('黑名单域名');
+        expect(wrapper.text()).toContain('高级');
+        expect(wrapper.text()).toContain('指纹模拟');
+        expect(wrapper.text()).toContain('基础');
+        expect(wrapper.text()).toContain('增强');
+        expect(wrapper.text()).not.toContain('指纹兼容');
+        expect(wrapper.text()).not.toContain('兼容模式');
+        expect(wrapper.text()).not.toContain('增强指纹处理');
+        expect(wrapper.text()).toContain('User-Agent 是浏览器告诉网站的身份信息');
+        expect(wrapper.text()).toContain('窗口大小，如 1366,768');
         expect(wrapper.get('[data-testid="browser-window-width-input"]').element).toMatchObject({
             value: '1366',
         });
@@ -135,10 +135,10 @@ describe('Browser settings section', () => {
         expect(wrapper.get('[data-testid="browser-fingerprint-profile-row"]').classes()).toContain(
             'sm:grid-cols-[minmax(0,1fr)_320px]'
         );
-        expect(wrapper.text().indexOf('??')).toBeLessThan(wrapper.text().indexOf('?????'));
-        expect(wrapper.text().indexOf('?????')).toBeLessThan(wrapper.text().indexOf('??'));
-        expect(wrapper.text()).not.toContain('TouchAI ?????????');
-        expect(wrapper.text()).not.toContain('???????????');
+        expect(wrapper.text().indexOf('权限')).toBeLessThan(wrapper.text().indexOf('黑名单域名'));
+        expect(wrapper.text().indexOf('白名单域名')).toBeLessThan(wrapper.text().indexOf('高级'));
+        expect(wrapper.text()).not.toContain('TouchAI 绝不会打开这些网站');
+        expect(wrapper.text()).not.toContain('无需询问即可打开的域名');
         expect(wrapper.find('[data-testid="browser-save-button"]').exists()).toBe(false);
         expect(wrapper.get('[data-testid="browser-default-mode-select"]')).toBeTruthy();
 
@@ -179,7 +179,7 @@ describe('Browser settings section', () => {
             .setValue('ftp://example.test');
         await vi.advanceTimersByTimeAsync(300);
 
-        expect(wrapper.text()).toContain('?????? http ? https ??');
+        expect(wrapper.text()).toContain('请输入有效的 http 或 https 地址');
         expect(wrapper.text()).not.toContain('settings.browser.validation.invalidHomepage');
         expect(updateBrowserSettingsMock).not.toHaveBeenCalledWith(
             expect.objectContaining({ defaultHomepage: 'ftp://example.test' })
@@ -190,13 +190,13 @@ describe('Browser settings section', () => {
         const wrapper = mount(BrowserSettingsView);
         const permissionModeSelect = wrapper.get('[data-testid="browser-permission-mode-select"]');
 
-        expect(wrapper.text()).toContain('??/??');
-        expect(wrapper.text()).toContain('????');
+        expect(wrapper.text()).toContain('浏览/跳转');
+        expect(wrapper.text()).toContain('会话管理');
 
         await permissionModeSelect.setValue('allow');
 
-        expect(wrapper.text()).not.toContain('??/??');
-        expect(wrapper.text()).not.toContain('????');
+        expect(wrapper.text()).not.toContain('浏览/跳转');
+        expect(wrapper.text()).not.toContain('会话管理');
         await vi.advanceTimersByTimeAsync(300);
         expect(updateBrowserSettingsMock).toHaveBeenLastCalledWith(
             expect.objectContaining({ permissionMode: 'allow' })
@@ -245,8 +245,8 @@ describe('Browser settings section', () => {
         expect(wrapper.text()).toContain(
             'User-Agent is the identity information the browser sends to websites'
         );
-        expect(wrapper.text()).not.toContain('?????');
-        expect(wrapper.text()).not.toContain('????');
+        expect(wrapper.text()).not.toContain('浏览器控制');
+        expect(wrapper.text()).not.toContain('权限模式');
     });
 
     it('shows the runtime default browser when no executable path is configured', async () => {
@@ -261,10 +261,10 @@ describe('Browser settings section', () => {
             'Google Chrome'
         );
         expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
-            '?????|????? Google Chrome'
+            '默认浏览器|当前将使用 Google Chrome'
         );
         expect(wrapper.get('[data-testid="browser-executable-select"]').text()).not.toContain(
-            '????? Google Chrome - C:/Program Files/Google/Chrome/Application/chrome.exe'
+            '当前将使用 Google Chrome - C:/Program Files/Google/Chrome/Application/chrome.exe'
         );
         expect(wrapper.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
@@ -298,7 +298,7 @@ describe('Browser settings section', () => {
         browserSettingsPatch.value = { existingSessionPolicy: 'ask' };
         const wrapper = mount(BrowserSettingsView);
 
-        expect(wrapper.text()).toContain('??????');
+        expect(wrapper.text()).toContain('已有会话连接');
 
         await wrapper
             .get('[data-testid="browser-existing-session-policy-select"]')

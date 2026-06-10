@@ -212,13 +212,13 @@ describe('BuiltInToolService i18n', () => {
         const result = await builtInToolService.executeTool(createExecutionOptions());
 
         expect(result).toMatchObject({
-            result: '???????boom',
+            result: '工具执行失败：boom',
             isError: true,
         });
         expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
             'tool-call-1',
             expect.objectContaining({
-                output: '???????boom',
+                output: '工具执行失败：boom',
                 error_message: 'boom',
                 status: 'error',
             })
@@ -234,13 +234,13 @@ describe('BuiltInToolService i18n', () => {
 
         await expect(
             builtInToolService.executeTool(createExecutionOptions(controller.signal))
-        ).rejects.toThrow('?????');
+        ).rejects.toThrow('请求已取消');
 
         expect(updateBuiltInToolLogByCallIdMock).toHaveBeenCalledWith(
             'tool-call-1',
             expect.objectContaining({
                 status: 'cancelled',
-                error_message: '?????',
+                error_message: '请求已取消',
             })
         );
     });
