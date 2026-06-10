@@ -292,6 +292,7 @@
                             <AppIcon
                                 :name="isWindowMaximized ? 'exit-fullscreen' : 'fullscreen'"
                                 class="h-3.5 w-3.5"
+                                :class="isWindowMaximized ? '-scale-x-100' : ''"
                             />
                         </button>
 

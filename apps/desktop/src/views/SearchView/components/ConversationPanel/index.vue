@@ -61,10 +61,10 @@
             class="scroll-fade-overlay pointer-events-none absolute right-0 bottom-0 left-0 flex h-20 items-end justify-center rounded-lg pb-4"
         >
             <button
-                class="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-lg transition-all hover:bg-gray-50 hover:shadow-xl"
+                class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-lg transition-all hover:bg-gray-50 hover:shadow-xl"
                 @click="scrollToBottom"
             >
-                <AppIcon name="arrow-down" class="h-5 w-5 text-gray-600" />
+                <AppIcon name="arrow-down" class="h-4 w-4 text-gray-600" />
             </button>
         </div>
     </div>

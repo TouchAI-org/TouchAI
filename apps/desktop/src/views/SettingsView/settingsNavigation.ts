@@ -70,7 +70,7 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
             },
             {
                 id: 'built-in-tools',
-                icon: 'tool',
+                icon: 'wrench',
                 labelKey: 'settings.nav.builtInTools.label',
                 descriptionKey: 'settings.nav.builtInTools.description',
             },

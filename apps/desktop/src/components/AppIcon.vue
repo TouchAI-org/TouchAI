@@ -32,5 +32,5 @@
 </script>
 
 <template>
-    <component :is="iconComponent" v-bind="$attrs" />
+    <component :is="iconComponent" class="app-icon" v-bind="$attrs" />
 </template>
