@@ -8,6 +8,7 @@ import {
     hasRequiredModifier,
     isModifierlessFunctionShortcut,
     isReservedLocalShortcut,
+    isReservedLocalShortcutKey,
     matchShortcut,
     normalizeLocalShortcutString,
     resolveKeyboardEventShortcutKey,
@@ -140,6 +141,8 @@ describe('shortcut utilities', () => {
         expect(isReservedLocalShortcut('Mod+PageDown')).toBe(true);
         expect(isReservedLocalShortcut('Mod+K')).toBe(false);
         expect(isReservedLocalShortcut(null)).toBe(false);
+        expect(isReservedLocalShortcutKey('ArrowDown')).toBe(true);
+        expect(isReservedLocalShortcutKey('BrightnessUp', 'F2')).toBe(false);
 
         expect(hasRequiredModifier('Mod+K')).toBe(true);
         expect(hasRequiredModifier('Shift+K')).toBe(true);

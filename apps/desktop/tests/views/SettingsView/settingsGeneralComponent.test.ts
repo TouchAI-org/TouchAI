@@ -295,6 +295,8 @@ describe('SettingsGeneralSection', () => {
 
         expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
         expect(settingsStoreMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
+        expect((input.element as HTMLInputElement).value).toBe('Ctrl+Space');
+        expect(settingsStoreMock.settings.value.globalShortcut).toBe('Ctrl+Space');
         expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
             false
         );
@@ -318,6 +320,29 @@ describe('SettingsGeneralSection', () => {
         expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
             false
         );
+    });
+
+    it('does not capture navigation keys while global shortcut presets are open', async () => {
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get('[data-testid="settings-global-shortcut-input"]');
+        await input.trigger('focus');
+        await flushPromises();
+
+        const event = new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true });
+        window.dispatchEvent(event);
+        await flushPromises();
+
+        expect(event.defaultPrevented).toBe(false);
+        expect(nativeMock.shortcut.registerGlobalShortcut).not.toHaveBeenCalled();
+        expect(settingsStoreMock.updateGlobalShortcut).not.toHaveBeenCalled();
+        expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
+            true
+        );
+
+        wrapper.unmount();
     });
 
     it('does not save a global shortcut that duplicates a search shortcut', async () => {
@@ -374,6 +399,34 @@ describe('SettingsGeneralSection', () => {
         expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
             ...settingsStoreMock.settings.value.searchKeybindings,
             'search.history.open': 'F2',
+        });
+    });
+
+    it('does not capture navigation keys while editing a search shortcut', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
+        );
+        await input.trigger('focus');
+        await flushPromises();
+
+        const event = new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true });
+        window.dispatchEvent(event);
+        await flushPromises();
+
+        expect(event.defaultPrevented).toBe(false);
+        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F1' }));
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
+            ...settingsStoreMock.settings.value.searchKeybindings,
+            'search.history.open': 'F1',
         });
     });
 

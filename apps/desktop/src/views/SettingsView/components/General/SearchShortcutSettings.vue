@@ -18,6 +18,7 @@
         hasCommandModifier,
         isModifierlessFunctionShortcut,
         isReservedLocalShortcut,
+        isReservedLocalShortcutKey,
         normalizeLocalShortcutString,
         toCurrentPlatformShortcut,
     } from '@/utils/shortcuts';
@@ -219,8 +220,9 @@
             return;
         }
 
-        event.preventDefault();
-        event.stopPropagation();
+        if (isReservedLocalShortcutKey(event.key, event.code)) {
+            return;
+        }
 
         const captured = captureShortcutFromKeyboardEvent(event);
         if (!captured) {
@@ -229,6 +231,9 @@
             }
             return;
         }
+
+        event.preventDefault();
+        event.stopPropagation();
 
         searchShortcutCapturedValue.value = captured.shortcut;
         hasCapturedSearchShortcut.value = true;

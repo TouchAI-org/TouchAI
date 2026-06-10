@@ -314,6 +314,14 @@ export function isReservedLocalShortcut(shortcut: string | null | undefined): bo
     return key ? RESERVED_LOCAL_SHORTCUT_KEYS.has(key) : false;
 }
 
+export function isReservedLocalShortcutKey(
+    key: string | null | undefined,
+    code?: string | null
+): boolean {
+    const normalizedKey = resolveKeyboardEventShortcutKey(key, code);
+    return normalizedKey ? RESERVED_LOCAL_SHORTCUT_KEYS.has(normalizedKey) : false;
+}
+
 export function hasRequiredModifier(shortcut: string | null | undefined): boolean {
     const normalized = normalizeLocalShortcutString(shortcut);
     if (!normalized) {

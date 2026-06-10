@@ -20,7 +20,11 @@
         t,
     } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
-    import { normalizeLocalShortcutString } from '@/utils/shortcuts';
+    import {
+        hasCommandModifier,
+        isReservedLocalShortcutKey,
+        normalizeLocalShortcutString,
+    } from '@/utils/shortcuts';
 
     import SearchShortcutSettings from './SearchShortcutSettings.vue';
     import { resolveShortcutCaptureCompletion } from './shortcutCapture';
@@ -121,8 +125,9 @@
             return;
         }
 
-        event.preventDefault();
-        event.stopPropagation();
+        if (isReservedLocalShortcutKey(event.key, event.code)) {
+            return;
+        }
 
         if (['Control', 'Alt', 'Shift', 'Meta', 'OS'].includes(event.key)) {
             return;
@@ -153,6 +158,17 @@
         }
 
         const shortcut = [...modifiers, keyName].join('+');
+        if (!hasCommandModifier(shortcut)) {
+            alertMessage.value?.warning(
+                t('settings.general.searchShortcuts.errors.modifierRequired'),
+                3000
+            );
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
         displayShortcut.value = shortcut;
         hasCapturedShortcut.value = true;
         showGlobalShortcutPresetMenu.value = false;

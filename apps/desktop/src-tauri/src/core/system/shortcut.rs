@@ -49,20 +49,28 @@ pub fn register_global_shortcut<R: Runtime>(
 ) -> Result<(), String> {
     let new_shortcut = parse_shortcut(&shortcut)?;
 
-    // 注销旧快捷键
-    if let Ok(current) = CURRENT_SHORTCUT.lock() {
-        if let Some(old_shortcut) = *current {
-            let _ = app.global_shortcut().unregister(old_shortcut);
+    let old_shortcut = CURRENT_SHORTCUT.lock().ok().and_then(|current| *current);
+    if let Some(old_shortcut) = old_shortcut {
+        if let Err(error) = app.global_shortcut().unregister(old_shortcut) {
+            let message = format!("Failed to unregister previous shortcut: {}", error);
+            if let Ok(mut status) = REGISTRATION_STATUS.lock() {
+                *status = (true, Some(message.clone()));
+            }
+            return Err(message);
         }
     }
 
-    // 尝试注册新快捷键
     let result = app
         .global_shortcut()
         .register(new_shortcut)
         .map_err(|e| format!("Failed to register shortcut: {}", e));
 
-    // 更新状态
+    if result.is_err() {
+        if let Some(old_shortcut) = old_shortcut {
+            let _ = app.global_shortcut().register(old_shortcut);
+        }
+    }
+
     match result {
         Ok(_) => {
             if let Ok(mut current) = CURRENT_SHORTCUT.lock() {
