@@ -1,10 +1,11 @@
-import { mockTauriCommand } from '@tests/utils/tauri';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import BrowserSettingsView from '@/views/SettingsView/components/Browser/index.vue';
+import { resetBrowserRuntimeCacheForTests } from '@/views/SettingsView/components/Browser/runtimeCache';
 
 const updateBrowserSettingsMock = vi.hoisted(() => vi.fn(async () => undefined));
 const browserSettingsPatch = vi.hoisted(() => ({
@@ -40,9 +41,9 @@ vi.mock('@components/CustomSelect.vue', () => ({
     default: {
         name: 'CustomSelect',
         props: ['modelValue', 'options', 'disabled'],
-        emits: ['update:modelValue'],
+        emits: ['update:modelValue', 'update:open'],
         template:
-            '<select data-testid="custom-select" :disabled="disabled" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}{{ option.description ? "|" + option.description : "" }}</option></select>',
+            '<select data-testid="custom-select" :disabled="disabled" :value="modelValue" @focus="$emit(\'update:open\', true)" @blur="$emit(\'update:open\', false)" @change="$emit(\'update:modelValue\', $event.target.value)"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}{{ option.description ? "|" + option.description : "" }}</option></select>',
     },
 }));
 
@@ -51,6 +52,7 @@ describe('Browser settings section', () => {
         setActivePinia(createPinia());
         setLocale('zh-CN');
         vi.useFakeTimers();
+        resetBrowserRuntimeCacheForTests();
         updateBrowserSettingsMock.mockClear();
         browserSettingsPatch.value = {};
         mockTauriCommand('browser_discover_installed', [
@@ -292,6 +294,34 @@ describe('Browser settings section', () => {
             }
         );
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
+    });
+
+    it('reuses installed browser discovery across remounts in the same app runtime', async () => {
+        const firstWrapper = mount(BrowserSettingsView);
+        await flushPromises();
+
+        expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(1);
+
+        firstWrapper.unmount();
+
+        const secondWrapper = mount(BrowserSettingsView);
+        await flushPromises();
+
+        expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(1);
+
+        secondWrapper.unmount();
+    });
+
+    it('refreshes installed browsers asynchronously when the browser selector opens', async () => {
+        const wrapper = mount(BrowserSettingsView);
+        await flushPromises();
+
+        expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(1);
+
+        await wrapper.get('[data-testid="browser-executable-select"]').trigger('focus');
+        await flushPromises();
+
+        expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(2);
     });
 
     it('renders and saves the existing browser session policy', async () => {

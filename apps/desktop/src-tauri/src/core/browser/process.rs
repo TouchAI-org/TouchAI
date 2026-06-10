@@ -8,6 +8,8 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use std::ffi::OsString;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use super::{
     endpoint::BrowserEndpoint,
@@ -17,6 +19,8 @@ use super::{
 use crate::core::system::paths::{app_directory_path, AppDirectory};
 
 const DEFAULT_BROWSER_DATA_DIR_NAME: &str = "browser-data";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug)]
 pub struct ManagedBrowserProcess {
@@ -409,7 +413,9 @@ fn windows_registry_browser_paths() -> Vec<(&'static str, &'static str, PathBuf)
     ];
 
     fn query_default_string(key: &str) -> Option<PathBuf> {
-        let output = Command::new("reg")
+        let mut command = Command::new("reg");
+        configure_windows_background_command(&mut command);
+        let output = command
             .args(["query", key, "/ve"])
             .stdin(Stdio::null())
             .stderr(Stdio::null())
@@ -452,7 +458,9 @@ fn windows_registry_browser_paths() -> Vec<(&'static str, &'static str, PathBuf)
 
 #[cfg(windows)]
 fn kill_process_tree(pid: u32) {
-    let _ = Command::new("taskkill")
+    let mut command = Command::new("taskkill");
+    configure_windows_background_command(&mut command);
+    let _ = command
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -480,6 +488,11 @@ fn kill_process_tree(pid: u32) {
 
 #[cfg(windows)]
 fn configure_child_group(_command: &mut Command) {}
+
+#[cfg(windows)]
+fn configure_windows_background_command(command: &mut Command) {
+    command.creation_flags(CREATE_NO_WINDOW);
+}
 
 #[cfg(unix)]
 fn configure_child_group(command: &mut Command) {
