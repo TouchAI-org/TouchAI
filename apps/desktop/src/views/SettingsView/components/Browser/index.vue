@@ -3,7 +3,7 @@
     import CustomSelect from '@components/CustomSelect.vue';
     import { open } from '@tauri-apps/plugin-dialog';
     import { storeToRefs } from 'pinia';
-    import { computed, onBeforeUnmount, ref, watch } from 'vue';
+    import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
     import { native } from '@/services/NativeService';
@@ -21,6 +21,8 @@
     } from '@/stores/setting/sections/browser';
     import { useSettingsStore } from '@/stores/settings';
 
+    import { loadCachedDefaultBrowserDataPath, loadCachedInstalledBrowsers } from './runtimeCache';
+
     defineOptions({ name: 'SettingsBrowserSection' });
 
     const settingsStore = useSettingsStore();
@@ -37,6 +39,8 @@
     const installedBrowsers = ref<BrowserInstalledBrowser[]>([]);
     const browserDiscoveryError = ref<string | null>(null);
     const defaultBrowserDataPath = ref('');
+    const isDiscoveringInstalledBrowsers = ref(false);
+    let isUnmounted = false;
 
     const DEFAULT_BROWSER_VALUE = 'default';
     const CUSTOM_BROWSER_VALUE = 'custom';
@@ -269,30 +273,62 @@
         return parseBrowserSettingsConfig(serializeBrowserSettingsConfig(config));
     }
 
-    void loadInstalledBrowsers();
-    void loadDefaultBrowserDataPath();
-
-    async function loadInstalledBrowsers() {
+    async function loadInstalledBrowsers(options: { force?: boolean } = {}) {
+        const preserveCurrentBrowsers = installedBrowsers.value.length > 0;
+        isDiscoveringInstalledBrowsers.value = true;
         try {
             browserDiscoveryError.value = null;
-            installedBrowsers.value = await native.browser.discoverInstalled();
+            const browsers = await loadCachedInstalledBrowsers(
+                () => native.browser.discoverInstalled(),
+                options
+            );
+            if (isUnmounted) {
+                return;
+            }
+            installedBrowsers.value = browsers;
             const configuredPath = draft.value.browserExecutablePath.trim();
             isEditingCustomBrowserExecutable.value = Boolean(
                 configuredPath && !discoveredBrowserPaths.value.has(configuredPath)
             );
         } catch (error) {
+            if (isUnmounted) {
+                return;
+            }
             browserDiscoveryError.value = error instanceof Error ? error.message : String(error);
-            installedBrowsers.value = [];
+            if (!preserveCurrentBrowsers) {
+                installedBrowsers.value = [];
+            }
+        } finally {
+            if (!isUnmounted) {
+                isDiscoveringInstalledBrowsers.value = false;
+            }
         }
     }
 
     async function loadDefaultBrowserDataPath() {
         try {
-            defaultBrowserDataPath.value = await native.browser.defaultDataPath();
+            const path = await loadCachedDefaultBrowserDataPath(() =>
+                native.browser.defaultDataPath()
+            );
+            if (isUnmounted) {
+                return;
+            }
+            defaultBrowserDataPath.value = path;
         } catch (error) {
+            if (isUnmounted) {
+                return;
+            }
             console.error('[BrowserSettings] Failed to load default browser data path:', error);
             defaultBrowserDataPath.value = '';
         }
+    }
+
+    function handleBrowserExecutableDropdownOpen(open: boolean) {
+        if (!open || isDiscoveringInstalledBrowsers.value) {
+            return;
+        }
+
+        void loadInstalledBrowsers({ force: true });
     }
 
     function normalizeDomain(value: string): string {
@@ -334,7 +370,13 @@
 
     watch(draft, scheduleAutoSave, { deep: true });
 
+    onMounted(() => {
+        void loadInstalledBrowsers();
+        void loadDefaultBrowserDataPath();
+    });
+
     onBeforeUnmount(() => {
+        isUnmounted = true;
         if (autoSaveTimer) {
             clearTimeout(autoSaveTimer);
             autoSaveTimer = null;
@@ -478,6 +520,7 @@
                                     data-testid="browser-executable-select"
                                     :options="browserExecutableOptions"
                                     :disabled="!draft.enabled"
+                                    @update:open="handleBrowserExecutableDropdownOpen"
                                 />
                             </div>
                         </div>

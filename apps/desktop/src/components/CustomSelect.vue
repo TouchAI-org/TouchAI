@@ -33,6 +33,7 @@
 
     interface Emits {
         (e: 'update:modelValue', value: T): void;
+        (e: 'update:open', value: boolean): void;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -66,6 +67,11 @@
             selectOption(value as T);
         }
     };
+
+    const handleOpenChange = (value: boolean) => {
+        isOpen.value = value;
+        emit('update:open', value);
+    };
 </script>
 
 <template>
@@ -74,7 +80,7 @@
         :disabled="disabled"
         :open="isOpen"
         @update:model-value="handleSelectValue"
-        @update:open="isOpen = $event"
+        @update:open="handleOpenChange"
     >
         <SelectTrigger
             v-bind="attrs"
