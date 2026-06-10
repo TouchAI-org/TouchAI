@@ -58,7 +58,7 @@ describe('browser settings config', () => {
                 ...DEFAULT_BROWSER_SETTINGS,
                 defaultHomepage: 'ftp://example.test',
             })
-        ).toContain('http');
+        ).toBe('settings.browser.validation.invalidHomepage');
         expect(serializeBrowserSettingsConfig(parseBrowserSettingsConfig(null))).toBe(
             serializeBrowserSettingsConfig(DEFAULT_BROWSER_SETTINGS)
         );

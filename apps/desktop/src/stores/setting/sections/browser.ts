@@ -264,7 +264,11 @@ export function normalizeFingerprintWindowSize(value: string | undefined): strin
     return `${width},${height}`;
 }
 
-export function getDefaultHomepageError(config: BrowserSettingsConfig): string | null {
+type BrowserSettingsValidationMessageKey = 'settings.browser.validation.invalidHomepage';
+
+export function getDefaultHomepageError(
+    config: BrowserSettingsConfig
+): BrowserSettingsValidationMessageKey | null {
     const value = config.defaultHomepage.trim();
     if (!value) {
         return null;
@@ -274,8 +278,8 @@ export function getDefaultHomepageError(config: BrowserSettingsConfig): string |
         const url = new URL(value);
         return url.protocol === 'http:' || url.protocol === 'https:'
             ? null
-            : 'Enter a valid http or https URL.';
+            : 'settings.browser.validation.invalidHomepage';
     } catch {
-        return 'Enter a valid http or https URL.';
+        return 'settings.browser.validation.invalidHomepage';
     }
 }

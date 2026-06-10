@@ -49,4 +49,11 @@ describe('runtime seed defaults', () => {
         expect(seedSql).not.toContain("SELECT 'browser_observe'");
         expect(seedSql).not.toContain("SELECT 'browser_act'");
     });
+
+    it('keeps bash enabled with high-risk approval defaults', async () => {
+        const seedSql = await readFile(runtimeSeedPath, 'utf8');
+
+        expect(seedSql).toMatch(/SELECT\s+'bash',\s+'Bash',[\s\S]*?,\s+1,\s+'high'/);
+        expect(seedSql).toContain('"approvalMode":"high_risk"');
+    });
 });

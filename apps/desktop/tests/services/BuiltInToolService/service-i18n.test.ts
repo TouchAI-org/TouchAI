@@ -67,6 +67,13 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
                 description: 'WebSearch description',
                 defaultConfig: {},
             },
+            {
+                ...fakeTool,
+                id: 'bash',
+                displayName: 'Bash',
+                description: 'Bash description',
+                defaultConfig: {},
+            },
         ]),
         get: vi.fn((toolId: string) =>
             ['setting', 'browser'].includes(toolId)
@@ -148,13 +155,21 @@ describe('BuiltInToolService i18n', () => {
 
         await builtInToolService.syncRegisteredTools();
 
-        expect(createBuiltInToolMock).toHaveBeenCalledTimes(1);
+        expect(createBuiltInToolMock).toHaveBeenCalledTimes(2);
         expect(createBuiltInToolMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 tool_id: 'web_search',
                 display_name: 'WebSearch',
                 enabled: 1,
                 risk_level: 'low',
+            })
+        );
+        expect(createBuiltInToolMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                tool_id: 'bash',
+                display_name: 'Bash',
+                enabled: 1,
+                risk_level: 'high',
             })
         );
     });
@@ -197,13 +212,13 @@ describe('BuiltInToolService i18n', () => {
         const result = await builtInToolService.executeTool(createExecutionOptions());
 
         expect(result).toMatchObject({
-            result: '工具执行失败：boom',
+            result: '???????boom',
             isError: true,
         });
         expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
             'tool-call-1',
             expect.objectContaining({
-                output: '工具执行失败：boom',
+                output: '???????boom',
                 error_message: 'boom',
                 status: 'error',
             })
@@ -219,13 +234,13 @@ describe('BuiltInToolService i18n', () => {
 
         await expect(
             builtInToolService.executeTool(createExecutionOptions(controller.signal))
-        ).rejects.toThrow('请求已取消');
+        ).rejects.toThrow('?????');
 
         expect(updateBuiltInToolLogByCallIdMock).toHaveBeenCalledWith(
             'tool-call-1',
             expect.objectContaining({
                 status: 'cancelled',
-                error_message: '请求已取消',
+                error_message: '?????',
             })
         );
     });

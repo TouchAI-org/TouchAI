@@ -37,7 +37,7 @@ describe('browser error attribution prompt guidance', () => {
 
     it('tells the model to use browser control when access is restricted', () => {
         expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('anti-bot/access friction');
-        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Use `browser`');
+        expect(TOUCHAI_BUILTIN_SYSTEM_PROMPT).toContain('Use `builtin__browser`');
     });
 
     it('requires visual evidence to be embedded when research images are available', () => {

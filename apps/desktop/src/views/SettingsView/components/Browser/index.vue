@@ -145,6 +145,7 @@
     );
 
     const homepageError = computed(() => getDefaultHomepageError(draft.value));
+    const homepageErrorText = computed(() => (homepageError.value ? t(homepageError.value) : null));
     const canSave = computed(() => !homepageError.value && saveState.value !== 'saving');
     const defaultHomepageValue = computed({
         get() {
@@ -525,7 +526,7 @@
                                     :class="homepageError ? 'text-red-500' : 'text-neutral-500'"
                                 >
                                     {{
-                                        homepageError ||
+                                        homepageErrorText ||
                                         t('settings.browser.defaultHomepage.description')
                                     }}
                                 </div>

@@ -1032,9 +1032,7 @@ async fn fill_form(
             target,
             "Runtime.evaluate",
             json!({
-                "expression": format!(
-                    "(() => {{ const el = document.querySelector({selector}); if (!el) throw new Error('field not found'); el.focus(); const tag = el.tagName; const type = String(el.type || '').toLowerCase(); const writable = !el.disabled && !el.readOnly; const textEntry = writable && (el.isContentEditable || tag === 'TEXTAREA' || (tag === 'INPUT' && ['', 'text', 'search', 'tel', 'url', 'email', 'password', 'number'].includes(type))); if (tag === 'SELECT' && !el.disabled) {{ const options = Array.from(el.options || []); const match = options.find((option) => option.value === {value}) || options.find((option) => option.textContent.trim() === {value}); if (!match) throw new Error('select option not found'); el.value = match.value; }} else if (textEntry) {{ el.value = {value}; }} else {{ throw new Error('fill_form is only supported for writable text-entry controls'); }} el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()"
-                ),
+                "expression": fill_form_field_expression(&selector, &value),
                 "awaitPromise": true,
                 "returnByValue": true
             }),
@@ -1042,6 +1040,12 @@ async fn fill_form(
         .await?;
     }
     Ok(())
+}
+
+fn fill_form_field_expression(selector: &str, value: &str) -> String {
+    format!(
+        "(() => {{ const el = document.querySelector({selector}); if (!el) throw new Error('field not found'); el.focus(); const tag = el.tagName; const type = String(el.type || '').toLowerCase(); const writable = !el.disabled && !el.readOnly; const contentEditable = writable && el.isContentEditable && tag !== 'INPUT' && tag !== 'TEXTAREA'; const textInput = writable && (tag === 'TEXTAREA' || (tag === 'INPUT' && ['', 'text', 'search', 'tel', 'url', 'email', 'password', 'number'].includes(type))); if (tag === 'SELECT' && !el.disabled) {{ const options = Array.from(el.options || []); const match = options.find((option) => option.value === {value}) || options.find((option) => option.textContent.trim() === {value}); if (!match) throw new Error('select option not found'); el.value = match.value; }} else if (contentEditable) {{ el.textContent = {value}; }} else if (textInput) {{ el.value = {value}; }} else {{ throw new Error('fill_form is only supported for writable text-entry controls'); }} el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()"
+    )
 }
 
 async fn press_key(
@@ -1443,6 +1447,16 @@ mod tests {
             input_type: "select-one".to_string(),
             content_editable: false,
         }));
+    }
+
+    #[test]
+    fn fill_form_expression_writes_contenteditable_via_text_content() {
+        let expression = fill_form_field_expression("\"#editor\"", "\"hello\"");
+
+        assert!(expression.contains("contentEditable"));
+        assert!(expression.contains("el.textContent = \"hello\""));
+        assert!(expression.contains("el.value = \"hello\""));
+        assert!(expression.contains("tag !== 'INPUT' && tag !== 'TEXTAREA'"));
     }
 
     #[test]
