@@ -414,11 +414,19 @@ export class AiConversationRuntime {
             return false;
         }
 
-        const { invalidateManagedAuthForError } = await import('@/services/AuthService');
-        return await invalidateManagedAuthForError({
-            providerId: model.provider_id,
-            error,
-        });
+        try {
+            const { invalidateManagedAuthForError } = await import('@/services/AuthService');
+            return await invalidateManagedAuthForError({
+                providerId: model.provider_id,
+                error,
+            });
+        } catch (authInvalidationError) {
+            console.warn(
+                '[AiConversationRuntime] Failed to invalidate managed auth after request failure:',
+                authInvalidationError
+            );
+            return false;
+        }
     }
 
     /**

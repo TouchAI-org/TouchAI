@@ -26,4 +26,6 @@ jobs:
             - name: Validate PR body structure and linkage
               env:
                   PR_BODY: ${{ github.event.pull_request.body || '' }}
+                  PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+                  PR_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
               run: node apps/desktop/scripts/ci/pr-template-check.js
