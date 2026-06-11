@@ -113,8 +113,8 @@ export class AppUpdateController {
     async setChannel(channel: AppUpdateChannel): Promise<void> {
         await this.initialize();
         await this.settings.updateAppUpdateChannel(channel);
-        this.checkRequestVersion += 1;
         await this.settings.updateAppUpdateLastCheckedAt(null);
+        this.checkRequestVersion += 1;
         this.commit({ type: 'channel-updated', channel });
     }
 
