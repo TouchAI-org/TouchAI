@@ -3,6 +3,8 @@
 //! Webview 运行时默认配置。
 
 #[cfg(target_os = "windows")]
+use raw_window_handle::HasWindowHandle;
+#[cfg(target_os = "windows")]
 use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use tauri::Manager;
@@ -16,7 +18,15 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
 };
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, TRUE, WPARAM};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT, VK_SPACE};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumChildWindows, SC_KEYMENU, WM_SYSCHAR, WM_SYSCOMMAND, WM_SYSKEYDOWN,
+};
 #[cfg(target_os = "windows")]
 use windows_core::Interface;
 
@@ -78,6 +88,96 @@ fn disable_browser_accelerator_keys_with_controller(
             .map_err(|error| format!("Failed to cast CoreWebView2 settings to v3: {}", error))?;
 
         disable_browser_accelerator_keys_with_settings(&settings3)
+    }
+}
+
+#[cfg(target_os = "windows")]
+/// 子类化标识，用于在窗口上唯一标记系统菜单拦截子类过程。
+const SYSTEM_MENU_SUBCLASS_ID: usize = 0x5359_534D;
+
+#[cfg(target_os = "windows")]
+/// 从 Tauri 窗口取出顶层 Win32 HWND。
+fn top_level_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String> {
+    let window_handle = window
+        .window_handle()
+        .map_err(|error| format!("Failed to get window handle: {}", error))?;
+
+    match window_handle.as_ref() {
+        raw_window_handle::RawWindowHandle::Win32(handle) => Ok(HWND(handle.hwnd.get() as _)),
+        _ => Err("Not a Win32 window".to_string()),
+    }
+}
+
+#[cfg(target_os = "windows")]
+/// 子类过程：拦截 Alt+Space 触发系统菜单的相关消息（WM_SYSKEYDOWN / WM_SYSCHAR /
+/// WM_SYSCOMMAND），阻止系统菜单弹出，让 keydown 仍能传到 WebView2 以供前端捕获。
+unsafe extern "system" fn system_menu_subclass_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _subclass_id: usize,
+    _ref_data: usize,
+) -> LRESULT {
+    if msg == WM_SYSKEYDOWN && wparam.0 == VK_SPACE.0 as usize {
+        // 吞掉 Alt+Space 的 WM_SYSKEYDOWN，阻止 DefWindowProc 将其翻译为 WM_SYSCHAR/SC_KEYMENU。
+        return LRESULT(0);
+    }
+
+    if msg == WM_SYSCHAR && wparam.0 == VK_SPACE.0 as usize {
+        // 吞掉 Alt+Space 的 WM_SYSCHAR，这是真正触发系统菜单的消息。
+        return LRESULT(0);
+    }
+
+    if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_KEYMENU as usize {
+        return LRESULT(0);
+    }
+
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+/// EnumChildWindows 回调：为每个子窗口安装系统菜单拦截子类。
+unsafe extern "system" fn install_subclass_on_child(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+    let _ = SetWindowSubclass(
+        hwnd,
+        Some(system_menu_subclass_proc),
+        SYSTEM_MENU_SUBCLASS_ID,
+        0,
+    );
+    TRUE
+}
+
+#[cfg(target_os = "windows")]
+/// 在顶层窗口上安装系统菜单拦截子类，屏蔽 Alt+Space 系统菜单热键。
+///
+/// 子窗口（WebView2 内容区）的子类需在 webview 就绪后由
+/// [`install_system_menu_interceptor_on_children`] 单独安装。
+fn install_system_menu_interceptor<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    let hwnd = top_level_hwnd(window)?;
+    let installed = unsafe {
+        SetWindowSubclass(
+            hwnd,
+            Some(system_menu_subclass_proc),
+            SYSTEM_MENU_SUBCLASS_ID,
+            0,
+        )
+    };
+    if !installed.as_bool() {
+        return Err("Failed to install system menu subclass".to_string());
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+/// 为窗口的所有子孙窗口安装系统菜单拦截子类。
+///
+/// WebView2 内容渲染在子 HWND 中，焦点在内容区时 WM_SYSKEYDOWN/WM_SYSCHAR 由子窗口处理，
+/// 因此需在 webview 就绪、子窗口已创建后调用此函数，才能在源头拦截。
+fn install_system_menu_interceptor_on_children(hwnd: HWND) {
+    unsafe {
+        let _ = EnumChildWindows(hwnd, Some(install_subclass_on_child), LPARAM(0));
     }
 }
 
@@ -245,22 +345,87 @@ fn register_devtools_accelerator_handler(
 }
 
 #[cfg(target_os = "windows")]
+/// 判断是否命中了 Alt+Space 系统菜单热键。
+fn is_system_menu_accelerator_command(key_event_kind: i32, virtual_key: u32) -> bool {
+    let is_system_key_down = key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0;
+    is_system_key_down && virtual_key == u32::from(VK_SPACE.0)
+}
+
+#[cfg(target_os = "windows")]
+/// 注册 WebView2 accelerator 处理器，拦截 Alt+Space，阻止 WebView2 转发触发系统菜单，
+/// 同时保证 keydown 仍能传到 DOM 供前端捕获。
+fn register_system_menu_accelerator_handler(
+    controller: &ICoreWebView2Controller,
+) -> Result<(), String> {
+    let mut token = 0i64;
+    let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
+        move |_controller: Option<ICoreWebView2Controller>,
+              args: Option<ICoreWebView2AcceleratorKeyPressedEventArgs>| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+
+            unsafe {
+                let mut key_event_kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
+                args.KeyEventKind(&mut key_event_kind)?;
+
+                let mut virtual_key = 0u32;
+                args.VirtualKey(&mut virtual_key)?;
+
+                if !is_system_menu_accelerator_command(key_event_kind.0, virtual_key) {
+                    return Ok(());
+                }
+
+                if let Ok(args2) =
+                    Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
+                {
+                    let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
+                }
+                let _ = args.SetHandled(true);
+            }
+
+            Ok(())
+        },
+    ));
+
+    unsafe {
+        controller
+            .add_AcceleratorKeyPressed(&handler, &mut token)
+            .map_err(|error| format!("Failed to add system menu accelerator handler: {}", error))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
 /**
  * 为桌面窗口应用统一的 webview 运行时默认配置。
  */
 pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
+    if let Err(error) = install_system_menu_interceptor(window) {
+        log::warn!(
+            "Failed to install system menu interceptor for window '{}': {}",
+            window.label(),
+            error
+        );
+    }
+
     let (tx, rx) = std::sync::mpsc::channel();
     let window_clone = window.clone();
     window
         .with_webview(move |webview| {
             let controller = webview.controller();
             let result = disable_browser_accelerator_keys_with_controller(&controller)
+                .and_then(|_| register_system_menu_accelerator_handler(&controller))
                 .and_then(|_| {
                     register_search_surface_accelerator_bridge(&window_clone, &controller)
                 })
                 .and_then(|_| register_devtools_accelerator_handler(&controller));
+            if let Ok(hwnd) = top_level_hwnd(&window_clone) {
+                install_system_menu_interceptor_on_children(hwnd);
+            }
             let _ = tx.send(result);
         })
         .map_err(|error| format!("Failed to access platform webview: {}", error))?;
