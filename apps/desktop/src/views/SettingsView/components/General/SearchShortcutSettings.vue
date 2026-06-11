@@ -538,7 +538,7 @@
                                 type="text"
                                 readonly
                                 :class="[
-                                    'w-full rounded-[10px] border px-9 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors focus:shadow-none focus:[box-shadow:none] focus:outline-none',
+                                    'w-full rounded-[10px] border px-9 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors select-none focus:shadow-none focus:[box-shadow:none] focus:outline-none',
                                     row.hasError
                                         ? 'border-red-300 bg-red-50 text-red-600'
                                         : row.isCapturing

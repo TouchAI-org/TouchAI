@@ -109,7 +109,7 @@
     >
         <SelectTrigger
             v-bind="attrs"
-            class="w-full rounded-[10px] border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors"
+            class="w-full rounded-[10px] border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors select-none"
             :class="{
                 'border-transparent bg-[#f0f0ef] text-gray-900 hover:bg-[#ececea]': !disabled,
                 'cursor-not-allowed border-transparent bg-gray-50 text-gray-400': disabled,

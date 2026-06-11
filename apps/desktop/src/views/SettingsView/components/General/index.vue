@@ -546,7 +546,7 @@
                                                     data-testid="settings-global-shortcut-input"
                                                     type="text"
                                                     readonly
-                                                    class="min-w-0 flex-1 bg-transparent text-center text-[12px] outline-none"
+                                                    class="min-w-0 flex-1 bg-transparent text-center text-[12px] outline-none select-none"
                                                     :disabled="isSaving"
                                                     :placeholder="
                                                         t('settings.general.shortcutPlaceholder')
