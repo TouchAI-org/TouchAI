@@ -17,10 +17,18 @@ import {
 
 function normalizeDirectoryPath(path: string): string {
     const normalizedSeparators = path.trim().replace(/\//g, '\\').replace(/\\+$/, '');
+    const uncMatch = /^\\\\([^\\]+)\\([^\\]+)(?:\\(.*))?$/.exec(normalizedSeparators);
     const driveMatch = /^([a-zA-Z]:)(?:\\(.*))?$/.exec(normalizedSeparators);
     const hasRoot = normalizedSeparators.startsWith('\\');
-    const prefix = driveMatch?.[1]?.toLowerCase() ?? (hasRoot ? '\\' : '');
-    const body = driveMatch ? (driveMatch[2] ?? '') : normalizedSeparators.replace(/^\\+/, '');
+    const prefix =
+        uncMatch && uncMatch[1] && uncMatch[2]
+            ? `\\\\${uncMatch[1].toLowerCase()}\\${uncMatch[2].toLowerCase()}`
+            : (driveMatch?.[1]?.toLowerCase() ?? (hasRoot ? '\\' : ''));
+    const body = uncMatch
+        ? (uncMatch[3] ?? '')
+        : driveMatch
+          ? (driveMatch[2] ?? '')
+          : normalizedSeparators.replace(/^\\+/, '');
     const resolvedSegments: string[] = [];
 
     for (const segment of body.split(/\\+/)) {
@@ -46,7 +54,11 @@ function normalizeDirectoryPath(path: string): string {
         return normalizedBody;
     }
 
-    return normalizedBody ? `${prefix}\\${normalizedBody}` : prefix;
+    if (!normalizedBody) {
+        return prefix;
+    }
+
+    return prefix.endsWith('\\') ? `${prefix}${normalizedBody}` : `${prefix}\\${normalizedBody}`;
 }
 
 function isWithinAllowedDirectory(path: string, allowlist: string[]): boolean {

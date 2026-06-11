@@ -121,6 +121,21 @@ describe('resolveCommandContext', () => {
         ).rejects.toThrow('Working directory is outside the allowed scope');
     });
 
+    it('rejects UNC paths that escape to a sibling share before re-entering the allowlist', async () => {
+        setLocale('en-US');
+        const config = {
+            ...baseConfig,
+            allowedWorkingDirectories: ['\\\\server\\share'],
+        };
+
+        await expect(
+            resolveCommandContext(
+                { command: 'dir', workingDirectory: '\\\\server\\other\\..\\share\\secret' },
+                config
+            )
+        ).rejects.toThrow('Working directory is outside the allowed scope');
+    });
+
     it('accepts command inside allowed directories', async () => {
         const config = {
             ...baseConfig,
