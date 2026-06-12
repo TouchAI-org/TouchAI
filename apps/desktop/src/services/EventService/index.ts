@@ -78,6 +78,7 @@ export type {
     McpServerStatus,
     McpStatusChangeEvent,
     SettingsGeneralUpdatedEvent,
+    ShortcutCaptureSystemKeyEvent,
     WindowFocusEvent,
     WindowResizeEvent,
 } from './types';

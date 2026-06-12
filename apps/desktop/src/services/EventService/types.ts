@@ -59,6 +59,9 @@ export enum AppEvent {
     SEARCH_SURFACE_COMMAND = 'search-surface-command',
     SESSION_TASK_STATUS_CHANGED = 'session:task:status-changed',
     SESSION_STATUS_REMINDER_ACTION = 'session-status-reminder:action',
+
+    // 快捷键捕获事件
+    SHORTCUT_CAPTURE_SYSTEM_KEY = 'shortcut-capture-system-key',
 }
 
 // ==================== MCP 事件 ====================
@@ -119,6 +122,18 @@ export interface SearchSurfaceHiddenEvent {
 export interface SearchSurfaceCommandEvent {
     command: 'toggle-model-dropdown';
     source: 'webview2-accelerator';
+}
+
+/**
+ * 系统级快捷键（如 Alt+Space）由 WebView2 当作 system accelerator 截获，
+ * 不会派发 DOM keydown，因此宿主在 accelerator 阶段直接 emit 此事件，
+ * 由前端在快捷键录入模式下监听并复用普通保存路径。
+ */
+export interface ShortcutCaptureSystemKeyEvent {
+    key: 'Space';
+    alt: boolean;
+    ctrl: boolean;
+    shift: boolean;
 }
 
 export interface SessionStatusReminderApprovalActionPayload {
@@ -195,6 +210,9 @@ export interface AppEventMap {
     [AppEvent.SEARCH_SURFACE_COMMAND]: SearchSurfaceCommandEvent;
     [AppEvent.SESSION_TASK_STATUS_CHANGED]: SessionTaskStatusChangedEvent;
     [AppEvent.SESSION_STATUS_REMINDER_ACTION]: SessionStatusReminderActionEvent;
+
+    // 快捷键捕获事件
+    [AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY]: ShortcutCaptureSystemKeyEvent;
 }
 
 export type AppEventName = keyof AppEventMap;

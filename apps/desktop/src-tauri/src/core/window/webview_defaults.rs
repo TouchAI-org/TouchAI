@@ -25,7 +25,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SH
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumChildWindows, SC_KEYMENU, WM_SYSCHAR, WM_SYSCOMMAND, WM_SYSKEYDOWN,
+    EnumChildWindows, SC_KEYMENU, WM_SYSCHAR, WM_SYSCOMMAND,
 };
 #[cfg(target_os = "windows")]
 use windows_core::Interface;
@@ -109,8 +109,9 @@ fn top_level_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String>
 }
 
 #[cfg(target_os = "windows")]
-/// 子类过程：拦截 Alt+Space 触发系统菜单的相关消息（WM_SYSKEYDOWN / WM_SYSCHAR /
-/// WM_SYSCOMMAND），阻止系统菜单弹出，让 keydown 仍能传到 WebView2 以供前端捕获。
+/// 子类过程：拦截 Alt+Space 真正触发系统菜单的消息（WM_SYSCHAR / WM_SYSCOMMAND），
+/// 阻止系统菜单弹出。注意不拦截 WM_SYSKEYDOWN，使其仍能传到 WebView2 并派发 DOM keydown，
+/// 供前端捕获 Alt+Space 作为快捷键。
 unsafe extern "system" fn system_menu_subclass_proc(
     hwnd: HWND,
     msg: u32,
@@ -119,11 +120,6 @@ unsafe extern "system" fn system_menu_subclass_proc(
     _subclass_id: usize,
     _ref_data: usize,
 ) -> LRESULT {
-    if msg == WM_SYSKEYDOWN && wparam.0 == VK_SPACE.0 as usize {
-        // 吞掉 Alt+Space 的 WM_SYSKEYDOWN，阻止 DefWindowProc 将其翻译为 WM_SYSCHAR/SC_KEYMENU。
-        return LRESULT(0);
-    }
-
     if msg == WM_SYSCHAR && wparam.0 == VK_SPACE.0 as usize {
         // 吞掉 Alt+Space 的 WM_SYSCHAR，这是真正触发系统菜单的消息。
         return LRESULT(0);
@@ -179,6 +175,80 @@ fn install_system_menu_interceptor_on_children(hwnd: HWND) {
     unsafe {
         let _ = EnumChildWindows(hwnd, Some(install_subclass_on_child), LPARAM(0));
     }
+}
+
+#[cfg(target_os = "windows")]
+/// 判断是否命中了 Alt+Space。
+///
+/// WebView2 把 Alt+Space 作为 system accelerator，默认不会派发 DOM keydown；
+/// 必须在 `AcceleratorKeyPressed` 中调用 `SetIsBrowserAcceleratorKeyEnabled(false)`
+/// 才能让事件继续传播到 web 内容。注意不要调 `SetHandled(true)`，否则传播会被
+/// 终止，DOM 同样收不到。菜单抑制由宿主子类化吃掉 WM_SYSCHAR / SC_KEYMENU 完成。
+fn is_system_menu_accelerator_command(key_event_kind: i32, virtual_key: u32) -> bool {
+    let is_system_key_down = key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0;
+    is_system_key_down && virtual_key == u32::from(VK_SPACE.0)
+}
+
+#[cfg(target_os = "windows")]
+/// 注册 WebView2 accelerator 处理器，将 Alt+Space 转成 Tauri 事件供前端捕获。
+///
+/// WebView2 把 Alt+Space 当作 system accelerator，默认不会派发 DOM keydown；
+/// 实测 `SetIsBrowserAcceleratorKeyEnabled(false)` 对系统键不生效，因此采用事件桥模式：
+/// 在 accelerator 阶段直接 emit Tauri 事件，前端捕获模式下监听该事件录入快捷键。
+/// 系统菜单的抑制由 [`system_menu_subclass_proc`] 在宿主层完成。
+fn register_system_menu_accelerator_handler<R: Runtime>(
+    window: &WebviewWindow<R>,
+    controller: &ICoreWebView2Controller,
+) -> Result<(), String> {
+    let app_handle = window.app_handle().clone();
+    let mut token = 0i64;
+    let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
+        move |_controller: Option<ICoreWebView2Controller>,
+              args: Option<ICoreWebView2AcceleratorKeyPressedEventArgs>| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+
+            unsafe {
+                let mut key_event_kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
+                args.KeyEventKind(&mut key_event_kind)?;
+
+                let mut virtual_key = 0u32;
+                args.VirtualKey(&mut virtual_key)?;
+
+                if !is_system_menu_accelerator_command(key_event_kind.0, virtual_key) {
+                    return Ok(());
+                }
+
+                let is_ctrl_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
+                let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
+                log::info!(
+                    "[sysmenu-accel] Alt+Space detected, emitting shortcut-capture-system-key (ctrl={} shift={})",
+                    is_ctrl_down,
+                    is_shift_down
+                );
+                let _ = app_handle.emit(
+                    "shortcut-capture-system-key",
+                    serde_json::json!({
+                        "key": "Space",
+                        "alt": true,
+                        "ctrl": is_ctrl_down,
+                        "shift": is_shift_down,
+                    }),
+                );
+            }
+
+            Ok(())
+        },
+    ));
+
+    unsafe {
+        controller
+            .add_AcceleratorKeyPressed(&handler, &mut token)
+            .map_err(|error| format!("Failed to add system menu accelerator handler: {}", error))?;
+    }
+
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -345,59 +415,6 @@ fn register_devtools_accelerator_handler(
 }
 
 #[cfg(target_os = "windows")]
-/// 判断是否命中了 Alt+Space 系统菜单热键。
-fn is_system_menu_accelerator_command(key_event_kind: i32, virtual_key: u32) -> bool {
-    let is_system_key_down = key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0;
-    is_system_key_down && virtual_key == u32::from(VK_SPACE.0)
-}
-
-#[cfg(target_os = "windows")]
-/// 注册 WebView2 accelerator 处理器，拦截 Alt+Space，阻止 WebView2 转发触发系统菜单，
-/// 同时保证 keydown 仍能传到 DOM 供前端捕获。
-fn register_system_menu_accelerator_handler(
-    controller: &ICoreWebView2Controller,
-) -> Result<(), String> {
-    let mut token = 0i64;
-    let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
-        move |_controller: Option<ICoreWebView2Controller>,
-              args: Option<ICoreWebView2AcceleratorKeyPressedEventArgs>| {
-            let Some(args) = args else {
-                return Ok(());
-            };
-
-            unsafe {
-                let mut key_event_kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
-                args.KeyEventKind(&mut key_event_kind)?;
-
-                let mut virtual_key = 0u32;
-                args.VirtualKey(&mut virtual_key)?;
-
-                if !is_system_menu_accelerator_command(key_event_kind.0, virtual_key) {
-                    return Ok(());
-                }
-
-                if let Ok(args2) =
-                    Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
-                {
-                    let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
-                }
-                let _ = args.SetHandled(true);
-            }
-
-            Ok(())
-        },
-    ));
-
-    unsafe {
-        controller
-            .add_AcceleratorKeyPressed(&handler, &mut token)
-            .map_err(|error| format!("Failed to add system menu accelerator handler: {}", error))?;
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
 /**
  * 为桌面窗口应用统一的 webview 运行时默认配置。
  */
@@ -418,7 +435,7 @@ pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
         .with_webview(move |webview| {
             let controller = webview.controller();
             let result = disable_browser_accelerator_keys_with_controller(&controller)
-                .and_then(|_| register_system_menu_accelerator_handler(&controller))
+                .and_then(|_| register_system_menu_accelerator_handler(&window_clone, &controller))
                 .and_then(|_| {
                     register_search_surface_accelerator_bridge(&window_clone, &controller)
                 })

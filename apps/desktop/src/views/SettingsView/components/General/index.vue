@@ -2,8 +2,14 @@
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
+    import {
+        AppEvent,
+        eventService,
+        type ShortcutCaptureSystemKeyEvent,
+    } from '@services/EventService';
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
+    import { type UnlistenFn } from '@tauri-apps/api/event';
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
@@ -174,6 +180,42 @@
         showGlobalShortcutPresetMenu.value = false;
         void confirmCapturedShortcut(shortcut);
     };
+
+    /**
+     * 处理来自 Rust 端的系统级快捷键桥接事件（如 Alt+Space）。
+     *
+     * Windows 上 Alt+Space 会被 WebView2 当作 system accelerator 截获，
+     * 不会派发 DOM keydown，因此 [`webview_defaults.rs`] 在 accelerator 阶段
+     * 直接 emit 此事件，由这里复用与键盘录入相同的保存路径。
+     */
+    const handleSystemKeyCapture = (payload: ShortcutCaptureSystemKeyEvent) => {
+        if (!isCapturing.value) {
+            return;
+        }
+
+        const modifiers: string[] = [];
+        if (payload.ctrl) {
+            modifiers.push('Ctrl');
+        }
+        if (payload.alt) {
+            modifiers.push('Alt');
+        }
+        if (payload.shift) {
+            modifiers.push('Shift');
+        }
+
+        const shortcut = [...modifiers, payload.key].join('+');
+        if (!hasCommandModifier(shortcut)) {
+            return;
+        }
+
+        displayShortcut.value = shortcut;
+        hasCapturedShortcut.value = true;
+        showGlobalShortcutPresetMenu.value = false;
+        void confirmCapturedShortcut(shortcut);
+    };
+
+    let unlistenSystemKey: UnlistenFn | null = null;
 
     const startCapture = () => {
         isCapturing.value = true;
@@ -465,6 +507,15 @@
         await loadSettings();
 
         try {
+            unlistenSystemKey = await eventService.on(
+                AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY,
+                handleSystemKeyCapture
+            );
+        } catch (error) {
+            console.error('Failed to subscribe to system key capture event:', error);
+        }
+
+        try {
             const isEnabled = await native.autostart.isAutostartEnabled();
             if (isEnabled !== settings.value.startOnBoot) {
                 settings.value.startOnBoot = isEnabled;
@@ -477,6 +528,8 @@
 
     onUnmounted(() => {
         window.removeEventListener('keydown', captureShortcut, { capture: true });
+        unlistenSystemKey?.();
+        unlistenSystemKey = null;
     });
 </script>
 
