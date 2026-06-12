@@ -110,8 +110,22 @@ pub fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
     for part in parts {
         match part.to_lowercase().as_str() {
             "ctrl" | "control" => modifiers |= Modifiers::CONTROL,
-            "alt" => modifiers |= Modifiers::ALT,
+            "alt" | "option" => modifiers |= Modifiers::ALT,
             "shift" => modifiers |= Modifiers::SHIFT,
+            // global-hotkey 把 Cmd / Win / Super 都映射到 Modifiers::SUPER；
+            // HotKey::new 还会把 META 自动转为 SUPER，统一在这里直接发 SUPER。
+            "cmd" | "command" | "meta" | "super" | "win" | "windows" => {
+                modifiers |= Modifiers::SUPER
+            }
+            // 跨平台主修饰键别名：Mac 上为 Cmd（SUPER），其余平台为 Ctrl。
+            // 与前端 utils/shortcuts.ts 的 `Mod` 抽象一致。
+            "mod" => {
+                if cfg!(target_os = "macos") {
+                    modifiers |= Modifiers::SUPER;
+                } else {
+                    modifiers |= Modifiers::CONTROL;
+                }
+            }
             key => {
                 key_code = Some(match key.to_lowercase().as_str() {
                     "space" => Code::Space,
@@ -193,5 +207,61 @@ pub fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
             code,
         )),
         None => Err("No key code specified".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_shortcut_accepts_ctrl_alias() {
+        let shortcut = parse_shortcut("Ctrl+Space").expect("ctrl+space parses");
+        assert_eq!(shortcut.mods, Modifiers::CONTROL);
+        assert_eq!(shortcut.key, Code::Space);
+    }
+
+    #[test]
+    fn parse_shortcut_accepts_super_aliases_for_cmd_or_win() {
+        // global-hotkey 把 Cmd（macOS）和 Win/Super（Linux）都映射到 SUPER；
+        // 这里不区分平台，所有别名都应解析到 Modifiers::SUPER。
+        for token in ["Cmd", "Command", "Meta", "Super", "Win", "Windows"] {
+            let input = format!("{}+Space", token);
+            let shortcut = parse_shortcut(&input)
+                .unwrap_or_else(|error| panic!("{} should parse: {}", token, error));
+            assert_eq!(
+                shortcut.mods,
+                Modifiers::SUPER,
+                "{} should map to SUPER",
+                token
+            );
+            assert_eq!(shortcut.key, Code::Space);
+        }
+    }
+
+    #[test]
+    fn parse_shortcut_mod_resolves_to_platform_primary() {
+        let shortcut = parse_shortcut("Mod+Space").expect("mod+space parses");
+        let expected = if cfg!(target_os = "macos") {
+            Modifiers::SUPER
+        } else {
+            Modifiers::CONTROL
+        };
+        assert_eq!(shortcut.mods, expected);
+        assert_eq!(shortcut.key, Code::Space);
+    }
+
+    #[test]
+    fn parse_shortcut_combines_super_with_other_modifiers() {
+        let shortcut = parse_shortcut("Cmd+Shift+T").expect("cmd+shift+t parses");
+        assert_eq!(shortcut.mods, Modifiers::SUPER | Modifiers::SHIFT);
+        assert_eq!(shortcut.key, Code::KeyT);
+    }
+
+    #[test]
+    fn parse_shortcut_is_case_insensitive() {
+        let shortcut = parse_shortcut("cmd+SPACE").expect("lowercase cmd parses");
+        assert_eq!(shortcut.mods, Modifiers::SUPER);
+        assert_eq!(shortcut.key, Code::Space);
     }
 }

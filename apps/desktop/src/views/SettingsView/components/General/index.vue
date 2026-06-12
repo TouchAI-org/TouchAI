@@ -27,7 +27,9 @@
     } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
     import {
+        captureShortcutFromKeyboardEvent,
         hasCommandModifier,
+        isMacPlatform,
         isReservedLocalShortcutKey,
         normalizeLocalShortcutString,
     } from '@/utils/shortcuts';
@@ -95,6 +97,8 @@
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const shortcutRegistrationFailed = ref(false);
     const showGlobalShortcutPresetMenu = ref(false);
+    // Mac 上 Cmd+Space 被 Spotlight 占用，因此预设使用 Option+Space（Alt+Space）和 Ctrl+Space；
+    // Windows/Linux 上 Cmd 由 Win/Super 键代表，前端统一拒绝其作为快捷键，预设保持 Alt/Ctrl 组合。
     const globalShortcutPresetShortcuts = ['Alt+Space', 'Ctrl+Space'] as const;
     const globalShortcutPresetOptions = computed(() =>
         globalShortcutPresetShortcuts.map((shortcut) => ({
@@ -115,17 +119,6 @@
         });
     }
 
-    const keyNameMap: Record<string, string> = {
-        Control: 'Ctrl',
-        ' ': 'Space',
-        ArrowUp: 'Up',
-        ArrowDown: 'Down',
-        ArrowLeft: 'Left',
-        ArrowRight: 'Right',
-        Escape: 'Esc',
-        Delete: 'Del',
-    };
-
     const captureShortcut = (event: KeyboardEvent) => {
         if (!isCapturing.value) {
             return;
@@ -135,36 +128,17 @@
             return;
         }
 
-        if (['Control', 'Alt', 'Shift', 'Meta', 'OS'].includes(event.key)) {
+        const captured = captureShortcutFromKeyboardEvent(event);
+        if (!captured) {
+            // captureShortcutFromKeyboardEvent 在非 Mac 上对 metaKey 返回 null，
+            // 用以拒绝 Win/Super 键组合。Mac 上 metaKey 是 Cmd，不会返回 null。
+            if (!isMacPlatform() && event.metaKey) {
+                alertMessage.value?.warning(t('settings.general.winKeyUnsupported'), 3000);
+            }
             return;
         }
 
-        if (event.metaKey) {
-            alertMessage.value?.warning(t('settings.general.winKeyUnsupported'), 3000);
-            return;
-        }
-
-        const modifiers: string[] = [];
-        if (event.ctrlKey) {
-            modifiers.push('Ctrl');
-        }
-        if (event.altKey) {
-            modifiers.push('Alt');
-        }
-        if (event.shiftKey) {
-            modifiers.push('Shift');
-        }
-
-        let keyName = event.key;
-        const mappedKey = keyNameMap[keyName];
-        if (mappedKey) {
-            keyName = mappedKey;
-        } else if (keyName.length === 1) {
-            keyName = keyName.toUpperCase();
-        }
-
-        const shortcut = [...modifiers, keyName].join('+');
-        if (!hasCommandModifier(shortcut)) {
+        if (!hasCommandModifier(captured.shortcut)) {
             alertMessage.value?.warning(
                 t('settings.general.searchShortcuts.errors.modifierRequired'),
                 3000
@@ -175,10 +149,13 @@
         event.preventDefault();
         event.stopPropagation();
 
-        displayShortcut.value = shortcut;
+        // 全局快捷键存储平台原文（Mac 上为 Cmd+，其他平台为 Ctrl+），
+        // 以便 Rust 侧 parse_shortcut 直接识别。captured.shortcut 使用平台中性的
+        // `Mod` 抽象，captured.displayShortcut 才是当前平台的字面形式。
+        displayShortcut.value = captured.displayShortcut;
         hasCapturedShortcut.value = true;
         showGlobalShortcutPresetMenu.value = false;
-        void confirmCapturedShortcut(shortcut);
+        void confirmCapturedShortcut(captured.displayShortcut);
     };
 
     /**
@@ -223,6 +200,17 @@
         displayShortcut.value = shortcutCapturePrompt.value;
         showGlobalShortcutPresetMenu.value = true;
     };
+
+    function focusShortcutCaptureInput(event: MouseEvent) {
+        event.preventDefault();
+        (event.currentTarget as HTMLInputElement).focus();
+    }
+
+    function clearShortcutCaptureSelection(event: Event) {
+        const input = event.currentTarget as HTMLInputElement;
+        const cursorPosition = input.value.length;
+        input.setSelectionRange(cursorPosition, cursorPosition);
+    }
 
     const confirmCapturedShortcut = async (shortcut: string) => {
         if (!isCapturing.value) {
@@ -599,12 +587,15 @@
                                                     data-testid="settings-global-shortcut-input"
                                                     type="text"
                                                     readonly
-                                                    class="min-w-0 flex-1 bg-transparent text-center text-[12px] outline-none select-none"
+                                                    class="shortcut-capture-input min-w-0 flex-1 bg-transparent text-center text-[12px] outline-none select-none"
                                                     :disabled="isSaving"
                                                     :placeholder="
                                                         t('settings.general.shortcutPlaceholder')
                                                     "
                                                     @pointerdown.stop
+                                                    @mousedown="focusShortcutCaptureInput"
+                                                    @select="clearShortcutCaptureSelection"
+                                                    @dragstart.prevent
                                                     @keydown.capture="captureShortcut"
                                                     @click.stop
                                                     @focus="startCapture"
@@ -795,3 +786,21 @@
         </div>
     </div>
 </template>
+
+<style scoped>
+    .shortcut-capture-input {
+        caret-color: transparent;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+    }
+
+    .shortcut-capture-input::selection {
+        background: transparent;
+    }
+
+    .shortcut-capture-input::-moz-selection {
+        background: transparent;
+    }
+</style>

@@ -77,7 +77,7 @@ const ALIAS_MAP: Record<string, string> = {
     space: 'Space',
 };
 
-function isMacPlatform(): boolean {
+export function isMacPlatform(): boolean {
     if (typeof navigator === 'undefined') {
         return false;
     }
