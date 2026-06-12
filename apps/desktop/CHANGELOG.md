@@ -1,5 +1,18 @@
 # 更新日志
 
+## [1.2.0](https://github.com/TouchAI-org/TouchAI/compare/v1.1.1...v1.2.0) (2026-06-10)
+
+
+### Features
+
+* **browser:** add web search and browser-grounded automation ([#444](https://github.com/TouchAI-org/TouchAI/issues/444)) ([7ee73d1](https://github.com/TouchAI-org/TouchAI/commit/7ee73d13c69170c814e209d6e75cc74ce7059ae1))
+
+
+### Bug Fixes
+
+* **agent-service:** preserve request errors during auth cleanup ([#448](https://github.com/TouchAI-org/TouchAI/issues/448)) ([ee1f698](https://github.com/TouchAI-org/TouchAI/commit/ee1f698ff76fbc7bd09104439087b5fc114d032f))
+* **desktop:** cache browser discovery in settings ([#453](https://github.com/TouchAI-org/TouchAI/issues/453)) ([0106912](https://github.com/TouchAI-org/TouchAI/commit/010691238ed25c4685245153302de7990de7eb36))
+
 ## [1.1.1](https://github.com/TouchAI-org/TouchAI/compare/v1.1.0...v1.1.1) (2026-06-08)
 
 
