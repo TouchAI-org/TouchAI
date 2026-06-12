@@ -588,6 +588,11 @@ jobs:
                     --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md" \
                     --release-dir "$RUNNER_TEMP/touchai-release-assets"
 
+            - name: Stage current GitHub release assets
+              working-directory: apps/desktop
+              run: |
+                  node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "${{ inputs.version }}"
+
             - name: Upload public release assets to GitHub release
               shell: bash
               env:
@@ -595,7 +600,7 @@ jobs:
                   RELEASE_TAG: ${{ inputs.tag }}
               run: |
                   set -euo pipefail
-                  release_dir="$RUNNER_TEMP/touchai-release-assets"
+                  release_dir="$RUNNER_TEMP/touchai-github-release-assets"
                   shopt -s nullglob
                   assets=("$release_dir"/*)
                   if [ ${#assets[@]} -eq 0 ]; then
