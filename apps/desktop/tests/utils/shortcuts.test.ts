@@ -35,13 +35,20 @@ describe('shortcut utilities', () => {
     });
 
     it('normalizes shortcut strings with aliases and stable modifier ordering', () => {
+        expect(normalizeLocalShortcutString('mod+h')).toBe('Mod+H');
         expect(normalizeLocalShortcutString(' shift + cmd + option + k ')).toBe('Mod+Alt+Shift+K');
         expect(normalizeLocalShortcutString('control+delete')).toBe('Mod+Del');
         expect(normalizeLocalShortcutString('return')).toBe('Enter');
+        expect(normalizeLocalShortcutString('tab')).toBe('Tab');
+        expect(normalizeLocalShortcutString('insert')).toBe('Insert');
         expect(normalizeLocalShortcutString('f12')).toBe('F12');
         expect(normalizeLocalShortcutString(null)).toBeNull();
         expect(normalizeLocalShortcutString('Ctrl+Alt')).toBeNull();
         expect(normalizeLocalShortcutString('Ctrl+A+B')).toBeNull();
+        expect(normalizeLocalShortcutString('Ctrl+DefinitelyNotAKey')).toBeNull();
+        expect(normalizeLocalShortcutString('Ctrl+DefinitelyNotAKey+A')).toBeNull();
+        expect(normalizeLocalShortcutString('Ctrl++A')).toBeNull();
+        expect(normalizeLocalShortcutString('F25')).toBeNull();
         expect(normalizeLocalShortcutString('   ')).toBeNull();
 
         setPlatform('MacIntel');
@@ -67,6 +74,9 @@ describe('shortcut utilities', () => {
         expect(resolveKeyboardEventShortcutKey(' ', null)).toBe('Space');
         expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'F2')).toBe('F2');
         expect(resolveKeyboardEventShortcutKey('F2', 'F3')).toBe('F2');
+        expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'F25')).toBeNull();
+        expect(resolveKeyboardEventShortcutKey('x', 'Space')).toBe('X');
+        expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'Space')).toBeNull();
         expect(resolveKeyboardEventShortcutKey('', 'KeyA')).toBeNull();
         expect(resolveKeyboardEventShortcutKey(undefined, undefined)).toBeNull();
     });

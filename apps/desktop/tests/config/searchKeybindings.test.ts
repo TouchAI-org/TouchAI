@@ -110,6 +110,8 @@ describe('search keybinding configuration', () => {
             normalizeSearchKeybindings({
                 'search.history.open': 42,
                 'search.input.focus': false,
+                'search.model.toggle': 'Ctrl+DefinitelyNotAKey',
+                'search.window.pin': 'Ctrl+DefinitelyNotAKey+P',
             })
         ).toEqual(defaults);
     });

@@ -14,6 +14,23 @@ export interface CapturedShortcutResult {
 
 const MODIFIER_DISPLAY_ORDER = ['Mod', 'Ctrl', 'Alt', 'Shift'] as const;
 const SUPPORTED_CAPTURE_MODIFIERS = new Set(['Ctrl', 'Alt', 'Shift', 'Mod']);
+const SUPPORTED_NON_CHARACTER_KEYS = new Set([
+    'Backspace',
+    'Del',
+    'Enter',
+    'Esc',
+    'Home',
+    'End',
+    'PageUp',
+    'PageDown',
+    'Tab',
+    'Up',
+    'Down',
+    'Left',
+    'Right',
+    'Insert',
+    'Space',
+]);
 const RESERVED_LOCAL_SHORTCUT_KEYS = new Set([
     'Backspace',
     'Del',
@@ -47,6 +64,7 @@ const KEY_DISPLAY_MAP: Record<string, string> = {
 };
 
 const ALIAS_MAP: Record<string, string> = {
+    mod: 'Mod',
     cmd: 'Mod',
     command: 'Mod',
     meta: 'Mod',
@@ -63,6 +81,7 @@ const ALIAS_MAP: Record<string, string> = {
     del: 'Del',
     return: 'Enter',
     enter: 'Enter',
+    tab: 'Tab',
     pageup: 'PageUp',
     pagedown: 'PageDown',
     arrowup: 'Up',
@@ -74,6 +93,8 @@ const ALIAS_MAP: Record<string, string> = {
     arrowright: 'Right',
     right: 'Right',
     backspace: 'Backspace',
+    insert: 'Insert',
+    ins: 'Insert',
     space: 'Space',
 };
 
@@ -112,11 +133,17 @@ function normalizeShortcutToken(token: string): string | null {
         return trimmed.toUpperCase();
     }
 
-    if (/^f\d{1,2}$/i.test(trimmed)) {
-        return trimmed.toUpperCase();
+    const functionKeyMatch = /^f(\d{1,2})$/i.exec(trimmed);
+    if (functionKeyMatch) {
+        const functionKeyNumber = Number(functionKeyMatch[1]);
+        return functionKeyNumber >= 1 && functionKeyNumber <= 24 ? trimmed.toUpperCase() : null;
     }
 
-    return trimmed;
+    if (SUPPORTED_NON_CHARACTER_KEYS.has(trimmed)) {
+        return trimmed;
+    }
+
+    return null;
 }
 
 function normalizeEventKey(key: string): string | null {
@@ -133,12 +160,8 @@ function normalizeFunctionKeyCode(code: string | null | undefined): string | nul
         return null;
     }
 
-    const trimmedCode = code.trim();
-    if (!/^F\d{1,2}$/i.test(trimmedCode)) {
-        return null;
-    }
-
-    return trimmedCode.toUpperCase();
+    const normalizedCode = normalizeShortcutToken(code);
+    return normalizedCode && /^F\d{1,2}$/.test(normalizedCode) ? normalizedCode : null;
 }
 
 export function resolveKeyboardEventShortcutKey(
@@ -155,11 +178,12 @@ export function resolveKeyboardEventShortcutKey(
 }
 
 function createShortcutParts(shortcut: string): { modifiers: string[]; key: string | null } {
-    const parts = shortcut
-        .split('+')
-        .map((part) => normalizeShortcutToken(part))
-        .filter((part): part is string => Boolean(part));
+    const normalizedParts = shortcut.split('+').map((part) => normalizeShortcutToken(part));
+    if (normalizedParts.some((part) => !part)) {
+        return { modifiers: [], key: null };
+    }
 
+    const parts = normalizedParts as string[];
     const modifierSet = new Set<string>();
     let key: string | null = null;
     for (const part of parts) {
