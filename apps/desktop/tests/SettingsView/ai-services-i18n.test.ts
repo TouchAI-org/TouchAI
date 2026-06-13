@@ -182,6 +182,7 @@ function createModel(overrides: Partial<Model> = {}): Model {
         context_limit: null,
         output_limit: null,
         is_custom_metadata: 0,
+        is_selected: 1,
         created_at: '2026-05-22T00:00:00.000Z',
         updated_at: '2026-05-22T00:00:00.000Z',
         ...overrides,
@@ -239,7 +240,7 @@ describe('AiServices i18n and layout', () => {
         expect(wrapper.text()).not.toContain('模型列表');
     });
 
-    it('localizes model refresh validation in English', () => {
+    it('localizes model refresh validation in English', async () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelList, {
@@ -253,7 +254,8 @@ describe('AiServices i18n and layout', () => {
             },
         });
 
-        wrapper.get('button').trigger('click');
+        const refreshButton = wrapper.find('button[title="Refresh model list from provider"]');
+        await refreshButton.trigger('click');
 
         expect(alertWarningMock).toHaveBeenCalledWith('Configure the API URL first');
     });

@@ -5,7 +5,7 @@
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
     import type { Model, NewModel, Provider } from '@database/schema';
-    import { computed, ref } from 'vue';
+    import { computed, ref, watch } from 'vue';
 
     import { t, tp } from '@/i18n';
 
@@ -160,6 +160,14 @@
     const regexError = ref<string | null>(null);
     const multiSelectMode = ref(false);
     const selectedModelIds = ref<Set<number>>(new Set());
+
+    watch(
+        () => props.providerId,
+        () => {
+            multiSelectMode.value = false;
+            selectedModelIds.value = new Set();
+        }
+    );
 
     const searchPlaceholder = computed(() => {
         if (props.models.length > 0) {
@@ -320,7 +328,7 @@
 
         const confirmed = await confirm({
             title: t('settings.ai.confirmDeleteTitle'),
-            message: t('settings.ai.confirmBatchDelete', { count: ids.length }),
+            message: tp('settings.ai.confirmBatchDelete', ids.length),
             type: 'danger',
             confirmText: t('common.delete'),
             cancelText: t('common.cancel'),

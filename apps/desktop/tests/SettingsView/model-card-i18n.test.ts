@@ -63,6 +63,7 @@ function createModel(overrides = {}) {
         context_limit: null,
         output_limit: null,
         is_custom_metadata: 0,
+        is_selected: 1,
         created_at: '2026-05-22T00:00:00.000Z',
         updated_at: '2026-05-22T00:00:00.000Z',
         ...overrides,
@@ -107,10 +108,11 @@ describe('ModelCard i18n', () => {
         const buttons = wrapper.findAll('button');
 
         expect(defaultRadio.attributes('title')).toBe('Enable this provider first');
-        expect(buttons[0]?.attributes('title')).toBe('Edit');
-        expect(buttons[1]?.attributes('title')).toBe('Delete');
+        expect(buttons[0]?.attributes('title')).toBe('Remove from selection');
+        expect(buttons[1]?.attributes('title')).toBe('Edit');
+        expect(buttons[2]?.attributes('title')).toBe('Delete');
 
-        await buttons[1]?.trigger('click');
+        await buttons[2]?.trigger('click');
 
         expect(confirmMock).toHaveBeenCalledWith({
             title: 'Confirm deletion',
@@ -132,7 +134,7 @@ describe('ModelCard i18n', () => {
             },
         });
 
-        await wrapper.findAll('button')[1]?.trigger('click');
+        await wrapper.findAll('button')[2]?.trigger('click');
 
         expect(alertErrorMock).toHaveBeenCalledWith(
             'Cannot delete the default model. Set another model as default first.'

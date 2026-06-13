@@ -36,7 +36,7 @@
     import { AppEvent, eventService } from '@services/EventService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
-    import { locale, t } from '@/i18n';
+    import { locale, t, tp } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
     import {
@@ -655,7 +655,7 @@
                 defaultModelId.value = null;
                 defaultModelProviderId.value = null;
             }
-            alert.success(t('settings.ai.batchDeleteSucceeded', { count: ids.length }));
+            alert.success(tp('settings.ai.batchDeleteSucceeded', ids.length));
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
         }
@@ -673,6 +673,10 @@
 
     const handleRemoveFromSelection = async (id: number) => {
         try {
+            if (id === defaultModelId.value) {
+                alert.error(t('settings.ai.cannotDeleteDefaultModel'));
+                return;
+            }
             await updateModelsSelected([id], 0);
             patchCachedModel(id, { is_selected: 0 } as Partial<Model>);
             await broadcastModelsUpdated();
