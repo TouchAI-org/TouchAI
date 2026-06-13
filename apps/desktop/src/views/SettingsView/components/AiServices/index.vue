@@ -14,6 +14,7 @@
         createModels,
         createProvider,
         deleteModel,
+        deleteModels,
         deleteProvider,
         findAllProvidersSorted,
         findDefaultModel,
@@ -22,6 +23,7 @@
         setDefaultModel,
         syncAllModelsMetadata,
         updateModel,
+        updateModelsSelected,
         updateProvider,
     } from '@database/queries';
     import { isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
@@ -77,7 +79,7 @@
         (key, providerId) => {
             if (key === 'edit') {
                 selectedProviderId.value = providerId;
-                showEditDialog.value = true;
+                showEditProviderDialog.value = true;
             } else if (key === 'delete') {
                 handleDeleteProvider(providerId);
             }
@@ -93,7 +95,7 @@
     const loadingModels = ref(false);
     const error = ref<string | null>(null);
     const showAddDialog = ref(false);
-    const showEditDialog = ref(false);
+    const showEditProviderDialog = ref(false);
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
     let unlistenAiModelsUpdated: (() => void) | null = null;
@@ -503,7 +505,7 @@
     };
 
     const handleEditProvider = () => {
-        showEditDialog.value = true;
+        showEditProviderDialog.value = true;
     };
 
     const handleCreateProvider = async (data: NewProvider) => {
@@ -535,7 +537,7 @@
                 providerPatch: normalizedProviderPatch,
             });
             patchProvider(selectedProviderId.value, normalizedProviderPatch);
-            showEditDialog.value = false;
+            showEditProviderDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
@@ -554,7 +556,7 @@
             providers.value = providers.value.filter((item) => item.id !== providerId);
             removeCachedModels(providerId);
             await ensureProviderSelected();
-            showEditDialog.value = false;
+            showEditProviderDialog.value = false;
             alert.success(t('settings.ai.deleteSucceeded'));
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
@@ -634,6 +636,48 @@
             alert.success(t('settings.ai.setSucceeded'));
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.setFailed'));
+        }
+    };
+
+    const handleBatchDeleteModels = async (ids: number[]) => {
+        try {
+            await deleteModels(ids);
+            const nextCache = new Map(modelsCache.value);
+            for (const [providerId, providerModels] of nextCache.entries()) {
+                nextCache.set(
+                    providerId,
+                    providerModels.filter((model) => !ids.includes(model.id))
+                );
+            }
+            modelsCache.value = nextCache;
+            await broadcastModelsUpdated();
+            if (ids.includes(defaultModelId.value ?? -1)) {
+                defaultModelId.value = null;
+                defaultModelProviderId.value = null;
+            }
+            alert.success(t('settings.ai.batchDeleteSucceeded', { count: ids.length }));
+        } catch (err) {
+            alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
+        }
+    };
+
+    const handleAddToSelection = async (id: number) => {
+        try {
+            await updateModelsSelected([id], 1);
+            patchCachedModel(id, { is_selected: 1 } as Partial<Model>);
+            await broadcastModelsUpdated();
+        } catch (err) {
+            alert.error(err instanceof Error ? err.message : t('settings.ai.operationFailed'));
+        }
+    };
+
+    const handleRemoveFromSelection = async (id: number) => {
+        try {
+            await updateModelsSelected([id], 0);
+            patchCachedModel(id, { is_selected: 0 } as Partial<Model>);
+            await broadcastModelsUpdated();
+        } catch (err) {
+            alert.error(err instanceof Error ? err.message : t('settings.ai.operationFailed'));
         }
     };
 
@@ -745,6 +789,7 @@
                     name: fetchedModel.name,
                     model_id: fetchedModel.id,
                     is_default: 0,
+                    is_selected: 0,
                 }));
 
             // 避免展示错误
@@ -920,8 +965,11 @@
                         @create="handleCreateModel"
                         @update="handleUpdateModel"
                         @delete="handleDeleteModel"
+                        @batch-delete="handleBatchDeleteModels"
                         @set-default="handleSetDefaultModel"
                         @refresh="handleRefreshModels"
+                        @add-to-selection="handleAddToSelection"
+                        @remove-from-selection="handleRemoveFromSelection"
                     />
                 </div>
             </div>
@@ -934,10 +982,10 @@
         />
 
         <EditProviderDialog
-            v-if="showEditDialog && selectedProvider"
+            v-if="showEditProviderDialog && selectedProvider"
             :provider="selectedProvider"
             @update="handleUpdateProviderInfo"
-            @cancel="showEditDialog = false"
+            @cancel="showEditProviderDialog = false"
         />
     </div>
 </template>
