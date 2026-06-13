@@ -201,7 +201,7 @@ describe('SettingsGeneralSection', () => {
                     .element as HTMLInputElement
             ).value
         ).toBe('Alt+Space');
-        expect(wrapper.text()).toContain('设置呼出 TouchAI 的全局快捷键。');
+        expect(wrapper.text()).toContain('设置呼出 TouchAI 的全局快捷键');
         expect(wrapper.text()).not.toContain('Ctrl+Space');
         expect(wrapper.find('[data-testid="settings-shortcut-suggestions"]').exists()).toBe(false);
         expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
