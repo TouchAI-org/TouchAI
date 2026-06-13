@@ -384,10 +384,6 @@ interface UseSearchPageLifecycleOptions {
     reconcilePopupSurfaces?: () => Promise<void>;
     remeasureSearchWindowHeight?: () => void | Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
-    handleSearchSurfaceCommand?: (payload: {
-        command: 'toggle-model-dropdown';
-        source: 'webview2-accelerator';
-    }) => void | Promise<void>;
     handleSessionStatusReminderAction?: (
         payload: SessionStatusReminderActionEvent
     ) => void | Promise<void>;
@@ -409,7 +405,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         reconcilePopupSurfaces,
         remeasureSearchWindowHeight,
         onSurfaceHidden,
-        handleSearchSurfaceCommand,
         handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste,
@@ -420,7 +415,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let unlistenAiModelsUpdated: (() => void) | null = null;
     let unlistenSearchSurfaceShown: (() => void) | null = null;
     let unlistenSearchSurfaceHidden: (() => void) | null = null;
-    let unlistenSearchSurfaceCommand: (() => void) | null = null;
     let unlistenSessionTaskStatusChanged: (() => void) | null = null;
     let unlistenSessionStatusReminderAction: (() => void) | null = null;
     let stopReadyWatch: (() => void) | null = null;
@@ -681,15 +675,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             AppEvent.SESSION_STATUS_REMINDER_ACTION,
             sessionStatusReminderCoordinator.handleReminderAction
         );
-
-        unlistenSearchSurfaceCommand = await eventService.on(
-            AppEvent.SEARCH_SURFACE_COMMAND,
-            async (payload) => {
-                await Promise.resolve(handleSearchSurfaceCommand?.(payload)).catch((error) => {
-                    console.error('[SearchView] Failed to handle search surface command:', error);
-                });
-            }
-        );
     }
 
     const handleWindowFocus = () => {
@@ -774,8 +759,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         unlistenSessionTaskStatusChanged = null;
         unlistenSessionStatusReminderAction?.();
         unlistenSessionStatusReminderAction = null;
-        unlistenSearchSurfaceCommand?.();
-        unlistenSearchSurfaceCommand = null;
     });
 
     return {

@@ -828,7 +828,7 @@ const zhCNMessages = {
     'conversation.toolbar.pinWindow': '窗口置顶',
     'conversation.timeline.jumpToMessage': '跳转到消息: {preview}',
     'assistant.loadingTip.newLine': 'Shift+Enter 换行，适合分段表述',
-    'assistant.loadingTip.switchModel': 'Ctrl+M 或点击模型图标切换模型',
+    'assistant.loadingTip.switchModel': '使用配置的快捷键或点击模型图标切换模型',
     'assistant.loadingTip.history': 'Ctrl+H 快速打开历史会话',
     'assistant.loadingTip.alwaysOnTop': 'Ctrl+P 切换窗口置顶',
     'assistant.loadingTip.newSession': 'Ctrl+N 开启新会话',
@@ -1865,7 +1865,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'conversation.toolbar.pinWindow': 'Keep window on top',
     'conversation.timeline.jumpToMessage': 'Jump to message: {preview}',
     'assistant.loadingTip.newLine': 'Shift+Enter inserts a new line for structured prompts',
-    'assistant.loadingTip.switchModel': 'Ctrl+M or the model icon switches models',
+    'assistant.loadingTip.switchModel':
+        'Use the configured shortcut or the model icon to switch models',
     'assistant.loadingTip.history': 'Ctrl+H opens conversation history',
     'assistant.loadingTip.alwaysOnTop': 'Ctrl+P toggles always on top',
     'assistant.loadingTip.newSession': 'Ctrl+N starts a new conversation',

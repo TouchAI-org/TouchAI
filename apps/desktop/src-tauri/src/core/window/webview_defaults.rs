@@ -252,84 +252,6 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
 }
 
 #[cfg(target_os = "windows")]
-/// 判断是否命中了需要从宿主层兜底转发的搜索 surface 快捷键。
-fn is_search_surface_accelerator_command(
-    key_event_kind: i32,
-    virtual_key: u32,
-    is_control_down: bool,
-) -> bool {
-    let is_key_down = key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN.0
-        || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0;
-    is_key_down && is_control_down && virtual_key == u32::from(b'M')
-}
-
-#[cfg(target_os = "windows")]
-/// 在主搜索窗口注册 WebView2 accelerator 兜底，避免 DOM 未接管焦点时首个 Ctrl+M 丢失。
-fn register_search_surface_accelerator_bridge<R: Runtime>(
-    window: &WebviewWindow<R>,
-    controller: &ICoreWebView2Controller,
-) -> Result<(), String> {
-    if window.label() != "main" {
-        return Ok(());
-    }
-
-    let app_handle = window.app_handle().clone();
-    let mut token = 0i64;
-    let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
-        move |_controller: Option<ICoreWebView2Controller>,
-              args: Option<ICoreWebView2AcceleratorKeyPressedEventArgs>| {
-            let Some(args) = args else {
-                return Ok(());
-            };
-
-            unsafe {
-                let mut key_event_kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
-                args.KeyEventKind(&mut key_event_kind)?;
-
-                let mut virtual_key = 0u32;
-                args.VirtualKey(&mut virtual_key)?;
-
-                let mut physical_key_status = Default::default();
-                args.PhysicalKeyStatus(&mut physical_key_status)?;
-
-                let is_control_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
-                if !is_search_surface_accelerator_command(
-                    key_event_kind.0,
-                    virtual_key,
-                    is_control_down,
-                ) {
-                    return Ok(());
-                }
-
-                if let Ok(args2) =
-                    Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
-                {
-                    let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
-                }
-                let _ = args.SetHandled(true);
-                let _ = app_handle.emit(
-                    "search-surface-command",
-                    serde_json::json!({
-                        "command": "toggle-model-dropdown",
-                        "source": "webview2-accelerator"
-                    }),
-                );
-            }
-
-            Ok(())
-        },
-    ));
-
-    unsafe {
-        controller
-            .add_AcceleratorKeyPressed(&handler, &mut token)
-            .map_err(|error| format!("Failed to add WebView2 accelerator handler: {}", error))?;
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
 /// 判断是否命中了需要打开 DevTools 的快捷键。
 fn is_devtools_accelerator_command(
     key_event_kind: i32,
@@ -436,9 +358,6 @@ pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
             let controller = webview.controller();
             let result = disable_browser_accelerator_keys_with_controller(&controller)
                 .and_then(|_| register_system_menu_accelerator_handler(&window_clone, &controller))
-                .and_then(|_| {
-                    register_search_surface_accelerator_bridge(&window_clone, &controller)
-                })
                 .and_then(|_| register_devtools_accelerator_handler(&controller));
             if let Ok(hwnd) = top_level_hwnd(&window_clone) {
                 install_system_menu_interceptor_on_children(hwnd);

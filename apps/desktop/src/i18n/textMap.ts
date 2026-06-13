@@ -511,7 +511,8 @@ export const zhToEnTextMap = {
     未命名图片: 'Image',
     未命名文件: 'File',
     'Shift+Enter 换行，适合分段表述': 'Shift+Enter inserts a new line for structured prompts',
-    'Ctrl+M 或点击模型图标切换模型': 'Ctrl+M or the model icon switches models',
+    使用配置的快捷键或点击模型图标切换模型:
+        'Use the configured shortcut or the model icon to switch models',
     'Ctrl+H 快速打开历史会话': 'Ctrl+H opens conversation history',
     'Ctrl+P 切换窗口置顶': 'Ctrl+P toggles always on top',
     'Ctrl+N 开启新会话': 'Ctrl+N starts a new conversation',

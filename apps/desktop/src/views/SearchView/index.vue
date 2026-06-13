@@ -412,11 +412,6 @@
         reconcilePopupSurfaces: hideAllPopups,
         remeasureSearchWindowHeight: remeasureTargetHeight,
         onSurfaceHidden: clearSurfaceUiAfterHidden,
-        handleSearchSurfaceCommand: async (payload) => {
-            if (payload.command === 'toggle-model-dropdown') {
-                await handleToggleModelDropdownRequest();
-            }
-        },
         handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste: tryShortcutAutoPaste,

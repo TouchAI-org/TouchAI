@@ -148,6 +148,38 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.history.open');
     });
 
+    it('routes Ctrl+M only through the current keybinding configuration', async () => {
+        const defaultRouter = createKeyboardRouter();
+        expect(defaultRouter.router.route({ key: 'm', ctrlKey: true })).toBe(true);
+        await flushAsyncWork();
+        expect(defaultRouter.callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
+            'search.model.toggle'
+        );
+
+        const disabledRouter = createKeyboardRouter({
+            getSearchKeybindings: () => ({
+                ...createDefaultSearchKeybindings(),
+                'search.model.toggle': null,
+            }),
+        });
+        expect(disabledRouter.router.route({ key: 'm', ctrlKey: true })).toBe(false);
+        await flushAsyncWork();
+        expect(disabledRouter.callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+
+        const remappedRouter = createKeyboardRouter({
+            getSearchKeybindings: () => ({
+                ...createDefaultSearchKeybindings(),
+                'search.history.open': 'Mod+M',
+                'search.model.toggle': null,
+            }),
+        });
+        expect(remappedRouter.router.route({ key: 'm', ctrlKey: true })).toBe(true);
+        await flushAsyncWork();
+        expect(remappedRouter.callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
+            'search.history.open'
+        );
+    });
+
     it('routes function-row search shortcuts by keyboard code when the key value is remapped', async () => {
         const { router, callbacks } = createKeyboardRouter({
             getSearchKeybindings: () => ({

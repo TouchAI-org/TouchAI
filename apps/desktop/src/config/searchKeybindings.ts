@@ -132,8 +132,8 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
 
     const candidates = value as Record<string, unknown>;
 
-    // First pass: resolve each action's desired shortcut (validated custom value,
-    // explicit disable, or its default) without considering conflicts yet.
+    // 第一轮：先解析每个动作期望使用的快捷键（合法自定义值、显式禁用或默认值），
+    // 暂不处理快捷键冲突。
     const resolved = new Map<SearchKeybindingActionId, string | null>();
     for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
         const candidate = candidates[definition.id];
@@ -161,9 +161,8 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
         resolved.set(definition.id, defaults[definition.id]);
     }
 
-    // Second pass: resolve conflicts deterministically (first action in
-    // definition order keeps the shortcut). This lets clean swaps survive
-    // instead of both sides colliding with the other's default.
+    // 第二轮：按定义顺序稳定处理冲突，先出现的动作保留快捷键。
+    // 这样干净的快捷键互换不会因为撞到对方默认值而被同时丢弃。
     const result = createDefaultSearchKeybindings();
     const usedShortcuts = new Set<string>();
     for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
