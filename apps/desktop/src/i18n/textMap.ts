@@ -513,9 +513,9 @@ export const zhToEnTextMap = {
     'Shift+Enter 换行，适合分段表述': 'Shift+Enter inserts a new line for structured prompts',
     使用配置的快捷键或点击模型图标切换模型:
         'Use the configured shortcut or the model icon to switch models',
-    'Ctrl+H 快速打开历史会话': 'Ctrl+H opens conversation history',
-    'Ctrl+P 切换窗口置顶': 'Ctrl+P toggles always on top',
-    'Ctrl+N 开启新会话': 'Ctrl+N starts a new conversation',
+    使用配置的快捷键快速打开历史会话: 'Use the configured shortcut to open conversation history',
+    使用配置的快捷键切换窗口置顶: 'Use the configured shortcut to toggle always on top',
+    使用配置的快捷键开启新会话: 'Use the configured shortcut to start a new conversation',
     右上角历史按钮可查看和切换历史会话:
         'Use the history button in the top right to view and switch conversations',
     消息下方按钮可复制内容: 'Buttons below a message can copy content',
