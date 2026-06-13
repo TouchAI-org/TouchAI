@@ -9,6 +9,7 @@ export type DesktopContextInclude =
     | 'clipboard.full_text'
     | 'screenshot.metadata'
     | 'screenshot.image'
+    | 'document.full_text'
     | 'capabilities'
     | 'redactions';
 
@@ -33,9 +34,20 @@ export interface DesktopContextActiveWindow {
         width: number;
         height: number;
     } | null;
+    // 仅在 captureBrowserUrl 开启且识别为浏览器时填充。
+    browserUrl?: string | null;
 }
 
 export interface DesktopContextSelectedText {
+    available: boolean;
+    source: string | null;
+    text: string | null;
+    textLength: number;
+    truncated: boolean;
+    reason?: string | null;
+}
+
+export interface DesktopContextDocument {
     available: boolean;
     source: string | null;
     text: string | null;
@@ -53,6 +65,8 @@ export interface DesktopContextClipboard {
     textLength: number;
     imageCount: number;
     fileCount: number;
+    imagePaths: string[];
+    filePaths: string[];
     reason?: string | null;
 }
 
@@ -65,6 +79,8 @@ export interface DesktopContextScreenshot {
     target: 'active_display' | 'active_window' | 'all_displays' | 'unknown';
     persisted: boolean;
     capturedAt: string | null;
+    // 仅在用户启用截图 OCR 且识别成功时填充。
+    ocrText?: string | null;
     reason?: string | null;
 }
 
@@ -84,6 +100,7 @@ export interface DesktopContextCapsule {
     selectedText: DesktopContextSelectedText;
     clipboard: DesktopContextClipboard;
     screenshot: DesktopContextScreenshot;
+    document: DesktopContextDocument;
     capabilities: DesktopContextCapability[];
     redactions: DesktopContextRedaction[];
 }

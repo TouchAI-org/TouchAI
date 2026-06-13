@@ -356,6 +356,18 @@ const zhCNMessages = {
     'settings.builtInTools.summary.setting': '读取和修改应用设置',
     'settings.builtInTools.summary.webFetch': '抓取网页并提取易读文本',
     'settings.builtInTools.summary.desktopContext': '读取本轮绑定的只读桌面上下文',
+    'settings.builtInTools.desktopContext.captureSelectedText': '捕获选中文本',
+    'settings.builtInTools.desktopContext.captureSelectedTextDescription':
+        '呼出 TouchAI 时在后台读取前台窗口的选中文本。关闭后将完全不读取选中文本。',
+    'settings.builtInTools.desktopContext.autoInjectSelectedText': '默认注入选中文本摘要',
+    'settings.builtInTools.desktopContext.autoInjectSelectedTextDescription':
+        '把脱敏后的选中文本摘要默认放入提示词。关闭后模型需显式调用工具才能读取。',
+    'settings.builtInTools.desktopContext.captureBrowserUrl': '捕获浏览器地址',
+    'settings.builtInTools.desktopContext.captureBrowserUrlDescription':
+        '前台为浏览器时，额外捕获当前页面的网址与标题。',
+    'settings.builtInTools.desktopContext.enableScreenshotOcr': '截图文字识别',
+    'settings.builtInTools.desktopContext.enableScreenshotOcrDescription':
+        '对已批准的截图做 OCR 文字识别，让不支持视觉的模型也能读取屏幕文字。',
     'settings.builtInTools.summary.upgradeModel': '升级当前请求模型',
     'settings.builtInTools.summary.showWidget': '聊天内联可交互可视化',
     'settings.builtInTools.summary.visualizeReadMe': '读取 ShowWidget 规范',
@@ -1121,6 +1133,18 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.builtInTools.summary.setting': 'Read and modify application settings',
     'settings.builtInTools.summary.webFetch': 'Fetch web pages and extract readable text',
     'settings.builtInTools.summary.desktopContext': 'Read the bound read-only desktop context',
+    'settings.builtInTools.desktopContext.captureSelectedText': 'Capture selected text',
+    'settings.builtInTools.desktopContext.captureSelectedTextDescription':
+        'When you invoke TouchAI, read the selected text from the foreground app in the background. Disabling this skips selected-text capture entirely.',
+    'settings.builtInTools.desktopContext.autoInjectSelectedText': 'Auto-inject selected text summary',
+    'settings.builtInTools.desktopContext.autoInjectSelectedTextDescription':
+        'Inject a redacted summary of the selected text into the prompt by default. When off, the model must call the tool to read it.',
+    'settings.builtInTools.desktopContext.captureBrowserUrl': 'Capture browser URL',
+    'settings.builtInTools.desktopContext.captureBrowserUrlDescription':
+        'When the active window is a browser, capture the current page URL and title.',
+    'settings.builtInTools.desktopContext.enableScreenshotOcr': 'Screenshot OCR',
+    'settings.builtInTools.desktopContext.enableScreenshotOcrDescription':
+        'Run OCR on approved screenshots so non-vision models can use on-screen text. The result is redacted before exposure.',
     'settings.builtInTools.summary.upgradeModel': 'Upgrade the current request model',
     'settings.builtInTools.summary.showWidget': 'Inline interactive visualization in chat',
     'settings.builtInTools.summary.visualizeReadMe': 'Read the ShowWidget specification',

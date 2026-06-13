@@ -9,6 +9,12 @@ export {
     parseUpgradeModelToolConfig,
     type UpgradeModelToolConfig,
 } from '@/services/BuiltInToolService/tools/upgradeModel/config';
+export {
+    DEFAULT_DESKTOP_CONTEXT_TOOL_CONFIG,
+    type DesktopContextToolConfig,
+    parseDesktopContextToolConfig,
+    serializeDesktopContextToolConfig,
+} from '@/services/BuiltInToolService/tools/desktopContext/config';
 import { t } from '@/i18n';
 import { formatDateTime } from '@/i18n/format';
 
@@ -78,7 +84,6 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'read',
     'setting',
     'web_fetch',
-    'get_desktop_context',
     'show_widget',
     'visualize_read_me',
 ]);

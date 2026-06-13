@@ -29,6 +29,7 @@ import {
     upsertAttachmentDeliveryManifestRequest,
 } from '@/services/AgentService/infrastructure/attachments';
 import type { BoundDesktopContext } from '@/services/DesktopContextService/types';
+import { native } from '@/services/NativeService';
 import { toDbTimestamp } from '@/utils/date';
 
 import type {
@@ -787,12 +788,27 @@ export class PersistenceProjector {
             return;
         }
 
+        // capsule 截图落在临时目录，会被淘汰/启动清扫回收。
+        // 这里拷出独立持久副本，让历史会话引用稳定路径，不受临时清理影响。
+        let persistedScreenshotPath = context.screenshot.path;
+        try {
+            persistedScreenshotPath = await native.desktopContext.persistScreenshot(
+                turnId,
+                context.id
+            );
+        } catch (error) {
+            console.error(
+                '[PersistenceProjector] Failed to persist desktop context screenshot copy:',
+                error
+            );
+        }
+
         await createSessionTurnContextArtifact(
             {
                 turn_id: turnId,
                 capsule_id: context.id,
                 artifact_kind: 'screenshot',
-                artifact_path: context.screenshot.path,
+                artifact_path: persistedScreenshotPath,
                 mime_type: context.screenshot.mimeType,
                 width: context.screenshot.width,
                 height: context.screenshot.height,

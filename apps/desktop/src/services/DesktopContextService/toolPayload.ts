@@ -25,6 +25,15 @@ interface DesktopContextToolSelectedTextPayload {
     fullText?: string | null;
 }
 
+interface DesktopContextToolDocumentPayload {
+    available: boolean;
+    source: string | null;
+    textLength: number;
+    truncated: boolean;
+    reason: string | null;
+    fullText?: string | null;
+}
+
 interface DesktopContextToolClipboardPayload {
     available: boolean;
     snapshotId: string | null;
@@ -35,6 +44,8 @@ interface DesktopContextToolClipboardPayload {
     fileCount: number;
     reason: string | null;
     fullText?: string | null;
+    imagePaths?: string[];
+    filePaths?: string[];
 }
 
 interface DesktopContextToolScreenshotPayload {
@@ -47,6 +58,7 @@ interface DesktopContextToolScreenshotPayload {
     capturedAt: string | null;
     reason: string | null;
     path?: string | null;
+    ocrText?: string | null;
 }
 
 interface DesktopContextToolAvailablePayload {
@@ -58,6 +70,7 @@ interface DesktopContextToolAvailablePayload {
     summary?: string;
     activeWindow?: DesktopContextActiveWindow | null;
     selectedText?: DesktopContextToolSelectedTextPayload;
+    document?: DesktopContextToolDocumentPayload;
     clipboard?: DesktopContextToolClipboardPayload;
     screenshot?: DesktopContextToolScreenshotPayload;
     capabilities?: DesktopContextCapability[];
@@ -79,6 +92,10 @@ const SELECTED_TEXT_SUMMARY_LIMIT = 500;
 const SELECTED_TEXT_REDACTION: DesktopContextRedaction = {
     field: 'selectedText.textSummary',
     reason: 'Sensitive-looking selected text was redacted before default prompt/tool exposure.',
+};
+const CLIPBOARD_REDACTION: DesktopContextRedaction = {
+    field: 'clipboard.textSummary',
+    reason: 'Sensitive-looking clipboard text was redacted before prompt/tool exposure.',
 };
 
 const SECRET_PATTERNS: RegExp[] = [
@@ -115,9 +132,9 @@ function summarizeSelectedText(text: string | null): string | null {
     return `${chars.slice(0, SELECTED_TEXT_SUMMARY_LIMIT).join('')}...`;
 }
 
-function redactSelectedTextSummary(summary: string | null): string | null {
-    if (!summary) {
-        return summary;
+function redactSecrets(text: string | null): string | null {
+    if (!text) {
+        return text;
     }
 
     return SECRET_PATTERNS.reduce((redacted, pattern) => {
@@ -133,16 +150,24 @@ function redactSelectedTextSummary(summary: string | null): string | null {
 
             return '[REDACTED:secret]';
         });
-    }, summary);
+    }, text);
 }
 
 function selectedTextSummary(context: BoundDesktopContext): string | null {
-    return redactSelectedTextSummary(summarizeSelectedText(context.selectedText.text));
+    return redactSecrets(summarizeSelectedText(context.selectedText.text));
 }
 
 function selectedTextWasRedacted(context: BoundDesktopContext): boolean {
     const summary = summarizeSelectedText(context.selectedText.text);
-    return summary !== null && redactSelectedTextSummary(summary) !== summary;
+    return summary !== null && redactSecrets(summary) !== summary;
+}
+
+function clipboardWasRedacted(context: BoundDesktopContext): boolean {
+    const { textSummary, text } = context.clipboard;
+    if (textSummary !== null && redactSecrets(textSummary) !== textSummary) {
+        return true;
+    }
+    return text !== null && redactSecrets(text) !== text;
 }
 
 function selectedTextPayload(
@@ -166,6 +191,25 @@ function selectedTextPayload(
     };
 }
 
+function documentPayload(
+    context: BoundDesktopContext,
+    include: Set<DesktopContextInclude>
+): DesktopContextToolDocumentPayload | undefined {
+    if (!has(include, 'document.full_text')) {
+        return undefined;
+    }
+
+    const document = context.document;
+    return {
+        available: document.available,
+        source: document.source,
+        textLength: document.textLength,
+        truncated: document.truncated,
+        reason: document.reason ?? null,
+        fullText: redactSecrets(document.text),
+    };
+}
+
 function clipboardPayload(
     context: BoundDesktopContext,
     include: Set<DesktopContextInclude>
@@ -179,12 +223,18 @@ function clipboardPayload(
         available: clipboard.available,
         snapshotId: clipboard.snapshotId,
         observedAt: clipboard.observedAt,
-        textSummary: clipboard.textSummary,
+        textSummary: redactSecrets(clipboard.textSummary),
         textLength: clipboard.textLength,
         imageCount: clipboard.imageCount,
         fileCount: clipboard.fileCount,
         reason: clipboard.reason ?? null,
-        ...(has(include, 'clipboard.full_text') ? { fullText: clipboard.text } : {}),
+        ...(has(include, 'clipboard.full_text')
+            ? {
+                  fullText: redactSecrets(clipboard.text),
+                  imagePaths: clipboard.imagePaths,
+                  filePaths: clipboard.filePaths,
+              }
+            : {}),
     };
 }
 
@@ -206,6 +256,7 @@ function screenshotPayload(
         persisted: screenshot.persisted,
         capturedAt: screenshot.capturedAt,
         reason: screenshot.reason ?? null,
+        ...(screenshot.ocrText ? { ocrText: screenshot.ocrText } : {}),
         ...(has(include, 'screenshot.image') ? { path: screenshot.path } : {}),
     };
 }
@@ -235,12 +286,18 @@ export function buildDesktopContextToolPayload(
 
     const include = normalizeInclude(request.include);
     const selectedText = selectedTextPayload(context, include);
+    const document = documentPayload(context, include);
     const clipboard = clipboardPayload(context, include);
     const screenshot = screenshotPayload(context, include);
+    const clipboardRequested =
+        has(include, 'clipboard.summary') || has(include, 'clipboard.full_text');
     const redactions = has(include, 'redactions')
         ? [
               ...context.redactions,
               ...(selectedTextWasRedacted(context) ? [SELECTED_TEXT_REDACTION] : []),
+              ...(clipboardRequested && clipboardWasRedacted(context)
+                  ? [CLIPBOARD_REDACTION]
+                  : []),
           ]
         : undefined;
 
@@ -253,6 +310,7 @@ export function buildDesktopContextToolPayload(
         ...(has(include, 'summary') ? { summary: context.summary } : {}),
         ...(has(include, 'active_window') ? { activeWindow: context.activeWindow } : {}),
         ...(selectedText ? { selectedText } : {}),
+        ...(document ? { document } : {}),
         ...(clipboard ? { clipboard } : {}),
         ...(screenshot ? { screenshot } : {}),
         ...(has(include, 'capabilities') ? { capabilities: context.capabilities } : {}),
@@ -260,12 +318,20 @@ export function buildDesktopContextToolPayload(
     };
 }
 
+export interface DesktopContextPromptMetadataOptions {
+    /** 是否把脱敏后的选中文本摘要默认注入 prompt。关闭时摘要置空，模型需显式调用工具读取。 */
+    autoInjectSelectedText?: boolean;
+}
+
 export function buildDesktopContextPromptMetadata(
-    context: BoundDesktopContext | null | undefined
+    context: BoundDesktopContext | null | undefined,
+    options: DesktopContextPromptMetadataOptions = {}
 ): DesktopContextPromptMetadata | undefined {
     if (!context) {
         return undefined;
     }
+
+    const autoInjectSelectedText = options.autoInjectSelectedText ?? true;
 
     return {
         capsuleId: context.id,
@@ -273,7 +339,7 @@ export function buildDesktopContextPromptMetadata(
         boundAt: context.boundAt,
         summary: context.summary,
         activeWindowTitle: context.activeWindow?.title ?? null,
-        selectedTextSummary: selectedTextSummary(context),
+        selectedTextSummary: autoInjectSelectedText ? selectedTextSummary(context) : null,
         selectedTextLength: context.selectedText.textLength,
         clipboardTextLength: context.clipboard.textLength,
         screenshotAvailable: context.screenshot.available,

@@ -1,11 +1,14 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+import { findBuiltInToolByToolId } from '@database/queries/builtInTools';
 import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
 import { MetaKey } from '@database/schema';
 import { notify } from '@services/NotificationService';
 
 import type { ImportMode } from '@/database/backup';
 import { t } from '@/i18n';
+import { parseDesktopContextToolConfig } from '@/services/BuiltInToolService/tools/desktopContext/config';
+import { native } from '@/services/NativeService';
 
 interface ImportSuccessStartupPayload {
     type: 'import-success';
@@ -82,6 +85,31 @@ const tasks: StartupTask[] = [
     },
 ];
 
+/**
+ * 启动时把 get_desktop_context 工具的启用状态校准到原生层。
+ * 原生层默认允许捕获，用户若此前禁用过该工具，需要在启动时同步过去，
+ * 否则禁用状态在重启后失效，仍会每次呼出都跑捕获。
+ */
+async function syncDesktopContextCaptureState(): Promise<void> {
+    try {
+        const tool = await findBuiltInToolByToolId('get_desktop_context');
+        if (!tool) {
+            return;
+        }
+
+        await native.desktopContext.setCaptureEnabled(tool.enabled === 1);
+
+        const config = parseDesktopContextToolConfig(tool.config_json);
+        await native.desktopContext.setCaptureConfig({
+            captureSelectedText: config.captureSelectedText,
+            captureBrowserUrl: config.captureBrowserUrl,
+            enableScreenshotOcr: config.enableScreenshotOcr,
+        });
+    } catch (error) {
+        console.error('Failed to sync desktop context capture state on startup:', error);
+    }
+}
+
 export async function runStartupTasks() {
     for (const task of tasks) {
         try {
@@ -94,4 +122,6 @@ export async function runStartupTasks() {
             console.error(`Startup task [${task.key}] failed:`, error);
         }
     }
+
+    await syncDesktopContextCaptureState();
 }

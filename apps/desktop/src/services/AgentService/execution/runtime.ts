@@ -1,11 +1,13 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { updateModelLastUsed } from '@database/queries';
+import { findBuiltInToolByToolId } from '@database/queries/builtInTools';
 import type { SessionTurnEntity } from '@database/types';
 
 import { t } from '@/i18n';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { ensurePersistedAttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import { parseDesktopContextToolConfig } from '@/services/BuiltInToolService/tools/desktopContext/config';
 import {
     type BoundDesktopContext,
     buildDesktopContextPromptMetadata,
@@ -180,6 +182,26 @@ function buildPersistenceIssue(
  *
  * 它不直接执行模型流式 loop，而是把执行工作委托给 AiRequestExecutor。
  */
+/**
+ * 读取 get_desktop_context 工具配置，决定是否把脱敏选中文本摘要默认注入 prompt。
+ *
+ * 工具不存在、被禁用或配置读取失败时回退为 false：不主动注入选中文本，
+ * 模型仍可在需要时通过显式 include 调用工具读取。
+ */
+async function resolveDesktopContextAutoInject(): Promise<boolean> {
+    try {
+        const tool = await findBuiltInToolByToolId('get_desktop_context');
+        if (!tool || tool.enabled !== 1) {
+            return false;
+        }
+
+        return parseDesktopContextToolConfig(tool.config_json).autoInjectSelectedText;
+    } catch (error) {
+        console.error('[AiConversationRuntime] Failed to resolve desktop context config:', error);
+        return false;
+    }
+}
+
 export class AiConversationRuntime {
     private readonly startedAt = Date.now();
     private requestFinalized = false;
@@ -235,6 +257,8 @@ export class AiConversationRuntime {
         const desktopContext = await desktopContextService.bindCapsule(
             this.options.desktopContextCapsuleId
         );
+        // 选中文本是否默认注入 prompt 由工具配置决定，关闭时摘要不进 prompt。
+        const desktopContextAutoInject = await resolveDesktopContextAutoInject();
         // prompt 快照在整个 turn 生命周期内只生成一次。
         // 后续 retry、tool iteration、checkpoint resume 都必须复用它。
         const promptSnapshot =
@@ -244,7 +268,9 @@ export class AiConversationRuntime {
                 attachments,
                 executionMode: this.options.executionMode ?? 'foreground',
                 inputSnapshot: this.options.inputSnapshot,
-                desktopContext: buildDesktopContextPromptMetadata(desktopContext),
+                desktopContext: buildDesktopContextPromptMetadata(desktopContext, {
+                    autoInjectSelectedText: desktopContextAutoInject,
+                }),
             }));
         const modelLanguageContext =
             promptSnapshot.modelLanguageContext ?? getCurrentModelLanguageContext();

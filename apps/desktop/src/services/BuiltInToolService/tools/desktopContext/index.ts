@@ -19,6 +19,11 @@ import {
     type BuiltInToolGroup,
 } from '../../types';
 import {
+    DEFAULT_DESKTOP_CONTEXT_TOOL_CONFIG,
+    type DesktopContextToolConfig,
+    parseDesktopContextToolConfig,
+} from './config';
+import {
     DESKTOP_CONTEXT_INCLUDE_VALUES,
     DESKTOP_CONTEXT_TOOL_DESCRIPTION,
     DESKTOP_CONTEXT_TOOL_INPUT_SCHEMA,
@@ -28,6 +33,7 @@ import {
 const includeValues = new Set<string>(DESKTOP_CONTEXT_INCLUDE_VALUES);
 const sensitiveIncludeValues = new Set<DesktopContextInclude>([
     'selected_text.full_text',
+    'document.full_text',
     'clipboard.summary',
     'clipboard.full_text',
     'screenshot.metadata',
@@ -73,6 +79,8 @@ function describeSensitiveIncludes(request: DesktopContextToolRequest): string {
     for (const item of request.include ?? []) {
         if (item.startsWith('selected_text.')) {
             labels.add(tt('选中文本原文'));
+        } else if (item.startsWith('document.')) {
+            labels.add(tt('活动文档全文'));
         } else if (item.startsWith('clipboard.')) {
             labels.add(tt('剪贴板'));
         } else if (item.startsWith('screenshot.')) {
@@ -115,6 +123,8 @@ async function captureSensitiveContext(
         : { context, captured: false };
 }
 
+const CLIPBOARD_IMAGE_ATTACHMENT_LIMIT = 4;
+
 async function buildScreenshotAttachments(
     request: DesktopContextToolRequest,
     context: BoundDesktopContext | null | undefined
@@ -136,12 +146,45 @@ async function buildScreenshotAttachments(
     }
 }
 
-class DesktopContextTool extends BuiltInTool<Record<string, never>> {
+/**
+ * 剪贴板图片只在用户批准 clipboard.full_text 后随结果带上，
+ * 与剪贴板原文走同一审批门槛，避免未授权就把图片内容发给模型。
+ */
+async function buildClipboardImageAttachments(
+    request: DesktopContextToolRequest,
+    context: BoundDesktopContext | null | undefined
+): Promise<BuiltInToolExecutionResult['attachments']> {
+    if (!request.include?.includes('clipboard.full_text')) {
+        return undefined;
+    }
+
+    const imagePaths = context?.clipboard.imagePaths;
+    if (!imagePaths?.length) {
+        return undefined;
+    }
+
+    const attachments: NonNullable<BuiltInToolExecutionResult['attachments']> = [];
+    for (const path of imagePaths.slice(0, CLIPBOARD_IMAGE_ATTACHMENT_LIMIT)) {
+        try {
+            attachments.push(await createAttachment('image', path));
+        } catch (error) {
+            console.warn('[DesktopContextTool] Failed to attach clipboard image:', error);
+        }
+    }
+
+    return attachments.length > 0 ? attachments : undefined;
+}
+
+class DesktopContextTool extends BuiltInTool<DesktopContextToolConfig> {
     readonly id = 'get_desktop_context' as const;
     readonly displayName = DESKTOP_CONTEXT_TOOL_NAME;
     readonly description = DESKTOP_CONTEXT_TOOL_DESCRIPTION;
     readonly inputSchema = DESKTOP_CONTEXT_TOOL_INPUT_SCHEMA;
-    readonly defaultConfig = {};
+    readonly defaultConfig = DEFAULT_DESKTOP_CONTEXT_TOOL_CONFIG;
+
+    override parseConfig(configJson: string | null): DesktopContextToolConfig {
+        return parseDesktopContextToolConfig(configJson);
+    }
 
     override buildConversationSemantic(): BuiltInToolConversationSemantic {
         return {
@@ -152,7 +195,7 @@ class DesktopContextTool extends BuiltInTool<Record<string, never>> {
 
     override buildApprovalRequest(
         args: Record<string, unknown>,
-        _config: Record<string, never>,
+        _config: DesktopContextToolConfig,
         _namespacedName: string,
         context: BaseBuiltInToolExecutionContext
     ) {
@@ -182,7 +225,7 @@ class DesktopContextTool extends BuiltInTool<Record<string, never>> {
 
     override async execute(
         args: Record<string, unknown>,
-        _config: Record<string, never>,
+        _config: DesktopContextToolConfig,
         context: BaseBuiltInToolExecutionContext
     ): Promise<BuiltInToolExecutionResult> {
         const request = parseDesktopContextRequest(args);
@@ -191,7 +234,16 @@ class DesktopContextTool extends BuiltInTool<Record<string, never>> {
             context.desktopContext
         );
         const payload = buildDesktopContextToolPayload(desktopContext, request);
-        const attachments = await buildScreenshotAttachments(request, desktopContext);
+        const screenshotAttachments = await buildScreenshotAttachments(request, desktopContext);
+        const clipboardImageAttachments = await buildClipboardImageAttachments(
+            request,
+            desktopContext
+        );
+        const mergedAttachments = [
+            ...(screenshotAttachments ?? []),
+            ...(clipboardImageAttachments ?? []),
+        ];
+        const attachments = mergedAttachments.length > 0 ? mergedAttachments : undefined;
         const desktopContextArtifact =
             captured && hasScreenshotInclude(request) && desktopContext?.screenshot.available
                 ? desktopContext

@@ -356,15 +356,15 @@ pub fn show_surface<R: Runtime>(
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
+    // 必须在显示搜索窗口之前同步捕获活动窗口，否则前台会变成 TouchAI 自身。
+    // 昂贵的选中文本捕获放到窗口显示后的后台线程补齐，避免阻塞窗口显示。
     let context_capsule_id = if let Some(desktop_context_runtime) =
         app_handle.try_state::<crate::core::system::desktop_context::DesktopContextRuntime>()
     {
-        match desktop_context_runtime
-            .capture_invocation(app_handle, source.as_desktop_context_source())
-        {
-            Ok(capsule) => Some(capsule.id),
+        match desktop_context_runtime.begin_invocation(source.as_desktop_context_source()) {
+            Ok(capsule_id) => capsule_id,
             Err(error) => {
-                log::warn!("Failed to capture desktop context capsule: {}", error);
+                log::warn!("Failed to begin desktop context capture: {}", error);
                 None
             }
         }
@@ -373,6 +373,21 @@ pub fn show_surface<R: Runtime>(
     };
 
     super::show_and_activate_search_window(&window)?;
+
+    // 窗口已显示，后台补齐选中文本（UIA/原生扫描），不阻塞呼出。
+    if let Some(capsule_id) = context_capsule_id.clone() {
+        let enrich_handle = app_handle.clone();
+        std::thread::spawn(move || {
+            if let Some(desktop_context_runtime) = enrich_handle
+                .try_state::<crate::core::system::desktop_context::DesktopContextRuntime>()
+            {
+                if let Err(error) = desktop_context_runtime.enrich_capsule(&capsule_id) {
+                    log::warn!("Failed to enrich desktop context capsule: {}", error);
+                }
+            }
+        });
+    }
+
     app_handle
         .emit(
             "search-surface-shown",

@@ -8,6 +8,7 @@
     import { computed, onMounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
+    import { native } from '@/services/NativeService';
 
     import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';
     import SectionTabs, { type SectionTabItem } from '../SectionTabs.vue';
@@ -19,6 +20,7 @@
         type BuiltInToolUpdateData,
         isBuiltInToolVisibleInSettings,
         loadBuiltInToolQueries,
+        parseDesktopContextToolConfig,
         usesBuiltInToolEmptyConfig,
     } from './types';
     defineOptions({
@@ -112,6 +114,33 @@
         }
     }
 
+    /**
+     * 桌面上下文工具的启用状态与子捕获开关需要同步到原生层：
+     * 禁用后原生 begin_invocation 直接跳过捕获，避免无谓的 UIA 扫描与隐私读取；
+     * 子开关（选中文本/浏览器 URL/截图 OCR）则控制 enrich 阶段跑哪些子捕获。
+     */
+    async function syncDesktopContextCaptureState(tool: BuiltInToolEntity) {
+        if (tool.tool_id !== 'get_desktop_context') {
+            return;
+        }
+
+        try {
+            await native.desktopContext.setCaptureEnabled(tool.enabled === 1);
+
+            const config = parseDesktopContextToolConfig(tool.config_json);
+            await native.desktopContext.setCaptureConfig({
+                captureSelectedText: config.captureSelectedText,
+                captureBrowserUrl: config.captureBrowserUrl,
+                enableScreenshotOcr: config.enableScreenshotOcr,
+            });
+        } catch (error) {
+            console.error(
+                '[BuiltInToolsView] Failed to sync desktop context capture state:',
+                error
+            );
+        }
+    }
+
     async function handleToggleEnabled(toolId: number, enabled: boolean) {
         if (togglingToolIds.value.has(toolId)) {
             return;
@@ -127,6 +156,7 @@
                 throw new Error(`Built-in tool not found after update: ${toolId}`);
             }
             applyToolUpdate(updatedTool);
+            await syncDesktopContextCaptureState(updatedTool);
         } catch (error) {
             console.error('[BuiltInToolsView] Failed to toggle tool enabled:', error);
             alertMessage.value?.error(t('settings.builtInTools.updateEnabledFailed'), 6000);
@@ -157,6 +187,7 @@
                 throw new Error(`Built-in tool not found after update: ${currentToolId}`);
             }
             applyToolUpdate(nextTool);
+            await syncDesktopContextCaptureState(nextTool);
         } catch (error) {
             console.error('[BuiltInToolsView] Failed to update tool:', error);
             alertMessage.value?.error(t('settings.builtInTools.saveConfigFailed'), 6000);

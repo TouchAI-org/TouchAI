@@ -33,4 +33,33 @@ export const desktopContext = {
             screenshotTarget,
         });
     },
+
+    persistScreenshot(turnId: number, capsuleId: string): Promise<string> {
+        return invoke<string>('desktop_context_persist_screenshot', {
+            turnId,
+            capsuleId,
+        });
+    },
+
+    clearPersistedScreenshots(): Promise<void> {
+        return invoke<void>('desktop_context_clear_persisted_screenshots');
+    },
+
+    setCaptureEnabled(enabled: boolean): Promise<void> {
+        return invoke<void>('desktop_context_set_capture_enabled', {
+            enabled,
+        });
+    },
+
+    setCaptureConfig(config: {
+        captureSelectedText: boolean;
+        captureBrowserUrl: boolean;
+        enableScreenshotOcr: boolean;
+    }): Promise<void> {
+        return invoke<void>('desktop_context_set_capture_config', {
+            captureSelectedText: config.captureSelectedText,
+            captureBrowserUrl: config.captureBrowserUrl,
+            enableScreenshotOcr: config.enableScreenshotOcr,
+        });
+    },
 } as const;

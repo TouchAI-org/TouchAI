@@ -171,6 +171,9 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     app.manage(clipboard_runtime);
     info!("Clipboard runtime initialized.");
 
+    crate::core::system::desktop_context::cleanup_temp_screenshots();
+    info!("Desktop context temp screenshots cleaned up.");
+
     let app_handle = app.handle().clone();
     if crate::core::system::runtime::is_e2e_test_mode() {
         info!("Skipping font initialization in E2E test mode.");

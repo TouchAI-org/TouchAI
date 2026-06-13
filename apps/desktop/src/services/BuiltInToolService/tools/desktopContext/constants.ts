@@ -20,6 +20,7 @@ export const DESKTOP_CONTEXT_INCLUDE_VALUES = [
     'clipboard.full_text',
     'screenshot.metadata',
     'screenshot.image',
+    'document.full_text',
     'capabilities',
     'redactions',
 ] as const;
@@ -45,7 +46,7 @@ export const DESKTOP_CONTEXT_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema']
                 enum: [...DESKTOP_CONTEXT_INCLUDE_VALUES],
             },
             description:
-                'Fields to include. Defaults to safe fields only: summary, active_window, redacted selected_text.summary, capabilities, and redactions. Sensitive values selected_text.full_text, clipboard.*, and screenshot.* require user approval and are read or captured only after approval.',
+                'Fields to include. Defaults to safe fields only: summary, active_window, redacted selected_text.summary, capabilities, and redactions. Sensitive values selected_text.full_text, clipboard.*, screenshot.*, and document.full_text require user approval and are read or captured only after approval.',
         },
         screenshotTarget: {
             type: 'string',

@@ -34,3 +34,34 @@ pub fn desktop_context_capture_sensitive<R: Runtime>(
 ) -> Result<Option<DesktopContextCapsule>, String> {
     runtime.capture_sensitive(&app, &capsule_id, &include, screenshot_target.as_deref())
 }
+
+#[tauri::command]
+pub fn desktop_context_persist_screenshot(
+    turn_id: i64,
+    capsule_id: String,
+) -> Result<String, String> {
+    crate::core::system::desktop_context::persist_screenshot_artifact_copy(turn_id, &capsule_id)
+}
+
+#[tauri::command]
+pub fn desktop_context_clear_persisted_screenshots() -> Result<(), String> {
+    crate::core::system::desktop_context::clear_persisted_screenshots()
+}
+
+#[tauri::command]
+pub fn desktop_context_set_capture_enabled(
+    runtime: State<'_, DesktopContextRuntime>,
+    enabled: bool,
+) {
+    runtime.set_capture_enabled(enabled);
+}
+
+#[tauri::command]
+pub fn desktop_context_set_capture_config(
+    runtime: State<'_, DesktopContextRuntime>,
+    capture_selected_text: bool,
+    capture_browser_url: bool,
+    enable_screenshot_ocr: bool,
+) {
+    runtime.set_capture_config(capture_selected_text, capture_browser_url, enable_screenshot_ocr);
+}

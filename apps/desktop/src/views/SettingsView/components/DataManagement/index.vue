@@ -23,7 +23,20 @@
     import { t, tt } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
+    import { native } from '@/services/NativeService';
     import { serializeImportSuccessStartupPayload } from '@/services/StartupService';
+
+    /**
+     * 清除会话历史时，桌面上下文截图的持久副本不再被任何 turn artifact 引用，
+     * 一并清理，避免磁盘上残留孤儿截图。
+     */
+    async function clearPersistedDesktopContextScreenshots(): Promise<void> {
+        try {
+            await native.desktopContext.clearPersistedScreenshots();
+        } catch (error) {
+            console.error('Failed to clear persisted desktop context screenshots:', error);
+        }
+    }
 
     defineOptions({
         name: 'SettingsDataManagementSection',
@@ -129,6 +142,7 @@
             try {
                 isLoading.value = true;
                 await deleteAllSessions();
+                await clearPersistedDesktopContextScreenshots();
                 alert.success(t('settings.dataManagement.clearSessionsSuccess'));
                 await loadStats();
             } catch (error) {
@@ -151,6 +165,7 @@
             try {
                 isLoading.value = true;
                 await deleteAllMessages();
+                await clearPersistedDesktopContextScreenshots();
                 alert.success(t('settings.dataManagement.clearMessagesSuccess'));
                 await loadStats();
             } catch (error) {
