@@ -645,6 +645,9 @@ describe('buildUpdateChannels', () => {
             'manifest.json',
             'notes.md',
             'random.txt',
+            'TouchAI-beta-0.2.1-beta.1-windows-full.nupkg',
+            'TouchAI-beta-0.2.1-beta.1-windows-delta.nupkg',
+            'TouchAI-0.2.0-windows-full.nupkg',
         ];
 
         await mkdir(releaseDir, { recursive: true });
