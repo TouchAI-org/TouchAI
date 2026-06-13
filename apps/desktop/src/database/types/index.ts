@@ -225,6 +225,7 @@ export interface ModelEntity {
     context_limit: number | null;
     output_limit: number | null;
     is_custom_metadata: number;
+    is_selected: number;
     created_at: string;
     updated_at: string;
 }
@@ -246,6 +247,7 @@ export interface ModelCreateData {
     context_limit?: number | null;
     output_limit?: number | null;
     is_custom_metadata?: number;
+    is_selected?: number;
     created_at?: string;
     updated_at?: string;
 }
@@ -280,6 +282,7 @@ export interface ModelWithProvider {
     context_limit: number | null;
     output_limit: number | null;
     is_custom_metadata: number;
+    is_selected: number;
     provider_name: string;
     provider_driver: DbProviderDriver;
     api_endpoint: string;

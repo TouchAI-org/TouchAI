@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import { tt } from '@/i18n';
 
@@ -37,6 +37,7 @@ export const modelWithProviderSelection = {
     context_limit: models.context_limit,
     output_limit: models.output_limit,
     is_custom_metadata: models.is_custom_metadata,
+    is_selected: models.is_selected,
     provider_name: sql<string>`${providers.name}`.as('provider_name'),
     provider_driver: sql<ModelWithProvider['provider_driver']>`${providers.driver}`.as(
         'provider_driver'
@@ -185,6 +186,35 @@ export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise
 export const deleteModel = async ({ id }: { id: number }): Promise<boolean> => {
     await db.delete(models).where(eq(models.id, id)).run();
     return true;
+};
+
+/**
+ * 批量删除模型。
+ */
+export const deleteModels = async (
+    ids: number[],
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    if (ids.length === 0) return;
+
+    await database.delete(models).where(inArray(models.id, ids)).run();
+};
+
+/**
+ * 批量更新模型选择状态。
+ */
+export const updateModelsSelected = async (
+    ids: number[],
+    isSelected: number,
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    if (ids.length === 0) return;
+
+    await database
+        .update(models)
+        .set({ is_selected: isSelected, updated_at: sql`(datetime('now'))` })
+        .where(inArray(models.id, ids))
+        .run();
 };
 
 /**
