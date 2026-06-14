@@ -10,7 +10,7 @@ import { resolveSearchWindowDefaultSize } from '@/config/searchWindow';
 import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import type { GeneralSettingsData } from '@/stores/settings';
-import { normalizeLocalShortcutString } from '@/utils/shortcuts';
+import { isReservedGlobalShortcut, normalizeLocalShortcutString } from '@/utils/shortcuts';
 import { truncateText } from '@/utils/text';
 
 import {
@@ -80,6 +80,7 @@ async function applySettingSideEffect(
     value: SupportedSettingValue
 ): Promise<void> {
     if (key === 'global_shortcut') {
+        ensureGlobalShortcutIsNotSystemReserved(value as GeneralSettingsData['globalShortcut']);
         ensureGlobalShortcutDoesNotConflictWithSearchShortcuts(
             settingsStore,
             value as GeneralSettingsData['globalShortcut']
@@ -115,6 +116,16 @@ async function applySettingSideEffect(
             resolveSearchWindowDefaultSize(value as GeneralSettingsData['searchWindowSizePreset'])
         );
     }
+}
+
+function ensureGlobalShortcutIsNotSystemReserved(
+    shortcut: GeneralSettingsData['globalShortcut']
+): void {
+    if (!isReservedGlobalShortcut(shortcut)) {
+        return;
+    }
+
+    throw new Error(t('settings.general.globalShortcutReservedOnMac'));
 }
 
 function findGlobalShortcutSearchConflict(

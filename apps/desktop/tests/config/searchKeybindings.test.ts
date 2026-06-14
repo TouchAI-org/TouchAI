@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
     createDefaultSearchKeybindings,
@@ -10,7 +10,20 @@ import {
     type SearchKeybindingActionId,
 } from '@/config/searchKeybindings';
 
+const originalPlatform = navigator.platform;
+
+function setPlatform(platform: string) {
+    Object.defineProperty(window.navigator, 'platform', {
+        configurable: true,
+        value: platform,
+    });
+}
+
 describe('search keybinding configuration', () => {
+    afterEach(() => {
+        setPlatform(originalPlatform);
+    });
+
     it('keeps action ids and definitions in sync', () => {
         expect(SEARCH_KEYBINDING_DEFINITIONS.map((definition) => definition.id)).toEqual(
             SEARCH_KEYBINDING_ACTION_IDS
@@ -80,6 +93,21 @@ describe('search keybinding configuration', () => {
         ).toEqual({
             ...createDefaultSearchKeybindings(),
             'search.input.focus': 'Mod+L',
+            'search.window.maximize': 'F12',
+        });
+    });
+
+    it('rejects persisted macOS system-reserved shortcuts', () => {
+        setPlatform('MacIntel');
+
+        expect(
+            normalizeSearchKeybindings({
+                'search.history.open': 'Cmd+Space',
+                'search.input.focus': 'Ctrl+Space',
+                'search.window.maximize': 'F12',
+            })
+        ).toEqual({
+            ...createDefaultSearchKeybindings(),
             'search.window.maximize': 'F12',
         });
     });

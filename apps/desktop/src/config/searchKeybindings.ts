@@ -2,6 +2,7 @@ import type { MessageKey } from '@/i18n';
 import {
     hasCommandModifier,
     isModifierlessFunctionShortcut,
+    isReservedGlobalShortcut,
     isReservedLocalShortcut,
     normalizeLocalShortcutString,
 } from '@/utils/shortcuts';
@@ -161,7 +162,11 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
                     isModifierlessFunctionShortcut(shortcut);
                 const passesModifierPolicy =
                     hasCommandModifier(shortcut) || allowsModifierlessFunction;
-                if (passesModifierPolicy && !isReservedLocalShortcut(shortcut)) {
+                if (
+                    passesModifierPolicy &&
+                    !isReservedLocalShortcut(shortcut) &&
+                    !isReservedGlobalShortcut(shortcut)
+                ) {
                     resolved.set(definition.id, { shortcut, isPersisted: true });
                     continue;
                 }

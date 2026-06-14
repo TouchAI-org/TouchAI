@@ -133,6 +133,8 @@ const zhCNMessages = {
         '快捷键需要包含 Ctrl、Alt 或 Cmd，或使用允许的功能键',
     'settings.general.searchShortcuts.errors.reserved':
         '该快捷键保留给输入/导航行为，请选择其他组合',
+    'settings.general.searchShortcuts.errors.systemReserved':
+        '该快捷键容易与 macOS 系统功能或输入法冲突，请换一个组合',
     'settings.general.searchShortcuts.errors.unsupported':
         '暂不支持该按键作为搜索页快捷键，请换一个组合',
     'settings.general.searchShortcuts.errors.duplicate': '该快捷键已被“{action}”使用，请换一个组合',
@@ -1106,6 +1108,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'A shortcut must include Ctrl, Alt, or Cmd, or use an allowed function key',
     'settings.general.searchShortcuts.errors.reserved':
         'This shortcut is reserved for typing or navigation. Choose another combination.',
+    'settings.general.searchShortcuts.errors.systemReserved':
+        'This shortcut can conflict with macOS system features or input methods. Choose another combination.',
     'settings.general.searchShortcuts.errors.unsupported':
         'This key is not supported for search shortcuts yet. Choose another combination.',
     'settings.general.searchShortcuts.errors.duplicate':

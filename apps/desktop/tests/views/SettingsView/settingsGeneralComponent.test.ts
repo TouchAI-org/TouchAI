@@ -391,6 +391,37 @@ describe('SettingsGeneralSection', () => {
         expect((input.element as HTMLInputElement).value).toBe('Option+Space');
     });
 
+    it('rejects macOS system-reserved search shortcuts', async () => {
+        setPlatform('MacIntel');
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
+        );
+        await input.trigger('focus');
+        await flushPromises();
+        alertMessageMock.error.mockClear();
+
+        window.dispatchEvent(
+            new KeyboardEvent('keydown', { key: ' ', code: 'Space', metaKey: true })
+        );
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
+        expect(alertMessageMock.error).toHaveBeenCalledWith(expect.stringContaining('macOS'), 3000);
+        expect((input.element as HTMLInputElement).value).toBe('Cmd+H');
+
+        window.dispatchEvent(
+            new KeyboardEvent('keydown', { key: ' ', code: 'Space', ctrlKey: true })
+        );
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
+        expect((input.element as HTMLInputElement).value).toBe('Cmd+H');
+    });
+
     it('saves the global shortcut immediately after a shortcut is pressed', async () => {
         settingsStoreMock.settings.value.searchKeybindings['search.session.new'] = 'Mod+Shift+N';
         const wrapper = mount(GeneralSection);

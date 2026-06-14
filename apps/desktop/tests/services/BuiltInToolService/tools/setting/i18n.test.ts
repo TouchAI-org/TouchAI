@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { setLocale } from '@/i18n';
@@ -15,6 +15,15 @@ import {
     listSupportedSettings,
     parseSettingRequest,
 } from '@/services/BuiltInToolService/tools/setting/helper';
+
+const originalPlatform = navigator.platform;
+
+function setPlatform(platform: string) {
+    Object.defineProperty(window.navigator, 'platform', {
+        configurable: true,
+        value: platform,
+    });
+}
 
 const {
     mockSettingsStore,
@@ -91,12 +100,17 @@ function createExecutionContext(): Parameters<typeof executeSettingTool>[2] {
 describe('Setting built-in tool i18n', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setPlatform('Win32');
         mockRegisterGlobalShortcut.mockResolvedValue(undefined);
         mockUpdateGlobalShortcut.mockResolvedValue(undefined);
         mockUpdateLanguage.mockResolvedValue(undefined);
         mockSettingsStore.settings.globalShortcut = 'Alt+Space';
         mockSettingsStore.settings.searchKeybindings = createDefaultSearchKeybindings();
         mockSettingsStore.settings.language = 'zh-CN';
+    });
+
+    afterEach(() => {
+        setPlatform(originalPlatform);
     });
 
     it('formats list and get outputs in English when active locale is English', async () => {
@@ -221,6 +235,29 @@ describe('Setting built-in tool i18n', () => {
         });
         expect(result.errorMessage).toContain('Open session history');
         expect(mockRegisterGlobalShortcut).not.toHaveBeenCalledWith('Ctrl+K');
+    });
+
+    it('rejects macOS system-reserved global shortcuts before registration', async () => {
+        setLocale('en-US');
+        setPlatform('MacIntel');
+
+        const result = await executeSettingTool(
+            {
+                action: 'set',
+                key: 'global_shortcut',
+                value: 'Cmd+Space',
+                reason: 'User asked for it.',
+            },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+        });
+        expect(result.errorMessage).toContain('macOS');
+        expect(mockRegisterGlobalShortcut).not.toHaveBeenCalledWith('Cmd+Space');
     });
 
     it('formats failed rollback in English', async () => {

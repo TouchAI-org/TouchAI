@@ -24,6 +24,7 @@
         hasCommandModifier,
         isMacPlatform,
         isModifierlessFunctionShortcut,
+        isReservedGlobalShortcut,
         isReservedLocalShortcut,
         isReservedLocalShortcutKey,
         normalizeLocalShortcutString,
@@ -343,6 +344,18 @@
                 reportSearchShortcutError(
                     actionId,
                     'settings.general.searchShortcuts.errors.modifierRequired'
+                );
+                updateSearchShortcutDisplay(
+                    actionId,
+                    formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
+                );
+                return false;
+            }
+
+            if (isReservedGlobalShortcut(normalizedShortcut)) {
+                reportSearchShortcutError(
+                    actionId,
+                    'settings.general.searchShortcuts.errors.systemReserved'
                 );
                 updateSearchShortcutDisplay(
                     actionId,
