@@ -533,6 +533,22 @@ mod tests {
     }
 
     #[test]
+    fn search_surface_command_matches_alt_space_windows_system_accelerator() {
+        let _guard = SEARCH_SURFACE_SHORTCUT_TEST_LOCK.lock().expect("test lock");
+        set_search_surface_shortcuts(vec![SearchSurfaceShortcutEntry {
+            action_id: "search.model.toggle".to_string(),
+            shortcut: "Alt+Space".to_string(),
+        }])
+        .expect("shortcuts sync");
+
+        let command =
+            find_search_surface_command_for_windows_accelerator(0x20, false, true, false, false)
+                .expect("alt+space shortcut matches");
+        assert_eq!(command.action_id, "search.model.toggle");
+        assert_eq!(command.shortcut, "Alt+Space");
+    }
+
+    #[test]
     fn search_surface_shortcut_sync_drops_invalid_entries_without_retaining_old_commands() {
         let _guard = SEARCH_SURFACE_SHORTCUT_TEST_LOCK.lock().expect("test lock");
         set_search_surface_shortcuts(vec![SearchSurfaceShortcutEntry {

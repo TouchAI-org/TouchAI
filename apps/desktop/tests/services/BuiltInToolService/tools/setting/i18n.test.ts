@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { setLocale } from '@/i18n';
 import {
     buildSettingApprovalRequest,
@@ -30,6 +31,7 @@ const {
         mockSettingsStore: {
             settings: {
                 globalShortcut: 'Alt+Space',
+                searchKeybindings: {},
                 startOnBoot: false,
                 startMinimized: true,
                 outputScrollBehavior: 'follow_output',
@@ -68,6 +70,7 @@ vi.mock('@services/NativeService', () => ({
 const settingsStore = {
     settings: {
         globalShortcut: 'Alt+Space',
+        searchKeybindings: {},
         startOnBoot: false,
         startMinimized: true,
         outputScrollBehavior: 'follow_output',
@@ -92,6 +95,7 @@ describe('Setting built-in tool i18n', () => {
         mockUpdateGlobalShortcut.mockResolvedValue(undefined);
         mockUpdateLanguage.mockResolvedValue(undefined);
         mockSettingsStore.settings.globalShortcut = 'Alt+Space';
+        mockSettingsStore.settings.searchKeybindings = createDefaultSearchKeybindings();
         mockSettingsStore.settings.language = 'zh-CN';
     });
 
@@ -191,6 +195,32 @@ describe('Setting built-in tool i18n', () => {
         expect(result.result).toContain(
             'Tried to restore the setting value from before execution.'
         );
+    });
+
+    it('rejects global shortcuts that duplicate search shortcuts before registration', async () => {
+        setLocale('en-US');
+        mockSettingsStore.settings.searchKeybindings = {
+            ...createDefaultSearchKeybindings(),
+            'search.history.open': 'Mod+K',
+        };
+
+        const result = await executeSettingTool(
+            {
+                action: 'set',
+                key: 'global_shortcut',
+                value: 'Ctrl+K',
+                reason: 'User asked for it.',
+            },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+        });
+        expect(result.errorMessage).toContain('Open session history');
+        expect(mockRegisterGlobalShortcut).not.toHaveBeenCalledWith('Ctrl+K');
     });
 
     it('formats failed rollback in English', async () => {

@@ -2,10 +2,15 @@
 
 import { native } from '@services/NativeService';
 
+import {
+    getSearchKeybindingDefinition,
+    type SearchKeybindingActionId,
+} from '@/config/searchKeybindings';
 import { resolveSearchWindowDefaultSize } from '@/config/searchWindow';
-import { tt } from '@/i18n';
+import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import type { GeneralSettingsData } from '@/stores/settings';
+import { normalizeLocalShortcutString } from '@/utils/shortcuts';
 import { truncateText } from '@/utils/text';
 
 import {
@@ -70,10 +75,15 @@ function buildSettingConversationSemantic(
 }
 
 async function applySettingSideEffect(
+    settingsStore: SettingsStore,
     key: SupportedSettingKey,
     value: SupportedSettingValue
 ): Promise<void> {
     if (key === 'global_shortcut') {
+        ensureGlobalShortcutDoesNotConflictWithSearchShortcuts(
+            settingsStore,
+            value as GeneralSettingsData['globalShortcut']
+        );
         try {
             await native.shortcut.registerGlobalShortcut(
                 value as GeneralSettingsData['globalShortcut']
@@ -105,6 +115,43 @@ async function applySettingSideEffect(
             resolveSearchWindowDefaultSize(value as GeneralSettingsData['searchWindowSizePreset'])
         );
     }
+}
+
+function findGlobalShortcutSearchConflict(
+    settingsStore: SettingsStore,
+    shortcut: GeneralSettingsData['globalShortcut']
+): SearchKeybindingActionId | null {
+    const normalizedShortcut = normalizeLocalShortcutString(shortcut);
+    if (!normalizedShortcut) {
+        return null;
+    }
+
+    const searchKeybindings = settingsStore.settings.searchKeybindings ?? {};
+    for (const [actionId, searchShortcut] of Object.entries(searchKeybindings) as Array<
+        [SearchKeybindingActionId, string | null]
+    >) {
+        if (normalizeLocalShortcutString(searchShortcut) === normalizedShortcut) {
+            return actionId;
+        }
+    }
+
+    return null;
+}
+
+function ensureGlobalShortcutDoesNotConflictWithSearchShortcuts(
+    settingsStore: SettingsStore,
+    shortcut: GeneralSettingsData['globalShortcut']
+): void {
+    const conflictActionId = findGlobalShortcutSearchConflict(settingsStore, shortcut);
+    if (!conflictActionId) {
+        return;
+    }
+
+    throw new Error(
+        t('settings.general.searchShortcuts.errors.duplicate', {
+            action: t(getSearchKeybindingDefinition(conflictActionId).labelKey),
+        })
+    );
 }
 
 async function persistSettingValue(
@@ -149,7 +196,7 @@ async function applySettingUpdate(
     key: SupportedSettingKey,
     value: SupportedSettingValue
 ): Promise<void> {
-    await applySettingSideEffect(key, value);
+    await applySettingSideEffect(settingsStore, key, value);
     await persistSettingValue(settingsStore, key, value);
 }
 

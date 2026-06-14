@@ -1,8 +1,14 @@
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
+    import {
+        AppEvent,
+        eventService,
+        type ShortcutCaptureSystemKeyEvent,
+    } from '@services/EventService';
+    import type { UnlistenFn } from '@tauri-apps/api/event';
     import { storeToRefs } from 'pinia';
-    import { computed, onUnmounted, ref, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import {
         getSearchKeybindingDefinition,
@@ -53,6 +59,7 @@
     const hasCapturedSearchShortcut = ref(false);
     const searchShortcutErrorActionId = ref<SearchKeybindingActionId | null>(null);
     const shortcutCapturePrompt = computed(() => t('settings.general.shortcutCapturePrompt'));
+    let unlistenSystemKey: UnlistenFn | null = null;
 
     function formatSearchShortcutForSettings(shortcut: string | null | undefined): string {
         const normalizedShortcut = normalizeLocalShortcutString(shortcut);
@@ -264,6 +271,43 @@
         searchShortcutErrorActionId.value = null;
         updateSearchShortcutDisplay(actionId, captured.displayShortcut);
         void confirmCapturedSearchShortcut(actionId, captured.shortcut);
+    };
+
+    const handleSystemKeyCapture = (payload: ShortcutCaptureSystemKeyEvent) => {
+        const actionId = activeSearchShortcutActionId.value;
+        if (!actionId) {
+            return;
+        }
+
+        const modifiers: string[] = [];
+        if (payload.ctrl) {
+            modifiers.push(isMacPlatform() ? 'Ctrl' : 'Mod');
+        }
+        if (payload.alt) {
+            modifiers.push('Alt');
+        }
+        if (payload.shift) {
+            modifiers.push('Shift');
+        }
+
+        const shortcut = normalizeLocalShortcutString([...modifiers, payload.key].join('+'));
+        if (!shortcut) {
+            reportSearchShortcutError(
+                actionId,
+                'settings.general.searchShortcuts.errors.unsupported'
+            );
+            updateSearchShortcutDisplay(
+                actionId,
+                formatSearchShortcutForSettings(settings.value.searchKeybindings[actionId])
+            );
+            return;
+        }
+
+        searchShortcutCapturedValue.value = shortcut;
+        hasCapturedSearchShortcut.value = true;
+        searchShortcutErrorActionId.value = null;
+        updateSearchShortcutDisplay(actionId, formatShortcutForDisplay(shortcut));
+        void confirmCapturedSearchShortcut(actionId, shortcut);
     };
 
     async function saveSearchShortcut(
@@ -553,8 +597,21 @@
         { deep: true, immediate: true }
     );
 
+    onMounted(async () => {
+        try {
+            unlistenSystemKey = await eventService.on(
+                AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY,
+                handleSystemKeyCapture
+            );
+        } catch (error) {
+            console.error('Failed to subscribe to search shortcut system key event:', error);
+        }
+    });
+
     onUnmounted(() => {
         window.removeEventListener('keydown', captureSearchShortcut);
+        unlistenSystemKey?.();
+        unlistenSystemKey = null;
     });
 </script>
 

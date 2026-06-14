@@ -264,6 +264,30 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
 
                 let is_ctrl_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
                 let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
+                let is_super_down = (GetKeyState(i32::from(VK_LWIN.0)) as u16 & 0x8000) != 0
+                    || (GetKeyState(i32::from(VK_RWIN.0)) as u16 & 0x8000) != 0;
+
+                if let Some(search_surface_window) = &search_surface_window {
+                    if let Some(command) =
+                        crate::core::system::shortcut::find_search_surface_command_for_windows_accelerator(
+                            virtual_key,
+                            is_ctrl_down,
+                            true,
+                            is_shift_down,
+                            is_super_down,
+                        )
+                    {
+                        if let Ok(args2) =
+                            Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
+                        {
+                            let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
+                        }
+                        let _ = args.SetHandled(true);
+                        let _ = search_surface_window.emit("search-surface-command", command);
+                        return Ok(());
+                    }
+                }
+
                 log::info!(
                     "[sysmenu-accel] Alt+Space detected, emitting shortcut-capture-system-key (ctrl={} shift={})",
                     is_ctrl_down,

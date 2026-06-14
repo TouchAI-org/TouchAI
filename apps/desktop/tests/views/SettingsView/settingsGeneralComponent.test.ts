@@ -4,6 +4,7 @@ import { vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { setLocale } from '@/i18n';
+import { AppEvent, eventService } from '@/services/EventService';
 import GeneralSection from '@/views/SettingsView/components/General/index.vue';
 
 const originalPlatform = navigator.platform;
@@ -489,6 +490,33 @@ describe('SettingsGeneralSection', () => {
         expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
             ...settingsStoreMock.settings.value.searchKeybindings,
             'search.history.open': 'F1',
+        });
+    });
+
+    it('captures Windows system key events while editing a search shortcut', async () => {
+        settingsStoreMock.settings.value.globalShortcut = 'Ctrl+Space';
+        settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
+        );
+        await input.trigger('focus');
+        await flushPromises();
+
+        await eventService.emit(AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY, {
+            key: 'Space',
+            alt: true,
+            ctrl: false,
+            shift: false,
+        });
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
+            ...settingsStoreMock.settings.value.searchKeybindings,
+            'search.history.open': 'Alt+Space',
         });
     });
 
