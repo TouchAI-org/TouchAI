@@ -47,7 +47,7 @@ const STATUS_REMINDER_MAX_SUMMARY_LINES = 4;
 const REMINDER_MARKDOWN_ESCAPE_PATTERN = /\\([\\`*_{}[\]()#+.!>-])/g;
 const REMINDER_PATH_LIKE_TOKEN_PATTERN = /\S*[\\/]\S*/g;
 const REMINDER_PATH_WRAPPER_TRIM_PATTERN = /^[("'[{]+|[)"'\],.;:!?}]+$/g;
-const REMINDER_PATH_SEGMENT_PATTERN = '(?:[A-Za-z0-9._-]+|\\*{1,2})';
+const REMINDER_PATH_SEGMENT_PATTERN = '(?:[A-Za-z0-9._@-]+|\\*{1,2})';
 const REMINDER_POSIX_RELATIVE_PATH_PATTERN = new RegExp(
     `^(?:${REMINDER_PATH_SEGMENT_PATTERN}/)+${REMINDER_PATH_SEGMENT_PATTERN}$`
 );

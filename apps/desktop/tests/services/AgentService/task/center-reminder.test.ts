@@ -215,6 +215,39 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
+    it('preserves markdown markers inside scoped package paths in approval content', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'waiting_approval',
+                pendingToolApproval: {
+                    callId: 'call-2a',
+                    messageId: 'assistant-2a',
+                    title: 'Need approval',
+                    description: 'Inspect packages/@touchai/core/__tests__/center.test.ts',
+                    command: 'rg "center" packages/@touchai/core/__tests__/center.test.ts',
+                    riskLabel: 'Medium risk',
+                    reason: 'Check packages/@touchai/core/__tests__/center.test.ts before editing',
+                    approveLabel: 'Approve',
+                    rejectLabel: 'Reject',
+                    enterHint: 'Enter to approve',
+                    escHint: 'Esc to reject',
+                    keyboardApproveAt: 1,
+                },
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'waiting_approval',
+            title: 'Pending',
+            body: 'Check packages/@touchai/core/__tests__/center.test.ts before editing. Command: rg "center" packages/@touchai/core/__tests__/center.test.ts',
+            approval: {
+                callId: 'call-2a',
+                approveLabel: 'Approve',
+                rejectLabel: 'Reject',
+            },
+        });
+    });
+
     it('preserves windows paths and escaped markdown markers in approval content', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
