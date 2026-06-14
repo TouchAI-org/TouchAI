@@ -1315,6 +1315,7 @@
             isSessionListLoading,
             currentSessionId,
             sessionStatuses,
+            () => searchKeybindings.value['search.history.open'],
         ],
         ([isOpen]) => {
             if (!isOpen) {

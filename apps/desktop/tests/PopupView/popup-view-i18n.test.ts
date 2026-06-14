@@ -174,6 +174,14 @@ describe('PopupView i18n bootstrap', () => {
 
         eventHandlers.get('search-surface-command')?.({
             actionId: 'search.history.open',
+            shortcut: 'Mod+H',
+            source: 'webview2-accelerator',
+        });
+        await flushPromises();
+        expect(hidePopupWindowMock).not.toHaveBeenCalled();
+
+        eventHandlers.get('search-surface-command')?.({
+            actionId: 'search.history.open',
             shortcut: 'Alt+Space',
             source: 'webview2-accelerator',
         });

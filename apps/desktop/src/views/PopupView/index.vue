@@ -10,6 +10,7 @@
     import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 
     import { useSettingsStore } from '@/stores/settings';
+    import { normalizeLocalShortcutString } from '@/utils/shortcuts';
 
     import { getPopupTypeFromLocation } from './location';
 
@@ -116,13 +117,36 @@
         componentRef.value?.handleKeyDown?.(e);
     }
 
+    function getCurrentPopupToggleShortcut(): string | null {
+        const currentPopupData = popupData.value;
+        if (!currentPopupData || typeof currentPopupData !== 'object') {
+            return null;
+        }
+
+        const shortcut = (currentPopupData as { toggleShortcut?: unknown }).toggleShortcut;
+        return typeof shortcut === 'string' ? shortcut : null;
+    }
+
+    function matchesCurrentPopupToggleCommand(
+        currentPopupType: PopupType,
+        payload: SearchSurfaceCommandEvent
+    ) {
+        if (popupToggleActionByType[currentPopupType] !== payload.actionId) {
+            return false;
+        }
+
+        const currentShortcut = normalizeLocalShortcutString(getCurrentPopupToggleShortcut());
+        const commandShortcut = normalizeLocalShortcutString(payload.shortcut);
+        return Boolean(currentShortcut && commandShortcut && currentShortcut === commandShortcut);
+    }
+
     function handleSearchSurfaceCommand(payload: SearchSurfaceCommandEvent) {
         const currentPopupType = popupType.value;
         if (!currentPopupType) {
             return;
         }
 
-        if (popupToggleActionByType[currentPopupType] !== payload.actionId) {
+        if (!matchesCurrentPopupToggleCommand(currentPopupType, payload)) {
             return;
         }
 

@@ -1068,7 +1068,11 @@ export function useSearchModelDropdownCoordinator(
     }
 
     watch(
-        () => [modelDropdownState.value.isOpen, modelDropdownQuery.value],
+        () => [
+            modelDropdownState.value.isOpen,
+            modelDropdownQuery.value,
+            getModelToggleShortcut?.() ?? null,
+        ],
         ([isOpen]) => {
             if (!isOpen) {
                 return;
