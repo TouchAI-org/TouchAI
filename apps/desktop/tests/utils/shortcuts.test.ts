@@ -41,6 +41,8 @@ describe('shortcut utilities', () => {
         expect(normalizeLocalShortcutString('return')).toBe('Enter');
         expect(normalizeLocalShortcutString('tab')).toBe('Tab');
         expect(normalizeLocalShortcutString('insert')).toBe('Insert');
+        expect(normalizeLocalShortcutString('F01')).toBe('F1');
+        expect(normalizeLocalShortcutString('Ctrl+F09')).toBe('Mod+F9');
         expect(normalizeLocalShortcutString('f12')).toBe('F12');
         expect(normalizeLocalShortcutString(null)).toBeNull();
         expect(normalizeLocalShortcutString('Ctrl+Alt')).toBeNull();

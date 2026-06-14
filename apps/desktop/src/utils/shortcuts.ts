@@ -152,7 +152,7 @@ function normalizeShortcutToken(token: string): string | null {
     const functionKeyMatch = /^f(\d{1,2})$/i.exec(trimmed);
     if (functionKeyMatch) {
         const functionKeyNumber = Number(functionKeyMatch[1]);
-        return functionKeyNumber >= 1 && functionKeyNumber <= 12 ? trimmed.toUpperCase() : null;
+        return functionKeyNumber >= 1 && functionKeyNumber <= 12 ? `F${functionKeyNumber}` : null;
     }
 
     if (SUPPORTED_NON_CHARACTER_KEYS.has(trimmed)) {

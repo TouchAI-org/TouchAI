@@ -55,7 +55,7 @@ describe('search keybinding configuration', () => {
                 'search.session.new': '   ',
                 'search.session.reopenLastClosed': 'Mod+Up',
                 'search.model.toggle': 'Ctrl+Backspace',
-                'search.window.maximize': 'f2',
+                'search.window.maximize': 'f02',
                 'search.settings.open': 'ctrl + ,',
                 unknown: 'Alt+U',
             })
