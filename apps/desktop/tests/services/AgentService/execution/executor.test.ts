@@ -37,6 +37,7 @@ function createCheckpoint(): AttemptCheckpoint {
             context_limit: null,
             output_limit: null,
             is_custom_metadata: 0,
+            is_selected: 1,
             provider_name: 'Xiaomi MiMo',
             provider_driver: 'mimo',
             api_endpoint: 'https://hub.touch-ai.org/api/v1',

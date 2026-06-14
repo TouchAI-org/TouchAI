@@ -33,6 +33,7 @@ function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvi
         context_limit: null,
         output_limit: null,
         is_custom_metadata: 0,
+        is_selected: 1,
         created_at: '',
         updated_at: '',
         provider_name: 'Xiaomi MiMo',

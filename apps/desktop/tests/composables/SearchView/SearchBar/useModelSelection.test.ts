@@ -29,6 +29,7 @@ function createModel(id: number, overrides: Partial<ModelWithProvider> = {}): Mo
         context_limit: null,
         output_limit: null,
         is_custom_metadata: 0,
+        is_selected: 1,
         provider_name: 'Provider',
         provider_driver: 'openai',
         api_endpoint: 'https://api.example.com',
