@@ -206,6 +206,7 @@ describe('SettingsGeneralSection', () => {
 
     afterEach(() => {
         setPlatform(originalPlatform);
+        document.body.innerHTML = '';
     });
 
     it('renders the general settings groups and row controls', async () => {
@@ -483,6 +484,35 @@ describe('SettingsGeneralSection', () => {
         expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
             true
         );
+
+        wrapper.unmount();
+    });
+
+    it('reports invalid global shortcut attempts only once through the capture stack', async () => {
+        const wrapper = mount(GeneralSection, {
+            attachTo: document.body,
+        });
+
+        await flushPromises();
+
+        const input = wrapper.get('[data-testid="settings-global-shortcut-input"]');
+        await input.trigger('focus');
+        await flushPromises();
+        alertMessageMock.warning.mockClear();
+
+        const event = new KeyboardEvent('keydown', {
+            key: 'a',
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        input.element.dispatchEvent(event);
+        await flushPromises();
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(alertMessageMock.warning).toHaveBeenCalledTimes(1);
+        expect(nativeMock.shortcut.registerGlobalShortcut).not.toHaveBeenCalled();
+        expect(settingsStoreMock.updateGlobalShortcut).not.toHaveBeenCalled();
 
         wrapper.unmount();
     });

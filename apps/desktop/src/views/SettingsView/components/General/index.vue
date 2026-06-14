@@ -136,6 +136,11 @@
         return null;
     }
 
+    function consumeShortcutCaptureEvent(event: KeyboardEvent) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
     const captureShortcut = (event: KeyboardEvent) => {
         if (!isCapturing.value) {
             return;
@@ -150,12 +155,14 @@
             // captureShortcutFromKeyboardEvent 在非 Mac 上对 metaKey 返回 null，
             // 用以拒绝 Win/Super 键组合。Mac 上 metaKey 是 Cmd，不会返回 null。
             if (!isMacPlatform() && event.metaKey) {
+                consumeShortcutCaptureEvent(event);
                 alertMessage.value?.warning(t('settings.general.winKeyUnsupported'), 3000);
             }
             return;
         }
 
         if (!hasCommandModifier(captured.shortcut)) {
+            consumeShortcutCaptureEvent(event);
             alertMessage.value?.warning(
                 t('settings.general.searchShortcuts.errors.modifierRequired'),
                 3000
@@ -163,8 +170,7 @@
             return;
         }
 
-        event.preventDefault();
-        event.stopPropagation();
+        consumeShortcutCaptureEvent(event);
 
         // 全局快捷键存储平台原文（Mac 上为 Cmd+，其他平台为 Ctrl+），
         // 以便 Rust 侧 parse_shortcut 直接识别。captured.shortcut 使用平台中性的
