@@ -96,8 +96,8 @@ export const useSettingsStore = defineStore('settings', () => {
                     : []
             );
             if (failedPersistenceKeys.length > 0) {
-                throw new Error(
-                    `Failed to persist general setting rewrite/default value(s): ${failedPersistenceKeys.join(
+                console.warn(
+                    `[SettingsStore] Failed to persist general setting rewrite/default value(s): ${failedPersistenceKeys.join(
                         ', '
                     )}`
                 );

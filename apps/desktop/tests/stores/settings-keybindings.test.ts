@@ -77,6 +77,35 @@ describe('settings search keybindings state', () => {
         });
     });
 
+    it('keeps initialization usable when default keybinding persistence fails', async () => {
+        mockSettings({});
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        setSettingMock.mockImplementation(
+            async ({ key, value }: { key: string; value: string }) => {
+                if (key === 'search_keybindings') {
+                    throw new Error('database locked');
+                }
+
+                return {
+                    id: 1,
+                    key,
+                    value,
+                    created_at: '2026-06-03 00:00:00',
+                    updated_at: '2026-06-03 00:00:00',
+                };
+            }
+        );
+
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+
+        await expect(store.initialize()).resolves.toBeUndefined();
+
+        expect(store.initialized).toBe(true);
+        expect(store.settings.searchKeybindings).toEqual(createDefaultSearchKeybindings());
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('search_keybindings'));
+    });
+
     it('loads persisted search keybindings and merges missing defaults', async () => {
         mockSettings({
             search_keybindings: JSON.stringify({
