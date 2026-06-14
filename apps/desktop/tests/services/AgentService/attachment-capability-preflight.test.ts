@@ -72,6 +72,7 @@ function createMessageRow(overrides: Partial<MessageRow>): MessageRow {
         server_id: null,
         tool_log_id: null,
         tool_log_kind: null,
+        builtin_conversation_semantic_json: null,
         created_at: BASE_TIME,
         updated_at: BASE_TIME,
         ...overrides,

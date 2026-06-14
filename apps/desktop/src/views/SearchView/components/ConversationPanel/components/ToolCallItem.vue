@@ -11,7 +11,10 @@
     <div v-else :class="rootClass" @mousedown="handleMouseDown">
         <template v-if="isBuiltinTool">
             <div class="tool-call-log-line">
-                <span class="tool-call-log-verb">{{ builtinVerbText }}</span>
+                <span v-if="isBrowserBuiltinTool" class="tool-call-log-icon">
+                    <AppIcon name="globe" class="h-3.5 w-3.5" />
+                </span>
+                <span v-else class="tool-call-log-verb">{{ builtinVerbText }}</span>
                 <span
                     v-if="builtinSummaryText"
                     class="tool-call-log-content"
@@ -155,6 +158,7 @@
 
         return BUILTIN_CARD_COMPONENTS[builtinToolToken.value] ?? null;
     });
+    const isBrowserBuiltinTool = computed(() => builtinToolToken.value.startsWith('browser'));
     const rootClass = computed(() => {
         if (isBuiltinTool.value) {
             return BUILTIN_ROOT_CLASS;
@@ -479,6 +483,14 @@
     .tool-call-log-verb {
         color: inherit;
         font-size: 0.9em;
+    }
+
+    .tool-call-log-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: inherit;
+        vertical-align: -0.15em;
     }
 
     .tool-call-log-content,

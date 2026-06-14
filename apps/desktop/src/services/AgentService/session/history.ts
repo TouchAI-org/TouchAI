@@ -16,6 +16,7 @@ import {
     SHOW_WIDGET_TOOL_NAME,
     type ShowWidgetPayload,
 } from '@/services/BuiltInToolService/tools/widgetTool';
+import type { BuiltInToolConversationSemantic } from '@/services/BuiltInToolService/types';
 import {
     createInputHistorySnapshot,
     type SessionMessage,
@@ -92,6 +93,26 @@ function parseToolArguments(raw: string | null): Record<string, unknown> {
     }
 }
 
+function parseBuiltInConversationSemantic(
+    raw: string | null
+): BuiltInToolConversationSemantic | undefined {
+    if (!raw) {
+        return undefined;
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as Partial<BuiltInToolConversationSemantic>;
+        return typeof parsed.action === 'string'
+            ? {
+                  action: parsed.action as BuiltInToolConversationSemantic['action'],
+                  ...(typeof parsed.target === 'string' ? { target: parsed.target } : {}),
+              }
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 function syncBuiltInToolCallPresentation(toolCall: ToolCallInfo): void {
     if (toolCall.source !== 'builtin') {
         delete toolCall.builtinConversationSemantic;
@@ -99,14 +120,11 @@ function syncBuiltInToolCallPresentation(toolCall: ToolCallInfo): void {
         return;
     }
 
-    if (!toolCall.builtinConversationSemantic && toolCall.result) {
+    if (!toolCall.builtinConversationSemantic) {
         toolCall.builtinConversationSemantic =
             resolveBuiltInToolConversationSemantic(
                 toolCall.namespacedName || toolCall.name,
-                toolCall.arguments ?? {},
-                {
-                    result: toolCall.result,
-                }
+                toolCall.arguments ?? {}
             ) ?? undefined;
     }
     toolCall.builtinPresentation =
@@ -116,7 +134,6 @@ function syncBuiltInToolCallPresentation(toolCall: ToolCallInfo): void {
             toolCall.status,
             {
                 semantic: toolCall.builtinConversationSemantic,
-                result: toolCall.result,
             }
         ) ?? undefined;
 }
@@ -259,6 +276,10 @@ async function buildPersistedEntries(
                 serverId: row.server_id,
                 sourceLabel: source === 'builtin' ? '内置工具' : serverName || 'MCP 工具',
                 arguments: parseToolArguments(row.tool_input),
+                builtinConversationSemantic:
+                    source === 'builtin'
+                        ? parseBuiltInConversationSemantic(row.builtin_conversation_semantic_json)
+                        : undefined,
                 status: 'executing',
             };
             syncBuiltInToolCallPresentation(toolCall);

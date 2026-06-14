@@ -34,9 +34,17 @@
     );
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
+    function clearAutoSaveTimer() {
+        if (autoSaveTimer) {
+            clearTimeout(autoSaveTimer);
+            autoSaveTimer = null;
+        }
+    }
+
     watch(
         () => props.tool,
         (tool) => {
+            clearAutoSaveTimer();
             bashConfig.value = parseBashToolConfig(tool.config_json);
             upgradeModelConfig.value = parseUpgradeModelToolConfig(tool.config_json);
         },
@@ -47,24 +55,16 @@
         () => JSON.stringify(bashConfig.value),
         (nextConfigJson) => {
             if (props.tool.tool_id !== 'bash') {
-                if (autoSaveTimer) {
-                    clearTimeout(autoSaveTimer);
-                    autoSaveTimer = null;
-                }
+                clearAutoSaveTimer();
                 return;
             }
 
             if (nextConfigJson === JSON.stringify(parseBashToolConfig(props.tool.config_json))) {
-                if (autoSaveTimer) {
-                    clearTimeout(autoSaveTimer);
-                    autoSaveTimer = null;
-                }
+                clearAutoSaveTimer();
                 return;
             }
 
-            if (autoSaveTimer) {
-                clearTimeout(autoSaveTimer);
-            }
+            clearAutoSaveTimer();
 
             autoSaveTimer = setTimeout(() => {
                 emit('save', {
@@ -79,6 +79,7 @@
         () => JSON.stringify(upgradeModelConfig.value),
         () => {
             if (props.tool.tool_id !== 'upgrade_model') {
+                clearAutoSaveTimer();
                 return;
             }
 
@@ -88,16 +89,11 @@
             const nextConfigJson = serializeUpgradeModelToolConfig(upgradeModelConfig.value);
 
             if (nextConfigJson === currentConfigJson) {
-                if (autoSaveTimer) {
-                    clearTimeout(autoSaveTimer);
-                    autoSaveTimer = null;
-                }
+                clearAutoSaveTimer();
                 return;
             }
 
-            if (autoSaveTimer) {
-                clearTimeout(autoSaveTimer);
-            }
+            clearAutoSaveTimer();
 
             autoSaveTimer = setTimeout(() => {
                 emit('save', {
@@ -109,10 +105,7 @@
     );
 
     onUnmounted(() => {
-        if (autoSaveTimer) {
-            clearTimeout(autoSaveTimer);
-            autoSaveTimer = null;
-        }
+        clearAutoSaveTimer();
     });
 </script>
 

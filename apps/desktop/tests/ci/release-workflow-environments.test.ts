@@ -90,8 +90,12 @@ describe('release workflow deployment environments', () => {
         const workflow = await readWorkflow('velopack-build.yml');
         const uploadLine = workflow.split('\n').find((line) => line.includes('gh release upload'));
 
+        expect(workflow).toContain('Stage current GitHub release assets');
+        expect(workflow).toContain(
+            'node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "${{ inputs.version }}"'
+        );
         expect(workflow).toContain('gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber');
-        expect(workflow).toContain('release_dir="$RUNNER_TEMP/touchai-release-assets"');
+        expect(workflow).toContain('release_dir="$RUNNER_TEMP/touchai-github-release-assets"');
         expect(uploadLine).toBeDefined();
         expect(uploadLine ?? '').not.toContain('touchai-update-dist');
     });

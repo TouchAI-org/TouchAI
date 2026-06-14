@@ -145,4 +145,58 @@ describe('SessionTaskProjection i18n statuses', () => {
             resolutionText: 'Request cancelled',
         });
     });
+
+    it('updates built-in tool presentation from structured call_end semantic', () => {
+        setLocale('zh-CN');
+        const snapshot = createSnapshot();
+        const projection = createProjection(snapshot);
+
+        projection.bootstrap([], '查一下 OpenClaw', []);
+        projection.handleChunk({
+            content: '',
+            done: false,
+            toolEvent: {
+                type: 'call_start',
+                callId: 'call-1',
+                toolName: 'WebSearch',
+                namespacedName: 'builtin__web_search',
+                source: 'builtin',
+                arguments: {
+                    query: 'OpenClaw latest updates',
+                    description: '搜索 OpenClaw 项目信息',
+                },
+                builtinConversationSemantic: {
+                    action: 'search',
+                    target: 'OpenClaw 项目信息',
+                },
+            },
+        });
+        projection.handleChunk({
+            content: '',
+            done: false,
+            toolEvent: {
+                type: 'call_end',
+                callId: 'call-1',
+                result: 'Web search\nQuery: OpenClaw latest updates',
+                isError: false,
+                durationMs: 10,
+                finalStatus: 'completed',
+                builtinConversationSemantic: {
+                    action: 'search',
+                    target: 'OpenClaw 项目信息 · GitHub',
+                },
+            },
+        });
+
+        expect(snapshot.sessionHistory[1]?.toolCalls?.[0]).toMatchObject({
+            status: 'completed',
+            builtinConversationSemantic: {
+                action: 'search',
+                target: 'OpenClaw 项目信息 · GitHub',
+            },
+            builtinPresentation: {
+                content: 'OpenClaw 项目信息 · GitHub',
+            },
+        });
+    });
 });

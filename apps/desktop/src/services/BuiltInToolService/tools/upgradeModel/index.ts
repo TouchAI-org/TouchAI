@@ -24,12 +24,7 @@ import {
     type UpgradeModelToolConfig,
 } from './config';
 import { UPGRADE_MODEL_TOOL_DESCRIPTION, UPGRADE_MODEL_TOOL_INPUT_SCHEMA } from './constants';
-import {
-    buildUpgradeSummary,
-    formatCurrentModelLabel,
-    parseUpgradeModelArgs,
-    parseUpgradeTargetLabel,
-} from './helper';
+import { buildUpgradeSummary, formatCurrentModelLabel, parseUpgradeModelArgs } from './helper';
 
 interface ResolvedUpgradeTarget {
     chainEntry: UpgradeModelChainEntry;
@@ -255,12 +250,6 @@ class UpgradeModelTool extends BuiltInTool<UpgradeModelToolConfig> {
         parseUpgradeModelArgs(args);
         const { target } = await resolveUpgradeTarget(context.currentModel, config);
         return buildUpgradeConversationSemantic(formatCurrentModelLabel(target.model));
-    }
-
-    override buildConversationSemanticFromResult(result: string, args: Record<string, unknown>) {
-        void args;
-        const targetLabel = parseUpgradeTargetLabel(result);
-        return targetLabel ? buildUpgradeConversationSemantic(targetLabel) : null;
     }
 
     override buildApprovalRequest(

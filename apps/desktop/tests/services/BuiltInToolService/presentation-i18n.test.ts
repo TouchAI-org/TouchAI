@@ -13,20 +13,12 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
                           action: 'process',
                           target: 'Bash',
                       }),
-                      buildConversationSemanticFromResult: (result: string) =>
-                          result.includes('semantic-result')
-                              ? {
-                                    action: 'run',
-                                    target: 'result target',
-                                }
-                              : null,
                   }
                 : toolId === 'empty'
                   ? {
                         id: 'empty',
                         displayName: 'Empty',
                         buildConversationSemantic: () => null,
-                        buildConversationSemanticFromResult: () => null,
                     }
                   : null,
         list: () => [
@@ -104,20 +96,32 @@ describe('BuiltInToolService presentation i18n', () => {
         expect(buildBuiltInToolConversationPresentation('Ghost', {}, 'completed')).toBeNull();
     });
 
-    it('uses semantic hints restored from tool results before default tool semantics', async () => {
+    it('uses explicit semantic hints before default tool semantics', async () => {
         setLocale('en-US');
         const { buildBuiltInToolConversationPresentation, resolveBuiltInToolConversationSemantic } =
             await import('@/services/BuiltInToolService/presentation');
 
         expect(
-            resolveBuiltInToolConversationSemantic('bash', {}, { result: 'semantic-result' })
+            resolveBuiltInToolConversationSemantic(
+                'bash',
+                {},
+                {
+                    semantic: {
+                        action: 'run',
+                        target: 'result target',
+                    },
+                }
+            )
         ).toEqual({
             action: 'run',
             target: 'result target',
         });
         expect(
             buildBuiltInToolConversationPresentation('bash', {}, 'completed', {
-                result: 'semantic-result',
+                semantic: {
+                    action: 'run',
+                    target: 'result target',
+                },
             })
         ).toMatchObject({
             verb: 'Ran',

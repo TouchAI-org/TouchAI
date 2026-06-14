@@ -138,4 +138,94 @@ describe('AI SDK tool result messages', () => {
             ],
         });
     });
+
+    it('keeps sibling tool results together before hoisted tool-result attachments', async () => {
+        const { messages } = await buildModelMessages({
+            providerDriver: 'openai',
+            modelId: 'gpt-4.1',
+            messages: [
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            id: 'call_screenshot',
+                            name: 'builtin__browser',
+                            arguments: '{"operation":"screenshot"}',
+                        },
+                        {
+                            id: 'call_dom',
+                            name: 'builtin__browser',
+                            arguments: '{"operation":"dom"}',
+                        },
+                    ],
+                },
+                {
+                    role: 'tool',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'screenshot captured',
+                        },
+                        {
+                            type: 'image',
+                            data: 'iVBORw0KGgo=',
+                            mimeType: 'image/png',
+                            kind: 'image',
+                            name: 'screenshot.png',
+                            sourcePath: 'C:\\Temp\\screenshot.png',
+                            size: null,
+                            semanticIntent: 'visual-reference',
+                            meta: {
+                                alias: 'A1',
+                                order: 0,
+                                type: 'image',
+                                name: 'screenshot.png',
+                                mimeType: 'image/png',
+                                originPath: 'C:\\Temp\\screenshot.png',
+                                attachmentId: null,
+                                hash: null,
+                            },
+                        },
+                    ],
+                    tool_call_id: 'call_screenshot',
+                    name: 'builtin__browser',
+                },
+                {
+                    role: 'tool',
+                    content: 'dom refs',
+                    tool_call_id: 'call_dom',
+                    name: 'builtin__browser',
+                },
+            ],
+        });
+
+        expect(messages.map((message) => message.role)).toEqual([
+            'assistant',
+            'tool',
+            'tool',
+            'user',
+        ]);
+        expect(messages[1]).toMatchObject({
+            role: 'tool',
+            content: [
+                {
+                    type: 'tool-result',
+                    toolCallId: 'call_screenshot',
+                },
+            ],
+        });
+        expect(messages[2]).toMatchObject({
+            role: 'tool',
+            content: [
+                {
+                    type: 'tool-result',
+                    toolCallId: 'call_dom',
+                },
+            ],
+        });
+        expect(messages[3]).toMatchObject({
+            role: 'user',
+        });
+    });
 });

@@ -9,9 +9,11 @@
         SelectValue,
     } from '@components/ui/select';
     import type { AcceptableValue } from 'reka-ui';
-    import { computed, ref } from 'vue';
+    import { computed, ref, useAttrs } from 'vue';
 
     import { type MessageKey, t, tt } from '@/i18n';
+
+    defineOptions({ inheritAttrs: false });
 
     interface Option {
         label: string;
@@ -31,6 +33,7 @@
 
     interface Emits {
         (e: 'update:modelValue', value: T): void;
+        (e: 'update:open', value: boolean): void;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -40,6 +43,7 @@
     });
 
     const emit = defineEmits<Emits>();
+    const attrs = useAttrs();
 
     const isOpen = ref(false);
 
@@ -63,6 +67,11 @@
             selectOption(value as T);
         }
     };
+
+    const handleOpenChange = (value: boolean) => {
+        isOpen.value = value;
+        emit('update:open', value);
+    };
 </script>
 
 <template>
@@ -71,9 +80,10 @@
         :disabled="disabled"
         :open="isOpen"
         @update:model-value="handleSelectValue"
-        @update:open="isOpen = $event"
+        @update:open="handleOpenChange"
     >
         <SelectTrigger
+            v-bind="attrs"
             class="w-full rounded-[10px] border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors"
             :class="{
                 'border-transparent bg-[#f0f0ef] text-gray-900 hover:bg-[#ececea]': !disabled,

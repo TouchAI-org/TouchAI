@@ -198,6 +198,19 @@
         background: transparent !important;
     }
 
+    /* 图标线条粗细：Lucide 原生 2，这里统一调细到 1.8。
+       stroke-width 在不同图标里可能挂在 path 或外层 g 上，且 SVG 继承
+       盖不住子元素自带的属性，故用后代选择器覆盖根节点与全部子元素。
+       想全局调整粗细，只改这一个变量即可。 */
+    .app-icon {
+        --app-icon-stroke: 1.8;
+    }
+
+    .app-icon,
+    .app-icon * {
+        stroke-width: var(--app-icon-stroke);
+    }
+
     *::-webkit-scrollbar-button {
         -webkit-appearance: none !important;
         appearance: none !important;
@@ -214,7 +227,15 @@
 
 @layer components {
     .settings-page {
-        @apply mr-14 ml-20 max-w-[1000px] min-w-0 px-0 pt-[112px] pb-12;
+        @apply min-w-0 pt-[112px] pb-12;
+        width: min(1000px, calc(100% - 136px));
+        margin-inline: auto;
+    }
+
+    @media (max-width: 760px) {
+        .settings-page {
+            width: calc(100% - 48px);
+        }
     }
 
     .settings-page-wide {
@@ -226,7 +247,7 @@
     }
 
     .settings-page-header {
-        @apply mb-14 max-w-2xl;
+        @apply mb-14 w-full;
     }
 
     .settings-page-title {

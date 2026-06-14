@@ -42,7 +42,7 @@ use state::{
     AtomicFlagGuard, PendingTargetResolve, QuickSearchProvider, QuickSearchState,
     ResolvedTargetUpdate, SearchRoot, ShortcutRecord, TargetCacheEntry,
 };
-use sync::{lock_mutex, read_lock, try_lock_mutex, write_lock};
+use sync::{lock_mutex, read_lock, write_lock};
 
 const INDEX_REFRESH_TTL: Duration = Duration::from_secs(30);
 const TARGET_RESOLVER_WORKERS: usize = 2;

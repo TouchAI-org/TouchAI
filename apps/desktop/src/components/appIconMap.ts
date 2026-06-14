@@ -1,47 +1,48 @@
 import type { Component } from 'vue';
 
-import IconBrain from '~icons/bx/brain';
-import IconBriefcase from '~icons/bx/briefcase-alt-2';
-import IconBug from '~icons/bx/bug-alt';
-import IconGithub from '~icons/bx/bxl-github';
-import IconCheckCircle from '~icons/bx/check-circle';
-import IconChevronDown from '~icons/bx/chevron-down';
-import IconChevronRight from '~icons/bx/chevron-right';
-import IconChevronUp from '~icons/bx/chevron-up';
-import IconCog from '~icons/bx/cog';
-import IconCopy from '~icons/bx/copy';
-import IconData from '~icons/bx/data';
-import IconArrowDown from '~icons/bx/down-arrow-alt';
-import IconEdit from '~icons/bx/edit-alt';
-import IconError from '~icons/bx/error';
-import IconExitFullscreen from '~icons/bx/exit-fullscreen';
-import IconFile from '~icons/bx/file';
-import IconFileBlank from '~icons/bx/file-blank';
-import IconFolderOpen from '~icons/bx/folder-open';
-import IconFullscreen from '~icons/bx/fullscreen';
-import IconGridAlt from '~icons/bx/grid-alt';
-import IconHide from '~icons/bx/hide';
-import IconHistory from '~icons/bx/history';
-import IconInfoCircle from '~icons/bx/info-circle';
-import IconLeaf from '~icons/bx/leaf';
-import IconArrowLeft from '~icons/bx/left-arrow-alt';
-import IconLinkExternal from '~icons/bx/link-external';
-import IconMenu from '~icons/bx/menu';
-import IconMinus from '~icons/bx/minus';
-import IconPin from '~icons/bx/pin';
-import IconPlay from '~icons/bx/play';
-import IconPlug from '~icons/bx/plug';
-import IconPlus from '~icons/bx/plus';
-import IconRefresh from '~icons/bx/refresh';
-import IconArrowRight from '~icons/bx/right-arrow-alt';
-import IconSearch from '~icons/bx/search';
-import IconShow from '~icons/bx/show';
-import IconStop from '~icons/bx/stop';
-import IconTrash from '~icons/bx/trash';
-import IconTrashAlt from '~icons/bx/trash-alt';
-import IconWrench from '~icons/bx/wrench';
-import IconX from '~icons/bx/x';
-import IconXCircle from '~icons/bx/x-circle';
+import IconArrowDown from '~icons/lucide/arrow-down';
+import IconArrowLeft from '~icons/lucide/arrow-left';
+import IconArrowRight from '~icons/lucide/arrow-right';
+import IconBlocks from '~icons/lucide/blocks';
+import IconBoxes from '~icons/lucide/boxes';
+import IconBriefcase from '~icons/lucide/briefcase';
+import IconBug from '~icons/lucide/bug';
+import IconChevronDown from '~icons/lucide/chevron-down';
+import IconChevronRight from '~icons/lucide/chevron-right';
+import IconChevronUp from '~icons/lucide/chevron-up';
+import IconCheckCircle from '~icons/lucide/circle-check';
+import IconXCircle from '~icons/lucide/circle-x';
+import IconCopy from '~icons/lucide/copy';
+import IconData from '~icons/lucide/database';
+import IconLinkExternal from '~icons/lucide/external-link';
+import IconShow from '~icons/lucide/eye';
+import IconHide from '~icons/lucide/eye-off';
+import IconFile from '~icons/lucide/file';
+import IconFileBlank from '~icons/lucide/file-text';
+import IconFolderOpen from '~icons/lucide/folder-open';
+import IconGithub from '~icons/lucide/github';
+import IconGlobe from '~icons/lucide/globe';
+import IconGridAlt from '~icons/lucide/grid-2x2';
+import IconHistory from '~icons/lucide/history';
+import IconInfoCircle from '~icons/lucide/info';
+import IconLeaf from '~icons/lucide/leaf';
+import IconMaximize from '~icons/lucide/maximize';
+import IconMenu from '~icons/lucide/menu';
+import IconChatHistory from '~icons/lucide/message-circle-more';
+import IconWindowRestore from '~icons/lucide/minimize';
+import IconMinus from '~icons/lucide/minus';
+import IconEdit from '~icons/lucide/pencil';
+import IconPin from '~icons/lucide/pin';
+import IconPlay from '~icons/lucide/play';
+import IconPlus from '~icons/lucide/plus';
+import IconRefresh from '~icons/lucide/refresh-cw';
+import IconSearch from '~icons/lucide/search';
+import IconCog from '~icons/lucide/settings';
+import IconStop from '~icons/lucide/square';
+import IconTrash from '~icons/lucide/trash-2';
+import IconError from '~icons/lucide/triangle-alert';
+import IconWrench from '~icons/lucide/wrench';
+import IconX from '~icons/lucide/x';
 
 export const appIconMap = {
     'arrow-down': IconArrowDown,
@@ -54,24 +55,29 @@ export const appIconMap = {
     close: IconX,
     copy: IconCopy,
     database: IconData,
-    delete: IconTrashAlt,
+    delete: IconTrash,
     'document-text': IconFileBlank,
     edit: IconEdit,
     'exclamation-triangle': IconError,
     eye: IconShow,
     'eye-off': IconHide,
     file: IconFile,
+    folder: IconFolderOpen,
     'folder-open': IconFolderOpen,
-    fullscreen: IconFullscreen,
+    'maximize-square': IconStop,
     github: IconGithub,
     'grid-alt': IconGridAlt,
+    globe: IconGlobe,
     history: IconHistory,
     'list-ul': IconMenu,
+    'chat-history': IconChatHistory,
+    maximize: IconMaximize,
+    restore: IconWindowRestore,
     'information-circle': IconInfoCircle,
-    llm: IconBrain,
+    llm: IconBoxes,
     leaf: IconLeaf,
     'external-link': IconLinkExternal,
-    mcp: IconPlug,
+    mcp: IconBlocks,
     minimize: IconMinus,
     pin: IconPin,
     play: IconPlay,
@@ -86,7 +92,7 @@ export const appIconMap = {
     wrench: IconWrench,
     x: IconX,
     'x-circle': IconXCircle,
-    'exit-fullscreen': IconExitFullscreen,
+    'restore-square': IconCopy,
 } satisfies Record<string, Component>;
 
 export const appIconFallback = IconInfoCircle;

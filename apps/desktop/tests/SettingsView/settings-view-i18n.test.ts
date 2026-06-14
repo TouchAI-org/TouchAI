@@ -75,6 +75,26 @@ vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
         },
     },
 }));
+vi.mock('@/views/SettingsView/components/Browser/index.vue', () => ({
+    __esModule: true,
+    default: {
+        name: 'BrowserViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
+}));
+vi.mock('@/views/SettingsView/components/Search/index.vue', () => ({
+    __esModule: true,
+    default: {
+        name: 'SearchViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
+}));
 vi.mock('@/views/SettingsView/components/McpTools/index.vue', () => ({
     __esModule: true,
     default: {
@@ -133,6 +153,12 @@ describe('SettingsView lazy loading i18n', () => {
 
         await wrapper.get('[data-testid="settings-nav-built-in-tools"]').trigger('click');
         expect(wrapper.text()).toContain('Loading built-in tools...');
+
+        await wrapper.get('[data-testid="settings-nav-search"]').trigger('click');
+        expect(wrapper.text()).toContain('Loading search settings...');
+
+        await wrapper.get('[data-testid="settings-nav-browser"]').trigger('click');
+        expect(wrapper.text()).toContain('Loading browser settings...');
 
         await wrapper.get('[data-testid="settings-nav-mcp-tools"]').trigger('click');
         expect(wrapper.text()).toContain('Loading MCP tools...');

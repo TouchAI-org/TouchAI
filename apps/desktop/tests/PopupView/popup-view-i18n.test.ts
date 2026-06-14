@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
     eventEmitMock,
@@ -67,14 +67,20 @@ vi.mock('@/stores/settings', () => ({
 describe('PopupView i18n bootstrap', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.useRealTimers();
         window.history.replaceState(null, '', '/popup?type=session-history');
         eventOnMock.mockResolvedValue(vi.fn());
         eventEmitMock.mockResolvedValue(undefined);
         getCurrentWindowMock.mockReturnValue({
+            hide: vi.fn().mockResolvedValue(undefined),
             label: 'popup-session-history-popup',
             setFocus: vi.fn(),
         });
         settingsInitializeMock.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('announces popup readiness when persisted settings initialization fails', async () => {
@@ -104,5 +110,22 @@ describe('PopupView i18n bootstrap', () => {
         expect(eventEmitMock).toHaveBeenCalledWith('popup-ready', {
             windowLabel: 'popup-session-history-popup',
         });
+    });
+
+    it('hides an empty popup window if no popup data arrives after ready', async () => {
+        vi.useFakeTimers();
+        const hideMock = vi.fn().mockResolvedValue(undefined);
+        getCurrentWindowMock.mockReturnValue({
+            hide: hideMock,
+            label: 'popup-session-history-popup',
+            setFocus: vi.fn(),
+        });
+        const { default: PopupView } = await import('@/views/PopupView/index.vue');
+
+        mount(PopupView);
+        await flushPromises();
+        await vi.advanceTimersByTimeAsync(151);
+
+        expect(hideMock).toHaveBeenCalledTimes(1);
     });
 });

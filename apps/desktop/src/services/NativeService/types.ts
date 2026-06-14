@@ -219,3 +219,85 @@ export interface QuickSearchResult {
     total_results: number;
     next_offset: number;
 }
+
+export interface BrowserStartRequest {
+    headless?: boolean | null;
+    startupUrl?: string | null;
+    browserExecutablePath?: string | null;
+    browserDataPath?: string | null;
+    fingerprintMode?: 'off' | 'balanced' | null;
+    fingerprintLocale?: string | null;
+    fingerprintTimezone?: string | null;
+    fingerprintUserAgent?: string | null;
+    fingerprintWindowSize?: string | null;
+    fingerprintStealthScript?: boolean | null;
+}
+
+export interface BrowserInstalledBrowser {
+    id: string;
+    name: string;
+    path: string;
+}
+
+export interface BrowserExistingSession {
+    id: string;
+    label: string;
+    endpoint: string;
+    browserName: string;
+    currentUrl?: string | null;
+    title?: string | null;
+    tabs: Array<Record<string, unknown>>;
+}
+
+export interface BrowserConnectExistingRequest {
+    endpoint: string;
+}
+
+export interface BrowserNavigationRequest {
+    url: string;
+    tabId?: string | null;
+}
+
+export interface BrowserTabRequest {
+    tabId?: string | null;
+}
+
+export type BrowserObserveOperation = 'state' | 'snapshot' | 'screenshot';
+
+export interface BrowserObserveRequest {
+    operation: BrowserObserveOperation;
+    tabId?: string | null;
+    includeConsole?: boolean | null;
+    includeNetwork?: boolean | null;
+}
+
+export type BrowserActOperation =
+    | 'click'
+    | 'type'
+    | 'fill'
+    | 'fill_form'
+    | 'press_key'
+    | 'scroll'
+    | 'wait';
+
+export interface BrowserActRequest {
+    action: BrowserActOperation;
+    tabId?: string | null;
+    ref?: string | null;
+    refId?: string | null;
+    targetRef?: string | null;
+    navigationToken?: string | null;
+    text?: string | null;
+    value?: string | null;
+    fields?: Array<Record<string, unknown>> | null;
+    key?: string | null;
+    deltaX?: number | null;
+    deltaY?: number | null;
+    timeoutMs?: number | null;
+}
+
+export type BrowserStatusResponse = Record<string, unknown>;
+export type BrowserSessionResponse = Record<string, unknown>;
+export type BrowserConnectExistingResponse = Record<string, unknown>;
+export type BrowserObserveResponse = Record<string, unknown>;
+export type BrowserActResponse = Record<string, unknown>;
