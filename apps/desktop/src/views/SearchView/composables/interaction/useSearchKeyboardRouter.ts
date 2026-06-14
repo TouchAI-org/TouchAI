@@ -103,26 +103,17 @@ function resolveSearchKeybindingAction(
     return null;
 }
 
-function resolveSearchKeybindingActionByShortcut(
+function matchesSearchKeybindingCommand(
+    actionId: SearchKeybindingActionId,
     shortcut: string,
     keybindings: SearchKeybindings
-): SearchKeybindingActionId | null {
+): boolean {
     const normalizedShortcut = normalizeLocalShortcutString(shortcut);
     if (!normalizedShortcut) {
-        return null;
+        return false;
     }
 
-    for (const [actionId, candidate] of Object.entries(keybindings) as Array<
-        [SearchKeybindingActionId, string | null]
-    >) {
-        if (normalizeLocalShortcutString(candidate) !== normalizedShortcut) {
-            continue;
-        }
-
-        return actionId;
-    }
-
-    return null;
+    return normalizeLocalShortcutString(keybindings[actionId]) === normalizedShortcut;
 }
 
 /**
@@ -189,9 +180,8 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         return true;
     }
 
-    function routeShortcut(shortcut: string) {
-        const actionId = resolveSearchKeybindingActionByShortcut(shortcut, getSearchKeybindings());
-        if (!actionId) {
+    function routeCommand(actionId: SearchKeybindingActionId, shortcut: string) {
+        if (!matchesSearchKeybindingCommand(actionId, shortcut, getSearchKeybindings())) {
             return false;
         }
 
@@ -375,6 +365,6 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
     return {
         route,
-        routeShortcut,
+        routeCommand,
     };
 }

@@ -180,7 +180,7 @@ describe('createSearchKeyboardRouter', () => {
         );
     });
 
-    it('routes host accelerator shortcuts through the current keybinding configuration', async () => {
+    it('routes host accelerator commands only when the action still owns the shortcut', async () => {
         const disabledRouter = createKeyboardRouter({
             getSearchKeybindings: () => ({
                 ...createDefaultSearchKeybindings(),
@@ -188,7 +188,7 @@ describe('createSearchKeyboardRouter', () => {
             }),
         });
 
-        expect(disabledRouter.router.routeShortcut('Mod+M')).toBe(false);
+        expect(disabledRouter.router.routeCommand('search.model.toggle', 'Mod+M')).toBe(false);
         await flushAsyncWork();
         expect(disabledRouter.callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
 
@@ -200,7 +200,11 @@ describe('createSearchKeyboardRouter', () => {
             }),
         });
 
-        expect(remappedRouter.router.routeShortcut('Mod+M')).toBe(true);
+        expect(remappedRouter.router.routeCommand('search.model.toggle', 'Mod+M')).toBe(false);
+        await flushAsyncWork();
+        expect(remappedRouter.callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+
+        expect(remappedRouter.router.routeCommand('search.history.open', 'Mod+M')).toBe(true);
         await flushAsyncWork();
         expect(remappedRouter.callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
             'search.history.open'
@@ -212,7 +216,7 @@ describe('createSearchKeyboardRouter', () => {
             hasActivePopupWindowFocus: () => true,
         });
 
-        expect(router.routeShortcut('Mod+M')).toBe(true);
+        expect(router.routeCommand('search.model.toggle', 'Mod+M')).toBe(true);
         await flushAsyncWork();
 
         expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();

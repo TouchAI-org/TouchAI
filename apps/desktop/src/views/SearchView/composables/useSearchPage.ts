@@ -1151,6 +1151,6 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
     });
 
     return {
-        routeSearchSurfaceShortcut: handleKeyDown.routeSearchSurfaceShortcut,
+        routeSearchSurfaceCommand: handleKeyDown.routeSearchSurfaceCommand,
     };
 }

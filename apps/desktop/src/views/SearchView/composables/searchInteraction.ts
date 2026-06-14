@@ -3,7 +3,7 @@
  * 收口页面交互状态、QuickSearch / overlay 策略与键盘语义解释，
  * 避免页面编排层和输入层同时承载交互规则。
  */
-import { AppEvent, eventService } from '@services/EventService';
+import { AppEvent, eventService, type SearchSurfaceCommandEvent } from '@services/EventService';
 import type { PopupKeydownPayload } from '@services/PopupService';
 import { computed, type ComputedRef, reactive, type Ref, ref, watch } from 'vue';
 
@@ -144,7 +144,7 @@ export interface UseSearchKeyboardOptions {
 }
 
 export type SearchKeydownHandler = ((event: KeyboardEvent) => Promise<void>) & {
-    routeSearchSurfaceShortcut: (shortcut: string) => boolean;
+    routeSearchSurfaceCommand: (payload: SearchSurfaceCommandEvent) => boolean;
 };
 
 function createEmptyModelOverride(): SearchModelOverride {
@@ -841,12 +841,12 @@ export function createSearchKeydownHandler(
         return controller.isQuickSearchContextMenuOpen();
     }
 
-    function routeSearchSurfaceShortcut(shortcut: string) {
+    function routeSearchSurfaceCommand(payload: SearchSurfaceCommandEvent) {
         if (shouldSkipSearchKeyboardRouting()) {
             return false;
         }
 
-        return keyboardRouter.routeShortcut(shortcut);
+        return keyboardRouter.routeCommand(payload.actionId, payload.shortcut);
     }
 
     async function handleKeyDown(event: KeyboardEvent) {
@@ -908,6 +908,6 @@ export function createSearchKeydownHandler(
     }
 
     return Object.assign(handleKeyDown, {
-        routeSearchSurfaceShortcut,
+        routeSearchSurfaceCommand,
     });
 }

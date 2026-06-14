@@ -2,7 +2,10 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { useSessionStatus } from '@composables/useSessionStatus';
-    import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
+    import type {
+        SearchSurfaceCommandEvent,
+        SessionStatusReminderActionEvent,
+    } from '@services/EventService/types';
     import type { QuickShortcutItem } from '@services/NativeService';
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
@@ -440,7 +443,7 @@
         }
     }
 
-    let routeSearchSurfaceShortcut: ((shortcut: string) => boolean) | null = null;
+    let routeSearchSurfaceCommand: ((payload: SearchSurfaceCommandEvent) => boolean) | null = null;
 
     const { hideSearchWindow } = useSearchPageLifecycle({
         controller,
@@ -460,7 +463,7 @@
         handleAiModelsUpdated,
         handleShortcutAutoPaste: tryShortcutAutoPaste,
         handleSearchSurfaceCommand: (payload) => {
-            routeSearchSurfaceShortcut?.(payload.shortcut);
+            routeSearchSurfaceCommand?.(payload);
         },
     });
 
@@ -590,7 +593,7 @@
         cancelRequest,
         clearSession: clearSessionToIdle,
     });
-    routeSearchSurfaceShortcut = searchKeyboard.routeSearchSurfaceShortcut;
+    routeSearchSurfaceCommand = searchKeyboard.routeSearchSurfaceCommand;
 
     function handleQueryTextChange(value: string) {
         queryText.value = value;

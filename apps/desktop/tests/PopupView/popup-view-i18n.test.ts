@@ -2,17 +2,21 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    eventHandlers,
     eventEmitMock,
     eventOnMock,
     getCurrentWindowMock,
+    hidePopupWindowMock,
     initializeBuiltInPopupsMock,
     requestResizeMock,
     resetMeasuredHeightMock,
     settingsInitializeMock,
 } = vi.hoisted(() => ({
+    eventHandlers: new Map<string, (payload: unknown) => unknown>(),
     eventEmitMock: vi.fn(),
     eventOnMock: vi.fn(),
     getCurrentWindowMock: vi.fn(),
+    hidePopupWindowMock: vi.fn(),
     initializeBuiltInPopupsMock: vi.fn(),
     requestResizeMock: vi.fn(),
     resetMeasuredHeightMock: vi.fn(),
@@ -32,6 +36,7 @@ vi.mock('@services/EventService', () => ({
         POPUP_DATA: 'popup-data',
         POPUP_KEYDOWN: 'popup-keydown',
         POPUP_READY: 'popup-ready',
+        SEARCH_SURFACE_COMMAND: 'search-surface-command',
     },
     eventService: {
         emit: eventEmitMock,
@@ -42,7 +47,7 @@ vi.mock('@services/EventService', () => ({
 vi.mock('@services/NativeService', () => ({
     native: {
         window: {
-            hidePopupWindow: vi.fn(),
+            hidePopupWindow: hidePopupWindowMock,
         },
     },
 }));
@@ -68,13 +73,21 @@ describe('PopupView i18n bootstrap', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
+        eventHandlers.clear();
         window.history.replaceState(null, '', '/popup?type=session-history');
-        eventOnMock.mockResolvedValue(vi.fn());
+        eventOnMock.mockImplementation(
+            async (event: string, handler: (payload: unknown) => void) => {
+                eventHandlers.set(event, handler);
+                return vi.fn();
+            }
+        );
         eventEmitMock.mockResolvedValue(undefined);
+        hidePopupWindowMock.mockResolvedValue(undefined);
         getCurrentWindowMock.mockReturnValue({
             hide: vi.fn().mockResolvedValue(undefined),
             label: 'popup-session-history-popup',
             setFocus: vi.fn(),
+            show: vi.fn().mockResolvedValue(undefined),
         });
         settingsInitializeMock.mockResolvedValue(undefined);
     });
@@ -127,5 +140,49 @@ describe('PopupView i18n bootstrap', () => {
         await vi.advanceTimersByTimeAsync(151);
 
         expect(hideMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes the current popup from a matching native search surface command', async () => {
+        const { default: PopupView } = await import('@/views/PopupView/index.vue');
+
+        mount(PopupView);
+        await flushPromises();
+
+        await eventHandlers.get('popup-data')?.({
+            popupId: 'popup-session-history-popup:1',
+            windowLabel: 'popup-session-history-popup',
+            popupSessionVersion: 1,
+            type: 'session-history-popup',
+            isShow: true,
+            data: {
+                sessions: [],
+                activeSessionId: null,
+                searchQuery: '',
+                isLoading: false,
+                toggleShortcut: 'Alt+Space',
+            },
+        });
+        await flushPromises();
+
+        eventHandlers.get('search-surface-command')?.({
+            actionId: 'search.model.toggle',
+            shortcut: 'Alt+Space',
+            source: 'webview2-accelerator',
+        });
+        await flushPromises();
+        expect(hidePopupWindowMock).not.toHaveBeenCalled();
+
+        eventHandlers.get('search-surface-command')?.({
+            actionId: 'search.history.open',
+            shortcut: 'Alt+Space',
+            source: 'webview2-accelerator',
+        });
+        await flushPromises();
+
+        expect(hidePopupWindowMock).toHaveBeenCalledWith({
+            popupId: 'popup-session-history-popup:1',
+            windowLabel: 'popup-session-history-popup',
+            popupSessionVersion: 1,
+        });
     });
 });

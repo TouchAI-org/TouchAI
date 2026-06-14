@@ -353,7 +353,13 @@ describe('createSearchKeydownHandler', () => {
             handleSearchKeybindingAction,
         });
 
-        expect(handleKeyDown.routeSearchSurfaceShortcut('Mod+M')).toBe(true);
+        expect(
+            handleKeyDown.routeSearchSurfaceCommand({
+                actionId: 'search.model.toggle',
+                shortcut: 'Mod+M',
+                source: 'webview2-accelerator',
+            })
+        ).toBe(true);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -369,7 +375,13 @@ describe('createSearchKeydownHandler', () => {
             handleSearchKeybindingAction,
         });
 
-        expect(handleKeyDown.routeSearchSurfaceShortcut('Mod+M')).toBe(false);
+        expect(
+            handleKeyDown.routeSearchSurfaceCommand({
+                actionId: 'search.model.toggle',
+                shortcut: 'Mod+M',
+                source: 'webview2-accelerator',
+            })
+        ).toBe(false);
         await Promise.resolve();
         await Promise.resolve();
 

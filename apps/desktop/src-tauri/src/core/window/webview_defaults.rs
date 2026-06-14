@@ -198,6 +198,11 @@ fn is_accelerator_key_down_event(key_event_kind: i32) -> bool {
 }
 
 #[cfg(target_os = "windows")]
+fn should_emit_search_surface_command_to_window(label: &str) -> bool {
+    label == "main" || label.starts_with("popup-")
+}
+
+#[cfg(target_os = "windows")]
 /// 注册 WebView2 accelerator 处理器，将 Alt+Space 转成 Tauri 事件供前端捕获。
 ///
 /// WebView2 把 Alt+Space 当作 system accelerator，默认不会派发 DOM keydown；
@@ -209,7 +214,8 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
     controller: &ICoreWebView2Controller,
 ) -> Result<(), String> {
     let app_handle = window.app_handle().clone();
-    let search_surface_window = (window.label() == "main").then(|| window.clone());
+    let search_surface_command_window =
+        should_emit_search_surface_command_to_window(window.label()).then(|| window.clone());
     let mut token = 0i64;
     let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
         move |_controller: Option<ICoreWebView2Controller>,
@@ -230,7 +236,7 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                         return Ok(());
                     }
 
-                    let Some(search_surface_window) = &search_surface_window else {
+                    let Some(search_surface_command_window) = &search_surface_command_window else {
                         return Ok(());
                     };
 
@@ -258,7 +264,7 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                         let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
                     }
                     let _ = args.SetHandled(true);
-                    let _ = search_surface_window.emit("search-surface-command", command);
+                    let _ = search_surface_command_window.emit("search-surface-command", command);
                     return Ok(());
                 }
 
@@ -267,7 +273,7 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                 let is_super_down = (GetKeyState(i32::from(VK_LWIN.0)) as u16 & 0x8000) != 0
                     || (GetKeyState(i32::from(VK_RWIN.0)) as u16 & 0x8000) != 0;
 
-                if let Some(search_surface_window) = &search_surface_window {
+                if let Some(search_surface_command_window) = &search_surface_command_window {
                     if let Some(command) =
                         crate::core::system::shortcut::find_search_surface_command_for_windows_accelerator(
                             virtual_key,
@@ -283,7 +289,7 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                             let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
                         }
                         let _ = args.SetHandled(true);
-                        let _ = search_surface_window.emit("search-surface-command", command);
+                        let _ = search_surface_command_window.emit("search-surface-command", command);
                         return Ok(());
                     }
                 }
@@ -438,6 +444,24 @@ pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
             error
         )
     })?
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::should_emit_search_surface_command_to_window;
+
+    #[test]
+    fn search_surface_commands_target_main_and_popup_windows_only() {
+        assert!(should_emit_search_surface_command_to_window("main"));
+        assert!(should_emit_search_surface_command_to_window(
+            "popup-model-dropdown-popup"
+        ));
+        assert!(should_emit_search_surface_command_to_window(
+            "popup-session-history-popup"
+        ));
+        assert!(!should_emit_search_surface_command_to_window("settings"));
+        assert!(!should_emit_search_surface_command_to_window("assistant"));
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
