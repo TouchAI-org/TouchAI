@@ -138,6 +138,7 @@
     import { computed, nextTick, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
+    import { matchShortcut } from '@/utils/shortcuts';
 
     defineOptions({
         name: 'PopupModelDropdown',
@@ -244,7 +245,7 @@
     };
 
     function handleKeyDown(event: KeyboardEvent) {
-        if (event.ctrlKey && event.key.toLowerCase() === 'm') {
+        if (matchShortcut(props.data?.toggleShortcut, event)) {
             event.preventDefault();
             emit('close');
             return;

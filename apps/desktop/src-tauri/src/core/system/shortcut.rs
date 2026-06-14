@@ -325,6 +325,9 @@ pub fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
                 }
             }
             key => {
+                if key_code.is_some() {
+                    return Err("Shortcut must contain exactly one key code".to_string());
+                }
                 key_code = Some(match key.to_lowercase().as_str() {
                     "space" => Code::Space,
                     "enter" | "return" => Code::Enter,
@@ -498,6 +501,12 @@ mod tests {
         let shortcut = parse_shortcut("Ctrl+=").expect("ctrl+equal parses");
         assert_eq!(shortcut.mods, Modifiers::CONTROL);
         assert_eq!(shortcut.key, Code::Equal);
+    }
+
+    #[test]
+    fn parse_shortcut_rejects_multiple_key_codes() {
+        let error = parse_shortcut("Ctrl+A+B").expect_err("multiple keys should be rejected");
+        assert_eq!(error, "Shortcut must contain exactly one key code");
     }
 
     #[test]

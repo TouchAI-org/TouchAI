@@ -837,6 +837,7 @@ interface UseSearchModelDropdownCoordinatorOptions {
     modelOverride: Ref<SearchModelOverride>;
     modelDropdownState: Ref<SearchModelDropdownState>;
     modelDropdownQuery: Ref<string>;
+    getModelToggleShortcut?: () => string | null | undefined;
     requestModelDropdownOpen: () => SearchOverlayCommand;
     handleQuickSearchClosedForModelDropdown: () => SearchOverlayCommand;
     handleLayoutStableForModelDropdown: () => SearchOverlayCommand;
@@ -856,6 +857,7 @@ export function useSearchModelDropdownCoordinator(
         modelOverride,
         modelDropdownState,
         modelDropdownQuery,
+        getModelToggleShortcut,
         requestModelDropdownOpen,
         handleQuickSearchClosedForModelDropdown,
         handleLayoutStableForModelDropdown,
@@ -874,6 +876,7 @@ export function useSearchModelDropdownCoordinator(
             selectedModelId: context.selectedModelId ?? '',
             selectedProviderId: context.selectedProviderId,
             searchQuery: modelDropdownQuery.value,
+            toggleShortcut: getModelToggleShortcut?.() ?? null,
             models: filterModelDropdownItems(
                 context.models.filter((model) => model.provider_enabled === 1).map(mapPopupModel),
                 modelDropdownQuery.value

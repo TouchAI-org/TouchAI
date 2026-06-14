@@ -173,7 +173,11 @@
             {
                 id: 'inputAndRequest',
                 title: t('settings.general.searchShortcutGroups.inputAndRequest'),
-                actionIds: ['search.input.focus', 'search.model.toggle'],
+                actionIds: [
+                    'search.input.focus',
+                    'search.model.toggle',
+                    'search.quickSearch.toggleView',
+                ],
             },
             {
                 id: 'window',

@@ -49,7 +49,6 @@ interface CreateSearchKeyboardRouterOptions {
     onQuickSearchPageUp: () => void;
     onQuickSearchPageDown: () => void;
     onQuickSearchContextMenu: () => void;
-    onQuickSearchToggleView: () => void;
     onQuickSearchCollapse: () => void;
     onNavigateInputHistory: (
         direction: SessionInputHistoryDirection
@@ -158,7 +157,6 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onQuickSearchPageUp,
         onQuickSearchPageDown,
         onQuickSearchContextMenu,
-        onQuickSearchToggleView,
         onQuickSearchCollapse,
         onNavigateInputHistory,
         onHideAllPopups,
@@ -170,9 +168,21 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onSearchKeybindingAction,
     } = options;
 
+    function canRouteSearchKeybindingAction(actionId: SearchKeybindingActionId) {
+        if (actionId === 'search.quickSearch.toggleView') {
+            return isQuickSearchOpen();
+        }
+
+        return true;
+    }
+
     function routeSearchKeybindingAction(actionId: SearchKeybindingActionId) {
         if (hasActivePopupWindowFocus()) {
             return true;
+        }
+
+        if (!canRouteSearchKeybindingAction(actionId)) {
+            return false;
         }
 
         runKeyboardEffect(() => onSearchKeybindingAction(actionId));
@@ -277,11 +287,6 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
             if (input.key === 'ContextMenu' || (input.key === 'F10' && input.shiftKey)) {
                 onQuickSearchContextMenu();
-                return true;
-            }
-
-            if (input.key.toLowerCase() === 'g' && (input.ctrlKey || input.metaKey)) {
-                onQuickSearchToggleView();
                 return true;
             }
 

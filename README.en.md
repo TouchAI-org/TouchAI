@@ -33,7 +33,7 @@
 
 ### Features
 
-- **One shortcut away** - `Alt+Space` appears and disappears without interrupting your workflow
+- **One shortcut away** - use the default global shortcut, or customize it to fit your workflow
 - **Full keyboard operation** - operate entirely without a mouse for much higher efficiency
 - **Desktop context** - aware of files, screen, and clipboard
 - **Tool support** - includes 7 built-in tools and supports MCP tool extensions

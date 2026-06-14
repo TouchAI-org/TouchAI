@@ -148,7 +148,7 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.history.open');
     });
 
-    it('routes Ctrl+M only through the current keybinding configuration', async () => {
+    it('routes the model toggle shortcut only through the current keybinding configuration', async () => {
         const defaultRouter = createKeyboardRouter();
         expect(defaultRouter.router.route({ key: 'm', ctrlKey: true })).toBe(true);
         await flushAsyncWork();
@@ -420,7 +420,7 @@ describe('createSearchKeyboardRouter', () => {
         expect(dropdownRouter.callbacks.onForwardToPopup).toHaveBeenNthCalledWith(2, 'Enter');
     });
 
-    it('routes quick-search page, menu, and view-toggle keys', () => {
+    it('routes quick-search page and menu keys', () => {
         const { router, callbacks } = createKeyboardRouter({
             isQuickSearchOpen: () => true,
             hasQuickSearchHighlight: () => false,
@@ -430,13 +430,41 @@ describe('createSearchKeyboardRouter', () => {
         expect(router.route({ key: 'PageDown' })).toBe(true);
         expect(router.route({ key: 'ContextMenu' })).toBe(true);
         expect(router.route({ key: 'F10', shiftKey: true })).toBe(true);
-        expect(router.route({ key: 'g', ctrlKey: true })).toBe(true);
-        expect(router.route({ key: 'G', metaKey: true })).toBe(true);
 
         expect(callbacks.onQuickSearchPageUp).toHaveBeenCalledTimes(1);
         expect(callbacks.onQuickSearchPageDown).toHaveBeenCalledTimes(1);
         expect(callbacks.onQuickSearchContextMenu).toHaveBeenCalledTimes(2);
-        expect(callbacks.onQuickSearchToggleView).toHaveBeenCalledTimes(2);
+    });
+
+    it('routes quick-search view toggle through the current keybinding configuration', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            isQuickSearchOpen: () => true,
+            hasQuickSearchHighlight: () => false,
+        });
+
+        expect(router.route({ key: 'g', ctrlKey: true })).toBe(true);
+        await flushAsyncWork();
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
+            'search.quickSearch.toggleView'
+        );
+
+        const disabledRouter = createKeyboardRouter({
+            isQuickSearchOpen: () => true,
+            getSearchKeybindings: () => ({
+                ...createDefaultSearchKeybindings(),
+                'search.quickSearch.toggleView': null,
+            }),
+        });
+        expect(disabledRouter.router.route({ key: 'g', ctrlKey: true })).toBe(false);
+        await flushAsyncWork();
+        expect(disabledRouter.callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+
+        const closedRouter = createKeyboardRouter({
+            isQuickSearchOpen: () => false,
+        });
+        expect(closedRouter.router.route({ key: 'g', ctrlKey: true })).toBe(false);
+        await flushAsyncWork();
+        expect(closedRouter.callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
     });
 
     it('routes highlighted quick-search navigation and opening through the quick-search contract', async () => {

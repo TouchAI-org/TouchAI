@@ -371,6 +371,7 @@
         modelOverride,
         modelDropdownState,
         modelDropdownQuery,
+        getModelToggleShortcut: () => searchKeybindings.value['search.model.toggle'],
         requestModelDropdownOpen,
         handleQuickSearchClosedForModelDropdown,
         handleLayoutStableForModelDropdown,
@@ -417,6 +418,11 @@
                 return;
             case 'search.model.toggle':
                 await handleToggleModelDropdownRequest();
+                return;
+            case 'search.quickSearch.toggleView':
+                if (isQuickSearchOpen.value) {
+                    controller.toggleQuickSearchView();
+                }
                 return;
             case 'search.window.pin':
                 await handleToggleWindowPin();
@@ -470,6 +476,7 @@
             activeSessionId: currentSessionId.value,
             searchQuery: sessionListQuery.value,
             isLoading: isSessionListLoading.value,
+            toggleShortcut: searchKeybindings.value['search.history.open'],
         };
     }
 

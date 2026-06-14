@@ -667,8 +667,8 @@ export const zhToEnTextMap = {
     加载设置失败: 'Failed to load settings',
     快捷键保存成功: 'Shortcut saved',
     搜索窗口尺寸已更新: 'Search window size updated',
-    '不支持 Win 键组合，请使用 Ctrl、Alt、Shift':
-        'Win key combinations are not supported. Use Ctrl, Alt, or Shift.',
+    '不支持 Win/Super 键组合，请使用 Ctrl、Alt、Shift':
+        'Win/Super key combinations are not supported. Use Ctrl, Alt, or Shift.',
     '确定要删除服务器 "{serverName}" 吗？': 'Delete server "{serverName}"?',
     标准输入输出: 'Standard input/output',
     '兼容Streamable HTTP与SSE': 'Compatible with Streamable HTTP and SSE',

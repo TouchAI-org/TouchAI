@@ -41,6 +41,7 @@ describe('search keybinding configuration', () => {
             'search.session.new': 'Mod+N',
             'search.session.reopenLastClosed': 'Mod+Shift+T',
             'search.model.toggle': 'Mod+M',
+            'search.quickSearch.toggleView': 'Mod+G',
             'search.window.pin': 'Mod+P',
             'search.window.maximize': 'F11',
             'search.settings.open': 'Mod+,',

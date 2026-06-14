@@ -756,9 +756,6 @@ export function createSearchKeydownHandler(
         onQuickSearchContextMenu: () => {
             controller.openQuickSearchContextMenu();
         },
-        onQuickSearchToggleView: () => {
-            controller.toggleQuickSearchView();
-        },
         onQuickSearchCollapse: () => {
             controller.collapseQuickSearch();
         },
@@ -807,6 +804,11 @@ export function createSearchKeydownHandler(
                     return;
                 case 'search.model.toggle':
                     await toggleModelDropdown();
+                    return;
+                case 'search.quickSearch.toggleView':
+                    if (isQuickSearchOpen.value) {
+                        controller.toggleQuickSearchView();
+                    }
                     return;
                 case 'search.window.pin':
                     await toggleWindowPin();
