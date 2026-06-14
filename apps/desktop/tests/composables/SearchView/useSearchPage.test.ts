@@ -131,6 +131,7 @@ function createController() {
         focusSearchInput: vi.fn().mockResolvedValue(undefined),
         loadActiveModel: vi.fn().mockResolvedValue(undefined),
         invalidateModelDropdownData: vi.fn(),
+        isQuickSearchOpen: vi.fn(() => false),
     };
 }
 
@@ -308,7 +309,11 @@ describe('useSearchPageLifecycle', () => {
     });
 
     it('syncs search surface shortcuts and delegates host accelerator commands', async () => {
-        const controller = createController();
+        const quickSearchOpen = ref(false);
+        const controller = {
+            ...createController(),
+            isQuickSearchOpen: vi.fn(() => quickSearchOpen.value),
+        };
         const interactionContext = createSearchInteractionContext();
         const searchKeybindings = ref(createDefaultSearchKeybindings());
         const handleSearchSurfaceCommand = vi.fn().mockResolvedValue(undefined);
@@ -353,6 +358,14 @@ describe('useSearchPageLifecycle', () => {
                 },
             ])
         );
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenCalledWith(
+            expect.not.arrayContaining([
+                {
+                    actionId: 'search.quickSearch.toggleView',
+                    shortcut: 'Mod+G',
+                },
+            ])
+        );
 
         const commandHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_COMMAND);
         expect(commandHandler).toBeDefined();
@@ -368,6 +381,30 @@ describe('useSearchPageLifecycle', () => {
             shortcut: 'Mod+M',
             source: 'webview2-accelerator',
         });
+
+        quickSearchOpen.value = true;
+        await flushLifecycle();
+
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenLastCalledWith(
+            expect.arrayContaining([
+                {
+                    actionId: 'search.quickSearch.toggleView',
+                    shortcut: 'Mod+G',
+                },
+            ])
+        );
+
+        quickSearchOpen.value = false;
+        await flushLifecycle();
+
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenLastCalledWith(
+            expect.not.arrayContaining([
+                {
+                    actionId: 'search.quickSearch.toggleView',
+                    shortcut: 'Mod+G',
+                },
+            ])
+        );
 
         searchKeybindings.value = {
             ...searchKeybindings.value,

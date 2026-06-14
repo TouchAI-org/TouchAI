@@ -16,7 +16,11 @@ import { runStartupTasks } from '@services/StartupService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
-import { SEARCH_KEYBINDING_DEFINITIONS, type SearchKeybindings } from '@/config/searchKeybindings';
+import {
+    SEARCH_KEYBINDING_DEFINITIONS,
+    type SearchKeybindingActionId,
+    type SearchKeybindings,
+} from '@/config/searchKeybindings';
 import { type MessageKey, type MessageParams, t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { isE2eTestMode } from '@/utils/runtimeMode';
@@ -39,8 +43,30 @@ import { useModelDropdownPopup } from './useModelDropdownPopup';
 
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
 
-function buildSearchSurfaceShortcutEntries(searchKeybindings: SearchKeybindings) {
+interface SearchSurfaceShortcutSyncContext {
+    quickSearchOpen: boolean;
+}
+
+function shouldSyncSearchSurfaceShortcutToNative(
+    actionId: SearchKeybindingActionId,
+    context: SearchSurfaceShortcutSyncContext
+) {
+    if (actionId === 'search.quickSearch.toggleView') {
+        return context.quickSearchOpen;
+    }
+
+    return true;
+}
+
+function buildSearchSurfaceShortcutEntries(
+    searchKeybindings: SearchKeybindings,
+    context: SearchSurfaceShortcutSyncContext
+) {
     return SEARCH_KEYBINDING_DEFINITIONS.flatMap((definition) => {
+        if (!shouldSyncSearchSurfaceShortcutToNative(definition.id, context)) {
+            return [];
+        }
+
         const shortcut = normalizeLocalShortcutString(searchKeybindings[definition.id]);
         return shortcut ? [{ actionId: definition.id, shortcut }] : [];
     });
@@ -590,7 +616,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
         try {
             await native.shortcut.setSearchSurfaceShortcuts(
-                buildSearchSurfaceShortcutEntries(searchKeybindings.value)
+                buildSearchSurfaceShortcutEntries(searchKeybindings.value, {
+                    quickSearchOpen: controller.isQuickSearchOpen(),
+                })
             );
         } catch (error) {
             console.error('[SearchView] Failed to sync search surface shortcuts:', error);
@@ -656,7 +684,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
 
         stopSearchSurfaceShortcutWatch = watch(
-            searchKeybindings,
+            [searchKeybindings, () => controller.isQuickSearchOpen()],
             () => {
                 void syncSearchSurfaceShortcutsSafely();
             },
