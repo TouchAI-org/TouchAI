@@ -140,15 +140,16 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
     }
 
     const candidates = value as Record<string, unknown>;
+    const resolved = new Map<
+        SearchKeybindingActionId,
+        { shortcut: string | null; isPersisted: boolean }
+    >();
 
-    // 第一轮：先解析每个动作期望使用的快捷键（合法自定义值、显式禁用或默认值），
-    // 暂不处理快捷键冲突。
-    const resolved = new Map<SearchKeybindingActionId, string | null>();
     for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
         const candidate = candidates[definition.id];
 
         if (candidate === null && definition.allowDisable) {
-            resolved.set(definition.id, null);
+            resolved.set(definition.id, { shortcut: null, isPersisted: true });
             continue;
         }
 
@@ -161,30 +162,42 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
                 const passesModifierPolicy =
                     hasCommandModifier(shortcut) || allowsModifierlessFunction;
                 if (passesModifierPolicy && !isReservedLocalShortcut(shortcut)) {
-                    resolved.set(definition.id, shortcut);
+                    resolved.set(definition.id, { shortcut, isPersisted: true });
                     continue;
                 }
             }
         }
 
-        resolved.set(definition.id, defaults[definition.id]);
+        resolved.set(definition.id, {
+            shortcut: defaults[definition.id],
+            isPersisted: false,
+        });
     }
 
-    // 第二轮：按定义顺序稳定处理冲突，先出现的动作保留快捷键。
-    // 这样干净的快捷键互换不会因为撞到对方默认值而被同时丢弃。
     const result = createDefaultSearchKeybindings();
+    const assignedActionIds = new Set<SearchKeybindingActionId>();
     const usedShortcuts = new Set<string>();
-    for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
-        const desired = resolved.get(definition.id) ?? null;
+
+    function assignShortcut(
+        definition: SearchKeybindingDefinition,
+        desired: string | null,
+        fallbackOnConflict = true
+    ) {
         if (desired === null) {
             result[definition.id] = null;
-            continue;
+            assignedActionIds.add(definition.id);
+            return true;
         }
 
         if (!usedShortcuts.has(desired)) {
             usedShortcuts.add(desired);
             result[definition.id] = desired;
-            continue;
+            assignedActionIds.add(definition.id);
+            return true;
+        }
+
+        if (!fallbackOnConflict) {
+            return false;
         }
 
         const fallback = normalizeLocalShortcutString(definition.defaultShortcut);
@@ -194,6 +207,25 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
         } else {
             result[definition.id] = null;
         }
+        assignedActionIds.add(definition.id);
+        return true;
+    }
+
+    for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
+        const resolvedShortcut = resolved.get(definition.id);
+        if (!resolvedShortcut?.isPersisted) {
+            continue;
+        }
+
+        assignShortcut(definition, resolvedShortcut.shortcut, false);
+    }
+
+    for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
+        if (assignedActionIds.has(definition.id)) {
+            continue;
+        }
+
+        assignShortcut(definition, defaults[definition.id]);
     }
 
     return result;

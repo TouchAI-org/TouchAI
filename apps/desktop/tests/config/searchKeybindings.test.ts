@@ -100,6 +100,43 @@ describe('search keybinding configuration', () => {
         });
     });
 
+    it('does not let duplicate fallback defaults steal later persisted shortcuts', () => {
+        expect(
+            normalizeSearchKeybindings({
+                'search.history.open': 'Ctrl+Y',
+                'search.input.focus': 'Ctrl+Y',
+                'search.settings.open': 'Ctrl+L',
+            })
+        ).toEqual({
+            ...createDefaultSearchKeybindings(),
+            'search.history.open': 'Mod+Y',
+            'search.input.focus': null,
+            'search.settings.open': 'Mod+L',
+        });
+    });
+
+    it('preserves persisted shortcuts when they conflict with newly added defaults', () => {
+        expect(
+            normalizeSearchKeybindings({
+                'search.window.pin': 'Mod+G',
+            })
+        ).toEqual({
+            ...createDefaultSearchKeybindings(),
+            'search.quickSearch.toggleView': null,
+            'search.window.pin': 'Mod+G',
+        });
+    });
+
+    it('keeps normalized key order stable for persistence', () => {
+        expect(
+            Object.keys(
+                normalizeSearchKeybindings({
+                    'search.window.pin': 'Mod+G',
+                })
+            )
+        ).toEqual(SEARCH_KEYBINDING_ACTION_IDS);
+    });
+
     it('falls back to defaults for invalid persisted payloads', () => {
         const defaults = createDefaultSearchKeybindings();
 
