@@ -78,6 +78,11 @@ describe('shortcut utilities', () => {
         expect(resolveKeyboardEventShortcutKey(' ', null)).toBe('Space');
         expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'F2')).toBe('F2');
         expect(resolveKeyboardEventShortcutKey('F2', 'F3')).toBe('F2');
+        expect(resolveKeyboardEventShortcutKey('!', 'Digit1')).toBe('1');
+        expect(resolveKeyboardEventShortcutKey('@', 'Digit2')).toBe('2');
+        expect(resolveKeyboardEventShortcutKey('<', 'Comma')).toBe(',');
+        expect(resolveKeyboardEventShortcutKey('?', 'Slash')).toBe('/');
+        expect(resolveKeyboardEventShortcutKey('+', 'Equal')).toBe('=');
         expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'F25')).toBeNull();
         expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'F13')).toBeNull();
         expect(resolveKeyboardEventShortcutKey('@')).toBeNull();
@@ -94,6 +99,22 @@ describe('shortcut utilities', () => {
         expect(matchShortcut('Ctrl+H', { key: 'h' })).toBe(false);
         expect(
             matchShortcut('Alt+Shift+Del', { key: 'Delete', altKey: true, shiftKey: true })
+        ).toBe(true);
+        expect(
+            matchShortcut('Mod+Shift+1', {
+                key: '!',
+                code: 'Digit1',
+                ctrlKey: true,
+                shiftKey: true,
+            })
+        ).toBe(true);
+        expect(
+            matchShortcut('Mod+Shift+,', {
+                key: '<',
+                code: 'Comma',
+                ctrlKey: true,
+                shiftKey: true,
+            })
         ).toBe(true);
         expect(matchShortcut('Alt+Shift+Del', { key: 'Delete', altKey: true })).toBe(false);
         expect(matchShortcut(null, { key: 'h' })).toBe(false);
@@ -129,6 +150,19 @@ describe('shortcut utilities', () => {
         ).toEqual({
             shortcut: 'Mod+Alt+Shift+F2',
             displayShortcut: 'Ctrl+Alt+Shift+F2',
+        });
+        expect(
+            captureShortcutFromKeyboardEvent(
+                new KeyboardEvent('keydown', {
+                    key: '!',
+                    code: 'Digit1',
+                    ctrlKey: true,
+                    shiftKey: true,
+                })
+            )
+        ).toEqual({
+            shortcut: 'Mod+Shift+1',
+            displayShortcut: 'Ctrl+Shift+1',
         });
 
         setPlatform('MacIntel');

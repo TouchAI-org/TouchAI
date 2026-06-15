@@ -653,7 +653,7 @@ describe('SettingsGeneralSection', () => {
         });
     });
 
-    it('rejects captured plus shortcuts instead of saving a disabled shortcut', async () => {
+    it('captures shifted punctuation shortcuts through their physical key code', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -674,22 +674,11 @@ describe('SettingsGeneralSection', () => {
         );
         await flushPromises();
 
-        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
-        expect((input.element as HTMLInputElement).value).toBe('Ctrl+H');
-
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F13' }));
-        await flushPromises();
-
-        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
-        expect((input.element as HTMLInputElement).value).toBe('Ctrl+H');
-
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F1' }));
-        await flushPromises();
-
         expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith({
             ...settingsStoreMock.settings.value.searchKeybindings,
-            'search.history.open': 'F1',
+            'search.history.open': 'Mod+Shift+=',
         });
+        expect((input.element as HTMLInputElement).value).toBe('Ctrl+Shift+=');
     });
 
     it('reports unsupported mac command search shortcuts without showing the Windows key warning', async () => {

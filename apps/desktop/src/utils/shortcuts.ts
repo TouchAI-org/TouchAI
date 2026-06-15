@@ -78,6 +78,30 @@ const KEY_DISPLAY_MAP: Record<string, string> = {
     ',': ',',
 };
 
+const CODE_KEY_MAP: Record<string, string> = {
+    Digit0: '0',
+    Digit1: '1',
+    Digit2: '2',
+    Digit3: '3',
+    Digit4: '4',
+    Digit5: '5',
+    Digit6: '6',
+    Digit7: '7',
+    Digit8: '8',
+    Digit9: '9',
+    Comma: ',',
+    Period: '.',
+    Equal: '=',
+    Minus: '-',
+    Semicolon: ';',
+    Slash: '/',
+    Quote: "'",
+    Backquote: '`',
+    BracketLeft: '[',
+    BracketRight: ']',
+    Backslash: '\\',
+};
+
 const ALIAS_MAP: Record<string, string> = {
     mod: 'Mod',
     cmd: 'Mod',
@@ -180,14 +204,27 @@ function normalizeFunctionKeyCode(code: string | null | undefined): string | nul
     return normalizedCode && /^F\d{1,2}$/.test(normalizedCode) ? normalizedCode : null;
 }
 
+function normalizePrintableKeyCode(code: string | null | undefined): string | null {
+    if (!code) {
+        return null;
+    }
+
+    return normalizeShortcutToken(CODE_KEY_MAP[code] ?? '');
+}
+
 export function resolveKeyboardEventShortcutKey(
     key: string | null | undefined,
     code?: string | null
 ): string | null {
-    const normalizedKey = normalizeEventKey(key ?? '');
+    const rawKey = key ?? '';
+    const normalizedKey = normalizeEventKey(rawKey);
     const normalizedFunctionKeyCode = normalizeFunctionKeyCode(code);
     if (normalizedFunctionKeyCode && (!normalizedKey || !/^F\d{1,2}$/.test(normalizedKey))) {
         return normalizedFunctionKeyCode;
+    }
+
+    if (!normalizedKey && rawKey.length === 1) {
+        return normalizePrintableKeyCode(code);
     }
 
     return normalizedKey;
