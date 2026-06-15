@@ -82,19 +82,19 @@ export const findModelsWithProvider = async (
     payload: FindModelsWithProviderPayload = {}
 ): Promise<ModelWithProvider[]> => {
     const { providerId } = payload;
-    const query = db
-        .select(modelWithProviderSelection)
-        .from(models)
-        .innerJoin(providers, eq(providers.id, models.provider_id));
 
+    const whereConditions = [eq(models.is_selected, 1)];
     if (providerId !== undefined) {
-        return (await query
-            .where(eq(models.provider_id, providerId))
-            .orderBy(desc(models.is_default), models.id)
-            .all()) as ModelWithProvider[];
+        whereConditions.push(eq(models.provider_id, providerId));
     }
 
-    return (await query.orderBy(desc(models.is_default), models.id).all()) as ModelWithProvider[];
+    return (await db
+        .select(modelWithProviderSelection)
+        .from(models)
+        .innerJoin(providers, eq(providers.id, models.provider_id))
+        .where(and(...whereConditions))
+        .orderBy(desc(models.is_default), models.id)
+        .all()) as ModelWithProvider[];
 };
 
 /**

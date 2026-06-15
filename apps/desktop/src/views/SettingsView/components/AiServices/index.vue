@@ -615,6 +615,12 @@
     const handleSetDefaultModel = async (id: number) => {
         try {
             const nextDefaultModel = findCachedModel(id);
+
+            // If the model is not in selection area, add it first
+            if (nextDefaultModel && nextDefaultModel.is_selected === 0) {
+                await updateModelsSelected([id], 1);
+            }
+
             await setDefaultModel({ modelId: id });
             defaultModelId.value = id;
             defaultModelProviderId.value =
@@ -627,6 +633,7 @@
                     providerModels.map((model) => ({
                         ...model,
                         is_default: model.id === id ? 1 : 0,
+                        is_selected: model.id === id ? 1 : model.is_selected,
                     }))
                 );
             }
