@@ -105,7 +105,8 @@ impl<'a> HtmlClipboardFragmentExtractor<'a> {
     /// 处理开始标签并更新上下文。
     fn handle_start_tag(&mut self, tag: &StartTag<()>) {
         let tag_name = tag_name_to_string(&tag.name);
-        let is_hidden = is_hidden_html_element(&tag.attributes);
+        let is_hidden =
+            is_hidden_html_element(&tag.attributes) || is_non_visible_html_element(&tag_name);
 
         if is_hidden {
             self.skip_hidden_depth += 1;
@@ -299,6 +300,14 @@ fn is_void_html_tag(tag_name: &str) -> bool {
             | "source"
             | "track"
             | "wbr"
+    )
+}
+
+/// 判断标签内容是否不属于用户可见正文。
+fn is_non_visible_html_element(tag_name: &str) -> bool {
+    matches!(
+        tag_name,
+        "head" | "style" | "script" | "noscript" | "template" | "meta" | "link" | "title"
     )
 }
 
@@ -534,5 +543,39 @@ fn extract_html_text(html: &str) -> Option<String> {
         None
     } else {
         Some(normalized)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_html_clipboard_fragments, ClipboardHtmlFragment};
+
+    #[test]
+    fn html_fragment_extraction_skips_word_style_metadata() {
+        let html = r#"
+            <html>
+                <head>
+                    <style>
+                        p.MsoNormal { margin: 0cm; font-size: 11pt; }
+                        .apple-converted-space { white-space: pre; }
+                    </style>
+                    <script>window.__officePaste = true;</script>
+                </head>
+                <body>
+                    <p class="MsoNormal">Visible Word text</p>
+                    <style>.late-rule { color: red; }</style>
+                    <p>Second line</p>
+                </body>
+            </html>
+        "#;
+
+        let fragments = extract_html_clipboard_fragments(html, None);
+
+        assert_eq!(
+            fragments,
+            vec![ClipboardHtmlFragment::Text(
+                "Visible Word text\nSecond line".to_string()
+            )]
+        );
     }
 }

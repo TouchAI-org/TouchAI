@@ -9,6 +9,7 @@
         data-no-i18n="true"
         translate="no"
         @click="handleMarkdownClick"
+        @copy="handleMarkdownCopy"
     >
         <MarkdownRender
             :key="markdownRenderKey"
@@ -275,6 +276,270 @@
     const codeBlockLightTheme = 'one-light';
     const codeBlockDarkTheme = 'one-dark-pro';
     const codeBlockThemes = [codeBlockLightTheme, codeBlockDarkTheme];
+    const clipboardBlockTags = new Set([
+        'address',
+        'article',
+        'aside',
+        'blockquote',
+        'dd',
+        'div',
+        'dl',
+        'dt',
+        'figcaption',
+        'figure',
+        'footer',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'header',
+        'hr',
+        'li',
+        'main',
+        'nav',
+        'ol',
+        'p',
+        'pre',
+        'section',
+        'ul',
+    ]);
+
+    function escapeClipboardHtml(value: string): string {
+        return value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function normalizeClipboardCellText(cell: HTMLTableCellElement): string {
+        return (cell.textContent ?? '').replace(/\s+/g, ' ').trim();
+    }
+
+    function serializeTableSectionForClipboard(
+        section: HTMLTableSectionElement | null,
+        sectionTag: 'thead' | 'tbody' | 'tfoot'
+    ): { html: string; textRows: string[] } {
+        if (!section) {
+            return { html: '', textRows: [] };
+        }
+
+        let html = `<${sectionTag}>`;
+        const textRows: string[] = [];
+
+        for (const row of Array.from(section.rows)) {
+            html += '<tr>';
+            const textCells: string[] = [];
+
+            for (const cell of Array.from(row.cells)) {
+                const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : 'td';
+                const text = normalizeClipboardCellText(cell);
+                const colspan = cell.colSpan > 1 ? ` colspan="${cell.colSpan}"` : '';
+                const rowspan = cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : '';
+
+                html += `<${tag}${colspan}${rowspan}>${escapeClipboardHtml(text)}</${tag}>`;
+                textCells.push(text);
+            }
+
+            html += '</tr>';
+            textRows.push(textCells.join('\t'));
+        }
+
+        html += `</${sectionTag}>`;
+        return { html, textRows };
+    }
+
+    function serializeLooseTableRowsForClipboard(table: HTMLTableElement) {
+        const sectionRows = new Set<HTMLTableRowElement>([
+            ...Array.from(table.tHead?.rows ?? []),
+            ...Array.from(table.tBodies).flatMap((section) => Array.from(section.rows)),
+            ...Array.from(table.tFoot?.rows ?? []),
+        ]);
+        const looseRows = Array.from(table.rows).filter((row) => !sectionRows.has(row));
+
+        if (!looseRows.length) {
+            return { html: '', textRows: [] };
+        }
+
+        let html = '<tbody>';
+        const textRows: string[] = [];
+
+        for (const row of looseRows) {
+            html += '<tr>';
+            const textCells: string[] = [];
+
+            for (const cell of Array.from(row.cells)) {
+                const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : 'td';
+                const text = normalizeClipboardCellText(cell);
+                const colspan = cell.colSpan > 1 ? ` colspan="${cell.colSpan}"` : '';
+                const rowspan = cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : '';
+
+                html += `<${tag}${colspan}${rowspan}>${escapeClipboardHtml(text)}</${tag}>`;
+                textCells.push(text);
+            }
+
+            html += '</tr>';
+            textRows.push(textCells.join('\t'));
+        }
+
+        html += '</tbody>';
+        return { html, textRows };
+    }
+
+    function serializeTableForClipboard(table: HTMLTableElement): { html: string; text: string } {
+        const sections = [
+            serializeTableSectionForClipboard(table.tHead, 'thead'),
+            ...Array.from(table.tBodies).map((section) =>
+                serializeTableSectionForClipboard(section, 'tbody')
+            ),
+            serializeLooseTableRowsForClipboard(table),
+            serializeTableSectionForClipboard(table.tFoot, 'tfoot'),
+        ];
+
+        return {
+            html: `<table>${sections.map((section) => section.html).join('')}</table>`,
+            text: sections
+                .flatMap((section) => section.textRows)
+                .filter(Boolean)
+                .join('\n'),
+        };
+    }
+
+    function cloneSelectedMarkdownContents(): HTMLDivElement | null {
+        const container = markdownContainerRef.value;
+        const selection = window.getSelection();
+        if (!container || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            return null;
+        }
+
+        const wrapper = document.createElement('div');
+        for (let index = 0; index < selection.rangeCount; index += 1) {
+            const range = selection.getRangeAt(index);
+            if (!range.intersectsNode(container)) {
+                continue;
+            }
+
+            wrapper.append(range.cloneContents());
+        }
+
+        return wrapper.hasChildNodes() ? wrapper : null;
+    }
+
+    function replaceRenderedTablesWithSemanticTables(root: HTMLElement) {
+        for (const table of Array.from(root.querySelectorAll<HTMLTableElement>('table'))) {
+            const template = document.createElement('template');
+            template.innerHTML = serializeTableForClipboard(table).html;
+            const semanticTable = template.content.firstElementChild;
+
+            if (semanticTable instanceof HTMLTableElement) {
+                table.replaceWith(semanticTable);
+            }
+        }
+    }
+
+    function normalizeClipboardPlainText(value: string): string {
+        return value
+            .replace(/\u00a0/g, ' ')
+            .replace(/[ \t]+\n/g, '\n')
+            .replace(/\n[ \t]+/g, '\n')
+            .replace(/\n{2,}/g, '\n')
+            .trim();
+    }
+
+    function serializeNodePlainTextForClipboard(node: Node): string {
+        if (node.nodeType === Node.TEXT_NODE) {
+            return node.textContent ?? '';
+        }
+
+        if (!(node instanceof HTMLElement)) {
+            return Array.from(node.childNodes).map(serializeNodePlainTextForClipboard).join('');
+        }
+
+        const tagName = node.tagName.toLowerCase();
+        if (tagName === 'br') {
+            return '\n';
+        }
+        if (node instanceof HTMLTableElement) {
+            return `\n${serializeTableForClipboard(node).text}\n`;
+        }
+
+        const text = Array.from(node.childNodes).map(serializeNodePlainTextForClipboard).join('');
+        if (!clipboardBlockTags.has(tagName)) {
+            return text;
+        }
+
+        const trimmed = text.trim();
+        return trimmed ? `\n${trimmed}\n` : '';
+    }
+
+    function serializeSelectionPlainTextForClipboard(root: Node): string {
+        return normalizeClipboardPlainText(
+            Array.from(root.childNodes).map(serializeNodePlainTextForClipboard).join('')
+        );
+    }
+
+    function findSelectedMarkdownTables(): HTMLTableElement[] {
+        const container = markdownContainerRef.value;
+        const selection = window.getSelection();
+        if (!container || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            return [];
+        }
+
+        const tables = Array.from(container.querySelectorAll<HTMLTableElement>('table'));
+        if (!tables.length) {
+            return [];
+        }
+
+        const selectedTables: HTMLTableElement[] = [];
+        for (let index = 0; index < selection.rangeCount; index += 1) {
+            const range = selection.getRangeAt(index);
+            for (const table of tables) {
+                if (range.intersectsNode(table) && !selectedTables.includes(table)) {
+                    selectedTables.push(table);
+                }
+            }
+        }
+
+        return selectedTables;
+    }
+
+    function handleMarkdownCopy(event: ClipboardEvent) {
+        const clipboardData = event.clipboardData;
+        if (!clipboardData) {
+            return;
+        }
+
+        const selectedTables = findSelectedMarkdownTables();
+        if (!selectedTables.length) {
+            return;
+        }
+
+        const selectedContents = cloneSelectedMarkdownContents();
+        if (selectedContents?.querySelector('table')) {
+            replaceRenderedTablesWithSemanticTables(selectedContents);
+            clipboardData.setData('text/html', selectedContents.innerHTML);
+            clipboardData.setData(
+                'text/plain',
+                serializeSelectionPlainTextForClipboard(selectedContents)
+            );
+        } else {
+            const serializedTables = selectedTables.map(serializeTableForClipboard);
+            clipboardData.setData(
+                'text/html',
+                serializedTables.map((table) => table.html).join('')
+            );
+            clipboardData.setData(
+                'text/plain',
+                serializedTables
+                    .map((table) => table.text)
+                    .filter(Boolean)
+                    .join('\n\n')
+            );
+        }
+        event.preventDefault();
+    }
 
     async function handleMarkdownClick(event: MouseEvent) {
         const target = event.target as HTMLElement | null;

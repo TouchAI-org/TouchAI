@@ -61,6 +61,18 @@ vi.mock('@/services/ClipboardService', () => ({
     },
 }));
 
+class ClipboardDataStub {
+    private readonly data = new Map<string, string>();
+
+    setData(type: string, value: string) {
+        this.data.set(type, value);
+    }
+
+    getData(type: string) {
+        return this.data.get(type) ?? '';
+    }
+}
+
 describe('MarkdownContent i18n', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
@@ -271,6 +283,121 @@ describe('MarkdownContent i18n', () => {
             body: 'Copied',
         });
 
+        wrapper.unmount();
+    });
+
+    it('copies selected tables as semantic clipboard HTML without rendered table styling', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: '| Name | Value |\n| --- | --- |\n| Alpha | 1 |',
+            },
+            attachTo: document.body,
+        });
+
+        const container = wrapper.element as HTMLElement;
+        container.innerHTML = `
+            <div class="markstream-vue">
+                <table class="table-node" style="border-collapse: separate; border-spacing: 0;">
+                    <thead>
+                        <tr>
+                            <th class="px-3">Name</th>
+                            <th class="px-3">Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="px-3">Alpha</td>
+                            <td class="px-3">1</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        const table = container.querySelector('table')!;
+        const range = document.createRange();
+        range.selectNode(table);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const clipboardData = new ClipboardDataStub();
+        const copyEvent = new Event('copy', {
+            bubbles: true,
+            cancelable: true,
+        }) as ClipboardEvent;
+        Object.defineProperty(copyEvent, 'clipboardData', {
+            value: clipboardData,
+        });
+
+        const prevented = !container.dispatchEvent(copyEvent);
+
+        expect(prevented).toBe(true);
+        expect(clipboardData.getData('text/plain')).toBe('Name\tValue\nAlpha\t1');
+        expect(clipboardData.getData('text/html')).toBe(
+            '<table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody><tr><td>Alpha</td><td>1</td></tr></tbody></table>'
+        );
+        expect(clipboardData.getData('text/html')).not.toContain('table-node');
+        expect(clipboardData.getData('text/html')).not.toContain('border-collapse');
+
+        selection.removeAllRanges();
+        wrapper.unmount();
+    });
+
+    it('preserves surrounding selected text when cleaning copied table HTML', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: 'Before\n\n| Name | Value |\n| --- | --- |\n| Alpha | 1 |\n\nAfter',
+            },
+            attachTo: document.body,
+        });
+
+        const container = wrapper.element as HTMLElement;
+        container.innerHTML = `
+            <div class="markstream-vue">
+                <p>Before</p>
+                <table class="table-node" style="border-collapse: separate;">
+                    <tbody>
+                        <tr>
+                            <td class="px-3">Alpha</td>
+                            <td class="px-3">1</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>After</p>
+            </div>
+        `;
+
+        const range = document.createRange();
+        range.selectNodeContents(container.querySelector('.markstream-vue')!);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const clipboardData = new ClipboardDataStub();
+        const copyEvent = new Event('copy', {
+            bubbles: true,
+            cancelable: true,
+        }) as ClipboardEvent;
+        Object.defineProperty(copyEvent, 'clipboardData', {
+            value: clipboardData,
+        });
+
+        const prevented = !container.dispatchEvent(copyEvent);
+
+        expect(prevented).toBe(true);
+        expect(clipboardData.getData('text/plain')).toBe('Before\nAlpha\t1\nAfter');
+        expect(clipboardData.getData('text/html')).toContain('<p>Before</p>');
+        expect(clipboardData.getData('text/html')).toContain(
+            '<table><tbody><tr><td>Alpha</td><td>1</td></tr></tbody></table>'
+        );
+        expect(clipboardData.getData('text/html')).toContain('<p>After</p>');
+        expect(clipboardData.getData('text/html')).not.toContain('table-node');
+        expect(clipboardData.getData('text/html')).not.toContain('border-collapse');
+
+        selection.removeAllRanges();
         wrapper.unmount();
     });
 });
