@@ -108,7 +108,7 @@ describe('ModelCard i18n', () => {
         const buttons = wrapper.findAll('button');
 
         expect(defaultRadio.attributes('title')).toBe('Enable this provider first');
-        expect(buttons[0]?.attributes('title')).toBe('Remove from selection');
+        expect(buttons[0]?.attributes('title')).toBe('Remove');
         expect(buttons[1]?.attributes('title')).toBe('Edit');
         expect(buttons[2]?.attributes('title')).toBe('Delete');
 
