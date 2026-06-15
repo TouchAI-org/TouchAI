@@ -9,6 +9,7 @@ import {
     githubRepositoryFromProduct,
     isDownloadAssetName,
     relativeUpdatePath,
+    versionFromAssetName,
 } from '../update-release-assets.mjs';
 
 const GITHUB_API_BASE_URL = 'https://api.github.com';
@@ -50,6 +51,10 @@ function githubHeaders(token) {
         headers.set('authorization', `Bearer ${token}`);
     }
     return headers;
+}
+
+function releaseVersionFromTag(tagName) {
+    return String(tagName ?? '').replace(/^v/u, '');
 }
 
 async function fetchGithubReleases(repository, fetchImpl, token) {
@@ -102,9 +107,14 @@ export async function planR2ReleaseAssetPrune(projectRoot, channel, options = {}
     const keys = [];
 
     for (const release of staleReleases) {
+        const releaseVersion = releaseVersionFromTag(release?.tag_name);
         for (const asset of release.assets ?? []) {
             const fileName = asset?.name;
-            if (!isDownloadAssetName(fileName) || channelFromAssetName(fileName) !== channel) {
+            if (
+                !isDownloadAssetName(fileName) ||
+                channelFromAssetName(fileName) !== channel ||
+                versionFromAssetName(fileName) !== releaseVersion
+            ) {
                 continue;
             }
             keys.push(`${updatePath}/${fileName}`);

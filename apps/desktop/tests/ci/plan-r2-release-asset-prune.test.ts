@@ -70,6 +70,7 @@ describe('planR2ReleaseAssetPrune', () => {
                     release('v0.2.0-beta.2', '2026-05-22T00:00:00Z', [
                         'TouchAI-beta-0.2.0-beta.2-windows-full.nupkg',
                         'TouchAI-beta-0.2.0-beta.2-windows-delta.nupkg',
+                        'TouchAI-beta-0.2.0-beta.20-windows-full.nupkg',
                         'release-notes.md',
                     ]),
                     release('v0.2.0', '2026-05-21T00:00:00Z', ['TouchAI-0.2.0-windows-full.nupkg']),
