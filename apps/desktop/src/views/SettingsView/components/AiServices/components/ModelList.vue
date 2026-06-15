@@ -521,9 +521,6 @@
                 </h3>
                 <span class="text-xs text-neutral-400">({{ selectionModels.length }})</span>
             </div>
-            <p class="text-xs text-neutral-400">
-                {{ t('settings.ai.modelSelectionAreaDescription') }}
-            </p>
             <ModelGroup
                 v-for="(group, index) in selectionModelGroups"
                 :key="provider?.id + group.groupKey + index"
@@ -552,9 +549,6 @@
                 </h3>
                 <span class="text-xs text-neutral-400">({{ supportModels.length }})</span>
             </div>
-            <p class="text-xs text-neutral-400">
-                {{ t('settings.ai.modelSupportAreaDescription') }}
-            </p>
             <ModelGroup
                 v-for="(group, index) in supportModelGroups"
                 :key="'support-' + provider?.id + group.groupKey + index"
