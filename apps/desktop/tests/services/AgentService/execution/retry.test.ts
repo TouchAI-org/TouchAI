@@ -4,6 +4,18 @@ import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { shouldRetryRequestFailure } from '@/services/AgentService/execution/retry';
 
 describe('AgentService retry policy', () => {
+    it('retries generic API errors when error details carry a retryable HTTP status', () => {
+        const error = new AiError(
+            AiErrorCode.API_ERROR,
+            {
+                statusCode: 429,
+            },
+            'HTTP 429'
+        );
+
+        expect(shouldRetryRequestFailure(error)).toBe(true);
+    });
+
     it('retries generic API errors when runtime provider details carry a retryable HTTP status', () => {
         const error = new AiError(AiErrorCode.API_ERROR, undefined, 'HTTP 503');
 

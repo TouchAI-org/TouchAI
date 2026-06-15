@@ -22,6 +22,12 @@ WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'DeepSeek');
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )
+SELECT 'Xiaomi MiMo', 'mimo', 'https://token-plan-cn.xiaomimimo.com/v1', NULL, NULL, 'mimo.png', 0, 1
+WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'Xiaomi MiMo');
+
+INSERT INTO providers (
+    name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
+)
 SELECT '火山引擎', 'openai', 'https://ark.cn-beijing.volces.com/api/v3', NULL, NULL, 'volcengine.png', 0, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = '火山引擎');
 
@@ -67,12 +73,6 @@ INSERT INTO providers (
 SELECT '智谱', 'zhipu', 'https://open.bigmodel.cn/api/paas/v4', NULL, NULL, 'zhipu.png', 0, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = '智谱');
 
-INSERT INTO providers (
-    name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
-)
-SELECT 'Xiaomi MiMo', 'mimo', 'https://token-plan-cn.xiaomimimo.com/v1', NULL, NULL, 'mimo.png', 0, 1
-WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'Xiaomi MiMo');
-
 UPDATE providers
 SET
     name = 'Xiaomi MiMo',
@@ -84,13 +84,23 @@ SET
     END,
     config_json = NULLIF(json_remove(COALESCE(config_json, '{}'), '$.managedAuth', '$.touchAiMode', '$.touchAiCustom'), '{}'),
     logo = 'mimo.png',
+    enabled = CASE
+        WHEN json_extract(config_json, '$.touchAiMode') = 'custom' THEN enabled
+        WHEN api_endpoint = 'https://hub.touch-ai.org/api/v1'
+            OR json_extract(config_json, '$.touchAiMode') = 'managed'
+            OR json_extract(config_json, '$.managedAuth') IS NOT NULL
+            OR api_key LIKE 'ta_live_%'
+            THEN 0
+        ELSE enabled
+    END,
     updated_at = CURRENT_TIMESTAMP
 WHERE is_builtin = 1
   AND driver = 'mimo'
   AND (api_endpoint = 'https://hub.touch-ai.org/api/v1'
     OR json_extract(config_json, '$.touchAiMode') IS NOT NULL
     OR json_extract(config_json, '$.managedAuth') IS NOT NULL
-    OR json_extract(config_json, '$.touchAiCustom') IS NOT NULL);
+    OR json_extract(config_json, '$.touchAiCustom') IS NOT NULL
+    OR api_key LIKE 'ta_live_%');
 
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json

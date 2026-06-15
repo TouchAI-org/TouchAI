@@ -9,6 +9,7 @@
 * **agent:** classify localized cancellation errors ([#339](https://github.com/TouchAI-org/TouchAI/issues/339)) ([c3d675e](https://github.com/TouchAI-org/TouchAI/commit/c3d675ee5b21ca17a2f98223d4ae02e2776808ec))
 * **agent:** sync switched model on active reattach ([#366](https://github.com/TouchAI-org/TouchAI/issues/366)) ([1ddc767](https://github.com/TouchAI-org/TouchAI/commit/1ddc767d81451377cd8e5161c1a12c4075a49791))
 * **ai-sdk:** retain streamed tool call names ([#362](https://github.com/TouchAI-org/TouchAI/issues/362)) ([eb372b1](https://github.com/TouchAI-org/TouchAI/commit/eb372b18708778a031f8a71fb81a9d920232db3c))
+* **desktop:** invalidate MiMo managed auth on bare 401 ([#408](https://github.com/TouchAI-org/TouchAI/issues/408)) ([6199d1c](https://github.com/TouchAI-org/TouchAI/commit/6199d1c65879b9fdca2257b405f627f37df4fa1a))
 * **desktop:** preserve message bubble line breaks ([#412](https://github.com/TouchAI-org/TouchAI/issues/412)) ([691b23a](https://github.com/TouchAI-org/TouchAI/commit/691b23a1fc8b3141887fc80104699b2a6f85ff93))
 * **desktop:** prevent shell vars from rendering as math ([#419](https://github.com/TouchAI-org/TouchAI/issues/419)) ([bd98f76](https://github.com/TouchAI-org/TouchAI/commit/bd98f76b1fbf99c71879e847ef3d8e2502babca7))
 * **markdown:** keep renderer mounted on final output ([#420](https://github.com/TouchAI-org/TouchAI/issues/420)) ([8287c9d](https://github.com/TouchAI-org/TouchAI/commit/8287c9da3637d0cd19fe31d3854402e319b5ca45))
@@ -36,6 +37,14 @@
 * **search:** remeasure window height on activation ([#382](https://github.com/TouchAI-org/TouchAI/issues/382)) ([d71a223](https://github.com/TouchAI-org/TouchAI/commit/d71a22310839a2003bbe88d553cf70f2447bd9e3))
 
 ## [1.0.0](https://github.com/TouchAI-org/TouchAI/compare/v0.1.0...v1.0.0) (2026-06-02)
+
+<p align="center">
+  <img src="/docs/images/touchai-mimo.png" alt="TouchAI × 小米 MIMO" />
+</p>
+
+> 2026 年 6 月 1 日至 6 月 14 日，**小米 MiMo 为 TouchAI 提供限免 Tokens 支持**。活动期间，MiMo 设为默认模型提供商，授权即用，轻松体验。
+
+---
 
 经过半年的密集开发，我们很高兴地宣布 **TouchAI 1.0.0** 正式发布！我们定义它为下一代桌面效率Agent，专为提升你的Agent使用效率设计。
 
@@ -102,12 +111,21 @@ v1.0.0 只是开始。接下来我们将继续重磅增强 Agent 能力：
 
 如有任何疑问、建议或问题：
 - 提交 [Issue](https://github.com/TouchAI-org/TouchAI/issues)
+- 前往 [TouchAI × Mimo 反馈专贴](https://github.com/TouchAI-org/TouchAI/discussions/348) 反馈
 
 ---
 
 # Changelog
 
 ## [1.0.0](https://github.com/TouchAI-org/TouchAI/compare/v0.1.0...v1.0.0) (2026-06-02)
+
+<p align="center">
+  <img src="/docs/images/touchai-mimo.png" alt="TouchAI × Xiaomi MiMo" />
+</p>
+
+> From **June 1 to June 14, 2026**, **Xiaomi MiMo offers complimentary token support for TouchAI**. During the event period, MiMo will be set as the default model provider — simply authorize and start using it for a seamless experience.
+
+---
 
 After six months of intensive development, we are thrilled to announce the official release of **TouchAI v1.0.0**! We define it as the next-generation desktop productivity Agent, purpose-built to supercharge your Agent workflow.
 
@@ -172,9 +190,10 @@ A heartfelt thank-you to everyone who contributed to TouchAI v1.0.0:
 
 For any questions, suggestions, or issues:
 - Submit an [Issue](https://github.com/TouchAI-org/TouchAI/issues)
+- Visit [TouchAI × MiMo Feedback Thread](https://github.com/TouchAI-org/TouchAI/discussions/348)
 
 ---
 
 **TouchAI v1.0.0 — Not just conversation, but action.**
 
-[Download Now](https://github.com/TouchAI-org/TouchAI/releases) · [Open Source](https://github.com/TouchAI-org/TouchAI) · [Feedback](https://github.com/TouchAI-org/TouchAI/issues)
+[Download Now](https://github.com/TouchAI-org/TouchAI/releases) · [Open Source](https://github.com/TouchAI-org/TouchAI) · [Feedback](https://github.com/TouchAI-org/TouchAI/discussions/348)

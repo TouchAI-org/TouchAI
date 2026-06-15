@@ -34,22 +34,22 @@ export function shouldRetryRequestFailure(
     error: AiError,
     details?: RetryableRequestErrorInfo | null
 ): boolean {
-    if (error.code === AiErrorCode.API_ERROR) {
-        if (
-            typeof details?.statusCode === 'number' &&
-            RETRYABLE_STATUS_CODES.has(details.statusCode)
-        ) {
-            return true;
-        }
-
-        return false;
-    }
-
     if (error.isRetryable()) {
         return true;
     }
 
-    // 检查 HTTP 状态码
+    const errorDetails =
+        error.details && typeof error.details === 'object'
+            ? (error.details as Record<string, unknown>)
+            : null;
+    const errorStatusCode =
+        typeof errorDetails?.statusCode === 'number' ? errorDetails.statusCode : undefined;
+
+    if (typeof errorStatusCode === 'number' && RETRYABLE_STATUS_CODES.has(errorStatusCode)) {
+        return true;
+    }
+
+    // 检查 HTTP 状态码；不依赖 provider 名称或错误来源
     if (typeof details?.statusCode === 'number' && RETRYABLE_STATUS_CODES.has(details.statusCode)) {
         return true;
     }
