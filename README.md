@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="https://touch-ai.org/">官网</a> · <a href="https://hub.touch-ai.org/">Hub 站</a>
+  <a href="https://touch-ai.org/">官网</a>
 </p>
 
 <p align="center">
@@ -26,10 +26,6 @@
 </p>
 
 ---
-
-<p align="center">
-  <img src="docs/images/touchai-mimo.png" alt="TouchAI × 小米 MIMO" />
-</p>
 
 ### 功能特性
 

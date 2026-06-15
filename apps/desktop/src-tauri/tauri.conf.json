@@ -51,13 +51,6 @@
         },
         "withGlobalTauri": true
     },
-    "plugins": {
-        "deep-link": {
-            "desktop": {
-                "schemes": ["touchai"]
-            }
-        }
-    },
     "bundle": {
         "active": true,
         "targets": "all",

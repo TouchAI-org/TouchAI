@@ -11,7 +11,6 @@
         provider: Provider;
         isSelected: boolean;
         hasDefaultModel: boolean;
-        promoted?: boolean;
     }
 
     interface Emits {
@@ -21,9 +20,7 @@
         (e: 'context-menu', event: MouseEvent): void;
     }
 
-    const props = withDefaults(defineProps<Props>(), {
-        promoted: false,
-    });
+    const props = defineProps<Props>();
     const emit = defineEmits<Emits>();
 
     const isToggleDisabled = computed(() => {
@@ -65,7 +62,6 @@
             :name="provider.name"
             size="small"
             :show-badge="provider.is_builtin === 1"
-            :promoted="promoted"
             class="shrink-0"
         />
 
