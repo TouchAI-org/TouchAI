@@ -268,6 +268,7 @@ describe('buildUpdateChannels', () => {
         const installerName = 'TouchAI-beta-0.1.1-beta.1-windows.msi';
         const fullPackageName = 'TouchAI-beta-0.1.1-beta.1-windows-full.nupkg';
         const deltaPackageName = 'TouchAI-beta-0.1.1-beta.1-windows-delta.nupkg';
+        const stalePrefixMatchName = 'TouchAI-beta-0.1.1-beta.10-windows-full.nupkg';
         const releaseTag = 'v0.1.1-beta.1';
         const expectedReleaseUrl = `${productFixture.repository.releasesUrl}/tag/${releaseTag}`;
         const expectedDownloadBaseUrl = productFixture.services.updates.baseUrl.replace(
@@ -279,6 +280,7 @@ describe('buildUpdateChannels', () => {
         await writeFile(join(releaseDir, installerName), 'installer');
         await writeFile(join(releaseDir, fullPackageName), 'full');
         await writeFile(join(releaseDir, deltaPackageName), 'delta');
+        await writeFile(join(releaseDir, stalePrefixMatchName), 'stale full');
         await writeFile(
             join(releaseDir, 'releases.beta.json'),
             JSON.stringify(
