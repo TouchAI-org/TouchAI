@@ -216,6 +216,31 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
+    it('hides the current popup session on unmount when the popup is still open', async () => {
+        const onPopupSessionEnd = vi.fn();
+        const mounted = await mountComposable(() =>
+            useModelDropdownPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isModelDropdownActive: () => true,
+                onModelSelect: () => undefined,
+                onModelSearchQueryChange: () => undefined,
+                onClose: () => undefined,
+                onPopupSessionEnd,
+            })
+        );
+
+        await mounted.result.open();
+        mounted.unmount();
+
+        expect(popupManager.hide).toHaveBeenCalledWith({
+            popupId: 'popup-model-dropdown-popup:1',
+            popupSessionVersion: 1,
+            windowLabel: 'popup-model-dropdown-popup',
+        });
+        expect(onPopupSessionEnd).toHaveBeenCalledTimes(1);
+    });
+
     it('closes the active popup session with the current identity', async () => {
         const onPopupSessionEnd = vi.fn();
         const mounted = await mountComposable(() =>

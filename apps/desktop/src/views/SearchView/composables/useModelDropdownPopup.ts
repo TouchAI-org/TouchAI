@@ -204,12 +204,29 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
 
     onUnmounted(() => {
         disposed = true;
+        const closingIdentity =
+            activePopupId !== null
+                ? {
+                      popupId: activePopupId,
+                      windowLabel: 'popup-model-dropdown-popup',
+                      popupSessionVersion: parsePopupSessionVersion(activePopupId),
+                  }
+                : null;
+        const shouldHidePopup = hasActivePopupSession || isOpen.value;
         cleanupFn?.();
         cleanupFn = null;
         activePopupId = null;
         hasActivePopupSession = false;
         isOpen.value = false;
         onPopupSessionEnd?.();
+
+        if (!shouldHidePopup || !closingIdentity) {
+            return;
+        }
+
+        void popupManager.hide(closingIdentity).catch((error) => {
+            console.error('[SearchView] Failed to hide model dropdown popup on unmount:', error);
+        });
     });
 
     /**
