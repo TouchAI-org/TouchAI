@@ -1,4 +1,4 @@
-﻿import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, vi } from 'vitest';
 
 import AiServicesSection from '@/views/SettingsView/components/AiServices/index.vue';
@@ -113,7 +113,7 @@ describe('SettingsAiServicesSection', () => {
         queries.findAllProvidersSorted.mockResolvedValue([
             {
                 id: 1,
-                name: '鐏北寮曟搸',
+                name: '火山引擎',
                 driver: 'openai',
                 api_endpoint: 'https://api.example.com',
                 api_key: null,
@@ -148,7 +148,7 @@ describe('SettingsAiServicesSection', () => {
 
         await flushPromises();
 
-        expect(wrapper.text()).toContain('鐏北寮曟搸');
+        expect(wrapper.text()).toContain('火山引擎');
         expect(wrapper.find('[data-testid="settings-provider-driver-badge"]').exists()).toBe(false);
         expect(wrapper.find('[data-testid="settings-provider-edit-button"]').exists()).toBe(false);
     });
