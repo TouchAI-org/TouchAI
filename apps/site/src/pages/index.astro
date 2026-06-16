@@ -832,8 +832,8 @@ const structuredData = JSON.stringify({
                 --page-bg: transparent;
                 width: min(100%, 472px);
                 max-width: 472px;
-                height: auto;
-                aspect-ratio: 760 / 657;
+                height: var(--feature-demo-height, 35px);
+                min-height: 35px;
                 padding: 0;
                 border: 0;
                 position: relative;
@@ -874,8 +874,8 @@ const structuredData = JSON.stringify({
                 --page-bg: transparent;
                 width: min(100%, 472px);
                 max-width: 472px;
-                height: auto;
-                aspect-ratio: 760 / 657;
+                height: var(--feature-demo-height, 35px);
+                min-height: 35px;
                 padding: 0;
                 border: 0;
                 position: relative;
@@ -916,8 +916,8 @@ const structuredData = JSON.stringify({
                 --page-bg: transparent;
                 width: min(100%, 472px);
                 max-width: 472px;
-                height: auto;
-                aspect-ratio: 760 / 657;
+                height: var(--feature-demo-height, 35px);
+                min-height: 35px;
                 padding: 0;
                 border: 0;
                 position: relative;
@@ -2275,15 +2275,6 @@ const structuredData = JSON.stringify({
                     GitHub
                 </a>
                 <a href={docsUrl} target="_blank" rel="noreferrer" data-i18n="footer.docs">文档</a>
-                <a
-                    href={`${repoUrl}/issues`}
-                    target="_blank"
-                    rel="noreferrer"
-                    data-analytics-event="open_issues"
-                    data-i18n="footer.contact"
-                >
-                    联系我们
-                </a>
             </div>
             <div data-i18n="footer.copyright">© 2026 TouchAI. GPL-3.0-or-later.</div>
         </footer>
@@ -2367,10 +2358,6 @@ const structuredData = JSON.stringify({
                         'teams.title': '用户反馈',
                         'teams.stats.stars': 'Stars',
                         'teams.stats.forks': 'Forks',
-                        'teams.one.quote':
-                            '开发者正在 GitHub Issues 里围绕桌面唤起、模型接入和自动化工作流提交反馈，项目保持持续迭代。',
-                        'teams.one.label': 'Issues 反馈',
-                        'teams.one.link': '查看 Issues',
                         'teams.two.quote':
                             'TouchAI 采用 GPL-3.0 开源协议，当前以 TypeScript 为主要语言，欢迎围绕桌面 Agent 体验提交改进建议。',
                         'teams.two.label': '开源协作',
@@ -2392,7 +2379,6 @@ const structuredData = JSON.stringify({
                         'cta.download': '下载 TouchAI',
                         'footer.official': '官网',
                         'footer.docs': '文档',
-                        'footer.contact': '联系我们',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                     en: {
@@ -2426,10 +2412,6 @@ const structuredData = JSON.stringify({
                         'teams.title': 'User feedback',
                         'teams.stats.stars': 'Stars',
                         'teams.stats.forks': 'Forks',
-                        'teams.one.quote':
-                            'Developers are using GitHub Issues to discuss desktop summon, model access, and automation workflows while the project keeps moving.',
-                        'teams.one.label': 'Issue feedback',
-                        'teams.one.link': 'View Issues',
                         'teams.two.quote':
                             'TouchAI is GPL-3.0 licensed and primarily written in TypeScript. Suggestions around the desktop Agent experience are welcome.',
                         'teams.two.label': 'Open-source work',
@@ -2451,7 +2433,6 @@ const structuredData = JSON.stringify({
                         'cta.download': 'Download TouchAI',
                         'footer.official': 'Official site',
                         'footer.docs': 'Docs',
-                        'footer.contact': 'Contact us',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                 };
@@ -2714,20 +2695,49 @@ const structuredData = JSON.stringify({
                 const componentBackgroundFrames = () =>
                     document.querySelectorAll('touchai-component-demo');
 
+                const featureDemoPairs = () => [
+                    ['.feature-component-card', '.feature-component-frame'],
+                    ['.feature-work-card', '.feature-work-frame'],
+                    ['.feature-reminder-card', '.feature-reminder-frame'],
+                ];
+                const featureCardHeightObservers = new WeakMap();
+
+                const syncFeatureCardHeight = (card, frame, scale) => {
+                    if (!card || !frame) return;
+                    const panel = frame.querySelector('.chat-panel');
+                    const panelHeight = panel?.offsetHeight || 56;
+                    card.style.setProperty(
+                        '--feature-demo-height',
+                        `${Math.max(35, panelHeight * scale)}px`
+                    );
+                };
+
+                const observeFeatureCardHeight = (card, frame) => {
+                    if (!card || !frame || !window.ResizeObserver) return;
+                    const panel = frame.querySelector('.chat-panel');
+                    if (!panel) return;
+
+                    const currentObserver = featureCardHeightObservers.get(frame);
+                    if (currentObserver?.panel === panel) return;
+                    currentObserver?.observer.disconnect();
+
+                    const observer = new ResizeObserver(() => syncFeatureFrameSizing());
+                    observer.observe(panel);
+                    featureCardHeightObservers.set(frame, { panel, observer });
+                };
+
                 const syncFeatureFrameSizing = () => {
-                    [
-                        ['.feature-component-card', '.feature-component-frame'],
-                        ['.feature-work-card', '.feature-work-frame'],
-                        ['.feature-reminder-card', '.feature-reminder-frame'],
-                    ].forEach(([cardSelector, frameSelector]) => {
+                    featureDemoPairs().forEach(([cardSelector, frameSelector]) => {
                         const card = document.querySelector(cardSelector);
                         const frame = document.querySelector(frameSelector);
                         if (!frame) return;
 
+                        let scale = 1;
                         if (card) {
                             const width = card.getBoundingClientRect().width || 0;
                             if (width > 0) {
-                                card.style.setProperty('--component-scale', String(width / 760));
+                                scale = width / 760;
+                                card.style.setProperty('--component-scale', String(scale));
                             }
                         }
 
@@ -2735,6 +2745,8 @@ const structuredData = JSON.stringify({
                         frame.style.minHeight = '657px';
                         frame.style.maxHeight = '657px';
                         frame.style.background = 'transparent';
+                        observeFeatureCardHeight(card, frame);
+                        syncFeatureCardHeight(card, frame, scale);
                     });
                 };
 
