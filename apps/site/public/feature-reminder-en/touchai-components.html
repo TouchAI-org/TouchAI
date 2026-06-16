@@ -1571,6 +1571,12 @@
                     }
                 }
 
+                function keepLatestResponseVisible() {
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                    document.body.classList.toggle('is-scrolling', maxScroll > 1);
+                    content.scrollTop = maxScroll;
+                }
+
                 function updateScrollAffordance() {
                     const hasBelow =
                         content.scrollHeight - content.scrollTop - content.clientHeight > 6;
@@ -1694,7 +1700,6 @@
                     }
 
                     const answerProgress = Math.max(0, Math.min(1, (scrubProgress - 0.18) / 0.5));
-                    const scrollProgress = Math.max(0, Math.min(1, (scrubProgress - 0.66) / 0.34));
                     document.body.classList.remove('is-idle', 'is-answering', 'is-complete');
                     document.body.classList.add(
                         answerProgress >= 1 ? 'is-complete' : 'is-answering'
@@ -1708,10 +1713,7 @@
                         'is-scrolling',
                         maxScroll > 1 && scrubProgress >= 0.66
                     );
-                    content.scrollTop =
-                        answerProgress >= 1
-                            ? Math.round(maxScroll * scrollProgress)
-                            : Math.round(maxScroll * answerProgress);
+                    keepLatestResponseVisible();
                     updateScrollAffordance();
                 }
                 function startTypewriter() {

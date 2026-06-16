@@ -139,6 +139,17 @@ featureDemoFiles.forEach((file) => {
     if (html.includes('.response li > span:last-child') && !html.includes(':not(.kbd)')) {
         fail(`${file} must not let list span rules turn inline .kbd tags into full-width blocks.`);
     }
+
+    if (
+        !html.includes('function keepLatestResponseVisible()') ||
+        !html.includes('keepLatestResponseVisible();')
+    ) {
+        fail(`${file} must keep scroll-driven responses pinned to the newest generated text.`);
+    }
+
+    if (html.includes('scrollProgress') || html.includes('maxScroll * scrollProgress')) {
+        fail(`${file} must keep scroll-driven responses pinned to the latest generated text.`);
+    }
 });
 
 if (failures.length) {
