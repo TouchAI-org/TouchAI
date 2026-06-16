@@ -13,6 +13,8 @@ import {
     type BuiltInToolLogEntity,
     formatToolLastUsed,
     getBuiltInToolSummary,
+    isBuiltInToolVisibleInSettings,
+    usesBuiltInToolEmptyConfig,
 } from '@/views/SettingsView/components/BuiltInTools/types';
 import {
     getBuiltInToolApprovalStateText,
@@ -263,7 +265,15 @@ describe('built-in tools settings i18n', () => {
         expect(getBuiltInToolSummary('read')).toBe(
             'Read local files or folders, including images and PDFs'
         );
+        expect(getBuiltInToolSummary('ask_user_question')).toBe(
+            'Ask the user structured questions'
+        );
         expect(getBuiltInToolSummary('unknown_tool', null)).toBe('No description');
+    });
+
+    it('shows the ask-user tool as an empty-config built-in tool', () => {
+        expect(isBuiltInToolVisibleInSettings('ask_user_question')).toBe(true);
+        expect(usesBuiltInToolEmptyConfig('ask_user_question')).toBe(true);
     });
 
     it('localizes built-in tool last-used fallback text', () => {
