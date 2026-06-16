@@ -3246,8 +3246,6 @@ const structuredData = JSON.stringify({
                                 )
                             );
                         })();
-                    const getCompactFeatureStart = () =>
-                        window.innerWidth <= 560 ? 'top 88%' : 'top 82%';
                     const getCompactFeatureEnd = () =>
                         window.innerWidth <= 560 ? 'bottom 22%' : 'bottom 28%';
 
@@ -3455,14 +3453,7 @@ const structuredData = JSON.stringify({
 
                             featureTrigger = ScrollTrigger.create({
                                 trigger: featureBlock,
-                                start: compact
-                                    ? getCompactFeatureStart
-                                    : () => {
-                                          const viewportLead = Math.round(
-                                              window.innerHeight * 0.92
-                                          );
-                                          return `top ${viewportLead}px`;
-                                      },
+                                start: () => `top ${getFeatureStickyTop()}px`,
                                 end: compact
                                     ? getCompactFeatureEnd
                                     : () => {
