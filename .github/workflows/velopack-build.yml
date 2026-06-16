@@ -237,7 +237,7 @@ jobs:
 
             - name: Build Tauri executable
               working-directory: apps/desktop
-              run: pnpm tauri build --no-bundle --ci
+              run: node scripts/ci/retry-release-command.mjs -- pnpm tauri build --no-bundle --ci
 
             - name: Stage Velopack input directory
               shell: pwsh
@@ -352,7 +352,7 @@ jobs:
 
             - name: Build macOS bundles
               working-directory: apps/desktop
-              run: pnpm tauri build --bundles app,dmg --ci
+              run: node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles app,dmg --ci
 
             - name: Stage macOS release assets
               shell: bash
@@ -462,7 +462,7 @@ jobs:
 
             - name: Build Linux bundles
               working-directory: apps/desktop
-              run: pnpm tauri build --bundles appimage,deb,rpm --ci
+              run: node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles appimage,deb,rpm --ci
 
             - name: Stage Linux release assets
               shell: bash
@@ -588,6 +588,11 @@ jobs:
                     --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md" \
                     --release-dir "$RUNNER_TEMP/touchai-release-assets"
 
+            - name: Stage current GitHub release assets
+              working-directory: apps/desktop
+              run: |
+                  node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "${{ inputs.version }}"
+
             - name: Upload public release assets to GitHub release
               shell: bash
               env:
@@ -595,7 +600,7 @@ jobs:
                   RELEASE_TAG: ${{ inputs.tag }}
               run: |
                   set -euo pipefail
-                  release_dir="$RUNNER_TEMP/touchai-release-assets"
+                  release_dir="$RUNNER_TEMP/touchai-github-release-assets"
                   shopt -s nullglob
                   assets=("$release_dir"/*)
                   if [ ${#assets[@]} -eq 0 ]; then

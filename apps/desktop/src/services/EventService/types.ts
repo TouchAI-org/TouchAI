@@ -11,8 +11,10 @@ import type {
     PopupSessionSearchQueryChangePayload,
 } from '@services/PopupService/types';
 
+import type { GeneralSettingKey, GeneralSettingValue } from '@/stores/setting';
 import type { SessionStatusReminderKind } from '@/utils/session';
 
+export type { GeneralSettingKey, GeneralSettingValue } from '@/stores/setting';
 export type { SessionStatusReminderKind } from '@/utils/session';
 
 /**
@@ -71,23 +73,11 @@ export interface McpStatusChangeEvent {
 
 // ==================== 设置事件 ====================
 
-export type GeneralSettingKey =
-    | 'global_shortcut'
-    | 'start_on_boot'
-    | 'start_minimized'
-    | 'allow_model_auto_switch'
-    | 'output_scroll_behavior'
-    | 'search_window_size_preset'
-    | 'language'
-    | 'app_update_channel'
-    | 'app_update_auto_check'
-    | 'app_update_last_checked_at';
-
 export interface SettingsGeneralUpdatedEvent {
     sourceId: string;
     windowLabel: string;
     key: GeneralSettingKey;
-    value: string | number | boolean | null;
+    value: GeneralSettingValue;
 }
 
 export interface SettingsAiServicesFocusProviderEvent {

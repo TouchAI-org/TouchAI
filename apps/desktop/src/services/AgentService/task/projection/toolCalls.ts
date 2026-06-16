@@ -70,14 +70,11 @@ export function syncBuiltInToolCallPresentation(toolCall: ToolCallInfo): void {
         return;
     }
 
-    if (!toolCall.builtinConversationSemantic && toolCall.result) {
+    if (!toolCall.builtinConversationSemantic) {
         toolCall.builtinConversationSemantic =
             resolveBuiltInToolConversationSemantic(
                 toolCall.namespacedName || toolCall.name,
-                toolCall.arguments ?? {},
-                {
-                    result: toolCall.result,
-                }
+                toolCall.arguments ?? {}
             ) ?? undefined;
     }
     toolCall.builtinPresentation =
@@ -87,7 +84,6 @@ export function syncBuiltInToolCallPresentation(toolCall: ToolCallInfo): void {
             toolCall.status,
             {
                 semantic: toolCall.builtinConversationSemantic,
-                result: toolCall.result,
             }
         ) ?? undefined;
 }

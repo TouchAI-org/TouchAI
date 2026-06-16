@@ -4,20 +4,12 @@
 //!
 //统一处理 poisoned lock，避免调用点重复编写恢复逻辑。
 
-use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError};
+use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub(super) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-pub(super) fn try_lock_mutex<T>(mutex: &Mutex<T>) -> Option<MutexGuard<'_, T>> {
-    match mutex.try_lock() {
-        Ok(guard) => Some(guard),
-        Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
-        Err(TryLockError::WouldBlock) => None,
     }
 }
 

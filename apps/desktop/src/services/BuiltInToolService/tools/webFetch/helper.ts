@@ -8,6 +8,7 @@ import { normalizeOptionalString } from '@/utils/text';
 
 import { parseToolArguments } from '../../utils/toolSchema';
 import {
+    DEFAULT_MAX_RESPONSE_BYTES,
     DEFAULT_SOURCE_CHAR_LIMIT,
     DEFAULT_TIMEOUT_MS,
     SUPPORTED_PROTOCOLS,
@@ -18,12 +19,25 @@ import {
 
 const turndownService = createTurndownService();
 const BLOCKED_RESOURCE_PROTOCOLS = new Set(['data:', 'javascript:', 'vbscript:']);
+const IMAGE_SOURCE_ATTRIBUTES = [
+    'data-src',
+    'data-original',
+    'data-lazy-src',
+    'data-image-src',
+    'data-actualsrc',
+    'data-full-src',
+    'data-zoom-src',
+    'src',
+];
+const SRCSET_ATTRIBUTES = ['srcset', 'data-srcset', 'data-lazy-srcset'];
+const MAX_IMAGE_CANDIDATES = 6;
 
-interface WebFetchRequest {
+export interface WebFetchRequest {
     url: URL;
     mode: WebFetchMode;
     maxChars: number;
     timeoutMs: number;
+    maxResponseBytes: number;
 }
 
 interface ResponseTextPayload {
@@ -44,6 +58,7 @@ interface FormattedFetchPayload extends WebFetchMetadata {
     actualMode: WebFetchMode;
     bodyTruncated: boolean;
     sourceTruncated: boolean;
+    imageCandidates?: string[];
 }
 
 function stripIpv6Brackets(hostname: string): string {
@@ -130,6 +145,20 @@ function isDisallowedHostname(hostname: string): boolean {
     return !normalized.includes('.');
 }
 
+export function validateWebFetchUrl(url: URL): void {
+    if (!SUPPORTED_PROTOCOLS.has(url.protocol)) {
+        throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
+    }
+
+    if (url.username || url.password) {
+        throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
+    }
+
+    if (isDisallowedHostname(url.hostname)) {
+        throw new Error(t('builtInTools.webFetch.error.blockedHost'));
+    }
+}
+
 /**
  * 解析 WebFetch 参数，并在真正发请求前完成 URL 安全边界校验。
  *
@@ -147,23 +176,14 @@ export function parseWebFetchRequest(args: Record<string, unknown>): WebFetchReq
         throw new Error(t('builtInTools.webFetch.error.invalidUrl', { url: rawUrl }));
     }
 
-    if (!SUPPORTED_PROTOCOLS.has(parsedUrl.protocol)) {
-        throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
-    }
-
-    if (parsedUrl.username || parsedUrl.password) {
-        throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
-    }
-
-    if (isDisallowedHostname(parsedUrl.hostname)) {
-        throw new Error(t('builtInTools.webFetch.error.blockedHost'));
-    }
+    validateWebFetchUrl(parsedUrl);
 
     return {
         url: parsedUrl,
         mode: parsedArgs.mode,
         maxChars: parsedArgs.maxChars,
         timeoutMs: parsedArgs.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        maxResponseBytes: parsedArgs.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
     };
 }
 
@@ -250,7 +270,8 @@ export function isTextualContentType(contentType: string): boolean {
 
 export async function readResponseText(
     response: Response,
-    maxSourceChars = DEFAULT_SOURCE_CHAR_LIMIT
+    maxSourceChars = DEFAULT_SOURCE_CHAR_LIMIT,
+    maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES
 ): Promise<ResponseTextPayload> {
     if (!response.body) {
         return {
@@ -263,11 +284,19 @@ export async function readResponseText(
     const decoder = getResponseDecoder(response);
     let text = '';
     let sourceTruncated = false;
+    let bytesRead = 0;
 
     try {
         while (true) {
             const { done, value } = await reader.read();
             if (done) {
+                break;
+            }
+
+            bytesRead += value.byteLength;
+            if (bytesRead > maxResponseBytes) {
+                sourceTruncated = true;
+                await reader.cancel('WebFetch response byte limit reached');
                 break;
             }
 
@@ -328,29 +357,37 @@ export function normalizeStructuredText(rawText: string, contentType: string): s
 }
 
 export function extractHtmlContent(html: string, request: WebFetchRequest): FormattedFetchPayload {
+    const imageCandidates = extractImageMarkdownCandidates(html, request.url.toString());
+
     if (request.mode === 'reader') {
         // reader 模式优先取主内容，但很多站点的文章结构并不稳定；
         // 解析失败时继续回退到整页 Markdown / 纯文本，保证工具尽量给出可读结果。
         const article = extractReadableArticle(html, request.url.toString());
         if (article) {
             const truncated = truncateContent(article.content, request.maxChars);
-            return {
-                ...article,
-                content: truncated.content,
-                bodyTruncated: truncated.bodyTruncated,
-            };
+            return withImageCandidates(
+                {
+                    ...article,
+                    content: truncated.content,
+                    bodyTruncated: truncated.bodyTruncated,
+                },
+                imageCandidates
+            );
         }
     }
 
     if (request.mode === 'page_text') {
         const content = buildPageText(html);
         const truncated = truncateContent(content, request.maxChars);
-        return {
-            content: truncated.content,
-            actualMode: 'page_text',
-            bodyTruncated: truncated.bodyTruncated,
-            sourceTruncated: false,
-        };
+        return withImageCandidates(
+            {
+                content: truncated.content,
+                actualMode: 'page_text',
+                bodyTruncated: truncated.bodyTruncated,
+                sourceTruncated: false,
+            },
+            imageCandidates
+        );
     }
 
     const markdown = buildPageMarkdown(html, request.url.toString());
@@ -359,23 +396,29 @@ export function extractHtmlContent(html: string, request: WebFetchRequest): Form
             new DOMParser().parseFromString(html, 'text/html').title || undefined
         );
         const truncated = truncateContent(markdown, request.maxChars);
-        return {
-            content: truncated.content,
-            actualMode: 'page_markdown',
-            bodyTruncated: truncated.bodyTruncated,
-            sourceTruncated: false,
-            title: pageTitle,
-        };
+        return withImageCandidates(
+            {
+                content: truncated.content,
+                actualMode: 'page_markdown',
+                bodyTruncated: truncated.bodyTruncated,
+                sourceTruncated: false,
+                title: pageTitle,
+            },
+            imageCandidates
+        );
     }
 
     const content = buildPageText(html);
     const truncated = truncateContent(content, request.maxChars);
-    return {
-        content: truncated.content,
-        actualMode: 'page_text',
-        bodyTruncated: truncated.bodyTruncated,
-        sourceTruncated: false,
-    };
+    return withImageCandidates(
+        {
+            content: truncated.content,
+            actualMode: 'page_text',
+            bodyTruncated: truncated.bodyTruncated,
+            sourceTruncated: false,
+        },
+        imageCandidates
+    );
 }
 
 function pruneNonContentNodes(root: ParentNode): void {
@@ -425,6 +468,252 @@ function absolutizeResourceUrls(root: ParentNode, baseUrl: string): void {
     });
 }
 
+function resolveSafeResourceUrl(rawValue: string, baseUrl: string): string | null {
+    if (!rawValue || rawValue.trimStart().startsWith('#')) {
+        return null;
+    }
+
+    const absoluteUrl = new URL(rawValue, baseUrl);
+    if (BLOCKED_RESOURCE_PROTOCOLS.has(absoluteUrl.protocol.toLowerCase())) {
+        return null;
+    }
+
+    return absoluteUrl.toString();
+}
+
+function parseSrcsetCandidate(candidate: string): { url: string; descriptor: string } | null {
+    const trimmed = candidate.trim();
+    if (!trimmed) {
+        return null;
+    }
+
+    const [url, ...descriptorParts] = trimmed.split(/\s+/);
+    if (!url) {
+        return null;
+    }
+
+    return {
+        url,
+        descriptor: descriptorParts.join(' '),
+    };
+}
+
+function parseSrcset(value: string): Array<{ url: string; descriptor: string }> {
+    return value
+        .split(',')
+        .map(parseSrcsetCandidate)
+        .filter((candidate): candidate is { url: string; descriptor: string } =>
+            Boolean(candidate)
+        );
+}
+
+function absolutizeSrcset(value: string, baseUrl: string): string | null {
+    const candidates = parseSrcset(value)
+        .map((candidate) => {
+            try {
+                const url = resolveSafeResourceUrl(candidate.url, baseUrl);
+                return url ? [url, candidate.descriptor].filter(Boolean).join(' ') : null;
+            } catch {
+                return null;
+            }
+        })
+        .filter((candidate): candidate is string => Boolean(candidate));
+
+    return candidates.length > 0 ? candidates.join(', ') : null;
+}
+
+function absolutizeImageResourceUrls(root: ParentNode, baseUrl: string): void {
+    root.querySelectorAll<HTMLElement>('img, source').forEach((element) => {
+        for (const attributeName of [...IMAGE_SOURCE_ATTRIBUTES, 'poster']) {
+            const rawValue = element.getAttribute(attributeName);
+            if (!rawValue) {
+                continue;
+            }
+
+            try {
+                const absoluteUrl = resolveSafeResourceUrl(rawValue, baseUrl);
+                if (absoluteUrl) {
+                    element.setAttribute(attributeName, absoluteUrl);
+                } else {
+                    element.removeAttribute(attributeName);
+                }
+            } catch {
+                element.removeAttribute(attributeName);
+            }
+        }
+
+        for (const attributeName of SRCSET_ATTRIBUTES) {
+            const rawValue = element.getAttribute(attributeName);
+            if (!rawValue) {
+                continue;
+            }
+
+            const absoluteSrcset = absolutizeSrcset(rawValue, baseUrl);
+            if (absoluteSrcset) {
+                element.setAttribute(attributeName, absoluteSrcset);
+            } else {
+                element.removeAttribute(attributeName);
+            }
+        }
+    });
+}
+
+function isLikelyPlaceholderImage(source: string): boolean {
+    return /(?:placeholder|spacer|blank|transparent|pixel|tracking|loading)\.(?:gif|png|svg)(?:[?#]|$)/i.test(
+        source
+    );
+}
+
+function bestSrcsetSource(value: string | null): string | null {
+    if (!value) {
+        return null;
+    }
+
+    const candidates = parseSrcset(value);
+    return candidates[candidates.length - 1]?.url ?? null;
+}
+
+function extractImageSource(node: Element): string | null {
+    for (const attributeName of IMAGE_SOURCE_ATTRIBUTES) {
+        const value = normalizeOptionalString(node.getAttribute(attributeName));
+        if (!value || isLikelyPlaceholderImage(value)) {
+            continue;
+        }
+
+        return value;
+    }
+
+    for (const attributeName of SRCSET_ATTRIBUTES) {
+        const source = bestSrcsetSource(node.getAttribute(attributeName));
+        if (source && !isLikelyPlaceholderImage(source)) {
+            return source;
+        }
+    }
+
+    const pictureSource = node
+        .closest('picture')
+        ?.querySelector('source[srcset], source[data-srcset], source[data-lazy-srcset]');
+    if (pictureSource) {
+        for (const attributeName of SRCSET_ATTRIBUTES) {
+            const source = bestSrcsetSource(pictureSource.getAttribute(attributeName));
+            if (source && !isLikelyPlaceholderImage(source)) {
+                return source;
+            }
+        }
+    }
+
+    return null;
+}
+
+function imageFileName(source: string): string | null {
+    try {
+        const pathname = new URL(source).pathname;
+        const fileName = pathname.split('/').pop();
+        return normalizeOptionalString(fileName ? decodeURIComponent(fileName) : undefined) ?? null;
+    } catch {
+        const fileName = source.split(/[\\/]/).pop()?.split(/[?#]/, 1)[0];
+        return normalizeOptionalString(fileName) ?? null;
+    }
+}
+
+function cleanMarkdownImageLabel(value: string): string {
+    return value
+        .replace(/\s+/g, ' ')
+        .replace(/[[\]\\]/g, '')
+        .trim();
+}
+
+function extractImageLabel(node: Element, source: string): string {
+    const directLabel =
+        normalizeOptionalString(node.getAttribute('alt')) ??
+        normalizeOptionalString(node.getAttribute('title')) ??
+        normalizeOptionalString(node.getAttribute('aria-label'));
+    const figureLabel = normalizeOptionalString(
+        node.closest('figure')?.querySelector('figcaption')?.textContent ?? undefined
+    );
+
+    return cleanMarkdownImageLabel(directLabel ?? figureLabel ?? imageFileName(source) ?? 'image');
+}
+
+function isLikelyDecorativeImage(source: string, label: string): boolean {
+    const value = `${source} ${label}`.toLowerCase();
+    return (
+        isLikelyPlaceholderImage(source) ||
+        /(?:favicon|sprite|tracking|analytics|beacon|avatar|gravatar|logo|icon)(?:[._/-]|$)/i.test(
+            value
+        )
+    );
+}
+
+function uniqueImageElements(document: Document): Element[] {
+    const selectors = [
+        'article img',
+        'main img',
+        '[role="main"] img',
+        'figure img',
+        '.content img',
+        '.article img',
+        'img',
+    ];
+    const seen = new Set<Element>();
+    const images: Element[] = [];
+
+    for (const selector of selectors) {
+        document.querySelectorAll(selector).forEach((image) => {
+            if (!seen.has(image)) {
+                seen.add(image);
+                images.push(image);
+            }
+        });
+    }
+
+    return images;
+}
+
+function extractImageMarkdownCandidates(html: string, baseUrl: string): string[] {
+    const document = new DOMParser().parseFromString(html, 'text/html');
+    pruneNonContentNodes(document);
+    absolutizeResourceUrls(document, baseUrl);
+    absolutizeImageResourceUrls(document, baseUrl);
+
+    const seenSources = new Set<string>();
+    const candidates: string[] = [];
+
+    for (const image of uniqueImageElements(document)) {
+        const source = extractImageSource(image);
+        if (!source || seenSources.has(source)) {
+            continue;
+        }
+
+        const label = extractImageLabel(image, source);
+        if (isLikelyDecorativeImage(source, label)) {
+            continue;
+        }
+
+        seenSources.add(source);
+        candidates.push(`![${label}](${source})`);
+
+        if (candidates.length >= MAX_IMAGE_CANDIDATES) {
+            break;
+        }
+    }
+
+    return candidates;
+}
+
+function addBaseUrl(document: Document, baseUrl: string): void {
+    const base = document.createElement('base');
+    base.href = baseUrl;
+    (document.head || document.documentElement).prepend(base);
+}
+
+function withImageCandidates<T extends FormattedFetchPayload>(
+    payload: T,
+    imageCandidates: string[]
+): T {
+    return imageCandidates.length > 0 ? { ...payload, imageCandidates } : payload;
+}
+
 function createTurndownService(): TurndownService {
     // Markdown 比纯文本更利于模型阅读层级、链接和代码块，因此 HTML 路径统一优先转为 Markdown。
     const service = new TurndownService({
@@ -439,13 +728,13 @@ function createTurndownService(): TurndownService {
     service.addRule('image-alt-text', {
         filter: 'img',
         replacement(_content, node) {
-            const altText = normalizeOptionalString(node.getAttribute('alt'));
-            const source = normalizeOptionalString(node.getAttribute('src'));
+            const source = extractImageSource(node);
 
-            if (altText && source) {
-                return `![${altText}](${source})`;
+            if (source) {
+                return `![${extractImageLabel(node, source)}](${source})`;
             }
 
+            const altText = normalizeOptionalString(node.getAttribute('alt'));
             if (altText) {
                 return t('builtInTools.webFetch.imageAltFallback', { altText });
             }
@@ -461,6 +750,7 @@ export function buildPageMarkdown(html: string, baseUrl: string): string {
     const document = new DOMParser().parseFromString(html, 'text/html');
     pruneNonContentNodes(document);
     absolutizeResourceUrls(document, baseUrl);
+    absolutizeImageResourceUrls(document, baseUrl);
 
     const markdown = turndownService.turndown(document.body || document.documentElement);
     return normalizeMarkdown(markdown);
@@ -479,6 +769,7 @@ export function extractReadableArticle(
     baseUrl: string
 ): FormattedFetchPayload | null {
     const document = new DOMParser().parseFromString(html, 'text/html');
+    addBaseUrl(document, baseUrl);
     const readability = new Readability(document, {
         maxElemsToParse: 0,
         keepClasses: false,
@@ -490,6 +781,7 @@ export function extractReadableArticle(
 
     const articleDocument = new DOMParser().parseFromString(article.content, 'text/html');
     absolutizeResourceUrls(articleDocument, baseUrl);
+    absolutizeImageResourceUrls(articleDocument, baseUrl);
 
     const markdown = normalizeMarkdown(
         turndownService.turndown(articleDocument.body || articleDocument.documentElement)
@@ -558,6 +850,18 @@ export function formatFetchResult(
             ? tt('正文输出: 已限制为 {maxChars} 字符', { maxChars: request.maxChars })
             : '',
     ].filter(Boolean);
+
+    if (payload.imageCandidates && payload.imageCandidates.length > 0) {
+        payload = {
+            ...payload,
+            content: [
+                'Embeddable page image candidates (original webpage images; use relevant ones in the final answer with source attribution):',
+                ...payload.imageCandidates,
+                '',
+                payload.content,
+            ].join('\n'),
+        };
+    }
 
     return [...headerLines, ...metadataLines, '', payload.content || tt('[页面无可读内容]')].join(
         '\n'

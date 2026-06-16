@@ -44,6 +44,9 @@
 
     const markdownParser = getMarkdown('touchai-markdown', {
         enableContainers: false,
+        markdownItOptions: {
+            breaks: true,
+        },
     });
     const markdownItEmojiPlugin = markdownItEmoji as unknown as Parameters<MarkdownIt['use']>[0];
 
@@ -151,15 +154,90 @@
         configureMarkstreamLabels(nextLocale);
     });
     const markdownContainerRef = ref<HTMLElement | null>(null);
+    const SHELL_VARIABLE_PATTERN =
+        /^\$(?:\{(?:env:)?[A-Za-z_][A-Za-z0-9_]*\}|env:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)/;
+
+    function startsInlineMathSpan(content: string, index: number): boolean {
+        for (let cursor = index + 1; cursor < content.length; cursor += 1) {
+            const char = content[cursor];
+            if (char === '\n') {
+                return false;
+            }
+            if (char === '\\') {
+                cursor += 1;
+                continue;
+            }
+            if (char === '$') {
+                const firstContentChar = content[index + 1];
+                const lastContentChar = content[cursor - 1];
+                return (
+                    cursor > index + 1 &&
+                    firstContentChar !== undefined &&
+                    lastContentChar !== undefined &&
+                    !/\s/.test(firstContentChar) &&
+                    !/\s/.test(lastContentChar)
+                );
+            }
+        }
+
+        return false;
+    }
+
+    function shouldEscapeShellVariable(content: string, index: number): boolean {
+        if (startsInlineMathSpan(content, index)) {
+            return false;
+        }
+
+        const match = content.slice(index).match(SHELL_VARIABLE_PATTERN);
+        return match !== null;
+    }
+
+    function escapeShellVariablesOutsideCode(content: string): string {
+        let result = '';
+        let index = 0;
+        let inFence = false;
+        let inInlineCode = false;
+
+        while (index < content.length) {
+            if (!inInlineCode && content.startsWith('```', index)) {
+                inFence = !inFence;
+                result += '```';
+                index += 3;
+                continue;
+            }
+
+            const char = content[index];
+            if (!inFence && char === '`') {
+                inInlineCode = !inInlineCode;
+                result += char;
+                index += 1;
+                continue;
+            }
+
+            if (
+                !inFence &&
+                !inInlineCode &&
+                char === '$' &&
+                shouldEscapeShellVariable(content, index)
+            ) {
+                result += String.raw`\$`;
+                index += 1;
+                continue;
+            }
+
+            result += char;
+            index += 1;
+        }
+
+        return result;
+    }
+
     const markdownParseInput = computed(() => ({
-        content: props.content,
+        content: escapeShellVariablesOutsideCode(props.content),
         final: props.final,
         locale: locale.value,
     }));
-    const markdownRenderKey = computed(
-        () =>
-            `${markdownParseInput.value.locale}:${props.variant}:${markdownParseInput.value.final}`
-    );
+    const markdownRenderKey = computed(() => `${markdownParseInput.value.locale}:${props.variant}`);
 
     const nodes = computed<ParsedNode[]>(() => {
         const input = markdownParseInput.value;
@@ -189,9 +267,10 @@
         showFontSizeButtons: false,
     });
 
-    const codeBlockMonacoOptions = Object.freeze({
+    const codeBlockMonacoOptions = computed(() => ({
         glyphMargin: false,
-    });
+        autoScrollInitial: !props.final,
+    }));
 
     const codeBlockLightTheme = 'one-light';
     const codeBlockDarkTheme = 'one-dark-pro';

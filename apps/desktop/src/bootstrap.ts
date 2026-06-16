@@ -20,10 +20,37 @@ import App from './App.vue';
 import { installI18n } from './i18n';
 import router from './router';
 import { updateModelMetadata } from './services/AgentService/infrastructure/modelMetadata';
+import { builtInToolService } from './services/BuiltInToolService/service';
 import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
 
 const MANAGED_DEEP_LINK_WINDOW_LABEL = 'main';
+const AUXILIARY_WINDOW_LABELS = new Set(['tray-menu']);
+const AUXILIARY_ROUTE_PREFIXES = ['#/popup', '#/tray-menu'];
+
+function getCurrentWindowLabel(): string | null {
+    try {
+        return getCurrentWindow().label;
+    } catch {
+        return null;
+    }
+}
+
+function isAuxiliaryWindowLabel(label: string | null): boolean {
+    if (!label) {
+        return false;
+    }
+
+    return AUXILIARY_WINDOW_LABELS.has(label) || label.startsWith('popup-');
+}
+
+function isAuxiliaryRoute(): boolean {
+    return AUXILIARY_ROUTE_PREFIXES.some((prefix) => window.location.hash.startsWith(prefix));
+}
+
+function shouldUseLightweightBootstrap(): boolean {
+    return isAuxiliaryWindowLabel(getCurrentWindowLabel()) || isAuxiliaryRoute();
+}
 
 function isInternalLink(url: string): boolean {
     if (!url || url === '#' || url.startsWith('#')) {
@@ -129,11 +156,8 @@ async function consumeManagedAuthCallback(url: string): Promise<void> {
 }
 
 function shouldHandleManagedDeepLinks(): boolean {
-    try {
-        return getCurrentWindow().label === MANAGED_DEEP_LINK_WINDOW_LABEL;
-    } catch {
-        return true;
-    }
+    const label = getCurrentWindowLabel();
+    return label === null || label === MANAGED_DEEP_LINK_WINDOW_LABEL;
 }
 
 async function setupDeepLinkListener(): Promise<void> {
@@ -181,20 +205,35 @@ async function initializeModelMetadata(): Promise<void> {
     }
 }
 
+async function syncBuiltInTools(): Promise<void> {
+    try {
+        await builtInToolService.syncRegisteredTools();
+    } catch (error) {
+        console.warn('[Bootstrap] Failed to sync built-in tools:', error);
+    }
+}
+
 export async function initializeApp() {
     initializeLogger();
     setupLinkInterceptor();
     document.addEventListener('contextmenu', (event) => event.preventDefault());
-    initializeFontLoader();
-    await initializeManagedProviderState();
-    await initializeModelMetadata();
-    await setupDeepLinkListener();
 
     const app = createApp(App);
     const pinia = createPinia();
     app.use(pinia);
     app.use(router);
     installI18n(app);
+
+    if (shouldUseLightweightBootstrap()) {
+        app.mount('#app');
+        return;
+    }
+
+    initializeFontLoader();
+    await syncBuiltInTools();
+    await initializeManagedProviderState();
+    await initializeModelMetadata();
+    await setupDeepLinkListener();
 
     let settingsInitializeError: unknown;
     try {

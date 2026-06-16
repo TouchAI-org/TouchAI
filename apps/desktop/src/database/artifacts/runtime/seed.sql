@@ -1,22 +1,6 @@
 INSERT OR IGNORE INTO touchai_meta (key, value)
 VALUES ('app_id', 'touchai');
 
-INSERT INTO settings (key, value)
-SELECT 'theme', 'light'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'theme');
-
-INSERT INTO settings (key, value)
-SELECT 'auto_start', 'false'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'auto_start');
-
-INSERT INTO settings (key, value)
-SELECT 'output_scroll_behavior', 'follow_output'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'output_scroll_behavior');
-
-INSERT INTO settings (key, value)
-SELECT 'search_window_size_preset', 'normal'
-WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'search_window_size_preset');
-
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )
@@ -138,6 +122,12 @@ WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'web_fetch');
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
+SELECT 'web_search', 'WebSearch', '搜索网页候选来源', 1, 'low', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'web_search');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
 SELECT 'upgrade_model', 'UpgradeModel', '升级当前请求模型', 1, 'medium', '{"chain":[]}'
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'upgrade_model');
 
@@ -158,3 +148,9 @@ INSERT INTO built_in_tools (
 )
 SELECT 'ask_user_question', 'AskUserQuestion', '向用户提出结构化问题', 1, 'low', NULL
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'ask_user_question');
+
+INSERT INTO built_in_tools (
+    tool_id, display_name, description, enabled, risk_level, config_json
+)
+SELECT 'browser', 'Browser', 'Unified browser control for session, observation, screenshots, and interactions', 1, 'medium', NULL
+WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser');

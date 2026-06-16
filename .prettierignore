@@ -63,3 +63,7 @@ apps/desktop/src-tauri/gen/**/*
 apps/site/.astro/
 apps/site/dist/
 .claude/
+
+# Local app runtime data and Vite cache
+apps/desktop/data/
+apps/desktop/.vite-cache/

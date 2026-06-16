@@ -4,7 +4,6 @@ import type {
     BuiltInToolLog,
     MessageRole,
     ProviderDriver,
-    SettingKey,
     StatisticKey,
     ToolLogKind,
     ToolLogStatus,
@@ -14,7 +13,7 @@ import type {
 
 // ==================== 基础类型 ====================
 
-export type SettingIdentifier = string | SettingKey;
+export type SettingIdentifier = string;
 export type StatisticIdentifier = string | StatisticKey;
 
 export type DbMessageRole = MessageRole;
@@ -571,6 +570,7 @@ export interface BuiltInToolLogEntity {
     status: BuiltInToolLogStatus;
     approval_state: BuiltInToolApprovalState;
     approval_summary: string | null;
+    conversation_semantic_json: string | null;
     duration_ms: number | null;
     error_message: string | null;
     created_at: string;
@@ -587,6 +587,7 @@ export interface BuiltInToolLogCreateData {
     status?: BuiltInToolLogStatus;
     approval_state?: BuiltInToolApprovalState;
     approval_summary?: string | null;
+    conversation_semantic_json?: string | null;
     duration_ms?: number | null;
     error_message?: string | null;
     created_at?: string;

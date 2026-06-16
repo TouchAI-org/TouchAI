@@ -121,7 +121,7 @@
                 @mousedown.stop
                 @click.stop="handleNewSession"
             >
-                <AppIcon name="plus" class="h-4 w-4" />
+                <AppIcon name="plus" class="h-3.5 w-3.5" />
             </button>
 
             <div
@@ -144,7 +144,7 @@
                     @mouseenter="handleHistoryPrefetch"
                     @click.stop="toggleHistory"
                 >
-                    <AppIcon name="history" class="h-4 w-4" />
+                    <AppIcon name="chat-history" class="h-3.5 w-3.5" />
                 </button>
             </div>
 
@@ -162,7 +162,7 @@
                 @mousedown.stop
                 @click.stop="toggleMaximized"
             >
-                <AppIcon :name="isMaximized ? 'exit-fullscreen' : 'fullscreen'" class="h-4 w-4" />
+                <AppIcon :name="isMaximized ? 'restore' : 'maximize'" class="h-3.5 w-3.5" />
             </button>
 
             <button
@@ -176,7 +176,7 @@
                 @mousedown.stop
                 @click.stop="togglePinned"
             >
-                <AppIcon name="pin" class="h-4 w-4" />
+                <AppIcon name="pin" class="h-3.5 w-3.5" />
             </button>
         </div>
     </div>

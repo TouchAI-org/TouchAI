@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { setLocale } from '@/i18n';
 import {
     buildPageMarkdown,
+    extractHtmlContent,
+    formatFetchResult,
     parseWebFetchRequest,
 } from '@/services/BuiltInToolService/tools/webFetch/helper';
 
@@ -69,5 +71,63 @@ describe('buildPageMarkdown', () => {
         expect(markdown.toLowerCase()).not.toContain('javascript:');
         expect(markdown).not.toContain('data:text/plain');
         expect(markdown).toContain('[docs](https://example.com/docs)');
+    });
+
+    it('preserves meaningful lazy-loaded image URLs for research reports', () => {
+        const markdown = buildPageMarkdown(
+            [
+                '<article>',
+                '<h1>Product launch</h1>',
+                '<img src="/placeholder.gif" data-src="/media/product-dashboard.png">',
+                '<img loading="lazy" data-original="https://cdn.example.com/charts/market-share.jpg" alt="Market share chart">',
+                '<img srcset="/hero-small.jpg 480w, /hero-large.jpg 1200w" alt="Hero screenshot">',
+                '</article>',
+            ].join(''),
+            'https://example.com/news/launch'
+        );
+
+        expect(markdown).toContain(
+            '![product-dashboard.png](https://example.com/media/product-dashboard.png)'
+        );
+        expect(markdown).toContain(
+            '![Market share chart](https://cdn.example.com/charts/market-share.jpg)'
+        );
+        expect(markdown).toContain('![Hero screenshot](https://example.com/hero-large.jpg)');
+        expect(markdown).not.toContain('/placeholder.gif');
+    });
+});
+
+describe('formatFetchResult', () => {
+    it('includes original webpage image candidates for ordinary fetch research', () => {
+        const request = {
+            url: new URL('https://example.com/research/report'),
+            mode: 'reader',
+            maxChars: 2000,
+            timeoutMs: 20000,
+        } as Parameters<typeof extractHtmlContent>[1];
+        const payload = extractHtmlContent(
+            [
+                '<article>',
+                '<h1>Industry report</h1>',
+                '<p>Research body text.</p>',
+                '<img data-src="/media/official-dashboard.png">',
+                '<figure>',
+                '<img srcset="/chart-small.png 480w, /chart-large.png 1200w" alt="Revenue chart">',
+                '<figcaption>Official revenue chart</figcaption>',
+                '</figure>',
+                '</article>',
+            ].join(''),
+            request
+        );
+        const response = new Response('', { status: 200, statusText: 'OK' });
+
+        const result = formatFetchResult(request, response, 'text/html', payload);
+
+        expect(result).toContain('Embeddable page image candidates');
+        expect(result).toContain('use relevant ones in the final answer with source attribution');
+        expect(result).toContain(
+            '![official-dashboard.png](https://example.com/media/official-dashboard.png)'
+        );
+        expect(result).toContain('![Revenue chart](https://example.com/chart-large.png)');
     });
 });

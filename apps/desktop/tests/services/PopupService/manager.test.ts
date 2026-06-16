@@ -95,7 +95,7 @@ describe('popupManager', () => {
         resetTauriMocks();
     });
 
-    it('replays the latest show payload once after a popup window reports ready', async () => {
+    it('replays the latest show payload whenever a popup window reports ready', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
 
@@ -157,7 +157,18 @@ describe('popupManager', () => {
         await emit(AppEvent.POPUP_READY, { windowLabel: 'popup-session-history-popup' });
 
         const popupDataCallsAfterSecondReady = getPopupDataEmitCalls();
-        expect(popupDataCallsAfterSecondReady).toHaveLength(3);
+        expect(popupDataCallsAfterSecondReady).toHaveLength(4);
+        expect(popupDataCallsAfterSecondReady[3]?.payload).toMatchObject({
+            event: AppEvent.POPUP_DATA,
+            payload: {
+                popupId,
+                windowLabel: 'popup-session-history-popup',
+                popupSessionVersion: 1,
+                data: expect.objectContaining({
+                    searchQuery: 'updated-before-ready',
+                }),
+            },
+        });
     });
 
     it('only hides the active popup when the requested identity still matches the current session', async () => {

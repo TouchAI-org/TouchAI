@@ -47,6 +47,7 @@ export function createPopupSessionState(): PopupSessionState {
 
     const readyPopupWindows = new Set<string>();
     const pendingPopupDataByWindow = new Map<string, PopupDataPayload>();
+    const latestPopupDataByWindow = new Map<string, PopupDataPayload>();
     const popupSessionVersionByWindow = new Map<string, number>();
 
     function snapshot(): PopupManagerStateSnapshot {
@@ -105,6 +106,9 @@ export function createPopupSessionState(): PopupSessionState {
                 : payload;
 
         if (windowLabel) {
+            if (isCurrentPopupEvent(nextPayload)) {
+                latestPopupDataByWindow.set(windowLabel, nextPayload);
+            }
             if (shouldQueuePending) {
                 pendingPopupDataByWindow.set(windowLabel, nextPayload);
             } else {
@@ -120,9 +124,11 @@ export function createPopupSessionState(): PopupSessionState {
         const pendingPayload = pendingPopupDataByWindow.get(windowLabel) ?? null;
         if (pendingPayload) {
             pendingPopupDataByWindow.delete(windowLabel);
+            return pendingPayload;
         }
 
-        return pendingPayload;
+        const latestPayload = latestPopupDataByWindow.get(windowLabel) ?? null;
+        return latestPayload && isCurrentPopupEvent(latestPayload) ? latestPayload : null;
     }
 
     function getClosePayload(identity?: PopupSessionIdentity): PopupClosedPayload | null {
@@ -163,6 +169,7 @@ export function createPopupSessionState(): PopupSessionState {
         }
 
         pendingPopupDataByWindow.delete(payload.windowLabel);
+        latestPopupDataByWindow.delete(payload.windowLabel);
         currentPopupId = null;
         currentWindowLabel = null;
         currentPopupSessionVersion = null;
@@ -178,6 +185,7 @@ export function createPopupSessionState(): PopupSessionState {
 
         if (currentWindowLabel) {
             pendingPopupDataByWindow.delete(currentWindowLabel);
+            latestPopupDataByWindow.delete(currentWindowLabel);
         }
         currentPopupId = null;
         currentWindowLabel = null;

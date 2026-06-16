@@ -11,6 +11,7 @@ const {
     openSettingsWindowMock,
     settingsInitializeMock,
     appUpdateCheckNowMock,
+    builtInToolSyncMock,
     isLlmMetadataEmptyMock,
     getCurrentMock,
     initializeFontLoaderMock,
@@ -32,6 +33,7 @@ const {
     openSettingsWindowMock: vi.fn(),
     settingsInitializeMock: vi.fn(),
     appUpdateCheckNowMock: vi.fn(),
+    builtInToolSyncMock: vi.fn(),
     isLlmMetadataEmptyMock: vi.fn(),
     getCurrentMock: vi.fn(),
     initializeFontLoaderMock: vi.fn(),
@@ -76,6 +78,12 @@ vi.mock('@database/queries', () => ({
 
 vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
     updateModelMetadata: updateModelMetadataMock,
+}));
+
+vi.mock('@/services/BuiltInToolService/service', () => ({
+    builtInToolService: {
+        syncRegisteredTools: builtInToolSyncMock,
+    },
 }));
 
 vi.mock('@services/EventService', () => ({
@@ -138,6 +146,7 @@ describe('app bootstrap i18n', () => {
         vi.clearAllMocks();
         vi.resetModules();
         document.body.innerHTML = '<div id="app"></div>';
+        window.history.replaceState(null, '', '/');
         Object.defineProperty(window, 'open', {
             value: originalWindowOpenMock,
             writable: true,
@@ -154,6 +163,7 @@ describe('app bootstrap i18n', () => {
         openUrlMock.mockResolvedValue(undefined);
         settingsInitializeMock.mockResolvedValue(undefined);
         appUpdateCheckNowMock.mockResolvedValue(false);
+        builtInToolSyncMock.mockResolvedValue(undefined);
         completeManagedLoginMock.mockResolvedValue(false);
         initializeManagedProviderStateMock.mockResolvedValue(undefined);
         isLlmMetadataEmptyMock.mockResolvedValue(false);
@@ -176,6 +186,7 @@ describe('app bootstrap i18n', () => {
 
         expect(initializeLoggerMock).toHaveBeenCalledTimes(1);
         expect(initializeFontLoaderMock).toHaveBeenCalledTimes(1);
+        expect(builtInToolSyncMock).toHaveBeenCalledTimes(1);
         expect(appUseMock).toHaveBeenCalledWith({ name: 'pinia' });
         expect(appUseMock).toHaveBeenCalledWith(routerMock);
         expect(installI18n).toHaveBeenCalledWith({
@@ -242,14 +253,43 @@ describe('app bootstrap i18n', () => {
         consoleSpy.mockRestore();
     });
 
-    it('uses the same explicit vue-i18n bootstrap for popup routes', async () => {
-        window.history.replaceState(null, '', '/popup?type=session-history-popup');
+    it('uses lightweight bootstrap for popup routes', async () => {
+        window.history.replaceState(null, '', '/#/popup?type=session-history-popup');
 
         const { initializeApp } = await import('@/bootstrap');
         await initializeApp();
 
-        expect(settingsInitializeMock).toHaveBeenCalledTimes(1);
         expect(appMountMock).toHaveBeenCalledWith('#app');
+        expect(initializeFontLoaderMock).not.toHaveBeenCalled();
+        expect(builtInToolSyncMock).not.toHaveBeenCalled();
+        expect(initializeManagedProviderStateMock).not.toHaveBeenCalled();
+        expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
+        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
+        expect(updateModelMetadataMock).not.toHaveBeenCalled();
+        expect(settingsInitializeMock).not.toHaveBeenCalled();
+        expect(getCurrentMock).not.toHaveBeenCalled();
+        expect(onOpenUrlMock).not.toHaveBeenCalled();
+        expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
+    });
+
+    it('uses lightweight bootstrap for the tray menu window', async () => {
+        getCurrentWindowMock.mockReturnValue({
+            label: 'tray-menu',
+        });
+
+        const { initializeApp } = await import('@/bootstrap');
+        await initializeApp();
+
+        expect(appMountMock).toHaveBeenCalledWith('#app');
+        expect(initializeFontLoaderMock).not.toHaveBeenCalled();
+        expect(initializeManagedProviderStateMock).not.toHaveBeenCalled();
+        expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
+        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
+        expect(updateModelMetadataMock).not.toHaveBeenCalled();
+        expect(settingsInitializeMock).not.toHaveBeenCalled();
+        expect(getCurrentMock).not.toHaveBeenCalled();
+        expect(onOpenUrlMock).not.toHaveBeenCalled();
+        expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
     });
 
     it('consumes pending deep links during bootstrap and broadcasts model refresh after login', async () => {

@@ -8,6 +8,8 @@
     import { AppEvent, eventService } from '@services/EventService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import {
+        type Component,
+        type ComponentPublicInstance,
         computed,
         defineAsyncComponent,
         nextTick,
@@ -17,7 +19,7 @@
         watch,
     } from 'vue';
 
-    import { locale, t } from '@/i18n';
+    import { locale, type MessageKey, t } from '@/i18n';
 
     import NavigationSidebar, { type NavigationSection } from './components/NavigationSidebar.vue';
 
@@ -33,10 +35,64 @@
     const BuiltInToolsView = defineAsyncComponent(
         () => import('./components/BuiltInTools/index.vue')
     );
+    const SearchView = defineAsyncComponent(() => import('./components/Search/index.vue'));
+    const BrowserView = defineAsyncComponent(() => import('./components/Browser/index.vue'));
     const McpToolsView = defineAsyncComponent(() => import('./components/McpTools/index.vue'));
     const DataManagementView = defineAsyncComponent(
         () => import('./components/DataManagement/index.vue')
     );
+    interface SettingsContentSection {
+        component: Component;
+        loadingKey: MessageKey;
+        scrollable?: boolean;
+    }
+
+    function defineSettingsContentSections(
+        sections: Record<NavigationSection, SettingsContentSection>
+    ) {
+        return sections;
+    }
+
+    const settingsContentSections = defineSettingsContentSections({
+        general: {
+            component: GeneralView,
+            loadingKey: 'settings.loading.general',
+            scrollable: true,
+        },
+        'ai-services': {
+            component: AiServicesView,
+            loadingKey: 'settings.loading.aiServices',
+        },
+        'model-preferences': {
+            component: ModelPreferencesView,
+            loadingKey: 'settings.loading.modelPreferences',
+            scrollable: true,
+        },
+        'built-in-tools': {
+            component: BuiltInToolsView,
+            loadingKey: 'settings.loading.builtInTools',
+        },
+        search: {
+            component: SearchView,
+            loadingKey: 'settings.loading.search',
+            scrollable: true,
+        },
+        browser: {
+            component: BrowserView,
+            loadingKey: 'settings.loading.browser',
+            scrollable: true,
+        },
+        'mcp-tools': {
+            component: McpToolsView,
+            loadingKey: 'settings.loading.mcpTools',
+        },
+        'data-management': {
+            component: DataManagementView,
+            loadingKey: 'settings.loading.dataManagement',
+            scrollable: true,
+        },
+    });
+
     const initialManagedSettingsFocusRequest = peekManagedSettingsFocusRequest();
     const activeSection = ref<NavigationSection>(
         initialManagedSettingsFocusRequest?.section === 'ai-services' ? 'ai-services' : 'general'
@@ -47,17 +103,14 @@
     const initialLoadingVisible = ref(true);
     const SETTINGS_ENTRY_LOADING_DELAY_MS = 180;
     let loadingDelayTimer: ReturnType<typeof setTimeout> | null = null;
-    const generalScrollRef = ref<HTMLElement | null>(null);
-    const modelPreferencesScrollRef = ref<HTMLElement | null>(null);
-    const dataScrollRef = ref<HTMLElement | null>(null);
+    const contentScrollRef = ref<HTMLElement | null>(null);
     const isWindowMaximized = ref(false);
     let unlistenManagedSettingsFocusProvider: (() => void) | null = null;
-    useScrollbarStabilizer(generalScrollRef);
-    useScrollbarStabilizer(modelPreferencesScrollRef);
-    useScrollbarStabilizer(dataScrollRef);
+    useScrollbarStabilizer(contentScrollRef);
     const shellVisibilityClass = computed(() =>
         initialLoadingVisible.value ? 'opacity-0' : 'opacity-100'
     );
+    const activeContentSection = computed(() => settingsContentSections[activeSection.value]);
 
     const currentWindow = (() => {
         try {
@@ -108,6 +161,13 @@
     const handleContentResolved = () => {
         contentReady.value = true;
         void completeInitialLoadingWhenReady();
+    };
+
+    const setContentScrollElement = (element: Element | ComponentPublicInstance | null) => {
+        contentScrollRef.value =
+            activeContentSection.value.scrollable && element instanceof HTMLElement
+                ? element
+                : null;
     };
 
     const handleMinimize = async () => {
@@ -238,8 +298,9 @@
                             @click="handleToggleMaximize"
                         >
                             <AppIcon
-                                :name="isWindowMaximized ? 'exit-fullscreen' : 'fullscreen'"
+                                :name="isWindowMaximized ? 'restore-square' : 'maximize-square'"
                                 class="h-3.5 w-3.5"
+                                :class="isWindowMaximized ? '-scale-x-100' : ''"
                             />
                         </button>
 
@@ -261,88 +322,20 @@
                         data-testid="settings-content-shell"
                     >
                         <div
-                            v-if="activeSection === 'general'"
-                            ref="generalScrollRef"
-                            :class="['settings-scrollbar', 'h-full w-full overflow-y-auto']"
+                            :key="activeSection"
+                            :ref="setContentScrollElement"
+                            :class="[
+                                'h-full w-full',
+                                activeContentSection.scrollable
+                                    ? 'settings-scrollbar overflow-y-auto'
+                                    : '',
+                            ]"
                         >
                             <Suspense @resolve="handleContentResolved">
-                                <GeneralView />
+                                <component :is="activeContentSection.component" />
                                 <template #fallback>
                                     <LoadingState
-                                        :message="t('settings.loading.general')"
-                                        variant="brand"
-                                        fill="min"
-                                    />
-                                </template>
-                            </Suspense>
-                        </div>
-
-                        <div
-                            v-else-if="activeSection === 'model-preferences'"
-                            ref="modelPreferencesScrollRef"
-                            :class="['settings-scrollbar', 'h-full w-full overflow-y-auto']"
-                        >
-                            <Suspense>
-                                <ModelPreferencesView />
-                                <template #fallback>
-                                    <LoadingState
-                                        :message="t('settings.loading.modelPreferences')"
-                                        variant="brand"
-                                        fill="min"
-                                    />
-                                </template>
-                            </Suspense>
-                        </div>
-
-                        <div v-else-if="activeSection === 'ai-services'" class="h-full w-full">
-                            <Suspense>
-                                <AiServicesView />
-                                <template #fallback>
-                                    <LoadingState
-                                        :message="t('settings.loading.aiServices')"
-                                        variant="brand"
-                                        fill="min"
-                                    />
-                                </template>
-                            </Suspense>
-                        </div>
-
-                        <div v-else-if="activeSection === 'built-in-tools'" class="h-full w-full">
-                            <Suspense>
-                                <BuiltInToolsView />
-                                <template #fallback>
-                                    <LoadingState
-                                        :message="t('settings.loading.builtInTools')"
-                                        variant="brand"
-                                        fill="min"
-                                    />
-                                </template>
-                            </Suspense>
-                        </div>
-
-                        <div v-else-if="activeSection === 'mcp-tools'" class="h-full w-full">
-                            <Suspense>
-                                <McpToolsView />
-                                <template #fallback>
-                                    <LoadingState
-                                        :message="t('settings.loading.mcpTools')"
-                                        variant="brand"
-                                        fill="min"
-                                    />
-                                </template>
-                            </Suspense>
-                        </div>
-
-                        <div
-                            v-else-if="activeSection === 'data-management'"
-                            ref="dataScrollRef"
-                            :class="['settings-scrollbar', 'h-full w-full overflow-y-auto']"
-                        >
-                            <Suspense>
-                                <DataManagementView />
-                                <template #fallback>
-                                    <LoadingState
-                                        :message="t('settings.loading.dataManagement')"
+                                        :message="t(activeContentSection.loadingKey)"
                                         variant="brand"
                                         fill="min"
                                     />

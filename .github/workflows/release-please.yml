@@ -6,6 +6,7 @@ on:
     push:
         branches:
             - main
+    workflow_dispatch:
 
 permissions:
     contents: read
@@ -28,6 +29,15 @@ jobs:
             tag_name: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
             sha: ${{ steps.release.outputs['apps/desktop--sha'] }}
         steps:
+            - name: Validate release bot token
+              env:
+                  RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+              run: |
+                  if [ -z "$RELEASE_PLEASE_TOKEN" ]; then
+                      echo "RELEASE_PLEASE_TOKEN is required so release PR updates trigger required checks."
+                      exit 1
+                  fi
+
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
               with:
                   persist-credentials: false
@@ -35,9 +45,72 @@ jobs:
             - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
               id: release
               with:
-                  token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+                  token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
                   config-file: release-please-config.json
                   manifest-file: .release-please-manifest.json
+
+            - name: Read release PR branch
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+              id: release_pr
+              env:
+                  RELEASE_PRS: ${{ steps.release.outputs.prs }}
+              run: |
+                  release_pr_branch="$(
+                      node -e "const prs = JSON.parse(process.env.RELEASE_PRS || '[]'); const branch = prs[0]?.headBranchName; if (!branch) { throw new Error('Release Please did not expose a release PR branch.'); } console.log(branch);"
+                  )"
+                  echo "branch=$release_pr_branch" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+              with:
+                  ref: ${{ steps.release_pr.outputs.branch }}
+                  token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+                  persist-credentials: false
+
+            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+              run: pnpm install --frozen-lockfile
+
+            - name: Sync Release Please lockfile version
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+              working-directory: apps/desktop
+              run: |
+                  release_version="$(node -e "console.log(JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version)")"
+                  node scripts/ci/set-release-version.mjs "$release_version"
+
+            - name: Format Release Please generated files
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+              run: |
+                  pnpm exec prettier --write --ignore-path .prettierignore \
+                    .release-please-manifest.json \
+                    apps/desktop/src-tauri/tauri.conf.json
+
+            - name: Push formatted release PR files
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+              env:
+                  RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+                  RELEASE_PR_BRANCH: ${{ steps.release_pr.outputs.branch }}
+              run: |
+                  if git diff --quiet; then
+                      echo "Release Please generated files already match repository formatting."
+                      exit 0
+                  fi
+
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git add .release-please-manifest.json apps/desktop/src-tauri/Cargo.lock apps/desktop/src-tauri/tauri.conf.json
+                  git commit --no-verify -m "chore: format release please files"
+                  git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+                  git push origin HEAD:"$RELEASE_PR_BRANCH"
 
     publish-release:
         name: Publish stable release

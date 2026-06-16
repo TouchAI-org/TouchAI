@@ -2,11 +2,13 @@
 
 import { builtInTools as askUserTools } from './tools/askUser';
 import { builtInTools as bashTools } from './tools/bash';
+import { builtInTools as browserTools } from './tools/browser';
 import { builtInTools as fileSearchTools } from './tools/fileSearch';
 import { builtInTools as readTools } from './tools/read';
 import { builtInTools as settingTools } from './tools/setting';
 import { builtInTools as upgradeModelTools } from './tools/upgradeModel';
 import { builtInTools as webFetchTools } from './tools/webFetch';
+import { builtInTools as webSearchTools } from './tools/webSearch';
 import { builtInTools as widgetToolTools } from './tools/widgetTool';
 import type { BuiltInTool, BuiltInToolGroup, BuiltInToolId } from './types';
 
@@ -55,9 +57,11 @@ export const builtInToolRegistry = new BuiltInToolRegistry();
 
 builtInToolRegistry.register(askUserTools);
 builtInToolRegistry.register(bashTools);
+builtInToolRegistry.register(browserTools);
 builtInToolRegistry.register(fileSearchTools);
 builtInToolRegistry.register(readTools);
 builtInToolRegistry.register(settingTools);
+builtInToolRegistry.register(webSearchTools);
 builtInToolRegistry.register(webFetchTools);
 builtInToolRegistry.register(upgradeModelTools);
 builtInToolRegistry.register(widgetToolTools);

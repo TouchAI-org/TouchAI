@@ -66,6 +66,11 @@ const BUILTIN_TOOL_VERB_KEYS: Record<
         error: 'builtInTools.presentation.ask.error',
         completed: 'builtInTools.presentation.ask.completed',
     },
+    cursor: {
+        executing: 'builtInTools.presentation.process.executing',
+        error: 'builtInTools.presentation.process.error',
+        completed: 'builtInTools.presentation.process.completed',
+    },
 };
 
 function normalizeToolId(toolName: string): BuiltInToolId | null {
@@ -98,6 +103,10 @@ function getBuiltInToolConversationVerb(
     action: BuiltInToolConversationSemanticAction,
     status: BuiltInToolConversationStatus
 ): string {
+    if (action === 'cursor') {
+        return '⌖';
+    }
+
     if (status === 'awaiting_approval') {
         return t('builtInTools.presentation.pendingApproval');
     }
@@ -119,7 +128,6 @@ function getBuiltInToolConversationVerb(
 
 interface ResolveBuiltInToolConversationSemanticOptions {
     semantic?: BuiltInToolConversationSemantic;
-    result?: string;
 }
 
 function buildBuiltInToolConversationPresentationFromSemantic(
@@ -150,14 +158,6 @@ export function resolveBuiltInToolConversationSemantic(
 
     if (options.semantic) {
         return options.semantic;
-    }
-
-    const semanticFromResult =
-        typeof options.result === 'string'
-            ? tool.buildConversationSemanticFromResult(options.result, args)
-            : null;
-    if (semanticFromResult) {
-        return semanticFromResult;
     }
 
     return tool.buildConversationSemantic(args);

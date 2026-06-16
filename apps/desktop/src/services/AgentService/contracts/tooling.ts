@@ -110,7 +110,8 @@ export type ToolEventBuiltInConversationSemanticAction =
     | 'switch'
     | 'render'
     | 'remove'
-    | 'ask';
+    | 'ask'
+    | 'cursor';
 
 export interface ToolEventBuiltInConversationSemantic {
     action: ToolEventBuiltInConversationSemanticAction;
@@ -155,6 +156,7 @@ export type ToolEvent =
           isError: boolean;
           durationMs: number;
           finalStatus?: 'completed' | 'error' | 'rejected';
+          builtinConversationSemantic?: ToolEventBuiltInConversationSemantic;
       }
     | ({ type: 'approval_required'; callId: string } & ToolApprovalRequest)
     | {

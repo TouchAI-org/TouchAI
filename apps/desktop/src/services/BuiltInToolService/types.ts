@@ -22,11 +22,16 @@ export type BuiltInToolId =
     | 'file_search'
     | 'read'
     | 'setting'
+    | 'web_search'
     | 'web_fetch'
     | 'upgrade_model'
     | 'show_widget'
     | 'visualize_read_me'
-    | 'ask_user_question';
+    | 'ask_user_question'
+    | 'browser'
+    | 'browser_session'
+    | 'browser_observe'
+    | 'browser_act';
 
 /**
  * 所有内置工具共享的最小运行时上下文。
@@ -67,6 +72,7 @@ export interface BuiltInToolExecutionResult {
     status: 'success' | 'error' | 'timeout';
     errorMessage?: string | null;
     approvalSummary?: string | null;
+    conversationSemantic?: BuiltInToolConversationSemantic;
     attachments?: AttachmentIndex[];
     controlSignal?: BuiltInToolControlSignal;
 }
@@ -100,6 +106,18 @@ export abstract class BuiltInTool<
     abstract readonly description: string;
     abstract readonly inputSchema: AiToolDefinition['input_schema'];
     abstract readonly defaultConfig: TConfig;
+
+    buildToolDefinition(
+        namespacedName: string,
+        config: TConfig
+    ): AiToolDefinition | Promise<AiToolDefinition> {
+        void config;
+        return {
+            name: namespacedName,
+            description: this.description,
+            input_schema: this.inputSchema,
+        };
+    }
 
     /**
      * 解析数据库中持久化的工具配置。
@@ -154,15 +172,6 @@ export abstract class BuiltInTool<
         void config;
         void context;
         return this.buildConversationSemantic(args);
-    }
-
-    buildConversationSemanticFromResult(
-        result: string,
-        args: Record<string, unknown>
-    ): BuiltInToolConversationSemantic | null {
-        void result;
-        void args;
-        return null;
     }
 
     /**

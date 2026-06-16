@@ -735,6 +735,160 @@ export const zhToEnTextMap = {
     任务正在等待用户回复: 'Task is waiting for a user response',
     '回复 TouchAI': 'Reply to TouchAI',
     回复: 'Reply',
+    浏览器操作确认: 'Browser operation confirmation',
+    '此操作会连接到已有浏览器会话。': 'This operation connects to an existing browser session.',
+    '此操作会读取当前浏览器页面或标签页状态。':
+        'This operation reads the current browser page or tab state.',
+    '此操作会截取当前网页内容并作为图片附件返回。':
+        'This operation will capture the current webpage and return it as an image attachment.',
+    '此操作会启动或停止浏览器自动化会话。':
+        'This operation will start or stop the browser automation session.',
+    '此操作会让浏览器打开或切换到新的网页。':
+        'This operation will open or switch the browser to a new webpage.',
+    '此操作会改变当前网页的浏览状态。':
+        'This operation will change the current webpage browsing state.',
+    '此操作会向网页表单输入内容。': 'This operation will enter content into a webpage form.',
+    '此操作会向网页表单输入一组内容。':
+        'This operation will enter a group of values into a webpage form.',
+    '此操作会在网页中输入文本。': 'This operation will type text into the webpage.',
+    '此操作会与网页交互，可能触发提交、导航或状态变更。':
+        'This operation will interact with the webpage and may trigger submission, navigation, or state changes.',
+    浏览器: 'Browser',
+    浏览器控制: 'Browser Control',
+    '管理 TouchAI 控制浏览器的行为。': 'Manage how TouchAI controls browser behavior.',
+    '管理 TouchAI 控制浏览器的行为。可在本页设置默认主页、浏览器软件位置、权限、截图附件和会话连接策略。':
+        'Manage how TouchAI controls browser behavior. Configure the default homepage, browser executable location, permissions, screenshot attachments, and session connection policy here.',
+    '管理浏览器自动化的默认主页、浏览器软件位置、权限、截图附件和已有会话连接策略。':
+        'Manage the browser automation default homepage, browser executable path, permissions, screenshot attachments, and existing session connection policy.',
+    启用浏览器自动化: 'Enable browser automation',
+    '关闭后浏览器工具会拒绝执行，模型需要改用其他方案。':
+        'When disabled, browser tools will refuse execution and the model must use another approach.',
+    指定浏览器软件位置: 'Browser executable path',
+    '留空时使用系统默认可用浏览器；填写后优先从该可执行文件启动。':
+        'Leave blank to use the default available browser; when provided, launch from this executable first.',
+    默认主页: 'Default homepage',
+    '启动新浏览器会话时默认打开的主页，可留空。':
+        'The homepage opened by default when starting a new browser session. Optional.',
+    已有会话: 'Existing sessions',
+    '多个可用会话时始终需要用户选择确认，避免自动接错窗口。':
+        'When multiple sessions are available, user selection is always required to avoid connecting to the wrong window.',
+    截图附件: 'Screenshot attachments',
+    控制调研结果中是否自动附带当前页面截图:
+        'Control whether research results automatically include a screenshot of the current page.',
+    '适合图片表达时优先展示网页原始图片，其次才用截图附件。':
+        'When visual evidence is better, prefer original webpage images first, then screenshot attachments.',
+    权限: 'Permissions',
+    允许域名: 'Allowed domains',
+    '命中后可把导航从询问提升为允许。':
+        'Matching domains can promote navigation from ask to allow.',
+    禁止域名: 'Blocked domains',
+    '禁止域名优先级最高，即使同时在允许列表中。':
+        'Blocked domains have the highest priority, even when also present in the allow list.',
+    按需询问: 'Ask when needed',
+    不自动附加: 'Never attach automatically',
+    总是附加: 'Always attach',
+    询问: 'Ask',
+    允许: 'Allow',
+    始终允许: 'Always allow',
+    允许自动连接: 'Allow automatic connection',
+    一律拒绝: 'Always deny',
+    权限模式: 'Permission mode',
+    '选择全局允许、自动细分或全部拒绝浏览器操作':
+        'Choose global allow, automatic per-operation rules, or deny all browser operations.',
+    '浏览/跳转': 'Browse/navigate',
+    '打开网页或切换 URL': 'Open webpages or switch URLs',
+    连接已有会话: 'Connect existing session',
+    '自动连接、询问或拒绝复用本机已打开的浏览器':
+        'Automatically connect, ask, or deny reuse of a browser already open on this computer.',
+    复用本机已打开的浏览器: 'Reuse a browser already open on this computer',
+    读取页面: 'Read page',
+    '查看当前页、标签页和 DOM 快照': 'View the current page, tabs, and DOM snapshots',
+    截图: 'Screenshot',
+    截取当前页面作为证据: 'Capture the current page as evidence',
+    '点击/滚动/等待': 'Click/scroll/wait',
+    执行页面交互和轻量状态变化: 'Perform page interactions and lightweight state changes',
+    输入文本: 'Type text',
+    向页面中输入文本: 'Type text into the page',
+    填写表单: 'Fill forms',
+    批量填写网页表单字段: 'Fill webpage form fields in bulk',
+    历史导航: 'History navigation',
+    '后退、前进和刷新': 'Back, forward, and reload',
+    会话管理: 'Session management',
+    '启动、停止和诊断浏览器': 'Start, stop, and diagnose the browser',
+    浏览器权限: 'Browser permission',
+    允许本次: 'Allow this time',
+    '继续执行这一次浏览器操作。': 'Continue this browser operation.',
+    '停止这一次浏览器操作。': 'Stop this browser operation.',
+    选择浏览器: 'Select browser',
+    '不连接任何已有浏览器会话。': 'Do not connect any existing browser session.',
+    '允许 TouchAI 控制本机浏览器': 'Allow TouchAI to control the local browser',
+    启用功能: 'Enable feature',
+    选择浏览器软件位置: 'Select browser executable location',
+    数据: 'Data',
+    浏览器数据: 'Browser data',
+    浏览器数据目录: 'Browser data directory',
+    '留空时使用 TouchAI 数据目录；填写后复用该目录保存浏览器数据':
+        'Leave blank to use the TouchAI data directory; fill this in to reuse the directory for browser data.',
+    选择浏览器数据目录: 'Choose browser data directory',
+    指纹兼容: 'Fingerprint compatibility',
+    兼容模式: 'Compatibility mode',
+    '降低基础浏览器指纹差异，不保证绕过验证码或网站风控':
+        'Reduce basic browser fingerprint differences. This does not guarantee bypassing CAPTCHA or site risk controls.',
+    停用: 'Off',
+    基础: 'Basic',
+    增强: 'Enhanced',
+    均衡: 'Balanced',
+    高级: 'Advanced',
+    指纹处理: 'Fingerprint handling',
+    指纹模拟: 'Fingerprint simulation',
+    模拟真实浏览器环境状态: 'Simulate the state of a real browser environment.',
+    让浏览器更像普通用户在使用: 'Make the browser look more like a regular user is using it.',
+    '降低自动化指纹差异；增强会处理 webdriver、插件、权限、WebGL 和 Canvas 等常见检测面':
+        'Reduce automation fingerprint differences; enhanced mode handles common detection surfaces such as webdriver, plugins, permissions, WebGL, and Canvas.',
+    增强指纹处理: 'Enhanced fingerprint handling',
+    '处理 webdriver、插件、权限、WebGL 和 Canvas 等常见检测面':
+        'Handles common detection surfaces such as webdriver, plugins, permissions, WebGL, and Canvas.',
+    语言与时区: 'Language and timezone',
+    设置网页看到的语言和时区: 'Set the language and timezone that websites see.',
+    用于浏览器启动语言和页面时区覆盖: 'Used for browser launch language and page timezone override',
+    'User-Agent': 'User-Agent',
+    留空时使用真实浏览器默认值: 'Leave blank to use the real browser default',
+    留空时使用浏览器默认值: 'Leave blank to use the browser default',
+    'User-Agent 是浏览器告诉网站的身份信息，留空时使用浏览器默认值':
+        'User-Agent is the identity information the browser sends to websites; leave blank to use the browser default.',
+    窗口尺寸: 'Window size',
+    '格式：宽,高，例如 1366,768；范围 800x600 到 3840x2160':
+        'Format: width,height, for example 1366,768; range 800x600 to 3840x2160.',
+    '窗口大小，格式如 1366,768': 'Window size, in a format such as 1366,768.',
+    '窗口大小，如 1366,768': 'Window size, such as 1366,768.',
+    均衡模式下作为启动窗口尺寸: 'Used as the launch window size in balanced mode',
+    未设置时不屏蔽任何域名: 'No domains are blocked when unset',
+    未设置时不跳过域名确认: 'Domain confirmation is not skipped when unset',
+    临时保存: 'Temporary storage',
+    '托管浏览器使用临时独立配置目录，关闭会话后清理；连接已有浏览器时使用该浏览器自己的数据':
+        "Managed browsers use a temporary isolated profile directory that is cleaned up after the session closes; existing browser connections use that browser's own data.",
+    留空时使用系统默认可用浏览器: 'Leave blank to use the default available browser',
+    '启动新浏览器会话时默认打开的主页，可留空':
+        'The homepage opened by default when starting a new browser session. Optional.',
+    始终包含: 'Always include',
+    '结果适合图片表达时，优先展示网页原始图片，其次使用截图附件':
+        'When results are better shown visually, prefer original webpage images first, then screenshot attachments.',
+    多个可用会话时始终需要用户选择确认:
+        'When multiple sessions are available, user selection is always required.',
+    '查看当前页面、标签页和 DOM 快照': 'View the current page, tabs, and DOM snapshots',
+    已屏蔽的域名: 'Blocked domains',
+    黑名单域名: 'Domain blacklist',
+    白名单域名: 'Domain whitelist',
+    没有黑名单域名: 'No blacklisted domains',
+    没有白名单域名: 'No whitelisted domains',
+    'TouchAI 绝不会打开这些网站': 'TouchAI will never open these websites',
+    '＋ 添加': '+ Add',
+    '+ 添加': '+ Add',
+    没有已屏蔽的域名: 'No blocked domains',
+    允许的域名: 'Allowed domains',
+    无需询问即可打开的域名: 'Domains that can be opened without asking',
+    没有允许的域名: 'No allowed domains',
+    移除: 'Remove',
 } as const;
 
 export type SourceText = keyof typeof zhToEnTextMap;

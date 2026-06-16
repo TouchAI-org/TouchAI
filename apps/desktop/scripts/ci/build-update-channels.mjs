@@ -2,6 +2,8 @@ import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { versionFromAssetName } from '../update-release-assets.mjs';
+
 const REQUIRED_SEVERITIES = ['critical', 'security', 'recommended'];
 const DOWNLOAD_KINDS = ['installer', 'fullPackage', 'deltaPackage', 'updatePackage', 'asset'];
 const SEMVER_PATTERN =
@@ -433,7 +435,7 @@ function feedOutput(product, channel, channelConfig, generatedAt, options) {
     };
 }
 
-async function copyReleaseAssets(releaseDir, outputDir) {
+async function copyReleaseAssets(releaseDir, outputDir, version) {
     if (!releaseDir) {
         return;
     }
@@ -447,6 +449,9 @@ async function copyReleaseAssets(releaseDir, outputDir) {
             continue;
         }
         if (!downloadKindFromFileName(entry.name)) {
+            continue;
+        }
+        if (version && versionFromAssetName(entry.name) !== version) {
             continue;
         }
         await copyFile(join(releaseDir, entry.name), join(outputDir, entry.name));
@@ -498,7 +503,7 @@ export async function buildUpdateChannels(projectRoot, outputRoot, now = new Dat
 
     await rm(outputRoot, { recursive: true, force: true });
     await mkdir(outputDir, { recursive: true });
-    await copyReleaseAssets(release?.releaseDir, outputDir);
+    await copyReleaseAssets(release?.releaseDir, outputDir, release?.version ?? null);
 
     for (const [channel, channelConfig] of channelEntries(updates.channels)) {
         const output = feedOutput(product, channel, channelConfig, generatedAt, {

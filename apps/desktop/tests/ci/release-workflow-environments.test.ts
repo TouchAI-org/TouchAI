@@ -12,6 +12,42 @@ async function readWorkflow(path: string) {
 }
 
 describe('release workflow deployment environments', () => {
+    it('refreshes release PRs with a dedicated bot token so required checks run', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('Validate release bot token');
+        expect(workflow).toContain('RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}');
+        expect(workflow).toContain('token: ${{ secrets.RELEASE_PLEASE_TOKEN }}');
+        expect(workflow).not.toContain('github.token');
+        expect(workflow).not.toContain('secrets.RELEASE_PLEASE_TOKEN ||');
+    });
+
+    it('allows maintainers to manually refresh the release PR after token changes', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('workflow_dispatch:');
+    });
+
+    it('formats Release Please generated files before pushing the release PR branch', async () => {
+        const workflow = await readWorkflow('release-please.yml');
+
+        expect(workflow).toContain('Read release PR branch');
+        expect(workflow).toContain('Sync Release Please lockfile version');
+        expect(workflow).toContain('node scripts/ci/set-release-version.mjs "$release_version"');
+        expect(workflow).toContain('Format Release Please generated files');
+        expect(workflow).toContain('Push formatted release PR files');
+        expect(workflow).toContain("steps.release.outputs.prs_created == 'true'");
+        expect(workflow).toContain('pnpm exec prettier --write');
+        expect(workflow).toContain('--ignore-path .prettierignore');
+        expect(workflow).toContain('.release-please-manifest.json');
+        expect(workflow).toContain('apps/desktop/src-tauri/Cargo.lock');
+        expect(workflow).toContain('apps/desktop/src-tauri/tauri.conf.json');
+        expect(workflow).toContain(
+            'git commit --no-verify -m "chore: format release please files"'
+        );
+        expect(workflow).toContain('git push origin HEAD:"$RELEASE_PR_BRANCH"');
+    });
+
     it('keeps stable releases on the protected release environment by default', async () => {
         const workflow = await readWorkflow('velopack-build.yml');
 
@@ -35,12 +71,31 @@ describe('release workflow deployment environments', () => {
         expect(workflow).not.toMatch(/--noInst[\s\S]*--noPortable|--noPortable[\s\S]*--noInst/);
     });
 
+    it('retries release Tauri builds when external binary downloads transiently fail', async () => {
+        const workflow = await readWorkflow('velopack-build.yml');
+
+        expect(workflow).toContain(
+            'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --no-bundle --ci'
+        );
+        expect(workflow).toContain(
+            'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles app,dmg --ci'
+        );
+        expect(workflow).toContain(
+            'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles appimage,deb,rpm --ci'
+        );
+        expect(workflow).not.toMatch(/run:\s+pnpm tauri build/);
+    });
+
     it('attaches public release assets to GitHub releases from the staged asset directory', async () => {
         const workflow = await readWorkflow('velopack-build.yml');
         const uploadLine = workflow.split('\n').find((line) => line.includes('gh release upload'));
 
+        expect(workflow).toContain('Stage current GitHub release assets');
+        expect(workflow).toContain(
+            'node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "${{ inputs.version }}"'
+        );
         expect(workflow).toContain('gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber');
-        expect(workflow).toContain('release_dir="$RUNNER_TEMP/touchai-release-assets"');
+        expect(workflow).toContain('release_dir="$RUNNER_TEMP/touchai-github-release-assets"');
         expect(uploadLine).toBeDefined();
         expect(uploadLine ?? '').not.toContain('touchai-update-dist');
     });

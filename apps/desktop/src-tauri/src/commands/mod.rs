@@ -2,6 +2,7 @@
 
 //! 命令入口模块。
 pub mod autostart;
+pub mod browser;
 pub mod built_in_tools;
 pub mod clipboard;
 pub mod database;
@@ -76,5 +77,18 @@ pub fn invoke_handler<R: tauri::Runtime>(
         updater::updater_check_for_updates,
         updater::updater_download_update,
         updater::updater_install_update,
+        browser::browser_status,
+        browser::browser_start,
+        browser::browser_default_data_path,
+        browser::browser_discover_installed,
+        browser::browser_discover_existing,
+        browser::browser_connect_existing,
+        browser::browser_stop,
+        browser::browser_navigate,
+        browser::browser_back,
+        browser::browser_forward,
+        browser::browser_reload,
+        browser::browser_observe,
+        browser::browser_act,
     ]
 }

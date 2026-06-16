@@ -566,6 +566,7 @@ export async function buildModelMessages(
     options: BuildModelMessagesOptions
 ): Promise<BuildModelMessagesResult> {
     const mappedMessages: ModelMessage[] = [];
+    const pendingHoistedToolAttachmentMessages: ModelMessage[] = [];
     const manifestEntries: AttachmentDeliveryManifestEntry[] = [];
     const supportsReasoning = options.supportsReasoning ?? true;
     const deliveryPlan = planAttachmentDeliveryForMessages({
@@ -574,9 +575,17 @@ export async function buildModelMessages(
         providerId: options.providerId,
         modelId: options.modelId,
     });
+    const flushPendingHoistedToolAttachmentMessages = (): void => {
+        if (pendingHoistedToolAttachmentMessages.length === 0) {
+            return;
+        }
+
+        mappedMessages.push(...pendingHoistedToolAttachmentMessages.splice(0));
+    };
 
     for (const [messageIndex, message] of options.messages.entries()) {
         if (message.role === 'system') {
+            flushPendingHoistedToolAttachmentMessages();
             mappedMessages.push({
                 role: 'system',
                 content: typeof message.content === 'string' ? message.content : '',
@@ -585,6 +594,7 @@ export async function buildModelMessages(
         }
 
         if (message.role === 'user') {
+            flushPendingHoistedToolAttachmentMessages();
             mappedMessages.push({
                 role: 'user',
                 content: Array.isArray(message.content)
@@ -604,21 +614,29 @@ export async function buildModelMessages(
         }
 
         if (message.role === 'tool') {
-            mappedMessages.push(
-                ...(await mapToolMessage(
-                    message,
-                    deliveryPlan,
-                    {
-                        providerDriver: options.providerDriver,
-                        attachmentContext: options.attachmentContext,
-                    },
-                    messageIndex,
-                    manifestEntries
-                ))
+            const toolMappedMessages = await mapToolMessage(
+                message,
+                deliveryPlan,
+                {
+                    providerDriver: options.providerDriver,
+                    attachmentContext: options.attachmentContext,
+                },
+                messageIndex,
+                manifestEntries
             );
+
+            for (const mappedMessage of toolMappedMessages) {
+                if (mappedMessage.role === 'user') {
+                    pendingHoistedToolAttachmentMessages.push(mappedMessage);
+                    continue;
+                }
+
+                mappedMessages.push(mappedMessage);
+            }
             continue;
         }
 
+        flushPendingHoistedToolAttachmentMessages();
         const contentParts = mapAssistantContentParts(message.content, supportsReasoning);
         const toolCallParts: ToolCallPart[] =
             message.tool_calls?.flatMap((toolCall) => {
@@ -664,6 +682,8 @@ export async function buildModelMessages(
             content: [...contentParts, ...toolCallParts],
         });
     }
+
+    flushPendingHoistedToolAttachmentMessages();
 
     return {
         messages: mappedMessages,

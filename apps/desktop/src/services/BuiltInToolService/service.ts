@@ -1,7 +1,9 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import {
+    createBuiltInTool,
     createBuiltInToolLog,
+    findAllBuiltInTools,
     findBuiltInToolByToolId,
     findEnabledBuiltInTools,
     touchBuiltInToolLastUsed,
@@ -33,6 +35,22 @@ import type {
 } from './types';
 
 const BUILT_IN_TOOL_PREFIX = 'builtin__';
+const BUILT_IN_TOOL_SEED_RISK_LEVELS: Record<BuiltInToolId, 'low' | 'medium' | 'high'> = {
+    bash: 'high',
+    file_search: 'low',
+    read: 'medium',
+    setting: 'medium',
+    web_search: 'low',
+    web_fetch: 'low',
+    upgrade_model: 'medium',
+    show_widget: 'low',
+    visualize_read_me: 'low',
+    ask_user_question: 'low',
+    browser: 'medium',
+    browser_session: 'medium',
+    browser_observe: 'low',
+    browser_act: 'high',
+};
 
 interface BuiltInToolExecutionOptions {
     toolCall: AiToolCall;
@@ -106,6 +124,26 @@ async function throwIfCancelledAndMarkToolLog(options: {
  * 内置工具服务。
  */
 class BuiltInToolService {
+    async syncRegisteredTools(): Promise<void> {
+        const existingTools = await findAllBuiltInTools();
+        const existingToolIds = new Set(existingTools.map((tool) => tool.tool_id));
+
+        for (const tool of builtInToolRegistry.list()) {
+            if (existingToolIds.has(tool.id)) {
+                continue;
+            }
+
+            await createBuiltInTool({
+                tool_id: tool.id,
+                display_name: tool.displayName,
+                description: tool.description,
+                enabled: 1,
+                risk_level: BUILT_IN_TOOL_SEED_RISK_LEVELS[tool.id],
+                config_json: JSON.stringify(tool.defaultConfig),
+            });
+        }
+    }
+
     private buildFailedToolResult(error: unknown): BuiltInToolExecutionResult {
         const aiError = AiError.fromError(error);
         if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
@@ -128,20 +166,38 @@ class BuiltInToolService {
      */
     async getEnabledToolDefinitions(): Promise<AiToolDefinition[]> {
         const enabledTools = await findEnabledBuiltInTools();
-        return enabledTools.flatMap((tool) => {
+        const definitions: AiToolDefinition[] = [];
+        for (const tool of enabledTools) {
             const descriptor = builtInToolRegistry.get(tool.tool_id);
             if (!descriptor) {
-                return [];
+                continue;
             }
 
-            return [
-                {
-                    name: `${BUILT_IN_TOOL_PREFIX}${tool.tool_id}`,
-                    description: descriptor.description,
-                    input_schema: descriptor.inputSchema,
-                },
-            ];
-        });
+            try {
+                const config = descriptor.parseConfig(tool.config_json);
+                if (typeof descriptor.buildToolDefinition === 'function') {
+                    definitions.push(
+                        await descriptor.buildToolDefinition(
+                            `${BUILT_IN_TOOL_PREFIX}${tool.tool_id}`,
+                            config
+                        )
+                    );
+                } else {
+                    definitions.push({
+                        name: `${BUILT_IN_TOOL_PREFIX}${tool.tool_id}`,
+                        description: descriptor.description,
+                        input_schema: descriptor.inputSchema,
+                    });
+                }
+            } catch (error) {
+                console.error(
+                    `[BuiltInToolService] Failed to build tool definition: ${tool.tool_id}`,
+                    error
+                );
+            }
+        }
+
+        return definitions;
     }
 
     /**
@@ -447,10 +503,14 @@ class BuiltInToolService {
             isError: toolResult.isError,
             durationMs,
             finalStatus: toolResult.status === 'success' ? 'completed' : 'error',
+            builtinConversationSemantic: toolResult.conversationSemantic,
         });
 
         await updateBuiltInToolLogByCallId(options.toolCall.id, {
             output: toolResult.result,
+            conversation_semantic_json: toolResult.conversationSemantic
+                ? JSON.stringify(toolResult.conversationSemantic)
+                : null,
             status:
                 toolResult.status === 'success'
                     ? 'success'

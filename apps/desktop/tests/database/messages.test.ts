@@ -18,6 +18,7 @@ function createToolLog(overrides: Partial<ToolLogHistoryRow>): ToolLogHistoryRow
         tool_status: 'success',
         tool_duration_ms: 1,
         server_id: null,
+        builtin_conversation_semantic_json: null,
         ...overrides,
     };
 }

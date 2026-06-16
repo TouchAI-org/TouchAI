@@ -28,6 +28,7 @@
     const popupContent = ref<HTMLElement | null>(null);
     const unlisteners: (() => void)[] = [];
     const closedPopupIds = new Set<string>();
+    let emptyPopupHideTimer: number | null = null;
 
     const popupComponent = computed(() =>
         popupType.value ? popupRegistry.get(popupType.value)?.component : null
@@ -74,6 +75,31 @@
                     );
                 });
         }
+    }
+
+    function clearEmptyPopupHideTimer() {
+        if (!emptyPopupHideTimer) {
+            return;
+        }
+
+        window.clearTimeout(emptyPopupHideTimer);
+        emptyPopupHideTimer = null;
+    }
+
+    function scheduleEmptyPopupHide() {
+        clearEmptyPopupHideTimer();
+        emptyPopupHideTimer = window.setTimeout(() => {
+            emptyPopupHideTimer = null;
+            if (popupId.value || popupData.value !== null) {
+                return;
+            }
+
+            void getCurrentWindow()
+                .hide()
+                .catch((error) => {
+                    console.error('[PopupView] Failed to hide empty popup window:', error);
+                });
+        }, 150);
     }
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -124,6 +150,7 @@
         unlisteners.push(
             await eventService.on(AppEvent.POPUP_DATA, async (payload: PopupDataPayload) => {
                 if (payload.windowLabel !== currentLabel) return;
+                clearEmptyPopupHideTimer();
 
                 if (closedPopupIds.has(payload.popupId)) {
                     return;
@@ -142,8 +169,12 @@
                     return;
                 }
                 await requestResize();
-                // 原生窗口已由 PopupManager.show() 显示；PopupView 只在首次数据到达后接管焦点与初始选中态。
                 if (payload.isShow) {
+                    await getCurrentWindow()
+                        .show()
+                        .catch((error: unknown) => {
+                            console.error('[PopupView] Failed to show popup window:', error);
+                        });
                     await nextTick();
                     if (!isCurrentPayloadSession(payload)) {
                         return;
@@ -162,6 +193,7 @@
         await eventService.emit(AppEvent.POPUP_READY, {
             windowLabel: currentLabel,
         });
+        scheduleEmptyPopupHide();
 
         // 监听关闭事件：终止当前 pendingShow 流程，避免关闭后再次执行 show。
         unlisteners.push(
@@ -205,6 +237,7 @@
     });
 
     onUnmounted(() => {
+        clearEmptyPopupHideTimer();
         unlisteners.forEach((fn) => fn());
         window.removeEventListener('keydown', handleKeyDown);
     });
