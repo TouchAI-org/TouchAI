@@ -149,6 +149,25 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete 
     max-width: 100% !important;
 }
 
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .stage,
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .stage,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-answering .stage,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .stage,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-answering .stage,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .stage {
+    justify-content: flex-start !important;
+}
+
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .chat-panel,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .chat-panel,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .chat-panel,
+touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-scroll-driven.is-complete .chat-panel,
+touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-scroll-driven.is-complete .chat-panel,
+touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-scroll-driven.is-complete .chat-panel {
+    min-height: 0 !important;
+    height: auto !important;
+}
+
 touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .conversation-content,
 touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .conversation-content,
 touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .conversation-content,

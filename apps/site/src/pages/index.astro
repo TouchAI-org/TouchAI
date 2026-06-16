@@ -1455,8 +1455,9 @@ const structuredData = JSON.stringify({
                 .feature-work-card,
                 .feature-reminder-card {
                     width: min(100%, 520px);
-                    height: auto;
-                    aspect-ratio: 760 / 657;
+                    height: var(--feature-demo-height, 35px);
+                    min-height: 35px;
+                    aspect-ratio: auto;
                 }
 
                 .github-feedback-head {
@@ -1673,8 +1674,9 @@ const structuredData = JSON.stringify({
                 .feature-work-card,
                 .feature-reminder-card {
                     width: min(100%, 334px);
-                    height: auto;
-                    aspect-ratio: 760 / 657;
+                    height: var(--feature-demo-height, 35px);
+                    min-height: 35px;
+                    aspect-ratio: auto;
                     max-width: 100%;
                 }
 
@@ -1694,7 +1696,7 @@ const structuredData = JSON.stringify({
 
                 .github-stats {
                     display: grid;
-                    grid-template-columns: repeat(3, minmax(0, 1fr));
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
                     width: 100%;
                     gap: 8px;
                 }
