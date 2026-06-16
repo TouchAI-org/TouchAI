@@ -3089,18 +3089,20 @@ const structuredData = JSON.stringify({
                 const solverFrame = document.querySelector('.feature-component-frame');
                 const solverCard = document.querySelector('.feature-component-card');
                 if (solverFrame) {
-                    syncFeatureDemoProgress(solverFrame, 0);
+                    syncFeatureDemoProgress(solverFrame, 0, true);
                     solverFrame.addEventListener('load', () => {
                         syncFeatureDemoProgress(
                             solverFrame,
-                            featureProgressByFrame.get(solverFrame) ?? 0
+                            featureProgressByFrame.get(solverFrame) ?? 0,
+                            true
                         );
                     });
                     window.addEventListener('message', (event) => {
                         if (getMessageType(event) === 'touchai-solver-ready') {
                             syncFeatureDemoProgress(
                                 solverFrame,
-                                featureProgressByFrame.get(solverFrame) ?? 0
+                                featureProgressByFrame.get(solverFrame) ?? 0,
+                                true
                             );
                         }
                     });
@@ -3109,18 +3111,20 @@ const structuredData = JSON.stringify({
                 const workOrganizerFrame = document.querySelector('.feature-work-frame');
                 const workOrganizerCard = document.querySelector('.feature-work-card');
                 if (workOrganizerFrame) {
-                    syncFeatureDemoProgress(workOrganizerFrame, 0);
+                    syncFeatureDemoProgress(workOrganizerFrame, 0, true);
                     workOrganizerFrame.addEventListener('load', () => {
                         syncFeatureDemoProgress(
                             workOrganizerFrame,
-                            featureProgressByFrame.get(workOrganizerFrame) ?? 0
+                            featureProgressByFrame.get(workOrganizerFrame) ?? 0,
+                            true
                         );
                     });
                     window.addEventListener('message', (event) => {
                         if (getMessageType(event) === 'touchai-work-organizer-ready') {
                             syncFeatureDemoProgress(
                                 workOrganizerFrame,
-                                featureProgressByFrame.get(workOrganizerFrame) ?? 0
+                                featureProgressByFrame.get(workOrganizerFrame) ?? 0,
+                                true
                             );
                         }
                     });
@@ -3129,18 +3133,20 @@ const structuredData = JSON.stringify({
                 const reminderFrame = document.querySelector('.feature-reminder-frame');
                 const reminderCard = document.querySelector('.feature-reminder-card');
                 if (reminderFrame) {
-                    syncFeatureDemoProgress(reminderFrame, 0);
+                    syncFeatureDemoProgress(reminderFrame, 0, true);
                     reminderFrame.addEventListener('load', () => {
                         syncFeatureDemoProgress(
                             reminderFrame,
-                            featureProgressByFrame.get(reminderFrame) ?? 0
+                            featureProgressByFrame.get(reminderFrame) ?? 0,
+                            true
                         );
                     });
                     window.addEventListener('message', (event) => {
                         if (getMessageType(event) === 'touchai-reminder-ready') {
                             syncFeatureDemoProgress(
                                 reminderFrame,
-                                featureProgressByFrame.get(reminderFrame) ?? 0
+                                featureProgressByFrame.get(reminderFrame) ?? 0,
+                                true
                             );
                         }
                     });

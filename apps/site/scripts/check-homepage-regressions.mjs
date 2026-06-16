@@ -10,6 +10,14 @@ const readSiteFile = (relativePath) => fs.readFileSync(path.join(siteRoot, relat
 const homepage = readSiteFile('src/pages/index.astro');
 const componentDemo = readSiteFile('src/components/ComponentDemo.astro');
 const runtime = readSiteFile('src/scripts/component-demo-runtime.ts');
+const featureDemoFiles = [
+    'public/feature-solver/touchai-components.html',
+    'public/feature-solver-en/touchai-components.html',
+    'public/feature-work-organizer/touchai-components.html',
+    'public/feature-work-organizer-en/touchai-components.html',
+    'public/feature-reminder/touchai-components.html',
+    'public/feature-reminder-en/touchai-components.html',
+];
 const failures = [];
 
 const fail = (message) => failures.push(message);
@@ -55,6 +63,18 @@ if (homepage.includes('window.innerHeight * 0.92')) {
 if (!homepage.includes('trigger: featureBlock') || !homepage.includes('getFeatureStickyTop()')) {
     fail('Feature demos must start when the sticky feature shell reaches the viewport center.');
 }
+
+if (!homepage.includes('syncFeatureDemoProgress(solverFrame, 0, true)')) {
+    fail('Feature demos must force-send zero progress on initial load.');
+}
+
+featureDemoFiles.forEach((file) => {
+    const html = readSiteFile(file);
+    const promptInput = html.match(/<input[\s\S]*?class="prompt-input"[\s\S]*?>/);
+    if (promptInput && !promptInput[0].includes('value=""')) {
+        fail(`${file} prompt input must start empty.`);
+    }
+});
 
 const requiresFeatureCompleteAutoHeight = (source, label) => {
     const selectors = [
