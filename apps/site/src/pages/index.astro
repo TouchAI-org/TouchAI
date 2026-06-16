@@ -9,9 +9,6 @@ const repoPath = 'TouchAI-org/TouchAI';
 const repoUrl = `https://github.com/${repoPath}`;
 const releasesUrl = `${repoUrl}/releases`;
 const repoApiUrl = `https://api.github.com/repos/${repoPath}`;
-const repoOpenIssuesApiUrl = `https://api.github.com/search/issues?q=${encodeURIComponent(
-    `repo:${repoPath} is:issue is:open`
-)}`;
 const docsUrl = `${siteUrl}getting-started/`;
 const titleZh = 'TouchAI：一触即达的桌面效率 Agent';
 const titleEn = 'TouchAI: A Desktop Efficiency Agent at Your Fingertips';
@@ -31,7 +28,6 @@ const loadInitialRepoStats = async () => {
     const stats = {
         stars: null,
         forks: null,
-        issues: null,
     };
 
     try {
@@ -40,14 +36,6 @@ const loadInitialRepoStats = async () => {
             const data = await response.json();
             stats.stars = data.stargazers_count;
             stats.forks = data.forks_count;
-        }
-    } catch {}
-
-    try {
-        const response = await fetch(repoOpenIssuesApiUrl, { headers });
-        if (response.ok) {
-            const data = await response.json();
-            stats.issues = data.total_count;
         }
     } catch {}
 
@@ -852,7 +840,7 @@ const structuredData = JSON.stringify({
                 border-radius: 18px;
                 background: transparent;
                 box-shadow: none;
-                overflow: hidden;
+                overflow: visible;
                 isolation: isolate;
                 justify-self: center;
                 align-self: center;
@@ -894,7 +882,7 @@ const structuredData = JSON.stringify({
                 border-radius: 18px;
                 background: transparent;
                 box-shadow: none;
-                overflow: hidden;
+                overflow: visible;
                 isolation: isolate;
                 justify-self: center;
                 align-self: center;
@@ -936,7 +924,7 @@ const structuredData = JSON.stringify({
                 border-radius: 18px;
                 background: transparent;
                 box-shadow: none;
-                overflow: hidden;
+                overflow: visible;
                 isolation: isolate;
                 justify-self: center;
                 align-self: center;
@@ -2056,10 +2044,8 @@ const structuredData = JSON.stringify({
                         aria-live="polite"
                         data-repo-path={repoPath}
                         data-repo-api-url={repoApiUrl}
-                        data-repo-open-issues-api-url={repoOpenIssuesApiUrl}
                         data-initial-stars={initialRepoStats.stars}
                         data-initial-forks={initialRepoStats.forks}
-                        data-initial-issues={initialRepoStats.issues}
                     >
                         <div class="github-stat">
                             <strong data-github-stat="stars" data-loading="true">--</strong>
@@ -2068,10 +2054,6 @@ const structuredData = JSON.stringify({
                         <div class="github-stat">
                             <strong data-github-stat="forks" data-loading="true">--</strong>
                             <span data-i18n="teams.stats.forks">Forks</span>
-                        </div>
-                        <div class="github-stat">
-                            <strong data-github-stat="issues" data-loading="true">--</strong>
-                            <span data-i18n="teams.stats.issues">Open issues</span>
                         </div>
                     </div>
                 </div>
@@ -2385,7 +2367,6 @@ const structuredData = JSON.stringify({
                         'teams.title': '用户反馈',
                         'teams.stats.stars': 'Stars',
                         'teams.stats.forks': 'Forks',
-                        'teams.stats.issues': 'Open issues',
                         'teams.one.quote':
                             '开发者正在 GitHub Issues 里围绕桌面唤起、模型接入和自动化工作流提交反馈，项目保持持续迭代。',
                         'teams.one.label': 'Issues 反馈',
@@ -2445,7 +2426,6 @@ const structuredData = JSON.stringify({
                         'teams.title': 'User feedback',
                         'teams.stats.stars': 'Stars',
                         'teams.stats.forks': 'Forks',
-                        'teams.stats.issues': 'Open issues',
                         'teams.one.quote':
                             'Developers are using GitHub Issues to discuss desktop summon, model access, and automation workflows while the project keeps moving.',
                         'teams.one.label': 'Issue feedback',
@@ -2812,11 +2792,6 @@ const structuredData = JSON.stringify({
                 const REPO_STATS_API_URL =
                     githubStatsGroup?.dataset.repoApiUrl ||
                     `https://api.github.com/repos/${REPO_STATS_SOURCE}`;
-                const REPO_OPEN_ISSUES_API_URL =
-                    githubStatsGroup?.dataset.repoOpenIssuesApiUrl ||
-                    `https://api.github.com/search/issues?q=${encodeURIComponent(
-                        `repo:${REPO_STATS_SOURCE} is:issue is:open`
-                    )}`;
                 const REPO_STATS_STORAGE_KEY = `touchai-github-stats:${REPO_STATS_SOURCE}`;
                 const REPO_STATS_REFRESH_INTERVAL = 5 * 60 * 1000;
                 const REPO_STATS_REFOCUS_INTERVAL = 90 * 1000;
@@ -2824,13 +2799,11 @@ const structuredData = JSON.stringify({
                 const repoStats = {
                     stars: 0,
                     forks: 0,
-                    issues: 0,
                     updatedAt: 0,
                 };
                 const statNodes = {
                     stars: document.querySelector('[data-github-stat="stars"]'),
                     forks: document.querySelector('[data-github-stat="forks"]'),
-                    issues: document.querySelector('[data-github-stat="issues"]'),
                 };
                 const statFormatter = new Intl.NumberFormat('en-US');
                 const normalizeStat = (value) => {
@@ -2844,7 +2817,6 @@ const structuredData = JSON.stringify({
                 const readInitialRepoStats = () => ({
                     stars: normalizeStat(githubStatsGroup?.dataset.initialStars),
                     forks: normalizeStat(githubStatsGroup?.dataset.initialForks),
-                    issues: normalizeStat(githubStatsGroup?.dataset.initialIssues),
                     updatedAt: 0,
                 });
                 const setRepoStatsLoading = (loading) => {
@@ -2859,8 +2831,6 @@ const structuredData = JSON.stringify({
                 const renderRepoStats = (nextStats, { loading = false } = {}) => {
                     if (statNodes.stars) statNodes.stars.textContent = formatStat(nextStats.stars);
                     if (statNodes.forks) statNodes.forks.textContent = formatStat(nextStats.forks);
-                    if (statNodes.issues)
-                        statNodes.issues.textContent = formatStat(nextStats.issues);
                     setRepoStatsLoading(loading);
                 };
                 const loadStoredRepoStats = () => {
@@ -2871,10 +2841,9 @@ const structuredData = JSON.stringify({
                         const nextStats = {
                             stars: normalizeStat(parsed?.stars),
                             forks: normalizeStat(parsed?.forks),
-                            issues: normalizeStat(parsed?.issues),
                             updatedAt: Number(parsed?.updatedAt) || 0,
                         };
-                        const hasValidStats = ['stars', 'forks', 'issues'].every(
+                        const hasValidStats = ['stars', 'forks'].every(
                             (key) => nextStats[key] != null
                         );
                         return hasValidStats ? nextStats : null;
@@ -2889,7 +2858,6 @@ const structuredData = JSON.stringify({
                             JSON.stringify({
                                 stars: normalizeStat(nextStats.stars),
                                 forks: normalizeStat(nextStats.forks),
-                                issues: normalizeStat(nextStats.issues),
                                 updatedAt: Number(nextStats.updatedAt) || Date.now(),
                             })
                         );
@@ -2904,27 +2872,17 @@ const structuredData = JSON.stringify({
                         Accept: 'application/vnd.github+json',
                         'X-GitHub-Api-Version': '2022-11-28',
                     };
-                    const [repoResponse, openIssuesResponse] = await Promise.all([
-                        fetch(withCacheBuster(REPO_STATS_API_URL), {
-                            cache: 'no-store',
-                            headers,
-                        }),
-                        fetch(withCacheBuster(REPO_OPEN_ISSUES_API_URL), {
-                            cache: 'no-store',
-                            headers,
-                        }),
-                    ]);
-                    if (!repoResponse.ok || !openIssuesResponse.ok) {
+                    const repoResponse = await fetch(withCacheBuster(REPO_STATS_API_URL), {
+                        cache: 'no-store',
+                        headers,
+                    });
+                    if (!repoResponse.ok) {
                         throw new Error('repo stats request failed');
                     }
-                    const [repoData, openIssuesData] = await Promise.all([
-                        repoResponse.json(),
-                        openIssuesResponse.json(),
-                    ]);
+                    const repoData = await repoResponse.json();
                     return {
                         stars: normalizeStat(repoData.stargazers_count),
                         forks: normalizeStat(repoData.forks_count),
-                        issues: normalizeStat(openIssuesData.total_count),
                     };
                 };
                 let repoStatsRequest = null;
@@ -2942,7 +2900,7 @@ const structuredData = JSON.stringify({
                     repoStatsRequest = fetchRepoOverview()
                         .then((nextStats) => {
                             const mergedStats = { ...repoStats, ...nextStats };
-                            const hasValidStats = ['stars', 'forks', 'issues'].every(
+                            const hasValidStats = ['stars', 'forks'].every(
                                 (key) => normalizeStat(mergedStats[key]) != null
                             );
                             if (!hasValidStats) return;
