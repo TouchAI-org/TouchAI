@@ -26,7 +26,9 @@
                     strict: 'ignore',
                     trust: false,
                 });
-            } catch (error) {}
+            } catch {
+                // Fall back to the lightweight renderer below.
+            }
         }
 
         const input = normalizeFormula(source);
@@ -205,9 +207,7 @@
         };
 
         const inner = parse();
-        const className = displayMode
-            ? 'formula-module'
-            : 'formula-module inline-formula';
+        const className = displayMode ? 'formula-module' : 'formula-module inline-formula';
 
         return `<span class="${className}">${inner}</span>`;
     }
@@ -236,10 +236,7 @@
                 ? `<div class="math-block"><span class="math-display-frame">${rendered}</span></div>`
                 : `<span class="katex-formula">${rendered}</span>`;
             html = html
-                .replace(
-                    new RegExp(`<p class="paragraph-node">${token}</p>`, 'g'),
-                    replacement
-                )
+                .replace(new RegExp(`<p class="paragraph-node">${token}</p>`, 'g'), replacement)
                 .replace(new RegExp(token, 'g'), replacement);
         });
 

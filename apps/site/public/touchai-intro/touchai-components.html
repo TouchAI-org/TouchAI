@@ -1124,7 +1124,12 @@
                             </svg>
                         </button>
                     </div>
-                    <article class="response math-response" aria-live="polite" aria-busy="false" aria-atomic="false"></article>
+                    <article
+                        class="response math-response"
+                        aria-live="polite"
+                        aria-busy="false"
+                        aria-atomic="false"
+                    ></article>
                     <div class="scroll-fade-overlay">
                         <button class="scroll-bottom-button" type="button" aria-label="回到底部">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1138,7 +1143,14 @@
 
                 <footer class="composer" aria-label="输入框">
                     <form class="composer-form prompt-form" aria-label="输入框">
-                        <img class="mi-logo" src="./mimo.png" alt="Mimo" width="32" height="32" decoding="async" />
+                        <img
+                            class="mi-logo"
+                            src="./mimo.png"
+                            alt="Mimo"
+                            width="32"
+                            height="32"
+                            decoding="async"
+                        />
                         <input
                             class="prompt-input"
                             type="text"
@@ -1628,9 +1640,13 @@
 
                 function renderScrollProgress(progress) {
                     const currentProgress = clamp01(progress);
-                    hasReceivedScrollProgress = currentProgress > 0.0005 && currentProgress < 0.9995;
+                    hasReceivedScrollProgress =
+                        currentProgress > 0.0005 && currentProgress < 0.9995;
                     setScrollDrivenState(hasReceivedScrollProgress);
-                    response.setAttribute('aria-busy', hasReceivedScrollProgress ? 'true' : 'false');
+                    response.setAttribute(
+                        'aria-busy',
+                        hasReceivedScrollProgress ? 'true' : 'false'
+                    );
                     hasStarted = currentProgress > 0.02;
                     window.clearTimeout(fallbackTimer);
                     window.clearTimeout(typingTimer);
@@ -1793,14 +1809,18 @@
                     content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
                     window.setTimeout(updateScrollAffordance, 220);
                 });
-                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, { passive: true });
+                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, {
+                    passive: true,
+                });
                 panel.addEventListener('wheel', forwardWheelToPage, { passive: false });
                 window.addEventListener('message', (event) => {
                     const message = getMessagePayload(event);
                     if (message.type === 'touchai-page-bg') {
                         document.documentElement.style.setProperty(
                             '--page-bg',
-                            typeof message.background === 'string' ? message.background : 'transparent'
+                            typeof message.background === 'string'
+                                ? message.background
+                                : 'transparent'
                         );
                         return;
                     }

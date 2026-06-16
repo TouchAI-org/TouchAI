@@ -23,10 +23,7 @@
                     return `<span class="kbd">${escapeHtml(segment.slice(1, -1))}</span>`;
                 }
 
-                return escapeHtml(segment).replace(
-                    /\*\*([^*]+)\*\*/g,
-                    '<strong>$1</strong>'
-                );
+                return escapeHtml(segment).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
             })
             .join('');
     }
@@ -48,9 +45,7 @@
         const flushList = () => {
             if (!listItems.length) return;
             html.push(
-                `<ul>${listItems
-                    .map((item) => `<li>${renderInline(item)}</li>`)
-                    .join('')}</ul>`
+                `<ul>${listItems.map((item) => `<li>${renderInline(item)}</li>`).join('')}</ul>`
             );
             listItems = [];
         };

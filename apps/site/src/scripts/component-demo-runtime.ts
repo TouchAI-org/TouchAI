@@ -524,8 +524,7 @@ const dispatchMessage = (host: TouchAiHost | null | undefined, data: unknown) =>
     } else {
         handlers.forEach((handler) => handler(event));
     }
-    host.dataset.touchaiLastMessage =
-        messageType || 'unknown';
+    host.dataset.touchaiLastMessage = messageType || 'unknown';
 
     return true;
 };

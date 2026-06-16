@@ -978,14 +978,14 @@
     </head>
     <body class="is-idle">
         <main class="stage">
-            <section class="chat-panel is-unified" aria-label="TouchAI 对话组件">
-                <header class="panel-top toolbar-fade-overlay" aria-label="窗口工具栏">
-                    <button class="toolbar-button" type="button" aria-label="新建会话">
+            <section class="chat-panel is-unified" aria-label="TouchAI conversation demo">
+                <header class="panel-top toolbar-fade-overlay" aria-label="Window toolbar">
+                    <button class="toolbar-button" type="button" aria-label="New conversation">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z" />
                         </svg>
                     </button>
-                    <button class="toolbar-button" type="button" aria-label="历史记录">
+                    <button class="toolbar-button" type="button" aria-label="Conversation history">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M12 8v5h5v-2h-3V8z" />
                             <path
@@ -993,7 +993,7 @@
                             />
                         </svg>
                     </button>
-                    <button class="toolbar-button" type="button" aria-label="最大化窗口">
+                    <button class="toolbar-button" type="button" aria-label="Maximize window">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path
                                 d="M5 5h5V3H3v7h2zm5 14H5v-5H3v7h7zm11-5h-2v5h-5v2h7zm-2-4h2V3h-7v2h5z"
@@ -1003,7 +1003,7 @@
                     <button
                         class="toolbar-button toolbar-button--pinned"
                         type="button"
-                        aria-label="固定窗口"
+                        aria-label="Pin window"
                     >
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path
@@ -1014,13 +1014,20 @@
                 </header>
 
                 <div class="prompt-layer">
-                    <div class="prompt-pill prompt-card" aria-label="用户输入">
+                    <div class="prompt-pill prompt-card" aria-label="User prompt">
                         <div class="prompt-card-title">Solve this problem</div>
-                        <div class="problem-image" role="img" aria-label="圆锥曲线题目截图">
-                            <img src="./problem-card.svg" alt="圆锥曲线题目截图" />
+                        <div
+                            class="problem-image"
+                            role="img"
+                            aria-label="Screenshot of a Chinese conic-section math problem"
+                        >
+                            <img
+                                src="./problem-card.svg"
+                                alt="Screenshot of a Chinese conic-section math problem"
+                            />
                         </div>
                     </div>
-                    <button class="prompt-copy" type="button" aria-label="复制问题">
+                    <button class="prompt-copy" type="button" aria-label="Copy problem">
                         <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
                             <path
                                 d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"
@@ -1031,13 +1038,20 @@
 
                 <div class="conversation-content">
                     <div class="prompt-layer">
-                        <div class="prompt-pill prompt-card" aria-label="用户输入">
+                        <div class="prompt-pill prompt-card" aria-label="User prompt">
                             <div class="prompt-card-title">Solve this problem</div>
-                            <div class="problem-image" role="img" aria-label="圆锥曲线题目截图">
-                                <img src="./problem-card.svg" alt="圆锥曲线题目截图" />
+                            <div
+                                class="problem-image"
+                                role="img"
+                                aria-label="Screenshot of a Chinese conic-section math problem"
+                            >
+                                <img
+                                    src="./problem-card.svg"
+                                    alt="Screenshot of a Chinese conic-section math problem"
+                                />
                             </div>
                         </div>
-                        <button class="prompt-copy" type="button" aria-label="复制问题">
+                        <button class="prompt-copy" type="button" aria-label="Copy problem">
                             <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
                                 <path
                                     d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"
@@ -1045,33 +1059,25 @@
                             </svg>
                         </button>
                     </div>
-                    <article class="response math-response" aria-live="polite" aria-busy="false" aria-atomic="false">
+                    <article
+                        class="response math-response"
+                        aria-live="polite"
+                        aria-busy="false"
+                        aria-atomic="false"
+                    >
                         <p>Here is the short solution:</p>
                         <p class="math-narrative">
-                            设过
-                            <span class="formula-module inline-formula">
-                                M
-                                <span class="punct">(</span>
-                                0
-                                <span class="punct">,</span>
-                                1
-                                <span class="punct">)</span>
-                            </span>
-                            的直线为
-                            <span class="formula-module inline-formula">
-                                y
-                                <span class="op">=</span>
-                                kx
-                                <span class="op">+</span>
-                                1
-                            </span>
-                            ，与椭圆
+                            Let the line through
+                            <span class="formula-module inline-formula">M(0, 1)</span>
+                            be
+                            <span class="formula-module inline-formula">y = kx + 1</span>
+                            , and let it intersect the ellipse
                         </p>
                         <p class="math-display">
                             <span class="formula-module">
                                 x
                                 <sup>2</sup>
-                                <span class="op">+</span>
+                                +
                                 <span class="frac">
                                     <span class="num">
                                         y
@@ -1079,171 +1085,135 @@
                                     </span>
                                     <span class="den">4</span>
                                 </span>
-                                <span class="op">=</span>
-                                1
+                                = 1
                             </span>
                         </p>
                         <p>
-                            交于
+                            at
                             <em>(A,B)</em>
-                            。
+                            .
                         </p>
-                        <p>代入得</p>
+                        <p>Substituting gives</p>
                         <p class="math-display">
                             <span class="formula-module">
-                                <span class="punct">(</span>
-                                k
+                                (k
                                 <sup>2</sup>
-                                <span class="op">+</span>
-                                4
-                                <span class="punct">)</span>
-                                x
+                                + 4)x
                                 <sup>2</sup>
-                                <span class="op">+</span>
-                                2kx
-                                <span class="op">−</span>
-                                3
-                                <span class="op">=</span>
-                                0
+                                + 2kx − 3 = 0
                             </span>
                         </p>
                         <p class="math-narrative">
-                            设两根为
+                            If the two roots are
                             <span class="formula-module inline-formula">
                                 x
                                 <sub>1</sub>
-                                <span class="punct">,</span>
-                                x
+                                , x
                                 <sub>2</sub>
                             </span>
-                            ，则
+                            , then
                         </p>
                         <p class="math-display compact">
                             <span class="formula-module">
                                 x
                                 <sub>1</sub>
-                                <span class="op">+</span>
-                                x
+                                + x
                                 <sub>2</sub>
-                                <span class="op">=</span>
-                                <span class="op">−</span>
+                                = −
                                 <span class="frac">
                                     <span class="num">2k</span>
                                     <span class="den">
                                         k
                                         <sup>2</sup>
-                                        <span class="op">+</span>
-                                        4
+                                        + 4
                                     </span>
                                 </span>
-                                <span class="punct">,</span>
-                                　y
+                                , y
                                 <sub>1</sub>
-                                <span class="op">+</span>
-                                y
+                                + y
                                 <sub>2</sub>
-                                <span class="op">=</span>
-                                k
-                                <span class="punct">(</span>
-                                x
+                                = k(x
                                 <sub>1</sub>
-                                <span class="op">+</span>
-                                x
+                                + x
                                 <sub>2</sub>
-                                <span class="punct">)</span>
-                                <span class="op">+</span>
-                                2
-                                <span class="op">=</span>
+                                ) + 2 =
                                 <span class="frac">
                                     <span class="num">8</span>
                                     <span class="den">
                                         k
                                         <sup>2</sup>
-                                        <span class="op">+</span>
-                                        4
+                                        + 4
                                     </span>
                                 </span>
                             </span>
                         </p>
-                        <p>又</p>
+                        <p>Also,</p>
                         <p class="math-display">
                             <span class="formula-module">
-                                P
-                                <span class="punct">(</span>
+                                P(
                                 <span class="frac">
                                     <span class="num">
                                         x
                                         <sub>1</sub>
-                                        <span class="op">+</span>
-                                        x
+                                        + x
                                         <sub>2</sub>
                                     </span>
                                     <span class="den">2</span>
                                 </span>
-                                <span class="punct">,</span>
+                                ,
                                 <span class="frac">
                                     <span class="num">
                                         y
                                         <sub>1</sub>
-                                        <span class="op">+</span>
-                                        y
+                                        + y
                                         <sub>2</sub>
                                     </span>
                                     <span class="den">2</span>
                                 </span>
-                                <span class="punct">)</span>
+                                )
                             </span>
                         </p>
-                        <p>所以</p>
+                        <p>so</p>
                         <p class="math-display">
                             <span class="formula-module">
-                                x
-                                <span class="op">=</span>
-                                <span class="op">−</span>
+                                x = −
                                 <span class="frac">
                                     <span class="num">k</span>
                                     <span class="den">
                                         k
                                         <sup>2</sup>
-                                        <span class="op">+</span>
-                                        4
+                                        + 4
                                     </span>
                                 </span>
-                                <span class="punct">,</span>
-                                　y
-                                <span class="op">=</span>
+                                , y =
                                 <span class="frac">
                                     <span class="num">4</span>
                                     <span class="den">
                                         k
                                         <sup>2</sup>
-                                        <span class="op">+</span>
-                                        4
+                                        + 4
                                     </span>
                                 </span>
                             </span>
                         </p>
                         <p>
-                            消去
+                            Eliminating
                             <em>k</em>
-                            得
+                            , we get
                         </p>
                         <p class="math-display">
                             <span class="boxed-formula">
                                 <span class="formula-module">
                                     4x
                                     <sup>2</sup>
-                                    <span class="op">+</span>
-                                    <span class="punct">(</span>
-                                    y
-                                    <span class="op">−</span>
+                                    + (y −
                                     <span class="frac">
                                         <span class="num">1</span>
                                         <span class="den">2</span>
                                     </span>
-                                    <span class="punct">)</span>
+                                    )
                                     <sup>2</sup>
-                                    <span class="op">=</span>
+                                    =
                                     <span class="frac">
                                         <span class="num">1</span>
                                         <span class="den">4</span>
@@ -1252,68 +1222,41 @@
                             </span>
                         </p>
                         <p class="response-divider" aria-hidden="true"></p>
-                        <p>再求</p>
+                        <p>Now find the distance from</p>
                         <p class="math-display">
                             <span class="formula-module">
-                                N
-                                <span class="punct">(</span>
+                                N(
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">2</span>
                                 </span>
-                                <span class="punct">,</span>
+                                ,
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">2</span>
                                 </span>
-                                <span class="punct">)</span>
+                                )
                             </span>
                         </p>
                         <p>
-                            到轨迹上的点
+                            to a point
                             <em>P(x,y)</em>
-                            的距离。
+                            on the locus.
                         </p>
-                        <p>由轨迹方程可设</p>
+                        <p>From the locus equation, set</p>
                         <p class="math-display">
                             <span class="formula-module">
-                                4x
-                                <sup>2</sup>
-                                <span class="op">+</span>
-                                <span class="punct">(</span>
-                                y
-                                <span class="op">−</span>
-                                <span class="frac">
-                                    <span class="num">1</span>
-                                    <span class="den">2</span>
-                                </span>
-                                <span class="punct">)</span>
-                                <sup>2</sup>
-                                <span class="op">=</span>
+                                x =
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">4</span>
                                 </span>
-                            </span>
-                        </p>
-                        <p>令</p>
-                        <p class="math-display">
-                            <span class="formula-module">
-                                x
-                                <span class="op">=</span>
-                                <span class="frac">
-                                    <span class="num">1</span>
-                                    <span class="den">4</span>
-                                </span>
-                                cosθ
-                                <span class="punct">,</span>
-                                　y
-                                <span class="op">−</span>
+                                cosθ, y −
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">2</span>
                                 </span>
-                                <span class="op">=</span>
+                                =
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">2</span>
@@ -1321,46 +1264,41 @@
                                 sinθ
                             </span>
                         </p>
-                        <p>则</p>
+                        <p>Then</p>
                         <p class="math-display compact">
                             <span class="formula-module">
                                 |NP|
                                 <sup>2</sup>
-                                <span class="op">=</span>
-                                <span class="punct">(</span>
+                                = (
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">4</span>
                                 </span>
-                                cosθ
-                                <span class="op">−</span>
+                                cosθ −
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">2</span>
                                 </span>
-                                <span class="punct">)</span>
+                                )
                                 <sup>2</sup>
-                                <span class="op">+</span>
-                                <span class="punct">(</span>
+                                + (
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">2</span>
                                 </span>
-                                sinθ
-                                <span class="punct">)</span>
+                                sinθ)
                                 <sup>2</sup>
-                                <span class="op">=</span>
+                                =
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">2</span>
                                 </span>
-                                <span class="op">−</span>
+                                −
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">4</span>
                                 </span>
-                                cosθ
-                                <span class="op">−</span>
+                                cosθ −
                                 <span class="frac">
                                     <span class="num">3</span>
                                     <span class="den">16</span>
@@ -1371,36 +1309,25 @@
                             </span>
                         </p>
                         <p class="math-narrative">
-                            设
-                            <span class="formula-module inline-formula">
-                                t
-                                <span class="op">=</span>
-                                cosθ
-                                <span class="op">∈</span>
-                                <span class="punct">[</span>
-                                −1
-                                <span class="punct">,</span>
-                                1
-                                <span class="punct">]</span>
-                            </span>
-                            ，则
+                            Let
+                            <span class="formula-module inline-formula">t = cosθ ∈ [−1, 1]</span>
+                            , then
                         </p>
                         <p class="math-display">
                             <span class="formula-module">
                                 |NP|
                                 <sup>2</sup>
-                                <span class="op">=</span>
+                                =
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">2</span>
                                 </span>
-                                <span class="op">−</span>
+                                −
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">4</span>
                                 </span>
-                                t
-                                <span class="op">−</span>
+                                t −
                                 <span class="frac">
                                     <span class="num">3</span>
                                     <span class="den">16</span>
@@ -1411,33 +1338,31 @@
                         </p>
                         <p class="math-narrative">
                             <span class="typed-marker">•</span>
-                            当
+                            The maximum occurs when
                             <span class="formula-module inline-formula">
-                                t
-                                <span class="op">=</span>
-                                <span class="op">−</span>
+                                t = −
                                 <span class="frac">
                                     <span class="num">2</span>
                                     <span class="den">3</span>
                                 </span>
                             </span>
-                            时取最大值：
+                            :
                         </p>
                         <p class="math-display">
                             <span class="formula-module">
                                 |NP|
                                 <sup>2</sup>
                                 <sub>max</sub>
-                                <span class="op">=</span>
+                                =
                                 <span class="frac">
                                     <span class="num">7</span>
                                     <span class="den">12</span>
                                 </span>
-                                <span class="op">⇒</span>
+                                ⇒
                                 <span class="boxed-formula">
                                     |NP|
                                     <sub>max</sub>
-                                    <span class="op">=</span>
+                                    =
                                     <span class="frac">
                                         <span class="num">
                                             <span class="root">
@@ -1451,43 +1376,33 @@
                         </p>
                         <p>
                             <span class="typed-marker">•</span>
-                            比较端点：
+                            Checking the endpoints:
                         </p>
                         <p class="math-display">
                             <span class="formula-module">
-                                t
-                                <span class="op">=</span>
-                                1
-                                <span class="op">⇒</span>
-                                |NP|
+                                t = 1 ⇒ |NP|
                                 <sup>2</sup>
-                                <span class="op">=</span>
+                                =
                                 <span class="frac">
                                     <span class="num">1</span>
                                     <span class="den">16</span>
                                 </span>
-                                <span class="punct">,</span>
-                                　t
-                                <span class="op">=</span>
-                                <span class="op">−</span>
-                                1
-                                <span class="op">⇒</span>
-                                |NP|
+                                , t = −1 ⇒ |NP|
                                 <sup>2</sup>
-                                <span class="op">=</span>
+                                =
                                 <span class="frac">
                                     <span class="num">9</span>
                                     <span class="den">16</span>
                                 </span>
                             </span>
                         </p>
-                        <p>所以</p>
+                        <p>So</p>
                         <p class="math-display">
                             <span class="boxed-formula">
                                 <span class="formula-module">
                                     |NP|
                                     <sub>min</sub>
-                                    <span class="op">=</span>
+                                    =
                                     <span class="frac">
                                         <span class="num">1</span>
                                         <span class="den">4</span>
@@ -1496,23 +1411,20 @@
                             </span>
                         </p>
                         <p class="response-divider" aria-hidden="true"></p>
-                        <p>答案：</p>
+                        <p>Answer:</p>
                         <p class="answer-line">
                             <span class="answer-box">
                                 <span class="formula-module">
-                                    P的轨迹方程　4x
+                                    Locus of P: 4x
                                     <sup>2</sup>
-                                    <span class="op">+</span>
-                                    <span class="punct">(</span>
-                                    y
-                                    <span class="op">−</span>
+                                    + (y −
                                     <span class="frac">
                                         <span class="num">1</span>
                                         <span class="den">2</span>
                                     </span>
-                                    <span class="punct">)</span>
+                                    )
                                     <sup>2</sup>
-                                    <span class="op">=</span>
+                                    =
                                     <span class="frac">
                                         <span class="num">1</span>
                                         <span class="den">4</span>
@@ -1525,15 +1437,14 @@
                                 <span class="formula-module">
                                     |NP|
                                     <sub>min</sub>
-                                    <span class="op">=</span>
+                                    =
                                     <span class="frac">
                                         <span class="num">1</span>
                                         <span class="den">4</span>
                                     </span>
-                                    <span class="punct">,</span>
-                                    　|NP|
+                                    , |NP|
                                     <sub>max</sub>
-                                    <span class="op">=</span>
+                                    =
                                     <span class="frac">
                                         <span class="num">
                                             <span class="root">
@@ -1545,8 +1456,8 @@
                                 </span>
                             </span>
                         </p>
-                        <div class="response-actions" aria-label="回答操作">
-                            <span class="thinking-dots" aria-label="正在思考">
+                        <div class="response-actions" aria-label="Answer actions">
+                            <span class="thinking-dots" aria-label="Thinking">
                                 <span></span>
                                 <span></span>
                                 <span></span>
@@ -1554,7 +1465,7 @@
                             <button
                                 class="action-button copy-answer"
                                 type="button"
-                                aria-label="复制回答"
+                                aria-label="Copy answer"
                             >
                                 <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
                                     <path
@@ -1565,7 +1476,7 @@
                             <button
                                 class="action-button replay-answer"
                                 type="button"
-                                aria-label="重新生成"
+                                aria-label="Regenerate answer"
                             >
                                 <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
                                     <path
@@ -1576,7 +1487,11 @@
                         </div>
                     </article>
                     <div class="scroll-fade-overlay">
-                        <button class="scroll-bottom-button" type="button" aria-label="回到底部">
+                        <button
+                            class="scroll-bottom-button"
+                            type="button"
+                            aria-label="Scroll to bottom"
+                        >
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path
                                     d="M11 16.414V5h2v11.414l5.707-5.707l1.414 1.414L12 20.243l-8.121-8.122l1.414-1.414z"
@@ -1586,18 +1501,25 @@
                     </div>
                 </div>
 
-                <footer class="composer" aria-label="输入框">
-                    <form class="composer-form prompt-form" aria-label="输入框">
-                        <img class="mi-logo" src="./mimo.png" alt="Mimo" width="32" height="32" decoding="async" />
+                <footer class="composer" aria-label="Message composer">
+                    <form class="composer-form prompt-form" aria-label="Message composer">
+                        <img
+                            class="mi-logo"
+                            src="./mimo.png"
+                            alt="Mimo"
+                            width="32"
+                            height="32"
+                            decoding="async"
+                        />
                         <input
                             class="prompt-input"
                             type="text"
                             value=""
                             placeholder="Type your request..."
-                            aria-label="输入问题"
+                            aria-label="Problem input"
                             autocomplete="off"
                         />
-                        <button class="submit-btn" type="submit" aria-label="发送">
+                        <button class="submit-btn" type="submit" aria-label="Send">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M10 17l5-5-5-5v10z" />
                             </svg>
@@ -1722,16 +1644,16 @@ $$\boxed{|NP|_{\min} = \frac14, \quad |NP|_{\max} = \frac{\sqrt{21}}6}$$
 `.trim();
 
                 const actionHtml = `
-          <div class="response-actions" aria-label="回答操作">
-            <span class="thinking-dots" aria-label="正在思考">
+          <div class="response-actions" aria-label="Answer actions">
+            <span class="thinking-dots" aria-label="Thinking">
               <span></span>
               <span></span>
               <span></span>
             </span>
-            <button class="action-button copy-answer" type="button" aria-label="复制回答">
+            <button class="action-button copy-answer" type="button" aria-label="Copy answer">
               <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"/></svg>
             </button>
-            <button class="action-button replay-answer" type="button" aria-label="重新生成">
+            <button class="action-button replay-answer" type="button" aria-label="Regenerate answer">
               <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 11H7.101l.001-.009a5 5 0 0 1 .752-1.787a5.05 5.05 0 0 1 2.2-1.811q.455-.193.938-.291a5.1 5.1 0 0 1 2.018 0a5 5 0 0 1 2.525 1.361l1.416-1.412a7 7 0 0 0-2.224-1.501a7 7 0 0 0-1.315-.408a7.1 7.1 0 0 0-2.819 0a7 7 0 0 0-1.316.409a7.04 7.04 0 0 0-3.08 2.534a7 7 0 0 0-1.054 2.505c-.028.135-.043.273-.063.41H2l4 4zm4 2h2.899l-.001.008a4.98 4.98 0 0 1-2.103 3.138a4.9 4.9 0 0 1-1.787.752a5.1 5.1 0 0 1-2.017 0a5 5 0 0 1-1.787-.752a5 5 0 0 1-.74-.61L7.05 16.95a7 7 0 0 0 2.225 1.5c.424.18.867.317 1.315.408a7.1 7.1 0 0 0 2.818 0a7.03 7.03 0 0 0 4.395-2.945a7 7 0 0 0 1.053-2.503c.027-.135.043-.273.063-.41H22l-4-4z"/></svg>
             </button>
           </div>`;
@@ -2034,7 +1956,10 @@ $$\boxed{|NP|_{\min} = \frac14, \quad |NP|_{\max} = \frac{\sqrt{21}}6}$$
                     const scrubProgress = Math.max(0, Math.min(1, Number(progress) || 0));
                     hasReceivedScrollProgress = scrubProgress > 0.0005 && scrubProgress < 0.9995;
                     setScrollDrivenState(hasReceivedScrollProgress);
-                    response.setAttribute('aria-busy', hasReceivedScrollProgress ? 'true' : 'false');
+                    response.setAttribute(
+                        'aria-busy',
+                        hasReceivedScrollProgress ? 'true' : 'false'
+                    );
                     externalScrollProgress = scrubProgress;
                     window.clearTimeout(typingTimer);
                     window.clearTimeout(promptTypingTimer);
@@ -2065,8 +1990,8 @@ $$\boxed{|NP|_{\min} = \frac14, \quad |NP|_{\max} = \frac{\sqrt{21}}6}$$
 
                     if (!hasStarted) {
                         resetResponseText();
-                    response.setAttribute('aria-busy', 'true');
-                    hasStarted = true;
+                        response.setAttribute('aria-busy', 'true');
+                        hasStarted = true;
                     }
 
                     const answerProgress = Math.max(0, Math.min(1, (scrubProgress - 0.18) / 0.5));
@@ -2207,7 +2132,9 @@ $$\boxed{|NP|_{\min} = \frac14, \quad |NP|_{\max} = \frac{\sqrt{21}}6}$$
                     if (message.type === 'touchai-page-bg') {
                         document.documentElement.style.setProperty(
                             '--page-bg',
-                            typeof message.background === 'string' ? message.background : 'transparent'
+                            typeof message.background === 'string'
+                                ? message.background
+                                : 'transparent'
                         );
                         return;
                     }
@@ -2256,7 +2183,9 @@ $$\boxed{|NP|_{\min} = \frac14, \quad |NP|_{\max} = \frac{\sqrt{21}}6}$$
                     content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
                     window.setTimeout(updateScrollAffordance, 220);
                 });
-                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, { passive: true });
+                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, {
+                    passive: true,
+                });
                 panel.addEventListener('wheel', forwardWheelToPage, { passive: false });
             })();
         </script>

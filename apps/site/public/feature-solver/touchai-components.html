@@ -1045,7 +1045,12 @@
                             </svg>
                         </button>
                     </div>
-                    <article class="response math-response" aria-live="polite" aria-busy="false" aria-atomic="false">
+                    <article
+                        class="response math-response"
+                        aria-live="polite"
+                        aria-busy="false"
+                        aria-atomic="false"
+                    >
                         <p>简短过程如下：</p>
                         <p class="math-narrative">
                             设过
@@ -1588,7 +1593,14 @@
 
                 <footer class="composer" aria-label="输入框">
                     <form class="composer-form prompt-form" aria-label="输入框">
-                        <img class="mi-logo" src="./mimo.png" alt="Mimo" width="32" height="32" decoding="async" />
+                        <img
+                            class="mi-logo"
+                            src="./mimo.png"
+                            alt="Mimo"
+                            width="32"
+                            height="32"
+                            decoding="async"
+                        />
                         <input
                             class="prompt-input"
                             type="text"
@@ -2030,7 +2042,10 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                     const scrubProgress = Math.max(0, Math.min(1, Number(progress) || 0));
                     hasReceivedScrollProgress = scrubProgress > 0.0005 && scrubProgress < 0.9995;
                     setScrollDrivenState(hasReceivedScrollProgress);
-                    response.setAttribute('aria-busy', hasReceivedScrollProgress ? 'true' : 'false');
+                    response.setAttribute(
+                        'aria-busy',
+                        hasReceivedScrollProgress ? 'true' : 'false'
+                    );
                     externalScrollProgress = scrubProgress;
                     window.clearTimeout(typingTimer);
                     window.clearTimeout(promptTypingTimer);
@@ -2061,8 +2076,8 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
 
                     if (!hasStarted) {
                         resetResponseText();
-                    response.setAttribute('aria-busy', 'true');
-                    hasStarted = true;
+                        response.setAttribute('aria-busy', 'true');
+                        hasStarted = true;
                     }
 
                     const answerProgress = Math.max(0, Math.min(1, (scrubProgress - 0.18) / 0.5));
@@ -2204,7 +2219,9 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                     if (message.type === 'touchai-page-bg') {
                         document.documentElement.style.setProperty(
                             '--page-bg',
-                            typeof message.background === 'string' ? message.background : 'transparent'
+                            typeof message.background === 'string'
+                                ? message.background
+                                : 'transparent'
                         );
                         return;
                     }
@@ -2253,7 +2270,9 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                     content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
                     window.setTimeout(updateScrollAffordance, 220);
                 });
-                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, { passive: true });
+                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, {
+                    passive: true,
+                });
                 panel.addEventListener('wheel', forwardWheelToPage, { passive: false });
             })();
         </script>
