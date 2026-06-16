@@ -9,10 +9,10 @@ import type { ProviderCreateData, ProviderEntity, ProviderUpdateData } from '../
 const BUILTIN_PROVIDER_DISPLAY_ORDER = new Map<string, number>([
     ['OpenAI', 0],
     ['Anthropic', 1],
-    ['DeepSeek', 2],
+    ['Gemini', 2],
     ['Xiaomi MiMo', 3],
-    ['火山引擎', 4],
-    ['Gemini', 5],
+    ['DeepSeek', 4],
+    ['火山引擎', 5],
     ['Grok', 6],
     ['腾讯混元', 7],
     ['MiniMax', 8],
@@ -59,6 +59,10 @@ export const findAllProvidersSorted = async (): Promise<ProviderEntity[]> => {
             if (aHasDefault !== bHasDefault) {
                 return bHasDefault - aHasDefault;
             }
+        }
+
+        if (a.enabled === 1 && a.is_builtin !== b.is_builtin) {
+            return a.is_builtin - b.is_builtin;
         }
 
         const providerOrderDelta = getProviderDisplayOrder(a) - getProviderDisplayOrder(b);
