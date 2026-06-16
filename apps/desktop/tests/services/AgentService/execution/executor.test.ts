@@ -39,9 +39,9 @@ function createCheckpoint(): AttemptCheckpoint {
             is_custom_metadata: 0,
             provider_name: 'Xiaomi MiMo',
             provider_driver: 'mimo',
-            api_endpoint: 'https://hub.touch-ai.org/api/v1',
+            api_endpoint: 'https://token-plan-cn.xiaomimimo.com/v1',
             api_key: 'ta_live_test',
-            provider_config_json: '{"touchAiMode":"managed"}',
+            provider_config_json: null,
             provider_enabled: 1,
             provider_logo: '',
         },
@@ -62,7 +62,7 @@ describe('AiRequestExecutor', () => {
 
     it('keeps the original request error when provider error classification fails', async () => {
         const requestError = new Error(
-            'error sending request for url (https://hub.touch-ai.org/api/v1/chat/completions)'
+            'error sending request for url (https://token-plan-cn.xiaomimimo.com/v1/chat/completions)'
         );
         providerMock.stream.mockImplementation(
             () =>
