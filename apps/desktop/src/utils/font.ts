@@ -16,7 +16,6 @@ const FONT_LOAD_RETRY_DELAY_MS = 16;
 
 let fontLoadPromise: Promise<void> | null = null;
 let fontReadyListenerPromise: Promise<void> | null = null;
-let fontLoadInjectedFontFace = false;
 let fontReloadToken = 0;
 
 interface LoadFontFaceOptions {
@@ -158,9 +157,6 @@ async function injectFontFace(options: LoadFontFaceOptions = {}): Promise<boolea
     `;
     getInjectedFontFaceStyle()?.remove();
     document.head.appendChild(style);
-    if (!refresh) {
-        fontLoadInjectedFontFace = true;
-    }
 
     await verifyInjectedFontFace(fontUrl);
     return true;
@@ -174,15 +170,7 @@ function loadFontFace(options: LoadFontFaceOptions = {}): Promise<void> {
     }
 
     if (!refresh && fontLoadPromise) {
-        if (fontLoadInjectedFontFace && !hasInjectedFontFace()) {
-            return injectFontFace(options).then(() => undefined);
-        }
-
         return fontLoadPromise;
-    }
-
-    if (!refresh) {
-        fontLoadInjectedFontFace = false;
     }
 
     const loadPromise = injectFontFace(options)

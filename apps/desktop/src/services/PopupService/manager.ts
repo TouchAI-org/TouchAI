@@ -128,7 +128,7 @@ export class PopupManager {
             await this.ensureReadyListener();
             await this.syncPopupConfigs();
 
-            // 让初始化真正等待 popup 预热完成，避免首次快捷键打开弹窗还在走冷启动链路。
+            // 让初始化真正等待 popup 预热完成，避免首次 Ctrl+H 还在走冷启动链路。
             await this.transport.preloadWindows();
 
             this.isInitialized = true;
