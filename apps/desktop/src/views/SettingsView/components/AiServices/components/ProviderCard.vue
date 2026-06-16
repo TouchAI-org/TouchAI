@@ -10,7 +10,7 @@
     interface Props {
         provider: Provider;
         isSelected: boolean;
-        promoted?: boolean;
+        hasDefaultModel: boolean;
     }
 
     interface Emits {
@@ -20,13 +20,12 @@
         (e: 'context-menu', event: MouseEvent): void;
     }
 
-    const props = withDefaults(defineProps<Props>(), {
-        promoted: false,
-    });
+    const props = defineProps<Props>();
     const emit = defineEmits<Emits>();
 
     const isToggleDisabled = computed(() => {
-        return false;
+        // 如果服务商已启用且有默认模型，则不能禁用
+        return props.provider.enabled === 1 && props.hasDefaultModel;
     });
 
     const handleToggle = () => {
@@ -63,7 +62,6 @@
             :name="provider.name"
             size="small"
             :show-badge="provider.is_builtin === 1"
-            :promoted="promoted"
             class="shrink-0"
         />
 
@@ -76,6 +74,12 @@
                 >
                     {{ provider.name }}
                 </h3>
+                <span
+                    v-if="hasDefaultModel"
+                    class="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs whitespace-nowrap text-neutral-600 ring-1 ring-neutral-200"
+                >
+                    {{ t('common.default') }}
+                </span>
             </div>
         </div>
 

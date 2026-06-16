@@ -37,7 +37,7 @@
 <template>
     <Dialog :open="true" @update:open="onOpenChange">
         <DialogContent
-            :class="`w-full ${maxWidthClass} rounded-xl border border-gray-200 bg-white p-6 shadow-xl ${contentClass}`"
+            :class="`w-full ${maxWidthClass} rounded-xl border border-gray-200 bg-white p-6 font-serif text-[13px] shadow-xl ${contentClass}`"
             :overlay-class="'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm'"
             @escape-key-down="preventWhenLocked"
             @pointer-down-outside="preventWhenLocked"

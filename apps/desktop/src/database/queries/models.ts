@@ -349,7 +349,7 @@ export const setModelRole = async ({
 }): Promise<void> => {
     if (role === 'entry') {
         if (modelId === null) {
-            throw new Error('Entry model is required');
+            throw new Error('Default model is required');
         }
         await setDefaultModel({ modelId });
         return;

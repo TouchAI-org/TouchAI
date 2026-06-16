@@ -137,12 +137,6 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => {
         getProviderDriverDefinition: () => providerDriverDefinitions[0],
         parseProviderConfigJson: (configJson: string | null) =>
             configJson ? JSON.parse(configJson) : {},
-        isTouchAiManagedMode: (config: { touchAiMode?: 'managed' | 'custom' }, baseUrl: string) =>
-            config.touchAiMode === 'custom'
-                ? false
-                : config.touchAiMode === 'managed'
-                  ? true
-                  : baseUrl === 'https://hub.touch-ai.org/api/v1',
     };
 });
 
@@ -201,6 +195,7 @@ describe('AiServices i18n and layout', () => {
             props: {
                 providers: [createProvider({ is_builtin: 1 })],
                 selectedProviderId: 1,
+                defaultModelProviderIds: new Set<number>(),
             },
         });
 
@@ -220,7 +215,7 @@ describe('AiServices i18n and layout', () => {
             props: {
                 providerId: 1,
                 models: [createModel()],
-                entryModelId: null,
+                defaultModelId: null,
                 provider: createProvider(),
                 providerEnabled: true,
                 refreshing: false,
@@ -245,7 +240,7 @@ describe('AiServices i18n and layout', () => {
             props: {
                 providerId: 1,
                 models: [],
-                entryModelId: null,
+                defaultModelId: null,
                 provider: createProvider({ api_endpoint: '' }),
                 providerEnabled: true,
                 refreshing: false,
@@ -319,6 +314,7 @@ describe('AiServices i18n and layout', () => {
             props: {
                 providers: [createProvider({ name: '服务商', is_builtin: 1 })],
                 selectedProviderId: 1,
+                defaultModelProviderIds: new Set<number>(),
             },
             attachTo: document.body,
         });

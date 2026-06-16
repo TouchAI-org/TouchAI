@@ -82,10 +82,10 @@ describe('UpgradeModel i18n', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         vi.clearAllMocks();
-        getSettingValueMock.mockResolvedValue('false');
+        getSettingValueMock.mockResolvedValue('true');
     });
 
-    it('creates an English approval request for the resolved target model', async () => {
+    it('does not create an approval request for model routing switches', async () => {
         setLocale('en-US');
         const currentModel = createModel({
             id: 10,
@@ -94,17 +94,6 @@ describe('UpgradeModel i18n', () => {
             name: 'Model A',
             provider_name: 'Provider A',
         });
-        const targetModel = createModel({
-            id: 20,
-            provider_id: 2,
-            model_id: 'model-b',
-            name: 'Model B',
-            provider_name: 'Provider B',
-        });
-        findModelByProviderAndModelIdMock
-            .mockResolvedValueOnce(currentModel)
-            .mockResolvedValueOnce(targetModel);
-
         const approval = await buildUpgradeModelApprovalRequest(
             {},
             {
@@ -117,14 +106,21 @@ describe('UpgradeModel i18n', () => {
             createContext(currentModel)
         );
 
-        expect(approval).toMatchObject({
-            title: 'Confirm model switch',
-            description: 'Allow switching from Provider A / Model A to Provider B / Model B',
-            command: 'Provider A / Model A -> Provider B / Model B',
-            reason: 'This changes the model used by the current conversation and also affects the subsequent default model.',
-            approveLabel: 'Approve',
-            rejectLabel: 'Reject',
+        expect(approval).toBeNull();
+    });
+
+    it('does not emit a switch signal when model routing is disabled', async () => {
+        setLocale('en-US');
+        getSettingValueMock.mockResolvedValue('false');
+
+        const result = await executeUpgradeModelTool({}, { chain: [] }, createContext());
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+            errorMessage: 'Model routing is disabled. Continuing with the default model.',
         });
+        expect(result.controlSignal).toBeUndefined();
     });
 
     it('formats reachable execute result strings in English while returning the model switch signal', async () => {
@@ -278,7 +274,7 @@ describe('UpgradeModel i18n', () => {
         expect(result.result).toContain('Model is already the target model');
     });
 
-    it('skips approval when automatic model switching is enabled', async () => {
+    it('skips approval when model routing is enabled', async () => {
         setLocale('en-US');
         getSettingValueMock.mockResolvedValueOnce('true');
         const currentModel = createModel({

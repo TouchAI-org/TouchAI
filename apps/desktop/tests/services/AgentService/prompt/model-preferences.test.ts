@@ -4,6 +4,7 @@ import { buildModelPreferencesPrompt } from '@/services/AgentService/prompt/mode
 
 const queries = vi.hoisted(() => ({
     findModelRoleWithProvider: vi.fn(),
+    getSettingValue: vi.fn(),
     listModelPreferences: vi.fn(),
 }));
 
@@ -43,9 +44,10 @@ function createPreference(overrides = {}) {
 describe('model preferences prompt', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        queries.getSettingValue.mockResolvedValue('true');
         queries.findModelRoleWithProvider.mockImplementation((role: string) => {
             if (role === 'entry') {
-                return Promise.resolve(createModel({ name: 'Entry Model' }));
+                return Promise.resolve(createModel({ name: 'Default Model' }));
             }
             if (role === 'fast') {
                 return Promise.resolve(createModel({ name: 'Fast Model' }));
@@ -62,10 +64,10 @@ describe('model preferences prompt', () => {
         const [prompt] = await buildModelPreferencesPrompt();
 
         expect(prompt).toContain('## Model routing preferences');
-        expect(prompt).toContain('Entry model');
+        expect(prompt).toContain('Default model');
         expect(prompt).toContain('Fast model');
         expect(prompt).toContain('General model');
-        expect(prompt).toContain('Provider A / Entry Model');
+        expect(prompt).toContain('Provider A / Default Model');
         expect(prompt).toContain('Provider A / Fast Model');
         expect(prompt).toContain('Provider A / General Model');
         expect(prompt).toContain(
@@ -73,6 +75,15 @@ describe('model preferences prompt', () => {
         );
         expect(prompt).toContain('{ "scenario": "<Scenario>" }');
         expect(prompt).not.toContain('{ "scenario": null }');
+    });
+
+    it('omits routing preferences when model routing is disabled', async () => {
+        queries.getSettingValue.mockResolvedValue('false');
+
+        const prompt = await buildModelPreferencesPrompt();
+
+        expect(prompt).toEqual([]);
+        expect(queries.listModelPreferences).not.toHaveBeenCalled();
     });
 
     it('omits unusable scenario preferences without failing prompt construction', async () => {

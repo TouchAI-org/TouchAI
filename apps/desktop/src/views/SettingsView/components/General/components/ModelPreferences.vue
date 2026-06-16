@@ -27,6 +27,14 @@
         name: 'ModelPreferences',
     });
 
+    interface Props {
+        routingEnabled?: boolean;
+    }
+
+    withDefaults(defineProps<Props>(), {
+        routingEnabled: true,
+    });
+
     interface PreferenceForm {
         id: number | null;
         name: string;
@@ -341,7 +349,7 @@
     async function loadData() {
         loading.value = true;
         try {
-            const [nextPreferences, nextModels, entryModel, fastModel, generalModel] =
+            const [nextPreferences, nextModels, defaultRoleModel, fastModel, generalModel] =
                 await Promise.all([
                     listModelPreferences(),
                     findModelsWithProvider(),
@@ -352,12 +360,12 @@
             preferences.value = nextPreferences;
             models.value = nextModels;
             roleModelIds.value = {
-                entry: entryModel ? String(entryModel.id) : '',
+                entry: defaultRoleModel ? String(defaultRoleModel.id) : '',
                 fast: fastModel ? String(fastModel.id) : '',
                 general: generalModel ? String(generalModel.id) : '',
             };
             roleProviderIds.value = {
-                entry: entryModel?.provider_id ?? null,
+                entry: defaultRoleModel?.provider_id ?? null,
                 fast: fastModel?.provider_id ?? null,
                 general: generalModel?.provider_id ?? null,
             };
@@ -463,102 +471,79 @@
 </script>
 
 <template>
-    <section class="space-y-4">
-        <div>
-            <h2 class="text-[15px] font-medium text-neutral-950">
-                {{ t('settings.general.modelPreferences.title') }}
+    <div v-if="loading" class="settings-row-group px-4 py-3 text-sm text-neutral-500">
+        {{ t('common.loading') }}
+    </div>
+
+    <div
+        v-else-if="models.length === 0"
+        class="rounded-[11px] border border-dashed border-neutral-200/80 bg-white px-6 py-12 text-center"
+    >
+        <AppIcon name="cloud" class="mx-auto h-10 w-10 text-neutral-300" />
+        <h2 class="mt-4 text-[15px] font-medium text-neutral-950">
+            {{ t('settings.general.modelPreferences.noModelsTitle') }}
+        </h2>
+        <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-neutral-500">
+            {{ t('settings.general.modelPreferences.noModelsDescription') }}
+        </p>
+    </div>
+
+    <fieldset v-else :disabled="!routingEnabled" class="contents">
+        <section class="space-y-4">
+            <h2 class="settings-section-title">
+                {{ t('settings.general.modelPreferences.rolesTitle') }}
             </h2>
-            <p class="mt-1 max-w-2xl text-sm leading-6 text-neutral-500">
-                {{ t('settings.general.modelPreferences.description') }}
-            </p>
-        </div>
 
-        <div
-            class="settings-row-group relative z-10 divide-y divide-neutral-200/70 overflow-visible"
-        >
             <div
-                v-for="modelRole in modelRoles"
-                :key="modelRole.role"
-                class="grid min-w-0 gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,520px)] md:items-center"
+                class="settings-row-group relative z-10 divide-y divide-neutral-200/70 overflow-visible"
             >
-                <div class="min-w-0">
-                    <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                        {{ t(modelRole.titleKey) }}
-                    </div>
-                    <p class="text-xs leading-5 text-neutral-500">
-                        {{ t(modelRole.descriptionKey) }}
-                    </p>
-                </div>
-
                 <div
-                    class="ml-auto grid w-full min-w-0 gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)]"
+                    v-for="modelRole in modelRoles"
+                    :key="modelRole.role"
+                    class="grid min-w-0 gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,520px)] md:items-center"
                 >
-                    <SearchableSelect
-                        :model-value="getRoleProviderValue(modelRole)"
-                        :options="getRoleProviderOptions(modelRole)"
-                        placeholder-key="settings.builtInTools.upgradeModel.provider"
-                        search-placeholder-key="settings.builtInTools.upgradeModel.searchProvider"
-                        empty-text-key="settings.builtInTools.upgradeModel.emptyProviders"
-                        protect-option-text
-                        @update:model-value="updateRoleProvider(modelRole, $event)"
-                    >
-                        <template #selected="{ option }">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <img
-                                    v-if="resolveProviderLogoPath(option?.providerLogo)"
-                                    :src="resolveProviderLogoPath(option?.providerLogo)"
-                                    :alt="option?.providerName || option?.label || 'provider'"
-                                    class="h-5 w-5 flex-shrink-0 rounded object-contain"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                />
-                                <div
-                                    v-else-if="option?.value !== UNSET_MODEL_VALUE"
-                                    class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                >
-                                    {{ getProviderFallbackText(option) }}
-                                </div>
-                                <span
-                                    v-if="option"
-                                    class="truncate"
-                                    :data-no-i18n="
-                                        option.value === UNSET_MODEL_VALUE ? undefined : 'true'
-                                    "
-                                    :translate="
-                                        option.value === UNSET_MODEL_VALUE ? undefined : 'no'
-                                    "
-                                >
-                                    {{ option.label }}
-                                </span>
-                                <span v-else class="truncate">
-                                    {{ t('settings.builtInTools.upgradeModel.provider') }}
-                                </span>
-                            </div>
-                        </template>
+                    <div class="min-w-0">
+                        <div class="text-[13px] leading-6 font-normal text-neutral-900">
+                            {{ t(modelRole.titleKey) }}
+                        </div>
+                        <p class="text-xs leading-5 text-neutral-500">
+                            {{ t(modelRole.descriptionKey) }}
+                        </p>
+                    </div>
 
-                        <template #option="{ option }">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <img
-                                    v-if="resolveProviderLogoPath(option.providerLogo)"
-                                    :src="resolveProviderLogoPath(option.providerLogo)"
-                                    :alt="option.providerName || option.label"
-                                    class="h-5 w-5 flex-shrink-0 rounded object-contain"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                />
-                                <div
-                                    v-else-if="option.value !== UNSET_MODEL_VALUE"
-                                    class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                >
-                                    {{ getProviderFallbackText(option) }}
-                                </div>
-                                <div class="min-w-0 flex-1">
+                    <div
+                        class="ml-auto grid w-full min-w-0 gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)]"
+                    >
+                        <SearchableSelect
+                            :model-value="getRoleProviderValue(modelRole)"
+                            :options="getRoleProviderOptions(modelRole)"
+                            placeholder-key="settings.builtInTools.upgradeModel.provider"
+                            search-placeholder-key="settings.builtInTools.upgradeModel.searchProvider"
+                            empty-text-key="settings.builtInTools.upgradeModel.emptyProviders"
+                            protect-option-text
+                            @update:model-value="updateRoleProvider(modelRole, $event)"
+                        >
+                            <template #selected="{ option }">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <img
+                                        v-if="resolveProviderLogoPath(option?.providerLogo)"
+                                        :src="resolveProviderLogoPath(option?.providerLogo)"
+                                        :alt="option?.providerName || option?.label || 'provider'"
+                                        class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    />
                                     <div
-                                        class="truncate text-sm font-medium"
+                                        v-else-if="option?.value !== UNSET_MODEL_VALUE"
+                                        class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ getProviderFallbackText(option) }}
+                                    </div>
+                                    <span
+                                        v-if="option"
+                                        class="truncate"
                                         :data-no-i18n="
                                             option.value === UNSET_MODEL_VALUE ? undefined : 'true'
                                         "
@@ -567,83 +552,50 @@
                                         "
                                     >
                                         {{ option.label }}
-                                    </div>
-                                    <div
-                                        v-if="option.description"
-                                        class="mt-0.5 truncate text-xs text-neutral-500"
-                                        data-no-i18n="true"
-                                        translate="no"
-                                    >
-                                        {{ option.description }}
-                                    </div>
+                                    </span>
+                                    <span v-else class="truncate">
+                                        {{ t('settings.builtInTools.upgradeModel.provider') }}
+                                    </span>
                                 </div>
-                            </div>
-                        </template>
-                    </SearchableSelect>
+                            </template>
 
-                    <SearchableSelect
-                        :model-value="getRoleModelValue(modelRole.role)"
-                        :options="getRoleModelOptions(modelRole.role)"
-                        :disabled="!roleProviderIds[modelRole.role]"
-                        placeholder-key="settings.builtInTools.upgradeModel.model"
-                        search-placeholder-key="settings.builtInTools.upgradeModel.searchModel"
-                        empty-text-key="settings.builtInTools.upgradeModel.emptyModels"
-                        protect-option-text
-                        @update:model-value="updateRoleModel(modelRole.role, $event)"
-                    >
-                        <template #selected="{ option }">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <ModelLogo
-                                    v-if="option?.modelIdForLogo"
-                                    :model-id="option.modelIdForLogo"
-                                    :name="option.modelName || option.label"
-                                    size="sm"
-                                />
-                                <span
-                                    v-if="option"
-                                    class="truncate"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                >
-                                    {{ option.label }}
-                                </span>
-                                <span v-else class="truncate">
-                                    {{ t('settings.builtInTools.upgradeModel.model') }}
-                                </span>
-                            </div>
-                        </template>
-
-                        <template #option="{ option }">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <ModelLogo
-                                    v-if="option.modelIdForLogo"
-                                    :model-id="option.modelIdForLogo"
-                                    :name="option.modelName || option.label"
-                                    size="sm"
-                                />
-                                <div class="min-w-0 flex-1">
+                            <template #option="{ option }">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <img
+                                        v-if="resolveProviderLogoPath(option.providerLogo)"
+                                        :src="resolveProviderLogoPath(option.providerLogo)"
+                                        :alt="option.providerName || option.label"
+                                        class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    />
                                     <div
-                                        class="truncate text-sm font-medium"
+                                        v-else-if="option.value !== UNSET_MODEL_VALUE"
+                                        class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
                                         data-no-i18n="true"
                                         translate="no"
                                     >
-                                        {{ option.label }}
+                                        {{ getProviderFallbackText(option) }}
                                     </div>
-                                    <div class="mt-1">
-                                        <ModelCapabilityTags
-                                            v-if="
-                                                option.reasoning !== undefined ||
-                                                option.tool_call !== undefined ||
-                                                option.modalities !== undefined ||
-                                                option.attachment !== undefined ||
-                                                option.open_weights !== undefined
-                                            "
-                                            :model="option"
-                                            size="sm"
-                                        />
+                                    <div class="min-w-0 flex-1">
                                         <div
-                                            v-else-if="option.description"
-                                            class="truncate text-xs text-neutral-500"
+                                            class="truncate text-sm font-medium"
+                                            :data-no-i18n="
+                                                option.value === UNSET_MODEL_VALUE
+                                                    ? undefined
+                                                    : 'true'
+                                            "
+                                            :translate="
+                                                option.value === UNSET_MODEL_VALUE
+                                                    ? undefined
+                                                    : 'no'
+                                            "
+                                        >
+                                            {{ option.label }}
+                                        </div>
+                                        <div
+                                            v-if="option.description"
+                                            class="mt-0.5 truncate text-xs text-neutral-500"
                                             data-no-i18n="true"
                                             translate="no"
                                         >
@@ -651,232 +603,228 @@
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </template>
-                    </SearchableSelect>
-                </div>
-            </div>
-        </div>
-    </section>
+                            </template>
+                        </SearchableSelect>
 
-    <section class="space-y-4 pt-5">
-        <div class="flex items-start justify-between gap-4">
-            <div>
-                <h2 class="text-[15px] font-medium text-neutral-950">
-                    {{ t('settings.general.modelPreferences.scenarioPreferencesTitle') }}
-                </h2>
-                <p class="mt-1 max-w-2xl text-sm leading-6 text-neutral-500">
-                    {{ t('settings.general.modelPreferences.scenarioPreferencesDescription') }}
-                </p>
-            </div>
-
-            <button class="settings-button-primary flex items-center gap-1.5" @click="startCreate">
-                <AppIcon name="plus" class="h-4 w-4" />
-                {{ t('settings.general.modelPreferences.add') }}
-            </button>
-        </div>
-
-        <div v-if="loading" class="settings-row-group px-4 py-3 text-sm text-neutral-500">
-            {{ t('common.loading') }}
-        </div>
-
-        <div
-            v-else-if="preferences.length === 0"
-            class="rounded-[11px] border border-dashed border-neutral-200/80 bg-white px-4 py-5 text-center text-sm text-neutral-500"
-        >
-            {{ t('settings.general.modelPreferences.empty') }}
-        </div>
-
-        <div
-            v-else
-            class="settings-row-group relative z-0 divide-y divide-neutral-200/70 overflow-visible"
-        >
-            <div
-                v-for="preference in preferences"
-                :key="preference.id"
-                class="grid min-w-0 gap-4 px-4 py-3 transition-colors hover:bg-neutral-50/70 md:grid-cols-[minmax(0,1fr)_minmax(0,520px)] md:items-center"
-            >
-                <div class="min-w-0">
-                    <div class="flex min-w-0 items-center gap-1.5">
-                        <h3 class="truncate text-[13px] leading-5 font-medium text-neutral-950">
-                            {{ preference.name }}
-                        </h3>
-                        <button
-                            class="settings-icon-button h-6 w-6 rounded-md"
-                            :title="t('common.edit')"
-                            @click="startEdit(preference)"
+                        <SearchableSelect
+                            :model-value="getRoleModelValue(modelRole.role)"
+                            :options="getRoleModelOptions(modelRole.role)"
+                            :disabled="!roleProviderIds[modelRole.role]"
+                            placeholder-key="settings.builtInTools.upgradeModel.model"
+                            search-placeholder-key="settings.builtInTools.upgradeModel.searchModel"
+                            empty-text-key="settings.builtInTools.upgradeModel.emptyModels"
+                            protect-option-text
+                            @update:model-value="updateRoleModel(modelRole.role, $event)"
                         >
-                            <AppIcon name="edit" class="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                            class="settings-icon-button h-6 w-6 rounded-md"
-                            :title="t('common.delete')"
-                            @click="removePreference(preference)"
-                        >
-                            <AppIcon name="delete" class="h-3.5 w-3.5" />
-                        </button>
+                            <template #selected="{ option }">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <ModelLogo
+                                        v-if="option?.modelIdForLogo"
+                                        :model-id="option.modelIdForLogo"
+                                        :name="option.modelName || option.label"
+                                        size="sm"
+                                    />
+                                    <span
+                                        v-if="option"
+                                        class="truncate"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ option.label }}
+                                    </span>
+                                    <span v-else class="truncate">
+                                        {{ t('settings.builtInTools.upgradeModel.model') }}
+                                    </span>
+                                </div>
+                            </template>
+
+                            <template #option="{ option }">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <ModelLogo
+                                        v-if="option.modelIdForLogo"
+                                        :model-id="option.modelIdForLogo"
+                                        :name="option.modelName || option.label"
+                                        size="sm"
+                                    />
+                                    <div class="min-w-0 flex-1">
+                                        <div
+                                            class="truncate text-sm font-medium"
+                                            data-no-i18n="true"
+                                            translate="no"
+                                        >
+                                            {{ option.label }}
+                                        </div>
+                                        <div class="mt-1">
+                                            <ModelCapabilityTags
+                                                v-if="
+                                                    option.reasoning !== undefined ||
+                                                    option.tool_call !== undefined ||
+                                                    option.modalities !== undefined ||
+                                                    option.attachment !== undefined ||
+                                                    option.open_weights !== undefined
+                                                "
+                                                :model="option"
+                                                size="sm"
+                                            />
+                                            <div
+                                                v-else-if="option.description"
+                                                class="truncate text-xs text-neutral-500"
+                                                data-no-i18n="true"
+                                                translate="no"
+                                            >
+                                                {{ option.description }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </SearchableSelect>
                     </div>
-                    <p class="mt-0.5 text-xs leading-5 text-neutral-600">
-                        {{ preference.description }}
-                    </p>
-                    <p
-                        v-if="preference.provider_enabled !== 1 || preference.model_id === null"
-                        class="mt-1 text-[11px] leading-4 text-red-500"
-                    >
-                        {{ t('settings.general.modelPreferences.unavailableModel') }}
+                </div>
+            </div>
+        </section>
+
+        <section class="space-y-4 pt-5">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-[15px] font-medium text-neutral-950">
+                        {{ t('settings.general.modelPreferences.scenarioPreferencesTitle') }}
+                    </h2>
+                    <p class="mt-1 max-w-2xl text-sm leading-6 text-neutral-500">
+                        {{ t('settings.general.modelPreferences.scenarioPreferencesDescription') }}
                     </p>
                 </div>
 
-                <div
-                    class="ml-auto grid w-full min-w-0 gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)]"
+                <button
+                    class="settings-button-primary flex items-center gap-1.5"
+                    @click="startCreate"
                 >
-                    <SearchableSelect
-                        :model-value="getPreferenceProviderValue(preference)"
-                        :options="providerOptions"
-                        :disabled="isPreferenceSaving(preference.id)"
-                        placeholder-key="settings.builtInTools.upgradeModel.provider"
-                        search-placeholder-key="settings.builtInTools.upgradeModel.searchProvider"
-                        empty-text-key="settings.builtInTools.upgradeModel.emptyProviders"
-                        protect-option-text
-                        @update:model-value="updatePreferenceProvider(preference, $event)"
-                    >
-                        <template #selected="{ option }">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <img
-                                    v-if="resolveProviderLogoPath(option?.providerLogo)"
-                                    :src="resolveProviderLogoPath(option?.providerLogo)"
-                                    :alt="option?.providerName || option?.label || 'provider'"
-                                    class="h-5 w-5 flex-shrink-0 rounded object-contain"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                />
-                                <div
-                                    v-else
-                                    class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                >
-                                    {{ getProviderFallbackText(option) }}
-                                </div>
-                                <span
-                                    v-if="option"
-                                    class="truncate"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                >
-                                    {{ option.label }}
-                                </span>
-                                <span v-else class="truncate">
-                                    {{ t('settings.builtInTools.upgradeModel.provider') }}
-                                </span>
-                            </div>
-                        </template>
+                    <AppIcon name="plus" class="h-4 w-4" />
+                    {{ t('settings.general.modelPreferences.add') }}
+                </button>
+            </div>
 
-                        <template #option="{ option }">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <img
-                                    v-if="resolveProviderLogoPath(option.providerLogo)"
-                                    :src="resolveProviderLogoPath(option.providerLogo)"
-                                    :alt="option.providerName || option.label"
-                                    class="h-5 w-5 flex-shrink-0 rounded object-contain"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                />
-                                <div
-                                    v-else
-                                    class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                >
-                                    {{ getProviderFallbackText(option) }}
-                                </div>
-                                <div class="min-w-0 flex-1">
+            <div
+                v-if="preferences.length === 0"
+                class="rounded-[11px] border border-dashed border-neutral-200/80 bg-white px-4 py-5 text-center text-sm text-neutral-500"
+            >
+                {{ t('settings.general.modelPreferences.empty') }}
+            </div>
+
+            <div
+                v-else
+                class="settings-row-group relative z-0 divide-y divide-neutral-200/70 overflow-visible"
+            >
+                <div
+                    v-for="preference in preferences"
+                    :key="preference.id"
+                    class="grid min-w-0 gap-4 px-4 py-3 transition-colors hover:bg-neutral-50/70 md:grid-cols-[minmax(0,1fr)_minmax(0,520px)] md:items-center"
+                >
+                    <div class="min-w-0">
+                        <div class="flex min-w-0 items-center gap-1.5">
+                            <h3 class="truncate text-[13px] leading-5 font-medium text-neutral-950">
+                                {{ preference.name }}
+                            </h3>
+                            <button
+                                class="settings-icon-button h-6 w-6 rounded-md"
+                                :title="t('common.edit')"
+                                @click="startEdit(preference)"
+                            >
+                                <AppIcon name="edit" class="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                                class="settings-icon-button h-6 w-6 rounded-md"
+                                :title="t('common.delete')"
+                                @click="removePreference(preference)"
+                            >
+                                <AppIcon name="delete" class="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                        <p class="mt-0.5 text-xs leading-5 text-neutral-600">
+                            {{ preference.description }}
+                        </p>
+                        <p
+                            v-if="preference.provider_enabled !== 1 || preference.model_id === null"
+                            class="mt-1 text-[11px] leading-4 text-red-500"
+                        >
+                            {{ t('settings.general.modelPreferences.unavailableModel') }}
+                        </p>
+                    </div>
+
+                    <div
+                        class="ml-auto grid w-full min-w-0 gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)]"
+                    >
+                        <SearchableSelect
+                            :model-value="getPreferenceProviderValue(preference)"
+                            :options="providerOptions"
+                            :disabled="isPreferenceSaving(preference.id)"
+                            placeholder-key="settings.builtInTools.upgradeModel.provider"
+                            search-placeholder-key="settings.builtInTools.upgradeModel.searchProvider"
+                            empty-text-key="settings.builtInTools.upgradeModel.emptyProviders"
+                            protect-option-text
+                            @update:model-value="updatePreferenceProvider(preference, $event)"
+                        >
+                            <template #selected="{ option }">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <img
+                                        v-if="resolveProviderLogoPath(option?.providerLogo)"
+                                        :src="resolveProviderLogoPath(option?.providerLogo)"
+                                        :alt="option?.providerName || option?.label || 'provider'"
+                                        class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    />
                                     <div
-                                        class="truncate text-sm font-medium"
+                                        v-else
+                                        class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ getProviderFallbackText(option) }}
+                                    </div>
+                                    <span
+                                        v-if="option"
+                                        class="truncate"
                                         data-no-i18n="true"
                                         translate="no"
                                     >
                                         {{ option.label }}
-                                    </div>
-                                    <div
-                                        v-if="option.description"
-                                        class="mt-0.5 truncate text-xs text-neutral-500"
-                                        data-no-i18n="true"
-                                        translate="no"
-                                    >
-                                        {{ option.description }}
-                                    </div>
+                                    </span>
+                                    <span v-else class="truncate">
+                                        {{ t('settings.builtInTools.upgradeModel.provider') }}
+                                    </span>
                                 </div>
-                            </div>
-                        </template>
-                    </SearchableSelect>
+                            </template>
 
-                    <SearchableSelect
-                        :model-value="getPreferenceModelValue(preference)"
-                        :options="getPreferenceModelOptions(preference)"
-                        :disabled="
-                            isPreferenceSaving(preference.id) ||
-                            getPreferenceProviderValue(preference) === null
-                        "
-                        placeholder-key="settings.builtInTools.upgradeModel.model"
-                        search-placeholder-key="settings.builtInTools.upgradeModel.searchModel"
-                        empty-text-key="settings.builtInTools.upgradeModel.emptyModels"
-                        protect-option-text
-                        @update:model-value="updatePreferenceModel(preference, String($event))"
-                    >
-                        <template #selected="{ option }">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <ModelLogo
-                                    v-if="option?.modelIdForLogo"
-                                    :model-id="option.modelIdForLogo"
-                                    :name="option.modelName || option.label"
-                                    size="sm"
-                                />
-                                <span
-                                    v-if="option"
-                                    class="truncate"
-                                    data-no-i18n="true"
-                                    translate="no"
-                                >
-                                    {{ option.label }}
-                                </span>
-                                <span v-else class="truncate">
-                                    {{ t('settings.builtInTools.upgradeModel.model') }}
-                                </span>
-                            </div>
-                        </template>
-
-                        <template #option="{ option }">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <ModelLogo
-                                    v-if="option.modelIdForLogo"
-                                    :model-id="option.modelIdForLogo"
-                                    :name="option.modelName || option.label"
-                                    size="sm"
-                                />
-                                <div class="min-w-0 flex-1">
+                            <template #option="{ option }">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <img
+                                        v-if="resolveProviderLogoPath(option.providerLogo)"
+                                        :src="resolveProviderLogoPath(option.providerLogo)"
+                                        :alt="option.providerName || option.label"
+                                        class="h-5 w-5 flex-shrink-0 rounded object-contain"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    />
                                     <div
-                                        class="truncate text-sm font-medium"
+                                        v-else
+                                        class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
                                         data-no-i18n="true"
                                         translate="no"
                                     >
-                                        {{ option.label }}
+                                        {{ getProviderFallbackText(option) }}
                                     </div>
-                                    <div class="mt-1">
-                                        <ModelCapabilityTags
-                                            v-if="
-                                                option.reasoning !== undefined ||
-                                                option.tool_call !== undefined ||
-                                                option.modalities !== undefined ||
-                                                option.attachment !== undefined ||
-                                                option.open_weights !== undefined
-                                            "
-                                            :model="option"
-                                            size="sm"
-                                        />
+                                    <div class="min-w-0 flex-1">
                                         <div
-                                            v-else-if="option.description"
-                                            class="truncate text-xs text-neutral-500"
+                                            class="truncate text-sm font-medium"
+                                            data-no-i18n="true"
+                                            translate="no"
+                                        >
+                                            {{ option.label }}
+                                        </div>
+                                        <div
+                                            v-if="option.description"
+                                            class="mt-0.5 truncate text-xs text-neutral-500"
                                             data-no-i18n="true"
                                             translate="no"
                                         >
@@ -884,20 +832,97 @@
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </template>
-                    </SearchableSelect>
+                            </template>
+                        </SearchableSelect>
+
+                        <SearchableSelect
+                            :model-value="getPreferenceModelValue(preference)"
+                            :options="getPreferenceModelOptions(preference)"
+                            :disabled="
+                                isPreferenceSaving(preference.id) ||
+                                getPreferenceProviderValue(preference) === null
+                            "
+                            placeholder-key="settings.builtInTools.upgradeModel.model"
+                            search-placeholder-key="settings.builtInTools.upgradeModel.searchModel"
+                            empty-text-key="settings.builtInTools.upgradeModel.emptyModels"
+                            protect-option-text
+                            @update:model-value="updatePreferenceModel(preference, String($event))"
+                        >
+                            <template #selected="{ option }">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <ModelLogo
+                                        v-if="option?.modelIdForLogo"
+                                        :model-id="option.modelIdForLogo"
+                                        :name="option.modelName || option.label"
+                                        size="sm"
+                                    />
+                                    <span
+                                        v-if="option"
+                                        class="truncate"
+                                        data-no-i18n="true"
+                                        translate="no"
+                                    >
+                                        {{ option.label }}
+                                    </span>
+                                    <span v-else class="truncate">
+                                        {{ t('settings.builtInTools.upgradeModel.model') }}
+                                    </span>
+                                </div>
+                            </template>
+
+                            <template #option="{ option }">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <ModelLogo
+                                        v-if="option.modelIdForLogo"
+                                        :model-id="option.modelIdForLogo"
+                                        :name="option.modelName || option.label"
+                                        size="sm"
+                                    />
+                                    <div class="min-w-0 flex-1">
+                                        <div
+                                            class="truncate text-sm font-medium"
+                                            data-no-i18n="true"
+                                            translate="no"
+                                        >
+                                            {{ option.label }}
+                                        </div>
+                                        <div class="mt-1">
+                                            <ModelCapabilityTags
+                                                v-if="
+                                                    option.reasoning !== undefined ||
+                                                    option.tool_call !== undefined ||
+                                                    option.modalities !== undefined ||
+                                                    option.attachment !== undefined ||
+                                                    option.open_weights !== undefined
+                                                "
+                                                :model="option"
+                                                size="sm"
+                                            />
+                                            <div
+                                                v-else-if="option.description"
+                                                class="truncate text-xs text-neutral-500"
+                                                data-no-i18n="true"
+                                                translate="no"
+                                            >
+                                                {{ option.description }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </SearchableSelect>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <ModelPreferenceDialog
-            v-if="form"
-            :preference="form"
-            :models="models"
-            :saving="saving"
-            @save="savePreference"
-            @cancel="cancelEdit"
-        />
-    </section>
+            <ModelPreferenceDialog
+                v-if="form"
+                :preference="form"
+                :models="models"
+                :saving="saving"
+                @save="savePreference"
+                @cancel="cancelEdit"
+            />
+        </section>
+    </fieldset>
 </template>

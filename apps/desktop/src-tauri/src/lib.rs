@@ -12,8 +12,6 @@ use core::setup;
 use core::window::popup::PopupRegistry;
 use log::{error, warn};
 use tauri::{Manager, WindowEvent};
-#[cfg(any(windows, target_os = "linux"))]
-use tauri_plugin_deep_link::DeepLinkExt;
 
 fn resolve_single_instance_activation_window_label(
     has_settings_window: bool,
@@ -50,22 +48,6 @@ fn focus_single_instance_activation_window<R: tauri::Runtime>(
     Ok(())
 }
 
-fn should_activate_settings_for_args(args: &[String]) -> bool {
-    args.iter()
-        .any(|arg| arg.starts_with("touchai://hub/auth/callback"))
-}
-
-fn handle_single_instance_activation<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    args: &[String],
-) -> Result<(), String> {
-    if should_activate_settings_for_args(args) {
-        return tauri::async_runtime::block_on(crate::core::window::build_settings_window(app));
-    }
-
-    focus_single_instance_activation_window(app)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     velopack::VelopackApp::build().run();
@@ -74,8 +56,8 @@ pub fn run() {
 
     let builder = if core::system::runtime::should_enable_single_instance() {
         builder.plugin(tauri_plugin_single_instance::init(
-            |app, args: Vec<String>, _cwd: String| {
-                if let Err(error) = handle_single_instance_activation(app, &args) {
+            |app, _args: Vec<String>, _cwd: String| {
+                if let Err(error) = focus_single_instance_activation_window(app) {
                     warn!("{error}");
                 }
             },
@@ -84,13 +66,13 @@ pub fn run() {
         builder
     };
 
-    let builder = builder
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"]),
-        ));
+    let builder =
+        builder
+            .plugin(tauri_plugin_notification::init())
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(vec!["--minimized"]),
+            ));
 
     let builder = builder
         .plugin(tauri_plugin_fs::init())
@@ -185,10 +167,6 @@ pub fn run() {
             if let Err(err) = setup::setup_app(app) {
                 return Err(Box::new(std::io::Error::other(err)));
             }
-            #[cfg(any(windows, target_os = "linux"))]
-            {
-                app.deep_link().register_all()?;
-            }
             Ok(())
         })
         .run(tauri::generate_context!());
@@ -201,9 +179,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        resolve_single_instance_activation_window_label, should_activate_settings_for_args,
-    };
+    use super::resolve_single_instance_activation_window_label;
 
     #[test]
     fn single_instance_activation_prefers_settings_window() {
@@ -231,15 +207,5 @@ mod tests {
             resolve_single_instance_activation_window_label(false, false),
             None
         );
-    }
-
-    #[test]
-    fn managed_auth_callback_activation_prefers_settings_window() {
-        assert!(should_activate_settings_for_args(&[
-            "touchai://hub/auth/callback?code=test".to_string(),
-        ]));
-        assert!(!should_activate_settings_for_args(&[
-            "--minimized".to_string()
-        ]));
     }
 }

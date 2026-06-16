@@ -67,3 +67,6 @@ apps/site/dist/
 # Local app runtime data and Vite cache
 apps/desktop/data/
 apps/desktop/.vite-cache/
+
+# WiX installer templates
+*.wxs

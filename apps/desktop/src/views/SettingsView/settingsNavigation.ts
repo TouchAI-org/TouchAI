@@ -71,7 +71,7 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
             },
             {
                 id: 'model-preferences',
-                icon: 'llm',
+                icon: 'route',
                 labelKey: 'settings.nav.modelPreferences.label',
                 descriptionKey: 'settings.nav.modelPreferences.description',
             },

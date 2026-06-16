@@ -82,7 +82,7 @@ describe('ModelCard i18n', () => {
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel(),
-                isEntryModel: false,
+                isDefault: false,
                 providerEnabled: true,
             },
         });
@@ -98,7 +98,7 @@ describe('ModelCard i18n', () => {
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel(),
-                isEntryModel: false,
+                isDefault: false,
                 providerEnabled: false,
             },
         });
@@ -119,13 +119,13 @@ describe('ModelCard i18n', () => {
         });
     });
 
-    it('localizes entry-model delete validation in English', async () => {
+    it('localizes default-model delete validation in English', async () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel(),
-                isEntryModel: true,
+                isDefault: true,
                 providerEnabled: true,
             },
         });
@@ -133,7 +133,7 @@ describe('ModelCard i18n', () => {
         await wrapper.findAll('button')[1]?.trigger('click');
 
         expect(alertErrorMock).toHaveBeenCalledWith(
-            'Cannot delete the entry model. Select another entry model in General settings first.'
+            'Cannot delete the default model. Set another model as default first.'
         );
     });
 
@@ -143,7 +143,7 @@ describe('ModelCard i18n', () => {
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel({ name: '设置' }),
-                isEntryModel: false,
+                isDefault: false,
                 providerEnabled: true,
             },
             attachTo: document.body,

@@ -398,7 +398,7 @@
                 <textarea
                     v-model="form.description"
                     rows="3"
-                    class="focus:border-primary-400 mt-1.5 min-h-24 w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 shadow-none transition-colors focus:outline-none"
+                    class="focus:border-primary-400 mt-1.5 min-h-24 w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 font-serif text-[13px] text-gray-900 shadow-none transition-colors focus:outline-none"
                     :placeholder="t('settings.general.modelPreferences.descriptionPlaceholder')"
                 />
             </div>

@@ -55,11 +55,11 @@ function isSameModel(
     );
 }
 
-async function allowsAutomaticModelSwitch(): Promise<boolean> {
+async function isModelRoutingEnabled(): Promise<boolean> {
     try {
         return (await getSettingValue({ key: 'allow_model_auto_switch' })) === 'true';
     } catch (error) {
-        console.warn('[UpgradeModel] Failed to read allow_model_auto_switch setting:', error);
+        console.warn('[UpgradeModel] Failed to read model routing setting:', error);
         return false;
     }
 }
@@ -318,40 +318,11 @@ export async function buildUpgradeModelApprovalRequest(
     namespacedName: string,
     context: BaseBuiltInToolExecutionContext
 ): Promise<ToolApprovalRequest | null> {
+    void args;
+    void config;
     void namespacedName;
-
-    try {
-        const { target } = await resolveModelSwitchTarget(args, context.currentModel, config);
-
-        if (isSameModel(context.currentModel, target.model)) {
-            return null;
-        }
-
-        if (await allowsAutomaticModelSwitch()) {
-            return null;
-        }
-
-        // 审批阶段只负责把即将发生的模型切换说清楚。
-        // 真正的切换由 execute 返回 controlSignal 后再由上层统一落地，避免审批阶段产生副作用。
-        return {
-            title: tt('模型切换确认'),
-            description: tt('允许从 {currentModel} 切换到 {targetModel}', {
-                currentModel: formatCurrentModelLabel(context.currentModel),
-                targetModel: formatCurrentModelLabel(target.model),
-            }),
-            command: `${formatCurrentModelLabel(context.currentModel)} -> ${formatCurrentModelLabel(target.model)}`,
-            riskLabel: '',
-            reason: tt('这会修改当前问答后续使用的模型，并同步影响后续默认模型。'),
-            commandLabel: '',
-            approveLabel: tt('批准'),
-            rejectLabel: tt('拒绝'),
-            enterHint: 'Enter',
-            escHint: 'Esc',
-            keyboardApproveDelayMs: 450,
-        };
-    } catch {
-        return null;
-    }
+    void context;
+    return null;
 }
 
 /**
@@ -370,6 +341,16 @@ export async function executeUpgradeModelTool(
     void context.signal;
 
     try {
+        if (!(await isModelRoutingEnabled())) {
+            const errorMessage = t('builtInTools.upgradeModel.modelRoutingDisabled');
+            return {
+                result: errorMessage,
+                isError: true,
+                status: 'error',
+                errorMessage,
+            };
+        }
+
         const { chainEntries, target, source, role, scenarioName } = await resolveModelSwitchTarget(
             args,
             context.currentModel,

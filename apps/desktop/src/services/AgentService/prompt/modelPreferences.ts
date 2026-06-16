@@ -1,6 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { findModelRoleWithProvider, listModelPreferences } from '@database/queries';
+import {
+    findModelRoleWithProvider,
+    getSettingValue,
+    listModelPreferences,
+} from '@database/queries';
 import type { ModelRole, ModelWithProvider } from '@database/queries/models';
 import type { ModelPreferenceWithModel } from '@database/types';
 
@@ -34,8 +38,21 @@ function formatPreferenceRow(preference: ModelPreferenceWithModel): string {
     return `| ${escapeMarkdownCell(preference.name)} | ${escapeMarkdownCell(preference.description)} | ${escapeMarkdownCell(formatModelLabel(preference))} |`;
 }
 
+async function isModelRoutingEnabled(): Promise<boolean> {
+    try {
+        return (await getSettingValue({ key: 'allow_model_auto_switch' })) === 'true';
+    } catch (error) {
+        console.warn('[ModelPreferencesPrompt] Failed to load model routing setting:', error);
+        return false;
+    }
+}
+
 export async function buildModelPreferencesPrompt(): Promise<string[]> {
-    const [preferences, entryModel, fastModel, generalModel] = await Promise.all([
+    if (!(await isModelRoutingEnabled())) {
+        return [];
+    }
+
+    const [preferences, defaultModel, fastModel, generalModel] = await Promise.all([
         listModelPreferences(),
         findModelRoleWithProvider('entry'),
         findModelRoleWithProvider('fast'),
@@ -49,21 +66,21 @@ export async function buildModelPreferencesPrompt(): Promise<string[]> {
     const roleRows: Array<[ModelRole, string, string, string]> = [
         [
             'entry',
-            'Entry model',
-            'Every user request starts here. It decides whether to answer directly or switch models.',
-            formatRoleModelLabel(entryModel),
+            'Default model',
+            'Every user request starts here by default. It decides whether to answer directly or switch models.',
+            formatRoleModelLabel(defaultModel),
         ],
         [
             'fast',
             'Fast model',
-            'Simple questions and lightweight utility work such as brief answers or session naming. Falls back to the entry model when not configured.',
-            formatRoleModelLabel(fastModel ?? entryModel),
+            'Simple questions and lightweight utility work such as brief answers or session naming. Falls back to the default model when not configured.',
+            formatRoleModelLabel(fastModel ?? defaultModel),
         ],
         [
             'general',
             'General model',
-            'Complex tasks that do not clearly match a custom scenario preference. Falls back to the entry model when not configured.',
-            formatRoleModelLabel(generalModel ?? entryModel),
+            'Complex tasks that do not clearly match a custom scenario preference. Falls back to the default model when not configured.',
+            formatRoleModelLabel(generalModel ?? defaultModel),
         ],
     ];
 
@@ -71,7 +88,7 @@ export async function buildModelPreferencesPrompt(): Promise<string[]> {
         [
             '## Model routing preferences',
             '',
-            'The current model is the entry model. Every user request starts here, and you act as the router by calling `builtin__upgrade_model` when another configured model is a better fit.',
+            'The current model is the default model. Every user request starts here by default, and you act as the router by calling `builtin__upgrade_model` when another configured model is a better fit.',
             '',
             '| Role | When to use | Model |',
             '|------|-------------|-------|',
@@ -82,7 +99,7 @@ export async function buildModelPreferencesPrompt(): Promise<string[]> {
             '',
             'Use `builtin__upgrade_model` with `{ "role": "fast" }` for simple questions or lightweight utility tasks.',
             'Use `builtin__upgrade_model` with `{ "role": "general" }` for complex tasks when no custom scenario below clearly matches.',
-            'Use `builtin__upgrade_model` with `{ "restore": true }` or `{ "role": "entry" }` to return to the entry model.',
+            'Use `builtin__upgrade_model` with `{ "restore": true }` or `{ "role": "entry" }` to return to the default model.',
             '',
             'You can switch to a specialized model when the task clearly matches one of these user-configured scenarios.',
             'Call `builtin__upgrade_model` with `{ "scenario": "<Scenario>" }` to switch to that scenario model.',
@@ -93,7 +110,7 @@ export async function buildModelPreferencesPrompt(): Promise<string[]> {
                 ? usablePreferences.map(formatPreferenceRow)
                 : ['| None configured | No custom scenario preferences are available. | - |']),
             '',
-            'Routing rules: use a custom scenario model when the task clearly matches that scenario. Otherwise use the fast model for simple work, the general model for complex work, and the entry model for routing or unclear/general setup.',
+            'Routing rules: use a custom scenario model when the task clearly matches that scenario. Otherwise use the fast model for simple work, the general model for complex work, and the default model for routing or unclear/general setup.',
             'Do not switch models repeatedly for the same task unless the conversation meaningfully changes.',
         ].join('\n'),
     ];

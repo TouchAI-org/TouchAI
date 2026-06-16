@@ -4,8 +4,6 @@
     import AppIcon from '@components/AppIcon.vue';
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
-    import { peekManagedSettingsFocusRequest } from '@services/AuthService/managedSettingsFocus';
-    import { AppEvent, eventService } from '@services/EventService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import {
         type Component,
@@ -93,10 +91,7 @@
         },
     });
 
-    const initialManagedSettingsFocusRequest = peekManagedSettingsFocusRequest();
-    const activeSection = ref<NavigationSection>(
-        initialManagedSettingsFocusRequest?.section === 'ai-services' ? 'ai-services' : 'general'
-    );
+    const activeSection = ref<NavigationSection>('general');
     const sidebarReady = ref(false);
     const contentReady = ref(false);
     const minimumLoadingElapsed = ref(false);
@@ -105,7 +100,6 @@
     let loadingDelayTimer: ReturnType<typeof setTimeout> | null = null;
     const contentScrollRef = ref<HTMLElement | null>(null);
     const isWindowMaximized = ref(false);
-    let unlistenManagedSettingsFocusProvider: (() => void) | null = null;
     useScrollbarStabilizer(contentScrollRef);
     const shellVisibilityClass = computed(() =>
         initialLoadingVisible.value ? 'opacity-0' : 'opacity-100'
@@ -122,10 +116,6 @@
 
     const handleNavigate = (section: NavigationSection) => {
         activeSection.value = section;
-    };
-
-    const handleManagedSettingsFocusProvider = () => {
-        activeSection.value = 'ai-services';
     };
 
     const scrollGeneralUpdateSectionIntoView = async () => {
@@ -223,12 +213,6 @@
     onMounted(() => {
         syncNativeWindowTitle();
         void initialize();
-        void (async () => {
-            unlistenManagedSettingsFocusProvider = await eventService.on(
-                AppEvent.SETTINGS_AI_SERVICES_FOCUS_PROVIDER,
-                handleManagedSettingsFocusProvider
-            );
-        })();
     });
 
     watch(locale, syncNativeWindowTitle);
@@ -238,8 +222,6 @@
             clearTimeout(loadingDelayTimer);
             loadingDelayTimer = null;
         }
-        unlistenManagedSettingsFocusProvider?.();
-        unlistenManagedSettingsFocusProvider = null;
     });
 </script>
 

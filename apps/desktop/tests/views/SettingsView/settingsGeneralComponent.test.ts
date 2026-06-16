@@ -191,7 +191,7 @@ describe('SettingsGeneralSection', () => {
         expect(controls.length).toBeGreaterThanOrEqual(3);
 
         const rowLabels = wrapper.findAll('[data-testid="settings-general-row-label"]');
-        expect(rowLabels).toHaveLength(9);
+        expect(rowLabels).toHaveLength(8);
     });
 
     it('shows the current version in the latest update details', async () => {
@@ -231,48 +231,6 @@ describe('SettingsGeneralSection', () => {
         await wrapper.get('[data-testid="settings-update-auto-check-toggle"]').trigger('click');
 
         expect(appUpdateServiceMock.setAutoCheckEnabled).toHaveBeenCalledWith(false);
-    });
-
-    it('reverts the automatic model switch toggle when saving fails', async () => {
-        settingsStoreMock.updateAllowModelAutoSwitch.mockRejectedValueOnce(
-            new Error('write failed')
-        );
-        const wrapper = mount(GeneralSection);
-
-        await flushPromises();
-        await wrapper
-            .get('[data-testid="settings-allow-model-auto-switch-toggle"]')
-            .trigger('click');
-        await flushPromises();
-
-        expect(settingsStoreMock.updateAllowModelAutoSwitch).toHaveBeenCalledWith(true);
-        expect(settingsStoreMock.settings.value.allowModelAutoSwitch).toBe(false);
-    });
-
-    it('disables the automatic model switch toggle while saving', async () => {
-        let resolveSave!: () => void;
-        settingsStoreMock.updateAllowModelAutoSwitch.mockReturnValueOnce(
-            new Promise<void>((resolve) => {
-                resolveSave = resolve;
-            })
-        );
-        const wrapper = mount(GeneralSection);
-
-        await flushPromises();
-        const toggle = wrapper.get('[data-testid="settings-allow-model-auto-switch-toggle"]');
-        expect(toggle.attributes('type')).toBe('button');
-        expect(toggle.attributes('aria-label')).toBeTruthy();
-
-        await toggle.trigger('click');
-
-        expect(toggle.attributes('disabled')).toBeDefined();
-        await toggle.trigger('click');
-        expect(settingsStoreMock.updateAllowModelAutoSwitch).toHaveBeenCalledTimes(1);
-
-        resolveSave();
-        await flushPromises();
-
-        expect(toggle.attributes('disabled')).toBeUndefined();
     });
 
     it('shows update details and delegates update actions', async () => {

@@ -62,7 +62,7 @@ describe('Settings navigation sidebar i18n', () => {
         expect(flattenSettingsNavigation().map((item) => item.label)).toEqual([
             'General',
             'Providers and models',
-            'Model settings',
+            'Model routing',
             'Built-in tools',
             'Search',
             'Browser Control',

@@ -76,7 +76,6 @@
 
     const shortcutInput = ref<HTMLInputElement | null>(null);
     const isSaving = ref(false);
-    const savingAllowModelAutoSwitch = ref(false);
     const isCapturing = ref(false);
     const hasCapturedShortcut = ref(false);
     const displayShortcut = ref('');
@@ -362,34 +361,6 @@
         }
     };
 
-    const saveAllowModelAutoSwitch = async (previousValue: boolean) => {
-        if (savingAllowModelAutoSwitch.value) {
-            return;
-        }
-
-        savingAllowModelAutoSwitch.value = true;
-        try {
-            await settingsStore.updateAllowModelAutoSwitch(settings.value.allowModelAutoSwitch);
-            alertMessage.value?.success(t('common.saved'), 2000);
-        } catch (error) {
-            settings.value.allowModelAutoSwitch = previousValue;
-            console.error('Failed to save allow_model_auto_switch setting:', error);
-            alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
-        } finally {
-            savingAllowModelAutoSwitch.value = false;
-        }
-    };
-
-    const toggleAllowModelAutoSwitch = () => {
-        if (savingAllowModelAutoSwitch.value) {
-            return;
-        }
-
-        const previousValue = settings.value.allowModelAutoSwitch;
-        settings.value.allowModelAutoSwitch = !previousValue;
-        void saveAllowModelAutoSwitch(previousValue);
-    };
-
     const saveOutputScrollBehavior = async () => {
         try {
             await settingsStore.updateOutputScrollBehavior(settings.value.outputScrollBehavior);
@@ -665,45 +636,6 @@
                     data-testid="settings-general-card-conversation"
                     class="settings-row-group divide-y divide-neutral-200/70"
                 >
-                    <div
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-                    >
-                        <div class="min-w-0">
-                            <div
-                                data-testid="settings-general-row-label"
-                                class="text-[13px] leading-6 font-normal text-neutral-900"
-                            >
-                                {{ t('settings.general.allowModelAutoSwitch') }}
-                            </div>
-                            <p class="text-xs leading-5 text-neutral-500">
-                                {{ t('settings.general.allowModelAutoSwitchDescription') }}
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            :class="[
-                                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
-                                settings.allowModelAutoSwitch
-                                    ? 'settings-toggle-enabled'
-                                    : 'bg-neutral-200',
-                            ]"
-                            data-testid="settings-allow-model-auto-switch-toggle"
-                            :aria-label="t('settings.general.allowModelAutoSwitch')"
-                            :aria-pressed="settings.allowModelAutoSwitch"
-                            :disabled="savingAllowModelAutoSwitch"
-                            @click="toggleAllowModelAutoSwitch"
-                        >
-                            <span
-                                :class="[
-                                    'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                                    settings.allowModelAutoSwitch
-                                        ? 'translate-x-[18px]'
-                                        : 'translate-x-1',
-                                ]"
-                            />
-                        </button>
-                    </div>
-
                     <div
                         class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
                     >

@@ -19,6 +19,9 @@
         findDefaultModel,
         findModelsWithProvider,
         findProviderById,
+        getSettingValue,
+        listModelPreferences,
+        setDefaultModel,
         syncAllModelsMetadata,
         updateModel,
         updateProvider,
@@ -26,23 +29,13 @@
     import { isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
-    import {
-        consumeManagedSettingsFocusRequest,
-        peekManagedSettingsFocusRequest,
-    } from '@services/AuthService/managedSettingsFocus';
     import { AppEvent, eventService } from '@services/EventService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
-    import {
-        getProviderDriverDefinition,
-        isTouchAiManagedMode,
-        parseProviderConfigJson,
-    } from '@/services/AgentService/infrastructure/providers';
-    import type { ProviderConfigJson } from '@/services/AgentService/infrastructure/providers/types';
-    import { invalidateManagedAuthForError } from '@/services/AuthService';
+    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     defineOptions({
         name: 'SettingsAiServicesSection',
@@ -54,8 +47,6 @@
     import ModelList from './components/ModelList.vue';
     import ProviderConfig from './components/ProviderConfig.vue';
     import ProviderList from './components/ProviderList.vue';
-
-    const MANAGED_PROVIDER_DRIVER = 'mimo';
 
     const alert = useAlert();
 
@@ -86,8 +77,10 @@
     const providers = ref<Provider[]>([]);
     const modelsCache = ref<Map<number, ModelWithProvider[]>>(new Map()); // 缓存每个服务商的模型
     const selectedProviderId = ref<number | null>(null);
-    const entryModelId = ref<number | null>(null);
-    const entryModelProviderId = ref<number | null>(null);
+    const defaultModelId = ref<number | null>(null);
+    const defaultModelProviderId = ref<number | null>(null);
+    const modelRoutingModelIds = ref<Set<number>>(new Set());
+    const modelRoutingProviderIds = ref<Set<number>>(new Set());
     const loading = ref(true);
     const loadingModels = ref(false);
     const error = ref<string | null>(null);
@@ -96,29 +89,22 @@
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
     let unlistenAiModelsUpdated: (() => void) | null = null;
-    let unlistenSettingsAiServicesFocusProvider: (() => void) | null = null;
-    let lastHandledSettingsFocusRequestAt = 0;
 
     interface RefreshModelsNotificationOptions {
         success?: boolean;
         failure?: boolean;
         empty?: boolean;
-        missingCredentials?: boolean;
-        sessionExpired?: boolean;
     }
 
     const DEFAULT_REFRESH_MODELS_NOTIFICATIONS: Required<RefreshModelsNotificationOptions> = {
         success: true,
         failure: true,
         empty: true,
-        missingCredentials: true,
-        sessionExpired: true,
     };
 
     const AUTO_REFRESH_MODELS_NOTIFICATIONS: RefreshModelsNotificationOptions = {
         success: false,
         empty: false,
-        missingCredentials: false,
     };
 
     async function broadcastModelsUpdated() {
@@ -163,32 +149,63 @@
         modelsCache.value = nextCache;
     }
 
+    function findCachedModel(modelId: number): ModelWithProvider | undefined {
+        for (const providerModels of modelsCache.value.values()) {
+            const model = providerModels.find((item) => item.id === modelId);
+            if (model) {
+                return model;
+            }
+        }
+
+        return undefined;
+    }
+
+    async function loadModelRoutingReferences() {
+        const [fastModelId, generalModelId, preferences, allModels] = await Promise.all([
+            getSettingValue({ key: 'model_role_fast_model_id' }),
+            getSettingValue({ key: 'model_role_general_model_id' }),
+            listModelPreferences(),
+            findModelsWithProvider(),
+        ]);
+        const modelProviderMap = new Map(allModels.map((model) => [model.id, model.provider_id]));
+        const nextModelIds = new Set<number>();
+        const nextProviderIds = new Set<number>();
+
+        for (const rawModelId of [fastModelId, generalModelId]) {
+            const modelId = rawModelId ? Number(rawModelId) : NaN;
+            if (!Number.isFinite(modelId)) {
+                continue;
+            }
+
+            nextModelIds.add(modelId);
+            const providerId = modelProviderMap.get(modelId);
+            if (providerId !== undefined) {
+                nextProviderIds.add(providerId);
+            }
+        }
+
+        for (const preference of preferences) {
+            if (preference.model_id !== null) {
+                nextModelIds.add(preference.model_id);
+                const providerId =
+                    preference.model_provider_id ??
+                    preference.provider_id ??
+                    modelProviderMap.get(preference.model_id);
+                if (providerId !== null && providerId !== undefined) {
+                    nextProviderIds.add(providerId);
+                }
+            } else if (preference.provider_id !== null) {
+                nextProviderIds.add(preference.provider_id);
+            }
+        }
+
+        modelRoutingModelIds.value = nextModelIds;
+        modelRoutingProviderIds.value = nextProviderIds;
+    }
+
     function patchProvider(providerId: number, patch: Partial<Provider>) {
         providers.value = providers.value.map((provider) =>
             provider.id === providerId ? { ...provider, ...patch } : provider
-        );
-    }
-
-    function stringifyProviderConfigJson(config: ProviderConfigJson): string | null {
-        const nextConfig: ProviderConfigJson = {
-            ...(config.headers ? { headers: config.headers } : {}),
-            ...(config.queryParams ? { queryParams: config.queryParams } : {}),
-            ...(config.managedAuth ? { managedAuth: config.managedAuth } : {}),
-            ...(config.touchAiMode ? { touchAiMode: config.touchAiMode } : {}),
-            ...(config.touchAiCustom ? { touchAiCustom: config.touchAiCustom } : {}),
-        };
-
-        return Object.keys(nextConfig).length > 0 ? JSON.stringify(nextConfig) : null;
-    }
-
-    function isManagedTouchAiProvider(provider: Provider): boolean {
-        if (provider.driver !== MANAGED_PROVIDER_DRIVER || provider.is_builtin !== 1) {
-            return false;
-        }
-
-        return isTouchAiManagedMode(
-            parseProviderConfigJson(provider.config_json),
-            provider.api_endpoint
         );
     }
 
@@ -202,53 +219,6 @@
             provider_config_json: provider.config_json,
             provider_enabled: provider.enabled,
             provider_logo: provider.logo,
-        };
-    }
-
-    function buildTouchAiProviderConfigJson(
-        provider: Provider,
-        mode: 'managed' | 'custom'
-    ): string | null {
-        const parsedConfig = parseProviderConfigJson(provider.config_json);
-        return stringifyProviderConfigJson({
-            ...(parsedConfig.headers ? { headers: parsedConfig.headers } : {}),
-            ...(parsedConfig.queryParams ? { queryParams: parsedConfig.queryParams } : {}),
-            ...(parsedConfig.managedAuth ? { managedAuth: parsedConfig.managedAuth } : {}),
-            touchAiMode: mode,
-            ...(parsedConfig.touchAiCustom ? { touchAiCustom: parsedConfig.touchAiCustom } : {}),
-        });
-    }
-
-    async function ensureTouchAiProviderMode(
-        provider: Provider,
-        mode: 'managed' | 'custom'
-    ): Promise<Provider> {
-        if (provider.driver !== MANAGED_PROVIDER_DRIVER || provider.is_builtin !== 1) {
-            return provider;
-        }
-
-        const parsedConfig = parseProviderConfigJson(provider.config_json);
-        const isAlreadyManaged = isTouchAiManagedMode(parsedConfig, provider.api_endpoint);
-        const isAlreadyInRequestedMode =
-            mode === 'managed' ? isAlreadyManaged : parsedConfig.touchAiMode === 'custom';
-        if (isAlreadyInRequestedMode) {
-            return provider;
-        }
-
-        const nextConfigJson = buildTouchAiProviderConfigJson(provider, mode);
-        await updateProvider({
-            id: provider.id,
-            providerPatch: {
-                config_json: nextConfigJson,
-            },
-        });
-        patchProvider(provider.id, {
-            config_json: nextConfigJson,
-        });
-
-        return {
-            ...provider,
-            config_json: nextConfigJson,
         };
     }
 
@@ -271,39 +241,13 @@
         return modelsCache.value.get(selectedProviderId.value) || [];
     });
 
-    async function handleSettingsAiServicesFocusProvider(payload: {
-        section: 'ai-services';
-        providerDriver: 'mimo';
-        requireBuiltIn: true;
-        mode: 'managed' | 'custom';
-        reason: 'managed-auth-callback';
-        requestedAt: number;
-    }) {
-        if (payload.requestedAt <= lastHandledSettingsFocusRequestAt) {
-            consumeManagedSettingsFocusRequest();
-            return;
+    const defaultModelProviderIds = computed(() => {
+        const ids = new Set<number>();
+        if (defaultModelProviderId.value !== null) {
+            ids.add(defaultModelProviderId.value);
         }
-
-        lastHandledSettingsFocusRequestAt = payload.requestedAt;
-
-        if (providers.value.length === 0) {
-            await loadProviders();
-        }
-
-        const targetProvider = providers.value.find(
-            (provider) =>
-                provider.driver === payload.providerDriver &&
-                (!payload.requireBuiltIn || provider.is_builtin === 1)
-        );
-        if (!targetProvider) {
-            return;
-        }
-
-        await selectProvider(targetProvider.id);
-        await ensureTouchAiProviderMode(targetProvider, payload.mode);
-        await refreshSelectedProviderModelsAfterConfigChange();
-        consumeManagedSettingsFocusRequest();
-    }
+        return ids;
+    });
 
     async function ensureProviderSelected() {
         const nextProviders = providers.value;
@@ -335,8 +279,9 @@
             providers.value = await findAllProvidersSorted();
 
             const defaultModel = await findDefaultModel();
-            entryModelId.value = defaultModel?.id || null;
-            entryModelProviderId.value = defaultModel?.provider_id || null;
+            defaultModelId.value = defaultModel?.id || null;
+            defaultModelProviderId.value = defaultModel?.provider_id || null;
+            await loadModelRoutingReferences();
 
             await ensureProviderSelected();
         } catch (err) {
@@ -442,10 +387,8 @@
     }
 
     function assertProviderCanBeDisabled(provider: Provider) {
-        if (entryModelProviderId.value === provider.id) {
-            throw new Error(
-                t('settings.general.modelPreferences.cannotDisableProviderWithEntryModel')
-            );
+        if (defaultModelProviderId.value === provider.id) {
+            throw new Error(t('settings.ai.cannotDisableProviderWithDefaultModel'));
         }
     }
 
@@ -454,10 +397,22 @@
             throw new Error(t('settings.ai.cannotDeleteBuiltInProvider'));
         }
 
-        if (entryModelProviderId.value === provider.id) {
-            throw new Error(
-                t('settings.general.modelPreferences.cannotDeleteProviderWithEntryModel')
-            );
+        if (defaultModelProviderId.value === provider.id) {
+            throw new Error(t('settings.ai.cannotDeleteProviderWithDefaultModel'));
+        }
+
+        if (modelRoutingProviderIds.value.has(provider.id)) {
+            throw new Error(t('settings.ai.cannotDeleteProviderWithModelRouting'));
+        }
+    }
+
+    function assertModelCanBeDeleted(modelId: number) {
+        if (defaultModelId.value === modelId) {
+            throw new Error(t('settings.ai.cannotDeleteDefaultModel'));
+        }
+
+        if (modelRoutingModelIds.value.has(modelId)) {
+            throw new Error(t('settings.ai.cannotDeleteModelWithModelRouting'));
         }
     }
 
@@ -532,6 +487,7 @@
                 throw new Error(t('settings.ai.providerNotFound'));
             }
 
+            await loadModelRoutingReferences();
             assertProviderCanBeDeleted(provider);
             await deleteProvider({ id: providerId });
             providers.value = providers.value.filter((item) => item.id !== providerId);
@@ -578,18 +534,47 @@
 
     const handleDeleteModel = async (id: number, silent = false) => {
         try {
+            await loadModelRoutingReferences();
+            assertModelCanBeDeleted(id);
             await deleteModel({ id });
             removeCachedModel(id);
             await broadcastModelsUpdated();
-            if (entryModelId.value === id) {
-                entryModelId.value = null;
-                entryModelProviderId.value = null;
+            if (defaultModelId.value === id) {
+                defaultModelId.value = null;
+                defaultModelProviderId.value = null;
             }
             if (!silent) {
                 alert.success(t('settings.ai.deleteSucceeded'));
             }
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
+        }
+    };
+
+    const handleSetDefaultModel = async (id: number) => {
+        try {
+            const nextDefaultModel = findCachedModel(id);
+            await setDefaultModel({ modelId: id });
+            defaultModelId.value = id;
+            defaultModelProviderId.value =
+                nextDefaultModel?.provider_id ?? selectedProviderId.value ?? null;
+
+            const nextCache = new Map(modelsCache.value);
+            for (const [providerId, providerModels] of nextCache.entries()) {
+                nextCache.set(
+                    providerId,
+                    providerModels.map((model) => ({
+                        ...model,
+                        is_default: model.id === id ? 1 : 0,
+                    }))
+                );
+            }
+            modelsCache.value = nextCache;
+
+            await broadcastModelsUpdated();
+            alert.success(t('settings.ai.setSucceeded'));
+        } catch (err) {
+            alert.error(err instanceof Error ? err.message : t('settings.ai.setFailed'));
         }
     };
 
@@ -601,8 +586,6 @@
                 success: !options,
                 failure: !options,
                 empty: !options,
-                missingCredentials: !options,
-                sessionExpired: !options,
             };
         }
 
@@ -638,13 +621,6 @@
                 return;
             }
 
-            if (isManagedTouchAiProvider(provider) && !provider.api_key) {
-                if (notifications.missingCredentials) {
-                    alert.warning(t('settings.ai.providerNeedsApiKeyForModels'));
-                }
-                return;
-            }
-
             const providerInstance = aiService.createProviderInstance(
                 provider.driver,
                 provider.api_endpoint,
@@ -657,22 +633,6 @@
                 fetchedModels = await providerInstance.listModels();
             } catch (error) {
                 if (refreshingProviderId.value !== currentProviderId) {
-                    return;
-                }
-
-                const didInvalidateManagedAuth = isManagedTouchAiProvider(provider)
-                    ? await invalidateManagedAuthForError({
-                          providerId: provider.id,
-                          error,
-                      })
-                    : false;
-
-                if (didInvalidateManagedAuth) {
-                    removeCachedModels(provider.id);
-                    await loadProviders();
-                    if (notifications.sessionExpired) {
-                        alert.warning(t('settings.ai.managedActivity.sessionExpired'));
-                    }
                     return;
                 }
 
@@ -781,26 +741,13 @@
         unlistenAiModelsUpdated = await eventService.on(AppEvent.AI_MODELS_UPDATED, async () => {
             await loadProviders();
         });
-        unlistenSettingsAiServicesFocusProvider = await eventService.on(
-            AppEvent.SETTINGS_AI_SERVICES_FOCUS_PROVIDER,
-            async (payload) => {
-                await handleSettingsAiServicesFocusProvider(payload);
-            }
-        );
 
         await loadProviders();
-
-        const pendingSettingsFocusRequest = peekManagedSettingsFocusRequest();
-        if (pendingSettingsFocusRequest) {
-            await handleSettingsAiServicesFocusProvider(pendingSettingsFocusRequest);
-        }
     });
 
     onUnmounted(() => {
         unlistenAiModelsUpdated?.();
         unlistenAiModelsUpdated = null;
-        unlistenSettingsAiServicesFocusProvider?.();
-        unlistenSettingsAiServicesFocusProvider = null;
     });
 </script>
 
@@ -809,6 +756,7 @@
         <ProviderList
             :providers="providers"
             :selected-provider-id="selectedProviderId"
+            :default-model-provider-ids="defaultModelProviderIds"
             @select="selectProvider"
             @toggle-enabled="toggleProviderEnabled"
             @add-custom="handleAddCustomProvider"
@@ -845,7 +793,6 @@
                                 :name="selectedProvider.name"
                                 size="large"
                                 :show-badge="selectedProvider.is_builtin === 1"
-                                :promoted="false"
                             />
 
                             <div data-testid="settings-provider-copy" class="min-w-0 self-center">
@@ -890,13 +837,14 @@
                         v-if="selectedProvider"
                         :provider-id="selectedProvider.id"
                         :models="selectedProviderModels"
-                        :entry-model-id="entryModelId"
+                        :default-model-id="defaultModelId"
                         :provider="selectedProvider"
                         :provider-enabled="selectedProvider.enabled === 1"
                         :refreshing="refreshing"
                         @create="handleCreateModel"
                         @update="handleUpdateModel"
                         @delete="handleDeleteModel"
+                        @set-default="handleSetDefaultModel"
                         @refresh="handleRefreshModels"
                     />
                 </div>
