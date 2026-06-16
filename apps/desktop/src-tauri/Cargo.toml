@@ -97,7 +97,7 @@ opt-level = "z"
 codegen-units = 1
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
     "Data_Xml_Dom",
     "Foundation",
     "Foundation_Collections",
