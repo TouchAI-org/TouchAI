@@ -78,7 +78,7 @@ touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .stage {
     min-height: 100% !important;
     height: 100% !important;
     padding: 0 !important;
-    justify-content: center !important;
+    justify-content: flex-start !important;
     align-items: center !important;
 }
 

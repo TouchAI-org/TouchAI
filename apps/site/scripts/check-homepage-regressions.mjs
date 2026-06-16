@@ -107,6 +107,40 @@ const requiresFeatureCompleteAutoHeight = (source, label) => {
 requiresFeatureCompleteAutoHeight(componentDemo, 'ComponentDemo host CSS');
 requiresFeatureCompleteAutoHeight(runtime, 'component demo runtime CSS');
 
+const requiresFeatureStageTopAlignment = (source, label) => {
+    const selectors = [
+        '.feature-component-frame .stage',
+        '.feature-work-frame .stage',
+        '.feature-reminder-frame .stage',
+    ];
+
+    let hasRule = false;
+    let searchFrom = 0;
+    while (!hasRule) {
+        const ruleStart = source.indexOf(selectors[0], searchFrom);
+        if (ruleStart < 0) break;
+        const ruleFragment = source.slice(ruleStart, ruleStart + 600);
+        hasRule =
+            selectors.every((selector) => ruleFragment.includes(selector)) &&
+            ruleFragment.includes('justify-content: flex-start !important');
+        searchFrom = ruleStart + selectors[0].length;
+    }
+
+    if (!hasRule) {
+        fail(`${label} must top-align feature demo stages so idle cards stay centered.`);
+    }
+};
+
+requiresFeatureStageTopAlignment(componentDemo, 'ComponentDemo host CSS');
+requiresFeatureStageTopAlignment(runtime, 'component demo runtime CSS');
+
+featureDemoFiles.forEach((file) => {
+    const html = readSiteFile(file);
+    if (html.includes('.response li > span:last-child') && !html.includes(':not(.kbd)')) {
+        fail(`${file} must not let list span rules turn inline .kbd tags into full-width blocks.`);
+    }
+});
+
 if (failures.length) {
     console.error(failures.map((message) => `- ${message}`).join('\n'));
     process.exit(1);
