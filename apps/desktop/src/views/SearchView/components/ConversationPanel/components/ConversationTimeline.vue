@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -166,6 +166,19 @@
             clearTimeout(detectActiveMarkerTimer);
             detectActiveMarkerTimer = null;
         }
+    });
+
+    function scrollToBottom() {
+        if (userMessages.value.length > 0) {
+            const lastMessage = userMessages.value[userMessages.value.length - 1];
+            if (lastMessage) {
+                activeMarkerId.value = lastMessage.id;
+            }
+        }
+    }
+
+    defineExpose({
+        scrollToBottom,
     });
 </script>
 
