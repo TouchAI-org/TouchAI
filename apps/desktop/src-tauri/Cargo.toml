@@ -114,7 +114,7 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
-webview2-com = "0.38.0"
+webview2-com = "0.39.1"
 windows-core = "0.61.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
