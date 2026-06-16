@@ -8,10 +8,11 @@ const testDirectory = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(testDirectory, '../..');
 
 describe('Tauri WiX install directory configuration', () => {
-    it('reuses the Velopack install location when building a local MSI', async () => {
+    it('defaults clean installs to the product name while reusing Velopack install locations', async () => {
         const config = JSON.parse(
             await readFile(resolve(desktopRoot, 'src-tauri/tauri.conf.json'), 'utf8')
         ) as {
+            productName?: string;
             identifier?: string;
             bundle?: {
                 windows?: {
@@ -24,6 +25,7 @@ describe('Tauri WiX install directory configuration', () => {
         const templatePath = config.bundle?.windows?.wix?.template;
 
         expect(config.identifier).toBe('org.touch-ai.app');
+        expect(config.productName).toBe('TouchAI');
         expect(templatePath).toBe('wix/main.wxs');
 
         const template = await readFile(
@@ -32,7 +34,7 @@ describe('Tauri WiX install directory configuration', () => {
         );
 
         expect(template).toContain('Property Id="INSTALLDIR"');
-        expect(template).toContain('Directory Id="INSTALLDIR" Name="{{bundle_id}}"');
+        expect(template).toContain('Directory Id="INSTALLDIR" Name="{{product_name}}"');
         expect(template).toContain('Id="PrevInstallDirVelopack"');
         expect(template).toContain(
             'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\MSI:org.touch-ai.app'
