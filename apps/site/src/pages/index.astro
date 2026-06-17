@@ -2326,6 +2326,7 @@ const structuredData = JSON.stringify({
 
                 const translations = {
                     zh: {
+                        'hero.heading': 'TouchAI：一触即达的桌面效率 Agent',
                         'nav.features': '功能',
                         'nav.workflow': '场景',
                         'nav.teams': '评价',
@@ -2378,6 +2379,7 @@ const structuredData = JSON.stringify({
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                     en: {
+                        'hero.heading': 'TouchAI: A Desktop Efficiency Agent at Your Fingertips',
                         'nav.features': 'Features',
                         'nav.workflow': 'Use cases',
                         'nav.teams': 'Stories',
@@ -2690,7 +2692,16 @@ const structuredData = JSON.stringify({
                 const savedLanguage = localStorage.getItem('touchai-language');
                 setLanguage(savedLanguage === 'en' ? 'en' : 'zh');
 
-                const analyticsEndpoint = document.body.dataset.analyticsEndpoint?.trim();
+                const analyticsEndpoint = (() => {
+                    const raw = document.body.dataset.analyticsEndpoint?.trim();
+                    if (!raw) return '';
+                    try {
+                        const url = new URL(raw);
+                        return /^https?:$/.test(url.protocol) ? url.href : '';
+                    } catch {
+                        return '';
+                    }
+                })();
                 let hasTrackedPageView = false;
                 const sendAnalytics = (type, detail = {}) => {
                     if (!analyticsEndpoint) return;

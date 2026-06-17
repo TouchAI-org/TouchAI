@@ -1,8 +1,19 @@
 (function () {
-    const renderer = window.TouchAILiteRenderer;
+    const getRenderer = () => window.TouchAILiteRenderer;
 
     function escapeHtml(value) {
-        return renderer ? renderer.escapeHtml(value) : String(value);
+        const renderer = getRenderer();
+        if (renderer?.escapeHtml) {
+            return renderer.escapeHtml(value);
+        }
+
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/`/g, '&#96;');
     }
 
     function normalizeFormula(source) {
@@ -226,6 +237,7 @@
                 return token;
             });
 
+        const renderer = getRenderer();
         let html = renderer
             ? renderer.renderMarkdownContent(protectedMarkdown)
             : escapeHtml(protectedMarkdown);
