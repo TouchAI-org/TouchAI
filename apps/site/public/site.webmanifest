@@ -1,7 +1,7 @@
 {
     "name": "TouchAI",
     "short_name": "TouchAI",
-    "description": "一触即达的桌面效率 Agent，随时待命，做您触手可及的 AI 入口。",
+    "description": "Your desktop agent, one shortcut away.",
     "lang": "zh-CN",
     "start_url": "/",
     "scope": "/",

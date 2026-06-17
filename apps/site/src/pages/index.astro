@@ -8,7 +8,6 @@ const repoPath = 'TouchAI-org/TouchAI';
 const repoUrl = `https://github.com/${repoPath}`;
 const releasesUrl = `${repoUrl}/releases`;
 const repoApiUrl = `https://api.github.com/repos/${repoPath}`;
-const docsUrl = `${siteUrl}getting-started/`;
 const titleZh = 'TouchAI：一触即达的桌面效率 Agent';
 const titleEn = 'TouchAI: A Desktop Efficiency Agent at Your Fingertips';
 const descriptionZh = '一触即达的桌面效率 Agent——随时待命，做您触手可及的 AI 入口';
@@ -79,7 +78,6 @@ const structuredData = JSON.stringify({
             operatingSystem: 'Windows 10/11, macOS 12+, Linux (Ubuntu 20.04+, Fedora 35+)',
             image: socialImageUrl,
             downloadUrl: releasesUrl,
-            softwareHelp: docsUrl,
             mainEntityOfPage: siteUrl,
             inLanguage: ['zh-CN', 'en'],
             keywords,
@@ -1926,9 +1924,6 @@ const structuredData = JSON.stringify({
                     >
                         下载 TouchAI
                     </a>
-                    <a class="button secondary" href={docsUrl} data-i18n="hero.docs" hidden>
-                        使用文档
-                    </a>
                 </div>
             </section>
 
@@ -2275,7 +2270,6 @@ const structuredData = JSON.stringify({
                 >
                     GitHub
                 </a>
-                <a href={docsUrl} target="_blank" rel="noreferrer" data-i18n="footer.docs">文档</a>
             </div>
             <div data-i18n="footer.copyright">© 2026 TouchAI. GPL-3.0-or-later.</div>
         </footer>
@@ -2335,7 +2329,6 @@ const structuredData = JSON.stringify({
                         'nav.download': '下载',
                         'hero.subtitle': '一触即达的桌面效率 Agent',
                         'hero.download': '下载 TouchAI',
-                        'hero.docs': '使用文档',
                         'features.title': '自然融入你的工作流',
                         'features.one.title': '把题目交给桌面 AI',
                         'features.one.copy':
@@ -2379,7 +2372,6 @@ const structuredData = JSON.stringify({
                         'cta.copy': '体验近在咫尺的 AI 陪伴',
                         'cta.download': '下载 TouchAI',
                         'footer.official': '官网',
-                        'footer.docs': '文档',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                     en: {
@@ -2389,7 +2381,6 @@ const structuredData = JSON.stringify({
                         'nav.download': 'Download',
                         'hero.subtitle': 'A desktop productivity agent, one touch away',
                         'hero.download': 'Download TouchAI',
-                        'hero.docs': 'Docs',
                         'features.title': 'Naturally fits into your workflow',
                         'features.one.title': 'Hand the problem to desktop AI.',
                         'features.one.copy':
@@ -2433,7 +2424,6 @@ const structuredData = JSON.stringify({
                         'cta.copy': 'Experience AI companionship within reach.',
                         'cta.download': 'Download TouchAI',
                         'footer.official': 'Official site',
-                        'footer.docs': 'Docs',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                 };
