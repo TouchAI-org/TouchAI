@@ -116,6 +116,7 @@ const AttachmentTagNode = createSearchTagNode({
 interface InsertAttachmentTagOptions {
     textOffset?: number;
     sameOffsetIndex?: number;
+    atCurrentSelection?: boolean;
 }
 
 /**
@@ -126,7 +127,11 @@ export function insertAttachmentTag(
     attrs: AttachmentTagAttrs,
     options: InsertAttachmentTagOptions = {}
 ) {
-    const chain = editor.chain().focus(typeof options.textOffset === 'number' ? undefined : 'end');
+    const chain = editor
+        .chain()
+        .focus(
+            typeof options.textOffset === 'number' || options.atCurrentSelection ? undefined : 'end'
+        );
 
     chain
         .command(({ tr, state }: { tr: Transaction; state: EditorState }) => {
@@ -148,6 +153,10 @@ function resolveAttachmentTagInsertPosition(
     state: EditorState,
     options: InsertAttachmentTagOptions
 ) {
+    if (options.atCurrentSelection) {
+        return state.selection.to;
+    }
+
     // 普通附件仍跟随当前光标；mixed payload 才按纯文本 offset 定位。
     if (typeof options.textOffset !== 'number') {
         return state.selection.to;

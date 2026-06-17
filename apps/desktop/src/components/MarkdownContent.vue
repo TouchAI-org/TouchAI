@@ -305,6 +305,60 @@
         'section',
         'ul',
     ]);
+    const clipboardSemanticTags = new Set([
+        'a',
+        'blockquote',
+        'br',
+        'code',
+        'del',
+        'em',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'hr',
+        'i',
+        'img',
+        'li',
+        'ol',
+        'p',
+        'pre',
+        's',
+        'strong',
+        'sub',
+        'sup',
+        'table',
+        'tbody',
+        'td',
+        'tfoot',
+        'th',
+        'thead',
+        'tr',
+        'u',
+        'ul',
+    ]);
+    const clipboardSkippedTags = new Set([
+        'button',
+        'canvas',
+        'input',
+        'option',
+        'script',
+        'select',
+        'style',
+        'svg',
+        'textarea',
+    ]);
+    const clipboardTableStructureTags = new Set([
+        'table',
+        'tbody',
+        'td',
+        'tfoot',
+        'th',
+        'thead',
+        'tr',
+    ]);
 
     function escapeClipboardHtml(value: string): string {
         return value
@@ -317,6 +371,10 @@
     function normalizeClipboardCellText(cell: HTMLTableCellElement): string {
         return (cell.textContent ?? '').replace(/\s+/g, ' ').trim();
     }
+
+    const clipboardTableAttributes =
+        ' border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse;"';
+    const clipboardCellStyle = ' style="border: 1px solid #000; padding: 4px;"';
 
     function serializeTableSectionForClipboard(
         section: HTMLTableSectionElement | null,
@@ -339,7 +397,7 @@
                 const colspan = cell.colSpan > 1 ? ` colspan="${cell.colSpan}"` : '';
                 const rowspan = cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : '';
 
-                html += `<${tag}${colspan}${rowspan}>${escapeClipboardHtml(text)}</${tag}>`;
+                html += `<${tag}${colspan}${rowspan}${clipboardCellStyle}>${escapeClipboardHtml(text)}</${tag}>`;
                 textCells.push(text);
             }
 
@@ -376,7 +434,7 @@
                 const colspan = cell.colSpan > 1 ? ` colspan="${cell.colSpan}"` : '';
                 const rowspan = cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : '';
 
-                html += `<${tag}${colspan}${rowspan}>${escapeClipboardHtml(text)}</${tag}>`;
+                html += `<${tag}${colspan}${rowspan}${clipboardCellStyle}>${escapeClipboardHtml(text)}</${tag}>`;
                 textCells.push(text);
             }
 
@@ -399,12 +457,435 @@
         ];
 
         return {
-            html: `<table>${sections.map((section) => section.html).join('')}</table>`,
+            html: `<table${clipboardTableAttributes}>${sections.map((section) => section.html).join('')}</table>`,
             text: sections
                 .flatMap((section) => section.textRows)
                 .filter(Boolean)
                 .join('\n'),
         };
+    }
+
+    function isSafeClipboardUrl(value: string): boolean {
+        const normalized = Array.from(value.trim())
+            .filter((char) => {
+                const charCode = char.charCodeAt(0);
+                return charCode > 0x1f && charCode !== 0x7f && !/\s/.test(char);
+            })
+            .join('')
+            .toLowerCase();
+        if (!normalized) {
+            return false;
+        }
+
+        return !(
+            normalized.startsWith('javascript:') ||
+            normalized.startsWith('data:text/html') ||
+            normalized.startsWith('vbscript:')
+        );
+    }
+
+    function isClipboardSkippedElement(element: HTMLElement): boolean {
+        if (
+            clipboardSkippedTags.has(element.tagName.toLowerCase()) ||
+            element.hidden ||
+            element.getAttribute('aria-hidden') === 'true'
+        ) {
+            return true;
+        }
+
+        const normalizedStyle = element.getAttribute('style')?.replace(/\s+/g, '').toLowerCase();
+
+        return Boolean(
+            normalizedStyle?.includes('display:none') ||
+            normalizedStyle?.includes('visibility:hidden') ||
+            normalizedStyle?.includes('opacity:0')
+        );
+    }
+
+    function isClipboardInlineBoundaryNode(node: Node | null): boolean {
+        if (!node) {
+            return false;
+        }
+        if (node.nodeType === Node.TEXT_NODE) {
+            return Boolean(node.textContent?.trim());
+        }
+        if (!(node instanceof HTMLElement) || isClipboardSkippedElement(node)) {
+            return false;
+        }
+
+        const tagName = node.tagName.toLowerCase();
+        return !clipboardBlockTags.has(tagName) && !clipboardTableStructureTags.has(tagName);
+    }
+
+    function findClipboardBoundarySibling(node: Node, direction: 'previous' | 'next'): Node | null {
+        let sibling = direction === 'previous' ? node.previousSibling : node.nextSibling;
+        while (sibling) {
+            if (sibling.nodeType === Node.TEXT_NODE) {
+                if (sibling.textContent?.trim()) {
+                    return sibling;
+                }
+            } else if (!(sibling instanceof HTMLElement) || !isClipboardSkippedElement(sibling)) {
+                return sibling;
+            }
+
+            sibling = direction === 'previous' ? sibling.previousSibling : sibling.nextSibling;
+        }
+
+        return null;
+    }
+
+    function hasPreviousWhitespaceInSkippedSiblingRun(node: Node): boolean {
+        let sibling = node.previousSibling;
+        while (sibling) {
+            if (sibling.nodeType === Node.TEXT_NODE) {
+                return !sibling.textContent?.trim();
+            }
+            if (sibling instanceof HTMLElement && isClipboardSkippedElement(sibling)) {
+                sibling = sibling.previousSibling;
+                continue;
+            }
+
+            return false;
+        }
+
+        return false;
+    }
+
+    function serializeTextHtmlForClipboard(textNode: Text): string {
+        const value = textNode.textContent ?? '';
+        const hasInlineBefore = isClipboardInlineBoundaryNode(
+            findClipboardBoundarySibling(textNode, 'previous')
+        );
+        const hasInlineAfter = isClipboardInlineBoundaryNode(
+            findClipboardBoundarySibling(textNode, 'next')
+        );
+
+        if (!value.trim()) {
+            return hasInlineBefore &&
+                hasInlineAfter &&
+                !hasPreviousWhitespaceInSkippedSiblingRun(textNode)
+                ? ' '
+                : '';
+        }
+
+        let normalized = value.replace(/\s+/g, ' ');
+        if (!hasInlineBefore || hasPreviousWhitespaceInSkippedSiblingRun(textNode)) {
+            normalized = normalized.trimStart();
+        }
+        if (!hasInlineAfter) {
+            normalized = normalized.trimEnd();
+        }
+
+        return normalized ? escapeClipboardHtml(normalized) : '';
+    }
+
+    function serializeTextPlainTextForClipboard(textNode: Text): string {
+        const value = textNode.textContent ?? '';
+        const hasInlineBefore = isClipboardInlineBoundaryNode(
+            findClipboardBoundarySibling(textNode, 'previous')
+        );
+        const hasInlineAfter = isClipboardInlineBoundaryNode(
+            findClipboardBoundarySibling(textNode, 'next')
+        );
+
+        if (!value.trim()) {
+            return hasInlineBefore &&
+                hasInlineAfter &&
+                !hasPreviousWhitespaceInSkippedSiblingRun(textNode)
+                ? ' '
+                : '';
+        }
+
+        let normalized = value.replace(/\s+/g, ' ');
+        if (!hasInlineBefore || hasPreviousWhitespaceInSkippedSiblingRun(textNode)) {
+            normalized = normalized.trimStart();
+        }
+        if (!hasInlineAfter) {
+            normalized = normalized.trimEnd();
+        }
+
+        return normalized;
+    }
+
+    function escapeMarkdownLinkDestination(value: string): string {
+        return value.replace(/\\/g, '\\\\').replace(/\)/g, '\\)');
+    }
+
+    function serializeImageForClipboard(image: HTMLImageElement): string {
+        const source = image.getAttribute('src')?.trim();
+        if (!source || !isSafeClipboardUrl(source)) {
+            return '';
+        }
+
+        const attributes = [`src="${escapeClipboardHtml(source)}"`];
+        const alt = image.getAttribute('alt')?.trim();
+        const title = image.getAttribute('title')?.trim();
+
+        if (alt) {
+            attributes.push(`alt="${escapeClipboardHtml(alt)}"`);
+        }
+        if (title) {
+            attributes.push(`title="${escapeClipboardHtml(title)}"`);
+        }
+
+        return `<img ${attributes.join(' ')}>`;
+    }
+
+    function serializeChildrenHtmlForClipboard(node: Node): string {
+        return Array.from(node.childNodes).map(serializeNodeHtmlForClipboard).join('');
+    }
+
+    function serializeListItemChildrenHtmlForClipboard(listItem: HTMLElement): string {
+        return Array.from(listItem.childNodes)
+            .map((child) => serializeListItemChildHtmlForClipboard(child))
+            .join('');
+    }
+
+    function serializeListItemChildHtmlForClipboard(child: Node): string {
+        if (child instanceof HTMLParagraphElement) {
+            return serializeChildrenHtmlForClipboard(child);
+        }
+
+        if (child instanceof HTMLElement && shouldUnwrapClipboardListItemElement(child)) {
+            return serializeListItemChildrenHtmlForClipboard(child);
+        }
+
+        return serializeNodeHtmlForClipboard(child);
+    }
+
+    function shouldUnwrapClipboardListItemElement(element: HTMLElement): boolean {
+        const tagName = element.tagName.toLowerCase();
+        if (tagName === 'p') {
+            return true;
+        }
+
+        return (
+            tagName === 'div' ||
+            tagName === 'span' ||
+            element.classList.contains('markdown-renderer') ||
+            element.classList.contains('node-slot') ||
+            element.classList.contains('node-content')
+        );
+    }
+
+    function serializeNodeHtmlForClipboard(node: Node): string {
+        if (node.nodeType === Node.TEXT_NODE) {
+            return serializeTextHtmlForClipboard(node as Text);
+        }
+
+        if (!(node instanceof HTMLElement)) {
+            return serializeChildrenHtmlForClipboard(node);
+        }
+
+        const tagName = node.tagName.toLowerCase();
+        if (isClipboardSkippedElement(node)) {
+            return '';
+        }
+        if (node instanceof HTMLTableElement) {
+            return serializeTableForClipboard(node).html;
+        }
+        if (node instanceof HTMLImageElement) {
+            return serializeImageForClipboard(node);
+        }
+        if (tagName === 'br') {
+            return '<br>';
+        }
+        if (tagName === 'hr') {
+            return '<hr>';
+        }
+        if (tagName === 'pre') {
+            return `<pre><code>${escapeClipboardHtml(node.textContent ?? '')}</code></pre>`;
+        }
+
+        const children =
+            tagName === 'li'
+                ? serializeListItemChildrenHtmlForClipboard(node)
+                : serializeChildrenHtmlForClipboard(node);
+        if (!children || !clipboardSemanticTags.has(tagName)) {
+            return children;
+        }
+
+        if (tagName === 'a') {
+            const href = node.getAttribute('href')?.trim();
+            const title = node.getAttribute('title')?.trim();
+            const attributes: string[] = [];
+
+            if (href && isSafeClipboardUrl(href)) {
+                attributes.push(`href="${escapeClipboardHtml(href)}"`);
+            }
+            if (title) {
+                attributes.push(`title="${escapeClipboardHtml(title)}"`);
+            }
+
+            return `<a${attributes.length ? ` ${attributes.join(' ')}` : ''}>${children}</a>`;
+        }
+        if (tagName === 'ol') {
+            const attributes: string[] = [];
+            const start = parseClipboardIntegerAttribute(node, 'start');
+            const type = node.getAttribute('type')?.trim();
+
+            if (start !== null && start !== 1) {
+                attributes.push(`start="${start}"`);
+            }
+            if (node.hasAttribute('reversed')) {
+                attributes.push('reversed');
+            }
+            if (type && ['1', 'a', 'A', 'i', 'I'].includes(type)) {
+                attributes.push(`type="${type}"`);
+            }
+
+            return `<ol${attributes.length ? ` ${attributes.join(' ')}` : ''}>${children}</ol>`;
+        }
+        if (tagName === 'li') {
+            const value = parseClipboardIntegerAttribute(node, 'value');
+            const attributes = value !== null ? ` value="${value}"` : '';
+
+            return `<li${attributes}>${children}</li>`;
+        }
+
+        return `<${tagName}>${children}</${tagName}>`;
+    }
+
+    function serializeSelectionHtmlForClipboard(root: Node): string {
+        return serializeChildrenHtmlForClipboard(root).trim();
+    }
+
+    type ClipboardListElement = HTMLOListElement | HTMLUListElement;
+
+    function parseClipboardIntegerAttribute(element: Element, name: string): number | null {
+        const rawValue = element.getAttribute(name)?.trim();
+        if (!rawValue) {
+            return null;
+        }
+
+        const parsed = Number.parseInt(rawValue, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function getClipboardElementForRangeNode(node: Node): HTMLElement | null {
+        if (node instanceof HTMLElement) {
+            return node;
+        }
+
+        return node.parentElement;
+    }
+
+    function closestClipboardListElement(node: Node): ClipboardListElement | null {
+        const element = getClipboardElementForRangeNode(node);
+        const list = element?.closest('ol, ul');
+
+        return list instanceof HTMLOListElement || list instanceof HTMLUListElement ? list : null;
+    }
+
+    function findSingleClipboardListParent(range: Range): ClipboardListElement | null {
+        const startList = closestClipboardListElement(range.startContainer);
+        const endList = closestClipboardListElement(range.endContainer);
+
+        return startList && startList === endList ? startList : null;
+    }
+
+    function directClipboardListItems(list: ClipboardListElement): HTMLLIElement[] {
+        return Array.from(list.children).filter(
+            (child): child is HTMLLIElement => child instanceof HTMLLIElement
+        );
+    }
+
+    function resolveOrderedListStartForRange(list: HTMLOListElement, range: Range): number | null {
+        const items = directClipboardListItems(list);
+        const selectedItemIndex = items.findIndex((item) => range.intersectsNode(item));
+        if (selectedItemIndex < 0) {
+            return null;
+        }
+
+        const reversed = list.hasAttribute('reversed');
+        let nextNumber =
+            parseClipboardIntegerAttribute(list, 'start') ?? (reversed ? items.length : 1);
+
+        for (let index = 0; index <= selectedItemIndex; index += 1) {
+            const item = items[index];
+            if (!item) {
+                return null;
+            }
+
+            const itemNumber = parseClipboardIntegerAttribute(item, 'value') ?? nextNumber;
+            if (index === selectedItemIndex) {
+                return itemNumber;
+            }
+
+            nextNumber = itemNumber + (reversed ? -1 : 1);
+        }
+
+        return null;
+    }
+
+    function applyClipboardListAttributes(
+        targetList: ClipboardListElement,
+        sourceList: ClipboardListElement,
+        range: Range
+    ) {
+        if (
+            !(targetList instanceof HTMLOListElement) ||
+            !(sourceList instanceof HTMLOListElement)
+        ) {
+            return;
+        }
+
+        const start = resolveOrderedListStartForRange(sourceList, range);
+        const type = sourceList.getAttribute('type')?.trim();
+
+        if (start !== null && (start !== 1 || sourceList.hasAttribute('start'))) {
+            targetList.setAttribute('start', String(start));
+        }
+        if (sourceList.hasAttribute('reversed')) {
+            targetList.setAttribute('reversed', '');
+        }
+        if (type && ['1', 'a', 'A', 'i', 'I'].includes(type)) {
+            targetList.setAttribute('type', type);
+        }
+    }
+
+    function isIgnorableClipboardWhitespaceNode(node: Node): boolean {
+        return node.nodeType === Node.TEXT_NODE && !(node.textContent ?? '').trim();
+    }
+
+    function wrapTopLevelListItemsForClipboard(
+        root: DocumentFragment | HTMLElement,
+        sourceList: ClipboardListElement | null,
+        range: Range
+    ) {
+        if (!sourceList) {
+            return;
+        }
+
+        let child: Node | null = root.firstChild;
+        while (child) {
+            if (!(child instanceof HTMLLIElement)) {
+                child = child.nextSibling;
+                continue;
+            }
+
+            const list = document.createElement(sourceList.tagName.toLowerCase()) as
+                | HTMLOListElement
+                | HTMLUListElement;
+            applyClipboardListAttributes(list, sourceList, range);
+            root.insertBefore(list, child);
+
+            while (child) {
+                if (isIgnorableClipboardWhitespaceNode(child)) {
+                    const nextSibling: Node | null = child.nextSibling;
+                    child.parentNode?.removeChild(child);
+                    child = nextSibling;
+                    continue;
+                }
+                if (!(child instanceof HTMLLIElement)) {
+                    break;
+                }
+
+                const nextSibling: Node | null = child.nextSibling;
+                list.appendChild(child);
+                child = nextSibling;
+            }
+        }
     }
 
     function cloneSelectedMarkdownContents(): HTMLDivElement | null {
@@ -421,7 +902,13 @@
                 continue;
             }
 
-            wrapper.append(range.cloneContents());
+            const selectedContent = range.cloneContents();
+            wrapTopLevelListItemsForClipboard(
+                selectedContent,
+                findSingleClipboardListParent(range),
+                range
+            );
+            wrapper.append(selectedContent);
         }
 
         return wrapper.hasChildNodes() ? wrapper : null;
@@ -450,7 +937,7 @@
 
     function serializeNodePlainTextForClipboard(node: Node): string {
         if (node.nodeType === Node.TEXT_NODE) {
-            return node.textContent ?? '';
+            return serializeTextPlainTextForClipboard(node as Text);
         }
 
         if (!(node instanceof HTMLElement)) {
@@ -458,14 +945,62 @@
         }
 
         const tagName = node.tagName.toLowerCase();
+        if (isClipboardSkippedElement(node)) {
+            return '';
+        }
         if (tagName === 'br') {
             return '\n';
         }
         if (node instanceof HTMLTableElement) {
             return `\n${serializeTableForClipboard(node).text}\n`;
         }
+        if (node instanceof HTMLImageElement) {
+            return node.alt ? `[${node.alt}]` : '';
+        }
+        if (tagName === 'pre') {
+            return `\n${node.textContent ?? ''}\n`;
+        }
+        if (tagName === 'a') {
+            const text = normalizeClipboardPlainText(
+                Array.from(node.childNodes).map(serializeNodePlainTextForClipboard).join('')
+            );
+            const href = node.getAttribute('href')?.trim();
+
+            if (text && href && isSafeClipboardUrl(href) && text !== href) {
+                return `[${text}](${escapeMarkdownLinkDestination(href)})`;
+            }
+
+            return text;
+        }
+        if (tagName === 'ul' || tagName === 'ol') {
+            const listItems = Array.from(node.children).filter(
+                (child): child is HTMLLIElement => child instanceof HTMLLIElement
+            );
+            const reversed = tagName === 'ol' && node.hasAttribute('reversed');
+            let nextNumber =
+                tagName === 'ol'
+                    ? (parseClipboardIntegerAttribute(node, 'start') ??
+                      (reversed ? listItems.length : 1))
+                    : 1;
+            const listText = listItems
+                .map((item) => {
+                    const itemNumber =
+                        tagName === 'ol'
+                            ? (parseClipboardIntegerAttribute(item, 'value') ?? nextNumber)
+                            : nextNumber;
+                    nextNumber = itemNumber + (reversed ? -1 : 1);
+                    const marker = tagName === 'ol' ? `${itemNumber}. ` : '- ';
+                    return `${marker}${serializeSelectionPlainTextForClipboard(item)}`;
+                })
+                .join('\n');
+
+            return listText ? `\n${listText}\n` : '';
+        }
 
         const text = Array.from(node.childNodes).map(serializeNodePlainTextForClipboard).join('');
+        if (tagName === 'li') {
+            return normalizeClipboardPlainText(text);
+        }
         if (!clipboardBlockTags.has(tagName)) {
             return text;
         }
@@ -480,64 +1015,23 @@
         );
     }
 
-    function findSelectedMarkdownTables(): HTMLTableElement[] {
-        const container = markdownContainerRef.value;
-        const selection = window.getSelection();
-        if (!container || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
-            return [];
-        }
-
-        const tables = Array.from(container.querySelectorAll<HTMLTableElement>('table'));
-        if (!tables.length) {
-            return [];
-        }
-
-        const selectedTables: HTMLTableElement[] = [];
-        for (let index = 0; index < selection.rangeCount; index += 1) {
-            const range = selection.getRangeAt(index);
-            for (const table of tables) {
-                if (range.intersectsNode(table) && !selectedTables.includes(table)) {
-                    selectedTables.push(table);
-                }
-            }
-        }
-
-        return selectedTables;
-    }
-
     function handleMarkdownCopy(event: ClipboardEvent) {
         const clipboardData = event.clipboardData;
         if (!clipboardData) {
             return;
         }
 
-        const selectedTables = findSelectedMarkdownTables();
-        if (!selectedTables.length) {
+        const selectedContents = cloneSelectedMarkdownContents();
+        if (!selectedContents) {
             return;
         }
 
-        const selectedContents = cloneSelectedMarkdownContents();
-        if (selectedContents?.querySelector('table')) {
-            replaceRenderedTablesWithSemanticTables(selectedContents);
-            clipboardData.setData('text/html', selectedContents.innerHTML);
-            clipboardData.setData(
-                'text/plain',
-                serializeSelectionPlainTextForClipboard(selectedContents)
-            );
-        } else {
-            const serializedTables = selectedTables.map(serializeTableForClipboard);
-            clipboardData.setData(
-                'text/html',
-                serializedTables.map((table) => table.html).join('')
-            );
-            clipboardData.setData(
-                'text/plain',
-                serializedTables
-                    .map((table) => table.text)
-                    .filter(Boolean)
-                    .join('\n\n')
-            );
-        }
+        replaceRenderedTablesWithSemanticTables(selectedContents);
+        clipboardData.setData('text/html', serializeSelectionHtmlForClipboard(selectedContents));
+        clipboardData.setData(
+            'text/plain',
+            serializeSelectionPlainTextForClipboard(selectedContents)
+        );
         event.preventDefault();
     }
 

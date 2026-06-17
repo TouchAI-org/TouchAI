@@ -19,14 +19,11 @@ use std::{
 
 use super::{
     html::{
-        build_payload_fragments_from_html, build_payload_text, extract_html_clipboard_fragments,
+        build_payload_fragments_from_html_images, extract_html_clipboard_images,
         read_clipboard_html_source_url, should_keep_clipboard_image,
     },
     image::{hash_value, push_unique, split_clipboard_file_paths, ClipboardImageCache},
-    payload::{
-        build_snapshot_id, ClipboardHtmlFragment, ClipboardPayload, ClipboardPayloadFragment,
-        ClipboardSnapshot,
-    },
+    payload::{build_snapshot_id, ClipboardPayload, ClipboardPayloadFragment, ClipboardSnapshot},
 };
 
 #[derive(Default)]
@@ -274,24 +271,17 @@ impl ClipboardRuntime {
             (text, html, html_source_url, image, file_paths)
         };
 
-        //2. 将文本、文件、native 图片和 HTML 片段归一到同一个 payload 语义。
+        //2. 将文本、文件、native 图片和 HTML 图片归一到同一个 payload 语义。
         let fallback_text = text.filter(|value| !value.trim().is_empty());
-        let html_fragments = html
+        let mut html_images = html
             .as_deref()
-            .map(|html| extract_html_clipboard_fragments(html, html_source_url.as_deref()))
+            .map(|html| extract_html_clipboard_images(html, html_source_url.as_deref()))
             .unwrap_or_default();
-        let html_image_sources = html_fragments
-            .iter()
-            .filter_map(|fragment| match fragment {
-                ClipboardHtmlFragment::ImageSource(source) => Some(source.clone()),
-                ClipboardHtmlFragment::Text(_) => None,
-            })
-            .collect::<Vec<_>>();
         let (file_image_paths, normalized_files) = split_clipboard_file_paths(file_paths);
         let mut normalized_image_paths = Vec::new();
         let mut image_identity_keys = Vec::new();
         let mut fragments = Vec::new();
-        let mut html_image_path_by_source: HashMap<&str, String> = HashMap::new();
+        let mut html_image_path_by_source: HashMap<String, String> = HashMap::new();
 
         for image_path in file_image_paths {
             image_identity_keys.push(format!("file:{image_path}"));
@@ -313,31 +303,36 @@ impl ClipboardRuntime {
             push_unique(&mut normalized_image_paths, path);
         }
 
-        for source in &html_image_sources {
-            image_identity_keys.push(format!("html:{}", hash_value(source)));
+        for image in &html_images {
+            image_identity_keys.push(format!("html:{}", hash_value(&image.source)));
         }
 
         //3. watcher 只观察轻量快照；显式粘贴/auto-paste 消费时才解析 HTML 外链图片。
         if mode.should_resolve_external_images() {
-            for source in &html_image_sources {
-                match self.inner.image_cache.resolve_html_image_source(source) {
+            for image in &mut html_images {
+                match self
+                    .inner
+                    .image_cache
+                    .resolve_html_image_source(&image.source)
+                {
                     Ok(Some((path, _hash))) => {
-                        html_image_path_by_source.insert(source.as_str(), path.clone());
+                        html_image_path_by_source.insert(image.source.clone(), path.clone());
+                        image.path = Some(path.clone());
                         push_unique(&mut normalized_image_paths, path);
                     }
                     Ok(None) => {}
                     Err(error) => warn!(
                         "Failed to resolve clipboard HTML image '{}': {}",
-                        source, error
+                        image.source, error
                     ),
                 }
             }
         }
 
-        //4. 优先保留 HTML 的 text/image 顺序；无 HTML 结构时再回退为文本后接附件。
-        if !html_fragments.is_empty() {
+        //4. 文本和 HTML 正文由前端使用现有 DOMPurify/Turndown 归一化；Rust 只附加附件。
+        if html.is_some() {
             fragments =
-                build_payload_fragments_from_html(&html_fragments, &html_image_path_by_source);
+                build_payload_fragments_from_html_images(&html_images, &html_image_path_by_source);
             for file_path in &normalized_files {
                 fragments.push(ClipboardPayloadFragment::File {
                     path: file_path.clone(),
@@ -357,28 +352,28 @@ impl ClipboardRuntime {
             }
         }
 
-        let normalized_text = if !html_fragments.is_empty() {
-            build_payload_text(&fragments)
-        } else {
-            fallback_text
-        };
+        let snapshot_text_identity = fallback_text.as_deref().or(html.as_deref());
 
-        if normalized_text.is_none()
+        if snapshot_text_identity.is_none()
             && normalized_image_paths.is_empty()
             && normalized_files.is_empty()
-            && html_image_sources.is_empty()
+            && html_images.is_empty()
+            && html.is_none()
         {
             return Ok(None);
         }
 
         Ok(Some(ClipboardSnapshot {
             snapshot_id: build_snapshot_id(
-                normalized_text.as_deref(),
+                snapshot_text_identity,
                 &image_identity_keys,
                 &normalized_files,
             ),
             observed_at: now_millis(),
-            text: normalized_text,
+            text: fallback_text,
+            html,
+            html_source_url,
+            html_images,
             image_paths: normalized_image_paths,
             file_paths: normalized_files,
             fragments,

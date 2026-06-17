@@ -5,6 +5,7 @@ import type { ClipboardPayload } from '@/services/NativeService/types';
 import {
     applyClipboardPayloadToDraft,
     canAutoPasteIntoDraft,
+    clipboardPayloadHasAttachmentFragments,
 } from '@/views/SearchView/utils/clipboardDraft';
 
 interface DraftAttachment {
@@ -132,5 +133,33 @@ describe('clipboardDraft', () => {
                 draftInsertionOffset: 5,
             },
         ]);
+    });
+
+    it('detects attachment fragments separately from plain text fragments', () => {
+        expect(
+            clipboardPayloadHasAttachmentFragments({
+                snapshotId: 'text-fragments',
+                observedAt: Date.now(),
+                text: 'hello',
+                imagePaths: [],
+                filePaths: [],
+                fragments: [{ type: 'text', text: 'hello' }],
+            })
+        ).toBe(false);
+
+        expect(
+            clipboardPayloadHasAttachmentFragments({
+                snapshotId: 'mixed-fragments',
+                observedAt: Date.now(),
+                text: 'hello world',
+                imagePaths: ['D:/clip/image.png'],
+                filePaths: [],
+                fragments: [
+                    { type: 'text', text: 'hello ' },
+                    { type: 'image', path: 'D:/clip/image.png' },
+                    { type: 'text', text: ' world' },
+                ],
+            })
+        ).toBe(true);
     });
 });

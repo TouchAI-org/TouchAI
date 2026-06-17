@@ -18,6 +18,7 @@
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
+    import type { ClipboardPayload } from '@/services/NativeService/types';
     import { useAskUserStore } from '@/stores/askUser';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
@@ -72,7 +73,11 @@
         SearchModelDropdownState,
         SearchModelOverride,
     } from './types';
-    import { canAutoPasteIntoDraft } from './utils/clipboardDraft';
+    import {
+        canAutoPasteIntoDraft,
+        clipboardPayloadHasAttachmentFragments,
+        trimClipboardPayloadTextBoundary,
+    } from './utils/clipboardDraft';
     defineOptions({
         name: 'SearchViewPage',
     });
@@ -592,21 +597,29 @@
         event.preventDefault();
         event.stopPropagation();
 
-        const payload = await clipboardService.readExplicitPastePayload();
+        const payload = await clipboardService.readExplicitPastePayload(event.clipboardData);
         if (!payload) return;
 
-        const hasOnlyText = !payload.imagePaths?.length && !payload.filePaths?.length;
+        const hasOnlyText =
+            !clipboardPayloadHasAttachmentFragments(payload) &&
+            !payload.imagePaths?.length &&
+            !payload.filePaths?.length;
 
         if (hasOnlyText && payload.text) {
-            const trimmedText = payload.text.trim();
-            if (trimmedText) {
+            const trimmedText = trimClipboardPayloadTextBoundary(payload).text;
+            if (trimmedText?.trim()) {
                 searchBar.value?.insertTextAtCursor(trimmedText);
             }
             return;
         }
 
+        if (clipboardPayloadHasAttachmentFragments(payload)) {
+            await insertClipboardPayloadAtCursor(payload);
+            return;
+        }
+
         if (payload.text?.trim()) {
-            searchBar.value?.insertTextAtCursor(payload.text.trim());
+            searchBar.value?.insertTextAtCursor(payload.text);
         }
 
         const attachmentsToInsert: Array<{ path: string; type: 'image' | 'file' }> = [];
@@ -634,6 +647,43 @@
                 );
             } catch (error) {
                 console.error(`Failed to insert ${type} attachment:`, error);
+            }
+        }
+    }
+
+    async function insertClipboardPayloadAtCursor(payload: ClipboardPayload) {
+        const normalizedPayload = trimClipboardPayloadTextBoundary(payload);
+        if (!normalizedPayload.fragments?.length) {
+            return;
+        }
+
+        for (const fragment of normalizedPayload.fragments) {
+            if (fragment.type === 'text') {
+                if (fragment.text) {
+                    searchBar.value?.insertTextAtCursor(fragment.text);
+                }
+                continue;
+            }
+
+            try {
+                const attachment = await createAttachmentFromClipboardPath(
+                    fragment.type,
+                    fragment.path
+                );
+                attachments.value.push(attachment);
+                searchBar.value?.insertAttachmentAtCursor(
+                    attachment.id,
+                    attachment.name ||
+                        t(
+                            fragment.type === 'image'
+                                ? 'conversation.attachment.unnamedImage'
+                                : 'conversation.attachment.unnamedFile'
+                        ),
+                    fragment.type,
+                    attachment.preview
+                );
+            } catch (error) {
+                console.error(`Failed to insert ${fragment.type} attachment:`, error);
             }
         }
     }
