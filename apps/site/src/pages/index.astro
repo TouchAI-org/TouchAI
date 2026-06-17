@@ -1329,6 +1329,12 @@ const structuredData = JSON.stringify({
                 text-underline-offset: 4px;
             }
 
+            .footer-note {
+                max-width: 32rem;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+
             @media (max-width: 900px) {
                 .nav {
                     grid-template-columns: auto 1fr;
@@ -2274,6 +2280,9 @@ const structuredData = JSON.stringify({
                     GitHub
                 </a>
             </div>
+            <div class="footer-note" data-i18n="footer.analytics">
+                We use basic analytics and Clarity.
+            </div>
             <div data-i18n="footer.copyright">© 2026 TouchAI. GPL-3.0-or-later.</div>
         </footer>
 
@@ -2376,6 +2385,7 @@ const structuredData = JSON.stringify({
                         'cta.copy': '体验近在咫尺的 AI 陪伴',
                         'cta.download': '下载 TouchAI',
                         'footer.official': '官网',
+                        'footer.analytics': '本站使用基础统计与 Microsoft Clarity，用于了解站点使用情况并优化体验。',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                     en: {
@@ -2429,6 +2439,7 @@ const structuredData = JSON.stringify({
                         'cta.copy': 'Experience AI companionship within reach.',
                         'cta.download': 'Download TouchAI',
                         'footer.official': 'Official site',
+                        'footer.analytics': 'We use basic analytics and Microsoft Clarity to understand site usage and improve the experience.',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                 };
