@@ -72,7 +72,7 @@ describe('AiError display localization', () => {
         setLocale('en-US');
 
         const rawError = new Error(
-            'error sending request for url (https://hub.touch-ai.org/api/v1/chat/completions)'
+            'error sending request for url (https://token-plan-cn.xiaomimimo.com/v1/chat/completions)'
         );
         const error = AiError.fromError(rawError);
 
