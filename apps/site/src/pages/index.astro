@@ -338,7 +338,7 @@ const structuredData = JSON.stringify({
                 right: 0;
                 bottom: -24px;
                 height: 24px;
-                pointer-events: auto;
+                pointer-events: none;
                 opacity: 0;
                 background: linear-gradient(
                     180deg,
@@ -2432,6 +2432,10 @@ const structuredData = JSON.stringify({
                 const lastDispatchedDemoProgress = new WeakMap();
                 const pendingDemoProgress = new WeakMap();
                 const demoProgressFrameHandles = new WeakMap();
+                const resetDemoProgressDedupe = (frame) => {
+                    if (!frame) return;
+                    lastDispatchedDemoProgress.delete(frame);
+                };
                 const snapDemoProgress = (value) => {
                     const numericValue = Number(value);
                     const clampedValue = Number.isFinite(numericValue)
@@ -2451,6 +2455,7 @@ const structuredData = JSON.stringify({
                         demoProgressFrameHandles.delete(frame);
                     }
                     pendingDemoProgress.delete(frame);
+                    resetDemoProgressDedupe(frame);
                 };
                 const queueDemoProgress = (frame, type, progress, force = false) => {
                     if (!frame) return;
@@ -2490,6 +2495,7 @@ const structuredData = JSON.stringify({
                 const queueDemoScrollIdle = (frame) => {
                     if (!frame) return;
                     requestAnimationFrame(() => {
+                        resetDemoProgressDedupe(frame);
                         sendToDemo(frame, { type: 'touchai-clear-scroll-driven' });
                     });
                 };
@@ -2512,6 +2518,34 @@ const structuredData = JSON.stringify({
                 const setLanguage = (language) => {
                     const lang = language === 'en' ? 'en' : 'zh';
                     document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+                    const localizedLabels = {
+                        navAria: lang === 'en' ? 'Primary navigation' : '主导航',
+                        homeAria: lang === 'en' ? 'TouchAI home' : 'TouchAI 首页',
+                        themeToggle:
+                            lang === 'en'
+                                ? {
+                                      light: 'Switch to dark mode',
+                                      dark: 'Switch to light mode',
+                                  }
+                                : {
+                                      light: '切换黑夜模式',
+                                      dark: '切换白天模式',
+                                  },
+                        replaySuffix:
+                            lang === 'en' ? 'click to replay current scroll progress' : '点击刷新当前滚动进度',
+                        replayLabels:
+                            lang === 'en'
+                                ? {
+                                      solver: 'Math solver conversation',
+                                      work: 'Work organizer conversation',
+                                      reminder: 'Reminder conversation',
+                                  }
+                                : {
+                                      solver: '解题对话框',
+                                      work: '工作整理对话框',
+                                      reminder: '提醒对话框',
+                                  },
+                    };
                     const localizedHeadNodes = document.querySelectorAll(
                         '#site-title, #site-description, #og-title, #og-description, #twitter-title, #twitter-description'
                     );
@@ -2549,6 +2583,28 @@ const structuredData = JSON.stringify({
                         );
                         toggle.querySelector('span').textContent = lang === 'en' ? 'EN' : '中';
                     }
+                    document.querySelector('.nav')?.setAttribute('aria-label', localizedLabels.navAria);
+                    document.querySelector('.logo-link')?.setAttribute('aria-label', localizedLabels.homeAria);
+                    const themeToggle = document.querySelector('.theme-toggle');
+                    if (themeToggle) {
+                        const nextTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+                        const nextLabel = localizedLabels.themeToggle[nextTheme];
+                        themeToggle.setAttribute('aria-label', nextLabel);
+                        themeToggle.setAttribute('title', nextLabel);
+                    }
+                    const replayCardLabels = [
+                        ['.feature-component-card', localizedLabels.replayLabels.solver],
+                        ['.feature-work-card', localizedLabels.replayLabels.work],
+                        ['.feature-reminder-card', localizedLabels.replayLabels.reminder],
+                    ];
+                    replayCardLabels.forEach(([selector, label]) => {
+                        const card = document.querySelector(selector);
+                        if (!card) return;
+                        card.setAttribute('aria-label', `${label}，${localizedLabels.replaySuffix}`.replace('，，', '，'));
+                        if (lang === 'en') {
+                            card.setAttribute('aria-label', `${label}, ${localizedLabels.replaySuffix}`);
+                        }
+                    });
                     const introDemo = document.querySelector('.component-frame');
                     if (introDemo) {
                         const nextSrc =
@@ -2556,6 +2612,7 @@ const structuredData = JSON.stringify({
                                 ? '/touchai-intro-en/touchai-components.html?v=1'
                                 : '/touchai-intro/touchai-components.html?v=8';
                         if (introDemo.dataset.src !== nextSrc) {
+                            resetDemoProgressDedupe(introDemo);
                             introDemo.dataset.src = nextSrc;
                             introDemo.dataset.title =
                                 lang === 'en'
@@ -2573,6 +2630,7 @@ const structuredData = JSON.stringify({
                                 ? '/feature-solver-en/touchai-components.html?v=1'
                                 : '/feature-solver/touchai-components.html?v=17';
                         if (solverDemo.dataset.src !== nextSolverSrc) {
+                            resetDemoProgressDedupe(solverDemo);
                             solverDemo.dataset.src = nextSolverSrc;
                             solverDemo.dataset.title =
                                 lang === 'en'
@@ -2591,6 +2649,7 @@ const structuredData = JSON.stringify({
                                 ? '/feature-work-organizer-en/touchai-components.html?v=1'
                                 : '/feature-work-organizer/touchai-components.html?v=13';
                         if (workDemo.dataset.src !== nextWorkSrc) {
+                            resetDemoProgressDedupe(workDemo);
                             workDemo.dataset.src = nextWorkSrc;
                             workDemo.dataset.title =
                                 lang === 'en'
@@ -2609,6 +2668,7 @@ const structuredData = JSON.stringify({
                                 ? '/feature-reminder-en/touchai-components.html?v=1'
                                 : '/feature-reminder/touchai-components.html?v=5';
                         if (reminderDemo.dataset.src !== nextReminderSrc) {
+                            resetDemoProgressDedupe(reminderDemo);
                             reminderDemo.dataset.src = nextReminderSrc;
                             reminderDemo.dataset.title =
                                 lang === 'en'
@@ -2769,21 +2829,24 @@ const structuredData = JSON.stringify({
 
                 const setTheme = (theme) => {
                     const nextTheme = theme === 'dark' ? 'dark' : 'light';
+                    const lang = document.documentElement.lang === 'en' ? 'en' : 'zh';
                     document.documentElement.dataset.theme = nextTheme;
                     document
                         .querySelector('meta[name="theme-color"]')
                         ?.setAttribute('content', nextTheme === 'dark' ? '#101014' : '#ffffff');
                     const themeToggle = document.querySelector('.theme-toggle');
                     if (themeToggle) {
+                        const nextLabel =
+                            lang === 'en'
+                                ? nextTheme === 'dark'
+                                    ? 'Switch to light mode'
+                                    : 'Switch to dark mode'
+                                : nextTheme === 'dark'
+                                  ? '切换白天模式'
+                                  : '切换黑夜模式';
                         themeToggle.setAttribute('aria-pressed', String(nextTheme === 'dark'));
-                        themeToggle.setAttribute(
-                            'aria-label',
-                            nextTheme === 'dark' ? '切换白天模式' : '切换黑夜模式'
-                        );
-                        themeToggle.setAttribute(
-                            'title',
-                            nextTheme === 'dark' ? '切换白天模式' : '切换黑夜模式'
-                        );
+                        themeToggle.setAttribute('aria-label', nextLabel);
+                        themeToggle.setAttribute('title', nextLabel);
                     }
                     localStorage.setItem('touchai-theme', nextTheme);
                     syncComponentBackground();
@@ -3143,10 +3206,11 @@ const structuredData = JSON.stringify({
 
                 const replayEmbeddedComponent = async (frame) => {
                     const progress = featureProgressByFrame.get(frame) ?? 0;
+                    resetDemoProgressDedupe(frame);
                     await Promise.resolve(frame.reload?.());
-                    syncFeatureDemoProgress(frame, progress);
-                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 120);
-                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 360);
+                    syncFeatureDemoProgress(frame, progress, true);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress, true), 120);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress, true), 360);
                 };
 
                 const bindReplayCard = (card, frame, label) => {
@@ -3474,9 +3538,11 @@ const structuredData = JSON.stringify({
                                 },
                                 onLeave: () => {
                                     syncFeatureDemoProgress(frame, 1);
+                                    queueDemoScrollIdle(frame);
                                 },
                                 onLeaveBack: () => {
                                     syncFeatureDemoProgress(frame, 0);
+                                    queueDemoScrollIdle(frame);
                                 },
                             });
 

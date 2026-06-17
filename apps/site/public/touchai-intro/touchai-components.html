@@ -498,12 +498,6 @@
                 margin-top: auto;
             }
 
-            body.is-scroll-driven.is-complete .chat-panel {
-                min-height: var(--window-min-height);
-                max-height: var(--window-min-height);
-                height: var(--window-min-height);
-            }
-
             body.is-scroll-driven.is-answering .conversation-content,
             body.is-scroll-driven.is-complete .conversation-content {
                 flex: 1 1 auto;
@@ -1067,6 +1061,12 @@
                     min-height: 0;
                 }
 
+                body.is-scroll-driven.is-complete .chat-panel {
+                    min-height: var(--window-min-height);
+                    max-height: var(--window-min-height);
+                    height: var(--window-min-height);
+                }
+
                 .response {
                     margin-right: 32px;
                     margin-top: 12px;
@@ -1576,7 +1576,7 @@
                     }
 
                     event.preventDefault();
-                    window.scrollBy(0, nextDeltaY);
+                    window.parent.scrollBy(0, nextDeltaY);
                 }
 
                 function clamp01(value) {

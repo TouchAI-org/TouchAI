@@ -1966,7 +1966,6 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
 
                 function keepLatestResponseVisible() {
                     const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
-                    document.body.classList.toggle('is-scrolling', maxScroll > 1);
                     content.scrollTop = maxScroll;
                 }
 
@@ -2004,7 +2003,7 @@ $$\boxed{|NP|_{\min}=\frac14,\quad |NP|_{\max}=\frac{\sqrt{21}}6}$$
                     }
 
                     event.preventDefault();
-                    window.scrollBy(0, nextDeltaY);
+                    window.parent.scrollBy(0, nextDeltaY);
                 }
 
                 function applyExternalScrollProgress(progress) {

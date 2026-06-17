@@ -1273,10 +1273,10 @@
                     return event && typeof event.data === 'object' && event.data ? event.data : {};
                 }
 
-                function notifyParent(type) {
+                function notifyParent(type, deltaX = 0, deltaY = 0) {
                     try {
                         if (window.parent && window.parent !== window) {
-                            window.parent.postMessage({ type }, window.location.origin);
+                            window.parent.postMessage({ type, deltaX, deltaY }, window.location.origin);
                         }
                     } catch (error) {}
                 }
@@ -1594,7 +1594,6 @@
 
                 function keepLatestResponseVisible() {
                     const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
-                    document.body.classList.toggle('is-scrolling', maxScroll > 1);
                     content.scrollTop = maxScroll;
                 }
 
@@ -1632,7 +1631,7 @@
                     }
 
                     event.preventDefault();
-                    window.scrollBy(0, nextDeltaY);
+                    window.parent.scrollBy(0, nextDeltaY);
                 }
 
                 function applyExternalScrollProgress(progress) {
