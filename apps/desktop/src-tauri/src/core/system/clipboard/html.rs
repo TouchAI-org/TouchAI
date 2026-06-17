@@ -183,8 +183,7 @@ pub(super) fn should_keep_clipboard_image(
         return true;
     };
 
-    let html_lower = html.to_ascii_lowercase();
-    if html_lower.contains("<img") {
+    if contains_visible_html_image(html) {
         return true;
     }
 
@@ -258,6 +257,51 @@ fn extract_html_text(html: &str) -> Option<String> {
     } else {
         Some(normalized)
     }
+}
+
+fn contains_visible_html_image(html: &str) -> bool {
+    let mut skip_hidden_depth = 0usize;
+    let mut tag_stack: Vec<(String, bool)> = Vec::new();
+
+    for token in Tokenizer::new(html) {
+        match token {
+            Ok(Token::StartTag(tag)) => {
+                let tag_name = tag_name_to_string(&tag.name);
+                let is_hidden = is_hidden_html_element(&tag.attributes)
+                    || is_non_visible_html_element(&tag_name);
+
+                if tag_name == "img" && skip_hidden_depth == 0 && !is_hidden {
+                    return true;
+                }
+
+                if is_hidden {
+                    skip_hidden_depth += 1;
+                }
+
+                if is_void_html_tag(&tag_name) || tag.self_closing {
+                    if is_hidden {
+                        skip_hidden_depth = skip_hidden_depth.saturating_sub(1);
+                    }
+                } else {
+                    tag_stack.push((tag_name, is_hidden));
+                }
+            }
+            Ok(Token::EndTag(tag)) => {
+                let tag_name = tag_name_to_string(&tag.name);
+                while let Some((open_tag_name, is_hidden)) = tag_stack.pop() {
+                    if is_hidden {
+                        skip_hidden_depth = skip_hidden_depth.saturating_sub(1);
+                    }
+                    if open_tag_name == tag_name {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
 }
 
 /// 从 img 标签属性中选择图片来源。
@@ -380,7 +424,6 @@ fn resolve_html_reference(source: &str, source_url: Option<&str>) -> Option<Stri
         .and_then(|value| Url::parse(value).ok())
         .and_then(|base_url| base_url.join(source).ok())
         .map(|url| url.to_string())
-        .or_else(|| Some(source.to_string()))
 }
 
 /// 判断字符串是否像图片引用。
@@ -533,6 +576,25 @@ mod tests {
     }
 
     #[test]
+    fn html_image_extraction_prefers_resolvable_img_source_over_relative_anchor_href() {
+        let html = r#"
+            <a href="full.png">
+                <img src="https://example.com/thumb.png" alt="Preview">
+            </a>
+        "#;
+
+        let images = extract_html_clipboard_images(html, None);
+
+        assert_eq!(
+            images,
+            vec![ClipboardHtmlImage {
+                source: "https://example.com/thumb.png".to_string(),
+                path: None,
+            }]
+        );
+    }
+
+    #[test]
     fn should_drop_native_image_when_html_text_matches_plain_text() {
         assert!(!should_keep_clipboard_image(
             Some("Visible Word text Second line"),
@@ -548,6 +610,15 @@ mod tests {
         assert!(should_keep_clipboard_image(
             Some("Visible"),
             Some("<p>Visible</p><img src=\"clip.png\">"),
+            false
+        ));
+    }
+
+    #[test]
+    fn should_drop_native_image_when_only_hidden_html_image_exists() {
+        assert!(!should_keep_clipboard_image(
+            Some("Visible"),
+            Some("<p>Visible</p><img style=\"display:none\" src=\"hidden.png\">"),
             false
         ));
     }

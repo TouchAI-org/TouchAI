@@ -372,6 +372,10 @@
         return (cell.textContent ?? '').replace(/\s+/g, ' ').trim();
     }
 
+    function serializeClipboardTableCellHtml(cell: HTMLTableCellElement): string {
+        return serializeChildrenHtmlForClipboard(cell).trim();
+    }
+
     const clipboardTableAttributes =
         ' border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse;"';
     const clipboardCellStyle = ' style="border: 1px solid #000; padding: 4px;"';
@@ -406,7 +410,7 @@
                 const colspan = cell.colSpan > 1 ? ` colspan="${cell.colSpan}"` : '';
                 const rowspan = cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : '';
 
-                html += `<${tag}${colspan}${rowspan}${clipboardCellStyle}>${escapeClipboardHtml(text)}</${tag}>`;
+                html += `<${tag}${colspan}${rowspan}${clipboardCellStyle}>${serializeClipboardTableCellHtml(cell)}</${tag}>`;
                 textCells.push(text);
             }
 
@@ -443,7 +447,7 @@
                 const colspan = cell.colSpan > 1 ? ` colspan="${cell.colSpan}"` : '';
                 const rowspan = cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : '';
 
-                html += `<${tag}${colspan}${rowspan}${clipboardCellStyle}>${escapeClipboardHtml(text)}</${tag}>`;
+                html += `<${tag}${colspan}${rowspan}${clipboardCellStyle}>${serializeClipboardTableCellHtml(cell)}</${tag}>`;
                 textCells.push(text);
             }
 
@@ -919,6 +923,24 @@
         }
     }
 
+    function cloneRangeInsideMarkdownContainer(range: Range, container: HTMLElement): Range | null {
+        if (!range.intersectsNode(container)) {
+            return null;
+        }
+
+        const clippedRange = document.createRange();
+        clippedRange.selectNodeContents(container);
+
+        if (container.contains(range.startContainer)) {
+            clippedRange.setStart(range.startContainer, range.startOffset);
+        }
+        if (container.contains(range.endContainer)) {
+            clippedRange.setEnd(range.endContainer, range.endOffset);
+        }
+
+        return clippedRange.collapsed ? null : clippedRange;
+    }
+
     function cloneSelectedMarkdownContents(): HTMLDivElement | null {
         const container = markdownContainerRef.value;
         const selection = window.getSelection();
@@ -933,11 +955,16 @@
                 continue;
             }
 
-            const selectedContent = range.cloneContents();
+            const clippedRange = cloneRangeInsideMarkdownContainer(range, container);
+            if (!clippedRange) {
+                continue;
+            }
+
+            const selectedContent = clippedRange.cloneContents();
             wrapTopLevelListItemsForClipboard(
                 selectedContent,
-                findSingleClipboardListParent(range),
-                range
+                findSingleClipboardListParent(clippedRange),
+                clippedRange
             );
             wrapper.append(selectedContent);
         }

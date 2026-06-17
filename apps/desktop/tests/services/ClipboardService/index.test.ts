@@ -141,4 +141,19 @@ describe('ClipboardService explicit paste', () => {
             { type: 'image', path: 'D:/persisted/pasted.png' },
         ]);
     });
+
+    it('emits fragments for file-only browser paste-event attachments', async () => {
+        readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
+        const file = new File([new Uint8Array([1, 2, 3])], 'report.pdf', {
+            type: 'application/pdf',
+        });
+
+        const payload = await clipboardService.readExplicitPastePayload(
+            createClipboardDataWithFiles({}, [file], [{ kind: 'file', getAsFile: () => file }])
+        );
+
+        expect(payload?.text).toBeNull();
+        expect(payload?.filePaths).toEqual(['D:/persisted/report.pdf']);
+        expect(payload?.fragments).toEqual([{ type: 'file', path: 'D:/persisted/report.pdf' }]);
+    });
 });

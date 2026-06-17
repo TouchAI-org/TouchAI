@@ -353,6 +353,63 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
+    it('preserves inline semantics inside copied table cell HTML', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: '| Link | Preview |\n| --- | --- |\n| Docs | code |',
+            },
+            attachTo: document.body,
+        });
+
+        const container = wrapper.element as HTMLElement;
+        container.innerHTML = `
+            <div class="markstream-vue">
+                <table class="table-node" style="border-collapse: separate;">
+                    <tbody>
+                        <tr>
+                            <td class="px-3"><a class="link-token" style="color: blue;" href="https://example.com/docs">Docs</a></td>
+                            <td class="px-3"><img src="data:image/png;base64,AAAA" alt="Inline image"><span>Preview</span></td>
+                        </tr>
+                        <tr>
+                            <td class="px-3"><code class="language-ts">code</code></td>
+                            <td class="px-3"><a href="javascript:alert(1)">unsafe</a></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        const table = container.querySelector('table')!;
+        const range = document.createRange();
+        range.selectNode(table);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const clipboardData = new ClipboardDataStub();
+        const copyEvent = new Event('copy', {
+            bubbles: true,
+            cancelable: true,
+        }) as ClipboardEvent;
+        Object.defineProperty(copyEvent, 'clipboardData', {
+            value: clipboardData,
+        });
+
+        const prevented = !container.dispatchEvent(copyEvent);
+
+        expect(prevented).toBe(true);
+        expect(clipboardData.getData('text/plain')).toBe('Docs\tPreview\ncode\tunsafe');
+        expect(clipboardData.getData('text/html')).toBe(
+            '<table border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse;"><tbody><tr><td style="border: 1px solid #000; padding: 4px;"><a href="https://example.com/docs">Docs</a></td><td style="border: 1px solid #000; padding: 4px;"><img src="data:image/png;base64,AAAA" alt="Inline image">Preview</td></tr><tr><td style="border: 1px solid #000; padding: 4px;"><code>code</code></td><td style="border: 1px solid #000; padding: 4px;"><a>unsafe</a></td></tr></tbody></table>'
+        );
+        expect(clipboardData.getData('text/html')).not.toContain('class=');
+        expect(clipboardData.getData('text/html')).not.toContain('javascript:');
+
+        selection.removeAllRanges();
+        wrapper.unmount();
+    });
+
     it('preserves surrounding selected text when cleaning copied table HTML', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
@@ -406,6 +463,54 @@ describe('MarkdownContent i18n', () => {
         expect(clipboardData.getData('text/html')).not.toContain('border-collapse: separate');
 
         selection.removeAllRanges();
+        wrapper.unmount();
+    });
+
+    it('clips copied selections to the markdown container bounds', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: 'Inside text',
+            },
+            attachTo: document.body,
+        });
+
+        const container = wrapper.element as HTMLElement;
+        const outside = document.createElement('p');
+        outside.textContent = 'Outside';
+        container.parentNode?.insertBefore(outside, container);
+        container.innerHTML = `
+            <div class="markstream-vue">
+                <p>Inside <strong>text</strong></p>
+            </div>
+        `;
+
+        const insideText = container.querySelector('strong')!.firstChild!;
+        const range = document.createRange();
+        range.setStart(outside.firstChild!, 0);
+        range.setEnd(insideText, insideText.textContent!.length);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const clipboardData = new ClipboardDataStub();
+        const copyEvent = new Event('copy', {
+            bubbles: true,
+            cancelable: true,
+        }) as ClipboardEvent;
+        Object.defineProperty(copyEvent, 'clipboardData', {
+            value: clipboardData,
+        });
+
+        const prevented = !container.dispatchEvent(copyEvent);
+
+        expect(prevented).toBe(true);
+        expect(clipboardData.getData('text/plain')).toBe('Inside text');
+        expect(clipboardData.getData('text/html')).toBe('<p>Inside <strong>text</strong></p>');
+        expect(clipboardData.getData('text/plain')).not.toContain('Outside');
+
+        selection.removeAllRanges();
+        outside.remove();
         wrapper.unmount();
     });
 

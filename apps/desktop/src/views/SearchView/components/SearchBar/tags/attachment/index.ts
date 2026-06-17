@@ -139,6 +139,9 @@ export function insertAttachmentTag(
             if (!attachmentTagType) return false;
             const node = attachmentTagType.create(attrs);
             const pos = resolveAttachmentTagInsertPosition(state, options);
+            if (options.atCurrentSelection && !state.selection.empty) {
+                tr.delete(state.selection.from, state.selection.to);
+            }
             tr.insert(pos, node);
             tr.setSelection(TextSelection.create(tr.doc, pos + node.nodeSize));
             return true;
@@ -154,7 +157,7 @@ function resolveAttachmentTagInsertPosition(
     options: InsertAttachmentTagOptions
 ) {
     if (options.atCurrentSelection) {
-        return state.selection.to;
+        return state.selection.from;
     }
 
     // 普通附件仍跟随当前光标；mixed payload 才按纯文本 offset 定位。

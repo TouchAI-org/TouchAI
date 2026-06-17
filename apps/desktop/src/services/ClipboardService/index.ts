@@ -1,6 +1,6 @@
 import { createPersistedAttachmentFromData } from '@/services/AgentService/infrastructure/attachments';
 import { native } from '@/services/NativeService';
-import type { ClipboardPayload } from '@/services/NativeService/types';
+import type { ClipboardPayload, ClipboardPayloadFragment } from '@/services/NativeService/types';
 
 import { normalizeClipboardPayload } from './html';
 
@@ -112,6 +112,10 @@ async function withPasteEventAttachments(
         ...payload,
         imagePaths: attachments.imagePaths,
         filePaths: attachments.filePaths,
+        fragments: [
+            ...(payload.fragments ?? []),
+            ...buildAttachmentFragments(attachments.imagePaths, attachments.filePaths),
+        ],
     };
 }
 
@@ -208,6 +212,16 @@ function mergeExplicitPastePayloads(
         text: eventPayload.text ?? nativePayload.text,
         html: eventPayload.html ?? nativePayload.html,
     };
+}
+
+function buildAttachmentFragments(
+    imagePaths: string[],
+    filePaths: string[]
+): ClipboardPayloadFragment[] {
+    return [
+        ...imagePaths.map((path) => ({ type: 'image', path }) as ClipboardPayloadFragment),
+        ...filePaths.map((path) => ({ type: 'file', path }) as ClipboardPayloadFragment),
+    ];
 }
 
 function hashClipboardText(value: string) {

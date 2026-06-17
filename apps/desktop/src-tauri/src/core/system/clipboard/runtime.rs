@@ -26,6 +26,8 @@ use super::{
     payload::{build_snapshot_id, ClipboardPayload, ClipboardPayloadFragment, ClipboardSnapshot},
 };
 
+const MAX_HTML_IMAGE_RESOLUTIONS: usize = 20;
+
 #[derive(Default)]
 struct ClipboardRuntimeState {
     latest_snapshot: Option<ClipboardSnapshot>,
@@ -309,7 +311,7 @@ impl ClipboardRuntime {
 
         //3. watcher 只观察轻量快照；显式粘贴/auto-paste 消费时才解析 HTML 外链图片。
         if mode.should_resolve_external_images() {
-            for image in &mut html_images {
+            for image in html_images.iter_mut().take(MAX_HTML_IMAGE_RESOLUTIONS) {
                 match self
                     .inner
                     .image_cache
@@ -340,21 +342,23 @@ impl ClipboardRuntime {
             }
         } else if let Some(text) = &fallback_text {
             fragments.insert(0, ClipboardPayloadFragment::Text { text: text.clone() });
-            for image_path in &normalized_image_paths {
-                fragments.push(ClipboardPayloadFragment::Image {
-                    path: image_path.clone(),
-                });
-            }
-            for file_path in &normalized_files {
-                fragments.push(ClipboardPayloadFragment::File {
-                    path: file_path.clone(),
-                });
-            }
+            append_payload_attachment_fragments(
+                &mut fragments,
+                &normalized_image_paths,
+                &normalized_files,
+            );
+        } else {
+            append_payload_attachment_fragments(
+                &mut fragments,
+                &normalized_image_paths,
+                &normalized_files,
+            );
         }
 
-        let snapshot_text_identity = fallback_text.as_deref().or(html.as_deref());
+        let snapshot_content_identity =
+            build_snapshot_content_identity(fallback_text.as_deref(), html.as_deref());
 
-        if snapshot_text_identity.is_none()
+        if snapshot_content_identity.is_none()
             && normalized_image_paths.is_empty()
             && normalized_files.is_empty()
             && html_images.is_empty()
@@ -365,7 +369,7 @@ impl ClipboardRuntime {
 
         Ok(Some(ClipboardSnapshot {
             snapshot_id: build_snapshot_id(
-                snapshot_text_identity,
+                snapshot_content_identity.as_deref(),
                 &image_identity_keys,
                 &normalized_files,
             ),
@@ -408,4 +412,72 @@ fn now_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn append_payload_attachment_fragments(
+    fragments: &mut Vec<ClipboardPayloadFragment>,
+    image_paths: &[String],
+    file_paths: &[String],
+) {
+    for image_path in image_paths {
+        fragments.push(ClipboardPayloadFragment::Image {
+            path: image_path.clone(),
+        });
+    }
+    for file_path in file_paths {
+        fragments.push(ClipboardPayloadFragment::File {
+            path: file_path.clone(),
+        });
+    }
+}
+
+fn build_snapshot_content_identity(text: Option<&str>, html: Option<&str>) -> Option<String> {
+    match (text, html) {
+        (Some(text), Some(html)) => Some(format!("text:{text}\nhtml:{html}")),
+        (Some(text), None) => Some(format!("text:{text}")),
+        (None, Some(html)) => Some(format!("html:{html}")),
+        (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        append_payload_attachment_fragments, build_snapshot_content_identity,
+        ClipboardPayloadFragment,
+    };
+
+    #[test]
+    fn attachment_only_payloads_still_emit_fragments() {
+        let mut fragments = Vec::new();
+
+        append_payload_attachment_fragments(
+            &mut fragments,
+            &[String::from("D:/clip/image.png")],
+            &[String::from("D:/clip/file.pdf")],
+        );
+
+        assert_eq!(
+            fragments,
+            vec![
+                ClipboardPayloadFragment::Image {
+                    path: String::from("D:/clip/image.png")
+                },
+                ClipboardPayloadFragment::File {
+                    path: String::from("D:/clip/file.pdf")
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn snapshot_identity_includes_html_when_plain_text_matches() {
+        assert_ne!(
+            build_snapshot_content_identity(Some("Docs"), Some("<p>Docs</p>")),
+            build_snapshot_content_identity(
+                Some("Docs"),
+                Some("<p><a href=\"https://example.com\">Docs</a></p>")
+            )
+        );
+    }
 }

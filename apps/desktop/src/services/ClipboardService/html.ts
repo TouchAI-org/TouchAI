@@ -24,7 +24,7 @@ interface HtmlClipboardFeatures {
 
 const turndownService = createTurndownService();
 const clipboardAllowedUriRegexp =
-    /^(?:(?:https?|mailto|tel|ftp|file|blob|cid):|data:image\/|[^a-z]|[a-z0-9+.-]+(?:[^a-z0-9+.-:]|$))/i;
+    /^(?:(?:https?|mailto|tel|ftp|file|blob|cid):|data:image\/|[^a-z]|[a-z0-9.+-]+(?:[^a-z0-9.+:-]|$))/i;
 
 export function normalizeClipboardPayload(
     payload: ClipboardPayload | null,
@@ -174,7 +174,7 @@ function splitMarkdownImagesIntoFragments(
             textBuffer += remaining.slice(imageStart, imageStart + parsed.length);
         }
 
-        remaining = remaining.slice(imageStart + parsed.length);
+        remaining = remaining.slice(parsed.start + parsed.length);
     }
 
     pushTextFragment(fragments, textBuffer);
