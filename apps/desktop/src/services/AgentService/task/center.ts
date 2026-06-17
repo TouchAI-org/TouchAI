@@ -231,6 +231,21 @@ function normalizeCommandTypography(value: string): string {
     return value.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
 }
 
+/** Keep approval command previews recognizable instead of markdown-cleaned. */
+function summarizeCommandPreview(
+    value: string | null | undefined,
+    maxChars: number
+): string | null {
+    const normalized = collapseWhitespace(
+        normalizeCommandTypography((value ?? '').replace(/\r\n?/g, '\n'))
+    );
+    if (!normalized) {
+        return null;
+    }
+
+    return truncateNotificationText(normalized, maxChars);
+}
+
 /** Flatten inline markdown tokens into readable plain text for reminder clauses. */
 function extractReminderInlineText(
     tokens: ReminderMarkdownToken[] | null | undefined,
@@ -481,6 +496,10 @@ function summarizeNotificationText(
     maxChars = STATUS_REMINDER_MAX_BODY_CHARS,
     mode: ReminderTextMode = 'natural'
 ) {
+    if (mode === 'command') {
+        return summarizeCommandPreview(value, maxChars);
+    }
+
     const normalized = joinReminderClauses(collectReminderClauses(value ?? '', mode), mode);
     if (!normalized) {
         return null;
