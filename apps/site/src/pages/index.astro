@@ -2385,7 +2385,8 @@ const structuredData = JSON.stringify({
                         'cta.copy': '体验近在咫尺的 AI 陪伴',
                         'cta.download': '下载 TouchAI',
                         'footer.official': '官网',
-                        'footer.analytics': '本站使用基础统计与 Microsoft Clarity，用于了解站点使用情况并优化体验。',
+                        'footer.analytics':
+                            '本站使用基础统计与 Microsoft Clarity，用于了解站点使用情况并优化体验。',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                     en: {
@@ -2439,7 +2440,8 @@ const structuredData = JSON.stringify({
                         'cta.copy': 'Experience AI companionship within reach.',
                         'cta.download': 'Download TouchAI',
                         'footer.official': 'Official site',
-                        'footer.analytics': 'We use basic analytics and Microsoft Clarity to understand site usage and improve the experience.',
+                        'footer.analytics':
+                            'We use basic analytics and Microsoft Clarity to understand site usage and improve the experience.',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                 };
@@ -2548,7 +2550,9 @@ const structuredData = JSON.stringify({
                                       dark: '切换白天模式',
                                   },
                         replaySuffix:
-                            lang === 'en' ? 'click to replay current scroll progress' : '点击刷新当前滚动进度',
+                            lang === 'en'
+                                ? 'click to replay current scroll progress'
+                                : '点击刷新当前滚动进度',
                         replayLabels:
                             lang === 'en'
                                 ? {
@@ -2599,11 +2603,16 @@ const structuredData = JSON.stringify({
                         );
                         toggle.querySelector('span').textContent = lang === 'en' ? 'EN' : '中';
                     }
-                    document.querySelector('.nav')?.setAttribute('aria-label', localizedLabels.navAria);
-                    document.querySelector('.logo-link')?.setAttribute('aria-label', localizedLabels.homeAria);
+                    document
+                        .querySelector('.nav')
+                        ?.setAttribute('aria-label', localizedLabels.navAria);
+                    document
+                        .querySelector('.logo-link')
+                        ?.setAttribute('aria-label', localizedLabels.homeAria);
                     const themeToggle = document.querySelector('.theme-toggle');
                     if (themeToggle) {
-                        const nextTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+                        const nextTheme =
+                            document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
                         const nextLabel = localizedLabels.themeToggle[nextTheme];
                         themeToggle.setAttribute('aria-label', nextLabel);
                         themeToggle.setAttribute('title', nextLabel);
@@ -2616,9 +2625,15 @@ const structuredData = JSON.stringify({
                     replayCardLabels.forEach(([selector, label]) => {
                         const card = document.querySelector(selector);
                         if (!card) return;
-                        card.setAttribute('aria-label', `${label}，${localizedLabels.replaySuffix}`.replace('，，', '，'));
+                        card.setAttribute(
+                            'aria-label',
+                            `${label}，${localizedLabels.replaySuffix}`.replace('，，', '，')
+                        );
                         if (lang === 'en') {
-                            card.setAttribute('aria-label', `${label}, ${localizedLabels.replaySuffix}`);
+                            card.setAttribute(
+                                'aria-label',
+                                `${label}, ${localizedLabels.replaySuffix}`
+                            );
                         }
                     });
                     const introDemo = document.querySelector('.component-frame');

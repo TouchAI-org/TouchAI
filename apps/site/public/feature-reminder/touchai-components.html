@@ -1276,7 +1276,10 @@
                 function notifyParent(type, deltaX = 0, deltaY = 0) {
                     try {
                         if (window.parent && window.parent !== window) {
-                            window.parent.postMessage({ type, deltaX, deltaY }, window.location.origin);
+                            window.parent.postMessage(
+                                { type, deltaX, deltaY },
+                                window.location.origin
+                            );
                         }
                     } catch (error) {}
                 }
