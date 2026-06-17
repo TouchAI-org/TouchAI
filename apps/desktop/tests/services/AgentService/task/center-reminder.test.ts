@@ -131,7 +131,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('sanitizes approval reminders while keeping a readable command preview', () => {
+    it('sanitizes approval reminders while keeping a literal command preview', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -155,7 +155,7 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'waiting_approval',
             title: 'Pending',
-            body: 'Deploy production build. Command: npm run deploy -- --env prod',
+            body: 'Deploy production build. Command: ```bash npm run deploy -- --env prod ```',
             approval: {
                 callId: 'call-1',
                 approveLabel: 'Approve',
@@ -309,6 +309,39 @@ describe('SessionTaskCenter status reminders', () => {
             body: 'Inspect logs quickly. Command: cat app.log | grep ERROR | head -n 20',
             approval: {
                 callId: 'call-3',
+                approveLabel: 'Approve',
+                rejectLabel: 'Reject',
+            },
+        });
+    });
+
+    it('preserves markdown-looking shell syntax in command previews', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'waiting_approval',
+                pendingToolApproval: {
+                    callId: 'call-3a',
+                    messageId: 'assistant-3a',
+                    title: 'Need approval',
+                    description: 'Review shell redirection',
+                    command: 'cat <<EOF>out.txt\necho \u201c<tag>\u201d\n>out.txt',
+                    riskLabel: 'Medium risk',
+                    reason: 'Review shell redirection',
+                    approveLabel: 'Approve',
+                    rejectLabel: 'Reject',
+                    enterHint: 'Enter to approve',
+                    escHint: 'Esc to reject',
+                    keyboardApproveAt: 1,
+                },
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'waiting_approval',
+            title: 'Pending',
+            body: 'Review shell redirection. Command: cat <<EOF>out.txt echo "<tag>" >out.txt',
+            approval: {
+                callId: 'call-3a',
                 approveLabel: 'Approve',
                 rejectLabel: 'Reject',
             },
