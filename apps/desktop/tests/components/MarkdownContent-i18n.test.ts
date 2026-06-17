@@ -749,6 +749,64 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
+    it('drops unsafe clipboard URL schemes while preserving safe image data URLs', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: {
+                content: 'Safe docs bad js image',
+            },
+            attachTo: document.body,
+        });
+
+        const container = wrapper.element as HTMLElement;
+        container.innerHTML = `
+            <div class="markstream-vue">
+                <p>
+                    Safe <a href="https://example.com/docs">docs</a>
+                    <a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">bad</a>
+                    <a href="javascript:alert(1)">js</a>
+                </p>
+                <p>
+                    <img src="data:image/png;base64,AAAA" alt="Inline image">
+                    <img src="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==" alt="Bad image">
+                </p>
+            </div>
+        `;
+
+        const range = document.createRange();
+        range.selectNodeContents(container.querySelector('.markstream-vue')!);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const clipboardData = new ClipboardDataStub();
+        const copyEvent = new Event('copy', {
+            bubbles: true,
+            cancelable: true,
+        }) as ClipboardEvent;
+        Object.defineProperty(copyEvent, 'clipboardData', {
+            value: clipboardData,
+        });
+
+        const prevented = !container.dispatchEvent(copyEvent);
+
+        expect(prevented).toBe(true);
+        expect(clipboardData.getData('text/plain')).toBe(
+            'Safe [docs](https://example.com/docs) bad js\n[Inline image]'
+        );
+        expect(clipboardData.getData('text/html')).toContain(
+            '<a href="https://example.com/docs">docs</a>'
+        );
+        expect(clipboardData.getData('text/html')).toContain(
+            '<img src="data:image/png;base64,AAAA" alt="Inline image">'
+        );
+        expect(clipboardData.getData('text/html')).not.toContain('javascript:');
+        expect(clipboardData.getData('text/html')).not.toContain('data:text/html');
+
+        selection.removeAllRanges();
+        wrapper.unmount();
+    });
+
     it('preserves inline spacing while skipping non-content clipboard artifacts', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {

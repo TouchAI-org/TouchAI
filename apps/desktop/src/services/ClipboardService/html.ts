@@ -24,7 +24,7 @@ interface HtmlClipboardFeatures {
 
 const turndownService = createTurndownService();
 const clipboardAllowedUriRegexp =
-    /^(?:(?:(?:https?|mailto|tel|ftp|file|blob|cid):|data:image\/|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)))/i;
+    /^(?:(?:https?|mailto|tel|ftp|file|blob|cid):|data:image\/|[^a-z]|[a-z0-9+.-]+(?:[^a-z0-9+.-:]|$))/i;
 
 export function normalizeClipboardPayload(
     payload: ClipboardPayload | null,
@@ -59,7 +59,7 @@ function convertClipboardHtmlToMarkdown(html: string, sourceUrl: string | null):
     });
     const document = new DOMParser().parseFromString(String(cleanHtml), 'text/html');
     pruneClipboardArtifacts(document);
-    absolutizeClipboardReferences(document, sourceUrl);
+    sanitizeClipboardReferences(document, sourceUrl);
 
     const markdown = normalizeMarkdown(
         turndownService.turndown(document.body || document.documentElement)
@@ -477,19 +477,11 @@ function isHiddenInlineStyle(style: string): boolean {
     );
 }
 
-function absolutizeClipboardReferences(document: Document, sourceUrl: string | null): void {
-    if (!sourceUrl) {
-        return;
-    }
-
-    const base = parseUrl(sourceUrl);
-    if (!base) {
-        return;
-    }
-
+function sanitizeClipboardReferences(document: Document, sourceUrl: string | null): void {
+    const base = sourceUrl ? parseUrl(sourceUrl) : null;
     document.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((link) => {
-        const href = resolveUrl(link.getAttribute('href'), base);
-        if (href && isAllowedLinkUrl(href)) {
+        const href = sanitizeClipboardLinkHref(link.getAttribute('href'), base);
+        if (href) {
             link.href = href;
         } else {
             link.removeAttribute('href');
@@ -497,8 +489,8 @@ function absolutizeClipboardReferences(document: Document, sourceUrl: string | n
     });
 
     document.querySelectorAll<HTMLImageElement>('img[src]').forEach((image) => {
-        const source = resolveUrl(image.getAttribute('src'), base);
-        if (source && isAllowedImageUrl(source)) {
+        const source = sanitizeClipboardImageSource(image.getAttribute('src'), base);
+        if (source) {
             image.src = source;
         } else {
             image.removeAttribute('src');
@@ -524,6 +516,55 @@ function resolveUrl(value: string | null, base: URL): string | null {
     } catch {
         return null;
     }
+}
+
+function getUrlProtocol(value: string): string | null {
+    const protocolMatch = /^([a-z][a-z0-9+.-]*:)/i.exec(value.trim());
+    return protocolMatch?.[1]?.toLowerCase() ?? null;
+}
+
+function sanitizeClipboardLinkHref(value: string | null, base: URL | null): string | null {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return null;
+    }
+    if (normalized.startsWith('#')) {
+        return normalized;
+    }
+
+    const resolved = base ? resolveUrl(normalized, base) : normalized;
+    if (!resolved) {
+        return null;
+    }
+
+    const protocol = getUrlProtocol(resolved);
+    if (!protocol) {
+        return resolved;
+    }
+
+    return isAllowedLinkUrl(resolved) ? resolved : null;
+}
+
+function sanitizeClipboardImageSource(value: string | null, base: URL | null): string | null {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return null;
+    }
+    if (/^data:image\//i.test(normalized)) {
+        return normalized;
+    }
+
+    const resolved = base ? resolveUrl(normalized, base) : normalized;
+    if (!resolved) {
+        return null;
+    }
+
+    const protocol = getUrlProtocol(resolved);
+    if (!protocol) {
+        return resolved;
+    }
+
+    return isAllowedImageUrl(resolved) ? resolved : null;
 }
 
 function isAllowedLinkUrl(value: string): boolean {

@@ -233,4 +233,23 @@ describe('ClipboardService HTML normalization', () => {
             { type: 'text', text: ' above' },
         ]);
     });
+
+    it('preserves safe image data URLs while stripping dangerous data links from HTML paste', () => {
+        const payload = normalizeClipboardPayload(
+            createPayload({
+                text: null,
+                html: `
+                    <p>
+                        Keep <a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">bad</a>
+                        <img src="data:image/png;base64,AAAA" alt="preview">
+                        <img src="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==" alt="drop">
+                    </p>
+                `,
+            })
+        );
+
+        expect(payload?.text).toContain('Keep bad');
+        expect(payload?.text).toContain('![preview](data:image/png;base64,AAAA)');
+        expect(payload?.text).not.toContain('data:text/html');
+    });
 });

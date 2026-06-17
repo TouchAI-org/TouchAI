@@ -375,6 +375,15 @@
     const clipboardTableAttributes =
         ' border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse;"';
     const clipboardCellStyle = ' style="border: 1px solid #000; padding: 4px;"';
+    const clipboardAllowedLinkProtocols = new Set([
+        'file:',
+        'ftp:',
+        'http:',
+        'https:',
+        'mailto:',
+        'tel:',
+    ]);
+    const clipboardAllowedImageProtocols = new Set(['blob:', 'cid:', 'file:', 'http:', 'https:']);
 
     function serializeTableSectionForClipboard(
         section: HTMLTableSectionElement | null,
@@ -465,23 +474,45 @@
         };
     }
 
-    function isSafeClipboardUrl(value: string): boolean {
-        const normalized = Array.from(value.trim())
+    function normalizeClipboardUrl(value: string): string {
+        return Array.from(value.trim())
             .filter((char) => {
                 const charCode = char.charCodeAt(0);
                 return charCode > 0x1f && charCode !== 0x7f && !/\s/.test(char);
             })
-            .join('')
-            .toLowerCase();
+            .join('');
+    }
+
+    function getClipboardUrlProtocol(value: string): string | null {
+        const protocolMatch = /^([a-z][a-z0-9+.-]*:)/i.exec(value);
+        return protocolMatch?.[1]?.toLowerCase() ?? null;
+    }
+
+    function isSafeClipboardHref(value: string): boolean {
+        const normalized = normalizeClipboardUrl(value);
         if (!normalized) {
             return false;
         }
 
-        return !(
-            normalized.startsWith('javascript:') ||
-            normalized.startsWith('data:text/html') ||
-            normalized.startsWith('vbscript:')
-        );
+        if (normalized.startsWith('#')) {
+            return true;
+        }
+
+        const protocol = getClipboardUrlProtocol(normalized);
+        return protocol ? clipboardAllowedLinkProtocols.has(protocol) : true;
+    }
+
+    function isSafeClipboardImageSource(value: string): boolean {
+        const normalized = normalizeClipboardUrl(value);
+        if (!normalized || normalized.startsWith('#')) {
+            return false;
+        }
+        if (/^data:image\//i.test(normalized)) {
+            return true;
+        }
+
+        const protocol = getClipboardUrlProtocol(normalized);
+        return protocol ? clipboardAllowedImageProtocols.has(protocol) : true;
     }
 
     function isClipboardSkippedElement(element: HTMLElement): boolean {
@@ -613,7 +644,7 @@
 
     function serializeImageForClipboard(image: HTMLImageElement): string {
         const source = image.getAttribute('src')?.trim();
-        if (!source || !isSafeClipboardUrl(source)) {
+        if (!source || !isSafeClipboardImageSource(source)) {
             return '';
         }
 
@@ -710,7 +741,7 @@
             const title = node.getAttribute('title')?.trim();
             const attributes: string[] = [];
 
-            if (href && isSafeClipboardUrl(href)) {
+            if (href && isSafeClipboardHref(href)) {
                 attributes.push(`href="${escapeClipboardHtml(href)}"`);
             }
             if (title) {
@@ -955,7 +986,8 @@
             return `\n${serializeTableForClipboard(node).text}\n`;
         }
         if (node instanceof HTMLImageElement) {
-            return node.alt ? `[${node.alt}]` : '';
+            const source = node.getAttribute('src')?.trim();
+            return source && isSafeClipboardImageSource(source) && node.alt ? `[${node.alt}]` : '';
         }
         if (tagName === 'pre') {
             return `\n${node.textContent ?? ''}\n`;
@@ -966,7 +998,7 @@
             );
             const href = node.getAttribute('href')?.trim();
 
-            if (text && href && isSafeClipboardUrl(href) && text !== href) {
+            if (text && href && isSafeClipboardHref(href) && text !== href) {
                 return `[${text}](${escapeMarkdownLinkDestination(href)})`;
             }
 
