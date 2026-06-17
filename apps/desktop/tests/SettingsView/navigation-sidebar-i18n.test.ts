@@ -34,6 +34,9 @@ describe('Settings navigation sidebar i18n', () => {
         expect(wrapper.get('[data-testid="settings-nav-general"]').attributes('title')).toBe(
             'General'
         );
+        expect(wrapper.get('[data-testid="settings-nav-shortcuts"]').attributes('title')).toBe(
+            'Shortcuts'
+        );
         expect(wrapper.get('[data-testid="settings-nav-ai-services"]').attributes('title')).toBe(
             'Providers and models'
         );
@@ -61,6 +64,7 @@ describe('Settings navigation sidebar i18n', () => {
         expect(settingsNavigationGroups[0]?.label).toBe('Basics');
         expect(flattenSettingsNavigation().map((item) => item.label)).toEqual([
             'General',
+            'Shortcuts',
             'Providers and models',
             'Built-in tools',
             'Search',

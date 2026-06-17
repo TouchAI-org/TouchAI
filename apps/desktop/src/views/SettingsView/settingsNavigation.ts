@@ -5,6 +5,7 @@ import { JSON_SETTINGS_SECTIONS } from '@/stores/setting/sections/registry';
 
 export type NavigationSection =
     | 'general'
+    | 'shortcuts'
     | 'ai-services'
     | 'built-in-tools'
     | 'search'
@@ -56,6 +57,12 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 icon: 'settings',
                 labelKey: 'settings.nav.general.label',
                 descriptionKey: 'settings.nav.general.description',
+            },
+            {
+                id: 'shortcuts',
+                icon: 'keyboard',
+                labelKey: 'settings.nav.shortcuts.label',
+                descriptionKey: 'settings.nav.shortcuts.description',
             },
         ],
     },

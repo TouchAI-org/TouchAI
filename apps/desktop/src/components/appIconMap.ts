@@ -25,6 +25,7 @@ import IconGlobe from '~icons/lucide/globe';
 import IconGridAlt from '~icons/lucide/grid-2x2';
 import IconHistory from '~icons/lucide/history';
 import IconInfoCircle from '~icons/lucide/info';
+import IconKeyboard from '~icons/lucide/keyboard';
 import IconLeaf from '~icons/lucide/leaf';
 import IconMaximize from '~icons/lucide/maximize';
 import IconMenu from '~icons/lucide/menu';
@@ -75,6 +76,7 @@ export const appIconMap = {
     maximize: IconMaximize,
     restore: IconWindowRestore,
     'information-circle': IconInfoCircle,
+    keyboard: IconKeyboard,
     llm: IconBoxes,
     leaf: IconLeaf,
     'external-link': IconLinkExternal,

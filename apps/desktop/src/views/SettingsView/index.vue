@@ -28,6 +28,7 @@
     });
 
     const GeneralView = defineAsyncComponent(() => import('./components/General/index.vue'));
+    const ShortcutsView = defineAsyncComponent(() => import('./components/Shortcuts/index.vue'));
     const AiServicesView = defineAsyncComponent(() => import('./components/AiServices/index.vue'));
     const BuiltInToolsView = defineAsyncComponent(
         () => import('./components/BuiltInTools/index.vue')
@@ -54,6 +55,11 @@
         general: {
             component: GeneralView,
             loadingKey: 'settings.loading.general',
+            scrollable: true,
+        },
+        shortcuts: {
+            component: ShortcutsView,
+            loadingKey: 'settings.loading.shortcuts',
             scrollable: true,
         },
         'ai-services': {

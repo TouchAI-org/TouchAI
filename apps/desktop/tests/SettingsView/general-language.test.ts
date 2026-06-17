@@ -165,11 +165,6 @@ describe('Settings General shortcut capture i18n', () => {
         await flushMountedPromises();
 
         expect(wrapper.text()).toContain('General');
-        expect(wrapper.text()).toContain('Shortcuts');
-        expect(wrapper.text()).toContain('Set the global shortcut used to open TouchAI.');
-        expect(wrapper.text()).toContain('Toggle window maximize');
-        expect(wrapper.text()).toContain('Toggle the search window maximized state.');
-        expect(wrapper.text()).toContain('Activation shortcut');
         expect(wrapper.text()).toContain('Startup and window');
         expect(wrapper.text()).toContain(
             'Control startup behavior and the default search window size'
@@ -186,6 +181,10 @@ describe('Settings General shortcut capture i18n', () => {
         expect(wrapper.text()).toContain('Language');
         expect(wrapper.text()).toContain('Controls the display language used by TouchAI');
         expect(wrapper.text()).toContain('Interface language');
+        expect(wrapper.text()).not.toContain('Activation shortcut');
+        expect(wrapper.text()).not.toContain('Set the global shortcut used to open TouchAI.');
+        expect(wrapper.text()).not.toContain('Toggle window maximize');
+        expect(wrapper.text()).not.toContain('Toggle the search window maximized state.');
         expect(wrapper.text()).not.toContain('常规设置');
         expect(wrapper.text()).not.toContain('输出时滚动策略');
     });
