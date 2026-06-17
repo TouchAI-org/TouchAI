@@ -623,11 +623,14 @@ const structuredData = JSON.stringify({
             }
 
             .glimm-click-layer {
+                --glimm-bleed: 32px;
                 position: fixed;
-                inset: 0;
+                top: calc(var(--glimm-bleed) * -1);
+                left: calc(var(--glimm-bleed) * -1);
                 z-index: 9999;
-                width: 100vw;
-                height: 100vh;
+                width: calc(100vw + (var(--glimm-bleed) * 2));
+                height: calc(100vh + (var(--glimm-bleed) * 2));
+                height: calc(100dvh + (var(--glimm-bleed) * 2));
                 pointer-events: none;
             }
 
