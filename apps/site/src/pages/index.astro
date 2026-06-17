@@ -2,7 +2,6 @@
 import ComponentDemo from '../components/ComponentDemo.astro';
 
 const CLARITY_ID = import.meta.env.PUBLIC_CLARITY_ID ?? '';
-const WAITLIST_ENDPOINT = import.meta.env.PUBLIC_WAITLIST_ENDPOINT ?? '';
 const ANALYTICS_ENDPOINT = import.meta.env.PUBLIC_ANALYTICS_ENDPOINT ?? '';
 const siteUrl = 'https://touch-ai.org/';
 const repoPath = 'TouchAI-org/TouchAI';
@@ -631,7 +630,7 @@ const structuredData = JSON.stringify({
                 z-index: 9999;
                 width: 100vw;
                 height: 100vh;
-                pointer-events: auto;
+                pointer-events: none;
             }
 
             body.is-glimm-transitioning .interactive-click {
@@ -1800,7 +1799,7 @@ const structuredData = JSON.stringify({
             }
         </style>
     </head>
-    <body data-waitlist-endpoint={WAITLIST_ENDPOINT} data-analytics-endpoint={ANALYTICS_ENDPOINT}>
+    <body data-analytics-endpoint={ANALYTICS_ENDPOINT}>
         <header class="nav" aria-label="主导航">
             <a class="logo-link" href="#top" aria-label="TouchAI 首页">
                 <img

@@ -18,6 +18,16 @@ const featureDemoFiles = [
     'public/feature-reminder/touchai-components.html',
     'public/feature-reminder-en/touchai-components.html',
 ];
+const introDemoFiles = [
+    'public/touchai-intro/touchai-components.html',
+    'public/touchai-intro-en/touchai-components.html',
+];
+const englishFeatureDemoFiles = featureDemoFiles.filter((file) => file.includes('-en/'));
+const englishHomepageDemoFiles = [
+    'public/feature-work-organizer-en/touchai-components.html',
+    'public/feature-reminder-en/touchai-components.html',
+    'public/touchai-intro-en/touchai-components.html',
+];
 const failures = [];
 
 const fail = (message) => failures.push(message);
@@ -66,6 +76,11 @@ if (!homepage.includes('trigger: featureBlock') || !homepage.includes('getFeatur
 
 if (!homepage.includes('syncFeatureDemoProgress(solverFrame, 0, true)')) {
     fail('Feature demos must force-send zero progress on initial load.');
+}
+
+const glimmLayerRule = homepage.match(/\.glimm-click-layer\s*\{[\s\S]*?\}/);
+if (!glimmLayerRule || !/pointer-events:\s*none;/.test(glimmLayerRule[0])) {
+    fail('Homepage glimm transition layer must never block pointer interaction.');
 }
 
 featureDemoFiles.forEach((file) => {
@@ -147,8 +162,116 @@ featureDemoFiles.forEach((file) => {
         fail(`${file} must keep scroll-driven responses pinned to the newest generated text.`);
     }
 
-    if (html.includes('scrollProgress') || html.includes('maxScroll * scrollProgress')) {
+    if (/const\s+scrollProgress\s*=/.test(html) || /maxScroll\s*\*\s*scrollProgress/.test(html)) {
         fail(`${file} must keep scroll-driven responses pinned to the latest generated text.`);
+    }
+
+    if (
+        !/@media\s*\(min-width:\s*841px\)\s*\{[\s\S]*?body\.is-scroll-driven\.is-complete\s+\.chat-panel/.test(
+            html
+        )
+    ) {
+        fail(`${file} must keep scroll-driven complete-state height overrides desktop-only.`);
+    }
+});
+
+introDemoFiles.forEach((file) => {
+    const html = readSiteFile(file);
+
+    if (html.includes('.response li > span:last-child') && !html.includes(':not(.kbd)')) {
+        fail(`${file} must not let list span rules turn inline .kbd tags into full-width blocks.`);
+    }
+
+    if (!html.includes('function keepLatestResponseVisible()')) {
+        fail(`${file} must keep the latest intro demo text visible while scrolling.`);
+    }
+
+    if (/const\s+scrollProgress\s*=/.test(html) || /maxScroll\s*\*\s*scrollProgress/.test(html)) {
+        fail(`${file} must not map intro demo scrolling by proportional progress.`);
+    }
+});
+
+englishFeatureDemoFiles.forEach((file) => {
+    const html = readSiteFile(file);
+
+    if (!html.includes('<html lang="en">')) {
+        fail(`${file} must declare English document language.`);
+    }
+});
+
+const assertEnglishDemoLabels = (file, requiredTokens) => {
+    const html = readSiteFile(file);
+    requiredTokens.forEach((token) => {
+        if (!html.includes(token)) {
+            fail(`${file} must include ${JSON.stringify(token)}.`);
+        }
+    });
+};
+
+assertEnglishDemoLabels('public/feature-work-organizer-en/touchai-components.html', [
+    'TouchAI conversation demo',
+    'Window toolbar',
+    'New conversation',
+    'Conversation history',
+    'Maximize window',
+    'Pin window',
+    'User prompt',
+    'Copy problem',
+    'Scroll to bottom',
+    'Message composer',
+    'Problem input',
+    'Send',
+    'Answer actions',
+    'Thinking',
+    'Copy answer',
+    'Regenerate answer',
+]);
+
+[
+    'public/feature-reminder-en/touchai-components.html',
+    'public/touchai-intro-en/touchai-components.html',
+].forEach((file) => {
+    if (!readSiteFile(file).includes('<html lang="en">')) {
+        fail(`${file} must declare English document language.`);
+    }
+});
+
+if (
+    /querySelectorAll\('p, h2, ul, li, \.math-block, \.response-divider'\)/.test(
+        readSiteFile('public/feature-reminder/touchai-components.html')
+    )
+) {
+    fail('Reminder demo resetVisibleBlocks must also clear tool-call visibility.');
+}
+
+if (
+    /querySelectorAll\('p, h2, ul, li, \.math-block, \.response-divider'\)/.test(
+        readSiteFile('public/feature-reminder-en/touchai-components.html')
+    )
+) {
+    fail('English reminder demo resetVisibleBlocks must also clear tool-call visibility.');
+}
+
+[
+    'public/feature-reminder/touchai-components.html',
+    'public/feature-reminder-en/touchai-components.html',
+].forEach((file) => {
+    const html = readSiteFile(file);
+
+    if (
+        !/function setResponseProgress\(progress\)\s*\{[\s\S]*?setToolCallVisibility\(ratio\);/.test(
+            html
+        )
+    ) {
+        fail(`${file} must include tool calls in scroll-driven response progress reveals.`);
+    }
+
+    if (
+        !/const\s+textRevealProgress\s*=\s*ratio\s*<=\s*0\.24\s*\?\s*0\s*:\s*\(ratio\s*-\s*0\.24\)\s*\/\s*0\.76;/.test(
+            html
+        )
+    ) {
+        fail(`${file} must finish showing both MCP tool calls before the answer text starts rendering.`);
     }
 });
 

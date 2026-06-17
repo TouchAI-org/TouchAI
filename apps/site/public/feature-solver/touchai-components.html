@@ -423,12 +423,6 @@
                 margin-top: auto;
             }
 
-            body.is-scroll-driven.is-complete .chat-panel {
-                min-height: var(--window-min-height);
-                max-height: var(--window-min-height);
-                height: var(--window-min-height);
-            }
-
             body.is-scroll-driven.is-answering .conversation-content,
             body.is-scroll-driven.is-complete .conversation-content {
                 flex: 1 1 auto;
@@ -442,6 +436,14 @@
             body.is-scroll-driven.is-answering .composer,
             body.is-scroll-driven.is-complete .composer {
                 margin-top: auto;
+            }
+
+            @media (min-width: 841px) {
+                body.is-scroll-driven.is-complete .chat-panel {
+                    min-height: var(--window-min-height);
+                    max-height: var(--window-min-height);
+                    height: var(--window-min-height);
+                }
             }
 
             .response > p,

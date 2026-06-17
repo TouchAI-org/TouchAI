@@ -493,12 +493,6 @@
                 margin-top: auto;
             }
 
-            body.is-scroll-driven.is-complete .chat-panel {
-                min-height: var(--window-min-height);
-                max-height: var(--window-min-height);
-                height: var(--window-min-height);
-            }
-
             body.is-scroll-driven.is-answering .conversation-content,
             body.is-scroll-driven.is-complete .conversation-content {
                 flex: 1 1 auto;
@@ -512,6 +506,14 @@
             body.is-scroll-driven.is-answering .composer,
             body.is-scroll-driven.is-complete .composer {
                 margin-top: auto;
+            }
+
+            @media (min-width: 841px) {
+                body.is-scroll-driven.is-complete .chat-panel {
+                    min-height: var(--window-min-height);
+                    max-height: var(--window-min-height);
+                    height: var(--window-min-height);
+                }
             }
 
             .response > p,
@@ -1389,6 +1391,25 @@
                     });
                 }
 
+                function setToolCallVisibility(progress) {
+                    const ratio = Math.max(0, Math.min(1, Number(progress) || 0));
+                    const toolCallList = response.querySelector('.tool-call-list');
+                    if (!toolCallList) {
+                        return;
+                    }
+
+                    const toolCalls = response.querySelectorAll('.tool-call');
+                    const cardThresholds = Array.from(toolCalls, (_, index) => 0.12 + index * 0.12);
+                    const visibleCardCount = cardThresholds.filter(
+                        (threshold) => ratio >= threshold
+                    ).length;
+                    toolCallList.classList.toggle('is-visible', visibleCardCount > 0);
+
+                    toolCalls.forEach((card, index) => {
+                        card.classList.toggle('is-visible', index < visibleCardCount);
+                    });
+                }
+
                 function hydrateMarkdownAnswer() {
                     response.classList.add('touchai-markdown');
                     response.innerHTML =
@@ -1485,7 +1506,9 @@
 
                 function resetVisibleBlocks() {
                     response
-                        .querySelectorAll('p, h2, ul, li, .math-block, .response-divider')
+                        .querySelectorAll(
+                            'p, h2, ul, li, .tool-call-list, .tool-call, .math-block, .response-divider'
+                        )
                         .forEach((block) => {
                             block.classList.remove('is-visible');
                         });
@@ -1630,9 +1653,11 @@
                         (sum, item) => sum + (item.instant ? 1 : item.text.length),
                         0
                     );
-                    let remaining = Math.round(totalUnits * ratio);
+                    const textRevealProgress = ratio <= 0.24 ? 0 : (ratio - 0.24) / 0.76;
+                    let remaining = Math.round(totalUnits * textRevealProgress);
 
                     resetVisibleBlocks();
+                    setToolCallVisibility(ratio);
                     textNodes.forEach((item) => {
                         const visibleLength = item.instant
                             ? remaining > 0

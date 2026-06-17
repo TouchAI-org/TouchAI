@@ -756,7 +756,7 @@
                 margin-top: var(--response-item-gap);
             }
 
-            .response li > span:last-child {
+            .response li > span:last-child:not(.kbd) {
                 display: block;
                 text-indent: var(--paragraph-indent);
             }
@@ -1532,8 +1532,14 @@
                     document.body.classList.toggle('is-scrolling', shouldScroll);
 
                     if (shouldScroll && maxScroll > 1) {
-                        content.scrollTop = maxScroll;
+                        keepLatestResponseVisible();
                     }
+                }
+
+                function keepLatestResponseVisible() {
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                    content.scrollTop = maxScroll;
+                    return maxScroll;
                 }
 
                 function updateScrollAffordance() {
@@ -1615,13 +1621,11 @@
                     });
 
                     const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
-                    const shouldScroll = maxScroll > 1 && answerProgress >= 0.34;
-                    const scrollProgress = shouldScroll
-                        ? clamp01((answerProgress - 0.34) / 0.66)
-                        : 0;
-                    const nextScrollTop = shouldScroll ? maxScroll * scrollProgress : 0;
+                    const shouldPinLatest = maxScroll > 1;
+                    const shouldUseScrollLayout = shouldPinLatest && answerProgress >= 0.34;
+                    const nextScrollTop = shouldPinLatest ? maxScroll : 0;
 
-                    document.body.classList.toggle('is-scrolling', shouldScroll);
+                    document.body.classList.toggle('is-scrolling', shouldUseScrollLayout);
 
                     if (
                         renderedCharacterCount === lastRenderedCharacterCount &&
@@ -1633,7 +1637,11 @@
 
                     lastRenderedCharacterCount = renderedCharacterCount;
                     lastRenderedScrollTop = nextScrollTop;
-                    content.scrollTop = nextScrollTop;
+                    if (shouldPinLatest) {
+                        keepLatestResponseVisible();
+                    } else {
+                        content.scrollTop = 0;
+                    }
 
                     updateScrollAffordance();
                 }

@@ -1,5 +1,5 @@
 ﻿<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -490,12 +490,6 @@
                 margin-top: auto;
             }
 
-            body.is-scroll-driven.is-complete .chat-panel {
-                min-height: var(--window-min-height);
-                max-height: var(--window-min-height);
-                height: var(--window-min-height);
-            }
-
             body.is-scroll-driven.is-answering .conversation-content,
             body.is-scroll-driven.is-complete .conversation-content {
                 flex: 1 1 auto;
@@ -748,7 +742,7 @@
                 margin-top: var(--response-item-gap);
             }
 
-            .response li > span:last-child {
+            .response li > span:last-child:not(.kbd) {
                 display: block;
                 text-indent: var(--paragraph-indent);
             }
@@ -1068,14 +1062,14 @@
     </head>
     <body class="is-idle">
         <main class="stage">
-            <section class="chat-panel is-unified" aria-label="TouchAI 对话组件">
-                <header class="panel-top toolbar-fade-overlay" aria-label="窗口工具栏">
-                    <button class="toolbar-button" type="button" aria-label="新建会话">
+            <section class="chat-panel is-unified" aria-label="TouchAI conversation demo">
+                <header class="panel-top toolbar-fade-overlay" aria-label="Window toolbar">
+                    <button class="toolbar-button" type="button" aria-label="New conversation">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z" />
                         </svg>
                     </button>
-                    <button class="toolbar-button" type="button" aria-label="历史记录">
+                    <button class="toolbar-button" type="button" aria-label="Conversation history">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M12 8v5h5v-2h-3V8z" />
                             <path
@@ -1083,7 +1077,7 @@
                             />
                         </svg>
                     </button>
-                    <button class="toolbar-button" type="button" aria-label="最大化窗口">
+                    <button class="toolbar-button" type="button" aria-label="Maximize window">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path
                                 d="M5 5h5V3H3v7h2zm5 14H5v-5H3v7h7zm11-5h-2v5h-5v2h7zm-2-4h2V3h-7v2h5z"
@@ -1093,7 +1087,7 @@
                     <button
                         class="toolbar-button toolbar-button--pinned"
                         type="button"
-                        aria-label="固定窗口"
+                        aria-label="Pin window"
                     >
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path
@@ -1105,10 +1099,10 @@
 
                 <div class="conversation-content">
                     <div class="prompt-layer">
-                        <div class="prompt-pill prompt-card" aria-label="用户输入">
+                        <div class="prompt-pill prompt-card" aria-label="User prompt">
                             <div class="prompt-text">What is TouchAI?</div>
                         </div>
-                        <button class="prompt-copy" type="button" aria-label="复制问题">
+                        <button class="prompt-copy" type="button" aria-label="Copy problem">
                             <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
                                 <path
                                     d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"
@@ -1123,7 +1117,11 @@
                         aria-atomic="false"
                     ></article>
                     <div class="scroll-fade-overlay">
-                        <button class="scroll-bottom-button" type="button" aria-label="回到底部">
+                        <button
+                            class="scroll-bottom-button"
+                            type="button"
+                            aria-label="Scroll to bottom"
+                        >
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path
                                     d="M11 16.414V5h2v11.414l5.707-5.707l1.414 1.414L12 20.243l-8.121-8.122l1.414-1.414z"
@@ -1133,8 +1131,8 @@
                     </div>
                 </div>
 
-                <footer class="composer" aria-label="输入框">
-                    <form class="composer-form prompt-form" aria-label="输入框">
+                <footer class="composer" aria-label="Message composer">
+                    <form class="composer-form prompt-form" aria-label="Message composer">
                         <img
                             class="mi-logo"
                             src="./mimo.png"
@@ -1148,10 +1146,10 @@
                             type="text"
                             value=""
                             placeholder="Type your request..."
-                            aria-label="输入问题"
+                            aria-label="Problem input"
                             autocomplete="off"
                         />
-                        <button class="submit-btn" type="submit" aria-label="发送">
+                        <button class="submit-btn" type="submit" aria-label="Send">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M10 17l5-5-5-5v10z" />
                             </svg>
@@ -1227,16 +1225,16 @@
                 ].join('\n');
 
                 const actionHtml = `
-          <div class="response-actions" aria-label="回答操作">
-            <span class="thinking-dots" aria-label="正在思考">
+          <div class="response-actions" aria-label="Answer actions">
+            <span class="thinking-dots" aria-label="Thinking">
               <span></span>
               <span></span>
               <span></span>
             </span>
-            <button class="action-button copy-answer" type="button" aria-label="复制回答">
+            <button class="action-button copy-answer" type="button" aria-label="Copy answer">
               <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"/></svg>
             </button>
-            <button class="action-button replay-answer" type="button" aria-label="重新生成">
+            <button class="action-button replay-answer" type="button" aria-label="Regenerate answer">
               <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 11H7.101l.001-.009a5 5 0 0 1 .752-1.787a5.05 5.05 0 0 1 2.2-1.811q.455-.193.938-.291a5.1 5.1 0 0 1 2.018 0a5 5 0 0 1 2.525 1.361l1.416-1.412a7 7 0 0 0-2.224-1.501a7 7 0 0 0-1.315-.408a7.1 7.1 0 0 0-2.819 0a7 7 0 0 0-1.316.409a7.04 7.04 0 0 0-3.08 2.534a7 7 0 0 0-1.054 2.505c-.028.135-.043.273-.063.41H2l4 4zm4 2h2.899l-.001.008a4.98 4.98 0 0 1-2.103 3.138a4.9 4.9 0 0 1-1.787.752a5.1 5.1 0 0 1-2.017 0a5 5 0 0 1-1.787-.752a5 5 0 0 1-.74-.61L7.05 16.95a7 7 0 0 0 2.225 1.5c.424.18.867.317 1.315.408a7.1 7.1 0 0 0 2.818 0a7.03 7.03 0 0 0 4.395-2.945a7 7 0 0 0 1.053-2.503c.027-.135.043-.273.063-.41H22l-4-4z"/></svg>
             </button>
           </div>`;
@@ -1461,8 +1459,14 @@
                     document.body.classList.toggle('is-scrolling', shouldScroll);
 
                     if (shouldScroll && maxScroll > 1) {
-                        content.scrollTop = maxScroll;
+                        keepLatestResponseVisible();
                     }
+                }
+
+                function keepLatestResponseVisible() {
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                    content.scrollTop = maxScroll;
+                    return maxScroll;
                 }
 
                 function updateScrollAffordance() {
@@ -1544,13 +1548,11 @@
                     });
 
                     const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
-                    const shouldScroll = maxScroll > 1 && answerProgress >= 0.34;
-                    const scrollProgress = shouldScroll
-                        ? clamp01((answerProgress - 0.34) / 0.66)
-                        : 0;
-                    const nextScrollTop = shouldScroll ? maxScroll * scrollProgress : 0;
+                    const shouldPinLatest = maxScroll > 1;
+                    const shouldUseScrollLayout = shouldPinLatest && answerProgress >= 0.34;
+                    const nextScrollTop = shouldPinLatest ? maxScroll : 0;
 
-                    document.body.classList.toggle('is-scrolling', shouldScroll);
+                    document.body.classList.toggle('is-scrolling', shouldUseScrollLayout);
 
                     if (
                         renderedCharacterCount === lastRenderedCharacterCount &&
@@ -1562,7 +1564,11 @@
 
                     lastRenderedCharacterCount = renderedCharacterCount;
                     lastRenderedScrollTop = nextScrollTop;
-                    content.scrollTop = nextScrollTop;
+                    if (shouldPinLatest) {
+                        keepLatestResponseVisible();
+                    } else {
+                        content.scrollTop = 0;
+                    }
 
                     updateScrollAffordance();
                 }
