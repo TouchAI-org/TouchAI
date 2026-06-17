@@ -270,6 +270,17 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.settings.open');
     });
 
+    it('routes the default settings shortcut when IME remaps the key value to Process', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getSearchKeybindings: () => createDefaultSearchKeybindings(),
+        });
+
+        expect(router.route({ key: 'Process', code: 'Comma', ctrlKey: true })).toBe(true);
+        await flushAsyncWork();
+
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.settings.open');
+    });
+
     it('routes the default reopen-last-closed-session shortcut through the action callback', async () => {
         const { router, callbacks } = createKeyboardRouter({
             getSearchKeybindings: () => createDefaultSearchKeybindings(),

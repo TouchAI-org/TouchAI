@@ -83,6 +83,8 @@ describe('shortcut utilities', () => {
         expect(resolveKeyboardEventShortcutKey('<', 'Comma')).toBe(',');
         expect(resolveKeyboardEventShortcutKey('?', 'Slash')).toBe('/');
         expect(resolveKeyboardEventShortcutKey('+', 'Equal')).toBe('=');
+        expect(resolveKeyboardEventShortcutKey('Process', 'Comma')).toBe(',');
+        expect(resolveKeyboardEventShortcutKey('Unidentified', 'Comma')).toBe(',');
         expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'F25')).toBeNull();
         expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'F13')).toBeNull();
         expect(resolveKeyboardEventShortcutKey('@')).toBeNull();

@@ -227,6 +227,22 @@ export function resolveKeyboardEventShortcutKey(
         return normalizePrintableKeyCode(code);
     }
 
+    if (
+        !normalizedKey &&
+        code &&
+        rawKey &&
+        rawKey !== 'Dead' &&
+        rawKey !== 'Process' &&
+        rawKey !== 'Unidentified' &&
+        rawKey !== 'Compose'
+    ) {
+        return null;
+    }
+
+    if (!normalizedKey) {
+        return normalizePrintableKeyCode(code);
+    }
+
     return normalizedKey;
 }
 
