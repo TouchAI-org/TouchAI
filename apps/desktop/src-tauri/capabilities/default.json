@@ -70,7 +70,6 @@
         },
         "fs-pro:default",
         "dialog:default",
-        "deep-link:default",
         "core:path:default",
         "core:path:allow-resolve-directory",
         "core:path:allow-resolve",

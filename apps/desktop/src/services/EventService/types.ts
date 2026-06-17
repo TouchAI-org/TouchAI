@@ -35,7 +35,6 @@ export enum AppEvent {
 
     // 设置事件
     SETTINGS_GENERAL_UPDATED = 'settings:general-updated',
-    SETTINGS_AI_SERVICES_FOCUS_PROVIDER = 'settings:ai-services:focus-provider',
     AI_MODELS_UPDATED = 'ai-models:updated',
 
     // 窗口事件
@@ -78,15 +77,6 @@ export interface SettingsGeneralUpdatedEvent {
     windowLabel: string;
     key: GeneralSettingKey;
     value: GeneralSettingValue;
-}
-
-export interface SettingsAiServicesFocusProviderEvent {
-    section: 'ai-services';
-    providerDriver: 'mimo';
-    requireBuiltIn: true;
-    mode: 'managed';
-    reason: 'managed-auth-callback';
-    requestedAt: number;
 }
 
 export interface AiModelsUpdatedEvent {
@@ -171,7 +161,6 @@ export interface AppEventMap {
 
     // 设置事件
     [AppEvent.SETTINGS_GENERAL_UPDATED]: SettingsGeneralUpdatedEvent;
-    [AppEvent.SETTINGS_AI_SERVICES_FOCUS_PROVIDER]: SettingsAiServicesFocusProviderEvent;
     [AppEvent.AI_MODELS_UPDATED]: AiModelsUpdatedEvent;
 
     // 窗口事件

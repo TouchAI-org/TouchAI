@@ -13,7 +13,6 @@ import {
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
-import { isTouchAiManagedMode, parseProviderConfigJson } from '../infrastructure/providers/config';
 import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
@@ -401,34 +400,6 @@ export class AiConversationRuntime {
         };
     }
 
-    private async invalidateManagedAuthIfNeeded(
-        model: ModelWithProvider,
-        error: unknown
-    ): Promise<boolean> {
-        if (model.provider_driver !== 'mimo') {
-            return false;
-        }
-
-        const providerConfig = parseProviderConfigJson(model.provider_config_json);
-        if (!isTouchAiManagedMode(providerConfig, model.api_endpoint)) {
-            return false;
-        }
-
-        try {
-            const { invalidateManagedAuthForError } = await import('@/services/AuthService');
-            return await invalidateManagedAuthForError({
-                providerId: model.provider_id,
-                error,
-            });
-        } catch (authInvalidationError) {
-            console.warn(
-                '[AiConversationRuntime] Failed to invalidate managed auth after request failure:',
-                authInvalidationError
-            );
-            return false;
-        }
-    }
-
     /**
      * 执行完整请求生命周期。
      */
@@ -483,18 +454,6 @@ export class AiConversationRuntime {
                         });
                     }
                     throw attemptResult.error;
-                }
-
-                const didInvalidateManagedAuth = await this.invalidateManagedAuthIfNeeded(
-                    attemptResult.resumeCheckpoint.activeModel,
-                    attemptResult.error
-                );
-                if (didInvalidateManagedAuth) {
-                    attemptResult.error = new AiError(
-                        AiErrorCode.UNAUTHORIZED,
-                        attemptResult.error.details,
-                        t('settings.ai.managedActivity.sessionExpired')
-                    );
                 }
 
                 if (this.shouldRetryAttempt(attemptResult, retryAttempt)) {
