@@ -131,6 +131,42 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
+    it('keeps inline angle-bracket diagnostics in failure notifications', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'failed',
+                error: 'Assertion failed: expected <title> to equal <h1>',
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'failed',
+            title: 'Task failed',
+            body: 'Assertion failed: expected <title> to equal <h1>',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
+
+    it('strips real inline html tags while preserving readable failure text', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'failed',
+                error: 'Failure: <strong>prod</strong><br>See <a href="https://example.com">logs</a>',
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'failed',
+            title: 'Task failed',
+            body: 'Failure: prod; See logs',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
+
     it('sanitizes approval reminders while keeping a literal command preview', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
@@ -162,6 +198,31 @@ describe('SessionTaskCenter status reminders', () => {
                 rejectLabel: 'Reject',
             },
         });
+    });
+
+    it('keeps command previews visible when approval reasons are long', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'waiting_approval',
+                pendingToolApproval: {
+                    callId: 'call-1a',
+                    messageId: 'assistant-1a',
+                    title: 'Need approval',
+                    description: 'Run deployment',
+                    command: 'npm run deploy -- --env prod',
+                    riskLabel: 'High risk',
+                    reason: 'Deploy production build after validating migrations, smoke tests, asset upload checks, rollout annotations, and environment-specific configuration values for the release candidate branch.',
+                    approveLabel: 'Approve',
+                    rejectLabel: 'Reject',
+                    enterHint: 'Enter to approve',
+                    escHint: 'Esc to reject',
+                    keyboardApproveAt: 1,
+                },
+            })
+        );
+
+        expect(reminder?.body).toContain('Command: npm run deploy -- --env prod');
+        expect(reminder?.body?.length).toBeLessThanOrEqual(220);
     });
 
     it('keeps bracketed log prefixes that are not markdown reference links', () => {

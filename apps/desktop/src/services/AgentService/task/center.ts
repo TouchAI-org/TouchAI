@@ -79,6 +79,52 @@ type ReminderMarkdownLinkToken = ReminderMarkdownBaseToken & {
     text?: string;
 };
 type ReminderMarkdownToken = ReminderMarkdownBaseToken | ReminderMarkdownLinkToken;
+type ReminderInlineHtmlTag = {
+    hasAttributes: boolean;
+    isClosing: boolean;
+    isSelfClosing: boolean;
+    tagName: string;
+};
+
+const REMINDER_INLINE_LINE_BREAK_HTML_TAGS = new Set(['br', 'hr']);
+const REMINDER_STRIPPABLE_INLINE_HTML_TAGS = new Set([
+    'a',
+    'abbr',
+    'b',
+    'bdi',
+    'bdo',
+    'cite',
+    'code',
+    'data',
+    'del',
+    'dfn',
+    'div',
+    'em',
+    'i',
+    'ins',
+    'kbd',
+    'li',
+    'mark',
+    'p',
+    'pre',
+    'q',
+    'rp',
+    'rt',
+    'ruby',
+    's',
+    'samp',
+    'small',
+    'span',
+    'strong',
+    'sub',
+    'sup',
+    'time',
+    'u',
+    'ul',
+    'ol',
+    'var',
+    'wbr',
+]);
 
 const reminderMarkdownParser = getMarkdown('touchai-reminder-markdown', {
     enableContainers: false,
@@ -180,18 +226,9 @@ function protectPathLikeMarkdownToken(token: string): string {
     return token.replace(/([\\`*_])/g, '\\$1');
 }
 
-/** Protect path-like fragments before parsing so later markdown cleanup does not corrupt them. */
-function protectReminderPathLikeTokens(value: string): string {
-    return value.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, protectPathLikeMarkdownToken);
-}
-
 /** Normalize reminder input before markdown parsing and protect path and glob syntax. */
-function prepareReminderMarkdownSource(value: string, mode: ReminderTextMode): string {
+function prepareReminderMarkdownSource(value: string): string {
     const normalized = value.replace(/\r\n?/g, '\n');
-    if (mode === 'command') {
-        return protectReminderPathLikeTokens(normalized);
-    }
-
     const protectedPaths: string[] = [];
     const withPlaceholders = normalized.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, (token) => {
         if (!isReminderPathLikeToken(token)) {
@@ -209,7 +246,7 @@ function prepareReminderMarkdownSource(value: string, mode: ReminderTextMode): s
     );
 }
 
-/** Reduce inline or block HTML to plain text for notification-safe summaries. */
+/** Reduce block HTML to plain text for notification-safe summaries. */
 function stripHtmlToText(value: string): string {
     if (!value) {
         return '';
@@ -224,6 +261,118 @@ function stripHtmlToText(value: string): string {
     }
 
     return value.replace(/<[^>]+>/g, ' ');
+}
+
+function parseReminderInlineHtmlTag(value: string): ReminderInlineHtmlTag | null {
+    const match = value.match(/^<\s*(\/)?\s*([A-Za-z][A-Za-z0-9:-]*)([\s\S]*?)>$/);
+    if (!match) {
+        return null;
+    }
+
+    const suffix = match[3] ?? '';
+    const normalizedSuffix = suffix.replace(/\/\s*$/, '');
+    return {
+        hasAttributes: /\S/.test(normalizedSuffix),
+        isClosing: Boolean(match[1]),
+        isSelfClosing: /\/\s*$/.test(suffix),
+        tagName: match[2]?.toLowerCase() ?? '',
+    };
+}
+
+function hasMatchingReminderInlineClosingTag(
+    tokens: ReminderMarkdownToken[],
+    startIndex: number,
+    tagName: string
+): boolean {
+    let depth = 0;
+    for (let index = startIndex + 1; index < tokens.length; index += 1) {
+        const token = tokens[index];
+        if (token?.type !== 'html_inline') {
+            continue;
+        }
+
+        const parsedTag = parseReminderInlineHtmlTag(token.content ?? '');
+        if (!parsedTag || parsedTag.tagName !== tagName) {
+            continue;
+        }
+
+        if (!parsedTag.isClosing) {
+            depth += 1;
+            continue;
+        }
+
+        if (depth === 0) {
+            return true;
+        }
+
+        depth -= 1;
+    }
+
+    return false;
+}
+
+function normalizeReminderFallbackHtml(value: string): string {
+    let normalized = value
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<hr\s*\/?>/gi, '\n')
+        .replace(/<wbr\s*\/?>/gi, '');
+
+    for (const tagName of REMINDER_STRIPPABLE_INLINE_HTML_TAGS) {
+        if (REMINDER_INLINE_LINE_BREAK_HTML_TAGS.has(tagName)) {
+            continue;
+        }
+
+        normalized = normalized.replace(new RegExp(`</?${tagName}\\b[^>]*>`, 'gi'), '');
+    }
+
+    return normalized;
+}
+
+function normalizeReminderInlineHtmlToken(
+    tokenContent: string,
+    tokens: ReminderMarkdownToken[],
+    index: number,
+    openTags: Map<string, number>
+): string {
+    const parsedTag = parseReminderInlineHtmlTag(tokenContent);
+    if (!parsedTag) {
+        return tokenContent;
+    }
+
+    if (REMINDER_INLINE_LINE_BREAK_HTML_TAGS.has(parsedTag.tagName)) {
+        return '\n';
+    }
+
+    const shouldStripTag =
+        REMINDER_STRIPPABLE_INLINE_HTML_TAGS.has(parsedTag.tagName) || parsedTag.hasAttributes;
+    if (!shouldStripTag) {
+        return tokenContent;
+    }
+
+    if (parsedTag.isClosing) {
+        const openCount = openTags.get(parsedTag.tagName) ?? 0;
+        if (openCount <= 0) {
+            return tokenContent;
+        }
+
+        if (openCount === 1) {
+            openTags.delete(parsedTag.tagName);
+        } else {
+            openTags.set(parsedTag.tagName, openCount - 1);
+        }
+        return '';
+    }
+
+    if (parsedTag.isSelfClosing) {
+        return '';
+    }
+
+    if (!hasMatchingReminderInlineClosingTag(tokens, index, parsedTag.tagName)) {
+        return tokenContent;
+    }
+
+    openTags.set(parsedTag.tagName, (openTags.get(parsedTag.tagName) ?? 0) + 1);
+    return '';
 }
 
 /** Keep command previews copyable by converting typographic quotes back to ASCII. */
@@ -256,7 +405,13 @@ function extractReminderInlineText(
     }
 
     let text = '';
-    for (const token of tokens) {
+    const openInlineHtmlTags = new Map<string, number>();
+    for (let index = 0; index < tokens.length; index += 1) {
+        const token = tokens[index];
+        if (!token) {
+            continue;
+        }
+
         switch (token.type) {
             case 'text':
             case 'code_inline':
@@ -267,7 +422,12 @@ function extractReminderInlineText(
                 text += '\n';
                 break;
             case 'html_inline':
-                text += stripHtmlToText(token.content ?? '');
+                text += normalizeReminderInlineHtmlToken(
+                    token.content ?? '',
+                    tokens,
+                    index,
+                    openInlineHtmlTags
+                );
                 break;
             case 'link':
                 text += extractReminderInlineText(
@@ -306,22 +466,20 @@ function pushReminderClauses(target: string[], value: string): void {
     }
 }
 
-/** Provide a plain-text fallback when markdown tokenization fails. */
-function fallbackReminderClauses(value: string, mode: ReminderTextMode): string[] {
+/** Provide a conservative fallback when markdown tokenization fails. */
+function fallbackReminderClauses(value: string): string[] {
     const clauses: string[] = [];
-    const fallbackText =
-        mode === 'command' ? normalizeCommandTypography(value) : stripHtmlToText(value);
+    const fallbackText = normalizeReminderFallbackHtml(value);
     pushReminderClauses(clauses, fallbackText);
-    if (mode === 'summary') {
-        return clauses.slice(0, STATUS_REMINDER_MAX_SUMMARY_LINES);
-    }
-
     return clauses;
 }
 
 /** Parse reminder markdown into plain-text clauses, including tables and code blocks. */
-function collectReminderClauses(value: string, mode: ReminderTextMode): string[] {
-    const source = prepareReminderMarkdownSource(value, mode);
+function collectReminderClauses(
+    value: string,
+    mode: Extract<ReminderTextMode, 'natural' | 'summary'>
+): string[] {
+    const source = prepareReminderMarkdownSource(value);
     if (!source.trim()) {
         return [];
     }
@@ -360,28 +518,20 @@ function collectReminderClauses(value: string, mode: ReminderTextMode): string[]
                         break;
                     }
 
-                    const normalizedText =
-                        mode === 'command' ? normalizeCommandTypography(text) : text;
-
                     if (insideTableCell && currentTableRow) {
-                        const cell = collapseWhitespace(normalizedText);
+                        const cell = collapseWhitespace(text);
                         if (cell) {
                             currentTableRow.push(cell);
                         }
                         break;
                     }
 
-                    pushReminderClauses(clauses, normalizedText);
+                    pushReminderClauses(clauses, text);
                     break;
                 }
                 case 'fence':
                 case 'code_block':
-                    pushReminderClauses(
-                        clauses,
-                        mode === 'command'
-                            ? normalizeCommandTypography(token.content ?? '')
-                            : (token.content ?? '')
-                    );
+                    pushReminderClauses(clauses, token.content ?? '');
                     break;
                 case 'html_block':
                     pushReminderClauses(clauses, stripHtmlToText(token.content ?? ''));
@@ -397,7 +547,8 @@ function collectReminderClauses(value: string, mode: ReminderTextMode): string[]
 
         return clauses;
     } catch {
-        return fallbackReminderClauses(source, mode);
+        const clauses = fallbackReminderClauses(source);
+        return mode === 'summary' ? clauses.slice(0, STATUS_REMINDER_MAX_SUMMARY_LINES) : clauses;
     }
 }
 
@@ -546,10 +697,15 @@ function buildWaitingApprovalBody(approval: PendingToolApproval): string {
         return summary;
     }
 
-    return truncateNotificationText(
-        appendReminderClause(summary, formatReminderLabelValue(tt('命令'), commandPreview)),
-        STATUS_REMINDER_MAX_BODY_CHARS
-    );
+    const commandClause = formatReminderLabelValue(tt('命令'), commandPreview);
+    const reservedSuffixBudget = getReminderSentenceSeparator().length + commandClause.length;
+    const remainingSummaryBudget = STATUS_REMINDER_MAX_BODY_CHARS - reservedSuffixBudget;
+    if (remainingSummaryBudget <= 0) {
+        return truncateNotificationText(commandClause, STATUS_REMINDER_MAX_BODY_CHARS);
+    }
+
+    const summaryPreview = truncateNotificationText(summary, remainingSummaryBudget);
+    return appendReminderClause(summaryPreview, commandClause);
 }
 
 function buildWaitingUserQuestionBody(
