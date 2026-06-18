@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setLocale } from '@/i18n';
+import * as i18n from '@/i18n';
 import { buildSessionStatusReminder } from '@/services/AgentService/task/center';
 import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
 
@@ -29,7 +29,30 @@ function createSnapshot(overrides: Partial<SessionTaskSnapshot> = {}): SessionTa
 
 describe('SessionTaskCenter status reminders', () => {
     beforeEach(() => {
-        setLocale('en-US');
+        vi.restoreAllMocks();
+        i18n.setLocale('en-US');
+    });
+
+    it('treats non-US english locales as english for reminder separators', () => {
+        vi.spyOn(i18n, 'getLocale').mockReturnValue('en-GB');
+
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'completed',
+                sessionHistory: [
+                    {
+                        id: 'assistant-en-gb',
+                        role: 'assistant',
+                        content:
+                            '| Step | Result |\n| --- | --- |\n| lint | passed |\n| test | passed |',
+                        parts: [],
+                        timestamp: 1,
+                    },
+                ],
+            })
+        );
+
+        expect(reminder?.body).toBe('Step, Result: lint, passed; test, passed');
     });
 
     it('creates an open reminder when a background task waits for a user question', () => {
@@ -191,7 +214,7 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'waiting_approval',
             title: 'Pending',
-            body: 'Deploy production build. Command: ```bash npm run deploy -- --env prod ```',
+            body: 'Deploy production build. Command: npm run deploy -- --env prod',
             approval: {
                 callId: 'call-1',
                 approveLabel: 'Approve',
