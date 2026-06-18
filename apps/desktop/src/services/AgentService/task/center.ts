@@ -3,9 +3,13 @@
 import { tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
-import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import {
+    buildWaitingApprovalBody,
+    buildWaitingUserQuestionBody,
+    summarizeLatestAssistantResponse,
+    summarizeNotificationText,
+} from '@/utils/reminderText';
 import { getSessionStatusReminderContent } from '@/utils/session';
-import { collapseWhitespace } from '@/utils/text';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import type { ConversationRuntimeEnvironment, TurnEvent } from '../execution';
@@ -39,10 +43,6 @@ interface MutableSessionTask {
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
-const STATUS_REMINDER_MAX_BODY_CHARS = 220;
-const STATUS_REMINDER_MAX_COMMAND_CHARS = 160;
-
-/** 深拷贝任务快照，确保外部订阅者无法直接修改内部状态。 */
 function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
     return cloneTaskValue(snapshot);
 }
@@ -69,74 +69,6 @@ function isTerminalStatus(status: SessionTaskSnapshot['status']): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
-/** 将文本截断到指定字符数，超出部分以省略号结尾。 */
-function truncateReminderText(value: string, maxChars: number): string {
-    if (value.length <= maxChars) {
-        return value;
-    }
-
-    return `${value.slice(0, maxChars - 1).trimEnd()}…`;
-}
-
-/** 规范化空白并截断文本，空字符串返回 null。 */
-function summarizeReminderText(
-    value: string | null | undefined,
-    maxChars = STATUS_REMINDER_MAX_BODY_CHARS
-) {
-    const normalized = collapseWhitespace(value ?? '');
-    if (!normalized) {
-        return null;
-    }
-
-    return truncateReminderText(normalized, maxChars);
-}
-
-/** 从会话历史中提取最后一条 assistant 消息的摘要。 */
-function summarizeLatestAssistantResponse(history: SessionMessage[]): string | null {
-    for (let index = history.length - 1; index >= 0; index -= 1) {
-        const message = history[index];
-        if (message?.role !== 'assistant') {
-            continue;
-        }
-
-        const summary = summarizeReminderText(message.content);
-        if (summary) {
-            return summary;
-        }
-    }
-
-    return null;
-}
-
-/** 为等待审批状态构建通知正文，包含摘要和命令预览。 */
-function buildWaitingApprovalBody(approval: PendingToolApproval): string {
-    const summary =
-        summarizeReminderText(approval.reason) ??
-        summarizeReminderText(approval.description) ??
-        summarizeReminderText(approval.title) ??
-        getSessionStatusReminderContent('waiting_approval');
-    const commandPreview = summarizeReminderText(
-        approval.command,
-        STATUS_REMINDER_MAX_COMMAND_CHARS
-    );
-
-    if (!commandPreview || commandPreview === summary) {
-        return summary;
-    }
-
-    return `${summary}\n${commandPreview}`;
-}
-
-function buildWaitingUserQuestionBody(
-    question: NonNullable<SessionTaskSnapshot['pendingUserQuestion']>
-): string {
-    return summarizeReminderText(question.questions[0]?.question) ?? tt('任务正在等待用户回复');
-}
-
-/**
- * 根据任务快照构建状态提醒负载。
- * 仅在 completed、failed、waiting_approval 三种状态下生成提醒，其余返回 null。
- */
 export function buildSessionStatusReminder(
     snapshot: SessionTaskSnapshot
 ): SessionStatusReminderPayload | null {
@@ -158,7 +90,7 @@ export function buildSessionStatusReminder(
             kind: 'failed',
             title: tt('任务失败'),
             body:
-                summarizeReminderText(snapshot.error) ??
+                summarizeNotificationText(snapshot.error) ??
                 summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
                 getSessionStatusReminderContent('failed'),
             approval: null,
