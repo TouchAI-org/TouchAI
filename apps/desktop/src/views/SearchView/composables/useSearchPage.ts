@@ -4,7 +4,10 @@
  */
 import { useAlert } from '@composables/useAlert';
 import { AppEvent, eventService } from '@services/EventService';
-import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
+import type {
+    SearchSurfaceCommandEvent,
+    SessionStatusReminderActionEvent,
+} from '@services/EventService/types';
 import { native } from '@services/NativeService';
 import { initNotificationPermission, notify } from '@services/NotificationService';
 import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
@@ -13,9 +16,15 @@ import { runStartupTasks } from '@services/StartupService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
+import {
+    SEARCH_KEYBINDING_DEFINITIONS,
+    type SearchKeybindingActionId,
+    type SearchKeybindings,
+} from '@/config/searchKeybindings';
 import { type MessageKey, type MessageParams, t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { isE2eTestMode } from '@/utils/runtimeMode';
+import { normalizeLocalShortcutString } from '@/utils/shortcuts';
 
 import type {
     ConversationPanelHandle,
@@ -33,6 +42,35 @@ import { createSessionStatusReminderCoordinator } from './sessionStatusReminder'
 import { useModelDropdownPopup } from './useModelDropdownPopup';
 
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
+
+interface SearchSurfaceShortcutSyncContext {
+    quickSearchOpen: boolean;
+}
+
+function shouldSyncSearchSurfaceShortcutToNative(
+    actionId: SearchKeybindingActionId,
+    context: SearchSurfaceShortcutSyncContext
+) {
+    if (actionId === 'search.quickSearch.toggleView') {
+        return context.quickSearchOpen;
+    }
+
+    return true;
+}
+
+function buildSearchSurfaceShortcutEntries(
+    searchKeybindings: SearchKeybindings,
+    context: SearchSurfaceShortcutSyncContext
+) {
+    return SEARCH_KEYBINDING_DEFINITIONS.flatMap((definition) => {
+        if (!shouldSyncSearchSurfaceShortcutToNative(definition.id, context)) {
+            return [];
+        }
+
+        const shortcut = normalizeLocalShortcutString(searchKeybindings[definition.id]);
+        return shortcut ? [{ actionId: definition.id, shortcut }] : [];
+    });
+}
 
 export function useSearchWindowPin() {
     const currentWindow = getCurrentWindow();
@@ -377,6 +415,7 @@ interface UseSearchPageLifecycleOptions {
     isDragging: Ref<boolean>;
     isPinned: Ref<boolean>;
     isMaximized?: Readonly<Ref<boolean>>;
+    searchKeybindings?: Readonly<Ref<SearchKeybindings>>;
     interactionContext: ReturnType<typeof createSearchInteractionContext>;
     syncWindowPinState: () => Promise<boolean>;
     clearSession: () => void | Promise<void>;
@@ -384,15 +423,12 @@ interface UseSearchPageLifecycleOptions {
     reconcilePopupSurfaces?: () => Promise<void>;
     remeasureSearchWindowHeight?: () => void | Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
-    handleSearchSurfaceCommand?: (payload: {
-        command: 'toggle-model-dropdown';
-        source: 'webview2-accelerator';
-    }) => void | Promise<void>;
     handleSessionStatusReminderAction?: (
         payload: SessionStatusReminderActionEvent
     ) => void | Promise<void>;
     handleAiModelsUpdated?: () => void | Promise<void>;
     handleShortcutAutoPaste?: () => void | Promise<void>;
+    handleSearchSurfaceCommand?: (payload: SearchSurfaceCommandEvent) => void | Promise<void>;
 }
 
 export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
@@ -402,6 +438,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         isDragging,
         isPinned,
         isMaximized,
+        searchKeybindings,
         interactionContext,
         syncWindowPinState,
         clearSession,
@@ -409,10 +446,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         reconcilePopupSurfaces,
         remeasureSearchWindowHeight,
         onSurfaceHidden,
-        handleSearchSurfaceCommand,
         handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste,
+        handleSearchSurfaceCommand,
     } = options;
 
     const settingsStore = useSettingsStore();
@@ -425,6 +462,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let unlistenSessionStatusReminderAction: (() => void) | null = null;
     let stopReadyWatch: (() => void) | null = null;
     let stopPinnedWatch: (() => void) | null = null;
+    let stopSearchSurfaceShortcutWatch: (() => void) | null = null;
     let lifecycleInitialized = false;
     let restoredActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
@@ -571,6 +609,22 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
     }
 
+    async function syncSearchSurfaceShortcutsSafely() {
+        if (!searchKeybindings) {
+            return;
+        }
+
+        try {
+            await native.shortcut.setSearchSurfaceShortcuts(
+                buildSearchSurfaceShortcutEntries(searchKeybindings.value, {
+                    quickSearchOpen: controller.isQuickSearchOpen(),
+                })
+            );
+        } catch (error) {
+            console.error('[SearchView] Failed to sync search surface shortcuts:', error);
+        }
+    }
+
     async function initializeSearchView() {
         try {
             await initializeGlobalShortcut();
@@ -617,10 +671,25 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
         await syncWindowPinStateSafely('initialize');
         await initFocusListener();
+        startSearchSurfaceShortcutSync();
         if (!(await isE2eTestMode())) {
             await initNotificationPermission();
         }
         await runStartupTasks();
+    }
+
+    function startSearchSurfaceShortcutSync() {
+        if (!searchKeybindings || stopSearchSurfaceShortcutWatch) {
+            return;
+        }
+
+        stopSearchSurfaceShortcutWatch = watch(
+            [searchKeybindings, () => controller.isQuickSearchOpen()],
+            () => {
+                void syncSearchSurfaceShortcutsSafely();
+            },
+            { deep: true, immediate: true, flush: 'post' }
+        );
     }
 
     async function initFocusListener() {
@@ -672,6 +741,20 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             }
         );
 
+        if (handleSearchSurfaceCommand) {
+            unlistenSearchSurfaceCommand = await eventService.on(
+                AppEvent.SEARCH_SURFACE_COMMAND,
+                (payload) => {
+                    void Promise.resolve(handleSearchSurfaceCommand(payload)).catch((error) => {
+                        console.error(
+                            '[SearchView] Failed to handle search surface command:',
+                            error
+                        );
+                    });
+                }
+            );
+        }
+
         unlistenSessionTaskStatusChanged = await eventService.on(
             AppEvent.SESSION_TASK_STATUS_CHANGED,
             sessionStatusReminderCoordinator.handleTaskStatusChanged
@@ -680,15 +763,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         unlistenSessionStatusReminderAction = await eventService.on(
             AppEvent.SESSION_STATUS_REMINDER_ACTION,
             sessionStatusReminderCoordinator.handleReminderAction
-        );
-
-        unlistenSearchSurfaceCommand = await eventService.on(
-            AppEvent.SEARCH_SURFACE_COMMAND,
-            async (payload) => {
-                await Promise.resolve(handleSearchSurfaceCommand?.(payload)).catch((error) => {
-                    console.error('[SearchView] Failed to handle search surface command:', error);
-                });
-            }
         );
     }
 
@@ -764,18 +838,20 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         stopReadyWatch = null;
         stopPinnedWatch?.();
         stopPinnedWatch = null;
+        stopSearchSurfaceShortcutWatch?.();
+        stopSearchSurfaceShortcutWatch = null;
         unlistenAiModelsUpdated?.();
         unlistenAiModelsUpdated = null;
         unlistenSearchSurfaceShown?.();
         unlistenSearchSurfaceShown = null;
         unlistenSearchSurfaceHidden?.();
         unlistenSearchSurfaceHidden = null;
+        unlistenSearchSurfaceCommand?.();
+        unlistenSearchSurfaceCommand = null;
         unlistenSessionTaskStatusChanged?.();
         unlistenSessionTaskStatusChanged = null;
         unlistenSessionStatusReminderAction?.();
         unlistenSessionStatusReminderAction = null;
-        unlistenSearchSurfaceCommand?.();
-        unlistenSearchSurfaceCommand = null;
     });
 
     return {
@@ -789,6 +865,7 @@ interface UseSearchModelDropdownCoordinatorOptions {
     modelOverride: Ref<SearchModelOverride>;
     modelDropdownState: Ref<SearchModelDropdownState>;
     modelDropdownQuery: Ref<string>;
+    getModelToggleShortcut?: () => string | null | undefined;
     requestModelDropdownOpen: () => SearchOverlayCommand;
     handleQuickSearchClosedForModelDropdown: () => SearchOverlayCommand;
     handleLayoutStableForModelDropdown: () => SearchOverlayCommand;
@@ -808,6 +885,7 @@ export function useSearchModelDropdownCoordinator(
         modelOverride,
         modelDropdownState,
         modelDropdownQuery,
+        getModelToggleShortcut,
         requestModelDropdownOpen,
         handleQuickSearchClosedForModelDropdown,
         handleLayoutStableForModelDropdown,
@@ -826,6 +904,7 @@ export function useSearchModelDropdownCoordinator(
             selectedModelId: context.selectedModelId ?? '',
             selectedProviderId: context.selectedProviderId,
             searchQuery: modelDropdownQuery.value,
+            toggleShortcut: getModelToggleShortcut?.() ?? null,
             models: filterModelDropdownItems(
                 context.models.filter((model) => model.provider_enabled === 1).map(mapPopupModel),
                 modelDropdownQuery.value
@@ -989,7 +1068,11 @@ export function useSearchModelDropdownCoordinator(
     }
 
     watch(
-        () => [modelDropdownState.value.isOpen, modelDropdownQuery.value],
+        () => [
+            modelDropdownState.value.isOpen,
+            modelDropdownQuery.value,
+            getModelToggleShortcut?.() ?? null,
+        ],
         ([isOpen]) => {
             if (!isOpen) {
                 return;
@@ -1070,4 +1153,8 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         document.removeEventListener('mousedown', handleSearchWindowMouseDown, true);
         document.body.removeEventListener('click', handleSearchWindowClick);
     });
+
+    return {
+        routeSearchSurfaceCommand: handleKeyDown.routeSearchSurfaceCommand,
+    };
 }

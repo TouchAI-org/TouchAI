@@ -40,6 +40,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         window::get_search_window_state,
         shortcut::register_global_shortcut,
         shortcut::get_shortcut_status,
+        shortcut::set_search_surface_shortcuts,
         clipboard::read_clipboard_payload,
         clipboard::consume_shortcut_auto_paste_payload,
         clipboard::write_clipboard_text,

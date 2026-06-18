@@ -3,10 +3,11 @@
  * 收口页面交互状态、QuickSearch / overlay 策略与键盘语义解释，
  * 避免页面编排层和输入层同时承载交互规则。
  */
-import { AppEvent, eventService } from '@services/EventService';
+import { AppEvent, eventService, type SearchSurfaceCommandEvent } from '@services/EventService';
 import type { PopupKeydownPayload } from '@services/PopupService';
 import { computed, type ComputedRef, reactive, type Ref, ref, watch } from 'vue';
 
+import type { SearchKeybindingActionId, SearchKeybindings } from '@/config/searchKeybindings';
 import { useAskUserStore } from '@/stores/askUser';
 import {
     cloneInputHistorySnapshot,
@@ -25,6 +26,7 @@ import type {
     SearchOverlayState,
     SearchPageController,
 } from '../types';
+import { createSearchKeyboardRouter as createConfigurableSearchKeyboardRouter } from './interaction/useSearchKeyboardRouter';
 
 export type SearchActivationSource = 'shortcut' | 'manual' | 'unknown';
 
@@ -97,70 +99,12 @@ interface SyncOverlayStateOptions {
     force?: boolean;
 }
 
-type SearchKeyboardSurface = 'search-surface' | SearchPopupSurfaceType;
-type SearchQuickSearchDirection = 'up' | 'down' | 'left' | 'right';
-type SearchPrimaryShortcutKey = 'h' | 'l' | 'n' | 'm' | 'p' | '.' | 'backspace';
 export type SessionInputHistoryDirection = 'older' | 'newer';
 export type SessionInputHistoryNavigationResult = 'navigated' | 'blocked' | 'ignored';
 
-interface PendingApprovalState {
-    callId?: string;
-    keyboardApproveAt: number;
-}
-
-interface SearchKeyboardRouteInput {
-    key: string;
-    shiftKey?: boolean;
-    ctrlKey?: boolean;
-    metaKey?: boolean;
-    altKey?: boolean;
-}
-
-interface CreateSearchKeyboardRouterOptions {
-    getPendingApproval: () => PendingApprovalState | null;
-    getActiveSurface: () => SearchKeyboardSurface;
-    hasActivePopupWindowFocus: () => boolean;
-    getQueryText: () => string;
-    hasAttachments: () => boolean;
-    isQuickSearchOpen: () => boolean;
-    hasQuickSearchHighlight: () => boolean;
-    shouldTriggerQuickSearch: (query: string) => boolean;
-    isMultiLineCursor: () => boolean;
-    isCursorAtStart: () => boolean;
-    isCursorAtTextStart: () => boolean;
-    isCursorAtEnd: () => boolean;
-    hasModelOverride: () => boolean;
-    getSessionHistoryCount: () => number;
-    isLoading: () => boolean;
-    onPromptApprovalAttention: () => void;
-    onRejectApproval: (callId?: string) => void;
-    onApproveApproval: (callId?: string) => void;
-    onForwardToPopup: (key: string) => void;
-    onSubmit: () => void | Promise<void>;
-    onOpenQuickSearch: () => void;
-    onMoveQuickSearchSelection: (direction: SearchQuickSearchDirection) => void;
-    onOpenHighlightedQuickSearchItem: () => void | Promise<void>;
-    onCloseQuickSearch: () => void;
-    onQuickSearchPageUp: () => void;
-    onQuickSearchPageDown: () => void;
-    onQuickSearchContextMenu: () => void;
-    onQuickSearchToggleView: () => void;
-    onQuickSearchCollapse: () => void;
-    onNavigateInputHistory: (
-        direction: SessionInputHistoryDirection
-    ) => SessionInputHistoryNavigationResult;
-    onHideAllPopups: () => void | Promise<void>;
-    onCancelRequest: () => void;
-    onClearModelOverride: () => void;
-    onHideWindow: () => void | Promise<void>;
-    onClearSession: () => void;
-    onClearDraft: () => void;
-    onClearAll: () => void;
-    onPrimaryShortcut: (key: SearchPrimaryShortcutKey) => void | Promise<void>;
-}
-
 export interface UseSearchKeyboardOptions {
     viewReady: Ref<boolean>;
+    searchKeybindings: Readonly<Ref<SearchKeybindings>>;
     queryText: Ref<string>;
     attachments: Ref<unknown[]>;
     cursorContext: Ref<SearchCursorContext>;
@@ -189,15 +133,19 @@ export interface UseSearchKeyboardOptions {
     toggleModelDropdown: () => Promise<void>;
     openHistoryDialog: () => Promise<void>;
     startNewSession: () => Promise<void>;
+    reopenLastClosedSession: () => Promise<void>;
     toggleWindowPin: () => Promise<void>;
     toggleWindowMaximize: () => Promise<void>;
+    openSettingsWindow: () => Promise<void>;
+    handleSearchKeybindingAction?: (actionId: SearchKeybindingActionId) => void | Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
-    clearAll: () => void;
     cancelRequest: () => void;
     clearSession: () => void;
 }
 
-const DOUBLE_BACKSPACE_INTERVAL = 300;
+export type SearchKeydownHandler = ((event: KeyboardEvent) => Promise<void>) & {
+    routeSearchSurfaceCommand: (payload: SearchSurfaceCommandEvent) => boolean;
+};
 
 function createEmptyModelOverride(): SearchModelOverride {
     return {
@@ -698,288 +646,14 @@ export function useSearchOverlayMachine(options: UseSearchOverlayMachineOptions)
 }
 
 /**
- * 在同步键盘路由中启动可能异步的副作用。
- */
-function runKeyboardEffect(effect: () => void | Promise<void>) {
-    void Promise.resolve(effect()).catch((error) => {
-        console.error('[SearchKeyboardRouter] Failed to handle keyboard effect:', error);
-    });
-}
-
-/**
- * 判断审批态下是否属于“误输入”。
- */
-function isTypingAttemptDuringApproval(input: SearchKeyboardRouteInput) {
-    if (input.ctrlKey || input.metaKey || input.altKey) {
-        return false;
-    }
-
-    return input.key.length === 1 || input.key === 'Backspace' || input.key === 'Delete';
-}
-
-/**
- * 判断是否命中 Ctrl/Cmd 主修饰键快捷键。
- */
-function resolvePrimaryShortcutKey(
-    input: SearchKeyboardRouteInput,
-    queryText: string,
-    isLoading: boolean
-): SearchPrimaryShortcutKey | null {
-    const hasPrimaryModifier = input.ctrlKey || input.metaKey;
-    if (!hasPrimaryModifier || input.altKey || input.shiftKey) {
-        return null;
-    }
-
-    const normalizedKey = input.key.toLowerCase();
-    if (normalizedKey === '.') {
-        return isLoading ? '.' : null;
-    }
-
-    if (normalizedKey === 'backspace') {
-        return queryText.trim() ? 'backspace' : null;
-    }
-
-    if (['h', 'l', 'n', 'm', 'p'].includes(normalizedKey)) {
-        return normalizedKey as SearchPrimaryShortcutKey;
-    }
-
-    return null;
-}
-
-/**
- * 纯键盘语义路由器。
- */
-export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOptions) {
-    const {
-        getPendingApproval,
-        getActiveSurface,
-        hasActivePopupWindowFocus,
-        getQueryText,
-        hasAttachments,
-        isQuickSearchOpen,
-        hasQuickSearchHighlight,
-        shouldTriggerQuickSearch,
-        isMultiLineCursor,
-        isCursorAtTextStart,
-        isCursorAtEnd,
-        hasModelOverride,
-        getSessionHistoryCount,
-        isLoading,
-        onPromptApprovalAttention,
-        onRejectApproval,
-        onApproveApproval,
-        onForwardToPopup,
-        onSubmit,
-        onOpenQuickSearch,
-        onMoveQuickSearchSelection,
-        onOpenHighlightedQuickSearchItem,
-        onCloseQuickSearch,
-        onQuickSearchPageUp,
-        onQuickSearchPageDown,
-        onQuickSearchContextMenu,
-        onQuickSearchToggleView,
-        onQuickSearchCollapse,
-        onNavigateInputHistory,
-        onHideAllPopups,
-        onCancelRequest,
-        onClearModelOverride,
-        onHideWindow,
-        onClearSession,
-        onClearDraft,
-        onPrimaryShortcut,
-    } = options;
-
-    function route(input: SearchKeyboardRouteInput) {
-        const queryText = getQueryText();
-        const pendingApproval = getPendingApproval();
-        if (pendingApproval) {
-            if (input.key === 'Escape' || input.key === 'Esc') {
-                onRejectApproval(pendingApproval.callId);
-                return true;
-            }
-
-            if (input.key === 'Enter') {
-                if (!input.shiftKey && Date.now() >= pendingApproval.keyboardApproveAt) {
-                    onApproveApproval(pendingApproval.callId);
-                } else {
-                    onPromptApprovalAttention();
-                }
-                return true;
-            }
-
-            if (isTypingAttemptDuringApproval(input)) {
-                onPromptApprovalAttention();
-                return true;
-            }
-        }
-
-        const primaryShortcut = resolvePrimaryShortcutKey(input, queryText, isLoading());
-        if (primaryShortcut) {
-            runKeyboardEffect(() => onPrimaryShortcut(primaryShortcut));
-            return true;
-        }
-
-        if (hasActivePopupWindowFocus()) {
-            return true;
-        }
-
-        if (input.key === 'Escape' || input.key === 'Esc') {
-            // 快速搜索有高亮时，Escape 只收缩面板、清除高亮，不走清空输入链路。
-            if (isQuickSearchOpen() && hasQuickSearchHighlight()) {
-                onQuickSearchCollapse();
-                return true;
-            }
-
-            if (getActiveSurface() !== 'search-surface') {
-                runKeyboardEffect(onHideAllPopups);
-                return true;
-            }
-
-            if (isLoading()) {
-                onCancelRequest();
-                return true;
-            }
-
-            // Step 1: Clear input text first without exiting the current conversation
-            if (queryText.trim()) {
-                onClearDraft();
-                return true;
-            }
-
-            // Step 2: Clear model selection
-            if (hasModelOverride()) {
-                onClearModelOverride();
-                return true;
-            }
-
-            // Step 3: Exit conversation if session exists
-            if (getSessionHistoryCount() > 0) {
-                onClearSession();
-                return true;
-            }
-
-            // Step 4: Hide window if no session
-            runKeyboardEffect(onHideWindow);
-            return true;
-        }
-
-        if (
-            getActiveSurface() === 'model-dropdown-surface' &&
-            ['ArrowUp', 'ArrowDown', 'Enter'].includes(input.key)
-        ) {
-            onForwardToPopup(input.key);
-            return true;
-        }
-
-        if (isQuickSearchOpen()) {
-            // PageUp/PageDown 翻页
-            if (input.key === 'PageUp') {
-                onQuickSearchPageUp();
-                return true;
-            }
-            if (input.key === 'PageDown') {
-                onQuickSearchPageDown();
-                return true;
-            }
-
-            // Menu 键或 Shift+F10 打开右键菜单
-            if (input.key === 'ContextMenu' || (input.key === 'F10' && input.shiftKey)) {
-                onQuickSearchContextMenu();
-                return true;
-            }
-
-            // Ctrl+G 切换网格/列表视图
-            if (input.key === 'g' && (input.ctrlKey || input.metaKey)) {
-                onQuickSearchToggleView();
-                return true;
-            }
-
-            if (hasQuickSearchHighlight()) {
-                const directionMap: Partial<Record<string, SearchQuickSearchDirection>> = {
-                    ArrowUp: 'up',
-                    ArrowDown: 'down',
-                    ArrowLeft: 'left',
-                    ArrowRight: 'right',
-                };
-                const direction = directionMap[input.key];
-                if (direction) {
-                    onMoveQuickSearchSelection(direction);
-                    return true;
-                }
-
-                if (input.key === 'Enter') {
-                    runKeyboardEffect(onOpenHighlightedQuickSearchItem);
-                    return true;
-                }
-            } else {
-                if (input.key === 'ArrowDown') {
-                    onMoveQuickSearchSelection('down');
-                    return true;
-                }
-
-                if (input.key === 'Enter' && !input.shiftKey) {
-                    onCloseQuickSearch();
-                    if (queryText.trim()) {
-                        runKeyboardEffect(onSubmit);
-                    }
-                    return true;
-                }
-            }
-        }
-
-        if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
-            if (input.key === 'ArrowUp') {
-                if (isMultiLineCursor() && !isCursorAtTextStart()) {
-                    return false;
-                }
-
-                return onNavigateInputHistory('older') !== 'ignored';
-            }
-
-            if (input.key === 'ArrowDown') {
-                if (isMultiLineCursor() && !isCursorAtEnd()) {
-                    return false;
-                }
-
-                if (onNavigateInputHistory('newer') === 'navigated') {
-                    return true;
-                }
-
-                if (!shouldTriggerQuickSearch(queryText)) {
-                    return false;
-                }
-
-                if (queryText.trim() || hasAttachments()) {
-                    runKeyboardEffect(onSubmit);
-                    return true;
-                }
-
-                onOpenQuickSearch();
-                return true;
-            }
-        }
-
-        if (getActiveSurface() === 'search-surface' && input.key === 'Enter' && !input.shiftKey) {
-            if (queryText.trim() || hasAttachments()) {
-                runKeyboardEffect(onSubmit);
-            }
-            return true;
-        }
-
-        return false;
-    }
-
-    return {
-        route,
-    };
-}
-
-/**
  * 创建 SearchView 页面级键盘处理器。
  */
-export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
+export function createSearchKeydownHandler(
+    options: UseSearchKeyboardOptions
+): SearchKeydownHandler {
     const {
         viewReady,
+        searchKeybindings,
         queryText,
         attachments,
         cursorContext,
@@ -987,8 +661,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         modelDropdownState,
         controller,
         sessionHistory,
-        pendingRequest,
-        isWaitingForCompletion,
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
@@ -1006,16 +678,18 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         toggleModelDropdown,
         openHistoryDialog,
         startNewSession,
+        reopenLastClosedSession,
         toggleWindowPin,
         toggleWindowMaximize,
+        openSettingsWindow,
+        handleSearchKeybindingAction,
         handleSubmit,
-        clearAll,
         cancelRequest,
         clearSession,
     } = options;
 
-    let lastBackspaceTime = 0;
-    const keyboardRouter = createSearchKeyboardRouter({
+    const keyboardRouter = createConfigurableSearchKeyboardRouter({
+        getSearchKeybindings: () => searchKeybindings.value,
         getPendingApproval: () =>
             pendingToolApproval.value
                 ? {
@@ -1043,7 +717,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         hasQuickSearchHighlight: () => controller.isQuickSearchItemHighlighted(),
         shouldTriggerQuickSearch,
         isMultiLineCursor: () => cursorContext.value.isMultiLine,
-        isCursorAtStart: () => cursorContext.value.cursorAtStart,
         isCursorAtTextStart: () => cursorContext.value.cursorAtTextStart,
         isCursorAtEnd: () => cursorContext.value.cursorAtEnd,
         hasModelOverride: () => Boolean(modelOverride.value.modelId),
@@ -1083,9 +756,6 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         onQuickSearchContextMenu: () => {
             controller.openQuickSearchContextMenu();
         },
-        onQuickSearchToggleView: () => {
-            controller.toggleQuickSearchView();
-        },
         onQuickSearchCollapse: () => {
             controller.collapseQuickSearch();
         },
@@ -1110,50 +780,76 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
         onClearDraft: () => {
             queryText.value = '';
         },
-        onClearAll: () => {
-            clearAll();
-        },
-        onPrimaryShortcut: async (key) => {
-            if (key === 'h') {
-                await openHistoryDialog();
+        onSearchKeybindingAction: async (actionId) => {
+            if (handleSearchKeybindingAction) {
+                await handleSearchKeybindingAction(actionId);
                 return;
             }
 
-            if (key === 'l') {
-                await hideAllPopups();
-                await controller.focusSearchInput();
-                return;
-            }
-
-            if (key === 'n') {
-                if (sessionHistory.value.length > 0) {
-                    await startNewSession();
+            switch (actionId) {
+                case 'search.history.open':
+                    await openHistoryDialog();
+                    return;
+                case 'search.input.focus':
+                    await hideAllPopups();
+                    await controller.focusSearchInput();
+                    return;
+                case 'search.session.new':
+                    if (sessionHistory.value.length > 0) {
+                        await startNewSession();
+                    }
+                    return;
+                case 'search.session.reopenLastClosed':
+                    await reopenLastClosedSession();
+                    return;
+                case 'search.model.toggle':
+                    await toggleModelDropdown();
+                    return;
+                case 'search.quickSearch.toggleView':
+                    if (isQuickSearchOpen.value) {
+                        controller.toggleQuickSearchView();
+                    }
+                    return;
+                case 'search.window.pin':
+                    await toggleWindowPin();
+                    return;
+                case 'search.window.maximize':
+                    await toggleWindowMaximize();
+                    return;
+                case 'search.settings.open':
+                    await openSettingsWindow();
+                    return;
+                default: {
+                    const exhaustiveActionId: never = actionId;
+                    throw new Error(`Unhandled search keybinding action: ${exhaustiveActionId}`);
                 }
-                return;
             }
-
-            if (key === 'm') {
-                await toggleModelDropdown();
-                return;
-            }
-
-            if (key === 'p') {
-                await toggleWindowPin();
-                return;
-            }
-
-            if (key === '.') {
-                cancelRequest();
-                return;
-            }
-
-            clearAll();
         },
     });
 
     const askUserStore = useAskUserStore();
 
-    return async function handleKeyDown(event: KeyboardEvent) {
+    function shouldSkipSearchKeyboardRouting() {
+        if (!viewReady.value) {
+            return true;
+        }
+
+        if (askUserStore.current) {
+            return true;
+        }
+
+        return controller.isQuickSearchContextMenuOpen();
+    }
+
+    function routeSearchSurfaceCommand(payload: SearchSurfaceCommandEvent) {
+        if (shouldSkipSearchKeyboardRouting()) {
+            return false;
+        }
+
+        return keyboardRouter.routeCommand(payload.actionId, payload.shortcut);
+    }
+
+    async function handleKeyDown(event: KeyboardEvent) {
         if (!viewReady.value) {
             return;
         }
@@ -1178,15 +874,9 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
             return;
         }
 
-        if (event.key === 'F11') {
-            event.preventDefault();
-            event.stopPropagation();
-            await toggleWindowMaximize();
-            return;
-        }
-
         const handledByRouter = keyboardRouter.route({
             key: event.key,
+            code: event.code,
             shiftKey: event.shiftKey,
             ctrlKey: event.ctrlKey,
             metaKey: event.metaKey,
@@ -1210,24 +900,14 @@ export function createSearchKeydownHandler(options: UseSearchKeyboardOptions) {
                 return;
             }
 
-            if (pendingRequest.value) {
-                const now = Date.now();
-                const timeSinceLastBackspace = now - lastBackspaceTime;
-                lastBackspaceTime = now;
-
-                if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL) {
-                    event.preventDefault();
-                    pendingRequest.value = null;
-                    isWaitingForCompletion.value = false;
-                    lastBackspaceTime = 0;
-                }
-                return;
-            }
-
             if (modelOverride.value.modelId && cursorContext.value.cursorAtStart) {
                 event.preventDefault();
                 modelOverride.value = createEmptyModelOverride();
             }
         }
-    };
+    }
+
+    return Object.assign(handleKeyDown, {
+        routeSearchSurfaceCommand,
+    });
 }

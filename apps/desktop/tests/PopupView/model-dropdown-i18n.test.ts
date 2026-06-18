@@ -126,4 +126,54 @@ describe('ModelDropdownPopup i18n', () => {
         expect(normalizedText).toContain('Configure models in Settings first');
         expect(normalizedText).not.toContain('Configure models inSettingsfirst');
     });
+
+    it('uses the configured toggle shortcut and ignores the old default', () => {
+        const wrapper = mount(ModelDropdownPopup, {
+            props: {
+                data: {
+                    activeModelId: '',
+                    activeProviderId: null,
+                    selectedModelId: '',
+                    selectedProviderId: null,
+                    searchQuery: '',
+                    toggleShortcut: 'Alt+M',
+                    models: [],
+                },
+                isInPopup: true,
+            },
+        });
+        const handleKeyDown = (
+            wrapper.vm as unknown as { handleKeyDown: (event: KeyboardEvent) => void }
+        ).handleKeyDown;
+
+        handleKeyDown(new KeyboardEvent('keydown', { key: 'm', ctrlKey: true }));
+        expect(wrapper.emitted('close')).toBeUndefined();
+
+        handleKeyDown(new KeyboardEvent('keydown', { key: 'm', altKey: true }));
+        expect(wrapper.emitted('close')).toHaveLength(1);
+    });
+
+    it('does not close from the old toggle shortcut when the shortcut is disabled', () => {
+        const wrapper = mount(ModelDropdownPopup, {
+            props: {
+                data: {
+                    activeModelId: '',
+                    activeProviderId: null,
+                    selectedModelId: '',
+                    selectedProviderId: null,
+                    searchQuery: '',
+                    toggleShortcut: null,
+                    models: [],
+                },
+                isInPopup: true,
+            },
+        });
+        const handleKeyDown = (
+            wrapper.vm as unknown as { handleKeyDown: (event: KeyboardEvent) => void }
+        ).handleKeyDown;
+
+        handleKeyDown(new KeyboardEvent('keydown', { key: 'm', ctrlKey: true }));
+
+        expect(wrapper.emitted('close')).toBeUndefined();
+    });
 });

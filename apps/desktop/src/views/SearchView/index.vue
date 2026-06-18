@@ -2,7 +2,10 @@
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
     import { useSessionStatus } from '@composables/useSessionStatus';
-    import type { SessionStatusReminderActionEvent } from '@services/EventService/types';
+    import type {
+        SearchSurfaceCommandEvent,
+        SessionStatusReminderActionEvent,
+    } from '@services/EventService/types';
     import type { QuickShortcutItem } from '@services/NativeService';
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
@@ -14,6 +17,7 @@
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
+    import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
     import { t } from '@/i18n';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
@@ -121,7 +125,7 @@
     const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
-    const { searchWindowDefaultSize } = storeToRefs(settingsStore);
+    const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin();
     const widgetBridgeWindow = window as Window & {
@@ -239,6 +243,7 @@
         refreshSessionList,
         ensureSessionListLoaded,
         startNewSession,
+        reopenLastClosedSession,
         openSession,
         pendingToolApproval,
         pendingUserQuestion,
@@ -246,7 +251,6 @@
         rejectPendingToolApproval,
         settleUserQuestion,
         handleSubmit,
-        clearAll,
         cancelRequest,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
@@ -375,6 +379,7 @@
         modelOverride,
         modelDropdownState,
         modelDropdownQuery,
+        getModelToggleShortcut: () => searchKeybindings.value['search.model.toggle'],
         requestModelDropdownOpen,
         handleQuickSearchClosedForModelDropdown,
         handleLayoutStableForModelDropdown,
@@ -404,12 +409,54 @@
         await refreshModelDropdownData();
     }
 
+    async function handleSearchKeybindingAction(actionId: SearchKeybindingActionId) {
+        switch (actionId) {
+            case 'search.history.open':
+                await openHistoryDialog();
+                return;
+            case 'search.input.focus':
+                await hideAllPopups();
+                await controller.focusSearchInput();
+                return;
+            case 'search.session.new':
+                await handleStartNewSession();
+                return;
+            case 'search.session.reopenLastClosed':
+                await handleReopenLastClosedSession();
+                return;
+            case 'search.model.toggle':
+                await handleToggleModelDropdownRequest();
+                return;
+            case 'search.quickSearch.toggleView':
+                if (isQuickSearchOpen.value) {
+                    controller.toggleQuickSearchView();
+                }
+                return;
+            case 'search.window.pin':
+                await handleToggleWindowPin();
+                return;
+            case 'search.window.maximize':
+                await handleToggleMaximize();
+                return;
+            case 'search.settings.open':
+                await native.window.openSettingsWindow();
+                return;
+            default: {
+                const exhaustiveActionId: never = actionId;
+                throw new Error(`Unhandled search keybinding action: ${exhaustiveActionId}`);
+            }
+        }
+    }
+
+    let routeSearchSurfaceCommand: ((payload: SearchSurfaceCommandEvent) => boolean) | null = null;
+
     const { hideSearchWindow } = useSearchPageLifecycle({
         controller,
         viewReady,
         isDragging,
         isPinned,
         isMaximized: effectiveWindowMaximized,
+        searchKeybindings,
         interactionContext: searchInteractionContext,
         syncWindowPinState,
         clearSession: clearSessionToIdle,
@@ -417,14 +464,12 @@
         reconcilePopupSurfaces: hideAllPopups,
         remeasureSearchWindowHeight: remeasureTargetHeight,
         onSurfaceHidden: clearSurfaceUiAfterHidden,
-        handleSearchSurfaceCommand: async (payload) => {
-            if (payload.command === 'toggle-model-dropdown') {
-                await handleToggleModelDropdownRequest();
-            }
-        },
         handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste: tryShortcutAutoPaste,
+        handleSearchSurfaceCommand: (payload) => {
+            routeSearchSurfaceCommand?.(payload);
+        },
     });
 
     function getSessionHistoryPopupData(): SessionHistoryData {
@@ -439,6 +484,7 @@
             activeSessionId: currentSessionId.value,
             searchQuery: sessionListQuery.value,
             isLoading: isSessionListLoading.value,
+            toggleShortcut: searchKeybindings.value['search.history.open'],
         };
     }
 
@@ -513,8 +559,9 @@
         return 'navigated';
     }
 
-    useSearchKeyboard({
+    const searchKeyboard = useSearchKeyboard({
         viewReady,
+        searchKeybindings,
         queryText,
         attachments,
         cursorContext,
@@ -542,13 +589,16 @@
         toggleModelDropdown: handleToggleModelDropdownRequest,
         openHistoryDialog,
         startNewSession: handleStartNewSession,
+        reopenLastClosedSession: handleReopenLastClosedSession,
         toggleWindowPin: handleToggleWindowPin,
         toggleWindowMaximize: handleToggleMaximize,
+        openSettingsWindow: native.window.openSettingsWindow,
+        handleSearchKeybindingAction,
         handleSubmit,
-        clearAll,
         cancelRequest,
         clearSession: clearSessionToIdle,
     });
+    routeSearchSurfaceCommand = searchKeyboard.routeSearchSurfaceCommand;
 
     function handleQueryTextChange(value: string) {
         queryText.value = value;
@@ -861,6 +911,43 @@
         startNewSession();
         resetSessionInputHistoryTracking();
         await controller.focusSearchInput();
+    }
+
+    async function handleReopenLastClosedSession() {
+        if (queryText.value.trim() || attachments.value.length > 0) {
+            await hideAllPopups();
+            await controller.focusSearchInput();
+            return;
+        }
+
+        controller.closeQuickSearch();
+        await hideAllPopups();
+        resetSessionInputHistoryTracking();
+
+        try {
+            const reopenedSession = await reopenLastClosedSession();
+            if (!reopenedSession) {
+                await controller.focusSearchInput();
+                return;
+            }
+
+            await syncSearchWindowState().catch((error) => {
+                console.error(
+                    '[SearchView] Failed to sync search window state after reopening session:',
+                    error
+                );
+            });
+            await remeasureTargetHeight().catch((error) => {
+                console.error(
+                    '[SearchView] Failed to remeasure window height after reopening session:',
+                    error
+                );
+            });
+            conversationPanel.value?.revealLatestContent();
+        } catch (error) {
+            console.error('[SearchView] Failed to reopen last closed session:', error);
+            await controller.focusSearchInput();
+        }
     }
 
     async function handleToggleWindowPin() {
@@ -1278,6 +1365,7 @@
             isSessionListLoading,
             currentSessionId,
             sessionStatuses,
+            () => searchKeybindings.value['search.history.open'],
         ],
         ([isOpen]) => {
             if (!isOpen) {

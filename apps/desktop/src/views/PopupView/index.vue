@@ -2,7 +2,7 @@
 
 <script setup lang="ts">
     import { useWindowResize } from '@composables/useWindowResize';
-    import { AppEvent, eventService } from '@services/EventService';
+    import { AppEvent, eventService, type SearchSurfaceCommandEvent } from '@services/EventService';
     import { native } from '@services/NativeService';
     import type { PopupDataPayload, PopupKeydownPayload, PopupType } from '@services/PopupService';
     import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
@@ -10,6 +10,7 @@
     import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 
     import { useSettingsStore } from '@/stores/settings';
+    import { normalizeLocalShortcutString } from '@/utils/shortcuts';
 
     import { getPopupTypeFromLocation } from './location';
 
@@ -33,6 +34,10 @@
     const popupComponent = computed(() =>
         popupType.value ? popupRegistry.get(popupType.value)?.component : null
     );
+    const popupToggleActionByType: Record<PopupType, SearchSurfaceCommandEvent['actionId']> = {
+        'model-dropdown-popup': 'search.model.toggle',
+        'session-history-popup': 'search.history.open',
+    };
     const popupProps = computed(() => {
         return {
             data: popupData.value,
@@ -110,6 +115,42 @@
         }
 
         componentRef.value?.handleKeyDown?.(e);
+    }
+
+    function getCurrentPopupToggleShortcut(): string | null {
+        const currentPopupData = popupData.value;
+        if (!currentPopupData || typeof currentPopupData !== 'object') {
+            return null;
+        }
+
+        const shortcut = (currentPopupData as { toggleShortcut?: unknown }).toggleShortcut;
+        return typeof shortcut === 'string' ? shortcut : null;
+    }
+
+    function matchesCurrentPopupToggleCommand(
+        currentPopupType: PopupType,
+        payload: SearchSurfaceCommandEvent
+    ) {
+        if (popupToggleActionByType[currentPopupType] !== payload.actionId) {
+            return false;
+        }
+
+        const currentShortcut = normalizeLocalShortcutString(getCurrentPopupToggleShortcut());
+        const commandShortcut = normalizeLocalShortcutString(payload.shortcut);
+        return Boolean(currentShortcut && commandShortcut && currentShortcut === commandShortcut);
+    }
+
+    function handleSearchSurfaceCommand(payload: SearchSurfaceCommandEvent) {
+        const currentPopupType = popupType.value;
+        if (!currentPopupType) {
+            return;
+        }
+
+        if (!matchesCurrentPopupToggleCommand(currentPopupType, payload)) {
+            return;
+        }
+
+        void close();
     }
 
     // 初始化内置弹窗注册表（PopupView 有独立的 JS 上下文）
@@ -230,6 +271,9 @@
                     new KeyboardEvent('keydown', { key: payload.key })
                 );
             })
+        );
+        unlisteners.push(
+            await eventService.on(AppEvent.SEARCH_SURFACE_COMMAND, handleSearchSurfaceCommand)
         );
 
         // ESC 关闭
