@@ -30,17 +30,9 @@
                 <GeneralShortcutSettings />
             </section>
 
-            <section class="mt-10 space-y-4">
-                <div>
-                    <h2 class="settings-section-title">
-                        {{ t('settings.general.searchShortcuts') }}
-                    </h2>
-                    <p class="settings-section-description">
-                        {{ t('settings.general.searchShortcutsDescription') }}
-                    </p>
-                </div>
+            <div class="mt-10 space-y-12">
                 <SearchShortcutSettings />
-            </section>
+            </div>
         </div>
     </div>
 </template>

@@ -635,10 +635,10 @@
 <template>
     <AlertMessage ref="alertMessage" />
 
-    <div v-for="group in searchShortcutGroups" :key="group.title" class="space-y-2">
-        <div class="text-[12px] leading-5 font-medium text-neutral-500">
+    <section v-for="group in searchShortcutGroups" :key="group.title" class="space-y-4">
+        <h2 class="settings-section-title">
             {{ group.title }}
-        </div>
+        </h2>
         <div class="settings-row-group divide-y divide-neutral-200/70">
             <div
                 v-for="row in group.rows"
@@ -711,7 +711,7 @@
                 </div>
             </div>
         </div>
-    </div>
+    </section>
 </template>
 
 <style scoped>

@@ -164,11 +164,11 @@ describe('SettingsShortcutsSection', () => {
         expect(wrapper.get('.settings-page-header').classes()).toEqual(
             expect.arrayContaining(['flex', 'items-start', 'gap-4'])
         );
-        expect(wrapper.get('.settings-section-description').text()).toBe('全局呼出与搜索快捷键');
+        expect(wrapper.get('.settings-section-description').text()).toBe('全局唤起与窗口命令');
         expect(wrapper.find('.settings-page-description').exists()).toBe(false);
         expect(wrapper.text()).toContain('快捷键');
         expect(wrapper.text()).toContain('唤起快捷键');
-        expect(wrapper.text()).toContain('全局呼出与搜索快捷键');
+        expect(wrapper.text()).toContain('全局唤起与窗口命令');
         expect(
             (
                 wrapper.get('[data-testid="settings-global-shortcut-input"]')
@@ -176,11 +176,10 @@ describe('SettingsShortcutsSection', () => {
             ).value
         ).toBe('Alt+Space');
         const sections = wrapper.findAll('section');
-        expect(sections).toHaveLength(2);
-        expect(sections[0].classes()).toEqual(expect.arrayContaining(['space-y-4']));
-        expect(sections[1].classes()).toEqual(expect.arrayContaining(['mt-10', 'space-y-4']));
+        expect(sections).toHaveLength(4);
+        expect(sections.every((section) => section.classes().includes('space-y-4'))).toBe(true);
         expect(wrapper.findAll('.settings-section-title').map((heading) => heading.text())).toEqual(
-            ['全局唤起', '搜索快捷键']
+            ['全局唤起', '会话管理', '输入请求', '窗口控制']
         );
 
         expect(wrapper.text()).toContain('全局呼出快捷键');
@@ -189,12 +188,10 @@ describe('SettingsShortcutsSection', () => {
         expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
             false
         );
-        expect(wrapper.text()).toContain(
+        expect(wrapper.text()).not.toContain('搜索快捷键');
+        expect(wrapper.text()).not.toContain(
             '自定义搜索窗口内的命令型快捷键，不会影响输入导航与全局唤起。'
         );
-        expect(wrapper.text()).toContain('会话');
-        expect(wrapper.text()).toContain('输入与请求');
-        expect(wrapper.text()).toContain('窗口');
         expect(wrapper.text()).toContain('打开会话历史');
         expect(wrapper.text()).toContain('快速打开或收起会话历史列表');
         expect(wrapper.text()).toContain('开始新会话');
