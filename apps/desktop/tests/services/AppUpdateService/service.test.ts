@@ -48,6 +48,8 @@ function createController(
         lastCheckedAt?: string | null;
         checkResult?: AppUpdateCheckResult;
         checkError?: Error;
+        updateChannelError?: Error;
+        updateLastCheckedAtError?: Error;
     } = {}
 ) {
     const checkForUpdates = options.checkError
@@ -66,9 +68,19 @@ function createController(
           );
     const downloadUpdate = vi.fn().mockResolvedValue(availableUpdate);
     const installUpdate = vi.fn().mockResolvedValue(true);
-    const updateAppUpdateChannel = vi.fn().mockResolvedValue(undefined);
+    const updateAppUpdateChannel = options.updateChannelError
+        ? vi.fn().mockRejectedValue(options.updateChannelError)
+        : vi.fn().mockResolvedValue(undefined);
     const updateAppUpdateAutoCheck = vi.fn().mockResolvedValue(undefined);
-    const updateAppUpdateLastCheckedAt = vi.fn().mockResolvedValue(undefined);
+    const updateAppUpdateLastCheckedAt = options.updateLastCheckedAtError
+        ? vi
+              .fn()
+              .mockImplementation((checkedAt: string | null) =>
+                  checkedAt === null
+                      ? Promise.reject(options.updateLastCheckedAtError)
+                      : Promise.resolve(undefined)
+              )
+        : vi.fn().mockResolvedValue(undefined);
 
     const controller = new AppUpdateController({
         native: {
@@ -170,6 +182,33 @@ describe('AppUpdateController', () => {
         });
     });
 
+    it('does not restore an old channel after a stale automatic check fails', async () => {
+        const deferredCheck = createDeferred<AppUpdateCheckResult>();
+        const { controller, checkForUpdates, updateAppUpdateLastCheckedAt } = createController();
+        checkForUpdates.mockReturnValueOnce(deferredCheck.promise);
+
+        await controller.initialize();
+        const checkPromise = controller.checkNow('automatic');
+        await Promise.resolve();
+
+        expect(controller.getState()).toMatchObject({
+            status: 'checking',
+            channel: 'stable',
+        });
+
+        await controller.setChannel('nightly');
+        deferredCheck.reject(new Error('network unavailable'));
+
+        await expect(checkPromise).resolves.toBe(false);
+        expect(controller.getState()).toMatchObject({
+            status: 'idle',
+            channel: 'nightly',
+            error: null,
+        });
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenCalledTimes(1);
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenCalledWith(null);
+    });
+
     it('surfaces manual check failures', async () => {
         const { controller } = createController({
             checkError: new Error('network unavailable'),
@@ -246,6 +285,149 @@ describe('AppUpdateController', () => {
             downloadProgress: null,
             error: null,
         });
+    });
+
+    it('does not persist stale check timestamps after the user switches channels', async () => {
+        const deferredCheck = createDeferred<AppUpdateCheckResult>();
+        const { controller, checkForUpdates, updateAppUpdateLastCheckedAt } = createController();
+        checkForUpdates.mockReturnValueOnce(deferredCheck.promise);
+
+        await controller.initialize();
+        const checkPromise = controller.checkNow('manual');
+        await Promise.resolve();
+
+        await controller.setChannel('nightly');
+        deferredCheck.resolve({
+            status: 'available',
+            channel: 'stable',
+            currentVersion: '0.1.0',
+            latest: latestUpdate,
+            update: availableUpdate,
+            requirement: neutralRequirement,
+        });
+
+        await expect(checkPromise).resolves.toBe(false);
+        expect(controller.getState()).toMatchObject({
+            status: 'idle',
+            channel: 'nightly',
+            availableUpdate: null,
+            lastCheckedAt: null,
+        });
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenCalledTimes(1);
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenCalledWith(null);
+    });
+
+    it('keeps in-flight checks current when channel persistence fails', async () => {
+        const deferredCheck = createDeferred<AppUpdateCheckResult>();
+        const { controller, checkForUpdates, updateAppUpdateLastCheckedAt } = createController({
+            updateChannelError: new Error('database unavailable'),
+        });
+        checkForUpdates.mockReturnValueOnce(deferredCheck.promise);
+
+        await controller.initialize();
+        const checkPromise = controller.checkNow('manual');
+        await Promise.resolve();
+
+        await expect(controller.setChannel('nightly')).rejects.toThrow('database unavailable');
+        deferredCheck.resolve({
+            status: 'available',
+            channel: 'stable',
+            currentVersion: '0.1.0',
+            latest: latestUpdate,
+            update: availableUpdate,
+            requirement: neutralRequirement,
+        });
+
+        await expect(checkPromise).resolves.toBe(true);
+        expect(controller.getState()).toMatchObject({
+            status: 'available',
+            channel: 'stable',
+            availableUpdate,
+            lastCheckedAt: '2026-05-22T10:00:00.000Z',
+        });
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenCalledTimes(1);
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenCalledWith('2026-05-22T10:00:00.000Z');
+    });
+
+    it('keeps in-flight checks current when clearing the channel timestamp fails', async () => {
+        const deferredCheck = createDeferred<AppUpdateCheckResult>();
+        const {
+            controller,
+            checkForUpdates,
+            updateAppUpdateChannel,
+            updateAppUpdateLastCheckedAt,
+        } = createController({
+            updateLastCheckedAtError: new Error('timestamp unavailable'),
+        });
+        checkForUpdates.mockReturnValueOnce(deferredCheck.promise);
+
+        await controller.initialize();
+        const checkPromise = controller.checkNow('manual');
+        await Promise.resolve();
+
+        await expect(controller.setChannel('nightly')).rejects.toThrow('timestamp unavailable');
+        deferredCheck.resolve({
+            status: 'available',
+            channel: 'stable',
+            currentVersion: '0.1.0',
+            latest: latestUpdate,
+            update: availableUpdate,
+            requirement: neutralRequirement,
+        });
+
+        await expect(checkPromise).resolves.toBe(true);
+        expect(controller.getState()).toMatchObject({
+            status: 'available',
+            channel: 'stable',
+            availableUpdate,
+            lastCheckedAt: '2026-05-22T10:00:00.000Z',
+        });
+        expect(updateAppUpdateChannel).toHaveBeenCalledWith('nightly');
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenNthCalledWith(1, null);
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenNthCalledWith(2, '2026-05-22T10:00:00.000Z');
+    });
+
+    it('ignores an older check result when a newer same-channel check finishes first', async () => {
+        const firstCheck = createDeferred<AppUpdateCheckResult>();
+        const secondCheck = createDeferred<AppUpdateCheckResult>();
+        const { controller, checkForUpdates, updateAppUpdateLastCheckedAt } = createController();
+        checkForUpdates
+            .mockReturnValueOnce(firstCheck.promise)
+            .mockReturnValueOnce(secondCheck.promise);
+
+        await controller.initialize();
+        const firstPromise = controller.checkNow('manual');
+        await Promise.resolve();
+        const secondPromise = controller.checkNow('manual');
+        await Promise.resolve();
+
+        secondCheck.resolve({
+            status: 'available',
+            channel: 'stable',
+            currentVersion: '0.1.0',
+            latest: latestUpdate,
+            update: availableUpdate,
+            requirement: neutralRequirement,
+        });
+        await expect(secondPromise).resolves.toBe(true);
+
+        firstCheck.resolve({
+            status: 'not_available',
+            channel: 'stable',
+            currentVersion: '0.2.0',
+            latest: latestUpdate,
+            requirement: neutralRequirement,
+        });
+        await expect(firstPromise).resolves.toBe(false);
+
+        expect(controller.getState()).toMatchObject({
+            status: 'available',
+            channel: 'stable',
+            availableUpdate,
+            currentVersion: '0.1.0',
+        });
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenCalledTimes(1);
+        expect(updateAppUpdateLastCheckedAt).toHaveBeenCalledWith('2026-05-22T10:00:00.000Z');
     });
 
     it('persists auto-check changes', async () => {

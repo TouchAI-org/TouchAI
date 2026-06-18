@@ -56,6 +56,7 @@ export class AppUpdateController {
     private readonly now: () => string;
     private initialized = false;
     private unlistenProgress: UnlistenFn | null = null;
+    private checkRequestVersion = 0;
 
     constructor(deps: AppUpdateControllerDeps) {
         this.native = deps.native;
@@ -113,6 +114,7 @@ export class AppUpdateController {
         await this.initialize();
         await this.settings.updateAppUpdateChannel(channel);
         await this.settings.updateAppUpdateLastCheckedAt(null);
+        this.checkRequestVersion += 1;
         this.commit({ type: 'channel-updated', channel });
     }
 
@@ -125,15 +127,24 @@ export class AppUpdateController {
 
         const previousState = this.state;
         const channel = this.state.channel;
+        const requestVersion = ++this.checkRequestVersion;
         this.commit({ type: 'check-started', channel });
 
         try {
             const result = await this.native.checkForUpdates(channel);
             const checkedAt = this.now();
+            if (!this.isCurrentCheckRequest(requestVersion, channel)) {
+                return false;
+            }
+
             this.commit({ type: 'check-completed', channel, result, checkedAt });
             await this.settings.updateAppUpdateLastCheckedAt(checkedAt);
             return true;
         } catch (error) {
+            if (!this.isCurrentCheckRequest(requestVersion, channel)) {
+                return false;
+            }
+
             if (source === 'automatic') {
                 this.replaceState(previousState);
                 return false;
@@ -169,6 +180,10 @@ export class AppUpdateController {
             this.commit({ type: 'failed', error: toErrorMessage(error) });
             return false;
         }
+    }
+
+    private isCurrentCheckRequest(requestVersion: number, channel: AppUpdateChannel): boolean {
+        return requestVersion === this.checkRequestVersion && this.state.channel === channel;
     }
 
     private shouldRunAutomaticCheck(): boolean {
