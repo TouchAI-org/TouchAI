@@ -26,6 +26,9 @@
     });
 
     const GeneralView = defineAsyncComponent(() => import('./components/General/index.vue'));
+    const ModelPreferencesView = defineAsyncComponent(
+        () => import('./components/ModelPreferences/index.vue')
+    );
     const AiServicesView = defineAsyncComponent(() => import('./components/AiServices/index.vue'));
     const BuiltInToolsView = defineAsyncComponent(
         () => import('./components/BuiltInTools/index.vue')
@@ -57,6 +60,11 @@
         'ai-services': {
             component: AiServicesView,
             loadingKey: 'settings.loading.aiServices',
+        },
+        'model-preferences': {
+            component: ModelPreferencesView,
+            loadingKey: 'settings.loading.modelPreferences',
+            scrollable: true,
         },
         'built-in-tools': {
             component: BuiltInToolsView,

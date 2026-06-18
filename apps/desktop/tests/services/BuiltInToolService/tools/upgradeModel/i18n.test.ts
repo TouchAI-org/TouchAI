@@ -12,12 +12,29 @@ import {
 } from '@/services/BuiltInToolService/tools/upgradeModel/chain';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
 
-const { findModelByProviderAndModelIdMock } = vi.hoisted(() => ({
+const {
+    findDefaultModelWithProviderMock,
+    findEffectiveModelRoleWithProviderMock,
+    findModelByIdWithProviderMock,
+    findModelByProviderAndModelIdMock,
+    findModelPreferenceByNameMock,
+    getSettingValueMock,
+} = vi.hoisted(() => ({
+    findDefaultModelWithProviderMock: vi.fn(),
+    findEffectiveModelRoleWithProviderMock: vi.fn(),
+    findModelByIdWithProviderMock: vi.fn(),
     findModelByProviderAndModelIdMock: vi.fn(),
+    findModelPreferenceByNameMock: vi.fn(),
+    getSettingValueMock: vi.fn(),
 }));
 
 vi.mock('@database/queries', () => ({
+    findDefaultModelWithProvider: findDefaultModelWithProviderMock,
+    findEffectiveModelRoleWithProvider: findEffectiveModelRoleWithProviderMock,
+    findModelByIdWithProvider: findModelByIdWithProviderMock,
     findModelByProviderAndModelId: findModelByProviderAndModelIdMock,
+    findModelPreferenceByName: findModelPreferenceByNameMock,
+    getSettingValue: getSettingValueMock,
 }));
 
 function createModel(overrides: Partial<ModelWithProvider>): ModelWithProvider {
@@ -65,9 +82,10 @@ describe('UpgradeModel i18n', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         vi.clearAllMocks();
+        getSettingValueMock.mockResolvedValue('true');
     });
 
-    it('creates an English approval request for the resolved target model', async () => {
+    it('does not create an approval request for model routing switches', async () => {
         setLocale('en-US');
         const currentModel = createModel({
             id: 10,
@@ -76,17 +94,6 @@ describe('UpgradeModel i18n', () => {
             name: 'Model A',
             provider_name: 'Provider A',
         });
-        const targetModel = createModel({
-            id: 20,
-            provider_id: 2,
-            model_id: 'model-b',
-            name: 'Model B',
-            provider_name: 'Provider B',
-        });
-        findModelByProviderAndModelIdMock
-            .mockResolvedValueOnce(currentModel)
-            .mockResolvedValueOnce(targetModel);
-
         const approval = await buildUpgradeModelApprovalRequest(
             {},
             {
@@ -99,14 +106,21 @@ describe('UpgradeModel i18n', () => {
             createContext(currentModel)
         );
 
-        expect(approval).toMatchObject({
-            title: 'Confirm model switch',
-            description: 'Allow switching from Provider A / Model A to Provider B / Model B',
-            command: 'Provider A / Model A -> Provider B / Model B',
-            reason: 'This changes the model used by the current conversation and also affects the subsequent default model.',
-            approveLabel: 'Approve',
-            rejectLabel: 'Reject',
+        expect(approval).toBeNull();
+    });
+
+    it('does not emit a switch signal when model routing is disabled', async () => {
+        setLocale('en-US');
+        getSettingValueMock.mockResolvedValue('false');
+
+        const result = await executeUpgradeModelTool({}, { chain: [] }, createContext());
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+            errorMessage: 'Model routing is disabled. Continuing with the default model.',
         });
+        expect(result.controlSignal).toBeUndefined();
     });
 
     it('formats reachable execute result strings in English while returning the model switch signal', async () => {
@@ -183,5 +197,134 @@ describe('UpgradeModel i18n', () => {
         expect(() => normalizeUpgradeModelChain([{ providerId: 1, modelId: '' }])).toThrow(
             'Each model upgrade chain item must include providerId and a non-empty modelId.'
         );
+    });
+
+    it('switches to a configured scenario model without exposing provider details to the model', async () => {
+        setLocale('en-US');
+        const targetModel = createModel({
+            id: 20,
+            provider_id: 2,
+            model_id: 'claude-sonnet',
+            name: 'Claude Sonnet',
+            provider_name: 'Anthropic',
+        });
+        findModelPreferenceByNameMock.mockResolvedValue({
+            id: 1,
+            name: 'Frontend',
+            description: 'React and CSS work',
+            model_id: 20,
+        });
+        findModelByIdWithProviderMock.mockResolvedValue(targetModel);
+
+        const result = await executeUpgradeModelTool(
+            { scenario: 'Frontend' },
+            { chain: [] },
+            createContext(createModel({ id: 10 }))
+        );
+
+        expect(findModelPreferenceByNameMock).toHaveBeenCalledWith('Frontend');
+        expect(result).toMatchObject({
+            isError: false,
+            status: 'success',
+            controlSignal: {
+                type: 'upgrade_model',
+                targetModel,
+                restartCurrentRequest: false,
+            },
+        });
+        expect(result.result).toContain('Switched model for scenario: Frontend');
+        expect(result.result).toContain('Target model: Anthropic / Claude Sonnet');
+    });
+
+    it('does not request approval or emit a switch signal when the target is the current model', async () => {
+        setLocale('en-US');
+        const currentModel = createModel({
+            id: 20,
+            provider_id: 2,
+            model_id: 'claude-sonnet',
+            name: 'Claude Sonnet',
+            provider_name: 'Anthropic',
+        });
+        findModelPreferenceByNameMock.mockResolvedValue({
+            id: 1,
+            name: 'Frontend',
+            description: 'React and CSS work',
+            model_id: 20,
+        });
+        findModelByIdWithProviderMock.mockResolvedValue(currentModel);
+
+        const approval = await buildUpgradeModelApprovalRequest(
+            { scenario: 'Frontend' },
+            { chain: [] },
+            'builtin:upgrade_model',
+            createContext(currentModel)
+        );
+        const result = await executeUpgradeModelTool(
+            { scenario: 'Frontend' },
+            { chain: [] },
+            createContext(currentModel)
+        );
+
+        expect(approval).toBeNull();
+        expect(result).toMatchObject({
+            isError: false,
+            status: 'success',
+        });
+        expect(result.controlSignal).toBeUndefined();
+        expect(result.result).toContain('Model is already the target model');
+    });
+
+    it('skips approval when model routing is enabled', async () => {
+        setLocale('en-US');
+        getSettingValueMock.mockResolvedValueOnce('true');
+        const currentModel = createModel({
+            id: 10,
+            provider_id: 1,
+            model_id: 'model-a',
+            name: 'Model A',
+            provider_name: 'Provider A',
+        });
+        const targetModel = createModel({
+            id: 20,
+            provider_id: 2,
+            model_id: 'model-b',
+            name: 'Model B',
+            provider_name: 'Provider B',
+        });
+        findModelByProviderAndModelIdMock
+            .mockResolvedValueOnce(currentModel)
+            .mockResolvedValueOnce(targetModel);
+
+        const approval = await buildUpgradeModelApprovalRequest(
+            {},
+            {
+                chain: [
+                    { providerId: 1, modelId: 'model-a' },
+                    { providerId: 2, modelId: 'model-b' },
+                ],
+            },
+            'builtin:upgrade_model',
+            createContext(currentModel)
+        );
+
+        expect(approval).toBeNull();
+    });
+
+    it('rejects conflicting model switch target selectors', async () => {
+        setLocale('en-US');
+
+        const result = await executeUpgradeModelTool(
+            { role: 'fast', scenario: 'Frontend' },
+            { chain: [] },
+            createContext()
+        );
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+            errorMessage: 'Specify only one model switch target at a time',
+        });
+        expect(findEffectiveModelRoleWithProviderMock).not.toHaveBeenCalled();
+        expect(findModelPreferenceByNameMock).not.toHaveBeenCalled();
     });
 });

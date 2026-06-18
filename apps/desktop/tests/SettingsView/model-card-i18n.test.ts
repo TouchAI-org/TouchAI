@@ -103,10 +103,8 @@ describe('ModelCard i18n', () => {
             },
         });
 
-        const defaultRadio = wrapper.get('input[type="radio"]');
         const buttons = wrapper.findAll('button');
 
-        expect(defaultRadio.attributes('title')).toBe('Enable this provider first');
         expect(buttons[0]?.attributes('title')).toBe('Edit');
         expect(buttons[1]?.attributes('title')).toBe('Delete');
 

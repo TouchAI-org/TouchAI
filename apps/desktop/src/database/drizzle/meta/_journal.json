@@ -29,6 +29,13 @@
       "when": 1781021002699,
       "tag": "0003_tough_amazoness",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780051200000,
+      "tag": "0004_model_preferences",
+      "breakpoints": true
     }
   ]
 }

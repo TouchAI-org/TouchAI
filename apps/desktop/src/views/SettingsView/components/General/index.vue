@@ -632,7 +632,10 @@
                     </p>
                 </div>
 
-                <div data-testid="settings-general-card-conversation" class="settings-row-group">
+                <div
+                    data-testid="settings-general-card-conversation"
+                    class="settings-row-group divide-y divide-neutral-200/70"
+                >
                     <div
                         class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
                     >

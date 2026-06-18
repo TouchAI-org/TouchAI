@@ -279,6 +279,34 @@ export const models = sqliteTable('models', {
 /**
  * 会话轮次表
  */
+export const modelPreferences = sqliteTable(
+    'model_preferences',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        name: text('name').notNull(),
+        description: text('description').notNull(),
+        provider_id: integer('provider_id').references(() => providers.id, {
+            onDelete: 'set null',
+        }),
+        model_id: integer('model_id').references(() => models.id, {
+            onDelete: 'set null',
+        }),
+        priority: integer('priority').notNull().default(0),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        index('model_preferences_priority_idx').on(table.priority),
+        uniqueIndex('model_preferences_name_unique').on(table.name),
+        index('model_preferences_model_id_idx').on(table.model_id),
+        index('model_preferences_provider_id_idx').on(table.provider_id),
+    ]
+);
+
 export const sessionTurns = sqliteTable(
     'session_turns',
     {
@@ -582,6 +610,10 @@ export type ProviderUpdate = Partial<NewProvider>;
 export type Model = typeof models.$inferSelect;
 export type NewModel = typeof models.$inferInsert;
 export type ModelUpdate = Partial<NewModel>;
+
+export type ModelPreference = typeof modelPreferences.$inferSelect;
+export type NewModelPreference = typeof modelPreferences.$inferInsert;
+export type ModelPreferenceUpdate = Partial<NewModelPreference>;
 
 export type SessionTurn = typeof sessionTurns.$inferSelect;
 export type NewSessionTurn = typeof sessionTurns.$inferInsert;

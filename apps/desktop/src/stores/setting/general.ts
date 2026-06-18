@@ -103,6 +103,18 @@ export const GENERAL_SCALAR_SETTING_SPECS = [
         },
     },
     {
+        key: 'allow_model_auto_switch',
+        stateKey: 'allowModelAutoSwitch',
+        defaultValue: false,
+        parsePersisted: (raw) => booleanFromString(raw, false),
+        parseUpdate: (value) => booleanFromString(value, false),
+        eventValue: (value) => value as boolean,
+        store: {
+            updaterName: 'updateAllowModelAutoSwitch',
+            normalizeUpdate: Boolean,
+        },
+    },
+    {
         key: 'output_scroll_behavior',
         stateKey: 'outputScrollBehavior',
         defaultValue: DEFAULT_OUTPUT_SCROLL_BEHAVIOR,

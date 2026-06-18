@@ -14,6 +14,7 @@ const settingsStoreMock = vi.hoisted(() => ({
             outputScrollBehavior: 'follow_output',
             searchWindowSizePreset: 'normal',
             searchWindowDefaultSize: { width: 720, height: 520 },
+            allowModelAutoSwitch: false,
             appUpdateChannel: 'stable',
             appUpdateAutoCheck: true,
             appUpdateLastCheckedAt: null,
@@ -25,6 +26,7 @@ const settingsStoreMock = vi.hoisted(() => ({
     updateStartMinimized: vi.fn().mockResolvedValue(undefined),
     updateOutputScrollBehavior: vi.fn().mockResolvedValue(undefined),
     updateSearchWindowSizePreset: vi.fn().mockResolvedValue(undefined),
+    updateAllowModelAutoSwitch: vi.fn().mockResolvedValue(undefined),
     updateLanguage: vi.fn().mockResolvedValue(undefined),
     updateAppUpdateChannel: vi.fn().mockResolvedValue(undefined),
     updateAppUpdateAutoCheck: vi.fn().mockResolvedValue(undefined),
@@ -152,6 +154,8 @@ describe('SettingsGeneralSection', () => {
         appUpdateServiceMock.state = appUpdateServiceMock.createState();
         nativeMock.shortcut.getShortcutStatus.mockResolvedValue([false, null]);
         nativeMock.autostart.isAutostartEnabled.mockResolvedValue(false);
+        settingsStoreMock.settings.value.allowModelAutoSwitch = false;
+        settingsStoreMock.updateAllowModelAutoSwitch.mockResolvedValue(undefined);
     });
 
     it('renders the general settings groups and row controls', () => {

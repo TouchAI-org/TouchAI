@@ -13,6 +13,8 @@ const queries = vi.hoisted(() => ({
     findDefaultModel: vi.fn(),
     findModelsWithProvider: vi.fn(),
     findProviderById: vi.fn(),
+    getSettingValue: vi.fn(),
+    listModelPreferences: vi.fn(),
     setDefaultModel: vi.fn(),
     syncAllModelsMetadata: vi.fn(),
     updateModel: vi.fn(),
@@ -106,6 +108,8 @@ describe('SettingsAiServicesSection', () => {
         });
         queries.findDefaultModel.mockResolvedValue(null);
         queries.findModelsWithProvider.mockResolvedValue([]);
+        queries.getSettingValue.mockResolvedValue(null);
+        queries.listModelPreferences.mockResolvedValue([]);
         modelMetadataMock.updateModelMetadata.mockResolvedValue(undefined);
     });
 
@@ -350,7 +354,7 @@ describe('SettingsAiServicesSection', () => {
         expect(alertMock.success).not.toHaveBeenCalled();
     });
 
-    it('patches the default model locally without provider list reload', async () => {
+    it('patches model edits locally without provider list reload', async () => {
         const provider = {
             id: 2,
             name: 'Custom Gateway',
@@ -403,11 +407,11 @@ describe('SettingsAiServicesSection', () => {
                     ProviderConfig: true,
                     ModelList: {
                         props: ['defaultModelId'],
-                        emits: ['set-default'],
+                        emits: ['update'],
                         template: `
                             <button
-                                data-testid="set-default-model"
-                                @click="$emit('set-default', 20)"
+                                data-testid="update-model"
+                                @click="$emit('update', 20, { name: 'Renamed Model' })"
                             >
                                 default: {{ defaultModelId }}
                             </button>
@@ -425,14 +429,95 @@ describe('SettingsAiServicesSection', () => {
 
         await flushPromises();
 
-        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 10');
+        expect(wrapper.get('[data-testid="update-model"]').text()).toContain('default: 10');
 
-        await wrapper.get('[data-testid="set-default-model"]').trigger('click');
+        await wrapper.get('[data-testid="update-model"]').trigger('click');
         await flushPromises();
 
-        expect(queries.setDefaultModel).toHaveBeenCalledWith({ modelId: 20 });
+        expect(queries.updateModel).toHaveBeenCalledWith({
+            id: 20,
+            modelPatch: { name: 'Renamed Model' },
+        });
         expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
-        expect(alertMock.success).toHaveBeenCalledWith('设置成功');
-        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
+        expect(alertMock.success).toHaveBeenCalledWith('保存成功');
+    });
+    it('blocks deleting models referenced by model routing', async () => {
+        const provider = {
+            id: 2,
+            name: 'Custom Gateway',
+            driver: 'openai',
+            api_endpoint: 'https://custom.example.com',
+            api_key: 'sk-demo',
+            config_json: null,
+            logo: 'openai.png',
+            enabled: 1,
+            is_builtin: 0,
+            created_at: '',
+            updated_at: '',
+        };
+        const defaultModel = {
+            id: 10,
+            provider_id: 2,
+            name: 'GPT 5 Mini',
+            model_id: 'gpt-5-mini',
+            is_default: 1,
+            last_used_at: null,
+            attachment: 0,
+            modalities: null,
+            open_weights: 0,
+            reasoning: 0,
+            release_date: null,
+            temperature: 1,
+            tool_call: 1,
+            knowledge: null,
+            context_limit: null,
+            output_limit: null,
+            is_custom_metadata: 0,
+            created_at: '',
+            updated_at: '',
+        };
+        const routedModel = {
+            ...defaultModel,
+            id: 20,
+            name: 'GPT 5',
+            model_id: 'gpt-5',
+            is_default: 0,
+        };
+        queries.findAllProvidersSorted.mockResolvedValue([provider]);
+        queries.findDefaultModel.mockResolvedValue(defaultModel);
+        queries.findModelsWithProvider.mockResolvedValue([defaultModel, routedModel]);
+        queries.getSettingValue.mockImplementation(({ key }: { key: string }) =>
+            Promise.resolve(key === 'model_role_fast_model_id' ? '20' : null)
+        );
+
+        const wrapper = mount(AiServicesSection, {
+            global: {
+                stubs: {
+                    ProviderList: true,
+                    ProviderConfig: true,
+                    ModelList: {
+                        emits: ['delete'],
+                        template: `
+                            <button data-testid="delete-routed-model" @click="$emit('delete', 20)">
+                                delete
+                            </button>
+                        `,
+                    },
+                    AddProviderDialog: true,
+                    EditProviderDialog: true,
+                    BadgedLogo: {
+                        props: ['logo', 'name'],
+                        template: '<div data-testid="badged-logo-stub" />',
+                    },
+                },
+            },
+        });
+
+        await flushPromises();
+        await wrapper.get('[data-testid="delete-routed-model"]').trigger('click');
+        await flushPromises();
+
+        expect(queries.deleteModel).not.toHaveBeenCalled();
+        expect(alertMock.error).toHaveBeenCalled();
     });
 });

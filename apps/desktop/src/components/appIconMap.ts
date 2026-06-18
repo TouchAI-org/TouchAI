@@ -4,7 +4,7 @@ import IconArrowDown from '~icons/lucide/arrow-down';
 import IconArrowLeft from '~icons/lucide/arrow-left';
 import IconArrowRight from '~icons/lucide/arrow-right';
 import IconBlocks from '~icons/lucide/blocks';
-import IconBoxes from '~icons/lucide/boxes';
+import IconBrain from '~icons/lucide/brain-circuit';
 import IconBriefcase from '~icons/lucide/briefcase';
 import IconBug from '~icons/lucide/bug';
 import IconChevronDown from '~icons/lucide/chevron-down';
@@ -12,6 +12,7 @@ import IconChevronRight from '~icons/lucide/chevron-right';
 import IconChevronUp from '~icons/lucide/chevron-up';
 import IconCheckCircle from '~icons/lucide/circle-check';
 import IconXCircle from '~icons/lucide/circle-x';
+import IconCloud from '~icons/lucide/cloud';
 import IconCopy from '~icons/lucide/copy';
 import IconData from '~icons/lucide/database';
 import IconLinkExternal from '~icons/lucide/external-link';
@@ -36,6 +37,7 @@ import IconPin from '~icons/lucide/pin';
 import IconPlay from '~icons/lucide/play';
 import IconPlus from '~icons/lucide/plus';
 import IconRefresh from '~icons/lucide/refresh-cw';
+import IconRoute from '~icons/lucide/route';
 import IconSearch from '~icons/lucide/search';
 import IconCog from '~icons/lucide/settings';
 import IconStop from '~icons/lucide/square';
@@ -53,6 +55,7 @@ export const appIconMap = {
     'chevron-right': IconChevronRight,
     'chevron-up': IconChevronUp,
     close: IconX,
+    cloud: IconCloud,
     copy: IconCopy,
     database: IconData,
     delete: IconTrash,
@@ -74,7 +77,7 @@ export const appIconMap = {
     maximize: IconMaximize,
     restore: IconWindowRestore,
     'information-circle': IconInfoCircle,
-    llm: IconBoxes,
+    llm: IconBrain,
     leaf: IconLeaf,
     'external-link': IconLinkExternal,
     mcp: IconBlocks,
@@ -83,6 +86,7 @@ export const appIconMap = {
     play: IconPlay,
     plus: IconPlus,
     refresh: IconRefresh,
+    route: IconRoute,
     search: IconSearch,
     settings: IconCog,
     stop: IconStop,
