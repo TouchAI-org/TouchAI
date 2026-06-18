@@ -26,10 +26,6 @@ const REMINDER_DANGEROUS_HTML_TAG_NAMES = [
     'embed',
     'template',
 ];
-const REMINDER_DANGEROUS_HTML_BLOCK_PATTERN =
-    /<\s*(script|style|iframe|object|embed|template)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
-const REMINDER_DANGEROUS_HTML_TAG_PATTERN =
-    /<\s*(?:\/\s*)?(script|style|iframe|object|embed|template)\b[^>]*>/gi;
 const REMINDER_PATH_SEGMENT_PATTERN = '(?:[A-Za-z0-9._@-]+|\\*{1,2})';
 const REMINDER_POSIX_RELATIVE_PATH_PATTERN = new RegExp(
     `^(?:${REMINDER_PATH_SEGMENT_PATTERN}/)+${REMINDER_PATH_SEGMENT_PATTERN}$`
@@ -66,6 +62,19 @@ type ReminderMarkdownToken = ReminderMarkdownBaseToken | ReminderMarkdownLinkTok
 type ReminderInlineHtmlTag = {
     hasAttributes: boolean;
     isClosing: boolean;
+    isSelfClosing: boolean;
+    tagName: string;
+};
+
+type ReminderCompleteHtmlTag = {
+    endIndex: number;
+    raw: string;
+};
+
+type ReminderDangerousHtmlTag = {
+    endIndex: number;
+    isClosing: boolean;
+    isComplete: boolean;
     isSelfClosing: boolean;
     tagName: string;
 };
@@ -136,14 +145,244 @@ function unescapeReminderMarkdown(value: string): string {
     return value.replace(REMINDER_MARKDOWN_ESCAPE_PATTERN, '$1');
 }
 
+function isReminderAsciiWhitespace(value: string): boolean {
+    return value === ' ' || value === '\n' || value === '\r' || value === '\t' || value === '\f';
+}
+
+function isReminderHtmlTagNameStart(value: string): boolean {
+    const code = value.charCodeAt(0);
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isReminderHtmlTagNameChar(value: string): boolean {
+    const code = value.charCodeAt(0);
+    return (
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        (code >= 48 && code <= 57) ||
+        value === ':' ||
+        value === '-'
+    );
+}
+
+function readReminderHtmlTagName(
+    value: string,
+    startIndex: number
+): { isClosing: boolean; nameEndIndex: number; tagName: string } | null {
+    if (value[startIndex] !== '<') {
+        return null;
+    }
+
+    let index = startIndex + 1;
+    while (index < value.length && isReminderAsciiWhitespace(value[index] ?? '')) {
+        index += 1;
+    }
+
+    let isClosing = false;
+    if (value[index] === '/') {
+        isClosing = true;
+        index += 1;
+        while (index < value.length && isReminderAsciiWhitespace(value[index] ?? '')) {
+            index += 1;
+        }
+    }
+
+    const nameStartIndex = index;
+    if (!isReminderHtmlTagNameStart(value[index] ?? '')) {
+        return null;
+    }
+
+    index += 1;
+    while (index < value.length && isReminderHtmlTagNameChar(value[index] ?? '')) {
+        index += 1;
+    }
+
+    const nextChar = value[index];
+    if (nextChar && !isReminderAsciiWhitespace(nextChar) && nextChar !== '/' && nextChar !== '>') {
+        return null;
+    }
+
+    return {
+        isClosing,
+        nameEndIndex: index,
+        tagName: value.slice(nameStartIndex, index).toLowerCase(),
+    };
+}
+
+function isReminderHtmlTagSelfClosing(value: string, closingBracketIndex: number): boolean {
+    let index = closingBracketIndex - 1;
+    while (index >= 0 && isReminderAsciiWhitespace(value[index] ?? '')) {
+        index -= 1;
+    }
+
+    return value[index] === '/';
+}
+
+function readDangerousReminderHtmlTag(
+    value: string,
+    startIndex: number
+): ReminderDangerousHtmlTag | null {
+    const tagName = readReminderHtmlTagName(value, startIndex);
+    if (!tagName || !REMINDER_DANGEROUS_INLINE_HTML_TAGS.has(tagName.tagName)) {
+        return null;
+    }
+
+    const closingBracketIndex = value.indexOf('>', tagName.nameEndIndex);
+    if (closingBracketIndex === -1) {
+        return {
+            endIndex: tagName.nameEndIndex,
+            isClosing: tagName.isClosing,
+            isComplete: false,
+            isSelfClosing: false,
+            tagName: tagName.tagName,
+        };
+    }
+
+    return {
+        endIndex: closingBracketIndex + 1,
+        isClosing: tagName.isClosing,
+        isComplete: true,
+        isSelfClosing: isReminderHtmlTagSelfClosing(value, closingBracketIndex),
+        tagName: tagName.tagName,
+    };
+}
+
+function findDangerousReminderHtmlBlockEnd(
+    value: string,
+    startIndex: number,
+    tagName: string
+): number | null {
+    let depth = 0;
+    let index = startIndex;
+
+    while (index < value.length) {
+        const tagStartIndex = value.indexOf('<', index);
+        if (tagStartIndex === -1) {
+            return null;
+        }
+
+        const tag = readDangerousReminderHtmlTag(value, tagStartIndex);
+        if (!tag || tag.tagName !== tagName || !tag.isComplete) {
+            index = tagStartIndex + 1;
+            continue;
+        }
+
+        if (tag.isClosing) {
+            if (depth === 0) {
+                return tag.endIndex;
+            }
+
+            depth -= 1;
+        } else if (!tag.isSelfClosing) {
+            depth += 1;
+        }
+
+        index = tag.endIndex;
+    }
+
+    return null;
+}
+
 /**
  * Notifications are rendered as plain text today, but script-like HTML
  * fragments still have no value in reminder summaries and are safer to remove.
  */
 function stripDangerousReminderHtml(value: string): string {
-    return value
-        .replace(REMINDER_DANGEROUS_HTML_BLOCK_PATTERN, ' ')
-        .replace(REMINDER_DANGEROUS_HTML_TAG_PATTERN, ' ');
+    let result = '';
+    let index = 0;
+
+    while (index < value.length) {
+        const tagStartIndex = value.indexOf('<', index);
+        if (tagStartIndex === -1) {
+            result += value.slice(index);
+            break;
+        }
+
+        result += value.slice(index, tagStartIndex);
+        const tag = readDangerousReminderHtmlTag(value, tagStartIndex);
+        if (!tag) {
+            result += '<';
+            index = tagStartIndex + 1;
+            continue;
+        }
+
+        result += ' ';
+        if (!tag.isClosing && !tag.isSelfClosing && tag.isComplete) {
+            index =
+                findDangerousReminderHtmlBlockEnd(value, tag.endIndex, tag.tagName) ?? tag.endIndex;
+            continue;
+        }
+
+        index = tag.endIndex;
+    }
+
+    return result;
+}
+
+function readCompleteReminderHtmlTag(
+    value: string,
+    startIndex: number
+): ReminderCompleteHtmlTag | null {
+    if (!readReminderHtmlTagName(value, startIndex)) {
+        return null;
+    }
+
+    const closingBracketIndex = value.indexOf('>', startIndex + 1);
+    if (closingBracketIndex === -1) {
+        return null;
+    }
+
+    return {
+        endIndex: closingBracketIndex + 1,
+        raw: value.slice(startIndex, closingBracketIndex + 1),
+    };
+}
+
+function normalizeReminderCompleteHtmlTag(tag: string): string {
+    const parsedTag = parseReminderInlineHtmlTag(tag);
+    if (!parsedTag) {
+        return tag;
+    }
+
+    if (REMINDER_INLINE_LINE_BREAK_HTML_TAGS.has(parsedTag.tagName)) {
+        return '\n';
+    }
+
+    if (
+        REMINDER_INLINE_ZERO_WIDTH_HTML_TAGS.has(parsedTag.tagName) ||
+        REMINDER_DANGEROUS_INLINE_HTML_TAGS.has(parsedTag.tagName)
+    ) {
+        return '';
+    }
+
+    return '';
+}
+
+function normalizeReminderHtmlFragments(value: string): string {
+    const sanitized = stripDangerousReminderHtml(value);
+    let result = '';
+    let index = 0;
+
+    while (index < sanitized.length) {
+        const tagStartIndex = sanitized.indexOf('<', index);
+        if (tagStartIndex === -1) {
+            result += sanitized.slice(index);
+            break;
+        }
+
+        result += sanitized.slice(index, tagStartIndex);
+        const tag = readCompleteReminderHtmlTag(sanitized, tagStartIndex);
+        if (!tag) {
+            result += '<';
+            index = tagStartIndex + 1;
+            continue;
+        }
+
+        result += normalizeReminderCompleteHtmlTag(tag.raw);
+        index = tag.endIndex;
+    }
+
+    return result;
 }
 
 function isReminderPathLikeToken(token: string): boolean {
@@ -214,7 +453,7 @@ function stripHtmlToText(value: string): string {
         }
     }
 
-    return sanitized.replace(/<[^>]+>/g, ' ');
+    return normalizeReminderHtmlFragments(sanitized);
 }
 
 /** Parse a single markdown-it html_inline token into tag metadata when it is real tag syntax. */
@@ -274,19 +513,9 @@ function collectPairedReminderInlineHtmlOpenings(tokens: ReminderMarkdownToken[]
     return pairedOpeningIndexes;
 }
 
-/** Strip only obvious HTML markup in the fallback path and keep literal angle-bracket text. */
+/** Strip complete HTML tags in the fallback path and keep incomplete diagnostics literal. */
 function normalizeReminderFallbackHtml(value: string): string {
-    let normalized = stripDangerousReminderHtml(value)
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<hr\s*\/?>/gi, '\n')
-        .replace(/<wbr\s*\/?>/gi, '');
-
-    normalized = normalized.replace(/<([A-Za-z][A-Za-z0-9:-]*)\s*>(?=[\s\S]*<\/\1\s*>)/g, '');
-    normalized = normalized.replace(/<\/[A-Za-z][A-Za-z0-9:-]*\s*>/g, '');
-    normalized = normalized.replace(/<[A-Za-z][A-Za-z0-9:-]*\b[^>]*\/>/g, '');
-    normalized = normalized.replace(/<[A-Za-z][A-Za-z0-9:-]*\b[^>]*\s+[^>]*>/g, '');
-
-    return normalized;
+    return normalizeReminderHtmlFragments(value);
 }
 
 function normalizeReminderInlineHtmlToken(
