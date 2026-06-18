@@ -18,8 +18,18 @@ const REMINDER_SHORT_CLAUSE_MAX_CHARS_DEFAULT = 24;
 const REMINDER_MARKDOWN_ESCAPE_PATTERN = /\\([\\`*_{}[\]()#+.!>-])/g;
 const REMINDER_PATH_LIKE_TOKEN_PATTERN = /\S*[\\/]\S*/g;
 const REMINDER_PATH_WRAPPER_TRIM_PATTERN = /^[("'[{]+|[)"'\],.;:!?}]+$/g;
+const REMINDER_DANGEROUS_HTML_TAG_NAMES = [
+    'script',
+    'style',
+    'iframe',
+    'object',
+    'embed',
+    'template',
+];
 const REMINDER_DANGEROUS_HTML_BLOCK_PATTERN =
     /<\s*(script|style|iframe|object|embed|template)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
+const REMINDER_DANGEROUS_HTML_TAG_PATTERN =
+    /<\s*(?:\/\s*)?(script|style|iframe|object|embed|template)\b[^>]*>/gi;
 const REMINDER_PATH_SEGMENT_PATTERN = '(?:[A-Za-z0-9._@-]+|\\*{1,2})';
 const REMINDER_POSIX_RELATIVE_PATH_PATTERN = new RegExp(
     `^(?:${REMINDER_PATH_SEGMENT_PATTERN}/)+${REMINDER_PATH_SEGMENT_PATTERN}$`
@@ -61,6 +71,7 @@ type ReminderInlineHtmlTag = {
 };
 
 const REMINDER_INLINE_LINE_BREAK_HTML_TAGS = new Set(['br', 'hr']);
+const REMINDER_DANGEROUS_INLINE_HTML_TAGS = new Set(REMINDER_DANGEROUS_HTML_TAG_NAMES);
 const REMINDER_INLINE_ZERO_WIDTH_HTML_TAGS = new Set(['wbr']);
 
 const reminderMarkdownParser = getMarkdown('touchai-reminder-markdown', {
@@ -126,11 +137,13 @@ function unescapeReminderMarkdown(value: string): string {
 }
 
 /**
- * Notifications are rendered as plain text today, but paired script-like HTML
- * blocks still have no value in reminder summaries and are safer to remove.
+ * Notifications are rendered as plain text today, but script-like HTML
+ * fragments still have no value in reminder summaries and are safer to remove.
  */
-function stripDangerousReminderHtmlBlocks(value: string): string {
-    return value.replace(REMINDER_DANGEROUS_HTML_BLOCK_PATTERN, ' ');
+function stripDangerousReminderHtml(value: string): string {
+    return value
+        .replace(REMINDER_DANGEROUS_HTML_BLOCK_PATTERN, ' ')
+        .replace(REMINDER_DANGEROUS_HTML_TAG_PATTERN, ' ');
 }
 
 function isReminderPathLikeToken(token: string): boolean {
@@ -166,7 +179,7 @@ function protectPathLikeMarkdownToken(token: string): string {
  */
 function prepareReminderMarkdownSource(value: string): string {
     const normalized = limitReminderMarkdownSource(
-        stripDangerousReminderHtmlBlocks(value.replace(/\r\n?/g, '\n'))
+        stripDangerousReminderHtml(value.replace(/\r\n?/g, '\n'))
     );
     const protectedPaths: string[] = [];
     const withPlaceholders = normalized.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, (token) => {
@@ -191,7 +204,7 @@ function stripHtmlToText(value: string): string {
         return '';
     }
 
-    const sanitized = stripDangerousReminderHtmlBlocks(value);
+    const sanitized = stripDangerousReminderHtml(value);
 
     if (typeof DOMParser !== 'undefined') {
         try {
@@ -263,7 +276,7 @@ function collectPairedReminderInlineHtmlOpenings(tokens: ReminderMarkdownToken[]
 
 /** Strip only obvious HTML markup in the fallback path and keep literal angle-bracket text. */
 function normalizeReminderFallbackHtml(value: string): string {
-    let normalized = stripDangerousReminderHtmlBlocks(value)
+    let normalized = stripDangerousReminderHtml(value)
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<hr\s*\/?>/gi, '\n')
         .replace(/<wbr\s*\/?>/gi, '');
@@ -292,6 +305,10 @@ function normalizeReminderInlineHtmlToken(
     }
 
     if (REMINDER_INLINE_ZERO_WIDTH_HTML_TAGS.has(parsedTag.tagName)) {
+        return '';
+    }
+
+    if (REMINDER_DANGEROUS_INLINE_HTML_TAGS.has(parsedTag.tagName)) {
         return '';
     }
 
