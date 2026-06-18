@@ -208,6 +208,24 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
+    it('drops standalone dangerous html tags from failure notifications', () => {
+        const reminder = buildSessionStatusReminder(
+            createSnapshot({
+                status: 'failed',
+                error: 'Failure<script>alert(1)</script></script><iframe>See logs',
+            })
+        );
+
+        expect(reminder).toEqual({
+            kind: 'failed',
+            title: 'Task failed',
+            body: 'Failure See logs',
+            approval: null,
+            replyPlaceholder: 'Reply to TouchAI',
+            replyLabel: 'Reply',
+        });
+    });
+
     it('sanitizes approval reminders while keeping a literal command preview', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
