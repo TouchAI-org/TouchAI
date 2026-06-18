@@ -100,6 +100,7 @@ function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvi
         context_limit: null,
         output_limit: null,
         is_custom_metadata: 0,
+        is_selected: 1,
         provider_name: 'Test Provider',
         provider_driver: 'openai',
         api_endpoint: 'https://example.test',

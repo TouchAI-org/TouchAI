@@ -268,6 +268,7 @@ export const models = sqliteTable('models', {
     context_limit: integer('context_limit'),
     output_limit: integer('output_limit'),
     is_custom_metadata: integer('is_custom_metadata').notNull().default(0), // 用户是否自定义了元数据
+    is_selected: integer('is_selected').notNull().default(1), // 是否在模型选择区域（1=已选择，0=仅在支持区域）
     created_at: text('created_at')
         .notNull()
         .default(sql`(datetime('now'))`),
