@@ -34,7 +34,9 @@ describe('SessionTaskCenter status reminders', () => {
     });
 
     it('treats non-US english locales as english for reminder separators', () => {
-        vi.spyOn(i18n, 'getLocale').mockReturnValue('en-GB');
+        vi.spyOn(i18n, 'getLocale').mockImplementation(
+            () => 'en-GB' as ReturnType<typeof i18n.getLocale>
+        );
 
         const reminder = buildSessionStatusReminder(
             createSnapshot({
