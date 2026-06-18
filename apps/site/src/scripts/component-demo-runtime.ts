@@ -1,3 +1,10 @@
+import type { HomepageDemoScenarioId } from '../components/homepage-demo/scenario-types';
+import {
+    createHomepageDemoHostCss,
+    createHomepageDemoInstanceSelector,
+    scopeHomepageDemoCss,
+} from '../components/homepage-demo/host-css';
+
 type TouchAiHost = HTMLElement & {
     __touchaiMounted?: boolean;
     __touchaiReady?: boolean;
@@ -10,6 +17,9 @@ type TouchAiHost = HTMLElement & {
     >;
     __touchaiPendingMessages?: unknown[];
     __touchaiResizeObservers?: ResizeObserver[];
+    dataset: DOMStringMap & {
+        scenarioId?: HomepageDemoScenarioId;
+    };
     postMessage?: (data: unknown) => void;
     reload?: () => Promise<void>;
 };
@@ -32,233 +42,6 @@ const loadedScripts = new Map<string, Promise<void>>();
 const loadedStyles = new Set<string>();
 const unsafeUrlAttributes = new Set(['href', 'src', 'xlink:href', 'manifest', 'formaction']);
 const unsafeHtmlAttributes = new Set(['srcdoc']);
-
-const hostCssFor = (id: string) => `
-touchai-component-demo[data-demo-id="${id}"] {
-    display: block;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    border-radius: inherit;
-    isolation: isolate;
-    background: var(--page-bg, transparent);
-    color-scheme: light;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame {
-    width: min(60vw, 680px, 100%) !important;
-    max-width: min(680px, 100%);
-    justify-self: center;
-    overflow: visible !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
-    width: 100% !important;
-    max-width: 100% !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame {
-    display: flex;
-    align-items: stretch;
-    justify-content: center;
-    width: 760px !important;
-    height: 657px !important;
-    min-height: 657px !important;
-    max-height: 657px !important;
-    overflow: visible !important;
-    background: transparent !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame .stage,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame .stage,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .stage {
-    width: 100% !important;
-    min-height: 100% !important;
-    height: 100% !important;
-    padding: 0 !important;
-    justify-content: flex-start !important;
-    align-items: center !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .chat-panel {
-    margin: 0 auto !important;
-    box-shadow:
-        0 34px 90px rgba(107, 114, 128, 0.22),
-        0 12px 34px rgba(107, 114, 128, 0.12),
-        0 0 48px rgba(107, 114, 128, 0.14) !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].is-scroll-driven .chat-panel {
-    will-change: auto !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame .chat-panel {
-    width: 100% !important;
-    max-width: 100% !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame.is-idle .chat-panel {
-    border-radius: 8px !important;
-    overflow: hidden !important;
-    background: var(--panel, #fff) !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame .conversation-content {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    padding-bottom: 18px !important;
-    overscroll-behavior: contain !important;
-    scrollbar-width: none !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .conversation-content {
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    overscroll-behavior: contain !important;
-    scrollbar-width: none !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame .conversation-content::-webkit-scrollbar,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame .conversation-content::-webkit-scrollbar,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame .conversation-content::-webkit-scrollbar,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame .conversation-content::-webkit-scrollbar {
-    display: none;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-answering .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-answering .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .chat-panel {
-    display: flex !important;
-    flex-direction: column !important;
-    max-width: 100% !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .stage,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .stage,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-answering .stage,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .stage,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-answering .stage,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .stage {
-    justify-content: flex-start !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-scroll-driven.is-complete .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-scroll-driven.is-complete .chat-panel,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-scroll-driven.is-complete .chat-panel {
-    min-height: 0 !important;
-    height: auto !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-answering .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-answering .conversation-content,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .conversation-content {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    padding-bottom: 20px !important;
-    overscroll-behavior: contain !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-
-touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .composer,
-touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .composer,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-answering .composer,
-touchai-component-demo[data-demo-id="${id}"].feature-component-frame.is-complete .composer,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-answering .composer,
-touchai-component-demo[data-demo-id="${id}"].feature-work-frame.is-complete .composer,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-answering .composer,
-touchai-component-demo[data-demo-id="${id}"].feature-reminder-frame.is-complete .composer {
-    margin-top: auto !important;
-}
-
-@media (max-width: 900px) {
-    touchai-component-demo[data-demo-id="${id}"].component-frame {
-        width: min(60vw, 520px, 100%) !important;
-        height: auto !important;
-        min-height: 0 !important;
-        aspect-ratio: 760 / 657 !important;
-        max-height: min(62vh, 657px) !important;
-    }
-
-    touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
-        height: 100% !important;
-        min-height: 0 !important;
-    }
-}
-
-@media (max-height: 780px) {
-    touchai-component-demo[data-demo-id="${id}"].component-frame {
-        width: min(52vw, 560px, 100%) !important;
-        max-width: min(560px, 100%) !important;
-        height: auto !important;
-        min-height: 0 !important;
-        aspect-ratio: 760 / 657 !important;
-        max-height: min(60vh, 520px) !important;
-        overflow: hidden !important;
-    }
-
-    touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
-        min-height: 0 !important;
-        height: 100% !important;
-        padding: 0 !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-
-    touchai-component-demo[data-demo-id="${id}"].component-frame.is-answering .chat-panel,
-    touchai-component-demo[data-demo-id="${id}"].component-frame.is-complete .chat-panel,
-    touchai-component-demo[data-demo-id="${id}"].component-frame.is-scroll-driven.is-answering .chat-panel,
-    touchai-component-demo[data-demo-id="${id}"].component-frame.is-scroll-driven.is-complete .chat-panel {
-        display: flex !important;
-        flex-direction: column !important;
-        max-width: 100% !important;
-    }
-}
-
-@media (max-width: 560px) {
-    touchai-component-demo[data-demo-id="${id}"].component-frame {
-        width: min(calc(100vw - 56px), 360px, 100%) !important;
-        max-width: min(calc(100vw - 56px), 360px, 100%) !important;
-        height: auto !important;
-        min-height: 0 !important;
-        aspect-ratio: 760 / 657 !important;
-        max-height: min(58vh, 420px) !important;
-        overflow: visible !important;
-    }
-
-    touchai-component-demo[data-demo-id="${id}"].component-frame .stage {
-        min-height: 0 !important;
-        height: 100% !important;
-        padding: 0 !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-}
-`;
 
 const resolveUrl = (value: string, baseUrl: string) => {
     if (!value || value.startsWith('data:') || value.startsWith('#')) return value;
@@ -749,11 +532,12 @@ const applyDocument = async (
     const scopedCss = [...doc.querySelectorAll('style')]
         .map((style) => style.textContent || '')
         .join('\n');
+    const instanceSelector = createHomepageDemoInstanceSelector(host.dataset.demoId || '');
 
     if (styleNode) {
-        styleNode.textContent = scopeCss(
-            `${scopedCss}\n${hostCssFor(host.dataset.demoId || '')}`,
-            `touchai-component-demo[data-demo-id="${host.dataset.demoId || ''}"]`
+        styleNode.textContent = scopeHomepageDemoCss(
+            `${scopedCss}\n${createHomepageDemoHostCss(instanceSelector)}`,
+            instanceSelector
         );
     }
 
@@ -820,6 +604,7 @@ const mount = (id: string): TouchAiHost | null => {
     host.dataset.touchaiMessageDispatchCount = '0';
     host.dataset.touchaiMessageReceiveCount = '0';
     host.dataset.demoId = id;
+    host.dataset.scenarioId = host.dataset.scenarioId || '';
     host.dataset.touchaiStatus = 'mount-created';
 
     const load = async () => {
