@@ -94,6 +94,48 @@ describe('resolveCommandContext', () => {
         ).rejects.toThrow('Working directory is outside the allowed scope');
     });
 
+    it('rejects working directories that escape the allowlist with parent segments', async () => {
+        setLocale('en-US');
+        const config = {
+            ...baseConfig,
+            allowedWorkingDirectories: ['D:/allowed'],
+        };
+
+        await expect(
+            resolveCommandContext(
+                { command: 'dir', workingDirectory: 'D:/allowed/../other' },
+                config
+            )
+        ).rejects.toThrow('Working directory is outside the allowed scope');
+    });
+
+    it('rejects relative working directories that escape with consecutive parent segments', async () => {
+        setLocale('en-US');
+        const config = {
+            ...baseConfig,
+            allowedWorkingDirectories: ['foo'],
+        };
+
+        await expect(
+            resolveCommandContext({ command: 'dir', workingDirectory: '../../foo' }, config)
+        ).rejects.toThrow('Working directory is outside the allowed scope');
+    });
+
+    it('rejects UNC paths that escape to a sibling share before re-entering the allowlist', async () => {
+        setLocale('en-US');
+        const config = {
+            ...baseConfig,
+            allowedWorkingDirectories: ['\\\\server\\share'],
+        };
+
+        await expect(
+            resolveCommandContext(
+                { command: 'dir', workingDirectory: '\\\\server\\other\\..\\share\\secret' },
+                config
+            )
+        ).rejects.toThrow('Working directory is outside the allowed scope');
+    });
+
     it('accepts command inside allowed directories', async () => {
         const config = {
             ...baseConfig,

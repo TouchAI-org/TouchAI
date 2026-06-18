@@ -16,7 +16,49 @@ import {
 } from './constants';
 
 function normalizeDirectoryPath(path: string): string {
-    return path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+    const normalizedSeparators = path.trim().replace(/\//g, '\\').replace(/\\+$/, '');
+    const uncMatch = /^\\\\([^\\]+)\\([^\\]+)(?:\\(.*))?$/.exec(normalizedSeparators);
+    const driveMatch = /^([a-zA-Z]:)(?:\\(.*))?$/.exec(normalizedSeparators);
+    const hasRoot = normalizedSeparators.startsWith('\\');
+    const prefix =
+        uncMatch && uncMatch[1] && uncMatch[2]
+            ? `\\\\${uncMatch[1].toLowerCase()}\\${uncMatch[2].toLowerCase()}`
+            : (driveMatch?.[1]?.toLowerCase() ?? (hasRoot ? '\\' : ''));
+    const body = uncMatch
+        ? (uncMatch[3] ?? '')
+        : driveMatch
+          ? (driveMatch[2] ?? '')
+          : normalizedSeparators.replace(/^\\+/, '');
+    const resolvedSegments: string[] = [];
+
+    for (const segment of body.split(/\\+/)) {
+        if (!segment || segment === '.') {
+            continue;
+        }
+
+        if (segment === '..') {
+            const lastSegment = resolvedSegments[resolvedSegments.length - 1];
+            if (lastSegment && lastSegment !== '..') {
+                resolvedSegments.pop();
+            } else if (!prefix) {
+                resolvedSegments.push(segment);
+            }
+            continue;
+        }
+
+        resolvedSegments.push(segment.toLowerCase());
+    }
+
+    const normalizedBody = resolvedSegments.join('\\');
+    if (!prefix) {
+        return normalizedBody;
+    }
+
+    if (!normalizedBody) {
+        return prefix;
+    }
+
+    return prefix.endsWith('\\') ? `${prefix}${normalizedBody}` : `${prefix}\\${normalizedBody}`;
 }
 
 function isWithinAllowedDirectory(path: string, allowlist: string[]): boolean {
