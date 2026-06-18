@@ -58,10 +58,22 @@ function updateAssetUrl(product, fileName) {
     return `${product.services.updates.baseUrl.replace(/\/+$/g, '')}/${encodeURIComponent(fileName)}`;
 }
 
+function isSafeAssetFileName(fileName) {
+    return (
+        typeof fileName === 'string' &&
+        fileName.trim() === fileName &&
+        fileName.length > 0 &&
+        !/[\\/]/u.test(fileName) &&
+        fileName !== '.' &&
+        fileName !== '..'
+    );
+}
+
 function isVelopackPackage(asset) {
     return (
         asset &&
         typeof asset.FileName === 'string' &&
+        isSafeAssetFileName(asset.FileName) &&
         asset.FileName.toLowerCase().endsWith('.nupkg')
     );
 }
@@ -83,9 +95,14 @@ export async function hydrateVelopackHistory(projectRoot, releaseDir, channel) {
 
     const feedText = await feedResponse.text();
     const feed = JSON.parse(feedText);
-    await writeFile(join(releaseDir, feedName), `${JSON.stringify(feed, null, 4)}\n`, 'utf8');
-
     const assets = Array.isArray(feed.Assets) ? feed.Assets.filter(isVelopackPackage) : [];
+    const hydratedFeed = Array.isArray(feed.Assets) ? { ...feed, Assets: assets } : feed;
+    await writeFile(
+        join(releaseDir, feedName),
+        `${JSON.stringify(hydratedFeed, null, 4)}\n`,
+        'utf8'
+    );
+
     for (const asset of assets) {
         const outputPath = join(releaseDir, asset.FileName);
         if (await fileExists(outputPath)) {
