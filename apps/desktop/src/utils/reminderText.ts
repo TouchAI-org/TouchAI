@@ -18,6 +18,8 @@ const REMINDER_SHORT_CLAUSE_MAX_CHARS_DEFAULT = 24;
 const REMINDER_MARKDOWN_ESCAPE_PATTERN = /\\([\\`*_{}[\]()#+.!>-])/g;
 const REMINDER_PATH_LIKE_TOKEN_PATTERN = /\S*[\\/]\S*/g;
 const REMINDER_PATH_WRAPPER_TRIM_PATTERN = /^[("'[{]+|[)"'\],.;:!?}]+$/g;
+const REMINDER_DANGEROUS_HTML_BLOCK_PATTERN =
+    /<\s*(script|style|iframe|object|embed|template)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi;
 const REMINDER_PATH_SEGMENT_PATTERN = '(?:[A-Za-z0-9._@-]+|\\*{1,2})';
 const REMINDER_POSIX_RELATIVE_PATH_PATTERN = new RegExp(
     `^(?:${REMINDER_PATH_SEGMENT_PATTERN}/)+${REMINDER_PATH_SEGMENT_PATTERN}$`
@@ -123,6 +125,14 @@ function unescapeReminderMarkdown(value: string): string {
     return value.replace(REMINDER_MARKDOWN_ESCAPE_PATTERN, '$1');
 }
 
+/**
+ * Notifications are rendered as plain text today, but paired script-like HTML
+ * blocks still have no value in reminder summaries and are safer to remove.
+ */
+function stripDangerousReminderHtmlBlocks(value: string): string {
+    return value.replace(REMINDER_DANGEROUS_HTML_BLOCK_PATTERN, ' ');
+}
+
 function isReminderPathLikeToken(token: string): boolean {
     const core = token.replace(REMINDER_PATH_WRAPPER_TRIM_PATTERN, '');
     return (
@@ -155,7 +165,9 @@ function protectPathLikeMarkdownToken(token: string): string {
  * so emphasis markers inside file paths survive plain-text conversion.
  */
 function prepareReminderMarkdownSource(value: string): string {
-    const normalized = limitReminderMarkdownSource(value.replace(/\r\n?/g, '\n'));
+    const normalized = limitReminderMarkdownSource(
+        stripDangerousReminderHtmlBlocks(value.replace(/\r\n?/g, '\n'))
+    );
     const protectedPaths: string[] = [];
     const withPlaceholders = normalized.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, (token) => {
         if (!isReminderPathLikeToken(token)) {
@@ -179,15 +191,17 @@ function stripHtmlToText(value: string): string {
         return '';
     }
 
+    const sanitized = stripDangerousReminderHtmlBlocks(value);
+
     if (typeof DOMParser !== 'undefined') {
         try {
-            return new DOMParser().parseFromString(value, 'text/html').body.textContent ?? '';
+            return new DOMParser().parseFromString(sanitized, 'text/html').body.textContent ?? '';
         } catch {
             // Fall back to a conservative tag strip when DOM parsing is unavailable.
         }
     }
 
-    return value.replace(/<[^>]+>/g, ' ');
+    return sanitized.replace(/<[^>]+>/g, ' ');
 }
 
 /** Parse a single markdown-it html_inline token into tag metadata when it is real tag syntax. */
@@ -249,7 +263,7 @@ function collectPairedReminderInlineHtmlOpenings(tokens: ReminderMarkdownToken[]
 
 /** Strip only obvious HTML markup in the fallback path and keep literal angle-bracket text. */
 function normalizeReminderFallbackHtml(value: string): string {
-    let normalized = value
+    let normalized = stripDangerousReminderHtmlBlocks(value)
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<hr\s*\/?>/gi, '\n')
         .replace(/<wbr\s*\/?>/gi, '');
