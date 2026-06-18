@@ -320,7 +320,7 @@ async function releaseDownloadsFromDirectory(product, releaseDir, version) {
             continue;
         }
 
-        if (version && !entry.name.includes(version)) {
+        if (version && versionFromAssetName(entry.name) !== version) {
             continue;
         }
 
