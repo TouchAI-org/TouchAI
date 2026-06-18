@@ -1,5 +1,7 @@
 ---
 import ComponentDemo from '../components/ComponentDemo.astro';
+import type { HomepageDemoLocale } from '../data/homepage-demo-scenarios';
+import { getHomepageDemoSrc, getHomepageDemoTitle } from '../utils/homepage-demo-src';
 
 const CLARITY_ID = import.meta.env.PUBLIC_CLARITY_ID ?? '';
 const ANALYTICS_ENDPOINT = import.meta.env.PUBLIC_ANALYTICS_ENDPOINT ?? '';
@@ -12,6 +14,7 @@ const titleZh = 'TouchAI：一触即达的桌面效率 Agent';
 const titleEn = 'TouchAI: A Desktop Efficiency Agent at Your Fingertips';
 const descriptionZh = '一触即达的桌面效率 Agent——随时待命，做您触手可及的 AI 入口';
 const descriptionEn = 'Your desktop AI agent, always ready — your touch-accessible AI gateway';
+const initialHomepageDemoLocale: HomepageDemoLocale = 'zh';
 const keywords =
     'TouchAI, desktop AI agent, AI desktop assistant, productivity agent, AI 助手, 桌面 AI, 桌面效率工具, 触控 AI, 自动化工作流, 本地桌面助手';
 const socialImageUrl = `${siteUrl}seo-card.png`;
@@ -1941,8 +1944,9 @@ const structuredData = JSON.stringify({
                     <div class="visual-stage">
                         <ComponentDemo
                             className="component-frame"
-                            src="/touchai-intro/touchai-components.html?v=7"
-                            title="TouchAI 介绍组件演示"
+                            scenarioId="intro"
+                            src={getHomepageDemoSrc('intro', initialHomepageDemoLocale)}
+                            title={getHomepageDemoTitle('intro', initialHomepageDemoLocale)}
                         />
                     </div>
                 </div>
@@ -1964,8 +1968,15 @@ const structuredData = JSON.stringify({
                                 <div class="phone-card feature-component-card">
                                     <ComponentDemo
                                         className="feature-component-frame"
-                                        src="/feature-solver/touchai-components.html?v=17"
-                                        title="TouchAI 解题组件演示"
+                                        scenarioId="solver"
+                                        src={getHomepageDemoSrc(
+                                            'solver',
+                                            initialHomepageDemoLocale
+                                        )}
+                                        title={getHomepageDemoTitle(
+                                            'solver',
+                                            initialHomepageDemoLocale
+                                        )}
                                     />
                                 </div>
                             </div>
@@ -1978,8 +1989,15 @@ const structuredData = JSON.stringify({
                                 <div class="feature-work-card">
                                     <ComponentDemo
                                         className="feature-work-frame"
-                                        src="/feature-work-organizer/touchai-components.html?v=13"
-                                        title="TouchAI 工作整理组件演示"
+                                        scenarioId="work-organizer"
+                                        src={getHomepageDemoSrc(
+                                            'work-organizer',
+                                            initialHomepageDemoLocale
+                                        )}
+                                        title={getHomepageDemoTitle(
+                                            'work-organizer',
+                                            initialHomepageDemoLocale
+                                        )}
                                     />
                                 </div>
                             </div>
@@ -2005,8 +2023,15 @@ const structuredData = JSON.stringify({
                                 <div class="feature-reminder-card">
                                     <ComponentDemo
                                         className="feature-reminder-frame"
-                                        src="/feature-reminder/touchai-components.html?v=5"
-                                        title="TouchAI MCP 工具调用组件演示"
+                                        scenarioId="reminder"
+                                        src={getHomepageDemoSrc(
+                                            'reminder',
+                                            initialHomepageDemoLocale
+                                        )}
+                                        title={getHomepageDemoTitle(
+                                            'reminder',
+                                            initialHomepageDemoLocale
+                                        )}
                                     />
                                 </div>
                             </div>
@@ -2285,12 +2310,12 @@ const structuredData = JSON.stringify({
             </div>
             <div data-i18n="footer.copyright">© 2026 TouchAI. GPL-3.0-or-later.</div>
         </footer>
-
         <script>
             import { gsap } from 'gsap';
             import ScrollTrigger from 'gsap/ScrollTrigger';
             import { createShader, playSweep } from 'glimm';
             import { ensureTouchaiLightDemoRuntime } from '../scripts/component-demo-runtime';
+            import { syncHomepageDemoLocale } from '../scripts/homepage-demo-locale';
 
             (async () => {
                 document.body.dataset.pageScript = 'started';
@@ -2385,7 +2410,8 @@ const structuredData = JSON.stringify({
                         'cta.copy': '体验近在咫尺的 AI 陪伴',
                         'cta.download': '下载 TouchAI',
                         'footer.official': '官网',
-                        'footer.analytics': '本站使用基础统计与 Microsoft Clarity，用于了解站点使用情况并优化体验。',
+                        'footer.analytics':
+                            '本站使用基础统计与 Microsoft Clarity，用于了解站点使用情况并优化体验。',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                     en: {
@@ -2439,7 +2465,8 @@ const structuredData = JSON.stringify({
                         'cta.copy': 'Experience AI companionship within reach.',
                         'cta.download': 'Download TouchAI',
                         'footer.official': 'Official site',
-                        'footer.analytics': 'We use basic analytics and Microsoft Clarity to understand site usage and improve the experience.',
+                        'footer.analytics':
+                            'We use basic analytics and Microsoft Clarity to understand site usage and improve the experience.',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                 };
@@ -2548,7 +2575,9 @@ const structuredData = JSON.stringify({
                                       dark: '切换白天模式',
                                   },
                         replaySuffix:
-                            lang === 'en' ? 'click to replay current scroll progress' : '点击刷新当前滚动进度',
+                            lang === 'en'
+                                ? 'click to replay current scroll progress'
+                                : '点击刷新当前滚动进度',
                         replayLabels:
                             lang === 'en'
                                 ? {
@@ -2599,103 +2628,29 @@ const structuredData = JSON.stringify({
                         );
                         toggle.querySelector('span').textContent = lang === 'en' ? 'EN' : '中';
                     }
-                    document.querySelector('.nav')?.setAttribute('aria-label', localizedLabels.navAria);
-                    document.querySelector('.logo-link')?.setAttribute('aria-label', localizedLabels.homeAria);
+                    document
+                        .querySelector('.nav')
+                        ?.setAttribute('aria-label', localizedLabels.navAria);
+                    document
+                        .querySelector('.logo-link')
+                        ?.setAttribute('aria-label', localizedLabels.homeAria);
                     const themeToggle = document.querySelector('.theme-toggle');
                     if (themeToggle) {
-                        const nextTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+                        const nextTheme =
+                            document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
                         const nextLabel = localizedLabels.themeToggle[nextTheme];
                         themeToggle.setAttribute('aria-label', nextLabel);
                         themeToggle.setAttribute('title', nextLabel);
                     }
-                    const replayCardLabels = [
-                        ['.feature-component-card', localizedLabels.replayLabels.solver],
-                        ['.feature-work-card', localizedLabels.replayLabels.work],
-                        ['.feature-reminder-card', localizedLabels.replayLabels.reminder],
-                    ];
-                    replayCardLabels.forEach(([selector, label]) => {
-                        const card = document.querySelector(selector);
-                        if (!card) return;
-                        card.setAttribute('aria-label', `${label}，${localizedLabels.replaySuffix}`.replace('，，', '，'));
-                        if (lang === 'en') {
-                            card.setAttribute('aria-label', `${label}, ${localizedLabels.replaySuffix}`);
-                        }
+                    syncHomepageDemoLocale({
+                        document,
+                        lang,
+                        replayLabels: localizedLabels.replayLabels,
+                        replaySuffix: localizedLabels.replaySuffix,
+                        resetDemoProgressDedupe,
+                        syncComponentBackground,
+                        restoreFeatureDemoProgress,
                     });
-                    const introDemo = document.querySelector('.component-frame');
-                    if (introDemo) {
-                        const nextSrc =
-                            lang === 'en'
-                                ? '/touchai-intro-en/touchai-components.html?v=1'
-                                : '/touchai-intro/touchai-components.html?v=8';
-                        if (introDemo.dataset.src !== nextSrc) {
-                            resetDemoProgressDedupe(introDemo);
-                            introDemo.dataset.src = nextSrc;
-                            introDemo.dataset.title =
-                                lang === 'en'
-                                    ? 'TouchAI intro component demo'
-                                    : 'TouchAI 介绍组件演示';
-                            Promise.resolve(introDemo.reload?.()).then(() => {
-                                syncComponentBackground();
-                            });
-                        }
-                    }
-                    const solverDemo = document.querySelector('.feature-component-frame');
-                    if (solverDemo) {
-                        const nextSolverSrc =
-                            lang === 'en'
-                                ? '/feature-solver-en/touchai-components.html?v=1'
-                                : '/feature-solver/touchai-components.html?v=17';
-                        if (solverDemo.dataset.src !== nextSolverSrc) {
-                            resetDemoProgressDedupe(solverDemo);
-                            solverDemo.dataset.src = nextSolverSrc;
-                            solverDemo.dataset.title =
-                                lang === 'en'
-                                    ? 'TouchAI math solver component demo'
-                                    : 'TouchAI 解题组件演示';
-                            Promise.resolve(solverDemo.reload?.()).then(() => {
-                                syncComponentBackground();
-                                restoreFeatureDemoProgress(solverDemo);
-                            });
-                        }
-                    }
-                    const workDemo = document.querySelector('.feature-work-frame');
-                    if (workDemo) {
-                        const nextWorkSrc =
-                            lang === 'en'
-                                ? '/feature-work-organizer-en/touchai-components.html?v=1'
-                                : '/feature-work-organizer/touchai-components.html?v=13';
-                        if (workDemo.dataset.src !== nextWorkSrc) {
-                            resetDemoProgressDedupe(workDemo);
-                            workDemo.dataset.src = nextWorkSrc;
-                            workDemo.dataset.title =
-                                lang === 'en'
-                                    ? 'TouchAI work organizer component demo'
-                                    : 'TouchAI 工作整理组件演示';
-                            Promise.resolve(workDemo.reload?.()).then(() => {
-                                syncComponentBackground();
-                                restoreFeatureDemoProgress(workDemo);
-                            });
-                        }
-                    }
-                    const reminderDemo = document.querySelector('.feature-reminder-frame');
-                    if (reminderDemo) {
-                        const nextReminderSrc =
-                            lang === 'en'
-                                ? '/feature-reminder-en/touchai-components.html?v=1'
-                                : '/feature-reminder/touchai-components.html?v=5';
-                        if (reminderDemo.dataset.src !== nextReminderSrc) {
-                            resetDemoProgressDedupe(reminderDemo);
-                            reminderDemo.dataset.src = nextReminderSrc;
-                            reminderDemo.dataset.title =
-                                lang === 'en'
-                                    ? 'TouchAI meeting reminder component demo'
-                                    : 'TouchAI MCP 工具调用组件演示';
-                            Promise.resolve(reminderDemo.reload?.()).then(() => {
-                                syncComponentBackground();
-                                restoreFeatureDemoProgress(reminderDemo);
-                            });
-                        }
-                    }
                     localStorage.setItem('touchai-language', lang);
                 };
 
