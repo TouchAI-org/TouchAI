@@ -11,6 +11,33 @@ export interface ResolveToolDefinitionsOptions {
     excludedToolNames?: string[];
 }
 
+const TOOL_TIMEOUT_META_PROPERTY = {
+    type: 'object',
+    description: 'Optional execution metadata for this tool call.',
+    properties: {
+        timeoutMs: {
+            type: 'integer',
+            description:
+                'Optional timeout in milliseconds. Use only when a task is expected to take longer or shorter than the default. Minimum: 1000 (1 second). Maximum: 600000 (10 minutes).',
+            minimum: 1000,
+            maximum: 600000,
+        },
+    },
+} as const;
+
+function withAdaptiveTimeoutSchema(tool: AiToolDefinition): AiToolDefinition {
+    return {
+        ...tool,
+        input_schema: {
+            ...tool.input_schema,
+            properties: {
+                ...tool.input_schema.properties,
+                _meta: TOOL_TIMEOUT_META_PROPERTY,
+            },
+        },
+    };
+}
+
 /**
  * 解析当前模型可用的工具定义列表。
  */
@@ -27,10 +54,11 @@ export async function resolveToolDefinitions(
         builtInToolService.getEnabledToolDefinitions(),
     ]);
     const allTools = [...mcpTools, ...builtInTools];
-    if (!options.excludedToolNames?.length) {
-        return allTools;
+    let filteredTools = allTools;
+    if (options.excludedToolNames?.length) {
+        const excludedToolNames = new Set(options.excludedToolNames);
+        filteredTools = allTools.filter((tool) => !excludedToolNames.has(tool.name));
     }
 
-    const excludedToolNames = new Set(options.excludedToolNames);
-    return allTools.filter((tool) => !excludedToolNames.has(tool.name));
+    return filteredTools.map(withAdaptiveTimeoutSchema);
 }
