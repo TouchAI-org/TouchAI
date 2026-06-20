@@ -40,7 +40,7 @@ jobs:
             cloudflare_r2_bucket_name: ${{ steps.product.outputs.cloudflare_r2_bucket_name }}
             artifact_release_notes_name: ${{ steps.artifacts.outputs.release_notes_name }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
@@ -165,7 +165,7 @@ jobs:
         needs: prepare-release
         runs-on: windows-latest
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
@@ -312,7 +312,7 @@ jobs:
         needs: prepare-release
         runs-on: macos-latest
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
@@ -406,7 +406,7 @@ jobs:
         needs: prepare-release
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
@@ -524,7 +524,7 @@ jobs:
             - build-linux
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
@@ -625,7 +625,7 @@ jobs:
         runs-on: ubuntu-latest
         environment: ${{ inputs.deployment-environment }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
