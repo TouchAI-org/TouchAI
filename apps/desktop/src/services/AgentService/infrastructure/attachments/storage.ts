@@ -118,6 +118,14 @@ async function buildAttachmentStoragePath(
     return join(shardDir, hash);
 }
 
+async function ensureAttachmentStorageFile(sourcePath: string, targetPath: string): Promise<void> {
+    if (await exists(targetPath)) {
+        return;
+    }
+
+    await copyFile(sourcePath, targetPath);
+}
+
 async function ensureAttachmentRecord(
     type: AttachmentIndex['type'],
     path: string,
@@ -131,13 +139,14 @@ async function ensureAttachmentRecord(
         getFileSize(path),
     ]);
 
+    const targetPath = await buildAttachmentStoragePath(type, hash);
     const existing = await findAttachmentByHash(hash, database);
     if (existing) {
+        await ensureAttachmentStorageFile(path, targetPath);
         return existing;
     }
 
-    const targetPath = await buildAttachmentStoragePath(type, hash);
-    await copyFile(path, targetPath);
+    await ensureAttachmentStorageFile(path, targetPath);
 
     try {
         return await createAttachmentRecord(
