@@ -37,6 +37,7 @@ const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
 export function useSearchWindowPin() {
     const currentWindow = getCurrentWindow();
     const isPinned = ref(false);
+    let desiredPinnedState: boolean | null = null;
     let lastOperation: Promise<void> = Promise.resolve();
 
     function queuePinOperation<T>(operation: () => Promise<T>): Promise<T> {
@@ -50,6 +51,11 @@ export function useSearchWindowPin() {
 
     function syncWindowPinState(): Promise<boolean> {
         return queuePinOperation(async () => {
+            if (desiredPinnedState !== null) {
+                isPinned.value = desiredPinnedState;
+                return desiredPinnedState;
+            }
+
             const nextState = await currentWindow.isAlwaysOnTop();
             isPinned.value = nextState;
             return nextState;
@@ -58,18 +64,18 @@ export function useSearchWindowPin() {
 
     function setWindowPinned(value: boolean): Promise<boolean> {
         return queuePinOperation(async () => {
+            desiredPinnedState = value;
             await currentWindow.setAlwaysOnTop(value);
-            const nextState = await currentWindow.isAlwaysOnTop();
-            isPinned.value = nextState;
-            return nextState;
+            isPinned.value = value;
+            return value;
         });
     }
 
     function toggleWindowPin(): Promise<boolean> {
         return queuePinOperation(async () => {
-            const currentState = await currentWindow.isAlwaysOnTop();
-            await currentWindow.setAlwaysOnTop(!currentState);
-            const nextState = await currentWindow.isAlwaysOnTop();
+            const nextState = !isPinned.value;
+            desiredPinnedState = nextState;
+            await currentWindow.setAlwaysOnTop(nextState);
             isPinned.value = nextState;
             return nextState;
         });
