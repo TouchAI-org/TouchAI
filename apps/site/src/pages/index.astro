@@ -3283,7 +3283,7 @@ const structuredData = JSON.stringify({
                         ease: 'power2.out',
                         scrollTrigger: {
                             trigger: section,
-                            start: 'top 82%',
+                            start: window.innerWidth <= 560 ? 'top 94%' : 'top 82%',
                             toggleActions: 'play none none reverse',
                         },
                     });
