@@ -6,6 +6,7 @@ import { t, tt } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
+import { clampTimeoutMs } from '@/utils/timeouts';
 
 import {
     type BaseBuiltInToolExecutionContext,
@@ -153,12 +154,21 @@ export async function executeBashTool(
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
     const commandContext = await resolveCommandContext(args, config);
+
+    // Apply requested timeout bounded between 1s and 10 mins, default to tool config
+    const effectiveTimeout = clampTimeoutMs(
+        context.requestedTimeoutMs,
+        config.timeoutMs,
+        1000,
+        600000
+    );
+
     const response = await executeCancelableBash(
         {
             executionId: context.callId,
             command: commandContext.command,
             workingDirectory: commandContext.workingDirectory,
-            timeoutMs: config.timeoutMs,
+            timeoutMs: effectiveTimeout,
             compactOutput: config.compactOutput,
             rawOutput: commandContext.rawOutput,
         },
