@@ -8,6 +8,12 @@ import { parseToolArguments } from '../../utils/toolSchema';
 import { formatUpgradeModelChain, type UpgradeModelChainEntry } from './chain';
 import { UPGRADE_MODEL_TOOL_NAME, upgradeModelArgsSchema } from './constants';
 
+export type UpgradeModelArgs = {
+    role?: 'entry' | 'fast' | 'general';
+    scenario?: string | null;
+    restore?: boolean;
+};
+
 function formatModelLabel(model: {
     name: string;
     model_id: string;
@@ -40,6 +46,6 @@ export function parseUpgradeTargetLabel(result?: string): string | null {
     return matched?.[1]?.trim() || null;
 }
 
-export function parseUpgradeModelArgs(args: Record<string, unknown>): void {
-    parseToolArguments(UPGRADE_MODEL_TOOL_NAME, upgradeModelArgsSchema, args);
+export function parseUpgradeModelArgs(args: Record<string, unknown>): UpgradeModelArgs {
+    return parseToolArguments(UPGRADE_MODEL_TOOL_NAME, upgradeModelArgsSchema, args);
 }

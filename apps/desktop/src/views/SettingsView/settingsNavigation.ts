@@ -5,6 +5,7 @@ import { JSON_SETTINGS_SECTIONS } from '@/stores/setting/sections/registry';
 
 export type NavigationSection =
     | 'general'
+    | 'model-preferences'
     | 'ai-services'
     | 'built-in-tools'
     | 'search'
@@ -64,9 +65,15 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
         items: [
             {
                 id: 'ai-services',
-                icon: 'llm',
+                icon: 'cloud',
                 labelKey: 'settings.nav.aiServices.label',
                 descriptionKey: 'settings.nav.aiServices.description',
+            },
+            {
+                id: 'model-preferences',
+                icon: 'route',
+                labelKey: 'settings.nav.modelPreferences.label',
+                descriptionKey: 'settings.nav.modelPreferences.description',
             },
             {
                 id: 'built-in-tools',

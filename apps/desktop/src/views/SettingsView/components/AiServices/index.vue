@@ -19,6 +19,8 @@
         findDefaultModel,
         findModelsWithProvider,
         findProviderById,
+        getSettingValue,
+        listModelPreferences,
         setDefaultModel,
         syncAllModelsMetadata,
         updateModel,
@@ -77,6 +79,8 @@
     const selectedProviderId = ref<number | null>(null);
     const defaultModelId = ref<number | null>(null);
     const defaultModelProviderId = ref<number | null>(null);
+    const modelRoutingModelIds = ref<Set<number>>(new Set());
+    const modelRoutingProviderIds = ref<Set<number>>(new Set());
     const loading = ref(true);
     const loadingModels = ref(false);
     const error = ref<string | null>(null);
@@ -156,6 +160,49 @@
         return undefined;
     }
 
+    async function loadModelRoutingReferences() {
+        const [fastModelId, generalModelId, preferences, allModels] = await Promise.all([
+            getSettingValue({ key: 'model_role_fast_model_id' }),
+            getSettingValue({ key: 'model_role_general_model_id' }),
+            listModelPreferences(),
+            findModelsWithProvider(),
+        ]);
+        const modelProviderMap = new Map(allModels.map((model) => [model.id, model.provider_id]));
+        const nextModelIds = new Set<number>();
+        const nextProviderIds = new Set<number>();
+
+        for (const rawModelId of [fastModelId, generalModelId]) {
+            const modelId = rawModelId ? Number(rawModelId) : NaN;
+            if (!Number.isFinite(modelId)) {
+                continue;
+            }
+
+            nextModelIds.add(modelId);
+            const providerId = modelProviderMap.get(modelId);
+            if (providerId !== undefined) {
+                nextProviderIds.add(providerId);
+            }
+        }
+
+        for (const preference of preferences) {
+            if (preference.model_id !== null) {
+                nextModelIds.add(preference.model_id);
+                const providerId =
+                    preference.model_provider_id ??
+                    preference.provider_id ??
+                    modelProviderMap.get(preference.model_id);
+                if (providerId !== null && providerId !== undefined) {
+                    nextProviderIds.add(providerId);
+                }
+            } else if (preference.provider_id !== null) {
+                nextProviderIds.add(preference.provider_id);
+            }
+        }
+
+        modelRoutingModelIds.value = nextModelIds;
+        modelRoutingProviderIds.value = nextProviderIds;
+    }
+
     function patchProvider(providerId: number, patch: Partial<Provider>) {
         providers.value = providers.value.map((provider) =>
             provider.id === providerId ? { ...provider, ...patch } : provider
@@ -198,7 +245,6 @@
         const ids = new Set<number>();
         if (defaultModelProviderId.value !== null) {
             ids.add(defaultModelProviderId.value);
-            return ids;
         }
         return ids;
     });
@@ -235,6 +281,7 @@
             const defaultModel = await findDefaultModel();
             defaultModelId.value = defaultModel?.id || null;
             defaultModelProviderId.value = defaultModel?.provider_id || null;
+            await loadModelRoutingReferences();
 
             await ensureProviderSelected();
         } catch (err) {
@@ -353,6 +400,20 @@
         if (defaultModelProviderId.value === provider.id) {
             throw new Error(t('settings.ai.cannotDeleteProviderWithDefaultModel'));
         }
+
+        if (modelRoutingProviderIds.value.has(provider.id)) {
+            throw new Error(t('settings.ai.cannotDeleteProviderWithModelRouting'));
+        }
+    }
+
+    function assertModelCanBeDeleted(modelId: number) {
+        if (defaultModelId.value === modelId) {
+            throw new Error(t('settings.ai.cannotDeleteDefaultModel'));
+        }
+
+        if (modelRoutingModelIds.value.has(modelId)) {
+            throw new Error(t('settings.ai.cannotDeleteModelWithModelRouting'));
+        }
     }
 
     const handleProviderContextMenu = (providerId: number, event: MouseEvent) => {
@@ -426,6 +487,7 @@
                 throw new Error(t('settings.ai.providerNotFound'));
             }
 
+            await loadModelRoutingReferences();
             assertProviderCanBeDeleted(provider);
             await deleteProvider({ id: providerId });
             providers.value = providers.value.filter((item) => item.id !== providerId);
@@ -472,6 +534,8 @@
 
     const handleDeleteModel = async (id: number, silent = false) => {
         try {
+            await loadModelRoutingReferences();
+            assertModelCanBeDeleted(id);
             await deleteModel({ id });
             removeCachedModel(id);
             await broadcastModelsUpdated();
@@ -569,6 +633,28 @@
                 fetchedModels = await providerInstance.listModels();
             } catch (error) {
                 if (refreshingProviderId.value !== currentProviderId) {
+                    return;
+                }
+
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const isAuthError =
+                    errorMessage.includes('401') ||
+                    errorMessage.includes('403') ||
+                    errorMessage.includes('Unauthorized') ||
+                    errorMessage.includes('authentication') ||
+                    errorMessage.includes('API key');
+
+                // 认证失败需要直接提示用户，避免只在控制台看到 401。
+                if (isAuthError) {
+                    if (notifications.failure) {
+                        alert.warning(
+                            t(
+                                provider.api_key
+                                    ? 'settings.ai.providerInvalidApiKeyForModels'
+                                    : 'settings.ai.providerNeedsApiKeyForModels'
+                            )
+                        );
+                    }
                     return;
                 }
 
