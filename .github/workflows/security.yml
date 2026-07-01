@@ -127,7 +127,7 @@ jobs:
 
             - name: Set up pnpm
               if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
             - name: Install Rust stable
               if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
@@ -157,7 +157,7 @@ jobs:
                   node-version: 22
                   cache: pnpm
 
-            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
