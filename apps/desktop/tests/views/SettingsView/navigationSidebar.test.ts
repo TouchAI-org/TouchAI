@@ -66,6 +66,7 @@ describe('NavigationSidebar', () => {
         expect(wrapper.text()).not.toContain('返回');
         expect(wrapper.text()).not.toContain('概览');
         expect(wrapper.text()).toContain('通用');
+        expect(wrapper.text()).toContain('快捷键');
         expect(wrapper.text()).toContain('服务商与模型');
         expect(wrapper.text()).not.toContain('关于');
         expect(wrapper.text()).not.toContain('Provider、模型、默认模型和密钥');

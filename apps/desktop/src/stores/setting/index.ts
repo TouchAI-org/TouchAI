@@ -1,6 +1,11 @@
 import { computed, type ComputedRef, type Ref } from 'vue';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
+import {
+    createDefaultSearchKeybindings,
+    normalizeSearchKeybindings,
+    type SearchKeybindings,
+} from '@/config/searchKeybindings';
 import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
 import type { AppLocale } from '@/i18n';
 import type { BrowserSettingsConfig } from '@/stores/setting/sections/browser';
@@ -23,11 +28,12 @@ import {
 } from './general';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
-export type GeneralSettingKey = GeneralScalarSettingKey | JsonSettingsKey;
-export type GeneralSettingValue = string | number | boolean | null;
+export type GeneralSettingKey = GeneralScalarSettingKey | 'search_keybindings' | JsonSettingsKey;
+export type GeneralSettingValue = string | number | boolean | SearchKeybindings | null;
 
 export interface GeneralSettingsData {
     globalShortcut: string;
+    searchKeybindings: SearchKeybindings;
     startOnBoot: boolean;
     startMinimized: boolean;
     outputScrollBehavior: OutputScrollBehavior;
@@ -50,12 +56,13 @@ type GeneralSettingFieldValue =
     | string
     | boolean
     | null
+    | SearchKeybindings
     | BrowserSettingsConfig
     | SearchSettingsConfig;
 
 type GeneralScalarSettingStateKey = Exclude<
     keyof GeneralSettingsData,
-    'browserSettings' | 'searchSettings' | 'searchWindowDefaultSize'
+    'browserSettings' | 'searchKeybindings' | 'searchSettings' | 'searchWindowDefaultSize'
 >;
 type GeneralPersistedSettingStateKey = Exclude<
     keyof GeneralSettingsData,
@@ -80,11 +87,13 @@ export interface GeneralSettingDefinition {
     serializeValue(value: GeneralSettingFieldValue): string;
     eventValue(value: GeneralSettingFieldValue): GeneralSettingValue;
     persistBeforeApply?: boolean;
+    shouldRewritePersisted?(raw: string | null): boolean;
 }
 
 export interface GeneralSettingsComputedRefs {
     outputScrollBehavior: ComputedRef<OutputScrollBehavior>;
     globalShortcut: ComputedRef<string>;
+    searchKeybindings: ComputedRef<SearchKeybindings>;
     searchWindowSizePreset: ComputedRef<SearchWindowSizePreset>;
     searchWindowDefaultSize: ComputedRef<SearchWindowDefaultSize>;
     language: ComputedRef<AppLocale>;
@@ -97,6 +106,7 @@ export interface GeneralSettingsComputedRefs {
 
 export interface GeneralSettingUpdaters {
     updateGlobalShortcut(shortcut: string): Promise<void>;
+    updateSearchKeybindings(searchKeybindings: SearchKeybindings): Promise<void>;
     updateStartOnBoot(enabled: boolean): Promise<void>;
     updateStartMinimized(enabled: boolean): Promise<void>;
     updateOutputScrollBehavior(mode: OutputScrollBehavior): Promise<void>;
@@ -139,6 +149,7 @@ export interface GeneralSettingUpdaterBinding {
 
 const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     ...GENERAL_SETTINGS_DEFAULTS,
+    searchKeybindings: createDefaultSearchKeybindings(),
 } as GeneralSettingsData;
 
 function assignGeneralSettingField(
@@ -244,22 +255,76 @@ function scalarUpdaterBindings(
     );
 }
 
+function parsePersistedSearchKeybindings(value: string | null): SearchKeybindings {
+    if (!value) {
+        return createDefaultSearchKeybindings();
+    }
+
+    try {
+        return normalizeSearchKeybindings(JSON.parse(value));
+    } catch {
+        return createDefaultSearchKeybindings();
+    }
+}
+
+function shouldRewritePersistedSearchKeybindings(value: string | null): boolean {
+    if (!value) {
+        return false;
+    }
+
+    try {
+        const parsed = JSON.parse(value);
+        return (
+            parsed &&
+            typeof parsed === 'object' &&
+            !Array.isArray(parsed) &&
+            ('search.request.cancel' in parsed || 'search.draft.clearAll' in parsed)
+        );
+    } catch {
+        return false;
+    }
+}
+
+const SEARCH_KEYBINDINGS_SETTING_DEFINITION: GeneralSettingDefinition = {
+    key: 'search_keybindings',
+    parsePersisted: parsePersistedSearchKeybindings,
+    parseUpdate: (value) => normalizeSearchKeybindings(value),
+    apply: (target, value) => {
+        target.searchKeybindings = {
+            ...(value as SearchKeybindings),
+        };
+    },
+    read: (source) => source.searchKeybindings,
+    serializeValue: (value) => JSON.stringify(normalizeSearchKeybindings(value)),
+    eventValue: (value) => ({
+        ...normalizeSearchKeybindings(value),
+    }),
+    shouldRewritePersisted: shouldRewritePersistedSearchKeybindings,
+};
+
 export const JSON_GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] =
     JSON_SETTINGS_SECTIONS.map(jsonSettingDefinition);
 
 export const GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = [
     ...GENERAL_SCALAR_SETTING_SPECS.map(scalarSettingDefinition),
+    SEARCH_KEYBINDINGS_SETTING_DEFINITION,
     ...JSON_GENERAL_SETTING_DEFINITIONS,
 ];
 
 export const GENERAL_SETTING_COMPUTED_BINDINGS: readonly GeneralSettingComputedBinding[] = [
     ...scalarComputedBindings(GENERAL_SCALAR_SETTING_SPECS),
+    { exposedName: 'searchKeybindings', stateKey: 'searchKeybindings' },
     ...GENERAL_DERIVED_COMPUTED_BINDINGS,
     ...JSON_SETTINGS_SECTIONS.map(jsonComputedBinding),
 ];
 
 export const GENERAL_SETTING_UPDATER_BINDINGS: readonly GeneralSettingUpdaterBinding[] = [
     ...scalarUpdaterBindings(GENERAL_SCALAR_SETTING_SPECS),
+    {
+        exposedName: 'updateSearchKeybindings',
+        key: 'search_keybindings',
+        normalize: (value) => normalizeSearchKeybindings(value),
+    },
     ...JSON_SETTINGS_SECTIONS.map(jsonUpdaterBinding),
 ];
 
@@ -297,6 +362,7 @@ export function createGeneralSettingUpdaters(
 export function createDefaultGeneralSettings(): GeneralSettingsData {
     const defaults: GeneralSettingsData = {
         ...DEFAULT_GENERAL_SETTINGS,
+        searchKeybindings: { ...DEFAULT_GENERAL_SETTINGS.searchKeybindings },
         searchWindowDefaultSize: { ...DEFAULT_GENERAL_SETTINGS.searchWindowDefaultSize },
     };
     for (const section of JSON_SETTINGS_SECTIONS) {
@@ -308,6 +374,7 @@ export function createDefaultGeneralSettings(): GeneralSettingsData {
 export function cloneGeneralSettingsSnapshot(source: GeneralSettingsData): GeneralSettingsData {
     const snapshot: GeneralSettingsData = {
         ...source,
+        searchKeybindings: { ...source.searchKeybindings },
         searchWindowDefaultSize: { ...source.searchWindowDefaultSize },
     };
     for (const section of JSON_SETTINGS_SECTIONS) {

@@ -3,6 +3,8 @@
 //! Webview 运行时默认配置。
 
 #[cfg(target_os = "windows")]
+use raw_window_handle::HasWindowHandle;
+#[cfg(target_os = "windows")]
 use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use tauri::Manager;
@@ -16,7 +18,17 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
 };
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, TRUE, WPARAM};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VK_SPACE,
+};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumChildWindows, SC_KEYMENU, WM_SYSCHAR, WM_SYSCOMMAND,
+};
 #[cfg(target_os = "windows")]
 use windows_core::Interface;
 
@@ -82,28 +94,128 @@ fn disable_browser_accelerator_keys_with_controller(
 }
 
 #[cfg(target_os = "windows")]
-/// 判断是否命中了需要从宿主层兜底转发的搜索 surface 快捷键。
-fn is_search_surface_accelerator_command(
-    key_event_kind: i32,
-    virtual_key: u32,
-    is_control_down: bool,
-) -> bool {
-    let is_key_down = key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN.0
-        || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0;
-    is_key_down && is_control_down && virtual_key == u32::from(b'M')
+/// 子类化标识，用于在窗口上唯一标记系统菜单拦截子类过程。
+const SYSTEM_MENU_SUBCLASS_ID: usize = 0x5359_534D;
+
+#[cfg(target_os = "windows")]
+/// 从 Tauri 窗口取出顶层 Win32 HWND。
+fn top_level_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String> {
+    let window_handle = window
+        .window_handle()
+        .map_err(|error| format!("Failed to get window handle: {}", error))?;
+
+    match window_handle.as_ref() {
+        raw_window_handle::RawWindowHandle::Win32(handle) => Ok(HWND(handle.hwnd.get() as _)),
+        _ => Err("Not a Win32 window".to_string()),
+    }
 }
 
 #[cfg(target_os = "windows")]
-/// 在主搜索窗口注册 WebView2 accelerator 兜底，避免 DOM 未接管焦点时首个 Ctrl+M 丢失。
-fn register_search_surface_accelerator_bridge<R: Runtime>(
+/// 子类过程：拦截 Alt+Space 真正触发系统菜单的消息（WM_SYSCHAR / WM_SYSCOMMAND），
+/// 阻止系统菜单弹出。注意不拦截 WM_SYSKEYDOWN，使其仍能传到 WebView2 并派发 DOM keydown，
+/// 供前端捕获 Alt+Space 作为快捷键。
+unsafe extern "system" fn system_menu_subclass_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _subclass_id: usize,
+    _ref_data: usize,
+) -> LRESULT {
+    if msg == WM_SYSCHAR && wparam.0 == VK_SPACE.0 as usize {
+        // 吞掉 Alt+Space 的 WM_SYSCHAR，这是真正触发系统菜单的消息。
+        return LRESULT(0);
+    }
+
+    if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_KEYMENU as usize {
+        return LRESULT(0);
+    }
+
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+/// EnumChildWindows 回调：为每个子窗口安装系统菜单拦截子类。
+unsafe extern "system" fn install_subclass_on_child(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+    let _ = SetWindowSubclass(
+        hwnd,
+        Some(system_menu_subclass_proc),
+        SYSTEM_MENU_SUBCLASS_ID,
+        0,
+    );
+    TRUE
+}
+
+#[cfg(target_os = "windows")]
+/// 在顶层窗口上安装系统菜单拦截子类，屏蔽 Alt+Space 系统菜单热键。
+///
+/// 子窗口（WebView2 内容区）的子类需在 webview 就绪后由
+/// [`install_system_menu_interceptor_on_children`] 单独安装。
+fn install_system_menu_interceptor<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    let hwnd = top_level_hwnd(window)?;
+    let installed = unsafe {
+        SetWindowSubclass(
+            hwnd,
+            Some(system_menu_subclass_proc),
+            SYSTEM_MENU_SUBCLASS_ID,
+            0,
+        )
+    };
+    if !installed.as_bool() {
+        return Err("Failed to install system menu subclass".to_string());
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+/// 为窗口的所有子孙窗口安装系统菜单拦截子类。
+///
+/// WebView2 内容渲染在子 HWND 中，焦点在内容区时 WM_SYSKEYDOWN/WM_SYSCHAR 由子窗口处理，
+/// 因此需在 webview 就绪、子窗口已创建后调用此函数，才能在源头拦截。
+fn install_system_menu_interceptor_on_children(hwnd: HWND) {
+    unsafe {
+        let _ = EnumChildWindows(hwnd, Some(install_subclass_on_child), LPARAM(0));
+    }
+}
+
+#[cfg(target_os = "windows")]
+/// 判断是否命中了 Alt+Space。
+///
+/// WebView2 把 Alt+Space 作为 system accelerator，默认不会派发 DOM keydown；
+/// 必须在 `AcceleratorKeyPressed` 中调用 `SetIsBrowserAcceleratorKeyEnabled(false)`
+/// 才能让事件继续传播到 web 内容。注意不要调 `SetHandled(true)`，否则传播会被
+/// 终止，DOM 同样收不到。菜单抑制由宿主子类化吃掉 WM_SYSCHAR / SC_KEYMENU 完成。
+fn is_system_menu_accelerator_command(key_event_kind: i32, virtual_key: u32) -> bool {
+    let is_system_key_down = key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0;
+    is_system_key_down && virtual_key == u32::from(VK_SPACE.0)
+}
+
+#[cfg(target_os = "windows")]
+fn is_accelerator_key_down_event(key_event_kind: i32) -> bool {
+    key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN.0
+        || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0
+}
+
+#[cfg(target_os = "windows")]
+fn should_emit_search_surface_command_to_window(label: &str) -> bool {
+    label == "main" || label.starts_with("popup-")
+}
+
+#[cfg(target_os = "windows")]
+/// 注册 WebView2 accelerator 处理器，将 Alt+Space 转成 Tauri 事件供前端捕获。
+///
+/// WebView2 把 Alt+Space 当作 system accelerator，默认不会派发 DOM keydown；
+/// 实测 `SetIsBrowserAcceleratorKeyEnabled(false)` 对系统键不生效，因此采用事件桥模式：
+/// 在 accelerator 阶段直接 emit Tauri 事件，前端捕获模式下监听该事件录入快捷键。
+/// 系统菜单的抑制由 [`system_menu_subclass_proc`] 在宿主层完成。
+fn register_system_menu_accelerator_handler<R: Runtime>(
     window: &WebviewWindow<R>,
     controller: &ICoreWebView2Controller,
 ) -> Result<(), String> {
-    if window.label() != "main" {
-        return Ok(());
-    }
-
     let app_handle = window.app_handle().clone();
+    let search_surface_command_window =
+        should_emit_search_surface_command_to_window(window.label()).then(|| window.clone());
     let mut token = 0i64;
     let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
         move |_controller: Option<ICoreWebView2Controller>,
@@ -119,29 +231,81 @@ fn register_search_surface_accelerator_bridge<R: Runtime>(
                 let mut virtual_key = 0u32;
                 args.VirtualKey(&mut virtual_key)?;
 
-                let mut physical_key_status = Default::default();
-                args.PhysicalKeyStatus(&mut physical_key_status)?;
+                if !is_system_menu_accelerator_command(key_event_kind.0, virtual_key) {
+                    if !is_accelerator_key_down_event(key_event_kind.0) {
+                        return Ok(());
+                    }
 
-                let is_control_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
-                if !is_search_surface_accelerator_command(
-                    key_event_kind.0,
-                    virtual_key,
-                    is_control_down,
-                ) {
+                    let Some(search_surface_command_window) = &search_surface_command_window else {
+                        return Ok(());
+                    };
+
+                    let is_ctrl_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
+                    let is_alt_down = (GetKeyState(i32::from(VK_MENU.0)) as u16 & 0x8000) != 0;
+                    let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
+                    let is_super_down = (GetKeyState(i32::from(VK_LWIN.0)) as u16 & 0x8000) != 0
+                        || (GetKeyState(i32::from(VK_RWIN.0)) as u16 & 0x8000) != 0;
+
+                    let Some(command) =
+                        crate::core::system::shortcut::find_search_surface_command_for_windows_accelerator(
+                            virtual_key,
+                            is_ctrl_down,
+                            is_alt_down,
+                            is_shift_down,
+                            is_super_down,
+                        )
+                    else {
+                        return Ok(());
+                    };
+
+                    if let Ok(args2) =
+                        Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
+                    {
+                        let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
+                    }
+                    let _ = args.SetHandled(true);
+                    let _ = search_surface_command_window.emit("search-surface-command", command);
                     return Ok(());
                 }
 
-                if let Ok(args2) =
-                    Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
-                {
-                    let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
+                let is_ctrl_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
+                let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
+                let is_super_down = (GetKeyState(i32::from(VK_LWIN.0)) as u16 & 0x8000) != 0
+                    || (GetKeyState(i32::from(VK_RWIN.0)) as u16 & 0x8000) != 0;
+
+                if let Some(search_surface_command_window) = &search_surface_command_window {
+                    if let Some(command) =
+                        crate::core::system::shortcut::find_search_surface_command_for_windows_accelerator(
+                            virtual_key,
+                            is_ctrl_down,
+                            true,
+                            is_shift_down,
+                            is_super_down,
+                        )
+                    {
+                        if let Ok(args2) =
+                            Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
+                        {
+                            let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
+                        }
+                        let _ = args.SetHandled(true);
+                        let _ = search_surface_command_window.emit("search-surface-command", command);
+                        return Ok(());
+                    }
                 }
-                let _ = args.SetHandled(true);
+
+                log::info!(
+                    "[sysmenu-accel] Alt+Space detected, emitting shortcut-capture-system-key (ctrl={} shift={})",
+                    is_ctrl_down,
+                    is_shift_down
+                );
                 let _ = app_handle.emit(
-                    "search-surface-command",
+                    "shortcut-capture-system-key",
                     serde_json::json!({
-                        "command": "toggle-model-dropdown",
-                        "source": "webview2-accelerator"
+                        "key": "Space",
+                        "alt": true,
+                        "ctrl": is_ctrl_down,
+                        "shift": is_shift_down,
                     }),
                 );
             }
@@ -153,7 +317,7 @@ fn register_search_surface_accelerator_bridge<R: Runtime>(
     unsafe {
         controller
             .add_AcceleratorKeyPressed(&handler, &mut token)
-            .map_err(|error| format!("Failed to add WebView2 accelerator handler: {}", error))?;
+            .map_err(|error| format!("Failed to add system menu accelerator handler: {}", error))?;
     }
 
     Ok(())
@@ -251,16 +415,25 @@ fn register_devtools_accelerator_handler(
 pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
+    if let Err(error) = install_system_menu_interceptor(window) {
+        log::warn!(
+            "Failed to install system menu interceptor for window '{}': {}",
+            window.label(),
+            error
+        );
+    }
+
     let (tx, rx) = std::sync::mpsc::channel();
     let window_clone = window.clone();
     window
         .with_webview(move |webview| {
             let controller = webview.controller();
             let result = disable_browser_accelerator_keys_with_controller(&controller)
-                .and_then(|_| {
-                    register_search_surface_accelerator_bridge(&window_clone, &controller)
-                })
+                .and_then(|_| register_system_menu_accelerator_handler(&window_clone, &controller))
                 .and_then(|_| register_devtools_accelerator_handler(&controller));
+            if let Ok(hwnd) = top_level_hwnd(&window_clone) {
+                install_system_menu_interceptor_on_children(hwnd);
+            }
             let _ = tx.send(result);
         })
         .map_err(|error| format!("Failed to access platform webview: {}", error))?;
@@ -271,6 +444,24 @@ pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
             error
         )
     })?
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::should_emit_search_surface_command_to_window;
+
+    #[test]
+    fn search_surface_commands_target_main_and_popup_windows_only() {
+        assert!(should_emit_search_surface_command_to_window("main"));
+        assert!(should_emit_search_surface_command_to_window(
+            "popup-model-dropdown-popup"
+        ));
+        assert!(should_emit_search_surface_command_to_window(
+            "popup-session-history-popup"
+        ));
+        assert!(!should_emit_search_surface_command_to_window("settings"));
+        assert!(!should_emit_search_surface_command_to_window("assistant"));
+    }
 }
 
 #[cfg(not(target_os = "windows"))]

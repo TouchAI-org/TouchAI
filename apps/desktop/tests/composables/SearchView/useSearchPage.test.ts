@@ -3,8 +3,13 @@ import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
-import { createSearchInteractionContext } from '@/views/SearchView/composables/searchInteraction';
+import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import {
+    createSearchInteractionContext,
+    type SearchOverlayCommand,
+} from '@/views/SearchView/composables/searchInteraction';
+import {
+    useSearchModelDropdownCoordinator,
     useSearchPageController,
     useSearchPageLifecycle,
 } from '@/views/SearchView/composables/useSearchPage';
@@ -14,6 +19,7 @@ const {
     eventHandlers,
     eventServiceMock,
     initNotificationPermissionMock,
+    modelDropdownPopupMock,
     nativeMock,
     notifyMock,
     popupManagerMock,
@@ -21,8 +27,16 @@ const {
     runStartupTasksMock,
     settingsStoreMock,
     useAlertMock,
+    useModelDropdownPopupMock,
 } = vi.hoisted(() => {
     const handlers = new Map<string, (payload?: unknown) => unknown>();
+    const modelDropdownPopup = {
+        isOpen: { value: true },
+        open: vi.fn(),
+        close: vi.fn(),
+        updateData: vi.fn(),
+        isLiveSession: vi.fn(),
+    };
 
     return {
         currentWindowMock: {
@@ -40,6 +54,7 @@ const {
             }),
         },
         initNotificationPermissionMock: vi.fn(),
+        modelDropdownPopupMock: modelDropdownPopup,
         notifyMock: vi.fn(),
         nativeMock: {
             runtime: {
@@ -47,6 +62,7 @@ const {
             },
             shortcut: {
                 registerGlobalShortcut: vi.fn(),
+                setSearchSurfaceShortcuts: vi.fn(),
             },
             window: {
                 hideSearchWindow: vi.fn(),
@@ -73,6 +89,7 @@ const {
             globalShortcut: 'Alt+Space',
         },
         useAlertMock: vi.fn(),
+        useModelDropdownPopupMock: vi.fn(() => modelDropdownPopup),
     };
 });
 
@@ -105,6 +122,10 @@ vi.mock('@services/PopupService', () => ({
     },
 }));
 
+vi.mock('@/views/SearchView/composables/useModelDropdownPopup', () => ({
+    useModelDropdownPopup: useModelDropdownPopupMock,
+}));
+
 vi.mock('@services/StartupService', () => ({
     runStartupTasks: runStartupTasksMock,
 }));
@@ -129,6 +150,7 @@ function createController() {
         focusSearchInput: vi.fn().mockResolvedValue(undefined),
         loadActiveModel: vi.fn().mockResolvedValue(undefined),
         invalidateModelDropdownData: vi.fn(),
+        isQuickSearchOpen: vi.fn(() => false),
     };
 }
 
@@ -186,6 +208,76 @@ describe('useSearchPageController', () => {
     });
 });
 
+describe('useSearchModelDropdownCoordinator', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        modelDropdownPopupMock.isOpen.value = true;
+        useModelDropdownPopupMock.mockReturnValue(modelDropdownPopupMock);
+    });
+
+    it('refreshes open popup data when the model toggle shortcut changes', async () => {
+        const modelToggleShortcut = ref<string | null>('Mod+M');
+        const controller = {
+            getModelDropdownAnchor: vi.fn(() => document.createElement('button')),
+            getModelDropdownContext: vi.fn(() => ({
+                activeModelId: null,
+                activeProviderId: null,
+                selectedModelId: null,
+                selectedProviderId: null,
+                models: [],
+            })),
+            prepareModelDropdownOpen: vi.fn().mockResolvedValue(undefined),
+            selectModelFromDropdown: vi.fn().mockResolvedValue({
+                modelId: null,
+                providerId: null,
+            }),
+        };
+
+        const mounted = await mountComposable(() =>
+            useSearchModelDropdownCoordinator({
+                pageContainer: ref(null),
+                controller: controller as never,
+                modelOverride: ref({
+                    modelId: null,
+                    providerId: null,
+                }),
+                modelDropdownState: ref({
+                    isOpen: true,
+                }),
+                modelDropdownQuery: ref(''),
+                getModelToggleShortcut: () => modelToggleShortcut.value,
+                requestModelDropdownOpen: vi.fn((): SearchOverlayCommand => 'noop'),
+                handleQuickSearchClosedForModelDropdown: vi.fn((): SearchOverlayCommand => 'noop'),
+                handleLayoutStableForModelDropdown: vi.fn((): SearchOverlayCommand => 'noop'),
+                handleModelDropdownOpened: vi.fn(),
+                handleModelDropdownClosed: vi.fn(),
+                syncOverlayState: vi.fn(),
+            })
+        );
+        const popupOptions = (
+            useModelDropdownPopupMock.mock.calls as unknown as Array<
+                [
+                    {
+                        getPopupData: () => {
+                            toggleShortcut?: string | null;
+                        };
+                    },
+                ]
+            >
+        )[0]?.[0];
+        expect(popupOptions?.getPopupData().toggleShortcut).toBe('Mod+M');
+
+        modelDropdownPopupMock.updateData.mockClear();
+        modelToggleShortcut.value = 'Alt+M';
+        await flushLifecycle();
+
+        expect(modelDropdownPopupMock.updateData).toHaveBeenCalledTimes(1);
+        expect(popupOptions?.getPopupData().toggleShortcut).toBe('Alt+M');
+
+        mounted.unmount();
+    });
+});
+
 function createStatusChangedPayload(
     kind: 'completed' | 'failed' | 'waiting_approval',
     overrides: Partial<{
@@ -230,12 +322,15 @@ describe('useSearchPageLifecycle', () => {
         vi.clearAllMocks();
         vi.useFakeTimers();
         eventHandlers.clear();
+        modelDropdownPopupMock.isOpen.value = true;
+        useModelDropdownPopupMock.mockReturnValue(modelDropdownPopupMock);
 
         currentWindowMock.isVisible.mockResolvedValue(true);
         currentWindowMock.isAlwaysOnTop.mockResolvedValue(false);
         currentWindowMock.setAlwaysOnTop.mockResolvedValue(undefined);
 
         nativeMock.shortcut.registerGlobalShortcut.mockResolvedValue(undefined);
+        nativeMock.shortcut.setSearchSurfaceShortcuts.mockResolvedValue(undefined);
         nativeMock.runtime.getRuntimeInfo.mockResolvedValue({ isE2eTestMode: false });
         nativeMock.window.hideSearchWindow.mockResolvedValue(undefined);
         nativeMock.window.setTrayStatusIndicator.mockResolvedValue(undefined);
@@ -300,6 +395,122 @@ describe('useSearchPageLifecycle', () => {
         await nextTick();
 
         expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(false);
+
+        mounted.unmount();
+    });
+
+    it('syncs search surface shortcuts and delegates host accelerator commands', async () => {
+        const quickSearchOpen = ref(false);
+        const controller = {
+            ...createController(),
+            isQuickSearchOpen: vi.fn(() => quickSearchOpen.value),
+        };
+        const interactionContext = createSearchInteractionContext();
+        const searchKeybindings = ref(createDefaultSearchKeybindings());
+        const handleSearchSurfaceCommand = vi.fn().mockResolvedValue(undefined);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                searchKeybindings,
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+                handleSearchSurfaceCommand,
+            })
+        );
+
+        await flushLifecycle();
+
+        const commandListenerCallIndex = eventServiceMock.on.mock.calls.findIndex(
+            ([eventName]) => eventName === AppEvent.SEARCH_SURFACE_COMMAND
+        );
+        const commandListenerOrder =
+            eventServiceMock.on.mock.invocationCallOrder[commandListenerCallIndex];
+        const firstShortcutSyncOrder =
+            nativeMock.shortcut.setSearchSurfaceShortcuts.mock.invocationCallOrder[0];
+        expect(commandListenerCallIndex).toBeGreaterThanOrEqual(0);
+        expect(commandListenerOrder).toBeDefined();
+        expect(firstShortcutSyncOrder).toBeDefined();
+        expect(commandListenerOrder!).toBeLessThan(firstShortcutSyncOrder!);
+
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                {
+                    actionId: 'search.model.toggle',
+                    shortcut: 'Mod+M',
+                },
+                {
+                    actionId: 'search.settings.open',
+                    shortcut: 'Mod+,',
+                },
+            ])
+        );
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenCalledWith(
+            expect.not.arrayContaining([
+                {
+                    actionId: 'search.quickSearch.toggleView',
+                    shortcut: 'Mod+G',
+                },
+            ])
+        );
+
+        const commandHandler = eventHandlers.get(AppEvent.SEARCH_SURFACE_COMMAND);
+        expect(commandHandler).toBeDefined();
+        await commandHandler!({
+            actionId: 'search.model.toggle',
+            shortcut: 'Mod+M',
+            source: 'webview2-accelerator',
+        });
+        await flushLifecycle();
+
+        expect(handleSearchSurfaceCommand).toHaveBeenCalledWith({
+            actionId: 'search.model.toggle',
+            shortcut: 'Mod+M',
+            source: 'webview2-accelerator',
+        });
+
+        quickSearchOpen.value = true;
+        await flushLifecycle();
+
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenLastCalledWith(
+            expect.arrayContaining([
+                {
+                    actionId: 'search.quickSearch.toggleView',
+                    shortcut: 'Mod+G',
+                },
+            ])
+        );
+
+        quickSearchOpen.value = false;
+        await flushLifecycle();
+
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenLastCalledWith(
+            expect.not.arrayContaining([
+                {
+                    actionId: 'search.quickSearch.toggleView',
+                    shortcut: 'Mod+G',
+                },
+            ])
+        );
+
+        searchKeybindings.value = {
+            ...searchKeybindings.value,
+            'search.model.toggle': null,
+        };
+        await flushLifecycle();
+
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenLastCalledWith(
+            expect.not.arrayContaining([
+                {
+                    actionId: 'search.model.toggle',
+                    shortcut: 'Mod+M',
+                },
+            ])
+        );
 
         mounted.unmount();
     });

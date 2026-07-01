@@ -1,13 +1,15 @@
 import { mountComposable } from '@tests/utils/composables';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computed, nextTick, ref } from 'vue';
 
+import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import {
     createPopupSurfaceCoordinator,
     createSearchEntryPolicy,
     createSearchInteractionContext,
-    createSearchKeyboardRouter,
+    createSearchKeydownHandler,
     createSessionInputHistoryBrowseState,
     extractSessionInputHistoryEntries,
     navigateSessionInputHistory,
@@ -30,6 +32,10 @@ function createUserMessage(id: string, overrides: Partial<SessionMessage> = {}):
         ...overrides,
     };
 }
+
+beforeEach(() => {
+    setActivePinia(createPinia());
+});
 
 function createControllerStub() {
     return {
@@ -66,9 +72,56 @@ function createControllerStub() {
     } satisfies SearchPageController;
 }
 
-async function flushMicrotasks() {
-    await Promise.resolve();
-    await Promise.resolve();
+function createSearchKeydownHandlerForTest(
+    overrides: Partial<Parameters<typeof createSearchKeydownHandler>[0]> = {}
+) {
+    const controller = createControllerStub();
+    return createSearchKeydownHandler({
+        viewReady: ref(true),
+        searchKeybindings: ref(createDefaultSearchKeybindings()),
+        queryText: ref(''),
+        attachments: ref([]),
+        cursorContext: ref<SearchCursorContext>({
+            isMultiLine: false,
+            cursorAtStart: true,
+            cursorAtTextStart: true,
+            cursorAtEnd: true,
+        }),
+        modelOverride: ref<SearchModelOverride>({
+            modelId: null,
+            providerId: null,
+        }),
+        modelDropdownState: ref({ isOpen: false }),
+        controller,
+        sessionHistory: ref([]),
+        pendingRequest: ref(null),
+        isWaitingForCompletion: ref(false),
+        isLoading: ref(false),
+        pendingToolApproval: ref(null),
+        approvePendingToolApproval: vi.fn(() => false),
+        rejectPendingToolApproval: vi.fn(() => false),
+        promptPendingToolApprovalAttention: vi.fn(),
+        getActivePopupType: () => null,
+        hasActivePopupWindowFocus: () => false,
+        isQuickSearchOpen: computed(() => false),
+        shouldTriggerQuickSearch: () => false,
+        sessionHistoryPopupOpen: ref(false),
+        hideAllPopups: vi.fn().mockResolvedValue(undefined),
+        hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+        navigateInputHistory: vi.fn(() => 'ignored' as const),
+        closeModelDropdown: vi.fn().mockResolvedValue(undefined),
+        toggleModelDropdown: vi.fn().mockResolvedValue(undefined),
+        openHistoryDialog: vi.fn().mockResolvedValue(undefined),
+        startNewSession: vi.fn().mockResolvedValue(undefined),
+        reopenLastClosedSession: vi.fn().mockResolvedValue(undefined),
+        toggleWindowPin: vi.fn().mockResolvedValue(undefined),
+        toggleWindowMaximize: vi.fn().mockResolvedValue(undefined),
+        openSettingsWindow: vi.fn().mockResolvedValue(undefined),
+        handleSubmit: vi.fn().mockResolvedValue(undefined),
+        cancelRequest: vi.fn(),
+        clearSession: vi.fn(),
+        ...overrides,
+    });
 }
 
 describe('extractSessionInputHistoryEntries', () => {
@@ -293,6 +346,233 @@ describe('useQuickSearchCoordinator', () => {
     });
 });
 
+describe('createSearchKeydownHandler', () => {
+    it('routes host accelerator shortcuts through the same search keyboard guards', async () => {
+        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
+        const handleKeyDown = createSearchKeydownHandlerForTest({
+            handleSearchKeybindingAction,
+        });
+
+        expect(
+            handleKeyDown.routeSearchSurfaceCommand({
+                actionId: 'search.model.toggle',
+                shortcut: 'Mod+M',
+                source: 'webview2-accelerator',
+            })
+        ).toBe(true);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(handleSearchKeybindingAction).toHaveBeenCalledWith('search.model.toggle');
+    });
+
+    it('ignores host accelerator shortcuts while the quick search context menu is open', async () => {
+        const controller = createControllerStub();
+        controller.isQuickSearchContextMenuOpen.mockReturnValue(true);
+        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
+        const handleKeyDown = createSearchKeydownHandlerForTest({
+            controller,
+            handleSearchKeybindingAction,
+        });
+
+        expect(
+            handleKeyDown.routeSearchSurfaceCommand({
+                actionId: 'search.model.toggle',
+                shortcut: 'Mod+M',
+                source: 'webview2-accelerator',
+            })
+        ).toBe(false);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(handleSearchKeybindingAction).not.toHaveBeenCalled();
+    });
+
+    it('routes the default F11 maximize shortcut to the maximize callback', async () => {
+        const controller = createControllerStub();
+        const toggleWindowMaximize = vi.fn().mockResolvedValue(undefined);
+        const handleKeyDown = createSearchKeydownHandler({
+            viewReady: ref(true),
+            searchKeybindings: ref(createDefaultSearchKeybindings()),
+            queryText: ref(''),
+            attachments: ref([]),
+            cursorContext: ref<SearchCursorContext>({
+                isMultiLine: false,
+                cursorAtStart: true,
+                cursorAtTextStart: true,
+                cursorAtEnd: true,
+            }),
+            modelOverride: ref<SearchModelOverride>({
+                modelId: null,
+                providerId: null,
+            }),
+            modelDropdownState: ref({ isOpen: false }),
+            controller,
+            sessionHistory: ref([]),
+            pendingRequest: ref(null),
+            isWaitingForCompletion: ref(false),
+            isLoading: ref(false),
+            pendingToolApproval: ref(null),
+            approvePendingToolApproval: vi.fn(() => false),
+            rejectPendingToolApproval: vi.fn(() => false),
+            promptPendingToolApprovalAttention: vi.fn(),
+            getActivePopupType: () => null,
+            hasActivePopupWindowFocus: () => false,
+            isQuickSearchOpen: computed(() => false),
+            shouldTriggerQuickSearch: () => false,
+            sessionHistoryPopupOpen: ref(false),
+            hideAllPopups: vi.fn().mockResolvedValue(undefined),
+            hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            navigateInputHistory: vi.fn(() => 'ignored' as const),
+            closeModelDropdown: vi.fn().mockResolvedValue(undefined),
+            toggleModelDropdown: vi.fn().mockResolvedValue(undefined),
+            openHistoryDialog: vi.fn().mockResolvedValue(undefined),
+            startNewSession: vi.fn().mockResolvedValue(undefined),
+            reopenLastClosedSession: vi.fn().mockResolvedValue(undefined),
+            toggleWindowPin: vi.fn().mockResolvedValue(undefined),
+            toggleWindowMaximize,
+            openSettingsWindow: vi.fn().mockResolvedValue(undefined),
+            handleSubmit: vi.fn().mockResolvedValue(undefined),
+            cancelRequest: vi.fn(),
+            clearSession: vi.fn(),
+        });
+
+        const event = new KeyboardEvent('keydown', { key: 'F11', cancelable: true });
+        await handleKeyDown(event);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(toggleWindowMaximize).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('cancels a pending request with Escape and ignores Backspace', async () => {
+        const controller = createControllerStub();
+        const cancelRequest = vi.fn();
+        const handleKeyDown = createSearchKeydownHandler({
+            viewReady: ref(true),
+            searchKeybindings: ref(createDefaultSearchKeybindings()),
+            queryText: ref(''),
+            attachments: ref([]),
+            cursorContext: ref<SearchCursorContext>({
+                isMultiLine: false,
+                cursorAtStart: true,
+                cursorAtTextStart: true,
+                cursorAtEnd: true,
+            }),
+            modelOverride: ref<SearchModelOverride>({
+                modelId: null,
+                providerId: null,
+            }),
+            modelDropdownState: ref({ isOpen: false }),
+            controller,
+            sessionHistory: ref([]),
+            pendingRequest: ref({ query: 'q', attachments: [] }),
+            isWaitingForCompletion: ref(true),
+            isLoading: ref(true),
+            pendingToolApproval: ref(null),
+            approvePendingToolApproval: vi.fn(() => false),
+            rejectPendingToolApproval: vi.fn(() => false),
+            promptPendingToolApprovalAttention: vi.fn(),
+            getActivePopupType: () => null,
+            hasActivePopupWindowFocus: () => false,
+            isQuickSearchOpen: computed(() => false),
+            shouldTriggerQuickSearch: () => false,
+            sessionHistoryPopupOpen: ref(false),
+            hideAllPopups: vi.fn().mockResolvedValue(undefined),
+            hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            navigateInputHistory: vi.fn(() => 'ignored' as const),
+            closeModelDropdown: vi.fn().mockResolvedValue(undefined),
+            toggleModelDropdown: vi.fn().mockResolvedValue(undefined),
+            openHistoryDialog: vi.fn().mockResolvedValue(undefined),
+            startNewSession: vi.fn().mockResolvedValue(undefined),
+            reopenLastClosedSession: vi.fn().mockResolvedValue(undefined),
+            toggleWindowPin: vi.fn().mockResolvedValue(undefined),
+            toggleWindowMaximize: vi.fn().mockResolvedValue(undefined),
+            openSettingsWindow: vi.fn().mockResolvedValue(undefined),
+            handleSubmit: vi.fn().mockResolvedValue(undefined),
+            cancelRequest,
+            clearSession: vi.fn(),
+        });
+
+        const backspaceEvent = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
+        await handleKeyDown(backspaceEvent);
+        expect(cancelRequest).not.toHaveBeenCalled();
+        expect(backspaceEvent.defaultPrevented).toBe(false);
+
+        const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+        await handleKeyDown(escapeEvent);
+        expect(cancelRequest).toHaveBeenCalledTimes(1);
+        expect(escapeEvent.defaultPrevented).toBe(true);
+    });
+
+    it('routes a configured command shortcut to reopen the most recently closed session', async () => {
+        const controller = createControllerStub();
+        const reopenLastClosedSession = vi.fn().mockResolvedValue(undefined);
+        const handleKeyDown = createSearchKeydownHandler({
+            viewReady: ref(true),
+            searchKeybindings: ref({
+                ...createDefaultSearchKeybindings(),
+                'search.session.reopenLastClosed': 'Mod+Shift+Y',
+            }),
+            queryText: ref(''),
+            attachments: ref([]),
+            cursorContext: ref<SearchCursorContext>({
+                isMultiLine: false,
+                cursorAtStart: true,
+                cursorAtTextStart: true,
+                cursorAtEnd: true,
+            }),
+            modelOverride: ref<SearchModelOverride>({
+                modelId: null,
+                providerId: null,
+            }),
+            modelDropdownState: ref({ isOpen: false }),
+            controller,
+            sessionHistory: ref([]),
+            pendingRequest: ref(null),
+            isWaitingForCompletion: ref(false),
+            isLoading: ref(false),
+            pendingToolApproval: ref(null),
+            approvePendingToolApproval: vi.fn(() => false),
+            rejectPendingToolApproval: vi.fn(() => false),
+            promptPendingToolApprovalAttention: vi.fn(),
+            getActivePopupType: () => null,
+            hasActivePopupWindowFocus: () => false,
+            isQuickSearchOpen: computed(() => false),
+            shouldTriggerQuickSearch: () => false,
+            sessionHistoryPopupOpen: ref(false),
+            hideAllPopups: vi.fn().mockResolvedValue(undefined),
+            hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            navigateInputHistory: vi.fn(() => 'ignored' as const),
+            closeModelDropdown: vi.fn().mockResolvedValue(undefined),
+            toggleModelDropdown: vi.fn().mockResolvedValue(undefined),
+            openHistoryDialog: vi.fn().mockResolvedValue(undefined),
+            startNewSession: vi.fn().mockResolvedValue(undefined),
+            reopenLastClosedSession,
+            toggleWindowPin: vi.fn().mockResolvedValue(undefined),
+            toggleWindowMaximize: vi.fn().mockResolvedValue(undefined),
+            openSettingsWindow: vi.fn().mockResolvedValue(undefined),
+            handleSubmit: vi.fn().mockResolvedValue(undefined),
+            cancelRequest: vi.fn(),
+            clearSession: vi.fn(),
+        });
+
+        const event = new KeyboardEvent('keydown', {
+            key: 'y',
+            ctrlKey: true,
+            shiftKey: true,
+            cancelable: true,
+        });
+        await handleKeyDown(event);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(reopenLastClosedSession).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(true);
+    });
+});
+
 describe('useSearchOverlayMachine', () => {
     afterEach(() => {
         document.body.innerHTML = '';
@@ -327,152 +607,5 @@ describe('useSearchOverlayMachine', () => {
         expect(mounted.result.overlayState.value).toBe('idle');
 
         mounted.unmount();
-    });
-});
-
-describe('createSearchKeyboardRouter', () => {
-    function createKeyboardRouter(
-        overrides: Partial<Parameters<typeof createSearchKeyboardRouter>[0]> = {}
-    ) {
-        const callbacks = {
-            onPromptApprovalAttention: vi.fn(),
-            onRejectApproval: vi.fn(),
-            onApproveApproval: vi.fn(),
-            onForwardToPopup: vi.fn(),
-            onSubmit: vi.fn(),
-            onOpenQuickSearch: vi.fn(),
-            onMoveQuickSearchSelection: vi.fn(),
-            onOpenHighlightedQuickSearchItem: vi.fn(),
-            onCloseQuickSearch: vi.fn(),
-            onQuickSearchPageUp: vi.fn(),
-            onQuickSearchPageDown: vi.fn(),
-            onQuickSearchContextMenu: vi.fn(),
-            onQuickSearchToggleView: vi.fn(),
-            onQuickSearchCollapse: vi.fn(),
-            onNavigateInputHistory: vi.fn(() => 'ignored' as const),
-            onHideAllPopups: vi.fn(),
-            onCancelRequest: vi.fn(),
-            onClearModelOverride: vi.fn(),
-            onHideWindow: vi.fn(),
-            onClearSession: vi.fn(),
-            onClearDraft: vi.fn(),
-            onClearAll: vi.fn(),
-            onPrimaryShortcut: vi.fn(),
-        };
-
-        return {
-            callbacks,
-            router: createSearchKeyboardRouter({
-                getPendingApproval: () => null,
-                getActiveSurface: () => 'search-surface',
-                hasActivePopupWindowFocus: () => false,
-                getQueryText: () => '',
-                hasAttachments: () => false,
-                isQuickSearchOpen: () => false,
-                hasQuickSearchHighlight: () => false,
-                shouldTriggerQuickSearch: () => false,
-                isMultiLineCursor: () => false,
-                isCursorAtStart: () => true,
-                isCursorAtTextStart: () => true,
-                isCursorAtEnd: () => true,
-                hasModelOverride: () => false,
-                getSessionHistoryCount: () => 0,
-                isLoading: () => false,
-                ...callbacks,
-                ...overrides,
-            }),
-        };
-    }
-
-    it('rejects pending approval with escape before normal surface handling', () => {
-        const { router, callbacks } = createKeyboardRouter({
-            getPendingApproval: () => ({
-                callId: 'approval-1',
-                keyboardApproveAt: Date.now() + 1_000,
-            }),
-        });
-
-        const handled = router.route({ key: 'Escape' });
-
-        expect(handled).toBe(true);
-        expect(callbacks.onRejectApproval).toHaveBeenCalledWith('approval-1');
-    });
-
-    it('submits when ArrowDown cannot navigate newer history and query text is present', () => {
-        const { router, callbacks } = createKeyboardRouter({
-            getQueryText: () => 'touch',
-            shouldTriggerQuickSearch: () => true,
-            onNavigateInputHistory: vi.fn(() => 'ignored' as const),
-        });
-
-        const handled = router.route({ key: 'ArrowDown' });
-
-        expect(handled).toBe(true);
-        expect(callbacks.onSubmit).toHaveBeenCalledTimes(1);
-        expect(callbacks.onOpenQuickSearch).not.toHaveBeenCalled();
-    });
-
-    it('opens quick search when ArrowDown cannot navigate newer history and query is empty with eligible trigger', () => {
-        const { router, callbacks } = createKeyboardRouter({
-            getQueryText: () => '',
-            shouldTriggerQuickSearch: () => true,
-            hasAttachments: () => false,
-            onNavigateInputHistory: vi.fn(() => 'ignored' as const),
-        });
-
-        const handled = router.route({ key: 'ArrowDown' });
-
-        expect(handled).toBe(true);
-        expect(callbacks.onOpenQuickSearch).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not navigate input history when multiline cursor is not at the text start', () => {
-        const { router, callbacks } = createKeyboardRouter({
-            isMultiLineCursor: () => true,
-            isCursorAtTextStart: () => false,
-        });
-
-        const handled = router.route({ key: 'ArrowUp' });
-
-        expect(handled).toBe(false);
-        expect(callbacks.onNavigateInputHistory).not.toHaveBeenCalled();
-    });
-
-    it('forwards model-dropdown arrow keys to the popup surface contract', () => {
-        const { router, callbacks } = createKeyboardRouter({
-            getActiveSurface: () => 'model-dropdown-surface',
-        });
-
-        const handled = router.route({ key: 'ArrowDown' });
-
-        expect(handled).toBe(true);
-        expect(callbacks.onForwardToPopup).toHaveBeenCalledWith('ArrowDown');
-    });
-
-    it('clears the draft before model/session/window dismissal on escape', () => {
-        const { router, callbacks } = createKeyboardRouter({
-            getQueryText: () => 'hello',
-        });
-
-        const handled = router.route({ key: 'Escape' });
-
-        expect(handled).toBe(true);
-        expect(callbacks.onClearDraft).toHaveBeenCalledTimes(1);
-        expect(callbacks.onClearModelOverride).not.toHaveBeenCalled();
-        expect(callbacks.onClearSession).not.toHaveBeenCalled();
-        expect(callbacks.onHideWindow).not.toHaveBeenCalled();
-    });
-
-    it('fires the stop-request primary shortcut only while the request is still loading', async () => {
-        const { router, callbacks } = createKeyboardRouter({
-            getQueryText: () => '',
-            isLoading: () => true,
-        });
-
-        const handled = router.route({ key: '.', ctrlKey: true });
-        await flushMicrotasks();
-
-        expect(handled).toBe(true);
-        expect(callbacks.onPrimaryShortcut).toHaveBeenCalledWith('.');
     });
 });

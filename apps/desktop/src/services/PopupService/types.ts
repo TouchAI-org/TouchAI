@@ -79,6 +79,7 @@ export interface ModelDropdownData {
     selectedModelId: string;
     selectedProviderId: number | null;
     searchQuery: string;
+    toggleShortcut?: string | null;
     models?: ModelDropdownPopupItem[];
 }
 
@@ -110,6 +111,7 @@ export interface SessionHistoryData {
     activeSessionId: number | null;
     searchQuery: string;
     isLoading: boolean;
+    toggleShortcut?: string | null;
 }
 
 export type PopupData = ModelDropdownData | SessionHistoryData;
