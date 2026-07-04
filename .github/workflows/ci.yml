@@ -387,7 +387,7 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Build Tauri app
-              uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+              uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
               with:
                   projectPath: apps/desktop
               env:
