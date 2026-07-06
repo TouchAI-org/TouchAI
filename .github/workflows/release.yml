@@ -35,6 +35,8 @@ jobs:
             tag: ${{ steps.release.outputs.tag }}
             prerelease: ${{ steps.release.outputs.prerelease }}
             release_name: ${{ steps.release.outputs.release_name }}
+            should_publish: ${{ steps.release.outputs.should_publish }}
+            skip_reason: ${{ steps.release.outputs.skip_reason }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -50,11 +52,13 @@ jobs:
               env:
                   RELEASE_CHANNEL: ${{ github.event.inputs.channel }}
                   RELEASE_VERSION: ${{ github.event.inputs.version }}
+                  TARGET_COMMIT: ${{ github.sha }}
               run: node scripts/ci/resolve-release-metadata.mjs
 
     publish-release:
         name: Publish prerelease release
         needs: resolve
+        if: ${{ needs.resolve.outputs.should_publish == 'true' }}
         permissions:
             contents: write
             deployments: write
