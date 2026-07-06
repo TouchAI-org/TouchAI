@@ -153,7 +153,7 @@ function nextPatchVersion(version) {
     return `${major}.${minor}.${patch + 1}`;
 }
 
-function latestStableVersionFromGit(projectRoot) {
+function latestStableVersionFromGit(projectRoot, gitImpl = null) {
     const normalizedProjectRoot = normalizeOptionalString(projectRoot);
     if (!normalizedProjectRoot) {
         return null;
@@ -161,7 +161,7 @@ function latestStableVersionFromGit(projectRoot) {
 
     let output;
     try {
-        output = git(normalizedProjectRoot, ['tag', '--list', 'v*']);
+        output = git(normalizedProjectRoot, ['tag', '--list', 'v*'], gitImpl);
     } catch {
         return null;
     }
@@ -293,9 +293,10 @@ function runPart(value, fallback) {
 }
 
 function generatedNightlyVersion(packageVersion, input) {
+    const gitImpl = typeof input.git === 'function' ? input.git : null;
     const baseVersion =
         normalizeOptionalString(input.stableBaseVersion) ??
-        latestStableVersionFromGit(input.projectRoot) ??
+        latestStableVersionFromGit(input.projectRoot, gitImpl) ??
         packageVersion;
     const runNumber = runPart(input.runNumber, '0');
     const runAttempt = runPart(input.runAttempt, '1');

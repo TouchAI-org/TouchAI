@@ -204,6 +204,28 @@ describe('resolveReleaseMetadata', () => {
         });
     });
 
+    it('publishes scheduled nightly when no prior nightly tag exists', async () => {
+        const resolveReleaseMetadata = await loadResolver();
+
+        expect(resolveReleaseMetadata).toBeTypeOf('function');
+        expect(
+            resolveReleaseMetadata?.(
+                releaseInput({
+                    eventName: 'schedule',
+                    packageVersion: '1.2.3',
+                    runNumber: 42,
+                    runAttempt: 3,
+                    date: new Date('2026-05-22T18:00:00Z'),
+                    targetCommit: 'abc123',
+                    git: () => '',
+                })
+            )
+        ).toMatchObject({
+            shouldPublish: true,
+            skipReason: null,
+        });
+    });
+
     it('uses the latest stable base when generating nightly versions', async () => {
         const resolveReleaseMetadata = await loadResolver();
 
@@ -225,6 +247,34 @@ describe('resolveReleaseMetadata', () => {
             tag: 'v2.0.1-nightly.20260522.42.1',
             prerelease: 'True',
             releaseName: 'TouchAI v2.0.1-nightly.20260522.42.1',
+            shouldPublish: true,
+            skipReason: null,
+        });
+    });
+
+    it('uses the injected git implementation when reading the latest stable base', async () => {
+        const resolveReleaseMetadata = await loadResolver();
+        const gitResponses = new Map([
+            ['tag --list v*-nightly.*', ''],
+            ['tag --list v*', ['v1.9.0', 'v2.0.0', 'v2.0.0-beta.1'].join('\n')],
+        ]);
+
+        expect(resolveReleaseMetadata).toBeTypeOf('function');
+        expect(
+            resolveReleaseMetadata?.(
+                releaseInput({
+                    eventName: 'schedule',
+                    packageVersion: '1.2.3',
+                    projectRoot: 'repo',
+                    runNumber: 42,
+                    runAttempt: 1,
+                    date: new Date('2026-05-22T18:00:00Z'),
+                    targetCommit: 'abc123',
+                    git: (args) => gitResponses.get(args.join(' ')) ?? '',
+                })
+            )
+        ).toMatchObject({
+            version: '2.0.1-nightly.20260522.42.1',
             shouldPublish: true,
             skipReason: null,
         });

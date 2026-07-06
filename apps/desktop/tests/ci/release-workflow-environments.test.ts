@@ -67,8 +67,11 @@ describe('release workflow deployment environments', () => {
         const workflow = await readWorkflow('release.yml');
 
         expect(workflow).toContain('should_publish: ${{ steps.release.outputs.should_publish }}');
+        expect(workflow).toContain('TARGET_COMMIT: ${{ github.sha }}');
         expect(workflow).toContain('node scripts/ci/resolve-release-metadata.mjs');
         expect(workflow).toContain("if: ${{ needs.resolve.outputs.should_publish == 'true' }}");
+        expect(workflow).toContain('$GITHUB_STEP_SUMMARY');
+        expect(workflow).toContain('::notice title=Prerelease skipped::');
         expect(workflow).not.toContain('check-nightly-release-needed.mjs');
     });
 

@@ -55,6 +55,13 @@ jobs:
                   TARGET_COMMIT: ${{ github.sha }}
               run: node scripts/ci/resolve-release-metadata.mjs
 
+            - name: Summarize skipped prerelease
+              if: ${{ steps.release.outputs.should_publish != 'true' && steps.release.outputs.skip_reason != '' }}
+              run: |
+                  echo "### Prerelease skipped" >> "$GITHUB_STEP_SUMMARY"
+                  echo "${{ steps.release.outputs.skip_reason }}" >> "$GITHUB_STEP_SUMMARY"
+                  echo "::notice title=Prerelease skipped::${{ steps.release.outputs.skip_reason }}"
+
     publish-release:
         name: Publish prerelease release
         needs: resolve

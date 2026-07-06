@@ -264,6 +264,8 @@ jobs:
             - name: Hydrate previous Velopack release assets
               shell: pwsh
               working-directory: apps/desktop
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   node scripts/ci/hydrate-velopack-history.mjs "$env:VELOPACK_RELEASE" "${{ inputs.channel }}"
 

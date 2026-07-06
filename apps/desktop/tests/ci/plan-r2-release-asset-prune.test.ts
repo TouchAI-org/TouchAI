@@ -53,14 +53,27 @@ function release(tagName: string, publishedAt: string, assetNames: string[]) {
     };
 }
 
+function githubReleasesResponse(releases: ReturnType<typeof release>[]) {
+    return new Response(JSON.stringify(releases), {
+        headers: {
+            'content-type': 'application/json',
+        },
+    });
+}
+
+function notFoundResponse() {
+    return new Response(null, { status: 404 });
+}
+
 describe('planR2ReleaseAssetPrune', () => {
     it('plans deletion for old channel assets that already exist on GitHub Releases', async () => {
         const planner = await loadPlanner();
         const product = productWithRetention();
         const root = await createFixture(product);
-        const fetchMock = vi.fn<typeof fetch>(async () => {
-            return new Response(
-                JSON.stringify([
+        const fetchMock = vi.fn<typeof fetch>(async (input) => {
+            const url = input.toString();
+            if (url.includes('api.github.com')) {
+                return githubReleasesResponse([
                     release('v0.2.0-beta.4', '2026-05-24T00:00:00Z', [
                         'TouchAI-beta-0.2.0-beta.4-windows-full.nupkg',
                     ]),
@@ -73,13 +86,10 @@ describe('planR2ReleaseAssetPrune', () => {
                         'release-notes.md',
                     ]),
                     release('v0.2.0', '2026-05-21T00:00:00Z', ['TouchAI-0.2.0-windows-full.nupkg']),
-                ]),
-                {
-                    headers: {
-                        'content-type': 'application/json',
-                    },
-                }
-            );
+                ]);
+            }
+
+            return notFoundResponse();
         });
 
         try {
@@ -111,16 +121,75 @@ describe('planR2ReleaseAssetPrune', () => {
         const planner = await loadPlanner();
         const product = productWithRetention();
         const root = await createFixture(product);
-        const fetchMock = vi.fn<typeof fetch>(async () => {
-            return new Response(
-                JSON.stringify([
+        const fetchMock = vi.fn<typeof fetch>(async (input) => {
+            const url = input.toString();
+            if (url.includes('api.github.com')) {
+                return githubReleasesResponse([
                     release('v0.3.0-nightly.20260524.1', '2026-05-24T00:00:00Z', [
                         'TouchAI-nightly-0.3.0-nightly.20260524.1-windows-full.nupkg',
                     ]),
                     release('v0.3.0-nightly.20260523.1', '2026-05-23T00:00:00Z', [
                         'TouchAI-nightly-0.3.0-nightly.20260523.1-windows-full.nupkg',
                     ]),
-                ]),
+                ]);
+            }
+
+            return notFoundResponse();
+        });
+
+        try {
+            expect(planner?.planR2ReleaseAssetPrune).toBeTypeOf('function');
+            await expect(
+                planner!.planR2ReleaseAssetPrune(root, 'nightly', {
+                    fetch: fetchMock as unknown as typeof fetch,
+                    token: 'token',
+                })
+            ).resolves.toEqual([]);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
+    it('plans deletion for existing feed assets outside retained GitHub releases', async () => {
+        const planner = await loadPlanner();
+        const product = productWithRetention();
+        product.services.updates.deployment.r2HotAssetVersions.nightly = 2;
+        const root = await createFixture(product);
+        const currentPackage = 'TouchAI-nightly-0.3.0-nightly.20260524.4-windows-full.nupkg';
+        const retainedPackage = 'TouchAI-nightly-0.3.0-nightly.20260523.3-windows-full.nupkg';
+        const oldPackage = 'TouchAI-nightly-0.3.0-nightly.20260522.2-windows-full.nupkg';
+        const orphanPackage = 'TouchAI-nightly-0.3.0-nightly.20260521.1-windows-full.nupkg';
+        const fetchMock = vi.fn<typeof fetch>(async (input) => {
+            const url = input.toString();
+            if (url.includes('api.github.com')) {
+                return githubReleasesResponse([
+                    release('v0.3.0-nightly.20260524.4', '2026-05-24T00:00:00Z', [currentPackage]),
+                    release('v0.3.0-nightly.20260523.3', '2026-05-23T00:00:00Z', [retainedPackage]),
+                    release('v0.3.0-nightly.20260522.2', '2026-05-22T00:00:00Z', [oldPackage]),
+                ]);
+            }
+
+            return new Response(
+                JSON.stringify({
+                    Assets: [
+                        {
+                            Version: '0.3.0-nightly.20260524.4',
+                            FileName: currentPackage,
+                        },
+                        {
+                            Version: '0.3.0-nightly.20260523.3',
+                            FileName: retainedPackage,
+                        },
+                        {
+                            Version: '0.3.0-nightly.20260522.2',
+                            FileName: oldPackage,
+                        },
+                        {
+                            Version: '0.3.0-nightly.20260521.1',
+                            FileName: orphanPackage,
+                        },
+                    ],
+                }),
                 { headers: { 'content-type': 'application/json' } }
             );
         });
@@ -132,7 +201,7 @@ describe('planR2ReleaseAssetPrune', () => {
                     fetch: fetchMock as unknown as typeof fetch,
                     token: 'token',
                 })
-            ).resolves.toEqual([]);
+            ).resolves.toEqual([`touchai-app/v1/${oldPackage}`, `touchai-app/v1/${orphanPackage}`]);
         } finally {
             await rm(root, { recursive: true, force: true });
         }

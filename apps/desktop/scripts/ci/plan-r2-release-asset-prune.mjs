@@ -6,6 +6,7 @@ import {
     assertNonEmptyString,
     channelFromAssetName,
     channelFromTag,
+    deriveReleaseTagFromAssetName,
     githubRepositoryFromProduct,
     isDownloadAssetName,
     relativeUpdatePath,
@@ -76,14 +77,73 @@ async function fetchGithubReleases(repository, fetchImpl, token) {
     return releases;
 }
 
+async function existingFeed(product, channel, fetchImpl) {
+    const url = `${product.services.updates.baseUrl.replace(/\/+$/g, '')}/releases.${channel}.json`;
+    const response = await fetchImpl(url);
+    if (response.status === 404) {
+        return null;
+    }
+    if (!response.ok) {
+        throw new Error(`Failed to fetch existing ${channel} update feed: HTTP ${response.status}`);
+    }
+
+    const feed = await response.json();
+    if (!feed || typeof feed !== 'object' || Array.isArray(feed)) {
+        throw new Error(`Existing ${channel} update feed must be an object.`);
+    }
+    return feed;
+}
+
+function staleReleaseAssetKeys(releases, keepVersions, updatePath, channel) {
+    const channelReleases = releases
+        .filter((release) => channelFromTag(release?.tag_name) === channel)
+        .sort((left, right) => releaseTime(right) - releaseTime(left));
+    const retainedTags = new Set(
+        channelReleases
+            .slice(0, keepVersions)
+            .map((release) => release.tag_name)
+            .filter(Boolean)
+    );
+    const keys = [];
+
+    for (const release of channelReleases.slice(keepVersions)) {
+        for (const asset of release.assets ?? []) {
+            const fileName = asset?.name;
+            if (!isDownloadAssetName(fileName) || channelFromAssetName(fileName) !== channel) {
+                continue;
+            }
+            keys.push(`${updatePath}/${fileName}`);
+        }
+    }
+
+    return { keys, retainedTags };
+}
+
+function staleFeedAssetKeys(feed, retainedTags, updatePath, channel) {
+    if (!Array.isArray(feed?.Assets)) {
+        return [];
+    }
+
+    const keys = [];
+    for (const asset of feed.Assets) {
+        const fileName = asset?.FileName;
+        if (!isDownloadAssetName(fileName) || channelFromAssetName(fileName) !== channel) {
+            continue;
+        }
+
+        const releaseTag = deriveReleaseTagFromAssetName(fileName);
+        if (!releaseTag || !retainedTags.has(releaseTag)) {
+            keys.push(`${updatePath}/${fileName}`);
+        }
+    }
+    return keys;
+}
+
 export async function planR2ReleaseAssetPrune(projectRoot, channel, options = {}) {
     assertNonEmptyString(channel, 'release channel');
 
     const product = await readProduct(projectRoot);
     const keepVersions = retentionForChannel(product, channel);
-    if (keepVersions <= 0) {
-        return [];
-    }
 
     const repository = githubRepositoryFromProduct(product, {
         invalidHostMessage: 'repository.url must use github.com for R2 release asset pruning.',
@@ -95,21 +155,20 @@ export async function planR2ReleaseAssetPrune(projectRoot, channel, options = {}
     }
 
     const releases = await fetchGithubReleases(repository, fetchImpl, options.token ?? null);
-    const channelReleases = releases
-        .filter((release) => channelFromTag(release?.tag_name) === channel)
-        .sort((left, right) => releaseTime(right) - releaseTime(left));
-    const staleReleases = channelReleases.slice(keepVersions);
-    const keys = [];
-
-    for (const release of staleReleases) {
-        for (const asset of release.assets ?? []) {
-            const fileName = asset?.name;
-            if (!isDownloadAssetName(fileName) || channelFromAssetName(fileName) !== channel) {
-                continue;
-            }
-            keys.push(`${updatePath}/${fileName}`);
-        }
-    }
+    const { keys, retainedTags } = staleReleaseAssetKeys(
+        releases,
+        keepVersions,
+        updatePath,
+        channel
+    );
+    keys.push(
+        ...staleFeedAssetKeys(
+            await existingFeed(product, channel, fetchImpl),
+            retainedTags,
+            updatePath,
+            channel
+        )
+    );
 
     return [...new Set(keys)];
 }
