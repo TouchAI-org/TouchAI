@@ -243,6 +243,7 @@ describe('planR2ReleaseAssetPrune', () => {
                             { key: `touchai-app/v1/${currentPackage}` },
                             { key: `touchai-app/v1/${retainedPackage}` },
                             { key: `touchai-app/v1/${orphanPackage}` },
+                            { key: `touchai-app/v1/staging/${orphanPackage}` },
                             { key: 'touchai-app/v1/TouchAI-0.2.0-windows.msi' },
                         ],
                         result_info: {

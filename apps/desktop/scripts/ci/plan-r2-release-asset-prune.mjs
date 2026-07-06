@@ -264,6 +264,9 @@ function staleR2ObjectKeys(objectKeys, retainedTags, updatePath, channel) {
         }
 
         const fileName = key.slice(prefix.length);
+        if (fileName.includes('/')) {
+            continue;
+        }
         if (!isDownloadAssetName(fileName) || channelFromAssetName(fileName) !== channel) {
             continue;
         }
