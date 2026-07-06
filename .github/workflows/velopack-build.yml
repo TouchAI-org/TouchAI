@@ -661,6 +661,20 @@ jobs:
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: pnpm dlx wrangler@3.90.0 deploy --config "$WRANGLER_UPDATE_PROXY_CONFIG"
 
+            - name: Plan archived R2 release asset pruning
+              working-directory: apps/desktop
+              shell: bash
+              env:
+                  RELEASE_CHANNEL: ${{ inputs.channel }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
+              run: |
+                  set -euo pipefail
+                  prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"
+                  node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL" > "$prune_plan"
+
             - name: Deploy update release feeds to Cloudflare R2
               shell: bash
               env:
@@ -680,15 +694,17 @@ jobs:
               working-directory: apps/desktop
               shell: bash
               env:
-                  RELEASE_CHANNEL: ${{ inputs.channel }}
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
                   CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
               run: |
                   set -euo pipefail
                   prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"
-                  node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL" > "$prune_plan"
+                  if [ ! -f "$prune_plan" ]; then
+                    echo "::error title=R2 prune plan missing::Expected $prune_plan to be generated before feed deployment."
+                    exit 1
+                  fi
+
                   if [ ! -s "$prune_plan" ]; then
                     echo "No archived R2 release assets to prune."
                     exit 0

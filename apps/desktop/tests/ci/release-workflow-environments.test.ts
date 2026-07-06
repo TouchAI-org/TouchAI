@@ -126,9 +126,23 @@ describe('release workflow deployment environments', () => {
 
     it('prunes only old R2 release assets after GitHub release upload succeeds', async () => {
         const workflow = await readWorkflow('velopack-build.yml');
+        const planIndex = workflow.indexOf('Plan archived R2 release asset pruning');
+        const deployIndex = workflow.indexOf('Deploy update release feeds to Cloudflare R2');
+        const pruneIndex = workflow.indexOf('Prune archived R2 release assets');
+        const planCommand = 'node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL"';
+        const planCommandIndex = workflow.indexOf(planCommand);
+        const pruneStep = workflow.slice(pruneIndex);
 
         expect(workflow).toContain('RELEASE_CHANNEL: ${{ inputs.channel }}');
-        expect(workflow).toContain('plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL"');
+        expect(workflow).toContain('prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"');
+        expect(planIndex).toBeGreaterThan(-1);
+        expect(deployIndex).toBeGreaterThan(-1);
+        expect(pruneIndex).toBeGreaterThan(-1);
+        expect(planCommandIndex).toBeGreaterThan(planIndex);
+        expect(planCommandIndex).toBeLessThan(deployIndex);
+        expect(planIndex).toBeLessThan(deployIndex);
+        expect(deployIndex).toBeLessThan(pruneIndex);
+        expect(pruneStep).not.toContain(planCommand);
         expect(workflow).toContain('wrangler@3.90.0 r2 object delete');
         expect(workflow).toMatch(
             /Upload public release assets to GitHub release[\s\S]*Deploy update release feeds to Cloudflare R2[\s\S]*Prune archived R2 release assets/

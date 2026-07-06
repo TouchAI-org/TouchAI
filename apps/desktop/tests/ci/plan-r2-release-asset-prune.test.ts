@@ -11,6 +11,11 @@ type PlanModule = {
         projectRoot: string,
         channel: string,
         options?: {
+            cloudflare?: {
+                accountId: string;
+                bucketName: string;
+                token: string;
+            };
             fetch?: typeof fetch;
             token?: string | null;
         }
@@ -202,6 +207,82 @@ describe('planR2ReleaseAssetPrune', () => {
                     token: 'token',
                 })
             ).resolves.toEqual([`touchai-app/v1/${oldPackage}`, `touchai-app/v1/${orphanPackage}`]);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
+    it('plans deletion for stale R2 objects that are absent from the existing feed', async () => {
+        const planner = await loadPlanner();
+        const product = productWithRetention();
+        product.services.updates.deployment.r2HotAssetVersions.nightly = 2;
+        const root = await createFixture(product);
+        const currentPackage = 'TouchAI-nightly-0.3.0-nightly.20260524.4-windows-full.nupkg';
+        const retainedPackage = 'TouchAI-nightly-0.3.0-nightly.20260523.3-windows-full.nupkg';
+        const orphanPackage = 'TouchAI-nightly-0.3.0-nightly.20260521.1-windows-full.nupkg';
+        const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+            const url = new URL(input.toString());
+            if (url.hostname === 'api.github.com') {
+                return githubReleasesResponse([
+                    release('v0.3.0-nightly.20260524.4', '2026-05-24T00:00:00Z', [currentPackage]),
+                    release('v0.3.0-nightly.20260523.3', '2026-05-23T00:00:00Z', [retainedPackage]),
+                ]);
+            }
+
+            if (url.hostname === 'api.cloudflare.com') {
+                expect(url.pathname).toBe(
+                    '/client/v4/accounts/account-id/r2/buckets/bucket/objects'
+                );
+                expect(url.searchParams.get('prefix')).toBe('touchai-app/v1/');
+                expect(url.searchParams.get('per_page')).toBe('1000');
+                expect((init?.headers as Headers).get('authorization')).toBe('Bearer cf-token');
+                return new Response(
+                    JSON.stringify({
+                        success: true,
+                        result: [
+                            { key: `touchai-app/v1/${currentPackage}` },
+                            { key: `touchai-app/v1/${retainedPackage}` },
+                            { key: `touchai-app/v1/${orphanPackage}` },
+                            { key: 'touchai-app/v1/TouchAI-0.2.0-windows.msi' },
+                        ],
+                        result_info: {
+                            is_truncated: false,
+                        },
+                    }),
+                    { headers: { 'content-type': 'application/json' } }
+                );
+            }
+
+            return new Response(
+                JSON.stringify({
+                    Assets: [
+                        {
+                            Version: '0.3.0-nightly.20260524.4',
+                            FileName: currentPackage,
+                        },
+                        {
+                            Version: '0.3.0-nightly.20260523.3',
+                            FileName: retainedPackage,
+                        },
+                    ],
+                }),
+                { headers: { 'content-type': 'application/json' } }
+            );
+        });
+
+        try {
+            expect(planner?.planR2ReleaseAssetPrune).toBeTypeOf('function');
+            await expect(
+                planner!.planR2ReleaseAssetPrune(root, 'nightly', {
+                    cloudflare: {
+                        accountId: 'account-id',
+                        bucketName: 'bucket',
+                        token: 'cf-token',
+                    },
+                    fetch: fetchMock as unknown as typeof fetch,
+                    token: 'token',
+                })
+            ).resolves.toEqual([`touchai-app/v1/${orphanPackage}`]);
         } finally {
             await rm(root, { recursive: true, force: true });
         }
