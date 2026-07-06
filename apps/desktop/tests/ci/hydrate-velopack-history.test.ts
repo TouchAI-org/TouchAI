@@ -101,7 +101,7 @@ describe('hydrateVelopackHistory', () => {
                 });
             }
 
-            if (url.includes('api.github.com')) {
+            if (new URL(url).hostname === 'api.github.com') {
                 return new Response(
                     JSON.stringify([
                         release('v0.3.0-nightly.20260524.4', '2026-05-24T00:00:00Z'),

@@ -72,7 +72,7 @@ describe('planR2ReleaseAssetPrune', () => {
         const root = await createFixture(product);
         const fetchMock = vi.fn<typeof fetch>(async (input) => {
             const url = input.toString();
-            if (url.includes('api.github.com')) {
+            if (new URL(url).hostname === 'api.github.com') {
                 return githubReleasesResponse([
                     release('v0.2.0-beta.4', '2026-05-24T00:00:00Z', [
                         'TouchAI-beta-0.2.0-beta.4-windows-full.nupkg',
@@ -123,7 +123,7 @@ describe('planR2ReleaseAssetPrune', () => {
         const root = await createFixture(product);
         const fetchMock = vi.fn<typeof fetch>(async (input) => {
             const url = input.toString();
-            if (url.includes('api.github.com')) {
+            if (new URL(url).hostname === 'api.github.com') {
                 return githubReleasesResponse([
                     release('v0.3.0-nightly.20260524.1', '2026-05-24T00:00:00Z', [
                         'TouchAI-nightly-0.3.0-nightly.20260524.1-windows-full.nupkg',
@@ -161,7 +161,7 @@ describe('planR2ReleaseAssetPrune', () => {
         const orphanPackage = 'TouchAI-nightly-0.3.0-nightly.20260521.1-windows-full.nupkg';
         const fetchMock = vi.fn<typeof fetch>(async (input) => {
             const url = input.toString();
-            if (url.includes('api.github.com')) {
+            if (new URL(url).hostname === 'api.github.com') {
                 return githubReleasesResponse([
                     release('v0.3.0-nightly.20260524.4', '2026-05-24T00:00:00Z', [currentPackage]),
                     release('v0.3.0-nightly.20260523.3', '2026-05-23T00:00:00Z', [retainedPackage]),
