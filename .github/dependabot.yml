@@ -1,57 +1,61 @@
 version: 2
 updates:
-    # Frontend monorepo (root workspace). Monthly minor-only to cut PR noise.
-    # Patch and major are ignored here; security alerts still surface separately.
+    # Frontend monorepo (root workspace).
+    # Monthly version updates; patch/minor stay grouped, majors open separately
+    # so one breaking upgrade cannot block the safe batch (see #517 / TS 7).
     - package-ecosystem: 'npm'
       directory: '/'
       schedule:
           interval: 'monthly'
-      open-pull-requests-limit: 5
-      ignore:
-          - dependency-name: '*'
-            update-types:
-                - 'version-update:semver-patch'
-                - 'version-update:semver-major'
+      open-pull-requests-limit: 10
       groups:
           frontend-dependencies:
               patterns:
                   - '*'
               update-types:
                   - 'minor'
+                  - 'patch'
+          frontend-major-dependencies:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'major'
 
-    # Desktop Rust backend. Grouped so lockfile bumps land as one PR.
+    # Desktop Rust backend. Same split: safe lockfile batch vs major review.
     - package-ecosystem: 'cargo'
       directory: '/apps/desktop/src-tauri'
       schedule:
           interval: 'monthly'
-      open-pull-requests-limit: 5
-      ignore:
-          - dependency-name: '*'
-            update-types:
-                - 'version-update:semver-patch'
-                - 'version-update:semver-major'
+      open-pull-requests-limit: 10
       groups:
           rust-dependencies:
               patterns:
                   - '*'
               update-types:
                   - 'minor'
+                  - 'patch'
+          rust-major-dependencies:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'major'
 
-    # Workflow actions. Single group keeps multi-path actions (e.g. codeql
-    # init/analyze) on the same pin SHA in one PR.
+    # Workflow actions. Keep all paths of the same action in one PR so pins
+    # like codeql-action/init and codeql-action/analyze stay aligned.
     - package-ecosystem: 'github-actions'
       directory: '/'
       schedule:
           interval: 'monthly'
-      open-pull-requests-limit: 5
-      ignore:
-          - dependency-name: '*'
-            update-types:
-                - 'version-update:semver-patch'
-                - 'version-update:semver-major'
+      open-pull-requests-limit: 10
       groups:
           github-actions:
               patterns:
                   - '*'
               update-types:
                   - 'minor'
+                  - 'patch'
+          github-actions-major:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'major'
