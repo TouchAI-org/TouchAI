@@ -1,20 +1,60 @@
 version: 2
 updates:
+    # Frontend monorepo (root workspace). Monthly minor-only to cut PR noise.
+    # Patch and major are ignored here; security alerts still surface separately.
     - package-ecosystem: 'npm'
       directory: '/'
       schedule:
-          interval: 'weekly'
+          interval: 'monthly'
+          day: 'monday'
+      open-pull-requests-limit: 5
+      ignore:
+          - dependency-name: '*'
+            update-types:
+                - 'version-update:semver-patch'
+                - 'version-update:semver-major'
       groups:
           frontend-dependencies:
               patterns:
                   - '*'
+              update-types:
+                  - 'minor'
 
+    # Desktop Rust backend. Grouped so lockfile bumps land as one PR.
     - package-ecosystem: 'cargo'
       directory: '/apps/desktop/src-tauri'
       schedule:
-          interval: 'weekly'
+          interval: 'monthly'
+          day: 'monday'
+      open-pull-requests-limit: 5
+      ignore:
+          - dependency-name: '*'
+            update-types:
+                - 'version-update:semver-patch'
+                - 'version-update:semver-major'
+      groups:
+          rust-dependencies:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'minor'
 
+    # Workflow actions. Single group keeps multi-path actions (e.g. codeql
+    # init/analyze) on the same pin SHA in one PR.
     - package-ecosystem: 'github-actions'
       directory: '/'
       schedule:
-          interval: 'weekly'
+          interval: 'monthly'
+          day: 'monday'
+      open-pull-requests-limit: 5
+      ignore:
+          - dependency-name: '*'
+            update-types:
+                - 'version-update:semver-patch'
+                - 'version-update:semver-major'
+      groups:
+          github-actions:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'minor'
