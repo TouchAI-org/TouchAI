@@ -233,16 +233,22 @@ export const config = {
 
         const driverArgs = nativeDriverPath ? ['--native-driver', nativeDriverPath] : [];
 
+        const webviewUserDataFolder = path.resolve(sessionRuntimePath, 'webview2-user-data');
+        fs.mkdirSync(webviewUserDataFolder, { recursive: true });
+
         tauriDriver = spawn(tauriDriverPath, driverArgs, {
             stdio: [null, process.stdout, process.stderr],
-            env: withE2eWebView2Env({
-                ...process.env,
-                CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
-                TEMP: resolveTempDirectory(),
-                TOUCHAI_APP_ROOT: sessionRuntimePath,
-                TOUCHAI_E2E: '1',
-                TMP: resolveTempDirectory(),
-            }),
+            env: withE2eWebView2Env(
+                {
+                    ...process.env,
+                    CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
+                    TEMP: resolveTempDirectory(),
+                    TOUCHAI_APP_ROOT: sessionRuntimePath,
+                    TOUCHAI_E2E: '1',
+                    TMP: resolveTempDirectory(),
+                },
+                { userDataFolder: webviewUserDataFolder }
+            ),
         });
 
         tauriDriver.on('error', (error) => {
