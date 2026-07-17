@@ -25,11 +25,11 @@ tauri-codegen = "2.6"
 quote = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
+sha2 = "0.11"
 ureq = { version = "2.12", default-features = false, features = ["tls", "gzip"] }
 flate2 = "1.1"
 tar = "0.4"
-zip = { version = "2.4", default-features = false, features = ["deflate"] }
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "test", "tray-icon"] }
@@ -54,8 +54,8 @@ tauri-plugin-http = "2"
 tauri-plugin-shell = "2"
 raw-window-handle = "0.6"
 tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["sqlite", "runtime-tokio"] }
-rmcp = { version = "1.7.0", features = [
+sqlx = { version = "0.9.0", default-features = false, features = ["sqlite", "runtime-tokio"] }
+rmcp = { version = "2.2.0", features = [
     "client",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
@@ -65,8 +65,8 @@ futures = "0.3"
 tokio-tungstenite = "0.29"
 clipboard-rs = "0.3.4"
 html5gum = { version = "0.8.3", default-features = false }
-sha2 = "0.10"
-velopack = { version = "=0.0.1589-ga2c5a97", features = ["public-utils"] }
+sha2 = "0.11"
+velopack = { version = "=1.2.110-ge826545", features = ["public-utils"] }
 tempfile = "3"
 
 [dev-dependencies]
@@ -97,7 +97,7 @@ opt-level = "z"
 codegen-units = 1
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
     "Data_Xml_Dom",
     "Foundation",
     "Foundation_Collections",
@@ -115,7 +115,7 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 webview2-com = "0.38.0"
-windows-core = "0.61.2"
+windows-core = "0.62.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
