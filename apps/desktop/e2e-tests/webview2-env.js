@@ -57,6 +57,7 @@ export function buildWindowsE2eLauncherSource({
     const lines = [
         'using System;',
         'using System.Diagnostics;',
+        'using System.Text;',
         '',
         'public static class TouchAIE2ELauncher',
         '{',
@@ -84,25 +85,37 @@ export function buildWindowsE2eLauncherSource({
     }
 
     lines.push(
-        '        var startInfo = new ProcessStartInfo',
+        '        var argumentBuilder = new StringBuilder();',
+        '        for (var index = 0; index < args.Length; index++)',
         '        {',
-        '            FileName = ' + appLiteral + ',',
-        '            UseShellExecute = false,',
-        '        };',
-        '        foreach (var arg in args)',
-        '        {',
-        '            startInfo.ArgumentList.Add(arg);',
-        '        }',
-        '        using (var process = Process.Start(startInfo))',
-        '        {',
-        '            if (process == null)',
+        '            if (index > 0)',
         '            {',
-        '                Console.Error.WriteLine("Failed to start TouchAI for E2E.");',
-        '                return 1;',
+        "                argumentBuilder.Append(' ');",
         '            }',
-        '            process.WaitForExit();',
-        '            return process.ExitCode;',
+        '            var value = args[index] ?? string.Empty;',
+        "            if (value.IndexOfAny(new char[] { ' ', '\"' }) >= 0)",
+        '            {',
+        "                argumentBuilder.Append('\"');",
+        '                argumentBuilder.Append(value.Replace("\\"", "\\\\\\""));',
+        "                argumentBuilder.Append('\"');",
+        '            }',
+        '            else',
+        '            {',
+        '                argumentBuilder.Append(value);',
+        '            }',
         '        }',
+        '        var startInfo = new ProcessStartInfo();',
+        '        startInfo.FileName = ' + appLiteral + ';',
+        '        startInfo.Arguments = argumentBuilder.ToString();',
+        '        startInfo.UseShellExecute = false;',
+        '        var process = Process.Start(startInfo);',
+        '        if (process == null)',
+        '        {',
+        '            Console.Error.WriteLine("Failed to start TouchAI for E2E.");',
+        '            return 1;',
+        '        }',
+        '        process.WaitForExit();',
+        '        return process.ExitCode;',
         '    }',
         '}',
         ''
@@ -111,10 +124,22 @@ export function buildWindowsE2eLauncherSource({
     return lines.join('\n');
 }
 
-/**
- * Build a Windows .exe launcher so WEBVIEW2_* vars are set on TouchAI.exe itself.
- * msedgedriver rejects non-exe application paths.
- */
+function resolveCscPath() {
+    const windir = process.env.WINDIR || 'C:\\Windows';
+    const candidates = [
+        path.join(windir, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe'),
+        path.join(windir, 'Microsoft.NET', 'Framework', 'v4.0.30319', 'csc.exe'),
+    ];
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+
+    return null;
+}
+
 export function createWindowsE2eAppLauncher({
     applicationPath,
     launcherDirectory,
@@ -150,31 +175,25 @@ export function createWindowsE2eAppLauncher({
         return launcherSourcePath;
     }
 
+    const cscPath = resolveCscPath();
+    if (!cscPath) {
+        throw new Error(
+            'csc.exe was not found under %WINDIR%\\Microsoft.NET\\Framework*\\v4.0.30319'
+        );
+    }
+
     const compileResult = spawnSync(
-        'powershell.exe',
-        [
-            '-NoProfile',
-            '-Command',
-            [
-                '$source = Get-Content -LiteralPath $env:TOUCHAI_E2E_LAUNCHER_SOURCE -Raw;',
-                'Add-Type -TypeDefinition $source -OutputAssembly $env:TOUCHAI_E2E_LAUNCHER_EXE -OutputType ConsoleApplication;',
-                "if (-not (Test-Path -LiteralPath $env:TOUCHAI_E2E_LAUNCHER_EXE)) { throw 'launcher exe was not created' }",
-            ].join(' '),
-        ],
+        cscPath,
+        ['/nologo', '/target:exe', `/out:${launcherExePath}`, launcherSourcePath],
         {
             encoding: 'utf8',
-            env: {
-                ...process.env,
-                TOUCHAI_E2E_LAUNCHER_SOURCE: launcherSourcePath,
-                TOUCHAI_E2E_LAUNCHER_EXE: launcherExePath,
-            },
         }
     );
 
     if (compileResult.status !== 0) {
         throw new Error(
             [
-                'Failed to compile TouchAI E2E Windows launcher.',
+                'Failed to compile TouchAI E2E Windows launcher with csc.exe.',
                 compileResult.stdout,
                 compileResult.stderr,
             ]
