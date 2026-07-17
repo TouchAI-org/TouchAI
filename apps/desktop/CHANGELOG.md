@@ -1,5 +1,14 @@
 # 更新日志
 
+## [1.2.2](https://github.com/TouchAI-org/TouchAI/compare/v1.2.1...v1.2.2) (2026-07-17)
+
+
+### Bug Fixes
+
+* **e2e:** enable WebView2 remote debugging for Windows CI ([#522](https://github.com/TouchAI-org/TouchAI/issues/522)) ([b115814](https://github.com/TouchAI-org/TouchAI/commit/b1158146762299d7324d3295a6bb572d387af82d))
+* **release:** prune orphaned R2 release assets ([#507](https://github.com/TouchAI-org/TouchAI/issues/507)) ([5f269d0](https://github.com/TouchAI-org/TouchAI/commit/5f269d0accc17184d5c2a593e5d91df58daedbea))
+* **release:** skip empty scheduled nightly releases ([#505](https://github.com/TouchAI-org/TouchAI/issues/505)) ([2c154b6](https://github.com/TouchAI-org/TouchAI/commit/2c154b6eb2f24c4df9eae1419b94471c8c4e1dbd))
+
 ## [1.2.1](https://github.com/TouchAI-org/TouchAI/compare/v1.2.0...v1.2.1) (2026-06-29)
 
 
