@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { resolveE2eAppBinaryPath, resolveTauriBuildArgs } from './wdio.paths.js';
-import { createWindowsE2eAppLauncher, withE2eWebView2Env } from './webview2-env.js';
+import { withE2eWebView2Env } from './webview2-env.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopRoot = path.resolve(__dirname, '..');
@@ -16,7 +16,6 @@ const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
 let tauriDriver;
 let exitRequested = false;
 let sessionRuntimePath;
-let e2eApplicationPath;
 
 function resolveCargoTargetDirectory() {
     if (process.env.TOUCHAI_CARGO_TARGET_DIR) {
@@ -188,8 +187,7 @@ export const config = {
         {
             maxInstances: 1,
             'tauri:options': {
-                // Prefer launcher path prepared in beforeSession/onPrepare.
-                application: e2eApplicationPath || resolveAppBinaryPath(),
+                application: resolveAppBinaryPath(),
             },
         },
     ],
@@ -222,10 +220,10 @@ export const config = {
             process.exit(buildResult.status ?? 1);
         }
 
-        e2eApplicationPath = assertBuiltAppExists();
+        assertBuiltAppExists();
     },
-    beforeSession: async (_config, capabilities) => {
-        const appBinaryPath = assertBuiltAppExists();
+    beforeSession: async () => {
+        assertBuiltAppExists();
 
         const tauriDriverPath = resolveTauriDriverPath();
         const nativeDriverPath = resolveNativeDriverPath();
@@ -234,46 +232,25 @@ export const config = {
         fs.mkdirSync(sessionRuntimePath, { recursive: true });
 
         const driverArgs = nativeDriverPath ? ['--native-driver', nativeDriverPath] : [];
-
         const webviewUserDataFolder = path.resolve(sessionRuntimePath, 'webview2-user-data');
         fs.mkdirSync(webviewUserDataFolder, { recursive: true });
 
-        const driverEnv = withE2eWebView2Env(
-            {
-                ...process.env,
-                CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
-                TEMP: resolveTempDirectory(),
-                TOUCHAI_APP_ROOT: sessionRuntimePath,
-                TOUCHAI_E2E: '1',
-                TMP: resolveTempDirectory(),
-            },
-            { userDataFolder: webviewUserDataFolder }
-        );
-
-        if (process.platform === 'win32') {
-            e2eApplicationPath = createWindowsE2eAppLauncher({
-                applicationPath: appBinaryPath,
-                launcherDirectory: path.resolve(sessionRuntimePath, 'launcher'),
-                userDataFolder: webviewUserDataFolder,
-                env: driverEnv,
-            });
-            console.log(`E2E Windows app launcher: ${e2eApplicationPath}`);
-        } else {
-            e2eApplicationPath = appBinaryPath;
-        }
-
-        const capabilityList = Array.isArray(capabilities) ? capabilities : [capabilities];
-        for (const capability of capabilityList) {
-            if (!capability) continue;
-            capability['tauri:options'] = {
-                ...(capability['tauri:options'] ?? {}),
-                application: e2eApplicationPath,
-            };
-        }
-
+        // TouchAI.exe must be the application process msedgedriver attaches to.
+        // Pass E2E env through tauri-driver so the app inherits TOUCHAI_E2E and
+        // applies additionalBrowserArgs in Rust (wry ignores WEBVIEW2_* env alone).
         tauriDriver = spawn(tauriDriverPath, driverArgs, {
             stdio: [null, process.stdout, process.stderr],
-            env: driverEnv,
+            env: withE2eWebView2Env(
+                {
+                    ...process.env,
+                    CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
+                    TEMP: resolveTempDirectory(),
+                    TOUCHAI_APP_ROOT: sessionRuntimePath,
+                    TOUCHAI_E2E: '1',
+                    TMP: resolveTempDirectory(),
+                },
+                { userDataFolder: webviewUserDataFolder }
+            ),
         });
 
         tauriDriver.on('error', (error) => {
