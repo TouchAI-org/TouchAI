@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -37,15 +38,89 @@ export function withE2eWebView2Env(env = process.env, options = {}) {
     return next;
 }
 
+function csharpStringLiteral(value) {
+    return JSON.stringify(String(value));
+}
+
 /**
- * Build a Windows cmd launcher so WEBVIEW2_* vars are set on TouchAI.exe itself.
- * tauri-driver may spawn the application without inheriting the driver process env.
+ * Generate C# source for a tiny Windows host that sets WEBVIEW2_* then launches TouchAI.exe.
+ * tauri-driver / msedgedriver require an .exe application path (not .cmd).
+ */
+export function buildWindowsE2eLauncherSource({
+    applicationPath,
+    browserArguments,
+    userDataFolder,
+    appRoot,
+}) {
+    const appLiteral = csharpStringLiteral(applicationPath);
+    const argsLiteral = csharpStringLiteral(browserArguments);
+    const lines = [
+        'using System;',
+        'using System.Diagnostics;',
+        '',
+        'public static class TouchAIE2ELauncher',
+        '{',
+        '    public static int Main(string[] args)',
+        '    {',
+        '        Environment.SetEnvironmentVariable("TOUCHAI_E2E", "1");',
+        '        Environment.SetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", ' +
+            argsLiteral +
+            ');',
+    ];
+
+    if (userDataFolder) {
+        lines.push(
+            '        Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", ' +
+                csharpStringLiteral(userDataFolder) +
+                ');'
+        );
+    }
+    if (appRoot) {
+        lines.push(
+            '        Environment.SetEnvironmentVariable("TOUCHAI_APP_ROOT", ' +
+                csharpStringLiteral(appRoot) +
+                ');'
+        );
+    }
+
+    lines.push(
+        '        var startInfo = new ProcessStartInfo',
+        '        {',
+        '            FileName = ' + appLiteral + ',',
+        '            UseShellExecute = false,',
+        '        };',
+        '        foreach (var arg in args)',
+        '        {',
+        '            startInfo.ArgumentList.Add(arg);',
+        '        }',
+        '        using (var process = Process.Start(startInfo))',
+        '        {',
+        '            if (process == null)',
+        '            {',
+        '                Console.Error.WriteLine("Failed to start TouchAI for E2E.");',
+        '                return 1;',
+        '            }',
+        '            process.WaitForExit();',
+        '            return process.ExitCode;',
+        '        }',
+        '    }',
+        '}',
+        ''
+    );
+
+    return lines.join('\n');
+}
+
+/**
+ * Build a Windows .exe launcher so WEBVIEW2_* vars are set on TouchAI.exe itself.
+ * msedgedriver rejects non-exe application paths.
  */
 export function createWindowsE2eAppLauncher({
     applicationPath,
     launcherDirectory,
     env = process.env,
     userDataFolder,
+    compile = process.platform === 'win32',
 }) {
     if (!applicationPath) {
         throw new Error('applicationPath is required');
@@ -60,28 +135,57 @@ export function createWindowsE2eAppLauncher({
     }
 
     const resolvedEnv = withE2eWebView2Env(env, { userDataFolder });
-    const launcherPath = path.resolve(launcherDirectory, 'TouchAI-e2e-launcher.cmd');
-    const browserArgs = resolvedEnv.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS;
-    const appRoot = resolvedEnv.TOUCHAI_APP_ROOT;
-    const lines = [
-        '@echo off',
-        'setlocal',
-        'set "TOUCHAI_E2E=1"',
-        `set "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=${browserArgs}"`,
-    ];
+    const launcherExePath = path.resolve(launcherDirectory, 'TouchAI-e2e-launcher.exe');
+    const launcherSourcePath = path.resolve(launcherDirectory, 'TouchAI-e2e-launcher.cs');
+    const source = buildWindowsE2eLauncherSource({
+        applicationPath,
+        browserArguments: resolvedEnv.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
+        userDataFolder,
+        appRoot: resolvedEnv.TOUCHAI_APP_ROOT,
+    });
 
-    if (userDataFolder) {
-        lines.push(`set "WEBVIEW2_USER_DATA_FOLDER=${userDataFolder}"`);
-    }
-    if (appRoot) {
-        lines.push(`set "TOUCHAI_APP_ROOT=${appRoot}"`);
+    fs.writeFileSync(launcherSourcePath, source, 'utf8');
+
+    if (!compile) {
+        return launcherSourcePath;
     }
 
-    // Use call so %* args from the driver are forwarded and we wait for exit.
-    lines.push(`call "${applicationPath}" %*`);
-    lines.push('exit /b %ERRORLEVEL%');
-    lines.push('');
+    const compileResult = spawnSync(
+        'powershell.exe',
+        [
+            '-NoProfile',
+            '-Command',
+            [
+                '$source = Get-Content -LiteralPath $env:TOUCHAI_E2E_LAUNCHER_SOURCE -Raw;',
+                'Add-Type -TypeDefinition $source -OutputAssembly $env:TOUCHAI_E2E_LAUNCHER_EXE -OutputType ConsoleApplication;',
+                "if (-not (Test-Path -LiteralPath $env:TOUCHAI_E2E_LAUNCHER_EXE)) { throw 'launcher exe was not created' }",
+            ].join(' '),
+        ],
+        {
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                TOUCHAI_E2E_LAUNCHER_SOURCE: launcherSourcePath,
+                TOUCHAI_E2E_LAUNCHER_EXE: launcherExePath,
+            },
+        }
+    );
 
-    fs.writeFileSync(launcherPath, lines.join('\r\n'), 'utf8');
-    return launcherPath;
+    if (compileResult.status !== 0) {
+        throw new Error(
+            [
+                'Failed to compile TouchAI E2E Windows launcher.',
+                compileResult.stdout,
+                compileResult.stderr,
+            ]
+                .filter(Boolean)
+                .join('\n')
+        );
+    }
+
+    if (!fs.existsSync(launcherExePath)) {
+        throw new Error(`E2E launcher exe was not produced at ${launcherExePath}`);
+    }
+
+    return launcherExePath;
 }

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+    buildWindowsE2eLauncherSource,
     createWindowsE2eAppLauncher,
     DEFAULT_E2E_WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
     resolveE2eWebView2AdditionalBrowserArguments,
@@ -65,7 +66,23 @@ describe('E2E WebView2 launch environment', () => {
         });
     });
 
-    it('writes a Windows launcher that sets WebView2 env before starting the app', () => {
+    it('generates C# launcher source that sets WebView2 env and starts TouchAI.exe', () => {
+        const source = buildWindowsE2eLauncherSource({
+            applicationPath: 'D:/app/TouchAI.exe',
+            browserArguments: DEFAULT_E2E_WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
+            userDataFolder: 'D:/app/webview2-user-data',
+            appRoot: 'D:/app/root',
+        });
+
+        expect(source).toContain('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS');
+        expect(source).toContain('--remote-debugging-port=9222');
+        expect(source).toContain('D:/app/TouchAI.exe');
+        expect(source).toContain('WEBVIEW2_USER_DATA_FOLDER');
+        expect(source).toContain('TOUCHAI_APP_ROOT');
+        expect(source).toContain('Process.Start');
+    });
+
+    it('writes launcher source without compiling when compile is disabled', () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-e2e-launcher-'));
         tempRoots.push(root);
 
@@ -79,14 +96,14 @@ describe('E2E WebView2 launch environment', () => {
             launcherDirectory,
             userDataFolder,
             env: { TOUCHAI_APP_ROOT: path.join(root, 'app-root') },
+            compile: false,
         });
 
+        expect(launcherPath.endsWith('TouchAI-e2e-launcher.cs')).toBe(true);
         const content = fs.readFileSync(launcherPath, 'utf8');
-        expect(launcherPath.endsWith('TouchAI-e2e-launcher.cmd')).toBe(true);
-        expect(content).toContain('set "TOUCHAI_E2E=1"');
-        expect(content).toContain('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=');
+        expect(content).toContain('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS');
         expect(content).toContain('--remote-debugging-port=9222');
-        expect(content).toContain(`set "WEBVIEW2_USER_DATA_FOLDER=${userDataFolder}"`);
-        expect(content).toContain(`call "${applicationPath}" %*`);
+        expect(content).toContain('Process.Start');
+        expect(content).toContain('.exe');
     });
 });
