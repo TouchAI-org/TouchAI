@@ -45,7 +45,7 @@ jobs:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
 
@@ -172,7 +172,7 @@ jobs:
 
             - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
@@ -181,7 +181,7 @@ jobs:
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
             - name: Install .NET SDK
-              uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+              uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
               with:
                   dotnet-version: 8.0.x
 
@@ -230,7 +230,7 @@ jobs:
               run: dotnet tool install --global vpk
 
             - name: Download release notes artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
                   path: ${{ runner.temp }}/release-notes
@@ -321,7 +321,7 @@ jobs:
 
             - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
@@ -415,7 +415,7 @@ jobs:
 
             - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
@@ -533,31 +533,31 @@ jobs:
 
             - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
 
             - name: Download release notes artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
                   path: ${{ runner.temp }}/release-notes
 
             - name: Download Windows release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-velopack-windows-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/windows
 
             - name: Download macOS release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-macos-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/macos
 
             - name: Download Linux release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-linux-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/linux
@@ -634,13 +634,13 @@ jobs:
 
             - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
 
             - name: Download update release feeds artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-update-dist
                   path: ${{ runner.temp }}/touchai-update-dist
