@@ -115,7 +115,7 @@ jobs:
 
             - name: Initialize CodeQL
               if: needs.changes.outputs.docs_only != 'true'
-              uses: github/codeql-action/init@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4
+              uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4
               with:
                   languages: ${{ matrix.language }}
 
@@ -143,7 +143,7 @@ jobs:
 
             - name: Analyze
               if: needs.changes.outputs.docs_only != 'true'
-              uses: github/codeql-action/analyze@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4
+              uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4
 
     audits:
         name: Dependency audits
