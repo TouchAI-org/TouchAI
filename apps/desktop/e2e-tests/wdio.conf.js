@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { resolveE2eAppBinaryPath, resolveTauriBuildArgs } from './wdio.paths.js';
-import { withE2eWebView2Env } from './webview2-env.js';
+import { createWindowsE2eAppLauncher, withE2eWebView2Env } from './webview2-env.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopRoot = path.resolve(__dirname, '..');
@@ -16,6 +16,7 @@ const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
 let tauriDriver;
 let exitRequested = false;
 let sessionRuntimePath;
+let e2eApplicationPath;
 
 function resolveCargoTargetDirectory() {
     if (process.env.TOUCHAI_CARGO_TARGET_DIR) {
@@ -187,7 +188,8 @@ export const config = {
         {
             maxInstances: 1,
             'tauri:options': {
-                application: resolveAppBinaryPath(),
+                // Prefer launcher path prepared in beforeSession/onPrepare.
+                application: e2eApplicationPath || resolveAppBinaryPath(),
             },
         },
     ],
@@ -220,10 +222,10 @@ export const config = {
             process.exit(buildResult.status ?? 1);
         }
 
-        assertBuiltAppExists();
+        e2eApplicationPath = assertBuiltAppExists();
     },
-    beforeSession: async () => {
-        assertBuiltAppExists();
+    beforeSession: async (_config, capabilities) => {
+        const appBinaryPath = assertBuiltAppExists();
 
         const tauriDriverPath = resolveTauriDriverPath();
         const nativeDriverPath = resolveNativeDriverPath();
@@ -236,19 +238,42 @@ export const config = {
         const webviewUserDataFolder = path.resolve(sessionRuntimePath, 'webview2-user-data');
         fs.mkdirSync(webviewUserDataFolder, { recursive: true });
 
+        const driverEnv = withE2eWebView2Env(
+            {
+                ...process.env,
+                CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
+                TEMP: resolveTempDirectory(),
+                TOUCHAI_APP_ROOT: sessionRuntimePath,
+                TOUCHAI_E2E: '1',
+                TMP: resolveTempDirectory(),
+            },
+            { userDataFolder: webviewUserDataFolder }
+        );
+
+        if (process.platform === 'win32') {
+            e2eApplicationPath = createWindowsE2eAppLauncher({
+                applicationPath: appBinaryPath,
+                launcherDirectory: path.resolve(sessionRuntimePath, 'launcher'),
+                userDataFolder: webviewUserDataFolder,
+                env: driverEnv,
+            });
+            console.log(`E2E Windows app launcher: ${e2eApplicationPath}`);
+        } else {
+            e2eApplicationPath = appBinaryPath;
+        }
+
+        const capabilityList = Array.isArray(capabilities) ? capabilities : [capabilities];
+        for (const capability of capabilityList) {
+            if (!capability) continue;
+            capability['tauri:options'] = {
+                ...(capability['tauri:options'] ?? {}),
+                application: e2eApplicationPath,
+            };
+        }
+
         tauriDriver = spawn(tauriDriverPath, driverArgs, {
             stdio: [null, process.stdout, process.stderr],
-            env: withE2eWebView2Env(
-                {
-                    ...process.env,
-                    CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
-                    TEMP: resolveTempDirectory(),
-                    TOUCHAI_APP_ROOT: sessionRuntimePath,
-                    TOUCHAI_E2E: '1',
-                    TMP: resolveTempDirectory(),
-                },
-                { userDataFolder: webviewUserDataFolder }
-            ),
+            env: driverEnv,
         });
 
         tauriDriver.on('error', (error) => {
