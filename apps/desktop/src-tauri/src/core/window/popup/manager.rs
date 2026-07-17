@@ -103,7 +103,8 @@ pub fn build_popup_window<R: Runtime>(
             .parent(&main_window)
             .unwrap_or_else(|_| make_builder());
     }
-    if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args() {
+    if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args()
+    {
         builder = builder.additional_browser_args(&browser_args);
     }
 

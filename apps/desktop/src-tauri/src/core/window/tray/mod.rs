@@ -197,7 +197,8 @@ pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn s
     .visible(false)
     .focused(false);
 
-    if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args() {
+    if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args()
+    {
         builder = builder.additional_browser_args(&browser_args);
     }
 

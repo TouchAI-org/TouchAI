@@ -76,8 +76,8 @@ pub fn resolve_app_root_override() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        e2e_webview_additional_browser_args, is_e2e_test_mode, TOUCHAI_E2E_ENV,
-        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
+        e2e_webview_additional_browser_args, is_e2e_test_mode,
+        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_ENV,
     };
     use std::sync::Mutex;
 
