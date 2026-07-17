@@ -162,6 +162,13 @@ pub fn run() {
         })
         .invoke_handler(commands::invoke_handler::<tauri::Wry>());
 
+    let mut context = tauri::generate_context!();
+    if let Some(browser_args) = core::system::runtime::e2e_webview_additional_browser_args() {
+        for window in &mut context.config_mut().app.windows {
+            window.additional_browser_args = Some(browser_args.clone());
+        }
+    }
+
     let app_result = builder
         .setup(|app| {
             if let Err(err) = setup::setup_app(app) {
@@ -169,7 +176,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!());
+        .run(context);
 
     if let Err(err) = app_result {
         error!("Error while running tauri application: {}", err);
