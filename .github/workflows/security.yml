@@ -110,12 +110,12 @@ jobs:
               if: needs.changes.outputs.docs_only == 'true'
               run: echo "CodeQL is not required for docs-only pull requests (${{ matrix.language }})."
 
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               if: needs.changes.outputs.docs_only != 'true'
 
             - name: Initialize CodeQL
               if: needs.changes.outputs.docs_only != 'true'
-              uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4
+              uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
               with:
                   languages: ${{ matrix.language }}
 
@@ -143,14 +143,14 @@ jobs:
 
             - name: Analyze
               if: needs.changes.outputs.docs_only != 'true'
-              uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4
+              uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
 
     audits:
         name: Dependency audits
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
