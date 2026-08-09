@@ -60,7 +60,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "croner": "^10.0.1",
-        "dompurify": "^3.4.12",
+        "dompurify": "^3.4.13",
         "drizzle-orm": "^0.45.2",
         "katex": "^0.17.0",
         "markdown-it-emoji": "^3.0.0",
