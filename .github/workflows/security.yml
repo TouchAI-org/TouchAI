@@ -110,12 +110,12 @@ jobs:
               if: needs.changes.outputs.docs_only == 'true'
               run: echo "CodeQL is not required for docs-only pull requests (${{ matrix.language }})."
 
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               if: needs.changes.outputs.docs_only != 'true'
 
             - name: Initialize CodeQL
               if: needs.changes.outputs.docs_only != 'true'
-              uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4
+              uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
               with:
                   languages: ${{ matrix.language }}
 
@@ -127,7 +127,7 @@ jobs:
 
             - name: Set up pnpm
               if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+              uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
             - name: Install Rust stable
               if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
@@ -143,21 +143,21 @@ jobs:
 
             - name: Analyze
               if: needs.changes.outputs.docs_only != 'true'
-              uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4
+              uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
 
     audits:
         name: Dependency audits
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
 
-            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+            - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
