@@ -7,7 +7,6 @@ mod seed;
 
 use std::{
     borrow::Cow,
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     str::FromStr,
@@ -16,7 +15,7 @@ use std::{
 
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
-    Pool, Row, Sqlite, SqlitePool,
+    Pool, Sqlite, SqlitePool,
 };
 
 pub(crate) use seed::apply_seed;
@@ -112,10 +111,10 @@ pub(crate) async fn create_sqlite_pool(path: &Path) -> Result<SqlitePool, String
 
 /// 执行 Drizzle 迁移工件。
 pub(crate) async fn migrate_database(
-    pool: &Pool<Sqlite>,
+    connection: &mut sqlx::SqliteConnection,
     database_contract: &DatabaseContractSource,
 ) -> Result<(), String> {
-    ensure_migrations_table(pool).await?;
+    ensure_migrations_table(connection).await?;
 
     let journal = database_contract.read_text(&["drizzle", "meta", "_journal.json"])?;
     let journal_json: serde_json::Value = serde_json::from_str(&journal)
@@ -125,23 +124,29 @@ pub(crate) async fn migrate_database(
         .and_then(|value| value.as_array())
         .ok_or_else(|| "Migration journal entries are missing".to_string())?;
 
-    let applied_rows = sqlx::query("SELECT hash FROM migrations")
-        .fetch_all(pool)
+    let applied_tags = sqlx::query_scalar::<_, String>("SELECT hash FROM migrations ORDER BY id")
+        .fetch_all(&mut *connection)
         .await
         .map_err(|error| format!("Failed to load applied migrations: {error}"))?;
-    let applied_hashes = applied_rows
-        .into_iter()
-        .filter_map(|row| row.try_get::<String, _>("hash").ok())
-        .collect::<HashSet<_>>();
+    // Only the declared migration chain is supported. Experimental/future histories
+    // must not be guessed from columns or silently treated as a released schema.
+    for (index, applied_tag) in applied_tags.iter().enumerate() {
+        if entries
+            .get(index)
+            .and_then(|entry| entry.get("tag"))
+            .and_then(|tag| tag.as_str())
+            != Some(applied_tag.as_str())
+        {
+            return Err(format!(
+                "不支持的数据库迁移历史：{applied_tag}。请使用对应版本处理该数据库。"
+            ));
+        }
+    }
 
-    for entry in entries {
+    for entry in entries.iter().skip(applied_tags.len()) {
         let Some(tag) = entry.get("tag").and_then(|value| value.as_str()) else {
             return Err("Migration journal entry tag is missing".to_string());
         };
-        if applied_hashes.contains(tag) {
-            continue;
-        }
-
         let migration_file = format!("{tag}.sql");
         let migration_sql = database_contract.read_text(&["drizzle", migration_file.as_str()])?;
         let statements = migration_sql
@@ -150,38 +155,26 @@ pub(crate) async fn migrate_database(
             .filter(|statement| !statement.is_empty())
             .collect::<Vec<_>>();
 
-        let mut connection = pool
-            .acquire()
-            .await
-            .map_err(|error| format!("Failed to acquire migration connection: {error}"))?;
-
-        sqlx::query("BEGIN")
-            .execute(&mut *connection)
+        let mut transaction = sqlx::Connection::begin(&mut *connection)
             .await
             .map_err(|error| format!("Failed to begin migration '{tag}': {error}"))?;
 
-        let mut failed: Option<String> = None;
         for statement in statements {
-            if let Err(error) = sqlx::raw_sql(statement).execute(&mut *connection).await {
-                failed = Some(format!("Failed to execute migration '{tag}': {error}"));
-                break;
-            }
-        }
-
-        if let Some(error) = failed {
-            let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
-            return Err(error);
+            sqlx::raw_sql(sqlx::AssertSqlSafe(statement))
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| format!("Failed to execute migration '{tag}': {error}"))?;
         }
 
         sqlx::query("INSERT INTO migrations (hash, created_at) VALUES (?, ?)")
             .bind(tag)
             .bind(now_millis())
-            .execute(&mut *connection)
+            .execute(&mut *transaction)
             .await
             .map_err(|error| format!("Failed to record migration '{tag}': {error}"))?;
 
-        sqlx::query("COMMIT")
-            .execute(&mut *connection)
+        transaction
+            .commit()
             .await
             .map_err(|error| format!("Failed to commit migration '{tag}': {error}"))?;
     }
@@ -232,12 +225,15 @@ pub(crate) async fn execute_sql_artifact_on_pool(
     segments: &[&str],
 ) -> Result<(), String> {
     let sql = read_sql_artifact(database_contract, segments)?;
-    sqlx::raw_sql(&sql).execute(pool).await.map_err(|error| {
-        format!(
-            "Failed to execute database artifact '{:?}': {error}",
-            segments
-        )
-    })?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+        .execute(pool)
+        .await
+        .map_err(|error| {
+            format!(
+                "Failed to execute database artifact '{:?}': {error}",
+                segments
+            )
+        })?;
     Ok(())
 }
 
@@ -248,7 +244,7 @@ pub(crate) async fn execute_sql_artifact_on_connection(
     segments: &[&str],
 ) -> Result<(), String> {
     let sql = read_sql_artifact(database_contract, segments)?;
-    sqlx::raw_sql(&sql)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
         .execute(&mut **connection)
         .await
         .map_err(|error| {
@@ -267,7 +263,7 @@ pub(crate) fn now_millis() -> i64 {
         .unwrap_or_default()
 }
 
-async fn ensure_migrations_table(pool: &Pool<Sqlite>) -> Result<(), String> {
+async fn ensure_migrations_table(connection: &mut sqlx::SqliteConnection) -> Result<(), String> {
     sqlx::raw_sql(
         "CREATE TABLE IF NOT EXISTS migrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,7 +271,7 @@ async fn ensure_migrations_table(pool: &Pool<Sqlite>) -> Result<(), String> {
             created_at INTEGER NOT NULL
         );",
     )
-    .execute(pool)
+    .execute(connection)
     .await
     .map_err(|error| format!("Failed to ensure migrations table: {error}"))?;
     Ok(())

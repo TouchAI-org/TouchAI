@@ -7,8 +7,11 @@
 @import 'katex/dist/katex.min.css';
 @import 'vue-sonner/style.css';
 @import './markdown.css';
+@import './motion.css';
 
 @theme {
+    --default-transition-duration: var(--duration-quick);
+    --default-transition-timing-function: var(--ease-smooth-out);
     --font-sans:
         -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
     --font-serif: 'TouchAI Source Han Serif SC', 'Noto Serif SC', serif;
@@ -333,7 +336,7 @@
     .custom-scrollbar::-webkit-scrollbar-thumb {
         background: var(--color-scrollbar-thumb);
         border-radius: 3px;
-        transition: background 0.2s;
+        transition: background-color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {

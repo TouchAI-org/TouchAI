@@ -12,6 +12,16 @@ use tokio::io::AsyncWriteExt;
 
 use crate::core::system::paths::{app_directory_path, AppDirectory};
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut output, "{byte:02x}");
+    }
+    output
+}
+
 /// 字体文件名
 const FONT_FILENAME: &str = "SourceHanSerifSC-VF.ttf.woff2";
 const FONT_EXPECTED_SIZE_BYTES: u64 = 21_600_852;
@@ -89,7 +99,7 @@ fn validate_font_data(data: &[u8]) -> Result<(), String> {
         ));
     }
 
-    let actual_hash = format!("{:x}", Sha256::digest(data));
+    let actual_hash = sha256_hex(data);
     if actual_hash != FONT_EXPECTED_SHA256 {
         return Err(format!(
             "expected sha256 {}, found {}",
@@ -271,11 +281,11 @@ pub async fn initialize_font(app_handle: tauri::AppHandle) -> Result<(), String>
 
 #[cfg(test)]
 mod tests {
+    use super::sha256_hex;
     use super::{
         is_valid_font_file, replace_font_file, validate_font_data, FONT_CDN_URLS,
         FONT_EXPECTED_SHA256, FONT_FILENAME, MAX_RETRY_ROUNDS,
     };
-    use sha2::{Digest, Sha256};
     use tempfile::tempdir;
     use tokio::fs;
 
@@ -323,7 +333,7 @@ mod tests {
             .join("../assets/font")
             .join(FONT_FILENAME);
         let data = std::fs::read(font_path).expect("read bundled font");
-        let actual_hash = format!("{:x}", Sha256::digest(&data));
+        let actual_hash = sha256_hex(&data);
 
         assert_eq!(actual_hash, FONT_EXPECTED_SHA256);
         validate_font_data(&data).expect("validate bundled font data");

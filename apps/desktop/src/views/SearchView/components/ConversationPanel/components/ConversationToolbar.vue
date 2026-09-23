@@ -196,9 +196,9 @@
         border-radius: 0.75rem;
         color: rgb(156, 163, 175);
         transition:
-            color 0.2s ease,
-            background-color 0.2s ease,
-            box-shadow 0.2s ease;
+            color var(--duration-quick) var(--ease-smooth-out),
+            background-color var(--duration-quick) var(--ease-smooth-out),
+            box-shadow var(--duration-quick) var(--ease-smooth-out);
     }
 
     .toolbar-button:hover,

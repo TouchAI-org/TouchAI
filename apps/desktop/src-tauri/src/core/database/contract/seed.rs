@@ -16,7 +16,7 @@ pub async fn apply_seed(
 ) -> Result<(), String> {
     let seed_sql = database_contract.read_text(&["artifacts", "runtime", "seed.sql"])?;
 
-    sqlx::raw_sql(&seed_sql)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(seed_sql.into_owned()))
         .execute(pool)
         .await
         .map_err(|error| format!("Failed to execute database seed artifact: {error}"))?;

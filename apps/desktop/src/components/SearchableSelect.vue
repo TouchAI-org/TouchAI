@@ -223,6 +223,10 @@
     }
 
     function handleSearchKeydown(event: KeyboardEvent) {
+        if (!isOpen.value) {
+            return;
+        }
+
         if (event.key === 'Escape') {
             event.preventDefault();
             closeDropdown();
@@ -311,6 +315,7 @@
                     !isOpen && !disabled,
                 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-400': disabled,
             }"
+            :aria-expanded="isOpen"
             @click="toggleDropdown"
             @keydown="handleTriggerKeydown"
         >
@@ -337,82 +342,88 @@
             />
         </button>
 
-        <div
-            v-if="isOpen"
-            class="absolute top-full left-0 z-30 mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-lg"
+        <Transition
+            name="t-panel"
+            @before-leave="(element) => element.setAttribute('inert', '')"
+            @before-enter="(element) => element.removeAttribute('inert')"
         >
-            <div class="border-b border-gray-100 p-2">
-                <div class="relative">
-                    <AppIcon
-                        name="search"
-                        class="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400"
-                    />
-                    <input
-                        ref="searchInputRef"
-                        v-model="searchQuery"
-                        type="text"
-                        class="focus:border-primary-400 h-9 w-full rounded-lg border border-gray-200 bg-white pr-3 pl-9 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
-                        :placeholder="resolvedSearchPlaceholder"
-                        @keydown="handleSearchKeydown"
-                    />
+            <div
+                v-if="isOpen"
+                class="absolute top-full left-0 z-30 mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-lg"
+            >
+                <div class="border-b border-gray-100 p-2">
+                    <div class="relative">
+                        <AppIcon
+                            name="search"
+                            class="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400"
+                        />
+                        <input
+                            ref="searchInputRef"
+                            v-model="searchQuery"
+                            type="text"
+                            class="focus:border-primary-400 h-9 w-full rounded-lg border border-gray-200 bg-white pr-3 pl-9 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
+                            :placeholder="resolvedSearchPlaceholder"
+                            @keydown="handleSearchKeydown"
+                        />
+                    </div>
                 </div>
-            </div>
 
-            <div class="custom-scrollbar-thin max-h-64 overflow-y-auto p-1">
-                <button
-                    v-for="(option, index) in filteredOptions"
-                    :key="`${option.value}:${index}`"
-                    :ref="
-                        (element) => {
-                            if (element) {
-                                itemRefs[index] = element as HTMLElement;
+                <div class="custom-scrollbar-thin max-h-64 overflow-y-auto p-1">
+                    <button
+                        v-for="(option, index) in filteredOptions"
+                        :key="`${option.value}:${index}`"
+                        :ref="
+                            (element) => {
+                                if (element) {
+                                    itemRefs[index] = element as HTMLElement;
+                                }
                             }
-                        }
-                    "
-                    type="button"
-                    class="flex w-full flex-col rounded-lg px-3 py-2 text-left transition-colors"
-                    :aria-selected="option.value === modelValue"
-                    :class="[
-                        index === highlightedIndex
-                            ? 'bg-primary-50 text-primary-700'
-                            : option.value === modelValue
-                              ? 'bg-primary-50/80 text-primary-700 ring-primary-100 ring-1'
-                              : 'text-gray-900 hover:bg-gray-50',
-                    ]"
-                    @mouseenter="highlightedIndex = index"
-                    @mousedown.prevent="selectOption(option)"
-                >
-                    <slot
-                        name="option"
-                        :option="option"
-                        :highlighted="index === highlightedIndex"
-                        :selected="option.value === modelValue"
+                        "
+                        type="button"
+                        class="flex w-full flex-col rounded-lg px-3 py-2 text-left transition-colors"
+                        :aria-selected="option.value === modelValue"
+                        :class="[
+                            index === highlightedIndex
+                                ? 'bg-primary-50 text-primary-700'
+                                : option.value === modelValue
+                                  ? 'bg-primary-50/80 text-primary-700 ring-primary-100 ring-1'
+                                  : 'text-gray-900 hover:bg-gray-50',
+                        ]"
+                        @mouseenter="highlightedIndex = index"
+                        @mousedown.prevent="selectOption(option)"
                     >
-                        <span
-                            class="truncate font-serif text-sm font-medium"
-                            :data-no-i18n="protectOptionText ? 'true' : undefined"
-                            :translate="protectOptionText ? 'no' : undefined"
+                        <slot
+                            name="option"
+                            :option="option"
+                            :highlighted="index === highlightedIndex"
+                            :selected="option.value === modelValue"
                         >
-                            {{ option.label }}
-                        </span>
-                        <span
-                            v-if="option.description"
-                            class="mt-0.5 truncate text-xs text-gray-500"
-                            :data-no-i18n="protectOptionText ? 'true' : undefined"
-                            :translate="protectOptionText ? 'no' : undefined"
-                        >
-                            {{ option.description }}
-                        </span>
-                    </slot>
-                </button>
+                            <span
+                                class="truncate font-serif text-sm font-medium"
+                                :data-no-i18n="protectOptionText ? 'true' : undefined"
+                                :translate="protectOptionText ? 'no' : undefined"
+                            >
+                                {{ option.label }}
+                            </span>
+                            <span
+                                v-if="option.description"
+                                class="mt-0.5 truncate text-xs text-gray-500"
+                                :data-no-i18n="protectOptionText ? 'true' : undefined"
+                                :translate="protectOptionText ? 'no' : undefined"
+                            >
+                                {{ option.description }}
+                            </span>
+                        </slot>
+                    </button>
 
-                <div
-                    v-if="filteredOptions.length === 0"
-                    class="px-3 py-6 text-center font-serif text-sm text-gray-500"
-                >
-                    {{ resolvedEmptyText }}
+                    <div
+                        v-if="filteredOptions.length === 0"
+                        class="px-3 py-6 text-center font-serif text-sm text-gray-500"
+                    >
+                        {{ resolvedEmptyText }}
+                    </div>
                 </div>
             </div>
-        </div>
+        </Transition>
     </div>
 </template>

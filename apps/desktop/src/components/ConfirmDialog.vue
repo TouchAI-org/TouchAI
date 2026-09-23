@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -13,10 +13,12 @@
         AlertDialogHeader,
         AlertDialogTitle,
     } from '@components/ui/alert-dialog';
+    import { ref, watch } from 'vue';
 
     import { t } from '@/i18n';
 
     interface Props {
+        open?: boolean;
         title?: string;
         message: string;
         confirmText?: string;
@@ -27,9 +29,11 @@
     interface Emits {
         (e: 'confirm'): void;
         (e: 'cancel'): void;
+        (e: 'closed'): void;
     }
 
     const props = withDefaults(defineProps<Props>(), {
+        open: true,
         title: '',
         confirmText: '',
         cancelText: '',
@@ -37,13 +41,45 @@
     });
 
     const emit = defineEmits<Emits>();
+    const isOpen = ref(props.open);
+    const hasResult = ref(false);
 
-    const handleConfirm = () => {
-        emit('confirm');
+    const closeWithResult = (result: 'confirm' | 'cancel') => {
+        if (!hasResult.value) {
+            hasResult.value = true;
+            if (result === 'confirm') emit('confirm');
+            else emit('cancel');
+        }
+        isOpen.value = false;
     };
 
-    const handleCancel = () => {
-        emit('cancel');
+    const handleConfirm = () => closeWithResult('confirm');
+    const handleCancel = () => closeWithResult('cancel');
+
+    // Keep the component reusable when a parent controls the lifecycle. The
+    // imperative confirm composable normally leaves this at `true`, but a
+    // controlled host may close and reopen the same instance.
+    watch(
+        () => props.open,
+        (open) => {
+            if (open) {
+                hasResult.value = false;
+                isOpen.value = true;
+            } else if (isOpen.value) {
+                handleCancel();
+            }
+        }
+    );
+
+    const handleOpenChange = (open: boolean) => {
+        isOpen.value = open;
+        if (!open && !hasResult.value) closeWithResult('cancel');
+    };
+
+    const handleAnimationEnd = (event: AnimationEvent) => {
+        if (event.target === event.currentTarget && event.animationName === 't-modal-out') {
+            emit('closed');
+        }
     };
 
     const iconName = (): AppIconName => {
@@ -70,12 +106,13 @@
 </script>
 
 <template>
-    <AlertDialog :open="true">
+    <AlertDialog :open="isOpen" @update:open="handleOpenChange">
         <AlertDialogContent
             class="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl"
             @escape-key-down="handleCancel"
             @pointer-down-outside="handleCancel"
             @interact-outside="handleCancel"
+            @animationend="handleAnimationEnd"
         >
             <AlertDialogHeader class="flex items-start gap-4">
                 <div
@@ -102,7 +139,7 @@
             <AlertDialogFooter class="mt-6 flex gap-3">
                 <AlertDialogCancel
                     class="flex-1 rounded-lg border border-gray-200 px-4 py-2 font-serif text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50"
-                    @click="handleCancel"
+                    @click.capture="handleCancel"
                 >
                     {{ cancelText || t('common.cancel') }}
                 </AlertDialogCancel>
@@ -113,7 +150,7 @@
                         'bg-yellow-500 hover:bg-yellow-600': type === 'warning',
                         'bg-blue-500 hover:bg-blue-600': type === 'info',
                     }"
-                    @click="handleConfirm"
+                    @click.capture="handleConfirm"
                 >
                     {{ confirmText || t('common.confirm') }}
                 </AlertDialogAction>

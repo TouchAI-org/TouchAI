@@ -136,9 +136,11 @@ export function useSearchInput(
         const ed = editor.value;
         const host = editorHostRef.value;
         if (!ed || !host) return;
+        if (!ed.state.selection.empty) return;
 
         requestAnimationFrame(() => {
             const { view } = ed;
+            if (!view.state.selection.empty) return;
             const coords = view.coordsAtPos(view.state.selection.$anchor.pos);
             if (!coords) return;
 

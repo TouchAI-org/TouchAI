@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <BuiltInBashToolCallItem
@@ -86,8 +86,8 @@
                 </div>
             </button>
 
-            <transition name="tool-call-slide">
-                <div v-if="isExpanded" class="tool-call-detail">
+            <MotionCollapse :open="isExpanded" lazy>
+                <div class="tool-call-detail">
                     <div class="tool-call-section">
                         <h4 class="tool-call-section-title">
                             {{ t('conversation.toolCall.section.arguments') }}
@@ -112,13 +112,14 @@
                         ></pre>
                     </div>
                 </div>
-            </transition>
+            </MotionCollapse>
         </template>
     </div>
 </template>
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import MotionCollapse from '@components/MotionCollapse.vue';
     import type { Component } from 'vue';
     import { computed, ref } from 'vue';
 
@@ -435,12 +436,13 @@
         text-align: left;
         cursor: pointer;
         transition:
-            border-color 0.2s ease,
-            box-shadow 0.2s ease,
-            background-color 0.2s ease;
+            border-color var(--duration-quick) var(--ease-smooth-out),
+            box-shadow var(--duration-quick) var(--ease-smooth-out),
+            background-color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .tool-call-toggle:hover {
+        color: rgb(31, 41, 55);
         border-color: rgba(219, 213, 207, 0.95);
         background: rgba(251, 251, 246, 0.95);
         box-shadow: 0 3px 10px rgba(107, 95, 84, 0.14);
@@ -473,11 +475,11 @@
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
-        transition: color 0.16s ease;
+        transition: color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .tool-call-log-wrapper:hover .tool-call-log-line {
-        color: rgb(75, 85, 99);
+        color: rgb(31, 41, 55);
     }
 
     .tool-call-log-verb {
@@ -497,7 +499,7 @@
     .tool-call-log-duration {
         color: rgb(156, 163, 175);
         font-size: 0.9em;
-        transition: color 0.16s ease;
+        transition: color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .tool-call-log-wrapper
@@ -510,7 +512,7 @@
 
     .tool-call-log-wrapper:hover .tool-call-log-content,
     .tool-call-log-wrapper:hover .tool-call-log-duration {
-        color: rgb(107, 114, 128);
+        color: rgb(75, 85, 99);
     }
 
     .tool-call-icon {
@@ -593,7 +595,7 @@
         height: 0.375rem;
         border-radius: 999px;
         background: var(--color-info-600);
-        animation: tc-pulse 1.3s ease-in-out infinite;
+        animation: tc-pulse var(--motion-status-cycle) var(--ease-in-out) infinite;
     }
 
     .tool-call-status--error {
@@ -632,12 +634,12 @@
         flex-shrink: 0;
         color: rgb(156, 163, 175);
         transition:
-            transform 0.2s ease,
-            color 0.2s ease;
+            transform var(--duration-quick) var(--ease-smooth-out),
+            color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .tool-call-toggle:hover .tool-call-arrow {
-        color: rgb(107, 114, 128);
+        color: rgb(75, 85, 99);
     }
 
     .tool-call-arrow--expanded {
@@ -708,19 +710,6 @@
         display: none;
         width: 0;
         height: 0;
-    }
-
-    .tool-call-slide-enter-active,
-    .tool-call-slide-leave-active {
-        transition:
-            opacity 0.2s ease,
-            transform 0.2s ease;
-    }
-
-    .tool-call-slide-enter-from,
-    .tool-call-slide-leave-to {
-        opacity: 0;
-        transform: translateY(-3px);
     }
 
     @media (max-width: 640px) {

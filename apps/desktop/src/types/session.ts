@@ -57,6 +57,17 @@ export interface TextMessagePart {
     content: string;
 }
 
+export interface ReasoningMessagePart {
+    id: string;
+    type: 'reasoning';
+    content: string;
+    isStreaming: boolean;
+    /** 思考片段开始生成的时间，用于实时展示思考耗时。 */
+    startedAt?: number;
+    /** 思考片段结束的墙钟时间。 */
+    endedAt?: number;
+}
+
 export interface ToolCallMessagePart {
     id: string;
     type: 'tool_call';
@@ -77,6 +88,7 @@ export interface WidgetMessagePart {
 
 export type SessionPart =
     | TextMessagePart
+    | ReasoningMessagePart
     | ToolCallMessagePart
     | ApprovalMessagePart
     | WidgetMessagePart;

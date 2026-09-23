@@ -306,10 +306,12 @@ impl McpClient {
                 );
 
                 if let Some(peer_info) = service.peer().peer_info() {
-                    info!(
-                        "Server info: name={}, version={}",
-                        peer_info.server_info.name, peer_info.server_info.version
-                    );
+                    let (name, version) = peer_info
+                        .server_info
+                        .as_ref()
+                        .map(|info| (info.name.as_str(), info.version.as_str()))
+                        .unwrap_or(("<unknown>", "<unknown>"));
+                    info!("Server info: name={name}, version={version}");
                 }
 
                 let mut service_lock = self.service.write().await;
@@ -416,15 +418,17 @@ impl McpClient {
                 let content: Vec<ToolContent> = response
                     .content
                     .into_iter()
-                    .filter_map(|item| match &*item {
-                        rmcp::model::RawContent::Text(text_content) => Some(ToolContent::Text {
+                    .filter_map(|item| match &item {
+                        rmcp::model::ContentBlock::Text(text_content) => Some(ToolContent::Text {
                             text: text_content.text.clone(),
                         }),
-                        rmcp::model::RawContent::Image(image_content) => Some(ToolContent::Image {
-                            data: image_content.data.clone(),
-                            mime_type: image_content.mime_type.clone(),
-                        }),
-                        rmcp::model::RawContent::Resource(embedded_resource) => {
+                        rmcp::model::ContentBlock::Image(image_content) => {
+                            Some(ToolContent::Image {
+                                data: image_content.data.clone(),
+                                mime_type: image_content.mime_type.clone(),
+                            })
+                        }
+                        rmcp::model::ContentBlock::Resource(embedded_resource) => {
                             match &embedded_resource.resource {
                                 rmcp::model::ResourceContents::TextResourceContents {
                                     uri,
@@ -448,6 +452,7 @@ impl McpClient {
                                     text: None,
                                     blob: Some(blob.clone()),
                                 }),
+                                _ => None,
                             }
                         }
                         _ => None,
@@ -491,10 +496,11 @@ impl McpClient {
 
         let peer_info = service.peer().peer_info();
         if let Some(init_result) = peer_info {
-            Ok((
-                init_result.server_info.name.to_string(),
-                init_result.server_info.version.to_string(),
-            ))
+            let info = init_result
+                .server_info
+                .as_ref()
+                .ok_or_else(|| "Server info not available".to_string())?;
+            Ok((info.name.clone(), info.version.clone()))
         } else {
             Err("Server info not available".to_string())
         }

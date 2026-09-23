@@ -302,7 +302,7 @@
                 <button
                     type="button"
                     :class="[
-                        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                        't-toggle-track relative inline-flex h-5 w-9 items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50',
                         updateState.autoCheckEnabled ? 'settings-toggle-enabled' : 'bg-neutral-200',
                     ]"
                     data-testid="settings-update-auto-check-toggle"
@@ -312,7 +312,7 @@
                 >
                     <span
                         :class="[
-                            'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                            't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
                             updateState.autoCheckEnabled ? 'translate-x-[18px]' : 'translate-x-1',
                         ]"
                     />

@@ -55,7 +55,7 @@
             :class="
                 cn(
                     'relative z-50 min-w-[8rem] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-gray-900 shadow-lg',
-                    'data-[state=open]:animate-in data-[state=closed]:animate-out',
+                    't-dropdown',
                     props.class
                 )
             "

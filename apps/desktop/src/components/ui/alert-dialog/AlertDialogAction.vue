@@ -25,7 +25,7 @@
         v-bind="forwarded"
         :class="
             cn(
-                'flex-1 rounded-lg px-4 py-2 font-serif text-sm font-medium text-white transition-colors',
+                't-press flex-1 rounded-lg px-4 py-2 font-serif text-sm font-medium text-white',
                 props.class
             )
         "

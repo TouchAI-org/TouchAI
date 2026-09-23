@@ -178,10 +178,18 @@ export type ClipboardPayloadFragment =
           path: string;
       };
 
+export interface ClipboardHtmlImage {
+    source: string;
+    path: string | null;
+}
+
 export interface ClipboardPayload {
     snapshotId: string;
     observedAt: number;
     text: string | null;
+    html?: string | null;
+    htmlSourceUrl?: string | null;
+    htmlImages?: ClipboardHtmlImage[];
     imagePaths: string[];
     filePaths: string[];
     fragments?: ClipboardPayloadFragment[];

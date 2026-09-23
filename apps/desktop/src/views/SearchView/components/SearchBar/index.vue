@@ -34,7 +34,7 @@
                 disabled ? 'pointer-events-none opacity-60' : '',
                 isMultiLine ? 'items-start' : 'items-center',
             ]"
-            :style="{ maxHeight: 'calc(1.5em * 3 + 8px)' }"
+            :style="{ maxHeight: 'calc(1.5em * 7 + 8px)' }"
             @click="onEditorClick"
             @mousedown.capture="handleEditorSelectionMouseDown"
             @mousedown="handleEditorMouseDown"
@@ -63,7 +63,11 @@
     import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
     import { insertAttachmentTag } from './tags/attachment';
     import type { SearchCursorContext, SearchModelOverride } from './types';
-    import { isSearchTagDomTarget, resolveMouseEventTarget } from './utils/tiptap';
+    import {
+        insertPlainTextAtSelection,
+        isSearchTagDomTarget,
+        resolveMouseEventTarget,
+    } from './utils/tiptap';
 
     defineOptions({
         name: 'SearchBar',
@@ -276,26 +280,7 @@
         if (!ed || !text) return;
 
         try {
-            // 使用 ProseMirror 底层 API 精确控制插入位置
-            const { view } = ed;
-            const { state } = view;
-            const { from, to } = state.selection;
-
-            let tr = state.tr;
-
-            // 删除选中的内容（如果有）
-            if (from !== to) {
-                tr = tr.delete(from, to);
-            }
-
-            // 将换行符替换为空格，避免创建新段落
-            const normalizedText = text.replace(/\n/g, ' ');
-
-            // 在光标位置插入纯文本
-            tr = tr.insertText(normalizedText, tr.selection.from);
-
-            // 应用 transaction
-            view.dispatch(tr);
+            insertPlainTextAtSelection(ed, text);
         } catch (error) {
             console.error('Failed to insert text at cursor:', error);
         }
@@ -312,7 +297,6 @@
         if (!ed) return;
 
         try {
-            const cursorPos = ed.view.state.selection.from;
             insertAttachmentTag(
                 ed,
                 {
@@ -322,7 +306,7 @@
                     preview: preview || undefined,
                     alias: alias || '',
                 },
-                { textOffset: cursorPos }
+                { atCurrentSelection: true }
             );
         } catch (error) {
             console.error('Failed to insert attachment at cursor:', error);

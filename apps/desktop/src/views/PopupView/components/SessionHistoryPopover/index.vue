@@ -921,7 +921,7 @@
         border: 1.5px solid var(--color-primary-500);
         border-right-color: transparent;
         border-radius: 999px;
-        animation: history-status-spin 0.8s linear infinite;
+        animation: history-status-spin var(--motion-spinner-cycle) var(--ease-linear) infinite;
     }
 
     .history-session-status-dot {

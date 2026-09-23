@@ -16,7 +16,7 @@ import {
     type SessionMessage,
     type ToolApprovalInfo,
 } from '@/types/session';
-import { createTextPart } from '@/utils/session';
+import { createReasoningPart, createTextPart } from '@/utils/session';
 
 import { AiError } from '../../contracts/errors';
 import type { AiStreamChunk } from '../../contracts/protocol';
@@ -228,6 +228,17 @@ export class SessionTaskProjection {
         return true;
     }
 
+    private finishReasoningPart(message: SessionMessage): void {
+        const part = message.parts[message.parts.length - 1];
+        if (part?.type !== 'reasoning' || !part.isStreaming) return;
+        part.isStreaming = false;
+        if (part.startedAt !== undefined) {
+            part.endedAt = Date.now();
+        }
+        // 无正文的 start/end 只用于实时占位，不留下空历史块。
+        if (!part.content.trim()) message.parts.pop();
+    }
+
     handleChunk(chunk: AiStreamChunk): void {
         const assistantMessage = this.getActiveAssistantMessage();
         if (!assistantMessage) {
@@ -235,13 +246,36 @@ export class SessionTaskProjection {
         }
 
         if (chunk.toolEvent?.type === 'request_retry') {
+            this.finishReasoningPart(assistantMessage);
             this.handleRetryEvent(assistantMessage, chunk.toolEvent);
             return;
+        }
+
+        if (chunk.reasoningState === 'start') {
+            this.finishReasoningPart(assistantMessage);
+            assistantMessage.parts.push(createReasoningPart('', true));
         }
 
         if (chunk.reasoning) {
             this.reasoning += chunk.reasoning;
             assistantMessage.reasoning = this.reasoning;
+            const lastPart = assistantMessage.parts[assistantMessage.parts.length - 1];
+            if (lastPart?.type === 'reasoning' && lastPart.isStreaming) {
+                lastPart.content += chunk.reasoning;
+            } else {
+                assistantMessage.parts.push(createReasoningPart(chunk.reasoning, true));
+            }
+        }
+
+        if (
+            chunk.reasoningState === 'end' ||
+            chunk.content ||
+            chunk.done ||
+            chunk.toolCallDeltas?.length ||
+            chunk.toolCalls?.length ||
+            chunk.toolEvent
+        ) {
+            this.finishReasoningPart(assistantMessage);
         }
 
         if (chunk.content) {
@@ -286,6 +320,7 @@ export class SessionTaskProjection {
     markCompleted(): void {
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
+            this.finishReasoningPart(assistantMessage);
             assistantMessage.isStreaming = false;
         }
 
@@ -300,6 +335,7 @@ export class SessionTaskProjection {
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
+            this.finishReasoningPart(assistantMessage);
             const shouldKeepAssistantMessage = this.hasVisibleAssistantContent(assistantMessage);
             if (shouldKeepAssistantMessage) {
                 assistantMessage.isStreaming = false;
@@ -331,6 +367,7 @@ export class SessionTaskProjection {
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
+            this.finishReasoningPart(assistantMessage);
             const shouldKeepAssistantMessage = this.hasVisibleAssistantContent(assistantMessage);
             if (!shouldKeepAssistantMessage) {
                 this.removeSessionMessageById(assistantMessage.id);
@@ -501,7 +538,7 @@ export class SessionTaskProjection {
         );
 
         return message.parts.some((part) => {
-            if (part.type === 'text') {
+            if (part.type === 'text' || part.type === 'reasoning') {
                 return !!part.content.trim();
             }
 

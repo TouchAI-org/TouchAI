@@ -1,10 +1,13 @@
 <script setup lang="ts">
     import AppUpdateRequiredGate from '@components/AppUpdateRequiredGate.vue';
+    import { MotionConfig } from 'motion-v';
 </script>
 
 <template>
-    <router-view />
-    <AppUpdateRequiredGate />
+    <MotionConfig reduced-motion="user">
+        <router-view />
+        <AppUpdateRequiredGate />
+    </MotionConfig>
 </template>
 
 <style></style>

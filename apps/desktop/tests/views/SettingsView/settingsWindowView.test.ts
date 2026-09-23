@@ -9,6 +9,7 @@ const windowApiMock = vi.hoisted(() => ({
         isMaximized: vi.fn().mockResolvedValue(false),
         maximize: vi.fn().mockResolvedValue(undefined),
         minimize: vi.fn().mockResolvedValue(undefined),
+        startDragging: vi.fn().mockResolvedValue(undefined),
         unmaximize: vi.fn().mockResolvedValue(undefined),
     },
 }));
@@ -122,6 +123,7 @@ describe('SettingsWindowView', () => {
         windowApiMock.currentWindow.isMaximized.mockClear();
         windowApiMock.currentWindow.maximize.mockClear();
         windowApiMock.currentWindow.minimize.mockClear();
+        windowApiMock.currentWindow.startDragging.mockClear();
         windowApiMock.currentWindow.unmaximize.mockClear();
     });
 
@@ -158,6 +160,10 @@ describe('SettingsWindowView', () => {
         expect(
             wrapper.get('[data-testid="settings-content-drag-region"]').attributes()
         ).toHaveProperty('data-tauri-drag-region');
+        expect(wrapper.get('[data-testid="settings-content-shell"]').classes()).toContain(
+            'relative'
+        );
+        expect(wrapper.get('[data-testid="settings-content-shell"]').classes()).toContain('z-20');
         expect(
             (
                 wrapper.get('[data-testid="settings-shell-card"]').element as HTMLElement
@@ -180,6 +186,125 @@ describe('SettingsWindowView', () => {
         expect(windowApiMock.currentWindow.isMaximized).toHaveBeenCalledTimes(1);
         expect(windowApiMock.currentWindow.maximize).toHaveBeenCalledTimes(1);
         expect(windowApiMock.currentWindow.close).toHaveBeenCalledTimes(1);
+    });
+
+    async function mountReadySettingsWindow() {
+        const wrapper = mountSettingsWindow();
+        await vi.runAllTimersAsync();
+        await flushPromises();
+        vi.spyOn(
+            wrapper.get('[data-testid="settings-content-drag-region"]').element,
+            'getBoundingClientRect'
+        ).mockReturnValue({
+            left: 200,
+            top: 100,
+            right: 1000,
+            bottom: 136,
+        } as DOMRect);
+        return wrapper;
+    }
+
+    it('starts native dragging from the top blank area even when content covers the drag layer', async () => {
+        const wrapper = await mountReadySettingsWindow();
+        const title = document.createElement('span');
+        title.textContent = 'Section title';
+        wrapper.get('[data-testid="settings-content-shell"]').element.append(title);
+
+        title.dispatchEvent(
+            new MouseEvent('mousedown', {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                clientX: 400,
+                clientY: 112,
+            })
+        );
+        await flushPromises();
+
+        expect(windowApiMock.currentWindow.startDragging).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        { clientX: 400, clientY: 160 },
+        { clientX: 400, clientY: 99 },
+        { clientX: 400, clientY: 136 },
+        { clientX: 199, clientY: 112 },
+        { clientX: 1000, clientY: 112 },
+    ])('does not drag from outside the top drag band: %o', async (position) => {
+        const wrapper = await mountReadySettingsWindow();
+        await wrapper.get('[data-testid="settings-content-shell"]').trigger('mousedown', {
+            button: 0,
+            ...position,
+        });
+        expect(windowApiMock.currentWindow.startDragging).not.toHaveBeenCalled();
+    });
+
+    it.each([1, 2])('does not drag on mouse button %s', async (button) => {
+        const wrapper = await mountReadySettingsWindow();
+        await wrapper.get('[data-testid="settings-content-shell"]').trigger('mousedown', {
+            button,
+            clientX: 400,
+            clientY: 112,
+        });
+        expect(windowApiMock.currentWindow.startDragging).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        '<button><span>Tab label</span></button>',
+        '<a href="#"><span>Link</span></a>',
+        '<input />',
+        '<textarea></textarea>',
+        '<select><option>Option</option></select>',
+        '<label><span>Toggle label</span></label>',
+        '<div role="tab"><span>Tab label</span></div>',
+        '<div role="separator"><span>Resize handle</span></div>',
+        '<div tabindex="0"><span>Focusable item</span></div>',
+        '<div contenteditable="true"><span>Editable content</span></div>',
+        '<div data-tauri-drag-region="false"><span>No-drag content</span></div>',
+        '<div data-drag-exclude="true"><span>Excluded content</span></div>',
+        '<div class="cursor-pointer"><span>Provider or tool card</span></div>',
+    ])('keeps top-area controls clickable without starting a window drag: %s', async (markup) => {
+        const wrapper = await mountReadySettingsWindow();
+        const host = document.createElement('div');
+        host.innerHTML = markup;
+        const control = host.firstElementChild!;
+        wrapper.get('[data-testid="settings-content-shell"]').element.append(control);
+        const target = control.querySelector('span') ?? control;
+        const onClick = vi.fn();
+        control.addEventListener('click', onClick);
+        const mouseDown = new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 400,
+            clientY: 112,
+        });
+
+        target.dispatchEvent(mouseDown);
+        target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await flushPromises();
+
+        expect(windowApiMock.currentWindow.startDragging).not.toHaveBeenCalled();
+        expect(mouseDown.defaultPrevented).toBe(false);
+        expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('respects a child consuming the mousedown event', async () => {
+        const wrapper = await mountReadySettingsWindow();
+        const child = document.createElement('div');
+        child.addEventListener('mousedown', (event) => event.preventDefault());
+        wrapper.get('[data-testid="settings-content-shell"]').element.append(child);
+        child.dispatchEvent(
+            new MouseEvent('mousedown', {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                clientX: 400,
+                clientY: 112,
+            })
+        );
+        await flushPromises();
+        expect(windowApiMock.currentWindow.startDragging).not.toHaveBeenCalled();
     });
 
     it('clears the startup delay timer when the window unmounts before becoming ready', () => {

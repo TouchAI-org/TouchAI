@@ -14,6 +14,9 @@ pub struct ClipboardPayload {
     pub snapshot_id: String,
     pub observed_at: u64,
     pub text: Option<String>,
+    pub html: Option<String>,
+    pub html_source_url: Option<String>,
+    pub html_images: Vec<ClipboardHtmlImage>,
     pub image_paths: Vec<String>,
     pub file_paths: Vec<String>,
     pub fragments: Vec<ClipboardPayloadFragment>,
@@ -27,11 +30,21 @@ pub enum ClipboardPayloadFragment {
     File { path: String },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardHtmlImage {
+    pub source: String,
+    pub path: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ClipboardSnapshot {
     pub(super) snapshot_id: String,
     pub(super) observed_at: u64,
     pub(super) text: Option<String>,
+    pub(super) html: Option<String>,
+    pub(super) html_source_url: Option<String>,
+    pub(super) html_images: Vec<ClipboardHtmlImage>,
     pub(super) image_paths: Vec<String>,
     pub(super) file_paths: Vec<String>,
     pub(super) fragments: Vec<ClipboardPayloadFragment>,
@@ -44,17 +57,14 @@ impl ClipboardSnapshot {
             snapshot_id: self.snapshot_id,
             observed_at: self.observed_at,
             text: self.text,
+            html: self.html,
+            html_source_url: self.html_source_url,
+            html_images: self.html_images,
             image_paths: self.image_paths,
             file_paths: self.file_paths,
             fragments: self.fragments,
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum ClipboardHtmlFragment {
-    Text(String),
-    ImageSource(String),
 }
 
 /// 基于标准化内容生成剪贴板快照 ID。

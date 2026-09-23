@@ -83,7 +83,14 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
                       displayName: toolId,
                       description: `${toolId} description`,
                   }
-                : undefined
+                : toolId === 'ask_user_question'
+                  ? {
+                        ...fakeTool,
+                        id: toolId,
+                        displayName: toolId,
+                        description: `${toolId} description`,
+                    }
+                  : undefined
         ),
     },
 }));
@@ -185,6 +192,15 @@ describe('BuiltInToolService i18n', () => {
             'builtin__browser',
             'builtin__setting',
         ]);
+    });
+
+    it('exposes the ask-user built-in tool to the model when enabled', async () => {
+        findEnabledBuiltInToolsMock.mockResolvedValueOnce([{ tool_id: 'ask_user_question' }]);
+
+        const definitions = await builtInToolService.getEnabledToolDefinitions();
+
+        expect(definitions).toHaveLength(1);
+        expect(definitions[0]?.name).toBe('builtin__ask_user_question');
     });
 
     it('does not resolve unregistered partial browser tool calls', async () => {

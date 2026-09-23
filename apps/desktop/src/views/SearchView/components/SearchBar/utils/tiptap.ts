@@ -1,7 +1,7 @@
 import type { Editor, JSONContent } from '@tiptap/core';
 import { Extension } from '@tiptap/core';
 import Placeholder, { type PlaceholderOptions } from '@tiptap/extension-placeholder';
-import type { Node as PmNode } from '@tiptap/pm/model';
+import { Fragment, type Node as PmNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
@@ -590,6 +590,52 @@ export function setEditorText(editor: Editor, text: string) {
     setEditorJSON(editor, {
         type: 'doc',
         content: paragraphs,
+    });
+}
+
+/**
+ * 在当前选区插入纯文本，并保留剪贴板/系统文本里的换行。
+ */
+export function insertPlainTextAtSelection(editor: Editor, text: string) {
+    const normalizedText = text.replace(/\r\n?/g, '\n');
+    if (!normalizedText) {
+        return false;
+    }
+
+    return editor.commands.command(({ state, dispatch }) => {
+        const hardBreakType = state.schema.nodes.hardBreak;
+        const lines = normalizedText.split('\n');
+        const nodes: PmNode[] = [];
+
+        for (let index = 0; index < lines.length; index += 1) {
+            const line = lines[index];
+            if (line) {
+                nodes.push(state.schema.text(line));
+            }
+
+            if (index < lines.length - 1) {
+                if (!hardBreakType) {
+                    return false;
+                }
+                nodes.push(hardBreakType.create());
+            }
+        }
+
+        if (!nodes.length) {
+            return false;
+        }
+
+        let tr = state.tr;
+        if (!state.selection.empty) {
+            tr = tr.delete(state.selection.from, state.selection.to);
+        }
+
+        const insertPos = tr.selection.from;
+        const fragment = Fragment.fromArray(nodes);
+        tr = tr.insert(insertPos, fragment);
+        tr = tr.setSelection(TextSelection.create(tr.doc, insertPos + fragment.size));
+        dispatch?.(tr.scrollIntoView());
+        return true;
     });
 }
 

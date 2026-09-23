@@ -3,44 +3,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
     appUseMock,
     appMountMock,
-    completeManagedLoginMock,
     createAppMock,
-    eventServiceEmitMock,
     getCurrentWindowMock,
-    initializeManagedProviderStateMock,
-    openSettingsWindowMock,
     settingsInitializeMock,
     appUpdateCheckNowMock,
     builtInToolSyncMock,
     isLlmMetadataEmptyMock,
-    getCurrentMock,
     initializeFontLoaderMock,
     initializeLoggerMock,
     syncAllModelsMetadataMock,
     updateModelMetadataMock,
-    onOpenUrlMock,
     originalWindowOpenMock,
     openUrlMock,
     routerMock,
 } = vi.hoisted(() => ({
     appUseMock: vi.fn(),
     appMountMock: vi.fn(),
-    completeManagedLoginMock: vi.fn(),
     createAppMock: vi.fn(),
-    eventServiceEmitMock: vi.fn(),
     getCurrentWindowMock: vi.fn(),
-    initializeManagedProviderStateMock: vi.fn(),
-    openSettingsWindowMock: vi.fn(),
     settingsInitializeMock: vi.fn(),
     appUpdateCheckNowMock: vi.fn(),
     builtInToolSyncMock: vi.fn(),
     isLlmMetadataEmptyMock: vi.fn(),
-    getCurrentMock: vi.fn(),
     initializeFontLoaderMock: vi.fn(),
     initializeLoggerMock: vi.fn(),
     syncAllModelsMetadataMock: vi.fn(),
     updateModelMetadataMock: vi.fn(),
-    onOpenUrlMock: vi.fn(),
     originalWindowOpenMock: vi.fn(),
     openUrlMock: vi.fn(),
     routerMock: {
@@ -66,11 +54,6 @@ vi.mock('@services/AppUpdateService', () => ({
     },
 }));
 
-vi.mock('@services/AuthService', () => ({
-    completeManagedLogin: completeManagedLoginMock,
-    initializeManagedProviderState: initializeManagedProviderStateMock,
-}));
-
 vi.mock('@database/queries', () => ({
     isLlmMetadataEmpty: isLlmMetadataEmptyMock,
     syncAllModelsMetadata: syncAllModelsMetadataMock,
@@ -86,31 +69,8 @@ vi.mock('@/services/BuiltInToolService/service', () => ({
     },
 }));
 
-vi.mock('@services/EventService', () => ({
-    AppEvent: {
-        SETTINGS_AI_SERVICES_FOCUS_PROVIDER: 'SETTINGS_AI_SERVICES_FOCUS_PROVIDER',
-        AI_MODELS_UPDATED: 'AI_MODELS_UPDATED',
-    },
-    eventService: {
-        emit: eventServiceEmitMock,
-    },
-}));
-
-vi.mock('@services/NativeService', () => ({
-    native: {
-        window: {
-            openSettingsWindow: openSettingsWindowMock,
-        },
-    },
-}));
-
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: getCurrentWindowMock,
-}));
-
-vi.mock('@tauri-apps/plugin-deep-link', () => ({
-    getCurrent: getCurrentMock,
-    onOpenUrl: onOpenUrlMock,
 }));
 
 vi.mock('@tauri-apps/plugin-opener', () => ({
@@ -164,15 +124,9 @@ describe('app bootstrap i18n', () => {
         settingsInitializeMock.mockResolvedValue(undefined);
         appUpdateCheckNowMock.mockResolvedValue(false);
         builtInToolSyncMock.mockResolvedValue(undefined);
-        completeManagedLoginMock.mockResolvedValue(false);
-        initializeManagedProviderStateMock.mockResolvedValue(undefined);
         isLlmMetadataEmptyMock.mockResolvedValue(false);
         syncAllModelsMetadataMock.mockResolvedValue(undefined);
         updateModelMetadataMock.mockResolvedValue(undefined);
-        openSettingsWindowMock.mockResolvedValue(undefined);
-        eventServiceEmitMock.mockResolvedValue(undefined);
-        getCurrentMock.mockResolvedValue([]);
-        onOpenUrlMock.mockResolvedValue(undefined);
         getCurrentWindowMock.mockReturnValue({
             label: 'main',
         });
@@ -262,13 +216,10 @@ describe('app bootstrap i18n', () => {
         expect(appMountMock).toHaveBeenCalledWith('#app');
         expect(initializeFontLoaderMock).not.toHaveBeenCalled();
         expect(builtInToolSyncMock).not.toHaveBeenCalled();
-        expect(initializeManagedProviderStateMock).not.toHaveBeenCalled();
         expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
         expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
         expect(updateModelMetadataMock).not.toHaveBeenCalled();
         expect(settingsInitializeMock).not.toHaveBeenCalled();
-        expect(getCurrentMock).not.toHaveBeenCalled();
-        expect(onOpenUrlMock).not.toHaveBeenCalled();
         expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
     });
 
@@ -282,97 +233,11 @@ describe('app bootstrap i18n', () => {
 
         expect(appMountMock).toHaveBeenCalledWith('#app');
         expect(initializeFontLoaderMock).not.toHaveBeenCalled();
-        expect(initializeManagedProviderStateMock).not.toHaveBeenCalled();
         expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
         expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
         expect(updateModelMetadataMock).not.toHaveBeenCalled();
         expect(settingsInitializeMock).not.toHaveBeenCalled();
-        expect(getCurrentMock).not.toHaveBeenCalled();
-        expect(onOpenUrlMock).not.toHaveBeenCalled();
         expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
-    });
-
-    it('consumes pending deep links during bootstrap and broadcasts model refresh after login', async () => {
-        getCurrentMock.mockResolvedValue(['touchai://hub/auth/callback?code=boot-code']);
-        completeManagedLoginMock.mockResolvedValue(true);
-
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(getCurrentMock).toHaveBeenCalledTimes(1);
-        expect(completeManagedLoginMock).toHaveBeenCalledWith(
-            'touchai://hub/auth/callback?code=boot-code'
-        );
-        expect(openSettingsWindowMock).toHaveBeenCalledTimes(1);
-        expect(eventServiceEmitMock).toHaveBeenCalledWith(
-            'SETTINGS_AI_SERVICES_FOCUS_PROVIDER',
-            expect.objectContaining({
-                section: 'ai-services',
-                providerDriver: 'mimo',
-                mode: 'managed',
-                reason: 'managed-auth-callback',
-            })
-        );
-        expect(eventServiceEmitMock).toHaveBeenCalledWith('AI_MODELS_UPDATED', {
-            updatedAt: expect.any(Number),
-        });
-    });
-
-    it('registers a deep-link listener that completes managed login callbacks', async () => {
-        let registeredHandler: ((urls: string[]) => Promise<void>) | undefined;
-        onOpenUrlMock.mockImplementation(async (handler) => {
-            registeredHandler = handler;
-        });
-        completeManagedLoginMock.mockResolvedValue(true);
-
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(onOpenUrlMock).toHaveBeenCalledTimes(1);
-        await registeredHandler?.(['touchai://hub/auth/callback?code=live-code']);
-
-        expect(completeManagedLoginMock).toHaveBeenCalledWith(
-            'touchai://hub/auth/callback?code=live-code'
-        );
-        expect(openSettingsWindowMock).toHaveBeenCalledTimes(1);
-        expect(eventServiceEmitMock).toHaveBeenCalledWith(
-            'SETTINGS_AI_SERVICES_FOCUS_PROVIDER',
-            expect.objectContaining({
-                section: 'ai-services',
-                providerDriver: 'mimo',
-                mode: 'managed',
-                reason: 'managed-auth-callback',
-            })
-        );
-        expect(eventServiceEmitMock).toHaveBeenCalledWith('AI_MODELS_UPDATED', {
-            updatedAt: expect.any(Number),
-        });
-    });
-
-    it('skips managed deep-link bootstrap in popup windows', async () => {
-        getCurrentWindowMock.mockReturnValue({
-            label: 'popup-session-history-popup',
-        });
-
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(getCurrentMock).not.toHaveBeenCalled();
-        expect(onOpenUrlMock).not.toHaveBeenCalled();
-        expect(completeManagedLoginMock).not.toHaveBeenCalled();
-    });
-
-    it('skips managed deep-link bootstrap outside the main window', async () => {
-        getCurrentWindowMock.mockReturnValue({
-            label: 'settings',
-        });
-
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(getCurrentMock).not.toHaveBeenCalled();
-        expect(onOpenUrlMock).not.toHaveBeenCalled();
-        expect(completeManagedLoginMock).not.toHaveBeenCalled();
     });
 
     it('routes app-relative anchor clicks through the Vue router', async () => {

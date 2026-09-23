@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -22,31 +22,53 @@
         x: number;
         y: number;
         items: ContextMenuItem[];
+        menuId: string;
     }>();
 
     const emit = defineEmits<{
         (e: 'select', key: string): void;
         (e: 'close'): void;
+        (e: 'closed'): void;
     }>();
 
     const isOpen = ref(true);
+    const closeNotified = ref(false);
 
     const menuStyle = computed(() => ({
         left: `${Math.max(0, props.x)}px`,
         top: `${Math.max(0, props.y)}px`,
     }));
 
-    const handleOpenChange = (open: boolean) => {
-        isOpen.value = open;
-        if (!open) {
+    const requestClose = () => {
+        isOpen.value = false;
+        if (!closeNotified.value) {
+            closeNotified.value = true;
             emit('close');
         }
     };
 
+    const handleOpenChange = (open: boolean) => {
+        isOpen.value = open;
+        if (!open) requestClose();
+    };
+
     const handleSelect = (key: string) => {
         emit('select', key);
-        emit('close');
+        requestClose();
     };
+
+    const handleAnimationEnd = (event: AnimationEvent) => {
+        if (event.target === event.currentTarget && event.animationName === 't-dropdown-out') {
+            emit('closed');
+        }
+    };
+
+    const close = () => {
+        if (!isOpen.value && closeNotified.value) return;
+        requestClose();
+    };
+
+    defineExpose({ close });
 </script>
 
 <template>
@@ -58,6 +80,8 @@
             :side-offset="2"
             align="start"
             class="min-w-[160px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+            :data-context-menu-id="menuId"
+            @animationend="handleAnimationEnd"
         >
             <DropdownMenuItem
                 v-for="item in items"

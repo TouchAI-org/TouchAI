@@ -20,7 +20,7 @@ pub async fn build_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(),
         return Ok(());
     }
 
-    let window = WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         "settings",
         WebviewUrl::App(SETTINGS_WINDOW_ROUTE.parse().unwrap()),
@@ -30,9 +30,14 @@ pub async fn build_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(),
     .min_inner_size(SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_MIN_HEIGHT)
     .resizable(true)
     .decorations(false)
-    .center()
-    .build()
-    .map_err(|e| e.to_string())?;
+    .center();
+
+    if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args()
+    {
+        builder = builder.additional_browser_args(&browser_args);
+    }
+
+    let window = builder.build().map_err(|e| e.to_string())?;
 
     crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)?;
     crate::core::window::rounded_corners::apply_window_corner_style(&window)?;

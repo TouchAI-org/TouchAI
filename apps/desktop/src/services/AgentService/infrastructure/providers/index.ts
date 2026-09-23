@@ -3,12 +3,7 @@
 export { normalizeProviderBaseUrl } from './ai-sdk/base';
 export { createTauriFetch } from './ai-sdk/tauriFetch';
 export { getProviderAttachmentCapabilities } from './capabilities';
-export {
-    isTouchAiManagedMode,
-    MIMO_CUSTOM_API_BASE_URL,
-    parseProviderConfigJson,
-    TOUCHAI_HUB_GATEWAY_BASE_URL,
-} from './config';
+export { MIMO_API_BASE_URL, parseProviderConfigJson } from './config';
 export {
     createProviderFromRegistry,
     getProviderDriverDefinition,

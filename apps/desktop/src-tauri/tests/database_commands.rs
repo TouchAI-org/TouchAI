@@ -216,3 +216,66 @@ fn database_import_backup_rejects_requests_while_a_transaction_is_open() {
     );
     assert_eq!(rollback_response, ());
 }
+
+#[test]
+fn database_search_index_supports_contentless_delete_on_bundled_sqlite() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let query = |sql: &str, params: serde_json::Value, method: &str| -> serde_json::Value {
+        invoke_command_ok(
+            &test_app.main_webview,
+            "database_query",
+            json!({ "request": { "sql": sql, "params": params, "method": method } }),
+        )
+    };
+    query(
+        "INSERT INTO sessions (id, session_id, title, model) VALUES (1001, 'fts-test', 'Search', 'test')",
+        json!([]),
+        "run",
+    );
+    query(
+        "INSERT INTO messages (id, session_id, role) VALUES (1001, 1001, 'assistant')",
+        json!([]),
+        "run",
+    );
+    for (kind, content, order) in [
+        ("text", "中文", 0),
+        ("reasoning", "Hidden thought", 1),
+        ("text", "搜索", 2),
+    ] {
+        query(
+            "INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (1001, ?, ?, ?)",
+            json!([kind, content, order]),
+            "run",
+        );
+    }
+    let search = || {
+        query(
+            "SELECT rowid, content FROM message_search_fts WHERE message_search_fts MATCH ?",
+            json!(["\"中文搜\""]),
+            "all",
+        )
+    };
+    assert_eq!(
+        search()["rows"],
+        json!([{ "rowid": 1001, "content": null }])
+    );
+    assert_eq!(
+        query(
+            "SELECT rowid FROM message_search_fts WHERE message_search_fts MATCH ?",
+            json!(["\"Hid\""]),
+            "all",
+        )["rows"],
+        json!([])
+    );
+    query(
+        "UPDATE message_parts SET content = '答案' WHERE message_id = 1001 AND sort_order = 2",
+        json!([]),
+        "run",
+    );
+    assert_eq!(search()["rows"], json!([]));
+    query("DELETE FROM sessions WHERE id = 1001", json!([]), "run");
+    assert_eq!(
+        query("SELECT rowid FROM message_search_fts", json!([]), "all")["rows"],
+        json!([])
+    );
+}

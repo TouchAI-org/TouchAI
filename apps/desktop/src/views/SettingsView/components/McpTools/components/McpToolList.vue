@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import MotionCollapse from '@components/MotionCollapse.vue';
     import { useListFilter } from '@composables/useListFilter';
     import { updateMcpTool } from '@database/queries';
     import type { McpServerEntity, McpToolEntity } from '@database/types';
@@ -193,6 +194,7 @@
                 >
                     <button
                         class="w-full p-4 text-left transition-colors hover:bg-neutral-50/70"
+                        :aria-expanded="expandedTools.has(tool.id)"
                         @click="toggleExpand(tool.id)"
                     >
                         <div class="flex items-start justify-between">
@@ -207,14 +209,14 @@
                                     </h3>
                                     <button
                                         :class="[
-                                            'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+                                            't-toggle-track relative inline-flex h-5 w-9 items-center rounded-full',
                                             tool.enabled ? 'bg-primary-700' : 'bg-neutral-200',
                                         ]"
                                         @click="toggleEnabled(tool, $event)"
                                     >
                                         <span
                                             :class="[
-                                                'inline-block h-3 w-3 transform rounded-full bg-white transition-transform',
+                                                't-toggle-thumb inline-block h-3 w-3 transform rounded-full bg-white',
                                                 tool.enabled ? 'translate-x-5' : 'translate-x-1',
                                             ]"
                                         />
@@ -244,116 +246,116 @@
                         </div>
                     </button>
 
-                    <div
-                        v-if="expandedTools.has(tool.id)"
-                        class="border-t border-neutral-200/70 bg-neutral-50/70 p-4"
-                    >
-                        <h4 class="mb-2 text-xs font-medium text-neutral-700">
-                            {{ t('settings.mcp.tools.inputParameters') }}
-                        </h4>
+                    <MotionCollapse :open="expandedTools.has(tool.id)" lazy>
+                        <div class="border-t border-neutral-200/70 bg-neutral-50/70 p-4">
+                            <h4 class="mb-2 text-xs font-medium text-neutral-700">
+                                {{ t('settings.mcp.tools.inputParameters') }}
+                            </h4>
 
-                        <template v-if="getToolSchema(tool.id)">
-                            <template v-if="getSchemaProperties(getToolSchema(tool.id))">
-                                <div
-                                    v-if="
-                                        Object.keys(getSchemaProperties(getToolSchema(tool.id))!)
-                                            .length === 0
-                                    "
-                                    class="rounded-lg bg-white p-3 text-center text-xs text-neutral-500"
-                                >
-                                    {{ t('settings.mcp.tools.noParameters') }}
-                                </div>
-                                <div
-                                    v-else
-                                    class="overflow-x-auto rounded-lg border border-neutral-200 bg-white"
-                                >
-                                    <table class="min-w-full">
-                                        <thead class="bg-neutral-50">
-                                            <tr>
-                                                <th
-                                                    class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
-                                                >
-                                                    {{ t('settings.mcp.tools.parameterName') }}
-                                                </th>
-                                                <th
-                                                    class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
-                                                >
-                                                    {{ t('common.type') }}
-                                                </th>
-                                                <th
-                                                    class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
-                                                >
-                                                    {{ t('settings.mcp.tools.required') }}
-                                                </th>
-                                                <th
-                                                    class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
-                                                >
-                                                    {{ t('common.description') }}
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr
-                                                v-for="(prop, propName) in getSchemaProperties(
-                                                    getToolSchema(tool.id)
-                                                )"
-                                                :key="propName"
-                                                class="border-b border-neutral-100 last:border-0"
-                                            >
-                                                <td
-                                                    class="px-3 py-2 font-mono text-xs break-all text-neutral-950"
-                                                    data-no-i18n="true"
-                                                    translate="no"
-                                                >
-                                                    {{ propName }}
-                                                </td>
-                                                <td
-                                                    class="px-3 py-2 font-mono text-xs break-all text-neutral-600"
-                                                    data-no-i18n="true"
-                                                    translate="no"
-                                                >
-                                                    {{ getPropertyType(prop) }}
-                                                </td>
-                                                <td class="px-3 py-2 text-xs">
-                                                    <span
-                                                        v-if="
-                                                            isRequired(
-                                                                getToolSchema(tool.id),
-                                                                String(propName)
-                                                            )
-                                                        "
-                                                        class="rounded bg-red-100 px-1.5 py-0.5 text-red-700"
+                            <template v-if="getToolSchema(tool.id)">
+                                <template v-if="getSchemaProperties(getToolSchema(tool.id))">
+                                    <div
+                                        v-if="
+                                            Object.keys(
+                                                getSchemaProperties(getToolSchema(tool.id))!
+                                            ).length === 0
+                                        "
+                                        class="rounded-lg bg-white p-3 text-center text-xs text-neutral-500"
+                                    >
+                                        {{ t('settings.mcp.tools.noParameters') }}
+                                    </div>
+                                    <div
+                                        v-else
+                                        class="overflow-x-auto rounded-lg border border-neutral-200 bg-white"
+                                    >
+                                        <table class="min-w-full">
+                                            <thead class="bg-neutral-50">
+                                                <tr>
+                                                    <th
+                                                        class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
                                                     >
-                                                        {{ t('common.yes') }}
-                                                    </span>
-                                                    <span v-else class="text-gray-400">
-                                                        {{ t('common.no') }}
-                                                    </span>
-                                                </td>
-                                                <td
-                                                    class="px-3 py-2 text-xs break-words text-neutral-600"
-                                                    data-no-i18n="true"
-                                                    translate="no"
+                                                        {{ t('settings.mcp.tools.parameterName') }}
+                                                    </th>
+                                                    <th
+                                                        class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
+                                                    >
+                                                        {{ t('common.type') }}
+                                                    </th>
+                                                    <th
+                                                        class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
+                                                    >
+                                                        {{ t('settings.mcp.tools.required') }}
+                                                    </th>
+                                                    <th
+                                                        class="border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-700"
+                                                    >
+                                                        {{ t('common.description') }}
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr
+                                                    v-for="(prop, propName) in getSchemaProperties(
+                                                        getToolSchema(tool.id)
+                                                    )"
+                                                    :key="propName"
+                                                    class="border-b border-neutral-100 last:border-0"
                                                 >
-                                                    {{ prop.description || '-' }}
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
+                                                    <td
+                                                        class="px-3 py-2 font-mono text-xs break-all text-neutral-950"
+                                                        data-no-i18n="true"
+                                                        translate="no"
+                                                    >
+                                                        {{ propName }}
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 font-mono text-xs break-all text-neutral-600"
+                                                        data-no-i18n="true"
+                                                        translate="no"
+                                                    >
+                                                        {{ getPropertyType(prop) }}
+                                                    </td>
+                                                    <td class="px-3 py-2 text-xs">
+                                                        <span
+                                                            v-if="
+                                                                isRequired(
+                                                                    getToolSchema(tool.id),
+                                                                    String(propName)
+                                                                )
+                                                            "
+                                                            class="rounded bg-red-100 px-1.5 py-0.5 text-red-700"
+                                                        >
+                                                            {{ t('common.yes') }}
+                                                        </span>
+                                                        <span v-else class="text-gray-400">
+                                                            {{ t('common.no') }}
+                                                        </span>
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-xs break-words text-neutral-600"
+                                                        data-no-i18n="true"
+                                                        translate="no"
+                                                    >
+                                                        {{ prop.description || '-' }}
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </template>
+                                <pre
+                                    v-else
+                                    class="overflow-x-auto rounded-lg bg-white p-3 font-mono text-xs text-neutral-950"
+                                    >{{ JSON.stringify(getToolSchema(tool.id), null, 2) }}</pre
+                                >
                             </template>
                             <pre
                                 v-else
                                 class="overflow-x-auto rounded-lg bg-white p-3 font-mono text-xs text-neutral-950"
-                                >{{ JSON.stringify(getToolSchema(tool.id), null, 2) }}</pre
+                                >{{ tool.input_schema }}</pre
                             >
-                        </template>
-                        <pre
-                            v-else
-                            class="overflow-x-auto rounded-lg bg-white p-3 font-mono text-xs text-neutral-950"
-                            >{{ tool.input_schema }}</pre
-                        >
-                    </div>
+                        </div>
+                    </MotionCollapse>
                 </div>
             </div>
         </div>

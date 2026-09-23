@@ -13,8 +13,8 @@
             class="ask-user-panel w-full flex-shrink-0"
             :initial="{ height: 0, opacity: 0 }"
             :animate="{ height: 'auto', opacity: 1 }"
-            :exit="{ height: 0, opacity: 0 }"
-            :transition="springs.slow"
+            :exit="{ height: 0, opacity: 0, transition: transitions.quick }"
+            :transition="transitions.fast"
         >
             <AskUserQuestions
                 ref="questionsBodyRef"
@@ -32,6 +32,7 @@
 <script setup lang="ts">
     import './styles/tokens.css';
 
+    import { useMotion } from '@composables/useMotion';
     import { AnimatePresence, motion } from 'motion-v';
     import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
@@ -46,7 +47,7 @@
 
     import type { AskUserAnswer, AskUserQuestion } from './AskUserQuestions.vue';
     import AskUserQuestions from './AskUserQuestions.vue';
-    import { springs } from './lib/springs';
+    const { transitions } = useMotion();
 
     const store = useAskUserStore();
     const current = computed(() => store.current);

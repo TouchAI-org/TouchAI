@@ -137,12 +137,6 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => {
         getProviderDriverDefinition: () => providerDriverDefinitions[0],
         parseProviderConfigJson: (configJson: string | null) =>
             configJson ? JSON.parse(configJson) : {},
-        isTouchAiManagedMode: (config: { touchAiMode?: 'managed' | 'custom' }, baseUrl: string) =>
-            config.touchAiMode === 'custom'
-                ? false
-                : config.touchAiMode === 'managed'
-                  ? true
-                  : baseUrl === 'https://hub.touch-ai.org/api/v1',
     };
 });
 

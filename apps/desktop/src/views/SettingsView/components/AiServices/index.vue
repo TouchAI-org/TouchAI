@@ -27,23 +27,13 @@
     import { isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
-    import {
-        consumeManagedSettingsFocusRequest,
-        peekManagedSettingsFocusRequest,
-    } from '@services/AuthService/managedSettingsFocus';
     import { AppEvent, eventService } from '@services/EventService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
-    import {
-        getProviderDriverDefinition,
-        isTouchAiManagedMode,
-        parseProviderConfigJson,
-    } from '@/services/AgentService/infrastructure/providers';
-    import type { ProviderConfigJson } from '@/services/AgentService/infrastructure/providers/types';
-    import { invalidateManagedAuthForError } from '@/services/AuthService';
+    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     defineOptions({
         name: 'SettingsAiServicesSection',
@@ -55,8 +45,6 @@
     import ModelList from './components/ModelList.vue';
     import ProviderConfig from './components/ProviderConfig.vue';
     import ProviderList from './components/ProviderList.vue';
-
-    const MANAGED_PROVIDER_DRIVER = 'mimo';
 
     const alert = useAlert();
 
@@ -77,7 +65,9 @@
         (key, providerId) => {
             if (key === 'edit') {
                 selectedProviderId.value = providerId;
-                showEditDialog.value = true;
+                openEditProviderDialog(
+                    providers.value.find((provider) => provider.id === providerId)
+                );
             } else if (key === 'delete') {
                 handleDeleteProvider(providerId);
             }
@@ -93,33 +83,29 @@
     const loadingModels = ref(false);
     const error = ref<string | null>(null);
     const showAddDialog = ref(false);
+    const isAddDialogMounted = ref(false);
     const showEditDialog = ref(false);
+    const isEditDialogMounted = ref(false);
+    const editingProvider = ref<Provider | null>(null);
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
     let unlistenAiModelsUpdated: (() => void) | null = null;
-    let unlistenSettingsAiServicesFocusProvider: (() => void) | null = null;
-    let lastHandledSettingsFocusRequestAt = 0;
 
     interface RefreshModelsNotificationOptions {
         success?: boolean;
         failure?: boolean;
         empty?: boolean;
-        missingCredentials?: boolean;
-        sessionExpired?: boolean;
     }
 
     const DEFAULT_REFRESH_MODELS_NOTIFICATIONS: Required<RefreshModelsNotificationOptions> = {
         success: true,
         failure: true,
         empty: true,
-        missingCredentials: true,
-        sessionExpired: true,
     };
 
     const AUTO_REFRESH_MODELS_NOTIFICATIONS: RefreshModelsNotificationOptions = {
         success: false,
         empty: false,
-        missingCredentials: false,
     };
 
     async function broadcastModelsUpdated() {
@@ -181,29 +167,6 @@
         );
     }
 
-    function stringifyProviderConfigJson(config: ProviderConfigJson): string | null {
-        const nextConfig: ProviderConfigJson = {
-            ...(config.headers ? { headers: config.headers } : {}),
-            ...(config.queryParams ? { queryParams: config.queryParams } : {}),
-            ...(config.managedAuth ? { managedAuth: config.managedAuth } : {}),
-            ...(config.touchAiMode ? { touchAiMode: config.touchAiMode } : {}),
-            ...(config.touchAiCustom ? { touchAiCustom: config.touchAiCustom } : {}),
-        };
-
-        return Object.keys(nextConfig).length > 0 ? JSON.stringify(nextConfig) : null;
-    }
-
-    function isManagedTouchAiProvider(provider: Provider): boolean {
-        if (provider.driver !== MANAGED_PROVIDER_DRIVER || provider.is_builtin !== 1) {
-            return false;
-        }
-
-        return isTouchAiManagedMode(
-            parseProviderConfigJson(provider.config_json),
-            provider.api_endpoint
-        );
-    }
-
     function toModelWithProvider(model: Model, provider: Provider): ModelWithProvider {
         return {
             ...model,
@@ -214,53 +177,6 @@
             provider_config_json: provider.config_json,
             provider_enabled: provider.enabled,
             provider_logo: provider.logo,
-        };
-    }
-
-    function buildTouchAiProviderConfigJson(
-        provider: Provider,
-        mode: 'managed' | 'custom'
-    ): string | null {
-        const parsedConfig = parseProviderConfigJson(provider.config_json);
-        return stringifyProviderConfigJson({
-            ...(parsedConfig.headers ? { headers: parsedConfig.headers } : {}),
-            ...(parsedConfig.queryParams ? { queryParams: parsedConfig.queryParams } : {}),
-            ...(parsedConfig.managedAuth ? { managedAuth: parsedConfig.managedAuth } : {}),
-            touchAiMode: mode,
-            ...(parsedConfig.touchAiCustom ? { touchAiCustom: parsedConfig.touchAiCustom } : {}),
-        });
-    }
-
-    async function ensureTouchAiProviderMode(
-        provider: Provider,
-        mode: 'managed' | 'custom'
-    ): Promise<Provider> {
-        if (provider.driver !== MANAGED_PROVIDER_DRIVER || provider.is_builtin !== 1) {
-            return provider;
-        }
-
-        const parsedConfig = parseProviderConfigJson(provider.config_json);
-        const isAlreadyManaged = isTouchAiManagedMode(parsedConfig, provider.api_endpoint);
-        const isAlreadyInRequestedMode =
-            mode === 'managed' ? isAlreadyManaged : parsedConfig.touchAiMode === 'custom';
-        if (isAlreadyInRequestedMode) {
-            return provider;
-        }
-
-        const nextConfigJson = buildTouchAiProviderConfigJson(provider, mode);
-        await updateProvider({
-            id: provider.id,
-            providerPatch: {
-                config_json: nextConfigJson,
-            },
-        });
-        patchProvider(provider.id, {
-            config_json: nextConfigJson,
-        });
-
-        return {
-            ...provider,
-            config_json: nextConfigJson,
         };
     }
 
@@ -291,40 +207,6 @@
         }
         return ids;
     });
-
-    async function handleSettingsAiServicesFocusProvider(payload: {
-        section: 'ai-services';
-        providerDriver: 'mimo';
-        requireBuiltIn: true;
-        mode: 'managed' | 'custom';
-        reason: 'managed-auth-callback';
-        requestedAt: number;
-    }) {
-        if (payload.requestedAt <= lastHandledSettingsFocusRequestAt) {
-            consumeManagedSettingsFocusRequest();
-            return;
-        }
-
-        lastHandledSettingsFocusRequestAt = payload.requestedAt;
-
-        if (providers.value.length === 0) {
-            await loadProviders();
-        }
-
-        const targetProvider = providers.value.find(
-            (provider) =>
-                provider.driver === payload.providerDriver &&
-                (!payload.requireBuiltIn || provider.is_builtin === 1)
-        );
-        if (!targetProvider) {
-            return;
-        }
-
-        await selectProvider(targetProvider.id);
-        await ensureTouchAiProviderMode(targetProvider, payload.mode);
-        await refreshSelectedProviderModelsAfterConfigChange();
-        consumeManagedSettingsFocusRequest();
-    }
 
     async function ensureProviderSelected() {
         const nextProviders = providers.value;
@@ -499,11 +381,27 @@
     };
 
     const handleAddCustomProvider = () => {
+        isAddDialogMounted.value = true;
         showAddDialog.value = true;
     };
 
-    const handleEditProvider = () => {
+    const handleAddDialogClosed = () => {
+        if (!showAddDialog.value) isAddDialogMounted.value = false;
+    };
+
+    const openEditProviderDialog = (provider = selectedProvider.value) => {
+        if (!provider) return;
+        editingProvider.value = provider;
+        isEditDialogMounted.value = true;
         showEditDialog.value = true;
+    };
+
+    const handleEditProvider = () => openEditProviderDialog();
+
+    const handleEditDialogClosed = () => {
+        if (showEditDialog.value) return;
+        isEditDialogMounted.value = false;
+        editingProvider.value = null;
     };
 
     const handleCreateProvider = async (data: NewProvider) => {
@@ -526,15 +424,16 @@
     };
 
     const handleUpdateProviderInfo = async (data: Partial<Provider>) => {
-        if (!selectedProviderId.value) return;
+        const providerId = editingProvider.value?.id;
+        if (providerId === undefined) return;
 
         try {
             const normalizedProviderPatch = normalizeProviderPatch(data);
             await updateProvider({
-                id: selectedProviderId.value,
+                id: providerId,
                 providerPatch: normalizedProviderPatch,
             });
-            patchProvider(selectedProviderId.value, normalizedProviderPatch);
+            patchProvider(providerId, normalizedProviderPatch);
             showEditDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
@@ -554,7 +453,7 @@
             providers.value = providers.value.filter((item) => item.id !== providerId);
             removeCachedModels(providerId);
             await ensureProviderSelected();
-            showEditDialog.value = false;
+            if (editingProvider.value?.id === providerId) showEditDialog.value = false;
             alert.success(t('settings.ai.deleteSucceeded'));
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
@@ -645,8 +544,6 @@
                 success: !options,
                 failure: !options,
                 empty: !options,
-                missingCredentials: !options,
-                sessionExpired: !options,
             };
         }
 
@@ -682,13 +579,6 @@
                 return;
             }
 
-            if (isManagedTouchAiProvider(provider) && !provider.api_key) {
-                if (notifications.missingCredentials) {
-                    alert.warning(t('settings.ai.providerNeedsApiKeyForModels'));
-                }
-                return;
-            }
-
             const providerInstance = aiService.createProviderInstance(
                 provider.driver,
                 provider.api_endpoint,
@@ -701,22 +591,6 @@
                 fetchedModels = await providerInstance.listModels();
             } catch (error) {
                 if (refreshingProviderId.value !== currentProviderId) {
-                    return;
-                }
-
-                const didInvalidateManagedAuth = isManagedTouchAiProvider(provider)
-                    ? await invalidateManagedAuthForError({
-                          providerId: provider.id,
-                          error,
-                      })
-                    : false;
-
-                if (didInvalidateManagedAuth) {
-                    removeCachedModels(provider.id);
-                    await loadProviders();
-                    if (notifications.sessionExpired) {
-                        alert.warning(t('settings.ai.managedActivity.sessionExpired'));
-                    }
                     return;
                 }
 
@@ -803,26 +677,13 @@
         unlistenAiModelsUpdated = await eventService.on(AppEvent.AI_MODELS_UPDATED, async () => {
             await loadProviders();
         });
-        unlistenSettingsAiServicesFocusProvider = await eventService.on(
-            AppEvent.SETTINGS_AI_SERVICES_FOCUS_PROVIDER,
-            async (payload) => {
-                await handleSettingsAiServicesFocusProvider(payload);
-            }
-        );
 
         await loadProviders();
-
-        const pendingSettingsFocusRequest = peekManagedSettingsFocusRequest();
-        if (pendingSettingsFocusRequest) {
-            await handleSettingsAiServicesFocusProvider(pendingSettingsFocusRequest);
-        }
     });
 
     onUnmounted(() => {
         unlistenAiModelsUpdated?.();
         unlistenAiModelsUpdated = null;
-        unlistenSettingsAiServicesFocusProvider?.();
-        unlistenSettingsAiServicesFocusProvider = null;
     });
 </script>
 
@@ -868,7 +729,6 @@
                                 :name="selectedProvider.name"
                                 size="large"
                                 :show-badge="selectedProvider.is_builtin === 1"
-                                :promoted="false"
                             />
 
                             <div data-testid="settings-provider-copy" class="min-w-0 self-center">
@@ -928,16 +788,20 @@
         </div>
 
         <AddProviderDialog
-            v-if="showAddDialog"
+            v-if="isAddDialogMounted"
+            :open="showAddDialog"
             @create="handleCreateProvider"
             @cancel="showAddDialog = false"
+            @closed="handleAddDialogClosed"
         />
 
         <EditProviderDialog
-            v-if="showEditDialog && selectedProvider"
-            :provider="selectedProvider"
+            v-if="isEditDialogMounted && editingProvider"
+            :open="showEditDialog"
+            :provider="editingProvider"
             @update="handleUpdateProviderInfo"
             @cancel="showEditDialog = false"
+            @closed="handleEditDialogClosed"
         />
     </div>
 </template>

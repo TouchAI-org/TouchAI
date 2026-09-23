@@ -30,7 +30,7 @@
             <motion.div
                 :animate="{ height: contentHeight }"
                 :initial="false"
-                :transition="springs.slow"
+                :transition="transitions.fast"
                 class="overflow-hidden"
             >
                 <div
@@ -105,8 +105,11 @@
                                         width: itemRects[otherIndex]?.width,
                                         height: itemRects[otherIndex]?.height,
                                     }"
-                                    :exit="{ opacity: 0, transition: { duration: 0.08 } }"
-                                    :transition="{ ...springs.fast, opacity: { duration: 0.08 } }"
+                                    :exit="{ opacity: 0, transition: transitions.quick }"
+                                    :transition="{
+                                        ...transitions.quick,
+                                        opacity: transitions.quick,
+                                    }"
                                 />
                             </AnimatePresence>
 
@@ -131,8 +134,11 @@
                                         width: activeRect.width,
                                         height: activeRect.height,
                                     }"
-                                    :exit="{ opacity: 0, transition: { duration: 0.06 } }"
-                                    :transition="{ ...springs.fast, opacity: { duration: 0.08 } }"
+                                    :exit="{ opacity: 0, transition: transitions.quick }"
+                                    :transition="{
+                                        ...transitions.quick,
+                                        opacity: transitions.quick,
+                                    }"
                                 />
                             </AnimatePresence>
 
@@ -160,10 +166,10 @@
                                             (itemRects[group.start]?.top ?? 0),
                                         opacity: isHoveringNonSelected ? 0.8 : 1,
                                     }"
-                                    :exit="{ opacity: 0, transition: { duration: 0.12 } }"
+                                    :exit="{ opacity: 0, transition: transitions.quick }"
                                     :transition="{
-                                        ...springs.moderate,
-                                        opacity: { duration: 0.08 },
+                                        ...transitions.fast,
+                                        opacity: transitions.quick,
                                     }"
                                 />
                             </AnimatePresence>
@@ -216,7 +222,7 @@
                             >
                                 <template v-if="question?.layout === 'stacked'">
                                     <span
-                                        class="text-foreground transition-colors duration-80"
+                                        class="text-foreground transition-colors duration-(--duration-quick)"
                                         :style="{
                                             fontWeight: selectedIds.includes(optionKey(opt, i))
                                                 ? fontWeights.semibold
@@ -235,7 +241,7 @@
                                 <template v-else>
                                     <span>
                                         <span
-                                            class="text-foreground transition-colors duration-80"
+                                            class="text-foreground transition-colors duration-(--duration-quick)"
                                             :style="{
                                                 fontWeight: selectedIds.includes(optionKey(opt, i))
                                                     ? fontWeights.semibold
@@ -341,10 +347,10 @@
                                 v-if="showBack"
                                 key="back"
                                 layout="position"
-                                :initial="{ opacity: 0, scale: 0.85 }"
+                                :initial="{ opacity: 0, scale: 0.98 }"
                                 :animate="{ opacity: 1, scale: 1 }"
-                                :exit="{ opacity: 0, scale: 0.85 }"
-                                :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
+                                :exit="{ opacity: 0, scale: 0.98 }"
+                                :transition="{ ...transitions.quick, opacity: transitions.quick }"
                             >
                                 <AskButton variant="ghost" @click="handleBack">
                                     <template #default>
@@ -368,10 +374,10 @@
                                 v-if="showSkip"
                                 key="skip"
                                 layout="position"
-                                :initial="{ opacity: 0, scale: 0.85 }"
+                                :initial="{ opacity: 0, scale: 0.98 }"
                                 :animate="{ opacity: 1, scale: 1 }"
-                                :exit="{ opacity: 0, scale: 0.85 }"
-                                :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
+                                :exit="{ opacity: 0, scale: 0.98 }"
+                                :transition="{ ...transitions.quick, opacity: transitions.quick }"
                             >
                                 <AskButton variant="ghost" @click="handleSkip">
                                     <template #default>
@@ -390,10 +396,10 @@
                                 v-if="isMulti"
                                 key="continue"
                                 layout="position"
-                                :initial="{ opacity: 0, scale: 0.85 }"
+                                :initial="{ opacity: 0, scale: 0.98 }"
                                 :animate="{ opacity: 1, scale: 1 }"
-                                :exit="{ opacity: 0, scale: 0.85 }"
-                                :transition="{ ...springs.fast, opacity: { duration: 0.1 } }"
+                                :exit="{ opacity: 0, scale: 0.98 }"
+                                :transition="{ ...transitions.quick, opacity: transitions.quick }"
                             >
                                 <AskButton
                                     variant="primary"
@@ -427,13 +433,14 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { useMotion } from '@composables/useMotion';
     import { AnimatePresence, motion } from 'motion-v';
     import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
 
     import { useProximityHover } from './composables/useProximityHover';
     import { fontWeights } from './lib/fontWeights';
     import { shape } from './lib/shape';
-    import { springs } from './lib/springs';
+    const { transitions } = useMotion();
     import AskButton from './parts/Button.vue';
     import Row from './parts/Row.vue';
     import ShortcutChip from './parts/ShortcutChip.vue';

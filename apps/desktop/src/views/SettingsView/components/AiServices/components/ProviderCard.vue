@@ -11,7 +11,6 @@
         provider: Provider;
         isSelected: boolean;
         hasDefaultModel: boolean;
-        promoted?: boolean;
     }
 
     interface Emits {
@@ -21,9 +20,7 @@
         (e: 'context-menu', event: MouseEvent): void;
     }
 
-    const props = withDefaults(defineProps<Props>(), {
-        promoted: false,
-    });
+    const props = defineProps<Props>();
     const emit = defineEmits<Emits>();
 
     const isToggleDisabled = computed(() => {
@@ -65,7 +62,6 @@
             :name="provider.name"
             size="small"
             :show-badge="provider.is_builtin === 1"
-            :promoted="promoted"
             class="shrink-0"
         />
 
@@ -96,7 +92,7 @@
                 @change="handleToggle"
             />
             <div
-                class="peer h-5 w-9 rounded-full transition-colors"
+                class="peer t-toggle-track h-5 w-9 rounded-full"
                 :class="{
                     'bg-primary-700': provider.enabled === 1,
                     'bg-neutral-200': provider.enabled === 0,
@@ -104,7 +100,7 @@
                 }"
             >
                 <div
-                    class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform"
+                    class="t-toggle-thumb absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white"
                     :class="{
                         'translate-x-4': provider.enabled === 1,
                         'translate-x-0': provider.enabled === 0,

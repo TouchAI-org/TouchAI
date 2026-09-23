@@ -4,15 +4,19 @@ import { type DatabaseExecutor, db } from '@database';
 import {
     createMessage,
     createMessageAttachment,
+    createMessageParts,
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
+    findMessagePartById,
     refreshSessionMetadata,
+    syncOutputParts,
+    updateMessage,
     updateSession,
     updateSessionTurn,
     updateSessionTurnAttempt,
 } from '@database/queries';
-import type { MessageRole, ToolLogKind, TurnStatus } from '@database/schema';
+import type { MessageRole, TurnStatus } from '@database/schema';
 import type { AttachmentEntity } from '@database/types';
 import type {
     SessionTurnAttemptEntity,
@@ -29,14 +33,13 @@ import {
 } from '@/services/AgentService/infrastructure/attachments';
 import { toDbTimestamp } from '@/utils/date';
 
-import type {
-    AiContentPart,
-    AiMessage,
-    AttachmentDeliveryManifest,
-    AttachmentDeliveryManifestRequest,
+import {
+    type AttachmentDeliveryManifest,
+    type AttachmentDeliveryManifestRequest,
+    normalizeOutputParts,
+    type PersistedOutputPart,
 } from '../contracts/protocol';
 import type { AttemptCheckpoint } from '../execution/executor';
-import type { ModelLanguageContext } from '../languageContext';
 import type { PromptSnapshot } from '../prompt/types';
 import type { TaskExecutionMode } from '../task/types';
 
@@ -74,10 +77,9 @@ interface PersistenceProjectorOptions {
 }
 
 interface CompleteTurnOptions {
-    response: string;
-    reasoning: string;
     durationMs: number;
     tokensUsed?: number | null;
+    outputParts: PersistedOutputPart[];
 }
 
 /**
@@ -89,134 +91,19 @@ interface CompleteTurnOptions {
  * - 失败/取消：更新当前尝试与轮次状态
  * - 重试：结束当前失败尝试，并创建下一次尝试
  */
-type PersistedCheckpointModel = Pick<
-    AttemptCheckpoint['activeModel'],
-    | 'id'
-    | 'provider_id'
-    | 'provider_name'
-    | 'provider_driver'
-    | 'model_id'
-    | 'name'
-    | 'attachment'
-    | 'reasoning'
-    | 'tool_call'
-    | 'context_limit'
-    | 'output_limit'
->;
-
-type PersistedAiContentPart =
-    | Extract<AiContentPart, { type: 'text' }>
-    | Extract<AiContentPart, { type: 'reasoning' }>
-    | {
-          type: 'image';
-          alias: string;
-          name: string;
-          size: number | null;
-          mimeType: string;
-          kind: 'image';
-          semanticIntent: Extract<AiContentPart, { type: 'image' }>['semanticIntent'];
-          redacted: true;
-      }
-    | {
-          type: 'file';
-          alias: string;
-          name: string;
-          size: number | null;
-          mimeType: string;
-          kind: Extract<AiContentPart, { type: 'file' }>['kind'];
-          semanticIntent: Extract<AiContentPart, { type: 'file' }>['semanticIntent'];
-          transportMode: 'inline-text' | 'inline-base64';
-          redacted: true;
-      }
-    | Extract<AiContentPart, { type: 'tool_use' }>
-    | Extract<AiContentPart, { type: 'tool_result' }>;
-
-interface PersistedAiMessage extends Omit<AiMessage, 'content'> {
-    content: string | PersistedAiContentPart[];
-}
-
-interface PersistedAttemptCheckpoint {
-    activeModel: PersistedCheckpointModel;
-    messages: PersistedAiMessage[];
-    response: string;
-    reasoning: string;
-    iteration: number;
-    modelSwitchCount: number;
-    modelLanguageContext: ModelLanguageContext;
-    executedBuiltInToolIds: AttemptCheckpoint['executedBuiltInToolIds'];
-}
-
-function sanitizeCheckpointModel(
-    model: AttemptCheckpoint['activeModel']
-): PersistedCheckpointModel {
-    return {
-        id: model.id,
-        provider_id: model.provider_id,
-        provider_name: model.provider_name,
-        provider_driver: model.provider_driver,
-        model_id: model.model_id,
-        name: model.name,
-        attachment: model.attachment,
-        reasoning: model.reasoning,
-        tool_call: model.tool_call,
-        context_limit: model.context_limit,
-        output_limit: model.output_limit,
-    };
-}
-
-function sanitizeContentPart(part: AiContentPart): PersistedAiContentPart {
-    switch (part.type) {
-        case 'image':
-            return {
-                type: 'image',
-                alias: part.meta.alias,
-                name: part.name,
-                size: part.size,
-                mimeType: part.mimeType,
-                kind: 'image',
-                semanticIntent: part.semanticIntent,
-                redacted: true,
-            };
-        case 'file':
-            return {
-                type: 'file',
-                alias: part.meta.alias,
-                name: part.name,
-                size: part.size,
-                mimeType: part.mimeType,
-                kind: part.kind,
-                semanticIntent: part.semanticIntent,
-                transportMode: part.textContent !== undefined ? 'inline-text' : 'inline-base64',
-                redacted: true,
-            };
-        default:
-            return part;
-    }
-}
-
-function sanitizeMessage(message: AiMessage): PersistedAiMessage {
-    return {
-        ...message,
-        content:
-            typeof message.content === 'string'
-                ? message.content
-                : message.content.map((part) => sanitizeContentPart(part)),
-    };
-}
-
 function serializeCheckpoint(checkpoint: AttemptCheckpoint): string {
-    // checkpoint_json 仅用于诊断与恢复参考，不应重复落库密钥或附件正文。
-    const persisted: PersistedAttemptCheckpoint = {
-        activeModel: sanitizeCheckpointModel(checkpoint.activeModel),
-        messages: checkpoint.messages.map((message) => sanitizeMessage(message)),
-        response: checkpoint.response,
-        reasoning: checkpoint.reasoning,
+    return JSON.stringify({
+        activeModelId: checkpoint.activeModel.id,
         iteration: checkpoint.iteration,
         modelSwitchCount: checkpoint.modelSwitchCount,
         modelLanguageContext: checkpoint.modelLanguageContext,
         executedBuiltInToolIds: checkpoint.executedBuiltInToolIds,
-    };
-    return JSON.stringify(persisted);
+        outputBoundary: {
+            textLength: checkpoint.response.length,
+            reasoningLength: checkpoint.reasoning.length,
+            partCount: checkpoint.outputParts.length,
+        },
+    });
 }
 
 function serializeCurrentDeliveryManifest(manifest: AttachmentDeliveryManifest): string {
@@ -239,6 +126,7 @@ export class PersistenceProjector {
 
     private userMessageId: number | null;
     private assistantMessageId: number | null;
+    private pendingOutputMessageId: number | null = null;
     private turn: SessionTurnEntity | null;
     private turnStartedAtMs: number | null;
     private attemptState: AttemptState | null;
@@ -282,16 +170,13 @@ export class PersistenceProjector {
             const sessionId = await this.ensureSessionId(tx);
             const userMessageId =
                 this.userMessageId ??
-                (await this.persistMessage(
-                    'user',
-                    this.prompt,
-                    null,
-                    null,
-                    null,
-                    persistedAttachments,
-                    tx,
-                    sessionId
-                ));
+                (await this.persistMessage({
+                    role: 'user',
+                    content: this.prompt,
+                    attachments: persistedAttachments,
+                    database: tx,
+                    sessionId,
+                }));
             const turn = await this.ensureTurnRecord(tx, sessionId, userMessageId);
             const attemptState = await this.ensureAttemptRecord(1, initialCheckpoint, tx, turn.id);
 
@@ -311,18 +196,14 @@ export class PersistenceProjector {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
-                    (options.response.trim() || options.reasoning.trim()) &&
+                    (options.outputParts.length || this.pendingOutputMessageId !== null) &&
                     !this.assistantMessageId
-                        ? await this.persistMessage(
-                              'assistant',
-                              options.response,
-                              options.reasoning,
-                              null,
-                              null,
-                              [],
-                              tx
-                          )
-                        : this.assistantMessageId;
+                        ? await this.persistMessage({
+                              role: 'assistant',
+                              outputParts: options.outputParts,
+                              database: tx,
+                          })
+                        : (this.assistantMessageId ?? this.pendingOutputMessageId);
 
                 const attemptState = await this.finishCurrentAttempt('completed', null, tx);
                 const turn = await this.patchTurn(
@@ -351,25 +232,19 @@ export class PersistenceProjector {
     /**
      * 当前轮次失败阶段：更新最终失败状态和错误信息。
      */
-    async markFailed(
-        errorMessage: string,
-        partialResponse?: string,
-        partialReasoning = ''
-    ): Promise<void> {
+    async markFailed(errorMessage: string, outputParts?: PersistedOutputPart[]): Promise<void> {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
-                    (partialResponse?.trim() || partialReasoning.trim()) && !this.assistantMessageId
-                        ? await this.persistMessage(
-                              'assistant',
-                              partialResponse ?? '',
-                              partialReasoning,
-                              null,
-                              null,
-                              [],
-                              tx
-                          )
-                        : this.assistantMessageId;
+                    outputParts !== undefined &&
+                    (outputParts.length || this.pendingOutputMessageId !== null) &&
+                    !this.assistantMessageId
+                        ? await this.persistMessage({
+                              role: 'assistant',
+                              outputParts,
+                              database: tx,
+                          })
+                        : (this.assistantMessageId ?? this.pendingOutputMessageId);
 
                 const attemptState = await this.finishCurrentAttempt('failed', errorMessage, tx);
                 const turn = await this.patchTurn(
@@ -397,21 +272,19 @@ export class PersistenceProjector {
     /**
      * 当前轮次取消阶段：更新取消状态。
      */
-    async markCancelled(partialResponse?: string, partialReasoning = ''): Promise<void> {
+    async markCancelled(outputParts?: PersistedOutputPart[]): Promise<void> {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
-                    (partialResponse?.trim() || partialReasoning.trim()) && !this.assistantMessageId
-                        ? await this.persistMessage(
-                              'assistant',
-                              partialResponse ?? '',
-                              partialReasoning,
-                              null,
-                              null,
-                              [],
-                              tx
-                          )
-                        : this.assistantMessageId;
+                    outputParts !== undefined &&
+                    (outputParts.length || this.pendingOutputMessageId !== null) &&
+                    !this.assistantMessageId
+                        ? await this.persistMessage({
+                              role: 'assistant',
+                              outputParts,
+                              database: tx,
+                          })
+                        : (this.assistantMessageId ?? this.pendingOutputMessageId);
 
                 const attemptState = await this.finishCurrentAttempt(
                     'cancelled',
@@ -539,28 +412,47 @@ export class PersistenceProjector {
     /**
      * 持久化工具调用消息。
      */
-    async persistToolCallMessage(text?: string, reasoning = ''): Promise<number> {
-        return this.persistMessage('tool_call', text || '', reasoning);
+    async persistToolCallMessage(outputParts: PersistedOutputPart[]): Promise<number> {
+        const messageId = await db.transaction((tx) =>
+            this.persistMessage({ role: 'tool_call', outputParts, database: tx })
+        );
+        this.pendingOutputMessageId = null;
+        return messageId;
     }
 
-    /**
-     * 持久化工具结果消息。
-     * @param toolLogId 对应工具日志表记录编号
-     */
+    /** 持久化工具结果，toolCallPartId 是对应 tool_call 片段编号。 */
     async persistToolResultMessage(
         result: string,
-        toolLogId: number | null,
-        toolLogKind: ToolLogKind | null,
+        toolCallPartId: number | null,
         attachments: AttachmentIndex[] = []
     ): Promise<number> {
-        return this.persistMessage(
-            'tool_result',
-            result,
-            null,
-            toolLogId,
-            toolLogKind,
-            attachments
+        return db.transaction((tx) =>
+            this.persistMessage({
+                role: 'tool_result',
+                content: result,
+                toolCallPartId,
+                attachments,
+                database: tx,
+            })
         );
+    }
+
+    /** 片段边界写入正式 parts（推理开始/结束、正文结束）；没有定时快照。 */
+    async persistOutputProgress(parts: PersistedOutputPart[]): Promise<void> {
+        if (!this.attemptState || parts.length === 0) return;
+        const normalized = normalizeOutputParts(parts);
+        if (normalized.length === 0) return;
+        const result = await db.transaction(async (tx) => {
+            const messageId = await this.persistMessage({
+                role: 'assistant',
+                outputParts: normalized,
+                database: tx,
+            });
+            const turn = await this.patchTurn({ response_message_id: messageId }, tx);
+            return { messageId, turn };
+        });
+        this.pendingOutputMessageId = result.messageId;
+        this.turn = result.turn;
     }
 
     async persistCheckpoint(checkpoint: AttemptCheckpoint): Promise<void> {
@@ -646,29 +538,82 @@ export class PersistenceProjector {
         }
     }
 
-    private async persistMessage(
-        role: MessageRole,
-        content: string,
-        reasoning?: string | null,
-        toolLogId?: number | null,
-        toolLogKind?: ToolLogKind | null,
-        attachments: Array<AttachmentIndex | AttachmentEntity> = [],
-        database: DatabaseExecutor = db,
-        sessionId?: number
-    ): Promise<number> {
+    private async persistMessage({
+        role,
+        content = '',
+        outputParts = [],
+        toolCallPartId,
+        attachments = [],
+        database = db,
+        sessionId,
+    }: {
+        role: MessageRole;
+        content?: string;
+        outputParts?: PersistedOutputPart[];
+        toolCallPartId?: number | null;
+        attachments?: Array<AttachmentIndex | AttachmentEntity>;
+        database?: DatabaseExecutor;
+        sessionId?: number;
+    }): Promise<number> {
         const resolvedSessionId = sessionId ?? (await this.ensureSessionId(database));
 
-        const message = await createMessage(
-            {
-                session_id: resolvedSessionId,
-                role: role as MessageRole,
-                content,
-                reasoning: reasoning?.trim() ? reasoning : null,
-                tool_log_id: toolLogId ?? null,
-                tool_log_kind: toolLogKind ?? null,
-            },
-            database
-        );
+        const reusableMessageId =
+            role === 'assistant' || role === 'tool_call' ? this.pendingOutputMessageId : null;
+        let messageId: number;
+        if (reusableMessageId !== null) {
+            messageId = reusableMessageId;
+            await updateMessage(messageId, { role }, database);
+        } else {
+            const message = await createMessage(
+                {
+                    session_id: resolvedSessionId,
+                    role,
+                },
+                database
+            );
+            messageId = message.id;
+        }
+
+        const persistedParts = normalizeOutputParts(outputParts);
+        if ((role === 'assistant' || role === 'tool_call') && persistedParts.length > 0) {
+            await syncOutputParts(
+                messageId,
+                persistedParts.map((part, sortOrder) => ({
+                    message_id: messageId,
+                    type: part.type,
+                    content: part.content,
+                    started_at: part.type === 'reasoning' ? (part.startedAt ?? null) : null,
+                    ended_at: part.type === 'reasoning' ? (part.endedAt ?? null) : null,
+                    sort_order: sortOrder,
+                })),
+                database
+            );
+        } else if (role === 'tool_result') {
+            const call =
+                toolCallPartId !== null && toolCallPartId !== undefined
+                    ? await findMessagePartById(toolCallPartId, database)
+                    : undefined;
+            await createMessageParts(
+                [
+                    {
+                        message_id: messageId,
+                        type: 'tool_result',
+                        content,
+                        sort_order: 0,
+                        data: JSON.stringify({
+                            toolCallId: call?.tool_call_id ?? null,
+                            toolKind: call?.tool_kind ?? null,
+                        }),
+                    },
+                ],
+                database
+            );
+        } else if (content) {
+            await createMessageParts(
+                [{ message_id: messageId, type: 'text', content, sort_order: 0 }],
+                database
+            );
+        }
 
         await refreshSessionMetadata(resolvedSessionId, database);
 
@@ -686,9 +631,8 @@ export class PersistenceProjector {
                 const originPath = 'originPath' in source ? source.originPath : source.origin_path;
                 await createMessageAttachment(
                     {
-                        message_id: message.id,
+                        message_id: messageId,
                         attachment_id: entity.id,
-                        sort_order: index,
                         origin_path: originPath,
                     },
                     database
@@ -696,7 +640,7 @@ export class PersistenceProjector {
             }
         }
 
-        return message.id;
+        return messageId;
     }
 
     private async ensureTurnRecord(

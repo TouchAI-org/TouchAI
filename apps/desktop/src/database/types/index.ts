@@ -1,8 +1,12 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type {
-    BuiltInToolLog,
+    BuiltInToolApprovalState as DbBuiltInToolApprovalState,
+    BuiltInToolLogStatus as DbBuiltInToolLogStatus,
+    Message as DbMessage,
+    MessagePart as DbMessagePart,
     MessageRole,
+    NewMessagePart as DbNewMessagePart,
     ProviderDriver,
     StatisticKey,
     ToolLogKind,
@@ -72,28 +76,18 @@ export type SessionUpdateData = Partial<SessionCreateData>;
 
 // ==================== 消息 ====================
 
-export interface MessageEntity {
-    id: number;
-    session_id: number;
-    role: DbMessageRole;
-    content: string;
-    reasoning: string | null;
-    tool_log_id: number | null;
-    tool_log_kind: DbToolLogKind | null;
-    created_at: string;
-    updated_at: string;
-}
+export type MessageEntity = DbMessage;
 
 export interface MessageCreateData {
     session_id: number;
     role: DbMessageRole;
-    content: string;
-    reasoning?: string | null;
-    tool_log_id?: number | null;
-    tool_log_kind?: DbToolLogKind | null;
     created_at?: string;
     updated_at?: string;
 }
+
+// Infer the write contract from the schema so generated projections cannot be supplied.
+export type MessagePartEntity = DbMessagePart;
+export type MessagePartCreateData = DbNewMessagePart;
 
 export interface AttachmentEntity {
     id: number;
@@ -116,19 +110,9 @@ export interface AttachmentCreateData {
     created_at?: string;
 }
 
-export interface MessageAttachmentEntity {
-    id: number;
-    message_id: number;
-    attachment_id: number;
-    sort_order: number;
-    origin_path: string;
-    created_at: string;
-}
-
 export interface MessageAttachmentCreateData {
     message_id: number;
     attachment_id: number;
-    sort_order?: number;
     origin_path: string;
     created_at?: string;
 }
@@ -463,7 +447,7 @@ export type McpToolUpdateData = Partial<McpToolCreateData>;
 
 export interface McpToolLogEntity {
     id: number;
-    server_id: number;
+    server_id: number | null;
     tool_name: string;
     tool_call_id: string;
     session_id: number | null;
@@ -492,13 +476,15 @@ export interface McpToolLogCreateData {
     created_at?: string;
 }
 
-export type McpToolLogUpdateData = Partial<McpToolLogCreateData>;
+export type McpToolLogUpdateData = Partial<
+    Omit<McpToolLogCreateData, 'message_id' | 'session_id' | 'created_at'>
+>;
 
 // ==================== 内置工具 ====================
 
 export type BuiltInToolRiskLevel = 'low' | 'medium' | 'high';
-export type BuiltInToolLogStatus = BuiltInToolLog['status'];
-export type BuiltInToolApprovalState = BuiltInToolLog['approval_state'];
+export type BuiltInToolLogStatus = DbBuiltInToolLogStatus;
+export type BuiltInToolApprovalState = DbBuiltInToolApprovalState;
 
 export interface BuiltInToolEntity {
     id: number;
@@ -562,4 +548,6 @@ export interface BuiltInToolLogCreateData {
     created_at?: string;
 }
 
-export type BuiltInToolLogUpdateData = Partial<BuiltInToolLogCreateData>;
+export type BuiltInToolLogUpdateData = Partial<
+    Omit<BuiltInToolLogCreateData, 'message_id' | 'session_id' | 'created_at'>
+>;

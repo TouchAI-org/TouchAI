@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // ==================== Tauri 相关类型 ====================
 
@@ -79,12 +79,6 @@ export const messages = sqliteTable('messages', {
     role: text('role', {
         enum: ['user', 'assistant', 'system', 'tool_call', 'tool_result'],
     }).notNull(),
-    content: text('content').notNull(),
-    reasoning: text('reasoning'),
-    tool_log_id: integer('tool_log_id'), // 关联 mcp_tool_logs 表 ID（仅 tool_result 消息使用）
-    tool_log_kind: text('tool_log_kind', {
-        enum: ['mcp', 'builtin'],
-    }),
     created_at: text('created_at')
         .notNull()
         .default(sql`(datetime('now'))`),
@@ -92,6 +86,67 @@ export const messages = sqliteTable('messages', {
         .notNull()
         .default(sql`(datetime('now'))`),
 });
+
+/**
+ * 消息输出片段表。
+ *
+ * text 与 reasoning 作为同级片段保存，sort_order 保留模型实际输出顺序；
+ * reasoning 的墙钟起止时间直接归属于片段本身。
+ */
+export const messageParts = sqliteTable(
+    'message_parts',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        message_id: integer('message_id')
+            .notNull()
+            .references(() => messages.id, { onDelete: 'cascade' }),
+        type: text('type', {
+            enum: ['text', 'reasoning', 'tool_call', 'tool_result', 'attachment'],
+        }).notNull(),
+        content: text('content').notNull(),
+        data: text('data').notNull().default('{}'),
+        // Read-only projections: data is the only writable source for typed metadata.
+        tool_call_id: text('tool_call_id').generatedAlwaysAs(
+            sql`CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolCallId') END`,
+            { mode: 'virtual' }
+        ),
+        tool_kind: text('tool_kind', { enum: ['mcp', 'builtin'] }).generatedAlwaysAs(
+            sql`CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolKind') END`,
+            { mode: 'virtual' }
+        ),
+        attachment_id: integer('attachment_id')
+            .references(() => attachments.id, { onDelete: 'cascade' })
+            .generatedAlwaysAs(
+                sql`CASE WHEN "type" = 'attachment' THEN json_extract("data", '$.attachmentId') END`,
+                { mode: 'virtual' }
+            ),
+        started_at: integer('started_at'),
+        ended_at: integer('ended_at'),
+        sort_order: integer('sort_order').notNull(),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        index('message_parts_tool_call_idx').on(table.tool_kind, table.tool_call_id),
+        index('message_parts_attachment_idx').on(table.attachment_id),
+        check(
+            'message_parts_data_object_check',
+            sql`json_valid(${table.data}) AND json_type(${table.data}) = 'object'`
+        ),
+        check(
+            'message_parts_attachment_check',
+            sql`${table.type} <> 'attachment' OR (json_type(${table.data}, '$.attachmentId') IS 'integer' AND json_extract(${table.data}, '$.attachmentId') > 0)`
+        ),
+        uniqueIndex('message_parts_message_id_sort_order_idx').on(
+            table.message_id,
+            table.sort_order
+        ),
+    ]
+);
 
 /**
  * 附件缓存表
@@ -104,24 +159,6 @@ export const attachments = sqliteTable('attachments', {
     origin_path: text('origin_path').notNull(),
     mime_type: text('mime_type'),
     size: integer('size'),
-    created_at: text('created_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-});
-
-/**
- * 消息附件关联表
- */
-export const messageAttachments = sqliteTable('message_attachments', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    message_id: integer('message_id')
-        .notNull()
-        .references(() => messages.id, { onDelete: 'cascade' }),
-    attachment_id: integer('attachment_id')
-        .notNull()
-        .references(() => attachments.id, { onDelete: 'cascade' }),
-    sort_order: integer('sort_order').notNull().default(0),
-    origin_path: text('origin_path').notNull(),
     created_at: text('created_at')
         .notNull()
         .default(sql`(datetime('now'))`),
@@ -430,31 +467,6 @@ export const mcpTools = sqliteTable('mcp_tools', {
 });
 
 /**
- * MCP 工具调用日志表
- */
-export const mcpToolLogs = sqliteTable('mcp_tool_logs', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    server_id: integer('server_id')
-        .notNull()
-        .references(() => mcpServers.id, { onDelete: 'cascade' }),
-    tool_name: text('tool_name').notNull(),
-    tool_call_id: text('tool_call_id').notNull(),
-    session_id: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
-    message_id: integer('message_id').references(() => messages.id, { onDelete: 'set null' }),
-    iteration: integer('iteration').notNull().default(1),
-    input: text('input').notNull(), // JSON string
-    output: text('output'), // JSON string
-    status: text('status', { enum: ['pending', 'success', 'error', 'timeout'] })
-        .notNull()
-        .default('pending'),
-    duration_ms: integer('duration_ms'),
-    error_message: text('error_message'),
-    created_at: text('created_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-});
-
-/**
  * 内置工具表
  */
 export const builtInTools = sqliteTable('built_in_tools', {
@@ -479,42 +491,6 @@ export const builtInTools = sqliteTable('built_in_tools', {
 /**
  * 内置工具调用日志表
  */
-export const builtInToolLogs = sqliteTable('built_in_tool_logs', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    tool_id: text('tool_id').notNull(),
-    tool_call_id: text('tool_call_id').notNull(),
-    session_id: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
-    message_id: integer('message_id').references(() => messages.id, { onDelete: 'set null' }),
-    iteration: integer('iteration').notNull().default(1),
-    input: text('input').notNull(),
-    output: text('output'),
-    status: text('status', {
-        enum: [
-            'pending',
-            'awaiting_approval',
-            'approved',
-            'rejected',
-            'success',
-            'error',
-            'timeout',
-            'cancelled',
-        ],
-    })
-        .notNull()
-        .default('pending'),
-    approval_state: text('approval_state', {
-        enum: ['none', 'pending', 'approved', 'rejected'],
-    })
-        .notNull()
-        .default('none'),
-    approval_summary: text('approval_summary'),
-    conversation_semantic_json: text('conversation_semantic_json'),
-    duration_ms: integer('duration_ms'),
-    error_message: text('error_message'),
-    created_at: text('created_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-});
 
 /**
  * 快速搜索点击统计表
@@ -551,13 +527,13 @@ export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type MessageUpdate = Partial<NewMessage>;
 
+export type MessagePart = typeof messageParts.$inferSelect;
+export type NewMessagePart = typeof messageParts.$inferInsert;
+export type MessagePartUpdate = Partial<NewMessagePart>;
+
 export type Attachment = typeof attachments.$inferSelect;
 export type NewAttachment = typeof attachments.$inferInsert;
 export type AttachmentUpdate = Partial<NewAttachment>;
-
-export type MessageAttachment = typeof messageAttachments.$inferSelect;
-export type NewMessageAttachment = typeof messageAttachments.$inferInsert;
-export type MessageAttachmentUpdate = Partial<NewMessageAttachment>;
 
 export type AttachmentRemoteRef = typeof attachmentRemoteRefs.$inferSelect;
 export type NewAttachmentRemoteRef = typeof attachmentRemoteRefs.$inferInsert;
@@ -603,17 +579,9 @@ export type McpTool = typeof mcpTools.$inferSelect;
 export type NewMcpTool = typeof mcpTools.$inferInsert;
 export type McpToolUpdate = Partial<NewMcpTool>;
 
-export type McpToolLog = typeof mcpToolLogs.$inferSelect;
-export type NewMcpToolLog = typeof mcpToolLogs.$inferInsert;
-export type McpToolLogUpdate = Partial<NewMcpToolLog>;
-
 export type BuiltInTool = typeof builtInTools.$inferSelect;
 export type NewBuiltInTool = typeof builtInTools.$inferInsert;
 export type BuiltInToolUpdate = Partial<NewBuiltInTool>;
-
-export type BuiltInToolLog = typeof builtInToolLogs.$inferSelect;
-export type NewBuiltInToolLog = typeof builtInToolLogs.$inferInsert;
-export type BuiltInToolLogUpdate = Partial<NewBuiltInToolLog>;
 
 export type QuickSearchClickStat = typeof quickSearchClickStats.$inferSelect;
 export type NewQuickSearchClickStat = typeof quickSearchClickStats.$inferInsert;
@@ -624,5 +592,12 @@ export type ProviderDriver = Provider['driver'];
 export type TurnStatus = SessionTurn['status'];
 export type RequestStatus = TurnStatus;
 export type TransportType = McpServer['transport_type'];
-export type ToolLogStatus = McpToolLog['status'];
-export type PersistedToolLogStatus = McpToolLog['status'] | BuiltInToolLog['status'];
+export type ToolLogStatus = 'pending' | 'success' | 'error' | 'timeout';
+export type BuiltInToolLogStatus =
+    | ToolLogStatus
+    | 'awaiting_approval'
+    | 'approved'
+    | 'rejected'
+    | 'cancelled';
+export type BuiltInToolApprovalState = 'none' | 'pending' | 'approved' | 'rejected';
+export type PersistedToolLogStatus = ToolLogStatus | BuiltInToolLogStatus;

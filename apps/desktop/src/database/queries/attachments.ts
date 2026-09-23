@@ -1,9 +1,9 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
-import { attachments, messageAttachments } from '../schema';
+import { attachments, messageParts } from '../schema';
 import type { AttachmentCreateData, AttachmentEntity, MessageAttachmentCreateData } from '../types';
 
 export interface MessageAttachmentRow extends AttachmentEntity {
@@ -55,7 +55,25 @@ export async function createMessageAttachment(
     data: MessageAttachmentCreateData,
     database: DatabaseExecutor = db
 ): Promise<void> {
-    await database.insert(messageAttachments).values(data).run();
+    const maximum = await database
+        .select({ value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value') })
+        .from(messageParts)
+        .where(eq(messageParts.message_id, data.message_id))
+        .get();
+    await database
+        .insert(messageParts)
+        .values({
+            message_id: data.message_id,
+            type: 'attachment',
+            content: '',
+            data: JSON.stringify({
+                attachmentId: data.attachment_id,
+                originPath: data.origin_path,
+            }),
+            sort_order: (maximum?.value ?? -1) + 1,
+            ...(data.created_at ? { created_at: data.created_at } : {}),
+        })
+        .run();
 }
 
 /**
@@ -73,24 +91,24 @@ export async function findAttachmentsByMessageIds(
 
     return db
         .select({
-            message_id: messageAttachments.message_id,
-            sort_order: messageAttachments.sort_order,
+            message_id: messageParts.message_id,
+            sort_order: messageParts.sort_order,
             id: attachments.id,
             hash: attachments.hash,
             type: attachments.type,
             original_name: attachments.original_name,
-            origin_path: messageAttachments.origin_path,
+            origin_path: sql<string>`json_extract(${messageParts.data}, '$.originPath')`.as(
+                'origin_path'
+            ),
             mime_type: attachments.mime_type,
             size: attachments.size,
             created_at: attachments.created_at,
         })
-        .from(messageAttachments)
-        .innerJoin(attachments, eq(attachments.id, messageAttachments.attachment_id))
-        .where(inArray(messageAttachments.message_id, messageIds))
-        .orderBy(
-            asc(messageAttachments.message_id),
-            asc(messageAttachments.sort_order),
-            asc(messageAttachments.id)
+        .from(messageParts)
+        .innerJoin(attachments, eq(attachments.id, messageParts.attachment_id))
+        .where(
+            and(inArray(messageParts.message_id, messageIds), eq(messageParts.type, 'attachment'))
         )
+        .orderBy(asc(messageParts.message_id), asc(messageParts.sort_order), asc(messageParts.id))
         .all();
 }

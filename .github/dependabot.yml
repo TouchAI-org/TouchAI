@@ -1,20 +1,64 @@
 version: 2
+# Dependabot policy:
+# 1. Version updates: monthly (noise control)
+# 2. Security updates: repo-level Dependabot security updates (not gated by schedule)
+# 3. Groups: patch+minor together; majors separate so one break cannot block the batch
+# 4. CI / merge queue remain the merge gate
 updates:
+    # Frontend monorepo (root workspace).
     - package-ecosystem: 'npm'
       directory: '/'
       schedule:
-          interval: 'weekly'
+          interval: 'monthly'
+      open-pull-requests-limit: 10
       groups:
           frontend-dependencies:
               patterns:
                   - '*'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+          frontend-major-dependencies:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'major'
 
+    # Desktop Rust backend.
     - package-ecosystem: 'cargo'
       directory: '/apps/desktop/src-tauri'
       schedule:
-          interval: 'weekly'
+          interval: 'monthly'
+      open-pull-requests-limit: 10
+      groups:
+          rust-dependencies:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+          rust-major-dependencies:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'major'
 
+    # Workflow actions. One group keeps multi-path pins aligned
+    # (e.g. codeql-action/init + codeql-action/analyze).
     - package-ecosystem: 'github-actions'
       directory: '/'
       schedule:
-          interval: 'weekly'
+          interval: 'monthly'
+      open-pull-requests-limit: 10
+      groups:
+          github-actions:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+          github-actions-major:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'major'

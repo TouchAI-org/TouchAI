@@ -431,14 +431,14 @@
                     :aria-pressed="toolEnabled"
                     :disabled="savingToolEnabled"
                     :class="[
-                        'relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                        't-toggle-track relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50',
                         toolEnabled ? 'settings-toggle-enabled' : 'bg-neutral-200',
                     ]"
                     @click="toggleToolEnabled"
                 >
                     <span
                         :class="[
-                            'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                            't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
                             toolEnabled ? 'translate-x-[18px]' : 'translate-x-1',
                         ]"
                     />
@@ -549,7 +549,7 @@
                                         :aria-label="provider.label"
                                         :aria-pressed="providerConfig(provider.id).enabled"
                                         :class="[
-                                            'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                                            't-toggle-track relative inline-flex h-5 w-9 shrink-0 items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50',
                                             providerConfig(provider.id).enabled
                                                 ? 'settings-toggle-enabled'
                                                 : 'bg-neutral-200',
@@ -564,7 +564,7 @@
                                     >
                                         <span
                                             :class="[
-                                                'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                                                't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
                                                 providerConfig(provider.id).enabled
                                                     ? 'translate-x-[18px]'
                                                     : 'translate-x-1',
@@ -672,7 +672,7 @@
                                 :aria-label="row.label"
                                 :aria-pressed="draft[row.key]"
                                 :class="[
-                                    'relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                                    't-toggle-track relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50',
                                     draft[row.key] ? 'settings-toggle-enabled' : 'bg-neutral-200',
                                 ]"
                                 :disabled="!toolEnabled"
@@ -680,7 +680,7 @@
                             >
                                 <span
                                     :class="[
-                                        'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                                        't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
                                         draft[row.key] ? 'translate-x-[18px]' : 'translate-x-1',
                                     ]"
                                 />

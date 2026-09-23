@@ -1,11 +1,9 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import {
-    findMessagesBySessionId,
-    findToolLogRowsBySessionId,
-    findUnambiguousToolLogByStoredReference,
-    type ToolLogHistoryRow,
-} from '@database/queries/messages';
+import { getMessageText } from '@database/queries/messageParts';
+import { findMessagesBySessionId } from '@database/queries/messages';
+import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
+import type { MessagePartEntity } from '@database/types';
 
 import type { AiContentPart, AiMessage } from '../contracts/protocol';
 import type { AiToolCall } from '../contracts/tooling';
@@ -17,30 +15,16 @@ import {
     hydratePersistedAttachments,
 } from '../infrastructure/attachments';
 
-function toTransportToolName(toolLog: ToolLogHistoryRow): string {
-    if (toolLog.source === 'builtin') {
-        return `builtin__${toolLog.tool_name}`;
-    }
-
-    if (toolLog.server_id !== null) {
-        return `mcp__${toolLog.server_id}__${toolLog.tool_name}`;
-    }
-
-    return toolLog.tool_name;
-}
-
-function buildAssistantTransportContent(row: {
-    content: string;
-    reasoning: string | null;
-}): AiMessage['content'] {
-    if (!row.reasoning?.trim()) {
-        return row.content;
-    }
-
-    return [
-        { type: 'reasoning', text: row.reasoning },
-        ...(row.content ? [{ type: 'text', text: row.content } as const] : []),
-    ];
+function buildAssistantTransportContent(row: { parts: MessagePartEntity[] }): AiMessage['content'] {
+    return row.parts.flatMap((part): AiContentPart[] => {
+        if (part.type === 'text' && part.content.trim()) {
+            return [{ type: 'text', text: part.content }];
+        }
+        if (part.type === 'reasoning' && part.content.trim()) {
+            return [{ type: 'reasoning', text: part.content }];
+        }
+        return [];
+    });
 }
 
 const MISSING_TOOL_RESULT_PLACEHOLDER = 'Missing historical tool result.';
@@ -93,57 +77,17 @@ export async function loadSessionTransportMessages(options: {
     supportsAttachments?: boolean;
     attachmentCapabilities?: AttachmentCapabilities;
 }): Promise<AiMessage[]> {
-    const [rows, toolLogs] = options.sessionId
-        ? await Promise.all([
-              findMessagesBySessionId(options.sessionId),
-              findToolLogRowsBySessionId(options.sessionId),
-          ])
-        : [[], []];
+    const rows = options.sessionId ? await findMessagesBySessionId(options.sessionId) : [];
     const attachmentCapabilities = resolveTransportAttachmentCapabilities(options);
     const messages: AiMessage[] = [];
-    const toolLogsByMessageId = new Map<number, ToolLogHistoryRow[]>();
-    const toolLogByIdentity = new Map<string, ToolLogHistoryRow>();
     const pendingResultToolCalls: AiToolCall[] = [];
 
-    for (const toolLog of toolLogs) {
-        if (toolLog.message_id !== null) {
-            const messageLogs = toolLogsByMessageId.get(toolLog.message_id) ?? [];
-            messageLogs.push(toolLog);
-            toolLogsByMessageId.set(toolLog.message_id, messageLogs);
-        }
-
-        toolLogByIdentity.set(`${toolLog.source}:${toolLog.log_id}`, toolLog);
-    }
-
-    const takePendingResultToolCall = (
-        toolCallId?: string | null,
-        resolvedToolName?: string | null
-    ): AiToolCall | undefined => {
-        if (!toolCallId) {
-            // Try to match by resolved tool name first
-            if (resolvedToolName) {
-                const nameMatches = pendingResultToolCalls.filter(
-                    (toolCall) => toolCall.name === resolvedToolName
-                );
-                if (nameMatches.length === 1) {
-                    const pendingIndex = pendingResultToolCalls.indexOf(nameMatches[0]!);
-                    const [toolCall] = pendingResultToolCalls.splice(pendingIndex, 1);
-                    return toolCall;
-                }
-            }
-            // Fall back to FIFO if no unique name match
-            return pendingResultToolCalls.shift();
-        }
-
-        const pendingIndex = pendingResultToolCalls.findIndex(
-            (toolCall) => toolCall.id === toolCallId
+    const takePendingResultToolCall = (part?: MessagePartEntity): AiToolCall | undefined => {
+        if (!part?.tool_call_id || !part.tool_kind) return undefined;
+        const index = pendingResultToolCalls.findIndex(
+            (call) => call.id === part.tool_call_id && call.name.startsWith(`${part.tool_kind}__`)
         );
-        if (pendingIndex < 0) {
-            return undefined;
-        }
-
-        const [toolCall] = pendingResultToolCalls.splice(pendingIndex, 1);
-        return toolCall;
+        return index < 0 ? undefined : pendingResultToolCalls.splice(index, 1)[0];
     };
 
     const flushMissingToolResults = (): void => {
@@ -158,107 +102,59 @@ export async function loadSessionTransportMessages(options: {
         }
     };
 
-    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-        const row = rows[rowIndex]!;
-
+    for (const row of rows) {
         if (row.role === 'tool_call') {
             flushMissingToolResults();
-
-            if (row.tool_call_id) {
-                const pendingToolCalls: AiToolCall[] = [];
-
-                while (rowIndex < rows.length) {
-                    const toolCallRow = rows[rowIndex]!;
-                    if (
-                        toolCallRow.role !== 'tool_call' ||
-                        toolCallRow.id !== row.id ||
-                        !toolCallRow.tool_call_id
-                    ) {
-                        break;
-                    }
-
-                    pendingToolCalls.push({
-                        id: toolCallRow.tool_call_id,
-                        name: toolCallRow.tool_name ?? toolCallRow.tool_call_id,
-                        arguments: toolCallRow.tool_input ?? '{}',
-                    });
-                    rowIndex += 1;
-                }
-
-                rowIndex -= 1;
-                messages.push({
-                    role: 'assistant',
-                    content: buildAssistantTransportContent(row),
-                    tool_calls: pendingToolCalls,
+            const calls: AiToolCall[] = row.parts
+                .filter((part) => part.type === 'tool_call')
+                .map((part) => {
+                    const data = readToolCallData(part);
+                    return {
+                        id: data.toolCallId,
+                        name: getToolCallName(data),
+                        arguments: data.input,
+                    };
                 });
-                pendingResultToolCalls.push(...pendingToolCalls);
-                continue;
-            }
-
-            const pendingToolCalls: AiToolCall[] =
-                toolLogsByMessageId.get(row.id)?.map((toolLog) => ({
-                    id: toolLog.tool_call_id,
-                    name: toTransportToolName(toolLog),
-                    arguments: toolLog.tool_input ?? '{}',
-                })) ?? [];
-
             messages.push({
                 role: 'assistant',
                 content: buildAssistantTransportContent(row),
-                tool_calls: pendingToolCalls,
+                tool_calls: calls,
             });
-            pendingResultToolCalls.push(...pendingToolCalls);
+            pendingResultToolCalls.push(...calls);
             continue;
         }
-
         if (row.role === 'tool_result') {
-            const toolLog = findUnambiguousToolLogByStoredReference(
-                toolLogByIdentity,
-                row.tool_log_id,
-                row.tool_log_kind
-            );
-            const resolvedToolName =
-                row.tool_name ?? (toolLog ? toTransportToolName(toolLog) : undefined);
-            const pendingToolCall = takePendingResultToolCall(
-                row.tool_call_id ?? toolLog?.tool_call_id,
-                resolvedToolName
-            );
-
-            if (pendingToolCall) {
-                const supportedAttachmentRows = filterSupportedAttachmentRows(
-                    row.attachments,
-                    attachmentCapabilities
-                );
-                const attachments =
-                    supportedAttachmentRows.length > 0
-                        ? await hydratePersistedAttachments(supportedAttachmentRows)
-                        : [];
-                const attachmentParts =
-                    attachments.length > 0
-                        ? await buildAttachmentParts(attachments, {
-                              includeAnchorText: false,
-                          })
-                        : [];
-                messages.push({
-                    role: 'tool',
-                    content:
-                        attachmentParts.length > 0
-                            ? ([
-                                  ...(row.content ? [{ type: 'text', text: row.content }] : []),
-                                  ...attachmentParts,
-                              ] as AiContentPart[])
-                            : row.content,
-                    tool_call_id: pendingToolCall.id,
-                    name:
-                        row.tool_name ??
-                        (toolLog ? toTransportToolName(toolLog) : pendingToolCall.name),
-                });
-            } else {
+            const part = row.parts.find((part) => part.type === 'tool_result');
+            const call = takePendingResultToolCall(part);
+            if (!call) {
                 console.warn(
                     '[SessionTransport] Cannot resolve tool_result, skipping message:',
                     row.id
                 );
+                continue;
             }
+            const supported = filterSupportedAttachmentRows(
+                row.attachments,
+                attachmentCapabilities
+            );
+            const attachments = supported.length
+                ? await hydratePersistedAttachments(supported)
+                : [];
+            const attachmentParts = attachments.length
+                ? await buildAttachmentParts(attachments, { includeAnchorText: false })
+                : [];
+            const content = getMessageText(row.parts);
+            messages.push({
+                role: 'tool',
+                tool_call_id: call.id,
+                name: call.name,
+                content: attachmentParts.length
+                    ? [
+                          ...(content ? [{ type: 'text' as const, text: content }] : []),
+                          ...attachmentParts,
+                      ]
+                    : content,
+            });
             continue;
         }
 
@@ -281,10 +177,10 @@ export async function loadSessionTransportMessages(options: {
                 content:
                     attachmentParts.length > 0
                         ? ([
-                              { type: 'text', text: row.content },
+                              { type: 'text', text: getMessageText(row.parts) },
                               ...attachmentParts,
                           ] as AiContentPart[])
-                        : row.content,
+                        : getMessageText(row.parts),
             });
             continue;
         }
@@ -293,7 +189,10 @@ export async function loadSessionTransportMessages(options: {
 
         messages.push({
             role: row.role as 'user' | 'assistant' | 'system',
-            content: row.role === 'assistant' ? buildAssistantTransportContent(row) : row.content,
+            content:
+                row.role === 'assistant'
+                    ? buildAssistantTransportContent(row)
+                    : getMessageText(row.parts),
         });
     }
 

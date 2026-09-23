@@ -1,5 +1,5 @@
 ﻿<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -83,6 +83,10 @@
                     margin-bottom 640ms cubic-bezier(0.22, 1, 0.36, 1);
             }
 
+            body.is-scroll-driven .chat-panel {
+                will-change: auto;
+            }
+
             body.is-idle .chat-panel {
                 max-height: 56px;
                 min-height: 56px;
@@ -148,20 +152,20 @@
                 flex: 1 1 auto;
                 min-height: 0;
                 overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
                 scrollbar-width: none;
                 padding-top: 0;
                 padding-bottom: 20px;
             }
 
-            body.is-answering .conversation-content {
-                flex: 0 0 auto;
-                overflow: visible;
-                padding-bottom: 0;
-            }
-
+            body.is-answering .conversation-content,
             body.is-answering.is-scrolling .conversation-content {
                 flex: 1 1 auto;
+                min-height: 0;
                 overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
                 padding-top: 0;
                 padding-bottom: 20px;
             }
@@ -463,12 +467,53 @@
                 flex: 0 0 auto;
             }
 
+            body.is-complete .conversation-content,
+            body.is-complete.is-scrolling .conversation-content {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 20px;
+            }
+
             body.is-answering .composer {
                 margin-top: 0;
             }
 
             body.is-answering.is-scrolling .composer {
                 margin-top: auto;
+            }
+
+            body.is-complete .composer {
+                margin-top: 0;
+            }
+
+            body.is-complete.is-scrolling .composer {
+                margin-top: auto;
+            }
+
+            body.is-scroll-driven.is-answering .conversation-content,
+            body.is-scroll-driven.is-complete .conversation-content {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 20px;
+            }
+
+            body.is-scroll-driven.is-answering .composer,
+            body.is-scroll-driven.is-complete .composer {
+                margin-top: auto;
+            }
+
+            @media (min-width: 841px) {
+                body.is-scroll-driven.is-complete .chat-panel {
+                    min-height: var(--window-min-height);
+                    max-height: var(--window-min-height);
+                    height: var(--window-min-height);
+                }
             }
 
             .response > p,
@@ -708,12 +753,13 @@
                 margin-top: var(--response-item-gap);
             }
 
-            .response li > span:last-child {
+            .response li > span:last-child:not(.kbd) {
                 display: block;
                 text-indent: var(--paragraph-indent);
             }
 
             body.is-answering .response p:not(.is-visible),
+            body.is-answering .response h2:not(.is-visible),
             body.is-answering .response li:not(.is-visible),
             body.is-answering .response ul:not(.is-visible),
             body.is-answering .response .tool-call-list:not(.is-visible),
@@ -1100,14 +1146,14 @@
     </head>
     <body class="is-idle">
         <main class="stage">
-            <section class="chat-panel is-unified" aria-label="TouchAI 对话组件">
-                <header class="panel-top toolbar-fade-overlay" aria-label="窗口工具栏">
-                    <button class="toolbar-button" type="button" aria-label="新建会话">
+            <section class="chat-panel is-unified" aria-label="TouchAI conversation demo">
+                <header class="panel-top toolbar-fade-overlay" aria-label="Window toolbar">
+                    <button class="toolbar-button" type="button" aria-label="New conversation">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z" />
                         </svg>
                     </button>
-                    <button class="toolbar-button" type="button" aria-label="历史记录">
+                    <button class="toolbar-button" type="button" aria-label="Conversation history">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M12 8v5h5v-2h-3V8z" />
                             <path
@@ -1115,7 +1161,7 @@
                             />
                         </svg>
                     </button>
-                    <button class="toolbar-button" type="button" aria-label="最大化窗口">
+                    <button class="toolbar-button" type="button" aria-label="Maximize window">
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path
                                 d="M5 5h5V3H3v7h2zm5 14H5v-5H3v7h7zm11-5h-2v5h-5v2h7zm-2-4h2V3h-7v2h5z"
@@ -1125,7 +1171,7 @@
                     <button
                         class="toolbar-button toolbar-button--pinned"
                         type="button"
-                        aria-label="固定窗口"
+                        aria-label="Pin window"
                     >
                         <svg class="icon-btn" viewBox="0 0 24 24" aria-hidden="true">
                             <path
@@ -1137,12 +1183,12 @@
 
                 <div class="conversation-content">
                     <div class="prompt-layer">
-                        <div class="prompt-pill prompt-card" aria-label="用户输入">
+                        <div class="prompt-pill prompt-card" aria-label="User prompt">
                             <div class="prompt-text">
                                 I have a meeting at 12 later. Please remind me.
                             </div>
                         </div>
-                        <button class="prompt-copy" type="button" aria-label="复制问题">
+                        <button class="prompt-copy" type="button" aria-label="Copy problem">
                             <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true">
                                 <path
                                     d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"
@@ -1150,9 +1196,18 @@
                             </svg>
                         </button>
                     </div>
-                    <article class="response math-response" aria-live="polite"></article>
+                    <article
+                        class="response math-response"
+                        aria-live="polite"
+                        aria-busy="false"
+                        aria-atomic="false"
+                    ></article>
                     <div class="scroll-fade-overlay">
-                        <button class="scroll-bottom-button" type="button" aria-label="回到底部">
+                        <button
+                            class="scroll-bottom-button"
+                            type="button"
+                            aria-label="Scroll to bottom"
+                        >
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path
                                     d="M11 16.414V5h2v11.414l5.707-5.707l1.414 1.414L12 20.243l-8.121-8.122l1.414-1.414z"
@@ -1162,18 +1217,25 @@
                     </div>
                 </div>
 
-                <footer class="composer" aria-label="输入框">
-                    <form class="composer-form prompt-form" aria-label="输入框">
-                        <img class="mi-logo" src="./mimo.png" alt="Mimo" />
+                <footer class="composer" aria-label="Message composer">
+                    <form class="composer-form prompt-form" aria-label="Message composer">
+                        <img
+                            class="mi-logo"
+                            src="./mimo.png"
+                            alt="Mimo"
+                            width="32"
+                            height="32"
+                            decoding="async"
+                        />
                         <input
                             class="prompt-input"
                             type="text"
                             value=""
                             placeholder="Type your request..."
-                            aria-label="输入问题"
+                            aria-label="Problem input"
                             autocomplete="off"
                         />
-                        <button class="submit-btn" type="submit" aria-label="发送">
+                        <button class="submit-btn" type="submit" aria-label="Send">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M10 17l5-5-5-5v10z" />
                             </svg>
@@ -1182,7 +1244,7 @@
                 </footer>
             </section>
         </main>
-        <script src="/demo-vendor/markdown-it/markdown-it.min.js"></script>
+        <script src="/demo-utils/touchai-lite-renderer.js"></script>
         <script>
             (() => {
                 const expectedPrompt = 'I have a meeting at 12 later. Please remind me.';
@@ -1199,6 +1261,10 @@
                 let copyAnswer = null;
                 let replayAnswer = null;
                 let panelObserver = null;
+                let scrollAffordanceFrame = 0;
+                let mathLineGeometryFrame = 0;
+                let lastMathLineWidth = '';
+                let lastMathLineOffset = '';
                 let textNodes = [];
                 let hasStarted = false;
                 let typingTimer = 0;
@@ -1206,6 +1272,23 @@
                 let isPromptTyping = false;
                 let startSequenceActive = false;
                 let externalScrollProgress = 0;
+                let isScrollDriven = false;
+                let hasReceivedScrollProgress = false;
+
+                function getMessagePayload(event) {
+                    return event && typeof event.data === 'object' && event.data ? event.data : {};
+                }
+
+                function notifyParent(type, deltaX = 0, deltaY = 0) {
+                    try {
+                        if (window.parent && window.parent !== window) {
+                            window.parent.postMessage(
+                                { type, deltaX, deltaY },
+                                window.location.origin
+                            );
+                        }
+                    } catch (error) {}
+                }
 
                 const answerMarkdown = [
                     'Done. I have created the reminder.',
@@ -1218,7 +1301,7 @@
                 ].join('\n');
 
                 const toolCallHtml = `
-          <div class="tool-call-list" aria-label="工具调用">
+          <div class="tool-call-list" aria-label="Tool calls">
             <div class="tool-call">
               <span class="tool-call-name">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9a7 7 0 0 0-7.4-1.6l4.2 4.2l-3.3 3.3l-4.3-4.1A7 7 0 0 0 3 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.4-.4.4-1 0-1.4"/></svg>
@@ -1246,63 +1329,21 @@
           </div>`;
 
                 const actionHtml = `
-          <div class="response-actions" aria-label="回答操作">
-            <span class="thinking-dots" aria-label="正在思考">
+          <div class="response-actions" aria-label="Answer actions">
+            <span class="thinking-dots" aria-label="Thinking">
               <span></span>
               <span></span>
               <span></span>
             </span>
-            <button class="action-button copy-answer" type="button" aria-label="复制回答">
+            <button class="action-button copy-answer" type="button" aria-label="Copy answer">
               <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H10c-1.103 0-2 .897-2 2v4H4c-1.103 0-2 .897-2 2v10c0 1.103.897 2 2 2h10c1.103 0 2-.897 2-2v-4h4c1.103 0 2-.897 2-2V4c0-1.103-.897-2-2-2M4 20V10h10l.002 10zm16-6h-4v-4c0-1.103-.897-2-2-2h-4V4h10z"/></svg>
             </button>
-            <button class="action-button replay-answer" type="button" aria-label="重新生成">
+            <button class="action-button replay-answer" type="button" aria-label="Regenerate answer">
               <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 11H7.101l.001-.009a5 5 0 0 1 .752-1.787a5.05 5.05 0 0 1 2.2-1.811q.455-.193.938-.291a5.1 5.1 0 0 1 2.018 0a5 5 0 0 1 2.525 1.361l1.416-1.412a7 7 0 0 0-2.224-1.501a7 7 0 0 0-1.315-.408a7.1 7.1 0 0 0-2.819 0a7 7 0 0 0-1.316.409a7.04 7.04 0 0 0-3.08 2.534a7 7 0 0 0-1.054 2.505c-.028.135-.043.273-.063.41H2l4 4zm4 2h2.899l-.001.008a4.98 4.98 0 0 1-2.103 3.138a4.9 4.9 0 0 1-1.787.752a5.1 5.1 0 0 1-2.017 0a5 5 0 0 1-1.787-.752a5 5 0 0 1-.74-.61L7.05 16.95a7 7 0 0 0 2.225 1.5c.424.18.867.317 1.315.408a7.1 7.1 0 0 0 2.818 0a7.03 7.03 0 0 0 4.395-2.945a7 7 0 0 0 1.053-2.503c.027-.135.043-.273.063-.41H22l-4-4z"/></svg>
             </button>
           </div>`;
 
-                function escapeHtml(value) {
-                    return value
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;');
-                }
-
-                function renderFormula(source, displayMode) {
-                    if (window.katex) {
-                        return window.katex.renderToString(source, {
-                            displayMode,
-                            throwOnError: false,
-                            strict: 'ignore',
-                            output: 'html',
-                        });
-                    }
-
-                    return `<span class="katex-fallback">${escapeHtml(source)}</span>`;
-                }
-
-                function renderMarkdownContent(markdown) {
-                    const md = window.markdownit
-                        ? window.markdownit({ html: false, linkify: false, breaks: false })
-                        : null;
-
-                    const html = md
-                        ? md.render(markdown)
-                        : markdown
-                              .split(/\n{2,}/)
-                              .map((part) => {
-                                  if (part === '---') {
-                                      return `<hr />`;
-                                  }
-
-                                  return `<p>${escapeHtml(part).replace(/\n/g, '<br>')}</p>`;
-                              })
-                              .join('\n');
-
-                    return html
-                        .replace(/<hr>/g, `<p class="response-divider" aria-hidden="true"></p>`)
-                        .replace(/<p>/g, `<p class="paragraph-node">`);
-                }
+                const renderMarkdownContent = window.TouchAILiteRenderer.renderMarkdownContent;
 
                 function prepareTypewriterNodes() {
                     textNodes = [];
@@ -1359,6 +1400,25 @@
                     });
                 }
 
+                function setToolCallVisibility(progress) {
+                    const ratio = Math.max(0, Math.min(1, Number(progress) || 0));
+                    const toolCallList = response.querySelector('.tool-call-list');
+                    if (!toolCallList) {
+                        return;
+                    }
+
+                    const toolCalls = response.querySelectorAll('.tool-call');
+                    const cardThresholds = Array.from(toolCalls, (_, index) => 0.12 + index * 0.12);
+                    const visibleCardCount = cardThresholds.filter(
+                        (threshold) => ratio >= threshold
+                    ).length;
+                    toolCallList.classList.toggle('is-visible', visibleCardCount > 0);
+
+                    toolCalls.forEach((card, index) => {
+                        card.classList.toggle('is-visible', index < visibleCardCount);
+                    });
+                }
+
                 function hydrateMarkdownAnswer() {
                     response.classList.add('touchai-markdown');
                     response.innerHTML =
@@ -1387,11 +1447,27 @@
                     const responseRect = response.getBoundingClientRect();
                     const mathLineWidth = `${panel.clientWidth}px`;
                     const mathLineOffset = `${panelRect.left - responseRect.left}px`;
-                    response.style.setProperty('--math-line-width', mathLineWidth);
-                    response.style.setProperty('--math-line-offset', mathLineOffset);
-                    response.querySelectorAll('.math-block').forEach((block) => {
-                        block.style.width = mathLineWidth;
-                        block.style.marginLeft = mathLineOffset;
+
+                    if (
+                        mathLineWidth === lastMathLineWidth &&
+                        mathLineOffset === lastMathLineOffset
+                    ) {
+                        return;
+                    }
+
+                    lastMathLineWidth = mathLineWidth;
+                    lastMathLineOffset = mathLineOffset;
+                    if (mathLineGeometryFrame) {
+                        window.cancelAnimationFrame(mathLineGeometryFrame);
+                    }
+                    mathLineGeometryFrame = window.requestAnimationFrame(() => {
+                        mathLineGeometryFrame = 0;
+                        response.style.setProperty('--math-line-width', mathLineWidth);
+                        response.style.setProperty('--math-line-offset', mathLineOffset);
+                        response.querySelectorAll('.math-block').forEach((block) => {
+                            block.style.width = mathLineWidth;
+                            block.style.marginLeft = mathLineOffset;
+                        });
                     });
                 }
 
@@ -1426,6 +1502,7 @@
                 watchPanelGeometry();
 
                 function resetResponseText() {
+                    response.setAttribute('aria-busy', 'false');
                     window.clearTimeout(typingTimer);
                     document.body.classList.remove('is-scrolling');
                     document.body.classList.remove('has-below-content');
@@ -1438,14 +1515,16 @@
 
                 function resetVisibleBlocks() {
                     response
-                        .querySelectorAll('p, ul, li, .math-block, .response-divider')
+                        .querySelectorAll(
+                            'p, h2, ul, li, .tool-call-list, .tool-call, .math-block, .response-divider'
+                        )
                         .forEach((block) => {
                             block.classList.remove('is-visible');
                         });
                 }
 
                 function markVisibleBlock(node) {
-                    const textBlock = node.parentElement.closest('p, li, .math-block');
+                    const textBlock = node.parentElement.closest('p, h2, li, .math-block');
 
                     if (textBlock) {
                         textBlock.classList.add('is-visible');
@@ -1478,6 +1557,37 @@
                     startSequenceActive = false;
                 }
 
+                function resetDemoState(complete = false) {
+                    hasReceivedScrollProgress = false;
+                    externalScrollProgress = complete ? 1 : 0;
+                    window.clearTimeout(typingTimer);
+                    clearPromptTyping();
+                    setScrollDrivenState(false);
+
+                    if (complete) {
+                        hasStarted = true;
+                        clearPromptInput();
+                        document.body.classList.remove('is-idle', 'is-answering');
+                        document.body.classList.add('is-complete');
+                        setResponseProgress(1);
+                        updateScrollAffordance();
+                        return;
+                    }
+
+                    hasStarted = false;
+                    input.value = '';
+                    resetResponseText();
+                    document.body.classList.remove('is-answering', 'is-complete', 'is-scrolling');
+                    document.body.classList.add('is-idle');
+                    updateScrollAffordance();
+                }
+
+                function setScrollDrivenState(enabled) {
+                    isScrollDriven = Boolean(enabled);
+                    document.body.classList.toggle('is-scroll-driven', isScrollDriven);
+                    response.setAttribute('aria-live', isScrollDriven ? 'off' : 'polite');
+                }
+
                 function syncScrollMode() {
                     syncMathLineGeometry();
                     const shouldScroll =
@@ -1491,11 +1601,46 @@
                     }
                 }
 
+                function keepLatestResponseVisible() {
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                    content.scrollTop = maxScroll;
+                }
+
                 function updateScrollAffordance() {
                     const hasBelow =
                         content.scrollHeight - content.scrollTop - content.clientHeight > 6;
 
                     document.body.classList.toggle('has-below-content', hasBelow);
+                }
+
+                function scheduleScrollAffordanceUpdate() {
+                    if (scrollAffordanceFrame) return;
+                    scrollAffordanceFrame = window.requestAnimationFrame(() => {
+                        scrollAffordanceFrame = 0;
+                        updateScrollAffordance();
+                    });
+                }
+
+                function forwardWheelToPage(event) {
+                    if (event.ctrlKey || event.metaKey) {
+                        event.preventDefault();
+                        return;
+                    }
+
+                    if (!isScrollDriven || !hasReceivedScrollProgress) {
+                        return;
+                    }
+
+                    const deltaMultiplier =
+                        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
+                    const nextDeltaY = event.deltaY * deltaMultiplier;
+
+                    if (Math.abs(nextDeltaY) < 0.5) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    window.parent.scrollBy(0, nextDeltaY);
                 }
 
                 function applyExternalScrollProgress(progress) {
@@ -1516,12 +1661,11 @@
                         (sum, item) => sum + (item.instant ? 1 : item.text.length),
                         0
                     );
-                    let remaining = Math.round(totalUnits * ratio);
+                    const textRevealProgress = ratio <= 0.24 ? 0 : (ratio - 0.24) / 0.76;
+                    let remaining = Math.round(totalUnits * textRevealProgress);
 
                     resetVisibleBlocks();
-                    if (ratio > 0 && typeof revealToolCalls === 'function') {
-                        revealToolCalls();
-                    }
+                    setToolCallVisibility(ratio);
 
                     textNodes.forEach((item) => {
                         const visibleLength = item.instant
@@ -1543,6 +1687,12 @@
 
                 function renderScrollProgress(progress) {
                     const scrubProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+                    hasReceivedScrollProgress = scrubProgress > 0.0005 && scrubProgress < 0.9995;
+                    setScrollDrivenState(hasReceivedScrollProgress);
+                    response.setAttribute(
+                        'aria-busy',
+                        hasReceivedScrollProgress ? 'true' : 'false'
+                    );
                     externalScrollProgress = scrubProgress;
                     window.clearTimeout(typingTimer);
                     window.clearTimeout(promptTypingTimer);
@@ -1551,13 +1701,12 @@
                     isPromptTyping = false;
                     startSequenceActive = false;
 
-                    const promptProgress = Math.max(0, Math.min(1, scrubProgress / 0.18));
-                    input.value = expectedPrompt.slice(
-                        0,
-                        Math.round(expectedPrompt.length * promptProgress)
-                    );
-
                     if (scrubProgress < 0.18) {
+                        const promptProgress = Math.max(0, Math.min(1, scrubProgress / 0.18));
+                        input.value = expectedPrompt.slice(
+                            0,
+                            Math.round(expectedPrompt.length * promptProgress)
+                        );
                         hasStarted = false;
                         resetResponseText();
                         document.body.classList.remove(
@@ -1570,13 +1719,15 @@
                         return;
                     }
 
+                    clearPromptInput();
+
                     if (!hasStarted) {
                         resetResponseText();
+                        response.setAttribute('aria-busy', 'true');
                         hasStarted = true;
                     }
 
                     const answerProgress = Math.max(0, Math.min(1, (scrubProgress - 0.18) / 0.5));
-                    const scrollProgress = Math.max(0, Math.min(1, (scrubProgress - 0.66) / 0.34));
                     document.body.classList.remove('is-idle', 'is-answering', 'is-complete');
                     document.body.classList.add(
                         answerProgress >= 1 ? 'is-complete' : 'is-answering'
@@ -1585,18 +1736,13 @@
                     setResponseProgress(answerProgress);
                     syncMathLineGeometry();
 
-                    window.requestAnimationFrame(() => {
-                        const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
-                        document.body.classList.toggle(
-                            'is-scrolling',
-                            maxScroll > 1 && scrubProgress >= 0.66
-                        );
-                        content.scrollTop =
-                            answerProgress >= 1
-                                ? Math.round(maxScroll * scrollProgress)
-                                : Math.round(maxScroll * answerProgress);
-                        updateScrollAffordance();
-                    });
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                    document.body.classList.toggle(
+                        'is-scrolling',
+                        maxScroll > 1 && scrubProgress >= 0.66
+                    );
+                    keepLatestResponseVisible();
+                    updateScrollAffordance();
                 }
                 function startTypewriter() {
                     let nodeIndex = 0;
@@ -1608,6 +1754,7 @@
                         if (nodeIndex >= textNodes.length) {
                             document.body.classList.remove('is-answering');
                             document.body.classList.add('is-complete');
+                            response.setAttribute('aria-busy', 'false');
                             syncScrollMode();
                             applyExternalScrollProgress(externalScrollProgress);
                             updateScrollAffordance();
@@ -1645,10 +1792,14 @@
                 }
 
                 function showAnswer() {
+                    hasReceivedScrollProgress = false;
+                    externalScrollProgress = 0;
+                    setScrollDrivenState(false);
                     clearPromptTyping();
                     clearPromptInput();
                     hydrateMarkdownAnswer();
                     resetResponseText();
+                    response.setAttribute('aria-busy', 'true');
                     hasStarted = true;
                     startSequenceActive = false;
                     document.body.classList.remove('is-idle', 'is-complete');
@@ -1681,6 +1832,9 @@
                         return;
                     }
 
+                    hasReceivedScrollProgress = false;
+                    externalScrollProgress = 0;
+                    setScrollDrivenState(false);
                     clearPromptTyping();
                     startSequenceActive = true;
                     isPromptTyping = true;
@@ -1713,24 +1867,41 @@
                 }
 
                 resetResponseText();
-                window.parent?.postMessage?.({ type: 'touchai-reminder-ready' });
+                notifyParent('touchai-reminder-ready');
                 form.addEventListener('submit', submitPrompt);
                 window.addEventListener('message', (event) => {
-                    if (event.data?.type === 'touchai-page-bg') {
+                    const message = getMessagePayload(event);
+                    if (message.type === 'touchai-page-bg') {
                         document.documentElement.style.setProperty(
                             '--page-bg',
-                            event.data.background || 'transparent'
+                            typeof message.background === 'string'
+                                ? message.background
+                                : 'transparent'
                         );
                         return;
                     }
 
-                    if (event.data?.type === 'touchai-reminder-start') {
+                    if (message.type === 'touchai-reminder-start') {
+                        hasReceivedScrollProgress = false;
+                        setScrollDrivenState(false);
                         typePromptThenSubmit();
                         return;
                     }
 
-                    if (event.data?.type === 'touchai-set-scroll-progress') {
-                        renderScrollProgress(event.data.progress);
+                    if (message.type === 'touchai-clear-scroll-driven') {
+                        hasReceivedScrollProgress = false;
+                        setScrollDrivenState(false);
+                        updateScrollAffordance();
+                        return;
+                    }
+
+                    if (message.type === 'touchai-reset-demo') {
+                        resetDemoState(false);
+                        return;
+                    }
+
+                    if (message.type === 'touchai-set-scroll-progress') {
+                        renderScrollProgress(message.progress);
                     }
                 });
                 toolbarButtons.forEach((button) => {
@@ -1747,11 +1918,17 @@
                         clearPromptInput();
                     }
                 });
-                scrollBottomButton.addEventListener('click', () => {
+                scrollBottomButton.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    document.body.classList.add('is-scrolling');
                     content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
-                    document.body.classList.remove('has-below-content');
+                    window.setTimeout(updateScrollAffordance, 220);
                 });
-                content.addEventListener('scroll', updateScrollAffordance);
+                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, {
+                    passive: true,
+                });
+                panel.addEventListener('wheel', forwardWheelToPage, { passive: false });
             })();
         </script>
     </body>

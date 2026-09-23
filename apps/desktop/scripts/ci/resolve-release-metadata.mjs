@@ -16,6 +16,18 @@ function normalizeOptionalString(value) {
     return normalized.length > 0 ? normalized : null;
 }
 
+function git(projectRoot, args, gitImpl = null) {
+    if (gitImpl) {
+        return normalizeOptionalString(gitImpl(args)) ?? '';
+    }
+
+    return execFileSync('git', args, {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+}
+
 function normalizeChannel(value) {
     const normalized = normalizeOptionalString(value)?.toLowerCase() ?? null;
     if (!normalized) {
@@ -74,12 +86,74 @@ function compareCoreVersions(left, right) {
     return 0;
 }
 
+function compareSemverIdentifiers(left, right) {
+    if (left === right) {
+        return 0;
+    }
+
+    const leftNumber = /^\d+$/.test(left) ? Number(left) : null;
+    const rightNumber = /^\d+$/.test(right) ? Number(right) : null;
+    if (leftNumber !== null && rightNumber !== null) {
+        return leftNumber - rightNumber;
+    }
+    if (leftNumber !== null) {
+        return -1;
+    }
+    if (rightNumber !== null) {
+        return 1;
+    }
+    return left.localeCompare(right);
+}
+
+function comparePrereleaseVersions(left, right) {
+    const leftParts = left.split('.');
+    const rightParts = right.split('.');
+    const count = Math.max(leftParts.length, rightParts.length);
+
+    for (let index = 0; index < count; index += 1) {
+        const leftIdentifier = leftParts[index];
+        const rightIdentifier = rightParts[index];
+        if (leftIdentifier === undefined) {
+            return -1;
+        }
+        if (rightIdentifier === undefined) {
+            return 1;
+        }
+
+        const difference = compareSemverIdentifiers(leftIdentifier, rightIdentifier);
+        if (difference !== 0) {
+            return difference;
+        }
+    }
+
+    return 0;
+}
+
+function compareSemverVersions(left, right) {
+    const coreDifference = compareCoreVersions(left.version, right.version);
+    if (coreDifference !== 0) {
+        return coreDifference;
+    }
+
+    if (!left.prerelease && !right.prerelease) {
+        return 0;
+    }
+    if (!left.prerelease) {
+        return 1;
+    }
+    if (!right.prerelease) {
+        return -1;
+    }
+
+    return comparePrereleaseVersions(left.prerelease, right.prerelease);
+}
+
 function nextPatchVersion(version) {
     const [major, minor, patch] = parseSemver(version).core.split('.').map(Number);
     return `${major}.${minor}.${patch + 1}`;
 }
 
-function latestStableVersionFromGit(projectRoot) {
+function latestStableVersionFromGit(projectRoot, gitImpl = null) {
     const normalizedProjectRoot = normalizeOptionalString(projectRoot);
     if (!normalizedProjectRoot) {
         return null;
@@ -87,11 +161,7 @@ function latestStableVersionFromGit(projectRoot) {
 
     let output;
     try {
-        output = execFileSync('git', ['tag', '--list', 'v*'], {
-            cwd: normalizedProjectRoot,
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore'],
-        });
+        output = git(normalizedProjectRoot, ['tag', '--list', 'v*'], gitImpl);
     } catch {
         return null;
     }
@@ -117,6 +187,94 @@ function latestStableVersionFromGit(projectRoot) {
     return stableVersions.at(-1) ?? null;
 }
 
+function targetCommitFromGit(projectRoot, gitImpl = null) {
+    const normalizedProjectRoot = normalizeOptionalString(projectRoot);
+    if (!normalizedProjectRoot) {
+        return null;
+    }
+
+    try {
+        return normalizeOptionalString(git(normalizedProjectRoot, ['rev-parse', 'HEAD'], gitImpl));
+    } catch {
+        return null;
+    }
+}
+
+function commitFromTag(projectRoot, tag, gitImpl = null) {
+    const normalizedProjectRoot = normalizeOptionalString(projectRoot);
+    if (!normalizedProjectRoot) {
+        return null;
+    }
+
+    try {
+        return normalizeOptionalString(
+            git(normalizedProjectRoot, ['rev-list', '-n', '1', tag], gitImpl)
+        );
+    } catch {
+        return null;
+    }
+}
+
+function parseNightlyTag(tag) {
+    const normalized = normalizeOptionalString(tag);
+    if (!normalized?.startsWith('v')) {
+        return null;
+    }
+
+    try {
+        const parsed = parseSemver(normalized.slice(1));
+        return channelFromTagVersion(parsed) === 'nightly'
+            ? {
+                  tag: normalized,
+                  ...parsed,
+              }
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+function latestNightlyFromGit(projectRoot, gitImpl = null) {
+    const normalizedProjectRoot = normalizeOptionalString(projectRoot);
+    if (!normalizedProjectRoot) {
+        return null;
+    }
+
+    let output;
+    try {
+        output = git(normalizedProjectRoot, ['tag', '--list', 'v*-nightly.*'], gitImpl);
+    } catch {
+        return null;
+    }
+
+    const latest = output
+        .split(/\r?\n/)
+        .map(parseNightlyTag)
+        .filter(Boolean)
+        .sort(compareSemverVersions)
+        .at(-1);
+    if (!latest) {
+        return null;
+    }
+
+    const commit = commitFromTag(normalizedProjectRoot, latest.tag, gitImpl);
+    return commit ? { tag: latest.tag, commit } : null;
+}
+
+function normalizeLatestNightly(projectRoot, latestNightly, gitImpl = null) {
+    if (latestNightly === null) {
+        return null;
+    }
+
+    const tag = normalizeOptionalString(latestNightly?.tag);
+    const commit = normalizeOptionalString(latestNightly?.commit);
+    if (tag && commit) {
+        return { tag, commit };
+    }
+
+    return latestNightlyFromGit(projectRoot, gitImpl);
+}
+
 function dateStamp(date) {
     const dateValue = date instanceof Date ? date : new Date(date ?? Date.now());
     if (Number.isNaN(dateValue.getTime())) {
@@ -135,9 +293,10 @@ function runPart(value, fallback) {
 }
 
 function generatedNightlyVersion(packageVersion, input) {
+    const gitImpl = typeof input.git === 'function' ? input.git : null;
     const baseVersion =
         normalizeOptionalString(input.stableBaseVersion) ??
-        latestStableVersionFromGit(input.projectRoot) ??
+        latestStableVersionFromGit(input.projectRoot, gitImpl) ??
         packageVersion;
     const runNumber = runPart(input.runNumber, '0');
     const runAttempt = runPart(input.runAttempt, '1');
@@ -193,6 +352,42 @@ function releaseName(version, productConfig) {
     return `${displayName} v${version}`;
 }
 
+function resolvePublicationDecision(input, eventName) {
+    if (eventName !== 'schedule') {
+        return {
+            shouldPublish: true,
+            skipReason: null,
+        };
+    }
+
+    const projectRoot = normalizeOptionalString(input.projectRoot) ?? process.cwd();
+    const gitImpl = typeof input.git === 'function' ? input.git : null;
+    const targetCommit =
+        normalizeOptionalString(input.targetCommit) ?? targetCommitFromGit(projectRoot, gitImpl);
+    if (!targetCommit) {
+        return {
+            shouldPublish: true,
+            skipReason: null,
+        };
+    }
+
+    const latestNightly = normalizeLatestNightly(projectRoot, input.latestNightly, gitImpl);
+    if (!latestNightly) {
+        return {
+            shouldPublish: true,
+            skipReason: null,
+        };
+    }
+
+    const alreadyPublished = latestNightly.commit === targetCommit;
+    return {
+        shouldPublish: !alreadyPublished,
+        skipReason: alreadyPublished
+            ? `Latest nightly ${latestNightly.tag} already points at ${targetCommit}.`
+            : null,
+    };
+}
+
 export function resolveReleaseMetadata(input) {
     const eventName = normalizeOptionalString(input.eventName) ?? 'workflow_dispatch';
     const tagVersion =
@@ -229,6 +424,7 @@ export function resolveReleaseMetadata(input) {
         tag: `v${parsedVersion.version}`,
         prerelease: channel === 'stable' ? 'False' : 'True',
         releaseName: releaseName(parsedVersion.version, input.productConfig),
+        ...resolvePublicationDecision(input, eventName),
     };
 }
 
@@ -255,6 +451,8 @@ async function writeGithubOutput(metadata) {
             `tag=${metadata.tag}`,
             `prerelease=${metadata.prerelease}`,
             `release_name=${metadata.releaseName}`,
+            `should_publish=${metadata.shouldPublish ? 'true' : 'false'}`,
+            `skip_reason=${metadata.skipReason ?? ''}`,
             '',
         ].join('\n'),
         'utf8'
@@ -276,6 +474,7 @@ async function main() {
         packageVersion,
         runNumber: process.env.GITHUB_RUN_NUMBER,
         runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+        targetCommit: process.env.TARGET_COMMIT ?? process.env.GITHUB_SHA,
         projectRoot,
         productConfig,
     });

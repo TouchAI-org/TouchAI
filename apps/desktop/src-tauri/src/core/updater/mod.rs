@@ -732,7 +732,10 @@ pub fn check_for_updates(
                 .pending_update
                 .lock()
                 .map_err(|_| "更新状态锁已损坏".to_string())?;
-            *pending_update = Some(PendingUpdate { channel, update });
+            *pending_update = Some(PendingUpdate {
+                channel,
+                update: *update,
+            });
             Ok(response)
         }
         Ok(UpdateCheck::NoUpdateAvailable | UpdateCheck::RemoteIsEmpty) => {

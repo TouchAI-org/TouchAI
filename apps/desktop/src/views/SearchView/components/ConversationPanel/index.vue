@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -56,17 +56,19 @@
         </div>
 
         <!-- 跳到底部 -->
-        <div
-            v-if="showScrollToBottom"
-            class="scroll-fade-overlay pointer-events-none absolute right-0 bottom-0 left-0 flex h-20 items-end justify-center rounded-lg pb-4"
-        >
-            <button
-                class="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-lg transition-all hover:bg-gray-50 hover:shadow-xl"
-                @click="scrollToBottom"
+        <Transition name="t-fade">
+            <div
+                v-if="showScrollToBottom"
+                class="scroll-fade-overlay pointer-events-none absolute right-0 bottom-0 left-0 flex h-20 items-end justify-center rounded-lg pb-4"
             >
-                <AppIcon name="arrow-down" class="h-4 w-4 text-gray-600" />
-            </button>
-        </div>
+                <button
+                    class="t-press pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-lg hover:bg-gray-50 hover:shadow-xl"
+                    @click="scrollToBottom"
+                >
+                    <AppIcon name="arrow-down" class="h-4 w-4 text-gray-600" />
+                </button>
+            </div>
+        </Transition>
     </div>
 </template>
 

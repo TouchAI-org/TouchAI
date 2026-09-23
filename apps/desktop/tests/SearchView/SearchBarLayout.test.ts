@@ -105,4 +105,12 @@ describe('SearchBar layout', () => {
         expect(searchBar.classes()).toContain('items-start');
         expect(searchBar.classes()).not.toContain('items-center');
     });
+
+    it('allows the input editor to grow up to seven text lines', () => {
+        const wrapper = mountSearchBar();
+
+        const editorHost = wrapper.get('[data-testid="search-editor-host"]');
+
+        expect(editorHost.attributes('style')).toContain('max-height: calc(10.5em + 8px)');
+    });
 });

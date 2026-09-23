@@ -12,6 +12,12 @@ export function resolveReleaseMetadata(input: {
     runNumber?: string | number;
     runAttempt?: string | number;
     date?: Date;
+    targetCommit?: string | null;
+    latestNightly?: {
+        tag: string;
+        commit: string;
+    } | null;
+    git?: (args: string[]) => string;
     productConfig: {
         displayName: string;
         services?: {
@@ -26,4 +32,6 @@ export function resolveReleaseMetadata(input: {
     tag: string;
     prerelease: 'True' | 'False';
     releaseName: string;
+    shouldPublish: boolean;
+    skipReason: string | null;
 };

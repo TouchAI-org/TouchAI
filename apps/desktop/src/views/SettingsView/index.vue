@@ -4,8 +4,6 @@
     import AppIcon from '@components/AppIcon.vue';
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
-    import { peekManagedSettingsFocusRequest } from '@services/AuthService/managedSettingsFocus';
-    import { AppEvent, eventService } from '@services/EventService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import {
         type Component,
@@ -91,10 +89,7 @@
         },
     });
 
-    const initialManagedSettingsFocusRequest = peekManagedSettingsFocusRequest();
-    const activeSection = ref<NavigationSection>(
-        initialManagedSettingsFocusRequest?.section === 'ai-services' ? 'ai-services' : 'general'
-    );
+    const activeSection = ref<NavigationSection>('general');
     const sidebarReady = ref(false);
     const contentReady = ref(false);
     const minimumLoadingElapsed = ref(false);
@@ -102,8 +97,31 @@
     const SETTINGS_ENTRY_LOADING_DELAY_MS = 180;
     let loadingDelayTimer: ReturnType<typeof setTimeout> | null = null;
     const contentScrollRef = ref<HTMLElement | null>(null);
+    const contentDragRegionRef = ref<HTMLElement | null>(null);
+    const dragExcludeSelector = [
+        'button',
+        'a',
+        'input',
+        'textarea',
+        'select',
+        'label',
+        'summary',
+        '[role="button"]',
+        '[role="tab"]',
+        '[role="link"]',
+        '[role="checkbox"]',
+        '[role="switch"]',
+        '[role="radio"]',
+        '[role="slider"]',
+        '[role="separator"]',
+        '[role="dialog"]',
+        '[tabindex]',
+        '[contenteditable]:not([contenteditable="false"])',
+        '[data-tauri-drag-region="false"]',
+        '[data-drag-exclude="true"]',
+        '.cursor-pointer',
+    ].join(',');
     const isWindowMaximized = ref(false);
-    let unlistenManagedSettingsFocusProvider: (() => void) | null = null;
     useScrollbarStabilizer(contentScrollRef);
     const shellVisibilityClass = computed(() =>
         initialLoadingVisible.value ? 'opacity-0' : 'opacity-100'
@@ -118,12 +136,38 @@
         }
     })();
 
+    async function handleContentDragMouseDown(event: MouseEvent) {
+        if (event.button !== 0 || event.defaultPrevented || !currentWindow) {
+            return;
+        }
+
+        const target = event.target;
+        if (!(target instanceof Element) || target.closest(dragExcludeSelector)) {
+            return;
+        }
+
+        // 内容层保留点击命中；仅把顶部拖拽带内的非交互区域交给原生窗口。
+        const bounds = contentDragRegionRef.value?.getBoundingClientRect();
+        if (
+            !bounds ||
+            event.clientX < bounds.left ||
+            event.clientX >= bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY >= bounds.bottom
+        ) {
+            return;
+        }
+
+        event.preventDefault();
+        try {
+            await currentWindow.startDragging();
+        } catch (error) {
+            console.error('[SettingsView] Failed to start window dragging:', error);
+        }
+    }
+
     const handleNavigate = (section: NavigationSection) => {
         activeSection.value = section;
-    };
-
-    const handleManagedSettingsFocusProvider = () => {
-        activeSection.value = 'ai-services';
     };
 
     const scrollGeneralUpdateSectionIntoView = async () => {
@@ -221,12 +265,6 @@
     onMounted(() => {
         syncNativeWindowTitle();
         void initialize();
-        void (async () => {
-            unlistenManagedSettingsFocusProvider = await eventService.on(
-                AppEvent.SETTINGS_AI_SERVICES_FOCUS_PROVIDER,
-                handleManagedSettingsFocusProvider
-            );
-        })();
     });
 
     watch(locale, syncNativeWindowTitle);
@@ -236,8 +274,6 @@
             clearTimeout(loadingDelayTimer);
             loadingDelayTimer = null;
         }
-        unlistenManagedSettingsFocusProvider?.();
-        unlistenManagedSettingsFocusProvider = null;
     });
 </script>
 
@@ -263,13 +299,14 @@
             >
                 <div class="flex h-full min-h-0 flex-col">
                     <div
+                        ref="contentDragRegionRef"
                         class="absolute inset-x-0 top-0 z-10 h-9 shrink-0"
                         data-testid="settings-content-drag-region"
                         data-tauri-drag-region
                     />
 
                     <div
-                        class="absolute top-2.5 right-3 z-20 flex items-center gap-1"
+                        class="absolute top-2.5 right-3 z-30 flex items-center gap-1"
                         data-testid="settings-window-controls"
                     >
                         <button
@@ -316,14 +353,15 @@
                     </div>
 
                     <main
-                        class="min-w-0 flex-1 overflow-hidden"
+                        class="relative z-20 min-w-0 flex-1 overflow-hidden"
                         data-testid="settings-content-shell"
+                        @mousedown="handleContentDragMouseDown"
                     >
                         <div
                             :key="activeSection"
                             :ref="setContentScrollElement"
                             :class="[
-                                'h-full w-full',
+                                't-page h-full w-full',
                                 activeContentSection.scrollable
                                     ? 'settings-scrollbar overflow-y-auto'
                                     : '',

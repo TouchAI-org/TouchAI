@@ -28,11 +28,11 @@ use std::{ffi::OsStr, os::windows::ffi::OsStrExt, path::Path};
 use windows::{
     core::{Error as WindowsError, PCWSTR},
     Win32::{
-        Foundation::{HANDLE, RPC_E_CHANGED_MODE, SIZE},
+        Foundation::{RPC_E_CHANGED_MODE, SIZE},
         Graphics::Gdi::{
             CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDIBits, GetObjectW,
             SelectObject, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP,
-            HBRUSH, HDC, HGDIOBJ, RGBQUAD,
+            HGDIOBJ, RGBQUAD,
         },
         Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
         System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED},
@@ -65,7 +65,7 @@ unsafe fn extract_hbitmap_rgba(hbitmap: HBITMAP) -> Result<(u32, u32, Vec<u8>), 
         return Err("Invalid HBITMAP".to_string());
     }
 
-    let hdc = CreateCompatibleDC(HDC::default());
+    let hdc = CreateCompatibleDC(None);
     if hdc.is_invalid() {
         let _ = DeleteObject(HGDIOBJ(hbitmap.0));
         return Err("Failed to create compatible DC".to_string());
@@ -156,7 +156,7 @@ unsafe fn hicon_to_data_url(hicon: HICON, size: u32) -> Result<String, String> {
     let height = size.max(16) as i32;
     let mut bits_ptr: *mut core::ffi::c_void = std::ptr::null_mut();
 
-    let hdc = CreateCompatibleDC(HDC::default());
+    let hdc = CreateCompatibleDC(None);
     if hdc.is_invalid() {
         let _ = DestroyIcon(hicon);
         return Err("Failed to create compatible DC".to_string());
@@ -177,11 +177,11 @@ unsafe fn hicon_to_data_url(hicon: HICON, size: u32) -> Result<String, String> {
     };
 
     let hbitmap: HBITMAP = CreateDIBSection(
-        hdc,
+        Some(hdc),
         &bmi,
         DIB_RGB_COLORS,
         &mut bits_ptr as *mut *mut core::ffi::c_void,
-        HANDLE::default(),
+        None,
         0,
     )
     .map_err(|err| format!("Failed to create DIB section: {}", err))?;
@@ -193,18 +193,7 @@ unsafe fn hicon_to_data_url(hicon: HICON, size: u32) -> Result<String, String> {
 
     // 将 DIB 选入 DC，绘制图标，然后直接从 bits_ptr 读取像素
     let old_obj: HGDIOBJ = SelectObject(hdc, HGDIOBJ(hbitmap.0));
-    let draw_ok = DrawIconEx(
-        hdc,
-        0,
-        0,
-        hicon,
-        width,
-        height,
-        0,
-        HBRUSH::default(),
-        DI_NORMAL,
-    )
-    .is_ok();
+    let draw_ok = DrawIconEx(hdc, 0, 0, hicon, width, height, 0, None, DI_NORMAL).is_ok();
 
     let result = if draw_ok {
         let total_bytes = (width as usize) * (height as usize) * 4;

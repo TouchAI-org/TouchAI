@@ -32,6 +32,16 @@ function toolCall(toolCallId: string, toolName: string, input: unknown): TestStr
 }
 
 describe('AI SDK stream processor', () => {
+    it.each(['start', 'end'] as const)('preserves the text %s boundary', (state) => {
+        const processor = createAiSdkStreamProcessor();
+        expect(
+            processor.consumePart({
+                type: state === 'start' ? 'text-start' : 'text-end',
+                id: 'text-1',
+            })
+        ).toEqual([{ content: '', done: false, textState: state }]);
+    });
+
     it('keeps a streamed tool call when the final event omits the tool name', () => {
         const processor = createAiSdkStreamProcessor();
 
@@ -125,6 +135,21 @@ describe('AI SDK stream processor', () => {
                 name: 'builtin__glob',
                 arguments: '{"pattern":"*.ts"}',
             }),
+        ]);
+    });
+});
+
+describe('AI SDK reasoning lifecycle', () => {
+    it('forwards reasoning boundaries even before the first text delta', () => {
+        const processor = createAiSdkStreamProcessor();
+        expect(processor.consumePart({ type: 'reasoning-start', id: 'r1' })).toEqual([
+            { content: '', done: false, reasoningState: 'start' },
+        ]);
+        expect(processor.consumePart({ type: 'reasoning-delta', id: 'r1', text: 'Think' })).toEqual(
+            [{ content: '', done: false, reasoning: 'Think' }]
+        );
+        expect(processor.consumePart({ type: 'reasoning-end', id: 'r1' })).toEqual([
+            { content: '', done: false, reasoningState: 'end' },
         ]);
     });
 });

@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
@@ -8,7 +8,7 @@
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
     import type { NewProvider, ProviderDriver } from '@database/schema';
-    import { computed, ref } from 'vue';
+    import { computed, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
@@ -16,11 +16,17 @@
         getProviderDriverDefinition,
         providerDriverDefinitions,
     } from '@/services/AgentService/infrastructure/providers';
+    interface Props {
+        open?: boolean;
+    }
+
     interface Emits {
         (e: 'create', data: NewProvider): void;
         (e: 'cancel'): void;
+        (e: 'closed'): void;
     }
 
+    const props = withDefaults(defineProps<Props>(), { open: true });
     const emit = defineEmits<Emits>();
 
     const alert = useAlert();
@@ -36,7 +42,7 @@
         }
     }
 
-    const form = ref<Partial<NewProvider>>({
+    const createInitialForm = (): Partial<NewProvider> => ({
         name: '',
         driver: 'openai' as ProviderDriver,
         api_endpoint: '',
@@ -46,6 +52,7 @@
         enabled: 1,
         is_builtin: 0,
     });
+    const form = ref<Partial<NewProvider>>(createInitialForm());
 
     const selectedDriverDefinition = computed(() =>
         getProviderDriverDefinition((form.value.driver as ProviderDriver) || 'openai')
@@ -81,6 +88,17 @@
         form.value.logo = selectedDriverDefinition.value.logo;
     };
 
+    const resetForm = () => {
+        form.value = createInitialForm();
+    };
+
+    watch(
+        () => props.open,
+        (open, wasOpen) => {
+            if (open && wasOpen === false) resetForm();
+        }
+    );
+
     const handleSave = () => {
         if (!trimmedProviderName.value || !trimmedApiEndpoint.value) {
             alert.error(t('settings.ai.enterProviderNameAndEndpoint'));
@@ -101,7 +119,7 @@
 </script>
 
 <template>
-    <DialogShell>
+    <DialogShell :open="props.open" @closed="emit('closed')">
         <h2 class="mb-5 text-base font-bold text-neutral-950">
             {{ t('settings.ai.addProvider.title') }}
         </h2>

@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import MotionCollapse from '@components/MotionCollapse.vue';
     import ToolLogContent from '@components/ToolLogContent.vue';
     import { useListFilter } from '@composables/useListFilter';
     import { onMounted, ref, watch } from 'vue';
@@ -171,6 +172,7 @@
                     <button
                         type="button"
                         class="w-full p-4 text-left transition-colors hover:bg-neutral-50/70"
+                        :aria-expanded="expandedLogs.has(log.id)"
                         @click="toggleExpand(log.id)"
                     >
                         <div class="flex items-start justify-between">
@@ -211,36 +213,35 @@
                         </div>
                     </button>
 
-                    <div
-                        v-if="expandedLogs.has(log.id)"
-                        class="border-t border-neutral-200/70 bg-neutral-50/70 p-4"
-                    >
-                        <ToolLogContent
-                            :input="log.input"
-                            :output="log.output"
-                            :error="log.error_message"
-                            :is-error="log.status === 'error' && !!log.output"
-                        />
+                    <MotionCollapse :open="expandedLogs.has(log.id)" lazy>
+                        <div class="border-t border-neutral-200/70 bg-neutral-50/70 p-4">
+                            <ToolLogContent
+                                :input="log.input"
+                                :output="log.output"
+                                :error="log.error_message"
+                                :is-error="log.status === 'error' && !!log.output"
+                            />
 
-                        <div
-                            class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-200 pt-3 font-mono text-xs break-words text-neutral-500"
-                            data-testid="built-in-tool-log-detail-metadata"
-                        >
-                            <span data-no-i18n="true" translate="no">
-                                {{ t('toolLog.callIdLabel') }} {{ log.tool_call_id }}
-                            </span>
-                            <span v-if="log.session_id" data-no-i18n="true" translate="no">
-                                {{ t('toolLog.sessionLabel') }} {{ log.session_id }}
-                            </span>
-                            <span v-if="log.message_id" data-no-i18n="true" translate="no">
-                                {{ t('toolLog.messageLabel') }} {{ log.message_id }}
-                            </span>
-                            <span v-if="getBuiltInToolApprovalStateText(log.approval_state)">
-                                {{ t('toolLog.approvalLabel') }}
-                                {{ getBuiltInToolApprovalStateText(log.approval_state) }}
-                            </span>
+                            <div
+                                class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-200 pt-3 font-mono text-xs break-words text-neutral-500"
+                                data-testid="built-in-tool-log-detail-metadata"
+                            >
+                                <span data-no-i18n="true" translate="no">
+                                    {{ t('toolLog.callIdLabel') }} {{ log.tool_call_id }}
+                                </span>
+                                <span v-if="log.session_id" data-no-i18n="true" translate="no">
+                                    {{ t('toolLog.sessionLabel') }} {{ log.session_id }}
+                                </span>
+                                <span v-if="log.message_id" data-no-i18n="true" translate="no">
+                                    {{ t('toolLog.messageLabel') }} {{ log.message_id }}
+                                </span>
+                                <span v-if="getBuiltInToolApprovalStateText(log.approval_state)">
+                                    {{ t('toolLog.approvalLabel') }}
+                                    {{ getBuiltInToolApprovalStateText(log.approval_state) }}
+                                </span>
+                            </div>
                         </div>
-                    </div>
+                    </MotionCollapse>
                 </div>
 
                 <div v-if="hasMore" class="pt-2 text-center">

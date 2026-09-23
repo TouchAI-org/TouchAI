@@ -371,7 +371,8 @@ fn show_windows_status_reminder_notification<R: Runtime>(
 
     let app_handle = app.clone();
     let activated_handler = TypedEventHandler::new(
-        move |_toast: &Option<ToastNotification>, args: &Option<windows::core::IInspectable>| {
+        move |_toast: windows::core::Ref<'_, ToastNotification>,
+              args: windows::core::Ref<'_, windows::core::IInspectable>| {
             let activation_payload = args
                 .as_ref()
                 .and_then(|value| value.cast::<ToastActivatedEventArgs>().ok())

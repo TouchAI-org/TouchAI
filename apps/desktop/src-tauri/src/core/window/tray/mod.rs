@@ -183,7 +183,7 @@ pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn s
         return Ok(());
     }
 
-    let window = WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         "tray-menu",
         WebviewUrl::App(TRAY_MENU_ROUTE.parse().unwrap()),
@@ -195,8 +195,14 @@ pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn s
     .always_on_top(true)
     .skip_taskbar(true)
     .visible(false)
-    .focused(false)
-    .build()?;
+    .focused(false);
+
+    if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args()
+    {
+        builder = builder.additional_browser_args(&browser_args);
+    }
+
+    let window = builder.build()?;
 
     crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)
         .map_err(std::io::Error::other)?;

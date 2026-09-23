@@ -283,7 +283,7 @@ impl DatabaseRuntime {
             .take()
             .ok_or_else(|| format!("Transaction '{tx_id}' is already closed"))?;
 
-        sqlx::query(sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql))
             .execute(&mut *connection)
             .await
             .map_err(|error| format!("Failed to finalize sqlite transaction '{tx_id}': {error}"))?;
@@ -298,7 +298,13 @@ impl DatabaseRuntime {
         let pool = create_sqlite_pool(&database_path).await?;
 
         // 数据库契约统一收敛在前端目录，release 直接读取 exe 内嵌资源。
-        migrate_database(&pool, &database_contract).await?;
+        {
+            let mut connection = pool
+                .acquire()
+                .await
+                .map_err(|error| format!("Failed to acquire migration connection: {error}"))?;
+            migrate_database(&mut connection, &database_contract).await?;
+        }
         ensure_runtime_guards(&pool, &database_contract).await?;
         apply_seed(&pool, &database_contract).await?;
 

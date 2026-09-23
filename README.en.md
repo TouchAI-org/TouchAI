@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="https://touch-ai.org/">Website</a> · <a href="https://hub.touch-ai.org/">Hub</a>
+  <a href="https://touch-ai.org/">Website</a>
 </p>
 
 <p align="center">
@@ -26,10 +26,6 @@
 </p>
 
 ---
-
-<p align="center">
-  <img src="docs/images/touchai-mimo.en.png" alt="TouchAI × Xiaomi MIMO" />
-</p>
 
 ### Features
 

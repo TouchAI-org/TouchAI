@@ -1,5 +1,24 @@
 # 更新日志
 
+## [1.2.2](https://github.com/TouchAI-org/TouchAI/compare/v1.2.1...v1.2.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* **e2e:** enable WebView2 remote debugging for Windows CI ([#522](https://github.com/TouchAI-org/TouchAI/issues/522)) ([b115814](https://github.com/TouchAI-org/TouchAI/commit/b1158146762299d7324d3295a6bb572d387af82d))
+* **release:** prune orphaned R2 release assets ([#507](https://github.com/TouchAI-org/TouchAI/issues/507)) ([5f269d0](https://github.com/TouchAI-org/TouchAI/commit/5f269d0accc17184d5c2a593e5d91df58daedbea))
+* **release:** skip empty scheduled nightly releases ([#505](https://github.com/TouchAI-org/TouchAI/issues/505)) ([2c154b6](https://github.com/TouchAI-org/TouchAI/commit/2c154b6eb2f24c4df9eae1419b94471c8c4e1dbd))
+
+## [1.2.1](https://github.com/TouchAI-org/TouchAI/compare/v1.2.0...v1.2.1) (2026-06-29)
+
+
+### Bug Fixes
+
+* **clipboard:** sanitize rich clipboard content ([#473](https://github.com/TouchAI-org/TouchAI/issues/473)) ([36ab91c](https://github.com/TouchAI-org/TouchAI/commit/36ab91c20d2e7f82db81612a48e921b31cd68c2c))
+* **desktop:** remove expired Xiaomi activity support ([#472](https://github.com/TouchAI-org/TouchAI/issues/472)) ([ba8011f](https://github.com/TouchAI-org/TouchAI/commit/ba8011fe21a47044fba52b128b85ecd0ef107d58))
+* **desktop:** stabilize frontend dependency upgrade ([#475](https://github.com/TouchAI-org/TouchAI/issues/475)) ([fa38949](https://github.com/TouchAI-org/TouchAI/commit/fa389492dac9396cca00140dbc628cd8f0d0572d))
+* **http-scope:** allow explicit port numbers in HTTP URL patterns ([#498](https://github.com/TouchAI-org/TouchAI/issues/498)) ([72a6e3c](https://github.com/TouchAI-org/TouchAI/commit/72a6e3c1a2c9a3bdf89d9604f23d667a69947a47))
+
 ## [1.2.0](https://github.com/TouchAI-org/TouchAI/compare/v1.1.1...v1.2.0) (2026-06-10)
 
 

@@ -51,8 +51,8 @@
     const isTargetCollapsed = ref(false);
     const isLabelVisible = ref(true);
     const RESIZE_CLICK_THRESHOLD_PX = 4;
-    const LABEL_FADE_BEFORE_COLLAPSE_MS = 110;
-    const LABEL_FADE_AFTER_EXPAND_MS = 160;
+    const LABEL_FADE_BEFORE_COLLAPSE_MS = 150;
+    const LABEL_FADE_AFTER_EXPAND_MS = 180;
     let sidebarAnimationTimer: ReturnType<typeof setTimeout> | null = null;
 
     const activeSection = computed(() => props.activeSection);
@@ -372,8 +372,9 @@
         data-testid="settings-sidebar"
         :data-collapsed="isCollapsed"
         :data-labels-visible="isLabelVisible"
+        :data-resizing="isResizing"
         :class="[
-            'settings-navigation-sidebar relative flex h-full shrink-0 flex-col bg-[#f4f4f2] pt-6 pb-3.5 transition-[width,min-width,max-width,padding] duration-300 ease-out',
+            'settings-navigation-sidebar t-sidebar relative flex h-full shrink-0 flex-col bg-[#f4f4f2] pt-6 pb-3.5',
             isCollapsed ? 'px-2' : 'px-3',
         ]"
         :style="sidebarStyle"
@@ -381,7 +382,7 @@
         <div
             data-testid="settings-sidebar-brand"
             :class="[
-                'mb-7 flex h-10 shrink-0 items-center transition-all duration-300 ease-out',
+                't-sidebar-brand mb-7 flex h-10 shrink-0 items-center',
                 isCollapsed ? 'justify-center gap-0 px-0' : 'justify-start gap-3 px-3',
             ]"
             data-tauri-drag-region
@@ -414,7 +415,7 @@
                 :data-testid="`settings-nav-${item.id}`"
                 :title="item.label"
                 :class="[
-                    'group flex h-10 cursor-pointer items-center rounded-[10px] text-left text-[13px] font-normal transition-all duration-200',
+                    't-press t-sidebar-item group flex h-10 cursor-pointer items-center rounded-[10px] text-left text-[13px] font-normal',
                     isCollapsed
                         ? 'mx-auto w-10 justify-center gap-0 px-0'
                         : 'w-full justify-start gap-2.5 px-3',
@@ -448,15 +449,12 @@
 
         <div
             data-testid="settings-sidebar-footer"
-            :class="[
-                'mt-3 pt-3 text-center transition-all duration-300 ease-out',
-                isCollapsed ? 'px-0' : 'px-2',
-            ]"
+            :class="['t-sidebar-footer mt-3 pt-3 text-center', isCollapsed ? 'px-0' : 'px-2']"
         >
             <button
                 type="button"
                 :class="[
-                    'max-w-full cursor-pointer overflow-hidden text-xs leading-5 text-neutral-400 transition-all duration-200 ease-out hover:text-neutral-700',
+                    't-press max-w-full cursor-pointer overflow-hidden text-xs leading-5 text-neutral-400 hover:text-neutral-700',
                     isLabelVisible ? 'max-h-5 opacity-100' : 'max-h-0 opacity-0',
                 ]"
                 data-testid="settings-sidebar-version"
@@ -469,7 +467,7 @@
                     type="button"
                     data-testid="settings-sidebar-github"
                     :class="[
-                        'flex cursor-pointer items-center justify-center rounded-full text-neutral-400 transition-all duration-200 ease-out hover:bg-[#eeeeec] hover:text-neutral-700',
+                        't-press flex cursor-pointer items-center justify-center rounded-full text-neutral-400 hover:bg-[#eeeeec] hover:text-neutral-700',
                         isCollapsed ? 'h-10 w-10' : 'h-7 w-7',
                     ]"
                     :title="t('settings.sidebar.githubRepository')"
@@ -484,7 +482,7 @@
                     type="button"
                     data-testid="settings-sidebar-issues"
                     :class="[
-                        'flex h-7 cursor-pointer items-center justify-center overflow-hidden rounded-full text-neutral-400 transition-all duration-200 ease-out hover:bg-[#eeeeec] hover:text-neutral-700',
+                        't-press flex h-7 cursor-pointer items-center justify-center overflow-hidden rounded-full text-neutral-400 hover:bg-[#eeeeec] hover:text-neutral-700',
                         isLabelVisible ? 'w-7 opacity-100' : 'w-0 opacity-0',
                     ]"
                     :title="t('settings.sidebar.feedback')"
@@ -520,11 +518,10 @@
         min-width: 0;
         overflow: hidden;
         white-space: nowrap;
-        will-change: max-width, opacity, transform;
         transition:
-            max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
-            opacity 150ms ease,
-            transform 180ms ease;
+            max-width var(--duration-fast) var(--ease-smooth-out),
+            opacity var(--duration-quick) var(--ease-smooth-out),
+            transform var(--duration-quick) var(--ease-smooth-out);
     }
 
     .settings-sidebar-brand-label {

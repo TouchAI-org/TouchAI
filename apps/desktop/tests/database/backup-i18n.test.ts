@@ -87,17 +87,12 @@ describe('database backup native dialog i18n', () => {
         expect(isDatabaseBackupCancelledError(new Error('other'))).toBe(false);
     });
 
-    it('returns an empty import result when the import dialog is cancelled', async () => {
+    it('returns false when the import dialog is cancelled', async () => {
         openMock.mockResolvedValueOnce(null);
         const { databaseBackup } = await import('@/database/backup');
 
-        await expect(databaseBackup.importDatabase('chat_only')).resolves.toEqual({
-            sourcePath: '',
-            importMode: 'chat_only',
-            currentBackupPath: '',
-            sourceBackupPath: null,
-            migratedSource: false,
-        });
+        await expect(databaseBackup.importDatabase('chat_only')).resolves.toBe(false);
+
         expect(importBackupMock).not.toHaveBeenCalled();
     });
 });

@@ -94,13 +94,10 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'browser',
     'show_widget',
     'visualize_read_me',
-]);
-
-const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set([
-    'web_search',
-    'visualize_read_me',
     'ask_user_question',
 ]);
+
+const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set(['web_search', 'visualize_read_me']);
 const BROWSER_AUTOMATION_TOOL_IDS = new Set(['browser']);
 
 export function getBuiltInToolSummary(toolId: string, description?: string | null): string {
@@ -142,6 +139,10 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
 
     if (toolId === 'visualize_read_me') {
         return t('settings.builtInTools.summary.visualizeReadMe');
+    }
+
+    if (toolId === 'ask_user_question') {
+        return t('settings.builtInTools.summary.askUserQuestion');
     }
 
     return description?.trim() || t('settings.builtInTools.summary.fallback');

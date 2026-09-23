@@ -111,13 +111,8 @@ describe('Settings data management i18n and layout', () => {
         countMessagesMock.mockResolvedValue(2);
         countSessionTurnsMock.mockResolvedValue(3);
         getStatisticMock.mockResolvedValue('2026-05-20T12:34:00Z');
-        importDatabaseMock.mockResolvedValue({
-            sourcePath: 'D:/backup.db',
-            importMode: 'full',
-            currentBackupPath: '',
-            sourceBackupPath: null,
-            migratedSource: false,
-        });
+        importDatabaseMock.mockResolvedValue(true);
+
         setMetaMock.mockResolvedValue(undefined);
     });
 

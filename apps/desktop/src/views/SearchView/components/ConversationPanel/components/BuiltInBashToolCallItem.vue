@@ -29,8 +29,8 @@
             </span>
         </button>
 
-        <transition name="tool-call-slide">
-            <div v-if="isExpanded" class="tool-call-bash-detail">
+        <MotionCollapse :open="isExpanded" lazy>
+            <div class="tool-call-bash-detail">
                 <div class="tool-call-bash-panel">
                     <div class="tool-call-bash-panel-header">
                         <span
@@ -105,12 +105,13 @@
                     </div>
                 </div>
             </div>
-        </transition>
+        </MotionCollapse>
     </div>
 </template>
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import MotionCollapse from '@components/MotionCollapse.vue';
     import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -424,11 +425,11 @@
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
-        transition: color 0.16s ease;
+        transition: color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .tool-call-bash-wrapper:hover .tool-call-log-line {
-        color: rgb(75, 85, 99);
+        color: rgb(31, 41, 55);
     }
 
     .tool-call-log-verb {
@@ -452,7 +453,7 @@
     .tool-call-log-duration {
         color: rgb(156, 163, 175);
         font-size: 0.9em;
-        transition: color 0.16s ease;
+        transition: color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .tool-call-bash-wrapper
@@ -465,7 +466,7 @@
 
     .tool-call-bash-wrapper:hover .tool-call-log-content,
     .tool-call-bash-wrapper:hover .tool-call-log-duration {
-        color: rgb(107, 114, 128);
+        color: rgb(75, 85, 99);
     }
 
     .tool-call-bash-detail {
@@ -660,18 +661,5 @@
     .tool-call-bash-status--error,
     .tool-call-bash-status--rejected {
         color: rgb(126, 99, 72);
-    }
-
-    .tool-call-slide-enter-active,
-    .tool-call-slide-leave-active {
-        transition:
-            opacity 0.2s ease,
-            transform 0.2s ease;
-    }
-
-    .tool-call-slide-enter-from,
-    .tool-call-slide-leave-to {
-        opacity: 0;
-        transform: translateY(-3px);
     }
 </style>

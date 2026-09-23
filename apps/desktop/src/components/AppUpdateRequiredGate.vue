@@ -207,7 +207,7 @@
                     :aria-label="t('settings.update.downloadProgress')"
                 >
                     <div
-                        class="bg-primary-600 h-full rounded-full transition-all"
+                        class="t-progress bg-primary-600 h-full rounded-full"
                         :style="{ width: `${updateState.downloadProgress ?? 0}%` }"
                     />
                 </div>

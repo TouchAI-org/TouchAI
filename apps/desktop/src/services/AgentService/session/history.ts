@@ -1,10 +1,17 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { findAllMcpServers } from '@database/queries/mcpServers';
+import { getMessageText } from '@database/queries/messageParts';
 import type { MessageRow } from '@database/queries/messages';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
+import {
+    getToolCallName,
+    readToolCallData,
+    type ToolCallPartData,
+} from '@database/queries/toolParts';
 import type { PersistedToolLogStatus } from '@database/schema';
+import type { MessagePartEntity } from '@database/types';
 
 import { tt } from '@/i18n';
 import { hydratePersistedAttachments } from '@/services/AgentService/infrastructure/attachments';
@@ -24,7 +31,7 @@ import {
     type WidgetInfo,
 } from '@/types/session';
 import { parseDbDateTimestamp } from '@/utils/date';
-import { createTextPart } from '@/utils/session';
+import { createReasoningPart, createTextPart } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
 import { AiError } from '../contracts/errors';
@@ -41,22 +48,10 @@ import {
     type WidgetTargetLookups,
 } from './widgets';
 
-interface PersistedHistoryEntry {
-    id: number;
-    role: MessageRow['role'];
-    content: string;
-    reasoning: string | null;
-    created_at: string;
+type PersistedHistoryEntry = Omit<MessageRow, 'attachments'> & {
     attachments?: Awaited<ReturnType<typeof hydratePersistedAttachments>>;
     toolCalls?: ToolCallInfo[];
-    toolResult?: {
-        callId: string;
-        result: string;
-        status: ToolCallInfo['status'];
-        durationMs?: number;
-        isError?: boolean;
-    };
-}
+};
 
 interface SessionHistoryBuildResult {
     history: SessionMessage[];
@@ -224,81 +219,55 @@ function buildPersistedShowWidgetPayload(toolCall: ToolCallInfo): ShowWidgetPayl
     };
 }
 
-/**
- * 数据库里一轮工具调用会被拆成 tool_call / tool_result / assistant 多类消息。
- * 这里先按 message id 聚合，再把工具日志与结果拼回 UI 需要的中间结构。
- *
- * @param rows 已排序的数据库消息行。
- * @param resolveServerName 通过 serverId 解析 MCP 服务器名称。
- * @returns 便于 UI 重组的中间历史结构。
- */
+/** Convert each stored message once, keeping the database row and parts intact. */
 async function buildPersistedEntries(
     rows: MessageRow[],
     resolveServerName: (serverId: number | null) => string
 ): Promise<PersistedHistoryEntry[]> {
-    const entries: PersistedHistoryEntry[] = [];
-    let currentEntry: PersistedHistoryEntry | null = null;
-    let currentToolCallIds = new Set<string>();
-
-    for (const row of rows) {
-        if (!currentEntry || currentEntry.id !== row.id) {
-            currentEntry = {
-                id: row.id,
-                role: row.role,
-                content: row.content,
-                reasoning: row.reasoning,
-                created_at: row.created_at,
+    return Promise.all(
+        rows.map(async (row): Promise<PersistedHistoryEntry> => {
+            const entry: PersistedHistoryEntry = {
+                ...row,
                 attachments:
                     row.role === 'user'
                         ? await hydratePersistedAttachments(row.attachments)
                         : undefined,
             };
-            entries.push(currentEntry);
-            currentToolCallIds = new Set<string>();
-        }
-
-        if (
-            row.role === 'tool_call' &&
-            row.tool_call_id &&
-            !currentToolCallIds.has(row.tool_call_id)
-        ) {
-            currentToolCallIds.add(row.tool_call_id);
-            const namespacedName = row.tool_name ?? row.tool_call_id;
-            const source = namespacedName.startsWith('builtin__') ? 'builtin' : 'mcp';
-            const serverName =
-                row.server_id === null ? undefined : resolveServerName(row.server_id);
-            const toolCall: ToolCallInfo = {
-                id: row.tool_call_id,
-                name: normalizeDisplayName(namespacedName),
-                namespacedName,
-                source,
-                serverName,
-                serverId: row.server_id,
-                sourceLabel: source === 'builtin' ? '内置工具' : serverName || 'MCP 工具',
-                arguments: parseToolArguments(row.tool_input),
-                builtinConversationSemantic:
-                    source === 'builtin'
-                        ? parseBuiltInConversationSemantic(row.builtin_conversation_semantic_json)
-                        : undefined,
-                status: 'executing',
-            };
-            syncBuiltInToolCallPresentation(toolCall);
-            currentEntry.toolCalls = [...(currentEntry.toolCalls ?? []), toolCall];
-        }
-
-        if (row.role === 'tool_result' && row.tool_call_id) {
-            const restoredStatus = mapPersistedToolResultStatus(row.tool_status, row.content);
-            currentEntry.toolResult = {
-                callId: row.tool_call_id,
-                result: row.content,
-                status: restoredStatus,
-                durationMs: row.tool_duration_ms ?? undefined,
-                isError: isPersistedToolResultErrorStatus(row.tool_status, row.content),
-            };
-        }
-    }
-
-    return entries;
+            if (row.role === 'tool_call') {
+                entry.toolCalls = row.parts
+                    .filter((part) => part.type === 'tool_call')
+                    .map((part): ToolCallInfo => {
+                        const data = readToolCallData(part);
+                        const namespacedName = getToolCallName(data);
+                        const source = data.toolKind;
+                        const serverId = data.toolKind === 'mcp' ? data.server_id : null;
+                        const serverName =
+                            serverId === null ? undefined : resolveServerName(serverId);
+                        const call: ToolCallInfo = {
+                            id: data.toolCallId,
+                            name: normalizeDisplayName(namespacedName),
+                            namespacedName,
+                            source,
+                            serverId,
+                            serverName,
+                            sourceLabel:
+                                source === 'builtin' ? '内置工具' : serverName || 'MCP 工具',
+                            arguments: parseToolArguments(data.input),
+                            builtinConversationSemantic:
+                                data.toolKind === 'builtin'
+                                    ? parseBuiltInConversationSemantic(
+                                          data.conversation_semantic_json
+                                      )
+                                    : undefined,
+                            status: 'executing',
+                        };
+                        syncBuiltInToolCallPresentation(call);
+                        return call;
+                    });
+            }
+            return entry;
+        })
+    );
 }
 
 /**
@@ -313,6 +282,30 @@ async function buildPersistedEntries(
  * @param entries 已聚合的持久化历史记录。
  * @returns UI 可直接消费的对话历史。
  */
+function appendAssistantOutput(message: SessionMessage, parts: MessagePartEntity[]): void {
+    for (const part of parts) {
+        if (part.type === 'text') {
+            if (!part.content) continue;
+            message.parts.push(createTextPart(part.content));
+            message.content += part.content;
+        } else if (part.type === 'reasoning') {
+            appendReasoningPart(message, part);
+            message.reasoning = `${message.reasoning ?? ''}${part.content}`;
+        }
+    }
+}
+function appendReasoningPart(message: SessionMessage, segment: MessagePartEntity): void {
+    const part = createReasoningPart(segment.content);
+    part.startedAt = segment.started_at ?? undefined;
+    // An interrupted part stops at its last persisted wall-clock timestamp.
+    part.endedAt =
+        segment.ended_at ??
+        (segment.started_at === null
+            ? undefined
+            : Math.max(segment.started_at, parseDbDateTimestamp(segment.updated_at)));
+    message.parts.push(part);
+}
+
 function convertEntriesToSessionHistory(
     entries: PersistedHistoryEntry[],
     promptSnapshotsByMessageId: Map<number, PromptSnapshot>
@@ -322,6 +315,7 @@ function convertEntriesToSessionHistory(
     let activeAssistantMessage: SessionMessage | null = null;
     let activeAssistantEntryIds: number[] = [];
     let toolCallMap = new Map<string, ToolCallInfo>();
+    let toolCallDataMap = new Map<string, ToolCallPartData>();
     let pendingToolResultFallbacks: string[] = [];
     const widgetsByCallId = new Map<string, WidgetTarget>();
     const widgetsByWidgetId = new Map<string, WidgetTarget>();
@@ -370,6 +364,7 @@ function convertEntriesToSessionHistory(
         activeAssistantMessage = null;
         activeAssistantEntryIds = [];
         toolCallMap = new Map<string, ToolCallInfo>();
+        toolCallDataMap = new Map<string, ToolCallPartData>();
         pendingToolResultFallbacks = [];
     };
 
@@ -485,13 +480,14 @@ function convertEntriesToSessionHistory(
             flushAssistantMessage();
             const promptSnapshot = promptSnapshotsByMessageId.get(entry.id);
             const historyIndex = history.length;
+            const content = getMessageText(entry.parts);
             history.push({
                 id: `user-${entry.id}`,
                 role: 'user',
-                content: entry.content,
+                content,
                 attachments: entry.attachments?.length ? entry.attachments : undefined,
                 inputSnapshot: createInputHistorySnapshot({
-                    text: entry.content,
+                    text: content,
                     attachments: entry.attachments ?? [],
                     editorDoc: promptSnapshot?.inputSnapshot?.editorDoc,
                     excludeFromHistory: promptSnapshot?.inputSnapshot?.excludeFromHistory,
@@ -505,13 +501,8 @@ function convertEntriesToSessionHistory(
 
         const assistantMessage = ensureAssistantMessage(entry);
 
-        if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.reasoning?.trim()) {
-            assistantMessage.reasoning = `${assistantMessage.reasoning ?? ''}${entry.reasoning}`;
-        }
-
-        if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.content) {
-            assistantMessage.content += entry.content;
-            assistantMessage.parts.push(createTextPart(entry.content));
+        if (entry.role === 'assistant' || entry.role === 'tool_call') {
+            appendAssistantOutput(assistantMessage, entry.parts);
         }
 
         if (entry.role === 'tool_call' && entry.toolCalls?.length) {
@@ -526,21 +517,42 @@ function convertEntriesToSessionHistory(
                         callId: toolCall.id,
                     });
                 }
-                toolCallMap.set(toolCall.id, toolCall);
+                const key = `${toolCall.source}:${toolCall.id}`;
+                toolCallMap.set(key, toolCall);
+                const callPart = entry.parts.find(
+                    (part) =>
+                        part.type === 'tool_call' &&
+                        part.tool_kind === toolCall.source &&
+                        part.tool_call_id === toolCall.id
+                );
+                if (callPart?.type === 'tool_call') {
+                    toolCallDataMap.set(key, readToolCallData(callPart));
+                }
             }
         }
 
-        if (entry.role === 'tool_result' && entry.toolResult) {
-            const toolCall = toolCallMap.get(entry.toolResult.callId);
+        if (entry.role === 'tool_result') {
+            const resultPart = entry.parts.find((part) => part.type === 'tool_result');
+            const resultText = getMessageText(entry.parts);
+            const resultKey =
+                resultPart?.tool_kind && resultPart.tool_call_id
+                    ? `${resultPart.tool_kind}:${resultPart.tool_call_id}`
+                    : null;
+            const toolCall = resultKey ? toolCallMap.get(resultKey) : undefined;
+            const callData = resultKey ? toolCallDataMap.get(resultKey) : undefined;
             if (toolCall) {
-                toolCall.result = entry.toolResult.result;
-                toolCall.status = entry.toolResult.status;
-                toolCall.isError = entry.toolResult.isError;
-                toolCall.durationMs = entry.toolResult.durationMs;
+                const status = mapPersistedToolResultStatus(callData?.status ?? null, resultText);
+                toolCall.result = resultText;
+                toolCall.status = status;
+                toolCall.isError = isPersistedToolResultErrorStatus(
+                    callData?.status ?? null,
+                    resultText
+                );
+                toolCall.durationMs = callData?.duration_ms ?? undefined;
                 syncBuiltInToolCallPresentation(toolCall);
                 if (toolCall.namespacedName === SHOW_WIDGET_TOOL_NAME) {
                     const payload = buildPersistedShowWidgetPayload(toolCall);
-                    if (entry.toolResult.isError) {
+                    if (toolCall.isError) {
                         removePersistedWidgetByCallId(toolCall.id);
                     } else if (payload?.mode === 'remove') {
                         removePersistedWidgetByWidgetId(payload.widgetId);
@@ -552,11 +564,9 @@ function convertEntriesToSessionHistory(
                         );
                     }
                 }
-            } else if (entry.content.trim()) {
-                pendingToolResultFallbacks.push(entry.content);
+            } else if (resultText.trim()) {
+                pendingToolResultFallbacks.push(resultText);
             }
-        } else if (entry.role === 'tool_result' && entry.content.trim()) {
-            pendingToolResultFallbacks.push(entry.content);
         }
     }
 
@@ -605,7 +615,7 @@ function hasVisibleAssistantContent(message: SessionMessage): boolean {
     }
 
     return message.parts.some((part) => {
-        if (part.type === 'text') {
+        if (part.type === 'text' || part.type === 'reasoning') {
             return !!part.content.trim();
         }
 
@@ -896,14 +906,11 @@ export async function buildSessionHistory(
         }
     }
 
-    return injectDerivedRequestStatuses(
-        convertEntriesToSessionHistory(
-            await buildPersistedEntries(messages, resolveServerName),
-            promptSnapshotsByMessageId
-        ),
-        turns,
-        attempts
+    const buildResult = convertEntriesToSessionHistory(
+        await buildPersistedEntries(messages, resolveServerName),
+        promptSnapshotsByMessageId
     );
+    return injectDerivedRequestStatuses(buildResult, turns, attempts);
 }
 
 /**
