@@ -100,7 +100,7 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onApproveApproval).toHaveBeenCalledWith('approval-2');
     });
 
-    it('lets modified typing attempts bypass pending approval attention', () => {
+    it('does not route configurable shortcuts while approval is pending', () => {
         const { router, callbacks } = createKeyboardRouter({
             getPendingApproval: () => ({
                 callId: 'approval-3',
@@ -115,7 +115,7 @@ describe('createSearchKeyboardRouter', () => {
         expect(router.route({ key: 'x', altKey: true })).toBe(true);
 
         expect(callbacks.onPromptApprovalAttention).not.toHaveBeenCalled();
-        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.history.open');
+        expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
     });
 
     it('treats Backspace and Delete as typing attempts during pending approval', () => {

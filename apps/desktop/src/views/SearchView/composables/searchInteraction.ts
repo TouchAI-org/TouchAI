@@ -19,7 +19,6 @@ import {
 } from '@/types/session';
 
 import type {
-    PendingRequest,
     SearchCursorContext,
     SearchModelDropdownState,
     SearchModelOverride,
@@ -112,8 +111,7 @@ export interface UseSearchKeyboardOptions {
     modelDropdownState: Ref<SearchModelDropdownState>;
     controller: SearchPageController;
     sessionHistory: Ref<SessionMessage[]>;
-    pendingRequest: Ref<PendingRequest | null>;
-    isWaitingForCompletion: Ref<boolean>;
+    hasPendingRequest: () => boolean;
     isLoading: Ref<boolean>;
     pendingToolApproval: Ref<PendingToolApproval | null>;
     approvePendingToolApproval: (callId?: string) => boolean;
@@ -140,12 +138,15 @@ export interface UseSearchKeyboardOptions {
     handleSearchKeybindingAction?: (actionId: SearchKeybindingActionId) => void | Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
     cancelRequest: () => void;
+    cancelPendingRequest: () => boolean;
     clearSession: () => void;
 }
 
 export type SearchKeydownHandler = ((event: KeyboardEvent) => Promise<void>) & {
     routeSearchSurfaceCommand: (payload: SearchSurfaceCommandEvent) => boolean;
 };
+
+const DOUBLE_BACKSPACE_INTERVAL = 300;
 
 function createEmptyModelOverride(): SearchModelOverride {
     return {
@@ -661,6 +662,7 @@ export function createSearchKeydownHandler(
         modelDropdownState,
         controller,
         sessionHistory,
+        hasPendingRequest,
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
@@ -685,9 +687,11 @@ export function createSearchKeydownHandler(
         handleSearchKeybindingAction,
         handleSubmit,
         cancelRequest,
+        cancelPendingRequest,
         clearSession,
     } = options;
 
+    let lastBackspaceTime = 0;
     const keyboardRouter = createConfigurableSearchKeyboardRouter({
         getSearchKeybindings: () => searchKeybindings.value,
         getPendingApproval: () =>
@@ -899,6 +903,20 @@ export function createSearchKeydownHandler(
                 await closeModelDropdown();
                 return;
             }
+
+            if (hasPendingRequest()) {
+                const now = Date.now();
+                const timeSinceLastBackspace = now - lastBackspaceTime;
+                lastBackspaceTime = now;
+
+                if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL && cancelPendingRequest()) {
+                    event.preventDefault();
+                    lastBackspaceTime = 0;
+                }
+                return;
+            }
+
+            lastBackspaceTime = 0;
 
             if (modelOverride.value.modelId && cursorContext.value.cursorAtStart) {
                 event.preventDefault();

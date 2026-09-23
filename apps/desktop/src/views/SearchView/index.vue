@@ -252,6 +252,7 @@
         settleUserQuestion,
         handleSubmit,
         cancelRequest,
+        cancelPendingRequest,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
         modelOverride,
@@ -569,8 +570,7 @@
         modelDropdownState,
         controller,
         sessionHistory,
-        pendingRequest,
-        isWaitingForCompletion,
+        hasPendingRequest: () => Boolean(pendingRequest.value),
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
@@ -596,6 +596,7 @@
         handleSearchKeybindingAction,
         handleSubmit,
         cancelRequest,
+        cancelPendingRequest,
         clearSession: clearSessionToIdle,
     });
     routeSearchSurfaceCommand = searchKeyboard.routeSearchSurfaceCommand;
