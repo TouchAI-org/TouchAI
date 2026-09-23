@@ -24,7 +24,6 @@ function createKeyboardRouter(
         onQuickSearchPageUp: vi.fn(),
         onQuickSearchPageDown: vi.fn(),
         onQuickSearchContextMenu: vi.fn(),
-        onQuickSearchToggleView: vi.fn(),
         onQuickSearchCollapse: vi.fn(),
         onNavigateInputHistory: vi.fn(() => 'ignored' as const),
         onHideAllPopups: vi.fn(),
@@ -33,7 +32,6 @@ function createKeyboardRouter(
         onHideWindow: vi.fn(),
         onClearSession: vi.fn(),
         onClearDraft: vi.fn(),
-        onClearAll: vi.fn(),
         onSearchKeybindingAction: vi.fn(),
     };
     const routerOptions = {
@@ -209,6 +207,20 @@ describe('createSearchKeyboardRouter', () => {
         expect(remappedRouter.callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
             'search.history.open'
         );
+    });
+
+    it('swallows host accelerator shortcuts while an approval is pending', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getPendingApproval: () => ({
+                callId: 'approval-host-command',
+                keyboardApproveAt: Date.now() + 5_000,
+            }),
+        });
+
+        expect(router.routeCommand('search.history.open', 'Mod+H')).toBe(true);
+        await flushAsyncWork();
+
+        expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
     });
 
     it('swallows host accelerator shortcuts while a popup window has focus', async () => {

@@ -433,6 +433,7 @@ describe('createSearchKeydownHandler', () => {
             openSettingsWindow: vi.fn().mockResolvedValue(undefined),
             handleSubmit: vi.fn().mockResolvedValue(undefined),
             cancelRequest: vi.fn(),
+            cancelPendingRequest: vi.fn(() => false),
             clearSession: vi.fn(),
         });
 

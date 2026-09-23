@@ -385,11 +385,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         );
     }
 
-    function clearAll() {
-        clearSessionState();
-        clearDraft();
-    }
-
     function cancelRequest() {
         clearPendingRequestState();
         if (isLoading.value) {
@@ -518,7 +513,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         rejectPendingToolApproval,
         settleUserQuestion,
         handleSubmit,
-        clearAll,
         cancelRequest,
         cancelPendingRequest,
         handleRegenerateMessage,

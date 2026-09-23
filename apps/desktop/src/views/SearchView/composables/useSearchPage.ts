@@ -463,6 +463,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let stopReadyWatch: (() => void) | null = null;
     let stopPinnedWatch: (() => void) | null = null;
     let stopSearchSurfaceShortcutWatch: (() => void) | null = null;
+    let searchSurfaceShortcutSync: Promise<void> = Promise.resolve();
     let lifecycleInitialized = false;
     let restoredActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
@@ -614,15 +615,17 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             return;
         }
 
-        try {
-            await native.shortcut.setSearchSurfaceShortcuts(
-                buildSearchSurfaceShortcutEntries(searchKeybindings.value, {
-                    quickSearchOpen: controller.isQuickSearchOpen(),
-                })
-            );
-        } catch (error) {
-            console.error('[SearchView] Failed to sync search surface shortcuts:', error);
-        }
+        const entries = buildSearchSurfaceShortcutEntries(searchKeybindings.value, {
+            quickSearchOpen: controller.isQuickSearchOpen(),
+        });
+        searchSurfaceShortcutSync = searchSurfaceShortcutSync
+            .catch(() => undefined)
+            .then(() => native.shortcut.setSearchSurfaceShortcuts(entries))
+            .catch((error) => {
+                console.error('[SearchView] Failed to sync search surface shortcuts:', error);
+            });
+
+        await searchSurfaceShortcutSync;
     }
 
     async function initializeSearchView() {
