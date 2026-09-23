@@ -210,6 +210,8 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                 onPromptApprovalAttention();
                 return true;
             }
+
+            return true;
         }
 
         if (hasActivePopupWindowFocus()) {

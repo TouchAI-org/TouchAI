@@ -177,6 +177,38 @@ describe('useSearchRequestFlow', () => {
         mounted.unmount();
     });
 
+    it('cancels only the queued request without cancelling the active request', async () => {
+        const clearDraft = vi.fn();
+        agentState.isLoading.value = true;
+
+        const mounted = await mountComposable(() =>
+            useSearchRequestFlow({
+                modelOverride: ref({
+                    modelId: null,
+                    providerId: null,
+                }),
+                clearDraft,
+                getSupportedAttachments: () => [],
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({
+                        text: query,
+                        attachments: [],
+                    }),
+            })
+        );
+
+        await mounted.result.handleSubmit('queued prompt');
+
+        expect(mounted.result.cancelPendingRequest()).toBe(true);
+        expect(mounted.result.pendingRequest.value).toBeNull();
+        expect(mounted.result.isWaitingForCompletion.value).toBe(false);
+        expect(agentState.cancel).not.toHaveBeenCalled();
+        expect(mounted.result.cancelPendingRequest()).toBe(false);
+
+        mounted.unmount();
+    });
+
     it('queues a follow-up request while loading and replays it after completion', async () => {
         const supportedAttachment = createAttachment('queued-1');
         const queuedSnapshot = createInputHistorySnapshot({

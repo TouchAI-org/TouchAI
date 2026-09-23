@@ -123,6 +123,15 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         isWaitingForCompletion.value = false;
     }
 
+    function cancelPendingRequest(): boolean {
+        if (!pendingRequest.value) {
+            return false;
+        }
+
+        clearPendingRequestState();
+        return true;
+    }
+
     const {
         isLoading,
         error,
@@ -511,6 +520,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         handleSubmit,
         clearAll,
         cancelRequest,
+        cancelPendingRequest,
         handleRegenerateMessage,
     };
 }

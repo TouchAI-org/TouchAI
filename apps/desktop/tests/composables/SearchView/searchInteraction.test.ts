@@ -94,8 +94,7 @@ function createSearchKeydownHandlerForTest(
         modelDropdownState: ref({ isOpen: false }),
         controller,
         sessionHistory: ref([]),
-        pendingRequest: ref(null),
-        isWaitingForCompletion: ref(false),
+        hasPendingRequest: () => false,
         isLoading: ref(false),
         pendingToolApproval: ref(null),
         approvePendingToolApproval: vi.fn(() => false),
@@ -119,6 +118,7 @@ function createSearchKeydownHandlerForTest(
         openSettingsWindow: vi.fn().mockResolvedValue(undefined),
         handleSubmit: vi.fn().mockResolvedValue(undefined),
         cancelRequest: vi.fn(),
+        cancelPendingRequest: vi.fn(() => false),
         clearSession: vi.fn(),
         ...overrides,
     });
@@ -409,8 +409,7 @@ describe('createSearchKeydownHandler', () => {
             modelDropdownState: ref({ isOpen: false }),
             controller,
             sessionHistory: ref([]),
-            pendingRequest: ref(null),
-            isWaitingForCompletion: ref(false),
+            hasPendingRequest: () => false,
             isLoading: ref(false),
             pendingToolApproval: ref(null),
             approvePendingToolApproval: vi.fn(() => false),
@@ -446,9 +445,10 @@ describe('createSearchKeydownHandler', () => {
         expect(event.defaultPrevented).toBe(true);
     });
 
-    it('cancels a pending request with Escape and ignores Backspace', async () => {
+    it('cancels a pending request with Escape and double Backspace', async () => {
         const controller = createControllerStub();
         const cancelRequest = vi.fn();
+        const cancelPendingRequest = vi.fn(() => true);
         const handleKeyDown = createSearchKeydownHandler({
             viewReady: ref(true),
             searchKeybindings: ref(createDefaultSearchKeybindings()),
@@ -467,8 +467,7 @@ describe('createSearchKeydownHandler', () => {
             modelDropdownState: ref({ isOpen: false }),
             controller,
             sessionHistory: ref([]),
-            pendingRequest: ref({ query: 'q', attachments: [] }),
-            isWaitingForCompletion: ref(true),
+            hasPendingRequest: () => true,
             isLoading: ref(true),
             pendingToolApproval: ref(null),
             approvePendingToolApproval: vi.fn(() => false),
@@ -492,13 +491,25 @@ describe('createSearchKeydownHandler', () => {
             openSettingsWindow: vi.fn().mockResolvedValue(undefined),
             handleSubmit: vi.fn().mockResolvedValue(undefined),
             cancelRequest,
+            cancelPendingRequest,
             clearSession: vi.fn(),
         });
 
-        const backspaceEvent = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
-        await handleKeyDown(backspaceEvent);
-        expect(cancelRequest).not.toHaveBeenCalled();
-        expect(backspaceEvent.defaultPrevented).toBe(false);
+        const firstBackspaceEvent = new KeyboardEvent('keydown', {
+            key: 'Backspace',
+            cancelable: true,
+        });
+        await handleKeyDown(firstBackspaceEvent);
+        expect(cancelPendingRequest).not.toHaveBeenCalled();
+        expect(firstBackspaceEvent.defaultPrevented).toBe(false);
+
+        const secondBackspaceEvent = new KeyboardEvent('keydown', {
+            key: 'Backspace',
+            cancelable: true,
+        });
+        await handleKeyDown(secondBackspaceEvent);
+        expect(cancelPendingRequest).toHaveBeenCalledTimes(1);
+        expect(secondBackspaceEvent.defaultPrevented).toBe(true);
 
         const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
         await handleKeyDown(escapeEvent);
@@ -530,8 +541,7 @@ describe('createSearchKeydownHandler', () => {
             modelDropdownState: ref({ isOpen: false }),
             controller,
             sessionHistory: ref([]),
-            pendingRequest: ref(null),
-            isWaitingForCompletion: ref(false),
+            hasPendingRequest: () => false,
             isLoading: ref(false),
             pendingToolApproval: ref(null),
             approvePendingToolApproval: vi.fn(() => false),
@@ -555,6 +565,7 @@ describe('createSearchKeydownHandler', () => {
             openSettingsWindow: vi.fn().mockResolvedValue(undefined),
             handleSubmit: vi.fn().mockResolvedValue(undefined),
             cancelRequest: vi.fn(),
+            cancelPendingRequest: vi.fn(() => false),
             clearSession: vi.fn(),
         });
 
