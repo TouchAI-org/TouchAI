@@ -10,6 +10,7 @@ export default defineConfig({
 		react(),
 		starlight({
 			title: 'TouchAI',
+			disable404Route: true,
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/TouchAI-org/TouchAI' }],
 			sidebar: [
 			],

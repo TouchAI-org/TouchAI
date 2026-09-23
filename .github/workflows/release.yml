@@ -35,12 +35,14 @@ jobs:
             tag: ${{ steps.release.outputs.tag }}
             prerelease: ${{ steps.release.outputs.prerelease }}
             release_name: ${{ steps.release.outputs.release_name }}
+            should_publish: ${{ steps.release.outputs.should_publish }}
+            skip_reason: ${{ steps.release.outputs.skip_reason }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
               with:
                   fetch-depth: 0
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
 
@@ -50,11 +52,20 @@ jobs:
               env:
                   RELEASE_CHANNEL: ${{ github.event.inputs.channel }}
                   RELEASE_VERSION: ${{ github.event.inputs.version }}
+                  TARGET_COMMIT: ${{ github.sha }}
               run: node scripts/ci/resolve-release-metadata.mjs
+
+            - name: Summarize skipped prerelease
+              if: ${{ steps.release.outputs.should_publish != 'true' && steps.release.outputs.skip_reason != '' }}
+              run: |
+                  echo "### Prerelease skipped" >> "$GITHUB_STEP_SUMMARY"
+                  echo "${{ steps.release.outputs.skip_reason }}" >> "$GITHUB_STEP_SUMMARY"
+                  echo "::notice title=Prerelease skipped::${{ steps.release.outputs.skip_reason }}"
 
     publish-release:
         name: Publish prerelease release
         needs: resolve
+        if: ${{ needs.resolve.outputs.should_publish == 'true' }}
         permissions:
             contents: write
             deployments: write

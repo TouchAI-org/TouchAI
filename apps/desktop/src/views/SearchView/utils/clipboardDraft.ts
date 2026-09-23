@@ -34,6 +34,13 @@ export function canAutoPasteIntoDraft(input: {
 }
 
 /**
+ * 判断 payload 是否包含需要保序投影的附件 fragment。
+ */
+export function clipboardPayloadHasAttachmentFragments(payload: ClipboardPayload) {
+    return Boolean(payload.fragments?.some((fragment) => fragment.type !== 'text'));
+}
+
+/**
  * 将剪贴板 payload 投影到搜索草稿。
  */
 export async function applyClipboardPayloadToDraft<TAttachment>(
@@ -135,7 +142,7 @@ function setDraftInsertionOffset<TAttachment>(attachment: TAttachment, offset: n
 /**
  * 裁剪剪贴板 payload 的首尾空白。
  */
-function trimClipboardPayloadTextBoundary(payload: ClipboardPayload): ClipboardPayload {
+export function trimClipboardPayloadTextBoundary(payload: ClipboardPayload): ClipboardPayload {
     if (payload.fragments?.length) {
         return {
             ...payload,

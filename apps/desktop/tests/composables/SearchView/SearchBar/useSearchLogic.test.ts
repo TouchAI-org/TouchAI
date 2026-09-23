@@ -48,6 +48,7 @@ const {
         isEmpty = false;
         state = {
             selection: {
+                empty: true,
                 $anchor: {
                     pos: 1,
                 },
@@ -558,6 +559,59 @@ describe('useSearchInput', () => {
         expect(editorInstances[0]?.view.dispatch).toHaveBeenCalledWith(
             editorInstances[0]?.state.tr
         );
+
+        mounted.unmount();
+    });
+
+    it('does not force the editor scroll position while the user is extending a text selection', async () => {
+        const editorHost = document.createElement('div');
+        Object.defineProperty(editorHost, 'clientHeight', {
+            configurable: true,
+            value: 60,
+        });
+        editorHost.getBoundingClientRect = vi.fn(() => ({
+            top: 0,
+            bottom: 60,
+            left: 0,
+            right: 500,
+            width: 500,
+            height: 60,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        }));
+        editorHost.scrollTop = 80;
+        const mounted = await mountComposable(() =>
+            useSearchInput({
+                searchBarContainerRef: ref(null),
+                editorHostRef: ref(editorHost),
+                queryText: ref('line one\nline two\nline three\nline four'),
+                attachments: ref([]),
+                modelOverride: ref({
+                    modelId: null,
+                    providerId: null,
+                }),
+                emitQueryText: vi.fn(),
+                emitModelChange: vi.fn(),
+                emitModelOverrideChange: vi.fn(),
+                emitRemoveAttachmentRequest: vi.fn(),
+                emitDragStart: vi.fn(),
+                emitDragEnd: vi.fn(),
+            })
+        );
+
+        mounted.result.initEditor();
+        const editor = editorInstances[0]!;
+        editor.view.coordsAtPos.mockReturnValue({
+            top: -120,
+            bottom: -100,
+        });
+        editor.state.selection.empty = false;
+
+        (editor.options.onSelectionUpdate as () => void)();
+
+        expect(editor.view.coordsAtPos).not.toHaveBeenCalled();
+        expect(editorHost.scrollTop).toBe(80);
 
         mounted.unmount();
     });

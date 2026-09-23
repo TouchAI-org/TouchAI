@@ -40,7 +40,7 @@ jobs:
         permissions:
             issues: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
             - uses: EndBug/label-sync@52074158190acb45f3077f9099fea818aa43f97a # v2
               with:
                   config-file: .github/labels.yml
@@ -75,7 +75,7 @@ jobs:
             contents: read
             pull-requests: write
         steps:
-            - uses: actions/labeler@f27b608878404679385c85cfa523b85ccb86e213 # v6
+            - uses: actions/labeler@b8dd2d9be0f68b860e7dae5dae7d772984eacd6d # v6
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   configuration-path: .github/labeler.yml
@@ -306,7 +306,7 @@ jobs:
             issues: write
             pull-requests: write
         steps:
-            - uses: actions/stale@eb5cf3af3ac0a1aa4c9c45633dd1ae542a27a899 # v10
+            - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   days-before-stale: 14
@@ -324,7 +324,7 @@ jobs:
             issues: write
             pull-requests: write
         steps:
-            - uses: actions/stale@eb5cf3af3ac0a1aa4c9c45633dd1ae542a27a899 # v10
+            - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
               with:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   days-before-pr-stale: 21

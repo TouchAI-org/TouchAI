@@ -235,7 +235,7 @@ ${instanceSelector}.feature-reminder-frame .stage {
     min-height: 100% !important;
     height: 100% !important;
     padding: 0 !important;
-    justify-content: center !important;
+    justify-content: flex-start !important;
     align-items: center !important;
 }
 
@@ -244,13 +244,14 @@ ${instanceSelector}.feature-component-frame .chat-panel,
 ${instanceSelector}.feature-work-frame .chat-panel,
 ${instanceSelector}.feature-reminder-frame .chat-panel {
     margin: 0 auto !important;
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
     box-shadow:
         0 34px 90px rgba(107, 114, 128, 0.22),
         0 12px 34px rgba(107, 114, 128, 0.12),
         0 0 48px rgba(107, 114, 128, 0.14) !important;
+}
+
+${instanceSelector}.is-scroll-driven .chat-panel {
+    will-change: auto !important;
 }
 
 ${instanceSelector}.component-frame .chat-panel {
@@ -264,58 +265,91 @@ ${instanceSelector}.component-frame.is-idle .chat-panel {
     background: var(--panel, #fff) !important;
 }
 
+${instanceSelector}.component-frame .conversation-content {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding-bottom: 18px !important;
+    overscroll-behavior: contain !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+${instanceSelector}.component-frame .conversation-content,
 ${instanceSelector}.feature-component-frame .conversation-content,
 ${instanceSelector}.feature-work-frame .conversation-content,
 ${instanceSelector}.feature-reminder-frame .conversation-content {
-    flex: 1 1 auto !important;
     min-height: 0 !important;
-    overflow-y: hidden !important;
-    padding-bottom: 18px !important;
-}
-
-${instanceSelector}.feature-component-frame.is-scrolling .conversation-content,
-${instanceSelector}.feature-work-frame.is-scrolling .conversation-content,
-${instanceSelector}.feature-reminder-frame.is-scrolling .conversation-content {
     overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
 }
 
-${instanceSelector}.feature-component-frame .composer,
-${instanceSelector}.feature-work-frame .composer,
-${instanceSelector}.feature-reminder-frame .composer {
-    height: 56px !important;
-    min-height: 56px !important;
-    max-height: 56px !important;
-    flex: 0 0 56px !important;
-    margin-top: 0 !important;
+${instanceSelector}.component-frame .conversation-content::-webkit-scrollbar,
+${instanceSelector}.feature-component-frame .conversation-content::-webkit-scrollbar,
+${instanceSelector}.feature-work-frame .conversation-content::-webkit-scrollbar,
+${instanceSelector}.feature-reminder-frame .conversation-content::-webkit-scrollbar {
+    display: none;
 }
 
-${instanceSelector}.feature-component-frame .composer-form,
-${instanceSelector}.feature-work-frame .composer-form,
-${instanceSelector}.feature-reminder-frame .composer-form {
-    height: 56px !important;
-    min-height: 56px !important;
-    max-height: 56px !important;
-    align-items: center !important;
-}
-
-${instanceSelector}.feature-component-frame .prompt-input,
-${instanceSelector}.feature-work-frame .prompt-input,
-${instanceSelector}.feature-reminder-frame .prompt-input {
-    height: 32px !important;
-    min-height: 32px !important;
-    max-height: 32px !important;
-    line-height: 32px !important;
-}
-
+${instanceSelector}.component-frame.is-answering .chat-panel,
+${instanceSelector}.component-frame.is-complete .chat-panel,
 ${instanceSelector}.feature-component-frame.is-answering .chat-panel,
 ${instanceSelector}.feature-component-frame.is-complete .chat-panel,
 ${instanceSelector}.feature-work-frame.is-answering .chat-panel,
 ${instanceSelector}.feature-work-frame.is-complete .chat-panel,
 ${instanceSelector}.feature-reminder-frame.is-answering .chat-panel,
 ${instanceSelector}.feature-reminder-frame.is-complete .chat-panel {
-    min-height: 100% !important;
-    max-height: 100% !important;
-    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    max-width: 100% !important;
+}
+
+${instanceSelector}.feature-component-frame.is-answering .stage,
+${instanceSelector}.feature-component-frame.is-complete .stage,
+${instanceSelector}.feature-work-frame.is-answering .stage,
+${instanceSelector}.feature-work-frame.is-complete .stage,
+${instanceSelector}.feature-reminder-frame.is-answering .stage,
+${instanceSelector}.feature-reminder-frame.is-complete .stage {
+    justify-content: flex-start !important;
+}
+
+${instanceSelector}.feature-component-frame.is-complete .chat-panel,
+${instanceSelector}.feature-work-frame.is-complete .chat-panel,
+${instanceSelector}.feature-reminder-frame.is-complete .chat-panel,
+${instanceSelector}.feature-component-frame.is-scroll-driven.is-complete .chat-panel,
+${instanceSelector}.feature-work-frame.is-scroll-driven.is-complete .chat-panel,
+${instanceSelector}.feature-reminder-frame.is-scroll-driven.is-complete .chat-panel {
+    min-height: 0 !important;
+    height: auto !important;
+}
+
+${instanceSelector}.component-frame.is-answering .conversation-content,
+${instanceSelector}.component-frame.is-complete .conversation-content,
+${instanceSelector}.feature-component-frame.is-answering .conversation-content,
+${instanceSelector}.feature-component-frame.is-complete .conversation-content,
+${instanceSelector}.feature-work-frame.is-answering .conversation-content,
+${instanceSelector}.feature-work-frame.is-complete .conversation-content,
+${instanceSelector}.feature-reminder-frame.is-answering .conversation-content,
+${instanceSelector}.feature-reminder-frame.is-complete .conversation-content {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding-bottom: 20px !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+${instanceSelector}.component-frame.is-answering .composer,
+${instanceSelector}.component-frame.is-complete .composer,
+${instanceSelector}.feature-component-frame.is-answering .composer,
+${instanceSelector}.feature-component-frame.is-complete .composer,
+${instanceSelector}.feature-work-frame.is-answering .composer,
+${instanceSelector}.feature-work-frame.is-complete .composer,
+${instanceSelector}.feature-reminder-frame.is-answering .composer,
+${instanceSelector}.feature-reminder-frame.is-complete .composer {
+    margin-top: auto !important;
 }
 
 @media (max-width: 900px) {
@@ -330,6 +364,35 @@ ${instanceSelector}.feature-reminder-frame.is-complete .chat-panel {
     ${instanceSelector}.component-frame .stage {
         height: 100% !important;
         min-height: 0 !important;
+    }
+}
+
+@media (max-height: 780px) {
+    ${instanceSelector}.component-frame {
+        width: min(52vw, 560px, 100%) !important;
+        max-width: min(560px, 100%) !important;
+        height: auto !important;
+        min-height: 0 !important;
+        aspect-ratio: 760 / 657 !important;
+        max-height: min(60vh, 520px) !important;
+        overflow: hidden !important;
+    }
+
+    ${instanceSelector}.component-frame .stage {
+        min-height: 0 !important;
+        height: 100% !important;
+        padding: 0 !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    ${instanceSelector}.component-frame.is-answering .chat-panel,
+    ${instanceSelector}.component-frame.is-complete .chat-panel,
+    ${instanceSelector}.component-frame.is-scroll-driven.is-answering .chat-panel,
+    ${instanceSelector}.component-frame.is-scroll-driven.is-complete .chat-panel {
+        display: flex !important;
+        flex-direction: column !important;
+        max-width: 100% !important;
     }
 }
 
@@ -367,5 +430,7 @@ const initialClassName = [className, body.className].filter(Boolean).join(' ');
     data-title={title}
     data-loading={loading}
     data-base-class={className}
+    role="region"
+    aria-label={title}
     set:html={resolvedBodyHtmlWithoutScripts}
 />

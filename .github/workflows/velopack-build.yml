@@ -40,12 +40,12 @@ jobs:
             cloudflare_r2_bucket_name: ${{ steps.product.outputs.cloudflare_r2_bucket_name }}
             artifact_release_notes_name: ${{ steps.artifacts.outputs.release_notes_name }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
 
@@ -165,14 +165,14 @@ jobs:
         needs: prepare-release
         runs-on: windows-latest
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
 
-            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
@@ -181,7 +181,7 @@ jobs:
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
             - name: Install .NET SDK
-              uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5
+              uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
               with:
                   dotnet-version: 8.0.x
 
@@ -230,7 +230,7 @@ jobs:
               run: dotnet tool install --global vpk
 
             - name: Download release notes artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
                   path: ${{ runner.temp }}/release-notes
@@ -264,6 +264,8 @@ jobs:
             - name: Hydrate previous Velopack release assets
               shell: pwsh
               working-directory: apps/desktop
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   node scripts/ci/hydrate-velopack-history.mjs "$env:VELOPACK_RELEASE" "${{ inputs.channel }}"
 
@@ -312,14 +314,14 @@ jobs:
         needs: prepare-release
         runs-on: macos-latest
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
 
-            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
@@ -406,14 +408,14 @@ jobs:
         needs: prepare-release
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
 
-            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
@@ -524,38 +526,38 @@ jobs:
             - build-linux
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
 
-            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
 
             - name: Download release notes artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: ${{ needs.prepare-release.outputs.artifact_release_notes_name }}
                   path: ${{ runner.temp }}/release-notes
 
             - name: Download Windows release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-velopack-windows-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/windows
 
             - name: Download macOS release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-macos-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/macos
 
             - name: Download Linux release assets
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-linux-${{ inputs.channel }}-${{ inputs.version }}
                   path: ${{ runner.temp }}/release-assets/linux
@@ -625,20 +627,20 @@ jobs:
         runs-on: ubuntu-latest
         environment: ${{ inputs.deployment-environment }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
               with:
                   ref: ${{ inputs.target-commitish }}
                   fetch-depth: 0
 
-            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
 
             - name: Download update release feeds artifact
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: touchai-update-dist
                   path: ${{ runner.temp }}/touchai-update-dist
@@ -659,6 +661,20 @@ jobs:
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: pnpm dlx wrangler@3.90.0 deploy --config "$WRANGLER_UPDATE_PROXY_CONFIG"
 
+            - name: Plan archived R2 release asset pruning
+              working-directory: apps/desktop
+              shell: bash
+              env:
+                  RELEASE_CHANNEL: ${{ inputs.channel }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
+              run: |
+                  set -euo pipefail
+                  prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"
+                  node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL" > "$prune_plan"
+
             - name: Deploy update release feeds to Cloudflare R2
               shell: bash
               env:
@@ -678,15 +694,17 @@ jobs:
               working-directory: apps/desktop
               shell: bash
               env:
-                  RELEASE_CHANNEL: ${{ inputs.channel }}
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
                   CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
               run: |
                   set -euo pipefail
                   prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"
-                  node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL" > "$prune_plan"
+                  if [ ! -f "$prune_plan" ]; then
+                    echo "::error title=R2 prune plan missing::Expected $prune_plan to be generated before feed deployment."
+                    exit 1
+                  fi
+
                   if [ ! -s "$prune_plan" ]; then
                     echo "No archived R2 release assets to prune."
                     exit 0

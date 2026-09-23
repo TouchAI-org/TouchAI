@@ -28,7 +28,7 @@ export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
 
     private sdkProvider = createOpenAICompatible({
         name: 'openai-compatible',
-        apiKey: this.apiKey,
+        apiKey: this.apiKey || '',
         baseURL: this.getApiTargets().sdkBaseUrl || '',
         headers: this.getCustomHeaders(),
         fetch: this.fetch,

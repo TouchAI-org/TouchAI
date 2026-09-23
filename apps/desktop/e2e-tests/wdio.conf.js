@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { resolveE2eAppBinaryPath, resolveTauriBuildArgs } from './wdio.paths.js';
+import { withE2eWebView2Env } from './webview2-env.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopRoot = path.resolve(__dirname, '..');
@@ -204,12 +205,12 @@ export const config = {
             cwd: repoRoot,
             stdio: 'inherit',
             shell: true,
-            env: {
+            env: withE2eWebView2Env({
                 ...process.env,
                 CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
                 TEMP: resolveTempDirectory(),
                 TMP: resolveTempDirectory(),
-            },
+            }),
         });
 
         if (buildResult.status !== 0) {
@@ -231,17 +232,25 @@ export const config = {
         fs.mkdirSync(sessionRuntimePath, { recursive: true });
 
         const driverArgs = nativeDriverPath ? ['--native-driver', nativeDriverPath] : [];
+        const webviewUserDataFolder = path.resolve(sessionRuntimePath, 'webview2-user-data');
+        fs.mkdirSync(webviewUserDataFolder, { recursive: true });
 
+        // TouchAI.exe must be the application process msedgedriver attaches to.
+        // Pass E2E env through tauri-driver so the app inherits TOUCHAI_E2E and
+        // applies additionalBrowserArgs in Rust (wry ignores WEBVIEW2_* env alone).
         tauriDriver = spawn(tauriDriverPath, driverArgs, {
             stdio: [null, process.stdout, process.stderr],
-            env: {
-                ...process.env,
-                CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
-                TEMP: resolveTempDirectory(),
-                TOUCHAI_APP_ROOT: sessionRuntimePath,
-                TOUCHAI_E2E: '1',
-                TMP: resolveTempDirectory(),
-            },
+            env: withE2eWebView2Env(
+                {
+                    ...process.env,
+                    CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
+                    TEMP: resolveTempDirectory(),
+                    TOUCHAI_APP_ROOT: sessionRuntimePath,
+                    TOUCHAI_E2E: '1',
+                    TMP: resolveTempDirectory(),
+                },
+                { userDataFolder: webviewUserDataFolder }
+            ),
         });
 
         tauriDriver.on('error', (error) => {

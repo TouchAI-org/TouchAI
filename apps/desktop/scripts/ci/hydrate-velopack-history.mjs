@@ -2,7 +2,12 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { channelFromTag, githubRepositoryFromProduct } from '../update-release-assets.mjs';
+
+const GITHUB_API_BASE_URL = 'https://api.github.com';
+const GITHUB_USER_AGENT = 'touchai-velopack-history-hydrate/1.0.0';
 const HISTORY_FETCH_TIMEOUT_MS = 30_000;
+const MAX_RELEASE_PAGES = 10;
 
 function assertNonEmptyString(value, label) {
     if (typeof value !== 'string' || !value.trim()) {
@@ -25,6 +30,7 @@ function assertAbsoluteHttpsUrl(value, label) {
 
 async function readProduct(projectRoot) {
     const product = JSON.parse(await readFile(join(projectRoot, 'product.json'), 'utf8'));
+    assertNonEmptyString(product?.repository?.url, 'repository.url');
     assertAbsoluteHttpsUrl(product?.services?.updates?.baseUrl, 'services.updates.baseUrl');
     return product;
 }
@@ -52,6 +58,106 @@ async function fetchPublicAsset(url) {
         throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
     }
     return response;
+}
+
+function githubHeaders(token) {
+    const headers = new Headers({
+        accept: 'application/vnd.github+json',
+        'user-agent': GITHUB_USER_AGENT,
+        'x-github-api-version': '2022-11-28',
+    });
+    if (token) {
+        headers.set('authorization', `Bearer ${token}`);
+    }
+    return headers;
+}
+
+async function fetchGithubReleases(repository, fetchImpl, token) {
+    const releases = [];
+    for (let page = 1; page <= MAX_RELEASE_PAGES; page += 1) {
+        const response = await fetchImpl(
+            `${GITHUB_API_BASE_URL}/repos/${repository}/releases?per_page=100&page=${page}`,
+            { headers: githubHeaders(token) }
+        );
+        if (!response.ok) {
+            throw new Error(`Failed to fetch GitHub releases: HTTP ${response.status}`);
+        }
+
+        const pageReleases = await response.json();
+        if (!Array.isArray(pageReleases)) {
+            throw new Error('GitHub releases response must be an array.');
+        }
+
+        releases.push(...pageReleases);
+        if (pageReleases.length < 100) {
+            break;
+        }
+    }
+    return releases;
+}
+
+function retentionForChannel(product, channel) {
+    const retentionByChannel = product.services?.updates?.deployment?.r2HotAssetVersions ?? {};
+    if (!Object.hasOwn(retentionByChannel, channel)) {
+        const expected = Object.keys(retentionByChannel).sort().join(', ');
+        throw new Error(`Unsupported release channel "${channel}". Expected one of: ${expected}.`);
+    }
+
+    const value = retentionByChannel[channel];
+    const parsed = Number.parseInt(String(value ?? ''), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function releaseTime(release) {
+    const value = release.published_at ?? release.created_at ?? '';
+    const time = Date.parse(value);
+    return Number.isFinite(time) ? time : 0;
+}
+
+function retainedReleaseTags(releases, channel, keepVersions) {
+    return new Set(
+        releases
+            .filter((release) => channelFromTag(release?.tag_name) === channel)
+            .sort((left, right) => releaseTime(right) - releaseTime(left))
+            .slice(0, keepVersions)
+            .map((release) => release.tag_name)
+            .filter(Boolean)
+    );
+}
+
+function releaseTagFromFeedAsset(asset) {
+    if (typeof asset?.Version === 'string' && asset.Version.trim()) {
+        return `v${asset.Version}`;
+    }
+    return null;
+}
+
+async function retainedHistoryTags(product, channel) {
+    const keepVersions = retentionForChannel(product, channel);
+    if (keepVersions <= 0) {
+        return new Set();
+    }
+
+    const repository = githubRepositoryFromProduct(product, {
+        invalidHostMessage: 'repository.url must use github.com for Velopack history hydration.',
+    });
+    const releases = await fetchGithubReleases(
+        repository,
+        globalThis.fetch,
+        process.env.GITHUB_TOKEN ?? null
+    );
+    return retainedReleaseTags(releases, channel, keepVersions);
+}
+
+function pruneFeedAssets(feed, retainedTags) {
+    if (!Array.isArray(feed.Assets)) {
+        return feed;
+    }
+
+    return {
+        ...feed,
+        Assets: feed.Assets.filter((asset) => retainedTags.has(releaseTagFromFeedAsset(asset))),
+    };
 }
 
 function updateAssetUrl(product, fileName) {
@@ -82,7 +188,7 @@ export async function hydrateVelopackHistory(projectRoot, releaseDir, channel) {
     }
 
     const feedText = await feedResponse.text();
-    const feed = JSON.parse(feedText);
+    const feed = pruneFeedAssets(JSON.parse(feedText), await retainedHistoryTags(product, channel));
     await writeFile(join(releaseDir, feedName), `${JSON.stringify(feed, null, 4)}\n`, 'utf8');
 
     const assets = Array.isArray(feed.Assets) ? feed.Assets.filter(isVelopackPackage) : [];

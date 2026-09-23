@@ -31,7 +31,13 @@ jobs:
               uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
-                      if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
+                      // merge_group must classify by base/head files; forcing desktop_changed=true
+                      // made every queued PR (including actions/labeler, dependabot.yml) run Windows E2E.
+                      if (
+                        context.eventName !== 'pull_request' &&
+                        context.eventName !== 'push' &&
+                        context.eventName !== 'merge_group'
+                      ) {
                         core.setOutput('docs_only', 'false');
                         core.setOutput('desktop_changed', 'true');
                         return;
@@ -71,9 +77,15 @@ jobs:
                           pull_number: context.issue.number,
                           per_page: 100,
                         });
-                      } else if (context.eventName === 'push') {
-                        const before = context.payload.before;
-                        const after = context.payload.after;
+                      } else if (context.eventName === 'push' || context.eventName === 'merge_group') {
+                        const before =
+                          context.eventName === 'merge_group'
+                            ? context.payload.merge_group?.base_sha
+                            : context.payload.before;
+                        const after =
+                          context.eventName === 'merge_group'
+                            ? context.payload.merge_group?.head_sha
+                            : context.payload.after;
 
                         if (!before || !after || /^0+$/.test(before)) {
                           core.setOutput('docs_only', 'false');
@@ -120,12 +132,14 @@ jobs:
         env:
             TOUCHAI_CARGO_TARGET_DIR: apps/desktop/src-tauri/target/e2e
             TOUCHAI_E2E_CARGO_PROFILE: ci-check
+            # WebView2 150+ on GHA Windows needs explicit remote debugging for tauri-driver.
+            WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: --remote-debugging-port=9222 --enable-features=msEdgeDevToolsWdpRemoteDebugging --disable-gpu --no-sandbox --disable-dev-shm-usage
         steps:
-            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-            - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
-            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   package-manager-cache: false
@@ -183,6 +197,7 @@ jobs:
                   }
 
                   Write-Host "Using Microsoft Edge WebView2 runtime $driverVersion"
+                  Write-Host "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
                   & $driverPath --version
                   "TOUCHAI_MSEDGEDRIVER_PATH=$driverPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 

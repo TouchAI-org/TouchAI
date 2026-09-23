@@ -8,6 +8,8 @@ type ReleaseMetadata = {
     tag: string;
     prerelease: 'True' | 'False';
     releaseName: string;
+    shouldPublish: boolean;
+    skipReason: string | null;
 };
 
 type ResolveReleaseMetadata = (input: {
@@ -23,6 +25,12 @@ type ResolveReleaseMetadata = (input: {
     runAttempt?: string | number;
     date?: Date;
     productConfig?: typeof APP_PRODUCT_CONFIG;
+    targetCommit?: string | null;
+    latestNightly?: {
+        tag: string;
+        commit: string;
+    } | null;
+    git?: (args: string[]) => string;
 }) => ReleaseMetadata;
 
 async function loadResolver(): Promise<ResolveReleaseMetadata | undefined> {
@@ -61,6 +69,8 @@ describe('resolveReleaseMetadata', () => {
             tag: 'v1.2.3',
             prerelease: 'False',
             releaseName: 'TouchAI v1.2.3',
+            shouldPublish: true,
+            skipReason: null,
         });
     });
 
@@ -105,6 +115,114 @@ describe('resolveReleaseMetadata', () => {
             tag: 'v1.2.4-nightly.20260522.42.3',
             prerelease: 'True',
             releaseName: 'TouchAI v1.2.4-nightly.20260522.42.3',
+            shouldPublish: true,
+            skipReason: null,
+        });
+    });
+
+    it('skips scheduled nightly when the latest nightly already points at the target commit', async () => {
+        const resolveReleaseMetadata = await loadResolver();
+
+        expect(resolveReleaseMetadata).toBeTypeOf('function');
+        expect(
+            resolveReleaseMetadata?.(
+                releaseInput({
+                    eventName: 'schedule',
+                    packageVersion: '1.2.3',
+                    runNumber: 42,
+                    runAttempt: 3,
+                    date: new Date('2026-05-22T18:00:00Z'),
+                    targetCommit: 'abc123',
+                    latestNightly: {
+                        tag: 'v1.2.1-nightly.20260705.75.1',
+                        commit: 'abc123',
+                    },
+                })
+            )
+        ).toMatchObject({
+            channel: 'nightly',
+            shouldPublish: false,
+            skipReason: 'Latest nightly v1.2.1-nightly.20260705.75.1 already points at abc123.',
+        });
+    });
+
+    it('keeps manual nightly dispatches publishable even when the commit is unchanged', async () => {
+        const resolveReleaseMetadata = await loadResolver();
+
+        expect(resolveReleaseMetadata).toBeTypeOf('function');
+        expect(
+            resolveReleaseMetadata?.(
+                releaseInput({
+                    eventName: 'workflow_dispatch',
+                    inputChannel: 'nightly',
+                    inputVersion: '1.2.3-nightly.1',
+                    packageVersion: '1.2.3',
+                    targetCommit: 'abc123',
+                    latestNightly: {
+                        tag: 'v1.2.1-nightly.20260705.75.1',
+                        commit: 'abc123',
+                    },
+                })
+            )
+        ).toMatchObject({
+            channel: 'nightly',
+            shouldPublish: true,
+            skipReason: null,
+        });
+    });
+
+    it('reads the latest nightly tag from git when no override is provided', async () => {
+        const resolveReleaseMetadata = await loadResolver();
+        const gitResponses = new Map([
+            [
+                'tag --list v*-nightly.*',
+                [
+                    'v1.2.1-nightly.20260618.58.1',
+                    'v1.2.1-nightly.20260629.69.1',
+                    'v1.2.1-nightly.20260605.42.1',
+                ].join('\n'),
+            ],
+            ['rev-list -n 1 v1.2.1-nightly.20260629.69.1', 'head456'],
+        ]);
+
+        expect(resolveReleaseMetadata).toBeTypeOf('function');
+        expect(
+            resolveReleaseMetadata?.(
+                releaseInput({
+                    eventName: 'schedule',
+                    packageVersion: '1.2.3',
+                    runNumber: 42,
+                    runAttempt: 3,
+                    date: new Date('2026-05-22T18:00:00Z'),
+                    targetCommit: 'head456',
+                    git: (args) => gitResponses.get(args.join(' ')) ?? '',
+                })
+            )
+        ).toMatchObject({
+            shouldPublish: false,
+            skipReason: 'Latest nightly v1.2.1-nightly.20260629.69.1 already points at head456.',
+        });
+    });
+
+    it('publishes scheduled nightly when no prior nightly tag exists', async () => {
+        const resolveReleaseMetadata = await loadResolver();
+
+        expect(resolveReleaseMetadata).toBeTypeOf('function');
+        expect(
+            resolveReleaseMetadata?.(
+                releaseInput({
+                    eventName: 'schedule',
+                    packageVersion: '1.2.3',
+                    runNumber: 42,
+                    runAttempt: 3,
+                    date: new Date('2026-05-22T18:00:00Z'),
+                    targetCommit: 'abc123',
+                    git: () => '',
+                })
+            )
+        ).toMatchObject({
+            shouldPublish: true,
+            skipReason: null,
         });
     });
 
@@ -129,6 +247,36 @@ describe('resolveReleaseMetadata', () => {
             tag: 'v2.0.1-nightly.20260522.42.1',
             prerelease: 'True',
             releaseName: 'TouchAI v2.0.1-nightly.20260522.42.1',
+            shouldPublish: true,
+            skipReason: null,
+        });
+    });
+
+    it('uses the injected git implementation when reading the latest stable base', async () => {
+        const resolveReleaseMetadata = await loadResolver();
+        const gitResponses = new Map([
+            ['tag --list v*-nightly.*', ''],
+            ['tag --list v*', ['v1.9.0', 'v2.0.0', 'v2.0.0-beta.1'].join('\n')],
+        ]);
+
+        expect(resolveReleaseMetadata).toBeTypeOf('function');
+        expect(
+            resolveReleaseMetadata?.(
+                releaseInput({
+                    eventName: 'schedule',
+                    packageVersion: '1.2.3',
+                    projectRoot: 'repo',
+                    runNumber: 42,
+                    runAttempt: 1,
+                    date: new Date('2026-05-22T18:00:00Z'),
+                    targetCommit: 'abc123',
+                    git: (args) => gitResponses.get(args.join(' ')) ?? '',
+                })
+            )
+        ).toMatchObject({
+            version: '2.0.1-nightly.20260522.42.1',
+            shouldPublish: true,
+            skipReason: null,
         });
     });
 
@@ -170,6 +318,8 @@ describe('resolveReleaseMetadata', () => {
             tag: 'v1.3.0-beta.1',
             prerelease: 'True',
             releaseName: 'TouchAI v1.3.0-beta.1',
+            shouldPublish: true,
+            skipReason: null,
         });
     });
 

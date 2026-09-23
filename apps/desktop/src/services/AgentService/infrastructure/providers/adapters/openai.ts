@@ -24,7 +24,7 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
     readonly driver = 'openai' as const;
 
     private sdkProvider = createOpenAI({
-        apiKey: this.apiKey,
+        apiKey: this.apiKey || '',
         baseURL: this.getApiTargets().sdkBaseUrl || undefined,
         headers: this.getCustomHeaders(),
         fetch: this.fetch,

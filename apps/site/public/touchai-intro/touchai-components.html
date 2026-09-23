@@ -84,6 +84,10 @@
                     margin-bottom 640ms cubic-bezier(0.22, 1, 0.36, 1);
             }
 
+            body.is-scroll-driven .chat-panel {
+                will-change: auto;
+            }
+
             body.is-idle .chat-panel {
                 max-height: 56px;
                 min-height: 56px;
@@ -153,20 +157,20 @@
                 flex: 1 1 auto;
                 min-height: 0;
                 overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
                 scrollbar-width: none;
                 padding-top: 0;
                 padding-bottom: 20px;
             }
 
-            body.is-answering .conversation-content {
-                flex: 0 0 auto;
-                overflow: visible;
-                padding-bottom: 0;
-            }
-
+            body.is-answering .conversation-content,
             body.is-answering.is-scrolling .conversation-content {
                 flex: 1 1 auto;
+                min-height: 0;
                 overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
                 padding-top: 0;
                 padding-bottom: 20px;
             }
@@ -468,11 +472,44 @@
                 flex: 0 0 auto;
             }
 
+            body.is-complete .conversation-content,
+            body.is-complete.is-scrolling .conversation-content {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 20px;
+            }
+
             body.is-answering .composer {
                 margin-top: 0;
             }
 
             body.is-answering.is-scrolling .composer {
+                margin-top: auto;
+            }
+
+            body.is-complete .composer {
+                margin-top: 0;
+            }
+
+            body.is-complete.is-scrolling .composer {
+                margin-top: auto;
+            }
+
+            body.is-scroll-driven.is-answering .conversation-content,
+            body.is-scroll-driven.is-complete .conversation-content {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 20px;
+            }
+
+            body.is-scroll-driven.is-answering .composer,
+            body.is-scroll-driven.is-complete .composer {
                 margin-top: auto;
             }
 
@@ -713,7 +750,7 @@
                 margin-top: var(--response-item-gap);
             }
 
-            .response li > span:last-child {
+            .response li > span:last-child:not(.kbd) {
                 display: block;
                 text-indent: var(--paragraph-indent);
             }
@@ -723,8 +760,14 @@
             body.is-answering .response li:not(.is-visible),
             body.is-answering .response ul:not(.is-visible),
             body.is-answering .response .math-block:not(.is-visible),
-            body.is-answering .response .response-divider:not(.is-visible) {
-                visibility: hidden;
+            body.is-answering .response .response-divider:not(.is-visible),
+            body.is-complete .response p:not(.is-visible),
+            body.is-complete .response h2:not(.is-visible),
+            body.is-complete .response li:not(.is-visible),
+            body.is-complete .response ul:not(.is-visible),
+            body.is-complete .response .math-block:not(.is-visible),
+            body.is-complete .response .response-divider:not(.is-visible) {
+                display: none;
             }
 
             .typed-marker {
@@ -1018,6 +1061,12 @@
                     min-height: 0;
                 }
 
+                body.is-scroll-driven.is-complete .chat-panel {
+                    min-height: var(--window-min-height);
+                    max-height: var(--window-min-height);
+                    height: var(--window-min-height);
+                }
+
                 .response {
                     margin-right: 32px;
                     margin-top: 12px;
@@ -1075,7 +1124,12 @@
                             </svg>
                         </button>
                     </div>
-                    <article class="response math-response" aria-live="polite"></article>
+                    <article
+                        class="response math-response"
+                        aria-live="polite"
+                        aria-busy="false"
+                        aria-atomic="false"
+                    ></article>
                     <div class="scroll-fade-overlay">
                         <button class="scroll-bottom-button" type="button" aria-label="回到底部">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1089,7 +1143,14 @@
 
                 <footer class="composer" aria-label="输入框">
                     <form class="composer-form prompt-form" aria-label="输入框">
-                        <img class="mi-logo" src="./mimo.png" alt="Mimo" />
+                        <img
+                            class="mi-logo"
+                            src="./mimo.png"
+                            alt="Mimo"
+                            width="32"
+                            height="32"
+                            decoding="async"
+                        />
                         <input
                             class="prompt-input"
                             type="text"
@@ -1107,7 +1168,7 @@
                 </footer>
             </section>
         </main>
-        <script src="/demo-vendor/markdown-it/markdown-it.min.js"></script>
+        <script src="/demo-utils/touchai-lite-renderer.js"></script>
         <script>
             (() => {
                 const expectedPrompt = '什么是TouchAI';
@@ -1124,14 +1185,26 @@
                 let copyAnswer = null;
                 let replayAnswer = null;
                 let panelObserver = null;
+                let scrollAffordanceFrame = 0;
                 let textNodes = [];
                 let hasStarted = false;
                 let typingTimer = 0;
+                let promptTypingTimer = 0;
                 let fallbackTimer = 0;
                 let isScrollDriven = false;
                 let hasReceivedScrollProgress = false;
-                let pendingScrollProgress = 0;
-                let scrollProgressFrame = 0;
+
+                function getMessagePayload(event) {
+                    return event && typeof event.data === 'object' && event.data ? event.data : {};
+                }
+
+                function notifyParent(type) {
+                    try {
+                        if (window.parent && window.parent !== window) {
+                            window.parent.postMessage({ type }, window.location.origin);
+                        }
+                    } catch (error) {}
+                }
                 let totalTextCharacters = 0;
                 let lastRenderedCharacterCount = -1;
                 let lastRenderedScrollTop = -1;
@@ -1239,49 +1312,7 @@
             </button>
           </div>`;
 
-                function escapeHtml(value) {
-                    return value
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;');
-                }
-
-                function renderFormula(source, displayMode) {
-                    if (window.katex) {
-                        return window.katex.renderToString(source, {
-                            displayMode,
-                            throwOnError: false,
-                            strict: 'ignore',
-                            output: 'html',
-                        });
-                    }
-
-                    return `<span class="katex-fallback">${escapeHtml(source)}</span>`;
-                }
-
-                function renderMarkdownContent(markdown) {
-                    const md = window.markdownit
-                        ? window.markdownit({ html: false, linkify: false, breaks: false })
-                        : null;
-
-                    const html = md
-                        ? md.render(markdown)
-                        : markdown
-                              .split(/\n{2,}/)
-                              .map((part) => {
-                                  if (part === '---') {
-                                      return `<hr />`;
-                                  }
-
-                                  return `<p>${escapeHtml(part).replace(/\n/g, '<br>')}</p>`;
-                              })
-                              .join('\n');
-
-                    return html
-                        .replace(/<hr>/g, `<p class="response-divider" aria-hidden="true"></p>`)
-                        .replace(/<p>/g, `<p class="paragraph-node">`);
-                }
+                const renderMarkdownContent = window.TouchAILiteRenderer.renderMarkdownContent;
 
                 function prepareTypewriterNodes() {
                     textNodes = [];
@@ -1408,6 +1439,7 @@
                 watchPanelGeometry();
 
                 function resetResponseText() {
+                    response.setAttribute('aria-busy', 'false');
                     window.clearTimeout(typingTimer);
                     document.body.classList.remove('is-scrolling');
                     document.body.classList.remove('has-below-content');
@@ -1455,16 +1487,59 @@
                     input.blur();
                 }
 
+                function clearPromptTyping() {
+                    window.clearTimeout(promptTypingTimer);
+                    promptTypingTimer = 0;
+                }
+
+                function resetDemoState(complete = false) {
+                    hasReceivedScrollProgress = false;
+                    window.clearTimeout(fallbackTimer);
+                    window.clearTimeout(typingTimer);
+                    clearPromptTyping();
+                    setScrollDrivenState(false);
+
+                    if (complete) {
+                        hasStarted = true;
+                        clearPromptInput();
+                        document.body.classList.remove('is-idle', 'is-answering');
+                        document.body.classList.add('is-complete');
+                        revealAnswerAt(1);
+                        syncScrollMode();
+                        updateScrollAffordance();
+                        return;
+                    }
+
+                    hasStarted = false;
+                    input.value = '';
+                    resetResponseText();
+                    document.body.classList.remove('is-answering', 'is-complete', 'is-scrolling');
+                    document.body.classList.add('is-idle');
+                    updateScrollAffordance();
+                }
+
+                function setScrollDrivenState(enabled) {
+                    isScrollDriven = Boolean(enabled);
+                    document.body.classList.toggle('is-scroll-driven', isScrollDriven);
+                    response.setAttribute('aria-live', isScrollDriven ? 'off' : 'polite');
+                }
+
                 function syncScrollMode() {
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
                     const shouldScroll =
-                        document.body.classList.contains('is-scrolling') ||
-                        panel.scrollHeight > panel.clientHeight + 1;
+                        document.body.classList.contains('is-scrolling') || maxScroll > 1;
 
                     document.body.classList.toggle('is-scrolling', shouldScroll);
 
-                    if (shouldScroll) {
-                        content.scrollTop = content.scrollHeight;
+                    if (shouldScroll && maxScroll > 1) {
+                        keepLatestResponseVisible();
                     }
+                }
+
+                function keepLatestResponseVisible() {
+                    const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
+                    content.scrollTop = maxScroll;
+                    return maxScroll;
                 }
 
                 function updateScrollAffordance() {
@@ -1472,6 +1547,36 @@
                         content.scrollHeight - content.scrollTop - content.clientHeight > 6;
 
                     document.body.classList.toggle('has-below-content', hasBelow);
+                }
+
+                function scheduleScrollAffordanceUpdate() {
+                    if (scrollAffordanceFrame) return;
+                    scrollAffordanceFrame = window.requestAnimationFrame(() => {
+                        scrollAffordanceFrame = 0;
+                        updateScrollAffordance();
+                    });
+                }
+
+                function forwardWheelToPage(event) {
+                    if (event.ctrlKey || event.metaKey) {
+                        event.preventDefault();
+                        return;
+                    }
+
+                    if (!isScrollDriven || !hasReceivedScrollProgress) {
+                        return;
+                    }
+
+                    const deltaMultiplier =
+                        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
+                    const nextDeltaY = event.deltaY * deltaMultiplier;
+
+                    if (Math.abs(nextDeltaY) < 0.5) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    window.parent.scrollBy(0, nextDeltaY);
                 }
 
                 function clamp01(value) {
@@ -1515,11 +1620,12 @@
                         item.node.nodeValue = '';
                     });
 
-                    document.body.classList.add('is-scrolling');
-
                     const maxScroll = Math.max(0, content.scrollHeight - content.clientHeight);
-                    const scrollProgress = clamp01((answerProgress - 0.34) / 0.66);
-                    const nextScrollTop = maxScroll * scrollProgress;
+                    const shouldPinLatest = maxScroll > 1;
+                    const shouldUseScrollLayout = shouldPinLatest && answerProgress >= 0.34;
+                    const nextScrollTop = shouldPinLatest ? maxScroll : 0;
+
+                    document.body.classList.toggle('is-scrolling', shouldUseScrollLayout);
 
                     if (
                         renderedCharacterCount === lastRenderedCharacterCount &&
@@ -1531,18 +1637,28 @@
 
                     lastRenderedCharacterCount = renderedCharacterCount;
                     lastRenderedScrollTop = nextScrollTop;
-                    content.scrollTop = nextScrollTop;
+                    if (shouldPinLatest) {
+                        keepLatestResponseVisible();
+                    } else {
+                        content.scrollTop = 0;
+                    }
 
                     updateScrollAffordance();
                 }
 
                 function renderScrollProgress(progress) {
                     const currentProgress = clamp01(progress);
-                    hasReceivedScrollProgress = true;
-                    isScrollDriven = true;
+                    hasReceivedScrollProgress =
+                        currentProgress > 0.0005 && currentProgress < 0.9995;
+                    setScrollDrivenState(hasReceivedScrollProgress);
+                    response.setAttribute(
+                        'aria-busy',
+                        hasReceivedScrollProgress ? 'true' : 'false'
+                    );
                     hasStarted = currentProgress > 0.02;
                     window.clearTimeout(fallbackTimer);
                     window.clearTimeout(typingTimer);
+                    clearPromptTyping();
 
                     if (currentProgress < 0.2) {
                         document.body.classList.remove(
@@ -1577,16 +1693,7 @@
                 }
 
                 function scheduleScrollProgress(progress) {
-                    pendingScrollProgress = clamp01(progress);
-
-                    if (scrollProgressFrame) {
-                        return;
-                    }
-
-                    scrollProgressFrame = window.requestAnimationFrame(() => {
-                        scrollProgressFrame = 0;
-                        renderScrollProgress(pendingScrollProgress);
-                    });
+                    renderScrollProgress(progress);
                 }
 
                 function startTypewriter() {
@@ -1597,6 +1704,7 @@
                         if (nodeIndex >= textNodes.length) {
                             document.body.classList.remove('is-answering');
                             document.body.classList.add('is-complete');
+                            response.setAttribute('aria-busy', 'false');
                             syncScrollMode();
                             updateScrollAffordance();
                             return;
@@ -1636,9 +1744,12 @@
                 }
 
                 function showAnswer() {
+                    setScrollDrivenState(false);
+                    clearPromptTyping();
                     clearPromptInput();
                     hydrateMarkdownAnswer();
                     resetResponseText();
+                    response.setAttribute('aria-busy', 'true');
                     hasStarted = true;
                     document.body.classList.remove('is-idle', 'is-complete');
                     document.body.classList.add('is-answering');
@@ -1661,6 +1772,8 @@
                 }
 
                 function typePromptThenSubmit() {
+                    setScrollDrivenState(false);
+                    clearPromptTyping();
                     input.value = '';
                     input.focus({ preventScroll: true });
 
@@ -1671,14 +1784,14 @@
                         promptIndex += 1;
 
                         if (promptIndex < expectedPrompt.length) {
-                            window.setTimeout(typeNextPromptCharacter, 86);
+                            promptTypingTimer = window.setTimeout(typeNextPromptCharacter, 86);
                             return;
                         }
 
-                        window.setTimeout(() => submitButton.click(), 520);
+                        promptTypingTimer = window.setTimeout(() => submitButton.click(), 520);
                     }
 
-                    window.setTimeout(typeNextPromptCharacter, 520);
+                    promptTypingTimer = window.setTimeout(typeNextPromptCharacter, 520);
                 }
 
                 resetResponseText();
@@ -1697,28 +1810,49 @@
                         clearPromptInput();
                     }
                 });
-                scrollBottomButton.addEventListener('click', () => {
+                scrollBottomButton.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    document.body.classList.add('is-scrolling');
                     content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
-                    document.body.classList.remove('has-below-content');
+                    window.setTimeout(updateScrollAffordance, 220);
                 });
-                content.addEventListener('scroll', updateScrollAffordance);
+                content.addEventListener('scroll', scheduleScrollAffordanceUpdate, {
+                    passive: true,
+                });
+                panel.addEventListener('wheel', forwardWheelToPage, { passive: false });
                 window.addEventListener('message', (event) => {
-                    if (event.data?.type === 'touchai-page-bg') {
+                    const message = getMessagePayload(event);
+                    if (message.type === 'touchai-page-bg') {
                         document.documentElement.style.setProperty(
                             '--page-bg',
-                            event.data.background || 'transparent'
+                            typeof message.background === 'string'
+                                ? message.background
+                                : 'transparent'
                         );
                         return;
                     }
 
-                    if (event.data?.type !== 'touchai-set-progress') {
+                    if (message.type === 'touchai-clear-scroll-driven') {
+                        hasReceivedScrollProgress = false;
+                        setScrollDrivenState(false);
+                        updateScrollAffordance();
                         return;
                     }
 
-                    scheduleScrollProgress(event.data.progress);
+                    if (message.type === 'touchai-reset-demo') {
+                        resetDemoState(false);
+                        return;
+                    }
+
+                    if (message.type !== 'touchai-set-progress') {
+                        return;
+                    }
+
+                    scheduleScrollProgress(message.progress);
                 });
                 window.addEventListener('load', () => {
-                    window.parent?.postMessage({ type: 'touchai-component-ready' }, '*');
+                    notifyParent('touchai-component-ready');
                     fallbackTimer = window.setTimeout(() => {
                         if (
                             !isScrollDriven &&

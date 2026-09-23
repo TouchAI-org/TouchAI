@@ -6,12 +6,36 @@ import { db } from '../index';
 import { models, providers } from '../schema';
 import type { ProviderCreateData, ProviderEntity, ProviderUpdateData } from '../types';
 
+const BUILTIN_PROVIDER_DISPLAY_ORDER = new Map<string, number>([
+    ['OpenAI', 0],
+    ['Anthropic', 1],
+    ['Gemini', 2],
+    ['Xiaomi MiMo', 3],
+    ['DeepSeek', 4],
+    ['火山引擎', 5],
+    ['Grok', 6],
+    ['腾讯混元', 7],
+    ['MiniMax', 8],
+    ['月之暗面', 9],
+    ['阿里云百炼', 10],
+    ['智谱', 11],
+]);
+
+function getProviderDisplayOrder(provider: ProviderEntity): number {
+    if (provider.is_builtin !== 1) {
+        return Number.MAX_SAFE_INTEGER;
+    }
+
+    return BUILTIN_PROVIDER_DISPLAY_ORDER.get(provider.name) ?? Number.MAX_SAFE_INTEGER - 1;
+}
+
 /**
  * 查找所有服务商，按优先级排序
  * 排序规则：
  * 1. 启用的服务商排在前面
  * 2. 启用的服务商中，有默认模型的排在最前面
- * 3. 其他按 ID 排序
+ * 3. 内置服务商按稳定展示顺序排序
+ * 4. 其他按 ID 排序
  */
 export const findAllProvidersSorted = async (): Promise<ProviderEntity[]> => {
     const drizzle = db;
@@ -37,7 +61,16 @@ export const findAllProvidersSorted = async (): Promise<ProviderEntity[]> => {
             }
         }
 
-        // 3. 其他按 ID 排序
+        if (a.enabled === 1 && a.is_builtin !== b.is_builtin) {
+            return a.is_builtin - b.is_builtin;
+        }
+
+        const providerOrderDelta = getProviderDisplayOrder(a) - getProviderDisplayOrder(b);
+        if (providerOrderDelta !== 0) {
+            return providerOrderDelta;
+        }
+
+        // 4. 其他按 ID 排序
         return a.id - b.id;
     });
 };
@@ -85,42 +118,5 @@ export const updateProvider = async ({
  */
 export const deleteProvider = async ({ id }: { id: number }): Promise<boolean> => {
     await db.delete(providers).where(eq(providers.id, id)).run();
-    return true;
-};
-
-/**
- * 将旧服务商名下的模型迁移到目标服务商后删除旧服务商。
- * 用于清理历史遗留的 touchai-mimo 行，同时保留模型与会话引用。
- */
-export const reassignModelsAndDeleteProvider = async ({
-    sourceProviderId,
-    targetProviderId,
-}: {
-    sourceProviderId: number;
-    targetProviderId: number;
-}): Promise<boolean> => {
-    if (sourceProviderId === targetProviderId) {
-        return false;
-    }
-
-    await db.transaction(async (tx) => {
-        await tx
-            .update(models)
-            .set({ provider_id: targetProviderId })
-            .where(eq(models.provider_id, sourceProviderId))
-            .run();
-
-        await tx
-            .update(providers)
-            .set({
-                is_builtin: 0,
-                enabled: 0,
-            })
-            .where(eq(providers.id, sourceProviderId))
-            .run();
-
-        await tx.delete(providers).where(eq(providers.id, sourceProviderId)).run();
-    });
-
     return true;
 };

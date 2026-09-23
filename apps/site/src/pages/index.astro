@@ -2,10 +2,101 @@
 import ComponentDemo from '../components/ComponentDemo.astro';
 
 const CLARITY_ID = import.meta.env.PUBLIC_CLARITY_ID ?? '';
-const WAITLIST_ENDPOINT = import.meta.env.PUBLIC_WAITLIST_ENDPOINT ?? '';
-const releasesUrl = 'https://github.com/TouchAI-org/TouchAI/releases';
-const repoUrl = 'https://github.com/TouchAI-org/TouchAI';
-const docsUrl = 'https://touch-ai.org/getting-started';
+const ANALYTICS_ENDPOINT = import.meta.env.PUBLIC_ANALYTICS_ENDPOINT ?? '';
+const siteUrl = 'https://touch-ai.org/';
+const repoPath = 'TouchAI-org/TouchAI';
+const repoUrl = `https://github.com/${repoPath}`;
+const releasesUrl = `${repoUrl}/releases`;
+const repoApiUrl = `https://api.github.com/repos/${repoPath}`;
+const titleZh = 'TouchAI：一触即达的桌面效率 Agent';
+const titleEn = 'TouchAI: A Desktop Efficiency Agent at Your Fingertips';
+const descriptionZh = '一触即达的桌面效率 Agent——随时待命，做您触手可及的 AI 入口';
+const descriptionEn = 'Your desktop AI agent, always ready — your touch-accessible AI gateway';
+const keywords =
+    'TouchAI, desktop AI agent, AI desktop assistant, productivity agent, AI 助手, 桌面 AI, 桌面效率工具, 触控 AI, 自动化工作流, 本地桌面助手';
+const socialImageUrl = `${siteUrl}seo-card.png`;
+const organizationId = `${siteUrl}#organization`;
+const websiteId = `${siteUrl}#website`;
+const softwareId = `${siteUrl}#software`;
+const loadInitialRepoStats = async () => {
+    const headers = {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+    };
+    const stats = {
+        stars: null,
+        forks: null,
+    };
+
+    try {
+        const response = await fetch(repoApiUrl, { headers });
+        if (response.ok) {
+            const data = await response.json();
+            stats.stars = data.stargazers_count;
+            stats.forks = data.forks_count;
+        }
+    } catch {}
+
+    return stats;
+};
+const initialRepoStats = await loadInitialRepoStats();
+const structuredData = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@graph': [
+        {
+            '@type': 'Organization',
+            '@id': organizationId,
+            name: 'TouchAI',
+            url: siteUrl,
+            logo: {
+                '@type': 'ImageObject',
+                url: `${siteUrl}logo.svg`,
+            },
+            sameAs: [repoUrl],
+        },
+        {
+            '@type': 'WebSite',
+            '@id': websiteId,
+            url: siteUrl,
+            name: 'TouchAI',
+            alternateName: titleEn,
+            description: descriptionZh,
+            inLanguage: ['zh-CN', 'en'],
+            publisher: {
+                '@id': organizationId,
+            },
+        },
+        {
+            '@type': 'SoftwareApplication',
+            '@id': softwareId,
+            name: 'TouchAI',
+            alternateName: 'TouchAI Desktop Agent',
+            url: siteUrl,
+            description: descriptionZh,
+            applicationCategory: 'ProductivityApplication',
+            applicationSubCategory: 'Desktop AI agent',
+            operatingSystem: 'Windows 10/11, macOS 12+, Linux (Ubuntu 20.04+, Fedora 35+)',
+            image: socialImageUrl,
+            downloadUrl: releasesUrl,
+            mainEntityOfPage: siteUrl,
+            inLanguage: ['zh-CN', 'en'],
+            keywords,
+            author: {
+                '@id': organizationId,
+            },
+            publisher: {
+                '@id': organizationId,
+            },
+            license: `${repoUrl}/blob/main/COPYING`,
+            isAccessibleForFree: true,
+            offers: {
+                '@type': 'Offer',
+                price: '0',
+                priceCurrency: 'USD',
+            },
+        },
+    ],
+});
 ---
 
 <!doctype html>
@@ -13,25 +104,101 @@ const docsUrl = 'https://touch-ai.org/getting-started';
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>TouchAI</title>
         <meta
-            name="description"
-            content="TouchAI 是一款桌面效率 Agent，连接文件、上下文、命令和工具，让工作流更顺手。"
+            name="robots"
+            content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
         />
-        <meta name="keywords" content="TouchAI, 桌面 AI, AI 助手, MCP, BYOK, 效率工具" />
+        <meta name="referrer" content="strict-origin-when-cross-origin" />
+        <meta name="application-name" content="TouchAI" />
+        <meta name="apple-mobile-web-app-title" content="TouchAI" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="format-detection" content="telephone=no, address=no, email=no" />
+        <meta name="color-scheme" content="light dark" />
+        <title id="site-title" data-zh={titleZh} data-en={titleEn}>
+            {titleZh}
+        </title>
+        <meta
+            id="site-description"
+            name="description"
+            content={descriptionZh}
+            data-zh={descriptionZh}
+            data-en={descriptionEn}
+        />
+        <meta name="keywords" content={keywords} />
         <meta name="author" content="TouchAI" />
-        <meta property="og:type" content="website" />
-        <meta property="og:title" content="TouchAI" />
-        <meta property="og:description" content="一触即达的桌面效率Agent" />
-        <meta property="og:url" content="https://touch-ai.org/" />
-        <meta property="og:site_name" content="TouchAI" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="TouchAI" />
-        <meta name="twitter:description" content="一触即达的桌面效率Agent" />
-        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-        <link rel="shortcut icon" href="/favicon.ico" />
-        <link rel="apple-touch-icon" href="/touchai-wordmark.svg" />
         <meta name="theme-color" content="#ffffff" />
+        <meta property="og:type" content="website" />
+        <meta property="og:locale" content="zh_CN" />
+        <meta property="og:locale:alternate" content="en_US" />
+        <meta
+            id="og-title"
+            property="og:title"
+            content={titleZh}
+            data-zh={titleZh}
+            data-en={titleEn}
+        />
+        <meta
+            id="og-description"
+            property="og:description"
+            content={descriptionZh}
+            data-zh={descriptionZh}
+            data-en={descriptionEn}
+        />
+        <meta property="og:url" content={siteUrl} />
+        <meta property="og:site_name" content="TouchAI" />
+        <meta property="og:image" content={socialImageUrl} />
+        <meta property="og:image:secure_url" content={socialImageUrl} />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="TouchAI desktop agent preview" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:url" content={siteUrl} />
+        <meta
+            id="twitter-title"
+            name="twitter:title"
+            content={titleZh}
+            data-zh={titleZh}
+            data-en={titleEn}
+        />
+        <meta
+            id="twitter-description"
+            name="twitter:description"
+            content={descriptionZh}
+            data-zh={descriptionZh}
+            data-en={descriptionEn}
+        />
+        <meta name="twitter:image" content={socialImageUrl} />
+        <meta name="twitter:image:alt" content="TouchAI desktop agent preview" />
+        <link rel="canonical" href={siteUrl} />
+        <link rel="alternate" hreflang="zh-CN" href={siteUrl} />
+        <link rel="alternate" hreflang="en" href={siteUrl} />
+        <link rel="alternate" hreflang="x-default" href={siteUrl} />
+        <link rel="manifest" href="/site.webmanifest" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="shortcut icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="preload" as="image" href="/touch-ai-hero-light.svg?v=3" type="image/svg+xml" />
+        <script
+            is:inline
+            set:html={`(() => {
+                try {
+                    const storedTheme = localStorage.getItem('touchai-theme');
+                    const nextTheme =
+                        storedTheme === 'dark' || storedTheme === 'light'
+                            ? storedTheme
+                            : window.matchMedia('(prefers-color-scheme: dark)').matches
+                              ? 'dark'
+                              : 'light';
+                    document.documentElement.dataset.theme = nextTheme;
+                    document
+                        .querySelector('meta[name="theme-color"]')
+                        ?.setAttribute('content', nextTheme === 'dark' ? '#09090b' : '#ffffff');
+                } catch {}
+            })();`}
+        />
+        <script type="application/ld+json" set:html={structuredData} />
         {
             CLARITY_ID && (
                 <script
@@ -103,6 +270,18 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
             [hidden] {
                 display: none !important;
+            }
+
+            .sr-only {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                border: 0;
             }
 
             html {
@@ -444,30 +623,35 @@ const docsUrl = 'https://touch-ai.org/getting-started';
             }
 
             .glimm-click-layer {
+                --glimm-bleed: 32px;
                 position: fixed;
-                inset: 0;
+                top: calc(var(--glimm-bleed) * -1);
+                left: calc(var(--glimm-bleed) * -1);
                 z-index: 9999;
-                width: 100vw;
-                height: 100vh;
+                width: calc(100vw + (var(--glimm-bleed) * 2));
+                height: calc(100vh + (var(--glimm-bleed) * 2));
+                height: calc(100dvh + (var(--glimm-bleed) * 2));
                 pointer-events: none;
             }
 
             body.is-glimm-transitioning .interactive-click {
-                pointer-events: none;
+                pointer-events: auto;
             }
 
             .visual-section {
                 width: min(calc(100% - 48px), var(--max));
                 margin: 0 auto;
-                min-height: 100svh;
+                min-height: max(380svh, 3200px);
             }
 
             .visual-shell {
-                position: relative;
-                overflow: visible;
+                position: sticky;
+                top: 0;
+                overflow: hidden;
                 border-radius: 14px;
                 background: var(--bg);
                 box-shadow: none;
+                height: 100svh;
                 min-height: 100svh;
                 display: grid;
                 align-items: center;
@@ -642,19 +826,22 @@ const docsUrl = 'https://touch-ai.org/getting-started';
             }
 
             .feature-component-card {
-                --component-scale: 0.62;
+                --component-scale: 1;
                 --component-shell-height: 657px;
                 --embedded-frame-height: var(--component-shell-height);
-                --page-bg: var(--feature-shell-bg);
-                width: min(100%, calc(760px * var(--component-scale)));
-                height: calc(var(--component-shell-height) * var(--component-scale));
+                --page-bg: transparent;
+                width: min(100%, 472px);
+                max-width: 472px;
+                height: var(--feature-demo-height, 35px);
+                min-height: 35px;
                 padding: 0;
                 border: 0;
                 position: relative;
-                border-radius: 0;
+                border-radius: 18px;
                 background: transparent;
                 box-shadow: none;
                 overflow: visible;
+                isolation: isolate;
                 justify-self: center;
                 align-self: center;
                 cursor: pointer;
@@ -671,28 +858,32 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 background: transparent !important;
                 position: absolute;
                 z-index: 0;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%) scale(var(--component-scale));
-                transform-origin: center center;
-                border-radius: 0;
-                pointer-events: none;
+                top: 0;
+                left: 0;
+                transform: scale(var(--component-scale));
+                transform-origin: top left;
+                border-radius: inherit;
+                pointer-events: auto;
+                will-change: transform;
             }
 
             .feature-work-card {
-                --component-scale: 0.62;
+                --component-scale: 1;
                 --component-shell-height: 657px;
                 --embedded-frame-height: var(--component-shell-height);
-                --page-bg: var(--feature-shell-bg);
-                width: min(100%, calc(760px * var(--component-scale)));
-                height: calc(var(--component-shell-height) * var(--component-scale));
+                --page-bg: transparent;
+                width: min(100%, 472px);
+                max-width: 472px;
+                height: var(--feature-demo-height, 35px);
+                min-height: 35px;
                 padding: 0;
                 border: 0;
                 position: relative;
-                border-radius: 0;
+                border-radius: 18px;
                 background: transparent;
                 box-shadow: none;
                 overflow: visible;
+                isolation: isolate;
                 justify-self: center;
                 align-self: center;
                 cursor: pointer;
@@ -709,28 +900,32 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 background: transparent !important;
                 position: absolute;
                 z-index: 0;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%) scale(var(--component-scale));
-                transform-origin: center center;
-                border-radius: 0;
-                pointer-events: none;
+                top: 0;
+                left: 0;
+                transform: scale(var(--component-scale));
+                transform-origin: top left;
+                border-radius: inherit;
+                pointer-events: auto;
+                will-change: transform;
             }
 
             .feature-reminder-card {
-                --component-scale: 0.62;
+                --component-scale: 1;
                 --component-shell-height: 657px;
                 --embedded-frame-height: var(--component-shell-height);
-                --page-bg: var(--feature-shell-bg);
-                width: min(100%, calc(760px * var(--component-scale)));
-                height: calc(var(--component-shell-height) * var(--component-scale));
+                --page-bg: transparent;
+                width: min(100%, 472px);
+                max-width: 472px;
+                height: var(--feature-demo-height, 35px);
+                min-height: 35px;
                 padding: 0;
                 border: 0;
                 position: relative;
-                border-radius: 0;
+                border-radius: 18px;
                 background: transparent;
                 box-shadow: none;
                 overflow: visible;
+                isolation: isolate;
                 justify-self: center;
                 align-self: center;
                 cursor: pointer;
@@ -747,12 +942,13 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 background: transparent !important;
                 position: absolute;
                 z-index: 0;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%) scale(var(--component-scale));
-                transform-origin: center center;
-                border-radius: 0;
-                pointer-events: none;
+                top: 0;
+                left: 0;
+                transform: scale(var(--component-scale));
+                transform-origin: top left;
+                border-radius: inherit;
+                pointer-events: auto;
+                will-change: transform;
             }
 
             .code-card {
@@ -924,6 +1120,12 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 display: block;
                 font-size: 22px;
                 line-height: 1;
+                font-variant-numeric: tabular-nums;
+                transition: opacity 180ms ease;
+            }
+
+            .github-stat strong[data-loading='true'] {
+                opacity: 0.58;
             }
 
             .github-stat span {
@@ -1127,6 +1329,12 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 text-underline-offset: 4px;
             }
 
+            .footer-note {
+                max-width: 32rem;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+
             @media (max-width: 900px) {
                 .nav {
                     grid-template-columns: auto 1fr;
@@ -1151,8 +1359,12 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 }
 
                 .visual-shell {
+                    position: relative;
+                    top: auto;
+                    height: auto;
                     min-height: auto;
                     display: block;
+                    overflow: visible;
                     padding: 24px 0;
                 }
 
@@ -1249,8 +1461,9 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 .feature-work-card,
                 .feature-reminder-card {
                     width: min(100%, 520px);
-                    height: auto;
-                    aspect-ratio: 760 / 657;
+                    height: var(--feature-demo-height, 35px);
+                    min-height: 35px;
+                    aspect-ratio: auto;
                 }
 
                 .github-feedback-head {
@@ -1269,6 +1482,65 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 }
             }
 
+            @media (min-width: 901px) and (max-height: 780px) {
+                .hero {
+                    min-height: auto;
+                    padding-bottom: 28px;
+                }
+
+                .visual-section {
+                    min-height: max(320svh, 2300px);
+                    padding: 40px 0 56px;
+                }
+
+                .visual-shell {
+                    position: sticky;
+                    top: 0;
+                    height: 100svh;
+                    min-height: max(100svh, 760px);
+                    display: grid;
+                    overflow: hidden;
+                    padding: 20px 0;
+                }
+
+                .visual-stage {
+                    height: auto;
+                    min-height: 640px;
+                    display: grid;
+                    place-items: center;
+                    overflow: visible;
+                }
+
+                .component-frame {
+                    width: min(52vw, 560px, 100%);
+                    height: auto;
+                    aspect-ratio: 760 / 657;
+                    max-height: min(60vh, 520px);
+                    min-height: 0;
+                }
+
+                .feature-block {
+                    min-height: auto;
+                    padding: 0;
+                }
+
+                .feature-block-shell {
+                    position: static;
+                    top: auto;
+                    min-height: 520px;
+                    overflow: hidden;
+                }
+
+                #features {
+                    padding-top: 96px;
+                }
+
+                .section-title {
+                    margin-bottom: 36px;
+                    font-size: clamp(32px, 5vw, 58px);
+                }
+            }
+
             @media (max-width: 560px) {
                 .hero,
                 .visual-section,
@@ -1283,12 +1555,19 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     padding: 0 14px;
                 }
 
+                .hero {
+                    margin: 0 auto;
+                    min-height: auto;
+                    padding: 36px 0 10px;
+                    justify-content: flex-start;
+                }
+
                 .wordmark {
                     width: 118px;
                 }
 
                 .nav-actions {
-                    gap: 10px;
+                    gap: 8px;
                 }
 
                 .nav-icon-link,
@@ -1308,15 +1587,15 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 .hero-subtitle {
                     max-width: 330px;
-                    margin-top: 18px;
-                    font-size: 22px;
-                    line-height: 1.28;
+                    margin-top: 12px;
+                    font-size: 19px;
+                    line-height: 1.3;
                 }
 
                 .hero-actions {
                     width: 100%;
                     gap: 10px;
-                    margin-top: 22px;
+                    margin-top: 16px;
                 }
 
                 .hero-actions .button {
@@ -1325,13 +1604,13 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 .visual-section {
                     min-height: auto;
-                    padding: 36px 0 54px;
+                    padding: 12px 0 40px;
                 }
 
                 .visual-shell {
                     min-height: auto;
                     display: block;
-                    padding: 24px 0;
+                    padding: 18px 0;
                 }
 
                 .visual-stage {
@@ -1346,23 +1625,23 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     width: min(100%, 360px);
                     height: auto;
                     aspect-ratio: 760 / 657;
-                    max-height: min(58vh, 420px);
+                    max-height: min(54vh, 420px);
                     min-height: 0;
                     max-width: 360px;
                 }
 
                 .section {
-                    padding: 62px 0;
+                    padding: 48px 0;
                 }
 
                 .section-title {
-                    margin-bottom: 28px;
-                    font-size: 34px;
-                    line-height: 1.15;
+                    margin-bottom: 22px;
+                    font-size: 30px;
+                    line-height: 1.12;
                 }
 
                 .feature-stack {
-                    gap: 34px;
+                    gap: 22px;
                 }
 
                 .feature-block-shell {
@@ -1372,18 +1651,18 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 }
 
                 .feature-copy {
-                    gap: 16px;
-                    padding: 22px;
+                    gap: 14px;
+                    padding: 18px;
                 }
 
                 .feature-copy h3 {
-                    font-size: 26px;
+                    font-size: 24px;
                     line-height: 1.22;
                 }
 
                 .feature-media {
-                    min-height: 356px;
-                    padding: 18px 0 24px;
+                    min-height: 312px;
+                    padding: 16px 0 22px;
                     overflow: hidden;
                 }
 
@@ -1401,8 +1680,9 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 .feature-work-card,
                 .feature-reminder-card {
                     width: min(100%, 334px);
-                    height: auto;
-                    aspect-ratio: 760 / 657;
+                    height: var(--feature-demo-height, 35px);
+                    min-height: 35px;
+                    aspect-ratio: auto;
                     max-width: 100%;
                 }
 
@@ -1412,17 +1692,17 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 .scenario-card {
                     min-height: auto;
-                    padding: 22px;
+                    padding: 20px;
                     border-radius: 20px;
                 }
 
                 .github-feedback-head {
-                    margin-bottom: 28px;
+                    margin-bottom: 22px;
                 }
 
                 .github-stats {
                     display: grid;
-                    grid-template-columns: repeat(3, minmax(0, 1fr));
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
                     width: 100%;
                     gap: 8px;
                 }
@@ -1436,20 +1716,38 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     font-size: 19px;
                 }
 
+                .github-stat span {
+                    font-size: 12px;
+                }
+
                 .review-card {
                     min-height: auto;
                     border-radius: 16px;
                 }
 
                 .review-card p {
-                    font-size: 16px;
+                    font-size: 15px;
                     line-height: 1.62;
                 }
 
                 .cta {
-                    margin-bottom: 42px;
-                    padding: 32px 20px;
+                    margin-bottom: 30px;
+                    padding: 24px 18px;
                     border-radius: 20px;
+                }
+
+                .cta h2 {
+                    max-width: 240px;
+                    font-size: clamp(30px, 9vw, 42px);
+                    line-height: 1.08;
+                }
+
+                .cta p {
+                    margin-top: 14px;
+                }
+
+                .cta .button {
+                    width: min(100%, 236px);
                 }
 
                 .footer-links {
@@ -1461,15 +1759,64 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 .scenario-card p,
                 .quote p,
                 .cta p {
-                    font-size: 17px;
+                    font-size: 16px;
+                }
+            }
+
+            @media (max-width: 400px) {
+                .hero,
+                .visual-section,
+                .section,
+                .cta,
+                .footer {
+                    width: min(calc(100% - 20px), var(--max));
+                }
+
+                .hero-subtitle {
+                    max-width: 300px;
+                    font-size: 18px;
+                }
+
+                .section-title {
+                    font-size: 28px;
+                }
+
+                .feature-copy h3 {
+                    font-size: 22px;
+                }
+
+                .feature-media {
+                    min-height: 292px;
+                }
+
+                .feature-component-card,
+                .feature-work-card,
+                .feature-reminder-card {
+                    width: min(100%, 308px);
+                }
+
+                .cta {
+                    padding: 22px 16px;
+                }
+
+                .cta h2 {
+                    max-width: 220px;
+                    font-size: clamp(28px, 8.8vw, 38px);
                 }
             }
         </style>
     </head>
-    <body data-waitlist-endpoint={WAITLIST_ENDPOINT}>
+    <body data-analytics-endpoint={ANALYTICS_ENDPOINT}>
         <header class="nav" aria-label="主导航">
             <a class="logo-link" href="#top" aria-label="TouchAI 首页">
-                <img class="wordmark" src="/touchai-wordmark.svg" alt="TouchAI" />
+                <img
+                    class="wordmark"
+                    src="/touchai-wordmark.svg"
+                    alt="TouchAI"
+                    width="421"
+                    height="109"
+                    decoding="async"
+                />
             </a>
             <div class="nav-actions">
                 <a
@@ -1477,6 +1824,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     href={repoUrl}
                     target="_blank"
                     rel="noreferrer"
+                    data-analytics-event="open_repository"
                     aria-label="GitHub"
                     title="GitHub"
                 >
@@ -1560,7 +1908,18 @@ const docsUrl = 'https://touch-ai.org/getting-started';
         <main id="top">
             <section class="hero">
                 <h1>
-                    <img class="hero-wordmark" src="/touch-ai-hero-light.svg?v=3" alt="TouchAI" />
+                    <span class="sr-only" data-i18n="hero.heading">
+                        TouchAI：一触即达的桌面效率 Agent
+                    </span>
+                    <img
+                        class="hero-wordmark"
+                        src="/touch-ai-hero-light.svg?v=3"
+                        alt="TouchAI"
+                        width="291"
+                        height="87"
+                        decoding="async"
+                        fetchpriority="high"
+                    />
                 </h1>
                 <p class="hero-subtitle" data-i18n="hero.subtitle">一触即达的桌面效率 Agent</p>
                 <div class="hero-actions">
@@ -1569,12 +1928,10 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                         href={releasesUrl}
                         target="_blank"
                         rel="noreferrer"
+                        data-analytics-event="download_release"
                         data-i18n="hero.download"
                     >
                         下载 TouchAI
-                    </a>
-                    <a class="button secondary" href={docsUrl} data-i18n="hero.docs" hidden>
-                        使用文档
                     </a>
                 </div>
             </section>
@@ -1629,7 +1986,8 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                             <div class="feature-copy">
                                 <h3 data-i18n="features.two.title">整理你的复杂工作</h3>
                                 <p data-i18n="features.two.copy">
-                                    随时把你混乱的任务丢给TouchAI，让他帮你整理归档，专注更有价值的创造
+                                    随时把你混乱的任务丢给
+                                    TouchAI，让他帮你整理归档，专注更有价值的创造
                                 </p>
                             </div>
                         </div>
@@ -1663,7 +2021,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     <article class="scenario-card">
                         <h3 data-i18n="workflow.one.title">支持BYOK</h3>
                         <p data-i18n="workflow.one.copy">
-                            无厂商锁定，接入你自己的模型，用任意模型驱动TouchAI。
+                            无厂商锁定，接入你自己的模型，用任意模型驱动 TouchAI。
                         </p>
                     </article>
                     <article class="scenario-card">
@@ -1675,7 +2033,8 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     <article class="scenario-card">
                         <h3 data-i18n="workflow.three.title">桌面操控与执行</h3>
                         <p data-i18n="workflow.three.copy">
-                            直接操控电脑、打开应用、查询信息、整理文件并执行桌面动作，让AI帮你操作。
+                            直接操控电脑、打开应用、查询信息、整理文件并执行桌面动作，让 AI
+                            帮你操作。
                         </p>
                     </article>
                 </div>
@@ -1684,18 +2043,22 @@ const docsUrl = 'https://touch-ai.org/getting-started';
             <section class="section" id="teams">
                 <div class="github-feedback-head">
                     <h2 class="section-title" data-i18n="teams.title">用户反馈</h2>
-                    <div class="github-stats" aria-label="GitHub project stats">
+                    <div
+                        class="github-stats"
+                        aria-label="GitHub project stats"
+                        aria-live="polite"
+                        data-repo-path={repoPath}
+                        data-repo-api-url={repoApiUrl}
+                        data-initial-stars={initialRepoStats.stars}
+                        data-initial-forks={initialRepoStats.forks}
+                    >
                         <div class="github-stat">
-                            <strong data-github-stat="stars" aria-live="polite">23</strong>
+                            <strong data-github-stat="stars" data-loading="true">--</strong>
                             <span data-i18n="teams.stats.stars">Stars</span>
                         </div>
                         <div class="github-stat">
-                            <strong data-github-stat="forks" aria-live="polite">22</strong>
+                            <strong data-github-stat="forks" data-loading="true">--</strong>
                             <span data-i18n="teams.stats.forks">Forks</span>
-                        </div>
-                        <div class="github-stat">
-                            <strong data-github-stat="issues" aria-live="polite">82</strong>
-                            <span data-i18n="teams.stats.issues">Open issues</span>
                         </div>
                     </div>
                 </div>
@@ -1714,7 +2077,10 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                         class="review-avatar"
                                         src="/review-avatars/sakukae.png"
                                         alt=""
+                                        width="120"
+                                        height="120"
                                         loading="lazy"
+                                        decoding="async"
                                     />
                                 </a>
                                 <div class="review-title-block">
@@ -1760,7 +2126,10 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                         class="review-avatar"
                                         src="/review-avatars/arcj137442.png"
                                         alt=""
+                                        width="120"
+                                        height="120"
                                         loading="lazy"
+                                        decoding="async"
                                     />
                                 </a>
                                 <div class="review-title-block">
@@ -1805,7 +2174,10 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                         class="review-avatar"
                                         src="/review-avatars/theeverests.png"
                                         alt=""
+                                        width="120"
+                                        height="120"
                                         loading="lazy"
+                                        decoding="async"
                                     />
                                 </a>
                                 <div class="review-title-block">
@@ -1848,7 +2220,10 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                         class="review-avatar"
                                         src="/review-avatars/anonymous.png"
                                         alt=""
+                                        width="120"
+                                        height="120"
                                         loading="lazy"
+                                        decoding="async"
                                     />
                                 </span>
                                 <div class="review-title-block">
@@ -1861,7 +2236,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                             </div>
                             <div class="review-divider" aria-hidden="true"></div>
                             <p data-i18n="teams.review.delta">
-                                “之前用过好多 agent
+                                “之前用过好多 Agent
                                 工具，其中很大的问题就是要自己培养，太费精力，到头来成了一个玩具。但是用过这款下来，真的能解决我的需求。”
                             </p>
                         </div>
@@ -1877,6 +2252,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     href={releasesUrl}
                     target="_blank"
                     rel="noreferrer"
+                    data-analytics-event="download_release"
                     data-i18n="cta.download"
                 >
                     下载 TouchAI
@@ -1890,22 +2266,22 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     href="https://touch-ai.org/"
                     target="_blank"
                     rel="noreferrer"
+                    data-analytics-event="open_official_site"
                     data-i18n="footer.official"
                 >
                     官网
                 </a>
-                <a href={repoUrl} target="_blank" rel="noreferrer">GitHub</a>
-                <a href={docsUrl} target="_blank" rel="noreferrer" data-i18n="footer.docs" hidden>
-                    文档
-                </a>
                 <a
-                    href="https://github.com/TouchAI-org/TouchAI/issues"
+                    href={repoUrl}
                     target="_blank"
                     rel="noreferrer"
-                    data-i18n="footer.contact"
+                    data-analytics-event="open_repository"
                 >
-                    联系我们
+                    GitHub
                 </a>
+            </div>
+            <div class="footer-note" data-i18n="footer.analytics">
+                We use basic analytics and Clarity.
             </div>
             <div data-i18n="footer.copyright">© 2026 TouchAI. GPL-3.0-or-later.</div>
         </footer>
@@ -1922,6 +2298,12 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     stage: 'started',
                 };
                 let touchaiDemoRuntime = null;
+                const getMessagePayload = (event) =>
+                    event && typeof event.data === 'object' && event.data ? event.data : {};
+                const getMessageType = (event) => {
+                    const message = getMessagePayload(event);
+                    return typeof message.type === 'string' ? message.type : '';
+                };
                 const sendToDemo = (target, data) =>
                     touchaiDemoRuntime?.send(target, data) ?? false;
 
@@ -1953,41 +2335,36 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 const translations = {
                     zh: {
+                        'hero.heading': 'TouchAI：一触即达的桌面效率 Agent',
                         'nav.features': '功能',
                         'nav.workflow': '场景',
                         'nav.teams': '评价',
                         'nav.download': '下载',
                         'hero.subtitle': '一触即达的桌面效率 Agent',
                         'hero.download': '下载 TouchAI',
-                        'hero.docs': '使用文档',
                         'features.title': '自然融入你的工作流',
                         'features.one.title': '把题目交给桌面 AI',
                         'features.one.copy':
                             '截图、公式和上下文可以一起进入对话。TouchAI 会理解题面，逐步展开推导，并把关键结论整理成可继续使用的答案。',
                         'features.two.title': '整理你的复杂工作',
                         'features.two.copy':
-                            '随时把你混乱的任务丢给TouchAI，让他帮你整理归档，专注更有价值的创造',
+                            '随时把你混乱的任务丢给 TouchAI，让他帮你整理归档，专注更有价值的创造',
                         'features.three.title': '让世界近在咫尺',
                         'features.three.copy':
                             '随时呼起，一句自然语言，迅速调用外部工具，无负担无打扰',
                         'workflow.title': '丰富的功能特性',
                         'workflow.one.title': '支持BYOK',
                         'workflow.one.copy':
-                            '无厂商锁定，接入你自己的模型，用任意模型驱动TouchAI。',
+                            '无厂商锁定，接入你自己的模型，用任意模型驱动 TouchAI。',
                         'workflow.two.title': '桌面上下文理解',
                         'workflow.two.copy':
                             '围绕当前窗口、剪贴板、文件理解你的桌面上下文，让连续任务自然接上下一步。',
                         'workflow.three.title': '桌面操控与执行',
                         'workflow.three.copy':
-                            '直接操控电脑、打开应用、查询信息、整理文件并执行桌面动作，让AI帮你操作。',
+                            '直接操控电脑、打开应用、查询信息、整理文件并执行桌面动作，让 AI 帮你操作。',
                         'teams.title': '用户反馈',
                         'teams.stats.stars': 'Stars',
                         'teams.stats.forks': 'Forks',
-                        'teams.stats.issues': 'Open issues',
-                        'teams.one.quote':
-                            '开发者正在 GitHub Issues 里围绕桌面唤起、模型接入和自动化工作流提交反馈，项目保持持续迭代。',
-                        'teams.one.label': 'Issues 反馈',
-                        'teams.one.link': '查看 Issues',
                         'teams.two.quote':
                             'TouchAI 采用 GPL-3.0 开源协议，当前以 TypeScript 为主要语言，欢迎围绕桌面 Agent 体验提交改进建议。',
                         'teams.two.label': '开源协作',
@@ -2003,23 +2380,23 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                         'teams.review.gamma':
                             '“在解答疑难题目时，调用 TouchAI 进行智能解析；其不仅在分析答案的同时，能够绘制多种图形辅助理解，从而使抽象概念得以直观呈现，实现学习支持的高效可及与即时响应。”',
                         'teams.review.delta':
-                            '“之前用过好多 agent 工具，其中很大的问题就是要自己培养，太费精力，到头来成了一个玩具。但是用过这款下来，真的能解决我的需求。”',
+                            '“之前用过好多 Agent 工具，其中很大的问题就是要自己培养，太费精力，到头来成了一个玩具。但是用过这款下来，真的能解决我的需求。”',
                         'cta.title': '开始使用 TouchAI',
-                        'cta.copy': '体验近在咫尺的AI陪伴',
+                        'cta.copy': '体验近在咫尺的 AI 陪伴',
                         'cta.download': '下载 TouchAI',
                         'footer.official': '官网',
-                        'footer.docs': '文档',
-                        'footer.contact': '联系我们',
+                        'footer.analytics':
+                            '本站使用基础统计与 Microsoft Clarity，用于了解站点使用情况并优化体验。',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                     en: {
+                        'hero.heading': 'TouchAI: A Desktop Efficiency Agent at Your Fingertips',
                         'nav.features': 'Features',
                         'nav.workflow': 'Use cases',
                         'nav.teams': 'Stories',
                         'nav.download': 'Download',
                         'hero.subtitle': 'A desktop productivity agent, one touch away',
                         'hero.download': 'Download TouchAI',
-                        'hero.docs': 'Docs',
                         'features.title': 'Naturally fits into your workflow',
                         'features.one.title': 'Hand the problem to desktop AI.',
                         'features.one.copy':
@@ -2043,11 +2420,6 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                         'teams.title': 'User feedback',
                         'teams.stats.stars': 'Stars',
                         'teams.stats.forks': 'Forks',
-                        'teams.stats.issues': 'Open issues',
-                        'teams.one.quote':
-                            'Developers are using GitHub Issues to discuss desktop summon, model access, and automation workflows while the project keeps moving.',
-                        'teams.one.label': 'Issue feedback',
-                        'teams.one.link': 'View Issues',
                         'teams.two.quote':
                             'TouchAI is GPL-3.0 licensed and primarily written in TypeScript. Suggestions around the desktop Agent experience are welcome.',
                         'teams.two.label': 'Open-source work',
@@ -2068,33 +2440,150 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                         'cta.copy': 'Experience AI companionship within reach.',
                         'cta.download': 'Download TouchAI',
                         'footer.official': 'Official site',
-                        'footer.docs': 'Docs',
-                        'footer.contact': 'Contact us',
+                        'footer.analytics':
+                            'We use basic analytics and Microsoft Clarity to understand site usage and improve the experience.',
                         'footer.copyright': '© 2026 TouchAI. GPL-3.0-or-later.',
                     },
                 };
 
                 const featureProgressByFrame = new WeakMap();
-                function syncFeatureDemoProgress(frame, progress) {
+                const lastDispatchedDemoProgress = new WeakMap();
+                const pendingDemoProgress = new WeakMap();
+                const demoProgressFrameHandles = new WeakMap();
+                const resetDemoProgressDedupe = (frame) => {
                     if (!frame) return;
-                    featureProgressByFrame.set(frame, progress);
-                    sendToDemo(frame, {
-                        type: 'touchai-set-scroll-progress',
-                        progress,
+                    lastDispatchedDemoProgress.delete(frame);
+                };
+                const snapDemoProgress = (value) => {
+                    const numericValue = Number(value);
+                    const clampedValue = Number.isFinite(numericValue)
+                        ? Math.min(1, Math.max(0, numericValue))
+                        : 0;
+
+                    if (clampedValue <= 0) return 0;
+                    if (clampedValue >= 1) return 1;
+
+                    return Math.round(clampedValue * 240) / 240;
+                };
+                const cancelQueuedDemoProgress = (frame) => {
+                    if (!frame) return;
+                    const frameHandle = demoProgressFrameHandles.get(frame);
+                    if (frameHandle) {
+                        cancelAnimationFrame(frameHandle);
+                        demoProgressFrameHandles.delete(frame);
+                    }
+                    pendingDemoProgress.delete(frame);
+                    resetDemoProgressDedupe(frame);
+                };
+                const queueDemoProgress = (frame, type, progress, force = false) => {
+                    if (!frame) return;
+
+                    const snappedProgress = snapDemoProgress(progress);
+                    const lastProgress = lastDispatchedDemoProgress.get(frame);
+                    if (!force && lastProgress === snappedProgress) return;
+
+                    pendingDemoProgress.set(frame, {
+                        type,
+                        progress: snappedProgress,
+                        force,
                     });
+
+                    if (demoProgressFrameHandles.has(frame)) return;
+
+                    const frameHandle = requestAnimationFrame(() => {
+                        demoProgressFrameHandles.delete(frame);
+                        const nextProgress = pendingDemoProgress.get(frame);
+                        if (!nextProgress) return;
+
+                        pendingDemoProgress.delete(frame);
+                        const dispatchedProgress = lastDispatchedDemoProgress.get(frame);
+                        if (!nextProgress.force && dispatchedProgress === nextProgress.progress) {
+                            return;
+                        }
+
+                        lastDispatchedDemoProgress.set(frame, nextProgress.progress);
+                        sendToDemo(frame, {
+                            type: nextProgress.type,
+                            progress: nextProgress.progress,
+                        });
+                    });
+
+                    demoProgressFrameHandles.set(frame, frameHandle);
+                };
+                const queueDemoScrollIdle = (frame) => {
+                    if (!frame) return;
+                    requestAnimationFrame(() => {
+                        resetDemoProgressDedupe(frame);
+                        sendToDemo(frame, { type: 'touchai-clear-scroll-driven' });
+                    });
+                };
+                function syncFeatureDemoProgress(frame, progress, force = false) {
+                    if (!frame) return;
+                    const mappedProgress = Math.min(1, Math.max(0, Number(progress) || 0));
+                    const snappedProgress = snapDemoProgress(mappedProgress);
+                    featureProgressByFrame.set(frame, snappedProgress);
+                    queueDemoProgress(frame, 'touchai-set-scroll-progress', snappedProgress, force);
                 }
 
                 function restoreFeatureDemoProgress(frame) {
                     if (!frame) return;
                     const progress = featureProgressByFrame.get(frame) ?? 0;
-                    syncFeatureDemoProgress(frame, progress);
-                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 120);
-                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 360);
+                    syncFeatureDemoProgress(frame, progress, true);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress, true), 120);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress, true), 360);
                 }
 
                 const setLanguage = (language) => {
                     const lang = language === 'en' ? 'en' : 'zh';
                     document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+                    const localizedLabels = {
+                        navAria: lang === 'en' ? 'Primary navigation' : '主导航',
+                        homeAria: lang === 'en' ? 'TouchAI home' : 'TouchAI 首页',
+                        themeToggle:
+                            lang === 'en'
+                                ? {
+                                      light: 'Switch to dark mode',
+                                      dark: 'Switch to light mode',
+                                  }
+                                : {
+                                      light: '切换黑夜模式',
+                                      dark: '切换白天模式',
+                                  },
+                        replaySuffix:
+                            lang === 'en'
+                                ? 'click to replay current scroll progress'
+                                : '点击刷新当前滚动进度',
+                        replayLabels:
+                            lang === 'en'
+                                ? {
+                                      solver: 'Math solver conversation',
+                                      work: 'Work organizer conversation',
+                                      reminder: 'Reminder conversation',
+                                  }
+                                : {
+                                      solver: '解题对话框',
+                                      work: '工作整理对话框',
+                                      reminder: '提醒对话框',
+                                  },
+                    };
+                    const localizedHeadNodes = document.querySelectorAll(
+                        '#site-title, #site-description, #og-title, #og-description, #twitter-title, #twitter-description'
+                    );
+                    localizedHeadNodes.forEach((node) => {
+                        const value = node.getAttribute(`data-${lang}`);
+                        if (!value) return;
+                        if (node.tagName === 'TITLE') {
+                            node.textContent = value;
+                            return;
+                        }
+                        node.setAttribute('content', value);
+                    });
+                    document
+                        .querySelector('meta[property="og:locale"]')
+                        ?.setAttribute('content', lang === 'en' ? 'en_US' : 'zh_CN');
+                    document
+                        .querySelector('meta[property="og:locale:alternate"]')
+                        ?.setAttribute('content', lang === 'en' ? 'zh_CN' : 'en_US');
                     document.querySelectorAll('[data-i18n]').forEach((node) => {
                         const key = node.dataset.i18n;
                         if (key && translations[lang][key]) {
@@ -2114,6 +2603,39 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                         );
                         toggle.querySelector('span').textContent = lang === 'en' ? 'EN' : '中';
                     }
+                    document
+                        .querySelector('.nav')
+                        ?.setAttribute('aria-label', localizedLabels.navAria);
+                    document
+                        .querySelector('.logo-link')
+                        ?.setAttribute('aria-label', localizedLabels.homeAria);
+                    const themeToggle = document.querySelector('.theme-toggle');
+                    if (themeToggle) {
+                        const nextTheme =
+                            document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+                        const nextLabel = localizedLabels.themeToggle[nextTheme];
+                        themeToggle.setAttribute('aria-label', nextLabel);
+                        themeToggle.setAttribute('title', nextLabel);
+                    }
+                    const replayCardLabels = [
+                        ['.feature-component-card', localizedLabels.replayLabels.solver],
+                        ['.feature-work-card', localizedLabels.replayLabels.work],
+                        ['.feature-reminder-card', localizedLabels.replayLabels.reminder],
+                    ];
+                    replayCardLabels.forEach(([selector, label]) => {
+                        const card = document.querySelector(selector);
+                        if (!card) return;
+                        card.setAttribute(
+                            'aria-label',
+                            `${label}，${localizedLabels.replaySuffix}`.replace('，，', '，')
+                        );
+                        if (lang === 'en') {
+                            card.setAttribute(
+                                'aria-label',
+                                `${label}, ${localizedLabels.replaySuffix}`
+                            );
+                        }
+                    });
                     const introDemo = document.querySelector('.component-frame');
                     if (introDemo) {
                         const nextSrc =
@@ -2121,6 +2643,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                 ? '/touchai-intro-en/touchai-components.html?v=1'
                                 : '/touchai-intro/touchai-components.html?v=8';
                         if (introDemo.dataset.src !== nextSrc) {
+                            resetDemoProgressDedupe(introDemo);
                             introDemo.dataset.src = nextSrc;
                             introDemo.dataset.title =
                                 lang === 'en'
@@ -2138,6 +2661,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                 ? '/feature-solver-en/touchai-components.html?v=1'
                                 : '/feature-solver/touchai-components.html?v=17';
                         if (solverDemo.dataset.src !== nextSolverSrc) {
+                            resetDemoProgressDedupe(solverDemo);
                             solverDemo.dataset.src = nextSolverSrc;
                             solverDemo.dataset.title =
                                 lang === 'en'
@@ -2156,6 +2680,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                 ? '/feature-work-organizer-en/touchai-components.html?v=1'
                                 : '/feature-work-organizer/touchai-components.html?v=13';
                         if (workDemo.dataset.src !== nextWorkSrc) {
+                            resetDemoProgressDedupe(workDemo);
                             workDemo.dataset.src = nextWorkSrc;
                             workDemo.dataset.title =
                                 lang === 'en'
@@ -2174,6 +2699,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                 ? '/feature-reminder-en/touchai-components.html?v=1'
                                 : '/feature-reminder/touchai-components.html?v=5';
                         if (reminderDemo.dataset.src !== nextReminderSrc) {
+                            resetDemoProgressDedupe(reminderDemo);
                             reminderDemo.dataset.src = nextReminderSrc;
                             reminderDemo.dataset.title =
                                 lang === 'en'
@@ -2192,24 +2718,117 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 const savedLanguage = localStorage.getItem('touchai-language');
                 setLanguage(savedLanguage === 'en' ? 'en' : 'zh');
 
+                const analyticsEndpoint = (() => {
+                    const raw = document.body.dataset.analyticsEndpoint?.trim();
+                    if (!raw) return '';
+                    try {
+                        const url = new URL(raw);
+                        return /^https?:$/.test(url.protocol) ? url.href : '';
+                    } catch {
+                        return '';
+                    }
+                })();
+                let hasTrackedPageView = false;
+                const sendAnalytics = (type, detail = {}) => {
+                    if (!analyticsEndpoint) return;
+                    const payload = JSON.stringify({
+                        type,
+                        href: window.location.href,
+                        path: window.location.pathname,
+                        title: document.title,
+                        lang: document.documentElement.lang,
+                        referrer: document.referrer || '',
+                        viewport: `${window.innerWidth}x${window.innerHeight}`,
+                        ts: new Date().toISOString(),
+                        ...detail,
+                    });
+
+                    try {
+                        if (navigator.sendBeacon) {
+                            const sent = navigator.sendBeacon(
+                                analyticsEndpoint,
+                                new Blob([payload], { type: 'application/json' })
+                            );
+                            if (sent) return;
+                        }
+                    } catch (_error) {
+                        // Fall through to fetch.
+                    }
+
+                    fetch(analyticsEndpoint, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: payload,
+                        keepalive: true,
+                    }).catch(() => {});
+                };
+                const trackPageView = () => {
+                    if (hasTrackedPageView) return;
+                    hasTrackedPageView = true;
+                    sendAnalytics('pageview');
+                };
+
+                if (document.readyState === 'complete') {
+                    queueMicrotask(trackPageView);
+                } else {
+                    window.addEventListener('load', trackPageView, { once: true });
+                }
+
+                document.querySelectorAll('[data-analytics-event]').forEach((node) => {
+                    node.addEventListener('click', () => {
+                        sendAnalytics(node.dataset.analyticsEvent, {
+                            label:
+                                node.getAttribute('aria-label') || node.textContent?.trim() || '',
+                        });
+                    });
+                });
+
                 const componentBackgroundFrames = () =>
                     document.querySelectorAll('touchai-component-demo');
 
+                const featureDemoPairs = () => [
+                    ['.feature-component-card', '.feature-component-frame'],
+                    ['.feature-work-card', '.feature-work-frame'],
+                    ['.feature-reminder-card', '.feature-reminder-frame'],
+                ];
+                const featureCardHeightObservers = new WeakMap();
+
+                const syncFeatureCardHeight = (card, frame, scale) => {
+                    if (!card || !frame) return;
+                    const panel = frame.querySelector('.chat-panel');
+                    const panelHeight = panel?.offsetHeight || 56;
+                    card.style.setProperty(
+                        '--feature-demo-height',
+                        `${Math.max(35, panelHeight * scale)}px`
+                    );
+                };
+
+                const observeFeatureCardHeight = (card, frame) => {
+                    if (!card || !frame || !window.ResizeObserver) return;
+                    const panel = frame.querySelector('.chat-panel');
+                    if (!panel) return;
+
+                    const currentObserver = featureCardHeightObservers.get(frame);
+                    if (currentObserver?.panel === panel) return;
+                    currentObserver?.observer.disconnect();
+
+                    const observer = new ResizeObserver(() => syncFeatureFrameSizing());
+                    observer.observe(panel);
+                    featureCardHeightObservers.set(frame, { panel, observer });
+                };
+
                 const syncFeatureFrameSizing = () => {
-                    [
-                        ['.feature-component-card', '.feature-component-frame'],
-                        ['.feature-work-card', '.feature-work-frame'],
-                        ['.feature-reminder-card', '.feature-reminder-frame'],
-                    ].forEach(([cardSelector, frameSelector]) => {
+                    featureDemoPairs().forEach(([cardSelector, frameSelector]) => {
                         const card = document.querySelector(cardSelector);
                         const frame = document.querySelector(frameSelector);
                         if (!frame) return;
 
+                        let scale = 1;
                         if (card) {
                             const width = card.getBoundingClientRect().width || 0;
                             if (width > 0) {
-                                card.style.height = `${Math.round((width * 657) / 760)}px`;
-                                card.style.setProperty('--component-scale', String(width / 760));
+                                scale = width / 760;
+                                card.style.setProperty('--component-scale', String(scale));
                             }
                         }
 
@@ -2217,6 +2836,8 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                         frame.style.minHeight = '657px';
                         frame.style.maxHeight = '657px';
                         frame.style.background = 'transparent';
+                        observeFeatureCardHeight(card, frame);
+                        syncFeatureCardHeight(card, frame, scale);
                     });
                 };
 
@@ -2224,9 +2845,6 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     requestAnimationFrame(() => {
                         const componentStageBg = getComputedStyle(document.documentElement)
                             .getPropertyValue('--component-stage-bg')
-                            .trim();
-                        const featureShellBg = getComputedStyle(document.documentElement)
-                            .getPropertyValue('--feature-shell-bg')
                             .trim();
                         componentBackgroundFrames().forEach((frame) => {
                             const isSolverFrame =
@@ -2239,12 +2857,10 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                             const nextBg = isIntroFrame
                                 ? 'transparent'
                                 : isFeatureFrame
-                                  ? featureShellBg
+                                  ? 'transparent'
                                   : componentStageBg;
                             frame.style.setProperty('--page-bg', nextBg);
-                            if (!isSolverFrame) {
-                                frame.style.background = nextBg;
-                            }
+                            frame.style.background = 'transparent';
                             sendToDemo(frame, { type: 'touchai-page-bg', background: nextBg });
                         });
                         syncFeatureFrameSizing();
@@ -2253,79 +2869,185 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 const setTheme = (theme) => {
                     const nextTheme = theme === 'dark' ? 'dark' : 'light';
+                    const lang = document.documentElement.lang === 'en' ? 'en' : 'zh';
                     document.documentElement.dataset.theme = nextTheme;
                     document
                         .querySelector('meta[name="theme-color"]')
                         ?.setAttribute('content', nextTheme === 'dark' ? '#101014' : '#ffffff');
                     const themeToggle = document.querySelector('.theme-toggle');
                     if (themeToggle) {
+                        const nextLabel =
+                            lang === 'en'
+                                ? nextTheme === 'dark'
+                                    ? 'Switch to light mode'
+                                    : 'Switch to dark mode'
+                                : nextTheme === 'dark'
+                                  ? '切换白天模式'
+                                  : '切换黑夜模式';
                         themeToggle.setAttribute('aria-pressed', String(nextTheme === 'dark'));
-                        themeToggle.setAttribute(
-                            'aria-label',
-                            nextTheme === 'dark' ? '切换白天模式' : '切换黑夜模式'
-                        );
-                        themeToggle.setAttribute(
-                            'title',
-                            nextTheme === 'dark' ? '切换白天模式' : '切换黑夜模式'
-                        );
+                        themeToggle.setAttribute('aria-label', nextLabel);
+                        themeToggle.setAttribute('title', nextLabel);
                     }
                     localStorage.setItem('touchai-theme', nextTheme);
                     syncComponentBackground();
                 };
 
+                const githubStatsGroup = document.querySelector('.github-stats');
+                const REPO_STATS_SOURCE =
+                    githubStatsGroup?.dataset.repoPath || 'TouchAI-org/TouchAI';
+                const REPO_STATS_API_URL =
+                    githubStatsGroup?.dataset.repoApiUrl ||
+                    `https://api.github.com/repos/${REPO_STATS_SOURCE}`;
+                const REPO_STATS_STORAGE_KEY = `touchai-github-stats:${REPO_STATS_SOURCE}`;
+                const REPO_STATS_REFRESH_INTERVAL = 5 * 60 * 1000;
+                const REPO_STATS_REFOCUS_INTERVAL = 90 * 1000;
+                const REPO_STATS_REQUEST_GAP = 20 * 1000;
                 const repoStats = {
-                    stars: 23,
-                    forks: 22,
-                    issues: 82,
+                    stars: 0,
+                    forks: 0,
+                    updatedAt: 0,
                 };
                 const statNodes = {
                     stars: document.querySelector('[data-github-stat="stars"]'),
                     forks: document.querySelector('[data-github-stat="forks"]'),
-                    issues: document.querySelector('[data-github-stat="issues"]'),
+                };
+                const statFormatter = new Intl.NumberFormat('en-US');
+                const normalizeStat = (value) => {
+                    const num = Number(value);
+                    return Number.isFinite(num) && num >= 0 ? Math.round(num) : null;
                 };
                 const formatStat = (value) => {
-                    const num = Number(value);
-                    return Number.isFinite(num) ? new Intl.NumberFormat('en-US').format(num) : null;
+                    const num = normalizeStat(value);
+                    return num == null ? '--' : statFormatter.format(num);
                 };
-                const renderRepoStats = (nextStats) => {
-                    if (statNodes.stars && nextStats.stars != null)
-                        statNodes.stars.textContent = String(nextStats.stars);
-                    if (statNodes.forks && nextStats.forks != null)
-                        statNodes.forks.textContent = String(nextStats.forks);
-                    if (statNodes.issues && nextStats.issues != null)
-                        statNodes.issues.textContent = String(nextStats.issues);
-                };
-                const refreshRepoStats = async () => {
-                    try {
-                        const response = await fetch(
-                            `https://api.github.com/repos/TouchAI-org/TouchAI?ts=${Date.now()}`,
-                            {
-                                cache: 'no-store',
-                                headers: {
-                                    Accept: 'application/vnd.github+json',
-                                },
-                            }
-                        );
-                        if (!response.ok) return;
-                        const data = await response.json();
-                        const nextStats = {
-                            stars: formatStat(data.stargazers_count),
-                            forks: formatStat(data.forks_count),
-                            issues: formatStat(data.open_issues_count),
-                        };
-                        Object.assign(repoStats, nextStats);
-                        renderRepoStats(repoStats);
-                    } catch (error) {
-                        renderRepoStats(repoStats);
+                const readInitialRepoStats = () => ({
+                    stars: normalizeStat(githubStatsGroup?.dataset.initialStars),
+                    forks: normalizeStat(githubStatsGroup?.dataset.initialForks),
+                    updatedAt: 0,
+                });
+                const setRepoStatsLoading = (loading) => {
+                    Object.values(statNodes).forEach((node) => {
+                        if (!node) return;
+                        node.dataset.loading = loading ? 'true' : 'false';
+                    });
+                    if (githubStatsGroup) {
+                        githubStatsGroup.setAttribute('aria-busy', loading ? 'true' : 'false');
                     }
+                };
+                const renderRepoStats = (nextStats, { loading = false } = {}) => {
+                    if (statNodes.stars) statNodes.stars.textContent = formatStat(nextStats.stars);
+                    if (statNodes.forks) statNodes.forks.textContent = formatStat(nextStats.forks);
+                    setRepoStatsLoading(loading);
+                };
+                const loadStoredRepoStats = () => {
+                    try {
+                        const raw = localStorage.getItem(REPO_STATS_STORAGE_KEY);
+                        if (!raw) return null;
+                        const parsed = JSON.parse(raw);
+                        const nextStats = {
+                            stars: normalizeStat(parsed?.stars),
+                            forks: normalizeStat(parsed?.forks),
+                            updatedAt: Number(parsed?.updatedAt) || 0,
+                        };
+                        const hasValidStats = ['stars', 'forks'].every(
+                            (key) => nextStats[key] != null
+                        );
+                        return hasValidStats ? nextStats : null;
+                    } catch (error) {
+                        return null;
+                    }
+                };
+                const persistRepoStats = (nextStats) => {
+                    try {
+                        localStorage.setItem(
+                            REPO_STATS_STORAGE_KEY,
+                            JSON.stringify({
+                                stars: normalizeStat(nextStats.stars),
+                                forks: normalizeStat(nextStats.forks),
+                                updatedAt: Number(nextStats.updatedAt) || Date.now(),
+                            })
+                        );
+                    } catch (error) {}
+                };
+                const shouldRefreshRepoStats = (minAge = 0) =>
+                    Date.now() - repoStats.updatedAt >= minAge;
+                const withCacheBuster = (url) =>
+                    `${url}${url.includes('?') ? '&' : '?'}ts=${Date.now()}`;
+                const fetchRepoOverview = async () => {
+                    const headers = {
+                        Accept: 'application/vnd.github+json',
+                        'X-GitHub-Api-Version': '2022-11-28',
+                    };
+                    const repoResponse = await fetch(withCacheBuster(REPO_STATS_API_URL), {
+                        cache: 'no-store',
+                        headers,
+                    });
+                    if (!repoResponse.ok) {
+                        throw new Error('repo stats request failed');
+                    }
+                    const repoData = await repoResponse.json();
+                    return {
+                        stars: normalizeStat(repoData.stargazers_count),
+                        forks: normalizeStat(repoData.forks_count),
+                    };
+                };
+                let repoStatsRequest = null;
+                let lastRepoStatsRequestAt = 0;
+                const refreshRepoStats = async ({ force = false } = {}) => {
+                    const now = Date.now();
+                    if (repoStatsRequest) return repoStatsRequest;
+                    if (!force && now - lastRepoStatsRequestAt < REPO_STATS_REQUEST_GAP)
+                        return null;
+                    if (!force && document.hidden && repoStats.updatedAt > 0) return null;
+
+                    lastRepoStatsRequestAt = now;
+                    renderRepoStats(repoStats, { loading: true });
+
+                    repoStatsRequest = fetchRepoOverview()
+                        .then((nextStats) => {
+                            const mergedStats = { ...repoStats, ...nextStats };
+                            const hasValidStats = ['stars', 'forks'].every(
+                                (key) => normalizeStat(mergedStats[key]) != null
+                            );
+                            if (!hasValidStats) return;
+                            Object.assign(repoStats, mergedStats, {
+                                updatedAt: Date.now(),
+                            });
+                            persistRepoStats(repoStats);
+                        })
+                        .catch(() => {})
+                        .finally(() => {
+                            repoStatsRequest = null;
+                            renderRepoStats(repoStats);
+                        });
+
+                    return repoStatsRequest;
                 };
 
                 const savedTheme = localStorage.getItem('touchai-theme');
                 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                 setTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
+                Object.assign(repoStats, readInitialRepoStats());
+                const storedRepoStats = loadStoredRepoStats();
+                if (storedRepoStats) Object.assign(repoStats, storedRepoStats);
                 renderRepoStats(repoStats);
-                refreshRepoStats();
-                window.setInterval(refreshRepoStats, 10 * 60 * 1000);
+                refreshRepoStats({ force: true });
+                window.setInterval(() => {
+                    refreshRepoStats();
+                }, REPO_STATS_REFRESH_INTERVAL);
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden && shouldRefreshRepoStats(REPO_STATS_REFOCUS_INTERVAL)) {
+                        refreshRepoStats({ force: true });
+                    }
+                });
+                window.addEventListener('focus', () => {
+                    if (shouldRefreshRepoStats(REPO_STATS_REFOCUS_INTERVAL)) {
+                        refreshRepoStats({ force: true });
+                    }
+                });
+                window.addEventListener('online', () => {
+                    refreshRepoStats({ force: true });
+                });
 
                 componentBackgroundFrames().forEach((frame) => {
                     frame.addEventListener('load', syncComponentBackground);
@@ -2459,18 +3181,20 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 const solverFrame = document.querySelector('.feature-component-frame');
                 const solverCard = document.querySelector('.feature-component-card');
                 if (solverFrame) {
-                    syncFeatureDemoProgress(solverFrame, 0);
+                    syncFeatureDemoProgress(solverFrame, 0, true);
                     solverFrame.addEventListener('load', () => {
                         syncFeatureDemoProgress(
                             solverFrame,
-                            featureProgressByFrame.get(solverFrame) ?? 0
+                            featureProgressByFrame.get(solverFrame) ?? 0,
+                            true
                         );
                     });
                     window.addEventListener('message', (event) => {
-                        if (event.data?.type === 'touchai-solver-ready') {
+                        if (getMessageType(event) === 'touchai-solver-ready') {
                             syncFeatureDemoProgress(
                                 solverFrame,
-                                featureProgressByFrame.get(solverFrame) ?? 0
+                                featureProgressByFrame.get(solverFrame) ?? 0,
+                                true
                             );
                         }
                     });
@@ -2479,18 +3203,20 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 const workOrganizerFrame = document.querySelector('.feature-work-frame');
                 const workOrganizerCard = document.querySelector('.feature-work-card');
                 if (workOrganizerFrame) {
-                    syncFeatureDemoProgress(workOrganizerFrame, 0);
+                    syncFeatureDemoProgress(workOrganizerFrame, 0, true);
                     workOrganizerFrame.addEventListener('load', () => {
                         syncFeatureDemoProgress(
                             workOrganizerFrame,
-                            featureProgressByFrame.get(workOrganizerFrame) ?? 0
+                            featureProgressByFrame.get(workOrganizerFrame) ?? 0,
+                            true
                         );
                     });
                     window.addEventListener('message', (event) => {
-                        if (event.data?.type === 'touchai-work-organizer-ready') {
+                        if (getMessageType(event) === 'touchai-work-organizer-ready') {
                             syncFeatureDemoProgress(
                                 workOrganizerFrame,
-                                featureProgressByFrame.get(workOrganizerFrame) ?? 0
+                                featureProgressByFrame.get(workOrganizerFrame) ?? 0,
+                                true
                             );
                         }
                     });
@@ -2499,18 +3225,20 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                 const reminderFrame = document.querySelector('.feature-reminder-frame');
                 const reminderCard = document.querySelector('.feature-reminder-card');
                 if (reminderFrame) {
-                    syncFeatureDemoProgress(reminderFrame, 0);
+                    syncFeatureDemoProgress(reminderFrame, 0, true);
                     reminderFrame.addEventListener('load', () => {
                         syncFeatureDemoProgress(
                             reminderFrame,
-                            featureProgressByFrame.get(reminderFrame) ?? 0
+                            featureProgressByFrame.get(reminderFrame) ?? 0,
+                            true
                         );
                     });
                     window.addEventListener('message', (event) => {
-                        if (event.data?.type === 'touchai-reminder-ready') {
+                        if (getMessageType(event) === 'touchai-reminder-ready') {
                             syncFeatureDemoProgress(
                                 reminderFrame,
-                                featureProgressByFrame.get(reminderFrame) ?? 0
+                                featureProgressByFrame.get(reminderFrame) ?? 0,
+                                true
                             );
                         }
                     });
@@ -2518,10 +3246,11 @@ const docsUrl = 'https://touch-ai.org/getting-started';
 
                 const replayEmbeddedComponent = async (frame) => {
                     const progress = featureProgressByFrame.get(frame) ?? 0;
+                    resetDemoProgressDedupe(frame);
                     await Promise.resolve(frame.reload?.());
-                    syncFeatureDemoProgress(frame, progress);
-                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 120);
-                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress), 360);
+                    syncFeatureDemoProgress(frame, progress, true);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress, true), 120);
+                    window.setTimeout(() => syncFeatureDemoProgress(frame, progress, true), 360);
                 };
 
                 const bindReplayCard = (card, frame, label) => {
@@ -2543,7 +3272,8 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                         }
                     };
 
-                    card.addEventListener('click', () => {
+                    card.addEventListener('click', (event) => {
+                        if (event.target?.closest?.('button, a, input, textarea, select')) return;
                         replay();
                     });
                     card.addEventListener('keydown', (event) => {
@@ -2589,6 +3319,34 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     const visualSection = document.querySelector('.visual-section');
                     const visualShell = document.querySelector('.visual-shell');
                     const introDemo = document.querySelector('.component-frame');
+                    const compactFeatureViewportQuery = '(max-width: 900px)';
+                    const shortDesktopViewportQuery = '(min-width: 901px) and (max-height: 780px)';
+                    const fullViewportQuery = '(min-width: 901px) and (min-height: 781px)';
+                    const isShortDesktopViewport = () =>
+                        window.innerWidth > 900 && window.innerHeight <= 780;
+                    const getCompactStickyTop = () =>
+                        window.innerWidth <= 560
+                            ? 72
+                            : Math.round(Math.min(Math.max(window.innerHeight * 0.1, 78), 112));
+                    const getCompactIntroDistance = () =>
+                        (() => {
+                            const introHeight = introDemo?.getBoundingClientRect().height || 0;
+                            if (isShortDesktopViewport()) {
+                                return Math.round(
+                                    Math.max(window.innerHeight * 2.8, introHeight * 4.2, 1580)
+                                );
+                            }
+
+                            return Math.round(
+                                Math.max(
+                                    window.innerHeight * (window.innerWidth <= 560 ? 0.82 : 1.02),
+                                    introHeight * (window.innerWidth <= 560 ? 2.05 : 2.75),
+                                    window.innerWidth <= 560 ? 620 : 960
+                                )
+                            );
+                        })();
+                    const getCompactFeatureEnd = () =>
+                        window.innerWidth <= 560 ? 'bottom 22%' : 'bottom 28%';
 
                     const setupWorkflowPointerEffects = () => {
                         if (!workflowSection || !scenarioCards.length) return () => {};
@@ -2682,7 +3440,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                         let isActive = true;
                         let componentTrigger;
                         const syncComponent = (progress) => {
-                            sendToDemo(introDemo, { type: 'touchai-set-progress', progress });
+                            queueDemoProgress(introDemo, 'touchai-set-progress', progress);
                         };
                         const refreshPinnedIntro = () => {
                             ScrollTrigger.refresh();
@@ -2696,14 +3454,15 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                             });
                         };
                         const handleReadyMessage = (event) => {
-                            if (!isActive || event.data?.type !== 'touchai-component-ready') return;
+                            if (!isActive || getMessageType(event) !== 'touchai-component-ready')
+                                return;
                             requestAnimationFrame(() => {
                                 if (isActive) refreshPinnedIntro();
                             });
                         };
 
                         gsap.set(visualShell, {
-                            scale: compact ? 1 : 0.985,
+                            scale: 1,
                             transformOrigin: 'center center',
                         });
 
@@ -2711,19 +3470,22 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                             .timeline({
                                 scrollTrigger: {
                                     trigger: visualSection,
-                                    start: compact ? 'top 82%' : 'top top',
-                                    end: compact
-                                        ? 'bottom 18%'
-                                        : () => `+=${Math.max(window.innerHeight * 3.45, 2800)}`,
-                                    pin: !compact,
-                                    pinSpacing: true,
-                                    anticipatePin: 1,
-                                    scrub: compact ? true : 0.55,
+                                    start: () =>
+                                        window.innerWidth > 900
+                                            ? 'top top'
+                                            : `top ${getCompactStickyTop()}px`,
+                                    end: () =>
+                                        window.innerWidth > 900
+                                            ? 'bottom bottom'
+                                            : `+=${getCompactIntroDistance()}`,
+                                    pin: false,
+                                    pinSpacing: false,
+                                    scrub: compact ? 0.18 : 0.55,
                                     invalidateOnRefresh: true,
                                     onRefresh: (self) => {
                                         componentTrigger = self;
                                         gsap.set(visualShell, {
-                                            scale: compact ? 1 : 0.985,
+                                            scale: 1,
                                         });
                                         syncComponent(self.progress);
                                     },
@@ -2734,14 +3496,20 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                         componentTrigger = self;
                                         syncComponent(self.progress);
                                     },
-                                    onLeave: () => syncComponent(1),
-                                    onLeaveBack: () => syncComponent(0),
+                                    onLeave: () => {
+                                        syncComponent(1);
+                                        queueDemoScrollIdle(introDemo);
+                                    },
+                                    onLeaveBack: () => {
+                                        syncComponent(0);
+                                        queueDemoScrollIdle(introDemo);
+                                    },
                                 },
                             })
                             .fromTo(
                                 visualShell,
-                                { scale: 0.965, y: 0, opacity: 0.65 },
-                                { scale: 1, y: 0, opacity: 1, duration: 0.35, ease: 'power2.out' }
+                                { y: 0, opacity: 0.65 },
+                                { y: 0, opacity: 1, duration: 0.35, ease: 'power2.out' }
                             )
                             .to(introDemo, { opacity: 1, duration: 0.2, ease: 'none' }, 0);
 
@@ -2757,6 +3525,8 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                 handleIntroReady
                             );
                             window.removeEventListener('message', handleReadyMessage);
+                            cancelQueuedDemoProgress(introDemo);
+                            sendToDemo(introDemo, { type: 'touchai-clear-scroll-driven' });
                             timeline.scrollTrigger?.kill();
                             timeline.kill();
                         };
@@ -2768,27 +3538,37 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                             const featureShell =
                                 frame.closest('.feature-block-shell') || featureBlock;
                             let featureTrigger;
+                            const getFeatureStickyTop = () => {
+                                const shellHeight =
+                                    featureShell.getBoundingClientRect().height || 560;
+                                return Math.max(
+                                    24,
+                                    Math.round((window.innerHeight - shellHeight) / 2)
+                                );
+                            };
                             const syncCurrentFeatureProgress = () => {
                                 syncFeatureDemoProgress(frame, featureTrigger?.progress ?? 0);
                             };
 
                             featureTrigger = ScrollTrigger.create({
                                 trigger: featureBlock,
-                                start: compact
-                                    ? 'top 82%'
-                                    : () => {
-                                          const shellHeight =
-                                              featureShell.getBoundingClientRect().height || 560;
-                                          return `top ${Math.max(0, Math.round((window.innerHeight - shellHeight) / 2))}px`;
-                                      },
+                                start: () => `top ${getFeatureStickyTop()}px`,
                                 end: compact
-                                    ? 'bottom 18%'
+                                    ? getCompactFeatureEnd
                                     : () => {
+                                          const blockHeight =
+                                              featureBlock.getBoundingClientRect().height || 1500;
                                           const shellHeight =
                                               featureShell.getBoundingClientRect().height || 560;
-                                          return `bottom ${Math.max(0, Math.round((window.innerHeight + shellHeight) / 2))}px`;
+                                          return `+=${Math.max(
+                                              window.innerHeight * 1.35,
+                                              blockHeight + shellHeight * 0.45
+                                          )}`;
                                       },
-                                scrub: true,
+                                pin: false,
+                                pinSpacing: false,
+                                anticipatePin: 0,
+                                scrub: compact ? 0.16 : true,
                                 invalidateOnRefresh: true,
                                 onRefresh: syncCurrentFeatureProgress,
                                 onEnter: syncCurrentFeatureProgress,
@@ -2796,15 +3576,26 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                                 onUpdate: (self) => {
                                     syncFeatureDemoProgress(frame, self.progress);
                                 },
-                                onLeave: () => syncFeatureDemoProgress(frame, 1),
-                                onLeaveBack: () => syncFeatureDemoProgress(frame, 0),
+                                onLeave: () => {
+                                    syncFeatureDemoProgress(frame, 1);
+                                    queueDemoScrollIdle(frame);
+                                },
+                                onLeaveBack: () => {
+                                    syncFeatureDemoProgress(frame, 0);
+                                    queueDemoScrollIdle(frame);
+                                },
                             });
 
                             return featureTrigger;
                         });
 
                         return () => {
-                            triggers.forEach((trigger) => trigger.kill());
+                            triggers.forEach((trigger, index) => {
+                                trigger.kill();
+                                const frame = featureFrames[index];
+                                cancelQueuedDemoProgress(frame);
+                                sendToDemo(frame, { type: 'touchai-clear-scroll-driven' });
+                            });
                         };
                     };
 
@@ -2817,7 +3608,7 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                     };
 
                     const scrollMatchMedia = gsap.matchMedia();
-                    scrollMatchMedia.add('(max-width: 900px)', () => {
+                    scrollMatchMedia.add(compactFeatureViewportQuery, () => {
                         const cleanupIntro = setupIntroScrollTrigger(true);
                         const cleanupFeatures = setupFeatureScrollTriggers(true);
                         refreshScrollLayout();
@@ -2827,7 +3618,19 @@ const docsUrl = 'https://touch-ai.org/getting-started';
                             cleanupFeatures();
                         };
                     });
-                    scrollMatchMedia.add('(min-width: 901px)', () => {
+                    scrollMatchMedia.add(shortDesktopViewportQuery, () => {
+                        const cleanupWorkflow = setupWorkflowPointerEffects();
+                        const cleanupIntro = setupIntroScrollTrigger(true);
+                        const cleanupFeatures = setupFeatureScrollTriggers(false);
+                        refreshScrollLayout();
+
+                        return () => {
+                            cleanupWorkflow();
+                            cleanupIntro();
+                            cleanupFeatures();
+                        };
+                    });
+                    scrollMatchMedia.add(fullViewportQuery, () => {
                         const cleanupWorkflow = setupWorkflowPointerEffects();
                         const cleanupIntro = setupIntroScrollTrigger(false);
                         const cleanupFeatures = setupFeatureScrollTriggers(false);
