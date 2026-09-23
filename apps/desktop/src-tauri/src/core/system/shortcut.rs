@@ -150,18 +150,18 @@ pub fn set_search_surface_shortcuts(
         }
     }
 
+    if !parse_errors.is_empty() {
+        return Err(format!(
+            "Invalid search surface shortcuts: {}",
+            parse_errors.join("; ")
+        ));
+    }
+
     let mut shortcuts = SEARCH_SURFACE_SHORTCUTS
         .lock()
         .map_err(|_| "Failed to lock search surface shortcuts".to_string())?;
     *shortcuts = parsed_entries;
-    if parse_errors.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "Ignored unsupported search surface shortcuts: {}",
-            parse_errors.join("; ")
-        ))
-    }
+    Ok(())
 }
 
 pub fn find_search_surface_command_for_windows_accelerator(
@@ -558,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn search_surface_shortcut_sync_drops_invalid_entries_without_retaining_old_commands() {
+    fn search_surface_shortcut_sync_keeps_previous_commands_on_invalid_entry() {
         let _guard = SEARCH_SURFACE_SHORTCUT_TEST_LOCK.lock().expect("test lock");
         set_search_surface_shortcuts(vec![SearchSurfaceShortcutEntry {
             action_id: "search.model.toggle".to_string(),
@@ -578,22 +578,22 @@ mod tests {
         ]);
 
         assert!(result.is_err());
-        assert!(find_search_surface_command_for_windows_accelerator(
+        let previous_command = find_search_surface_command_for_windows_accelerator(
             0x4D,
             !cfg!(target_os = "macos"),
             false,
             false,
             cfg!(target_os = "macos"),
         )
-        .is_none());
-        let command = find_search_surface_command_for_windows_accelerator(
+        .expect("previous shortcut remains synced");
+        assert_eq!(previous_command.action_id, "search.model.toggle");
+        assert!(find_search_surface_command_for_windows_accelerator(
             0xBC,
             !cfg!(target_os = "macos"),
             false,
             false,
             cfg!(target_os = "macos"),
         )
-        .expect("valid shortcut remains synced");
-        assert_eq!(command.action_id, "search.settings.open");
+        .is_none());
     }
 }

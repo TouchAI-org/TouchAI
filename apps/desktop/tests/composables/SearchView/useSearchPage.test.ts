@@ -408,6 +408,10 @@ describe('useSearchPageLifecycle', () => {
         const interactionContext = createSearchInteractionContext();
         const searchKeybindings = ref(createDefaultSearchKeybindings());
         const handleSearchSurfaceCommand = vi.fn().mockResolvedValue(undefined);
+        let releaseQuickSearchSync!: () => void;
+        const quickSearchSync = new Promise<void>((resolve) => {
+            releaseQuickSearchSync = resolve;
+        });
 
         const mounted = await mountComposable(() =>
             useSearchPageLifecycle({
@@ -473,10 +477,21 @@ describe('useSearchPageLifecycle', () => {
             source: 'webview2-accelerator',
         });
 
+        nativeMock.shortcut.setSearchSurfaceShortcuts.mockImplementationOnce(() => quickSearchSync);
         quickSearchOpen.value = true;
         await flushLifecycle();
 
-        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenLastCalledWith(
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenCalledTimes(2);
+
+        quickSearchOpen.value = false;
+        await flushLifecycle();
+
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenCalledTimes(2);
+
+        releaseQuickSearchSync();
+        await flushLifecycle();
+
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts.mock.calls[1]![0]).toEqual(
             expect.arrayContaining([
                 {
                     actionId: 'search.quickSearch.toggleView',
@@ -485,11 +500,8 @@ describe('useSearchPageLifecycle', () => {
             ])
         );
 
-        quickSearchOpen.value = false;
-        await flushLifecycle();
-
-        expect(nativeMock.shortcut.setSearchSurfaceShortcuts).toHaveBeenLastCalledWith(
-            expect.not.arrayContaining([
+        expect(nativeMock.shortcut.setSearchSurfaceShortcuts.mock.calls[2]![0]).not.toEqual(
+            expect.arrayContaining([
                 {
                     actionId: 'search.quickSearch.toggleView',
                     shortcut: 'Mod+G',

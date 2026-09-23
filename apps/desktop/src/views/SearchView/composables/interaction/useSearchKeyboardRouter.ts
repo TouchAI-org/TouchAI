@@ -181,6 +181,10 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
     }
 
     function routeCommand(actionId: SearchKeybindingActionId, shortcut: string) {
+        if (getPendingApproval()) {
+            return true;
+        }
+
         if (!matchesSearchKeybindingCommand(actionId, shortcut, getSearchKeybindings())) {
             return false;
         }
