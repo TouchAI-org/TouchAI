@@ -14,9 +14,13 @@ use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_MOVE_FOCUS_REASO
 #[cfg(target_os = "windows")]
 use windows::Win32::{
     Foundation::HWND,
+    System::Threading::{AttachThreadInput, GetCurrentThreadId},
     UI::{
-        Input::KeyboardAndMouse::SetFocus,
-        WindowsAndMessaging::{GetWindow, GW_CHILD},
+        Input::KeyboardAndMouse::{SetActiveWindow, SetFocus},
+        WindowsAndMessaging::{
+            BringWindowToTop, GetForegroundWindow, GetWindow, GetWindowThreadProcessId,
+            SetForegroundWindow, GW_CHILD,
+        },
     },
 };
 
@@ -117,8 +121,42 @@ pub(super) fn reactivate_search_window_input<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
     window.set_focus().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    activate_search_window(window)?;
     focus_search_webview_content(window)?;
     prime_webview_input_pipeline();
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn activate_search_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    let hwnd = get_window_hwnd(window)?;
+
+    unsafe {
+        let foreground_window = GetForegroundWindow();
+        let foreground_thread_id = if foreground_window.0.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(foreground_window, None)
+        };
+        let current_thread_id = GetCurrentThreadId();
+        let attached_to_foreground = foreground_thread_id != 0
+            && foreground_thread_id != current_thread_id
+            && AttachThreadInput(current_thread_id, foreground_thread_id, true).as_bool();
+
+        let foreground_set = SetForegroundWindow(hwnd).as_bool();
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetActiveWindow(hwnd);
+
+        if attached_to_foreground {
+            let _ = AttachThreadInput(current_thread_id, foreground_thread_id, false);
+        }
+
+        if !foreground_set {
+            log::warn!("Windows denied foreground activation for search window");
+        }
+    }
+
     Ok(())
 }
 

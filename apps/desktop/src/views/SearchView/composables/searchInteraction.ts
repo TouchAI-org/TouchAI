@@ -847,10 +847,13 @@ export function createSearchKeydownHandler(
 
     function routeSearchSurfaceCommand(payload: SearchSurfaceCommandEvent) {
         if (shouldSkipSearchKeyboardRouting()) {
+            console.info('[shortcut-debug] skipped search surface command', payload);
             return false;
         }
 
-        return keyboardRouter.routeCommand(payload.actionId, payload.shortcut);
+        const handled = keyboardRouter.routeCommand(payload.actionId, payload.shortcut);
+        console.info('[shortcut-debug] routed search surface command', payload, { handled });
+        return handled;
     }
 
     async function handleKeyDown(event: KeyboardEvent) {
