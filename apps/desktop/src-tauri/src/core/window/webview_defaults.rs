@@ -5,6 +5,8 @@
 #[cfg(target_os = "windows")]
 use raw_window_handle::HasWindowHandle;
 #[cfg(target_os = "windows")]
+use std::{collections::HashSet, sync::Mutex};
+#[cfg(target_os = "windows")]
 use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use tauri::Manager;
@@ -15,7 +17,8 @@ use webview2_com::AcceleratorKeyPressedEventHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2AcceleratorKeyPressedEventArgs, ICoreWebView2AcceleratorKeyPressedEventArgs2,
     ICoreWebView2Controller, ICoreWebView2Settings3, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
-    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+    COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP,
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, TRUE, WPARAM};
@@ -198,6 +201,12 @@ fn is_accelerator_key_down_event(key_event_kind: i32) -> bool {
 }
 
 #[cfg(target_os = "windows")]
+fn is_accelerator_key_up_event(key_event_kind: i32) -> bool {
+    key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP.0
+        || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP.0
+}
+
+#[cfg(target_os = "windows")]
 fn should_emit_search_surface_command_to_window(label: &str) -> bool {
     label == "main" || label.starts_with("popup-")
 }
@@ -214,8 +223,10 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
     controller: &ICoreWebView2Controller,
 ) -> Result<(), String> {
     let app_handle = window.app_handle().clone();
+    let window_label = window.label().to_string();
     let search_surface_command_window =
         should_emit_search_surface_command_to_window(window.label()).then(|| window.clone());
+    let handled_key_downs = Mutex::new(HashSet::new());
     let mut token = 0i64;
     let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
         move |_controller: Option<ICoreWebView2Controller>,
@@ -231,14 +242,36 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                 let mut virtual_key = 0u32;
                 args.VirtualKey(&mut virtual_key)?;
 
+                let is_debug_shortcut_key = matches!(virtual_key, 0x7A | 0xBC);
+                if is_debug_shortcut_key {
+                    log::info!(
+                        "[shortcut-debug] accelerator window={} kind={} vk=0x{:02X}",
+                        window_label,
+                        key_event_kind.0,
+                        virtual_key
+                    );
+                }
+
+                let is_key_down = is_accelerator_key_down_event(key_event_kind.0);
+                let is_key_up = is_accelerator_key_up_event(key_event_kind.0);
+
                 if !is_system_menu_accelerator_command(key_event_kind.0, virtual_key) {
-                    if !is_accelerator_key_down_event(key_event_kind.0) {
+                    if !is_key_down && !is_key_up {
                         return Ok(());
                     }
 
                     let Some(search_surface_command_window) = &search_surface_command_window else {
                         return Ok(());
                     };
+
+                    if is_key_up
+                        && handled_key_downs
+                            .lock()
+                            .map(|mut keys| keys.remove(&virtual_key))
+                            .unwrap_or(false)
+                    {
+                        return Ok(());
+                    }
 
                     let is_ctrl_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
                     let is_alt_down = (GetKeyState(i32::from(VK_MENU.0)) as u16 & 0x8000) != 0;
@@ -255,6 +288,17 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                             is_super_down,
                         )
                     else {
+                        if is_debug_shortcut_key {
+                            log::info!(
+                                "[shortcut-debug] no command window={} vk=0x{:02X} ctrl={} alt={} shift={} super={}",
+                                window_label,
+                                virtual_key,
+                                is_ctrl_down,
+                                is_alt_down,
+                                is_shift_down,
+                                is_super_down
+                            );
+                        }
                         return Ok(());
                     };
 
@@ -264,6 +308,19 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                         let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
                     }
                     let _ = args.SetHandled(true);
+                    if is_debug_shortcut_key {
+                        log::info!(
+                            "[shortcut-debug] emit window={} action={} shortcut={}",
+                            window_label,
+                            command.action_id,
+                            command.shortcut
+                        );
+                    }
+                    if is_key_down {
+                        let _ = handled_key_downs
+                            .lock()
+                            .map(|mut keys| keys.insert(virtual_key));
+                    }
                     let _ = search_surface_command_window.emit("search-surface-command", command);
                     return Ok(());
                 }
@@ -289,6 +346,19 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                             let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
                         }
                         let _ = args.SetHandled(true);
+                        if is_debug_shortcut_key {
+                            log::info!(
+                                "[shortcut-debug] emit window={} action={} shortcut={}",
+                                window_label,
+                                command.action_id,
+                                command.shortcut
+                            );
+                        }
+                        if is_key_down {
+                            let _ = handled_key_downs
+                                .lock()
+                                .map(|mut keys| keys.insert(virtual_key));
+                        }
                         let _ = search_surface_command_window.emit("search-surface-command", command);
                         return Ok(());
                     }
@@ -448,7 +518,7 @@ pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::should_emit_search_surface_command_to_window;
+    use super::{is_accelerator_key_up_event, should_emit_search_surface_command_to_window};
 
     #[test]
     fn search_surface_commands_target_main_and_popup_windows_only() {
@@ -461,6 +531,14 @@ mod tests {
         ));
         assert!(!should_emit_search_surface_command_to_window("settings"));
         assert!(!should_emit_search_surface_command_to_window("assistant"));
+    }
+
+    #[test]
+    fn accelerator_key_up_events_are_supported() {
+        assert!(is_accelerator_key_up_event(1));
+        assert!(is_accelerator_key_up_event(3));
+        assert!(!is_accelerator_key_up_event(0));
+        assert!(!is_accelerator_key_up_event(2));
     }
 }
 

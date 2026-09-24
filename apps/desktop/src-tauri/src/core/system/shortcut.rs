@@ -161,6 +161,14 @@ pub fn set_search_surface_shortcuts(
         .lock()
         .map_err(|_| "Failed to lock search surface shortcuts".to_string())?;
     *shortcuts = parsed_entries;
+    log::info!(
+        "[shortcut-debug] synced search surface shortcuts: {}",
+        shortcuts
+            .iter()
+            .map(|entry| format!("{}={}", entry.action_id, entry.shortcut))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     Ok(())
 }
 
@@ -539,6 +547,22 @@ mod tests {
             0x4D, false, false, false, false
         )
         .is_none());
+    }
+
+    #[test]
+    fn search_surface_command_matches_f11_accelerator() {
+        let _guard = SEARCH_SURFACE_SHORTCUT_TEST_LOCK.lock().expect("test lock");
+        set_search_surface_shortcuts(vec![SearchSurfaceShortcutEntry {
+            action_id: "search.window.maximize".to_string(),
+            shortcut: "F11".to_string(),
+        }])
+        .expect("shortcuts sync");
+
+        let command =
+            find_search_surface_command_for_windows_accelerator(0x7A, false, false, false, false)
+                .expect("f11 shortcut matches");
+        assert_eq!(command.action_id, "search.window.maximize");
+        assert_eq!(command.shortcut, "F11");
     }
 
     #[test]

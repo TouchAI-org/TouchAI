@@ -276,7 +276,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function toggleMaximize() {
-        if (isMaximizeTransitioning.value) {
+        if (
+            isMaximizeTransitioning.value ||
+            (!desiredMaximized.value && options.sessionCount.value === 0)
+        ) {
             return;
         }
 
