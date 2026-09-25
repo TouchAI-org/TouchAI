@@ -147,6 +147,9 @@ describe('SettingsShortcutsSection', () => {
         settingsStoreMock.settings.value = settingsStoreMock.createGeneralSettingsMock(
             createDefaultSearchKeybindings()
         );
+        settingsStoreMock.updateSearchKeybindings.mockImplementation(async (value) => {
+            settingsStoreMock.settings.value.searchKeybindings = { ...value };
+        });
     });
 
     afterEach(() => {

@@ -748,7 +748,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             unlistenSearchSurfaceCommand = await eventService.on(
                 AppEvent.SEARCH_SURFACE_COMMAND,
                 (payload) => {
-                    console.info('[shortcut-debug] received search surface command', payload);
                     void Promise.resolve(handleSearchSurfaceCommand(payload)).catch((error) => {
                         console.error(
                             '[SearchView] Failed to handle search surface command:',
