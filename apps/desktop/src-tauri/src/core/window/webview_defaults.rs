@@ -223,7 +223,6 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
     controller: &ICoreWebView2Controller,
 ) -> Result<(), String> {
     let app_handle = window.app_handle().clone();
-    let window_label = window.label().to_string();
     let search_surface_command_window =
         should_emit_search_surface_command_to_window(window.label()).then(|| window.clone());
     let handled_key_downs = Mutex::new(HashSet::new());
@@ -241,16 +240,6 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
 
                 let mut virtual_key = 0u32;
                 args.VirtualKey(&mut virtual_key)?;
-
-                let is_debug_shortcut_key = matches!(virtual_key, 0x7A | 0xBC);
-                if is_debug_shortcut_key {
-                    log::info!(
-                        "[shortcut-debug] accelerator window={} kind={} vk=0x{:02X}",
-                        window_label,
-                        key_event_kind.0,
-                        virtual_key
-                    );
-                }
 
                 let is_key_down = is_accelerator_key_down_event(key_event_kind.0);
                 let is_key_up = is_accelerator_key_up_event(key_event_kind.0);
@@ -288,17 +277,6 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                             is_super_down,
                         )
                     else {
-                        if is_debug_shortcut_key {
-                            log::info!(
-                                "[shortcut-debug] no command window={} vk=0x{:02X} ctrl={} alt={} shift={} super={}",
-                                window_label,
-                                virtual_key,
-                                is_ctrl_down,
-                                is_alt_down,
-                                is_shift_down,
-                                is_super_down
-                            );
-                        }
                         return Ok(());
                     };
 
@@ -308,14 +286,6 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                         let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
                     }
                     let _ = args.SetHandled(true);
-                    if is_debug_shortcut_key {
-                        log::info!(
-                            "[shortcut-debug] emit window={} action={} shortcut={}",
-                            window_label,
-                            command.action_id,
-                            command.shortcut
-                        );
-                    }
                     if is_key_down {
                         let _ = handled_key_downs
                             .lock()
@@ -346,14 +316,6 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                             let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
                         }
                         let _ = args.SetHandled(true);
-                        if is_debug_shortcut_key {
-                            log::info!(
-                                "[shortcut-debug] emit window={} action={} shortcut={}",
-                                window_label,
-                                command.action_id,
-                                command.shortcut
-                            );
-                        }
                         if is_key_down {
                             let _ = handled_key_downs
                                 .lock()
@@ -364,11 +326,6 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                     }
                 }
 
-                log::info!(
-                    "[sysmenu-accel] Alt+Space detected, emitting shortcut-capture-system-key (ctrl={} shift={})",
-                    is_ctrl_down,
-                    is_shift_down
-                );
                 let _ = app_handle.emit(
                     "shortcut-capture-system-key",
                     serde_json::json!({

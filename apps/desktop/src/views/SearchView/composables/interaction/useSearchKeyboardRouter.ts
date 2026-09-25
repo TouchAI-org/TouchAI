@@ -66,9 +66,13 @@ interface CreateSearchKeyboardRouterOptions {
  * 在同步键盘路由中启动可能异步的副作用。
  */
 function runKeyboardEffect(effect: () => void | Promise<void>) {
-    void Promise.resolve(effect()).catch((error) => {
+    try {
+        void Promise.resolve(effect()).catch((error) => {
+            console.error('[SearchKeyboardRouter] Failed to handle keyboard effect:', error);
+        });
+    } catch (error) {
         console.error('[SearchKeyboardRouter] Failed to handle keyboard effect:', error);
-    });
+    }
 }
 
 /**

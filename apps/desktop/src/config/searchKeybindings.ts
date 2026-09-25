@@ -26,7 +26,6 @@ export interface SearchKeybindingDefinition {
     labelKey: MessageKey;
     descriptionKey: MessageKey;
     defaultShortcut: string | null;
-    allowDisable: boolean;
     allowModifierlessFunctionShortcut: boolean;
 }
 
@@ -38,7 +37,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.history',
         descriptionKey: 'settings.general.searchActionDescriptions.history',
         defaultShortcut: 'Mod+H',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
     {
@@ -46,7 +44,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.focusInput',
         descriptionKey: 'settings.general.searchActionDescriptions.focusInput',
         defaultShortcut: 'Mod+L',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
     {
@@ -54,7 +51,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.newSession',
         descriptionKey: 'settings.general.searchActionDescriptions.newSession',
         defaultShortcut: 'Mod+N',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
     {
@@ -62,7 +58,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.reopenLastClosedSession',
         descriptionKey: 'settings.general.searchActionDescriptions.reopenLastClosedSession',
         defaultShortcut: 'Mod+Shift+T',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
     {
@@ -70,7 +65,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.modelToggle',
         descriptionKey: 'settings.general.searchActionDescriptions.modelToggle',
         defaultShortcut: 'Mod+M',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
     {
@@ -78,7 +72,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.quickSearchToggleView',
         descriptionKey: 'settings.general.searchActionDescriptions.quickSearchToggleView',
         defaultShortcut: 'Mod+G',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
     {
@@ -86,7 +79,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.windowPin',
         descriptionKey: 'settings.general.searchActionDescriptions.windowPin',
         defaultShortcut: 'Mod+P',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
     {
@@ -94,7 +86,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.windowMaximize',
         descriptionKey: 'settings.general.searchActionDescriptions.windowMaximize',
         defaultShortcut: 'F11',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: true,
     },
     {
@@ -102,7 +93,6 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.openSettings',
         descriptionKey: 'settings.general.searchActionDescriptions.openSettings',
         defaultShortcut: 'Mod+,',
-        allowDisable: true,
         allowModifierlessFunctionShortcut: false,
     },
 ];
@@ -135,102 +125,51 @@ export function createDefaultSearchKeybindings(): SearchKeybindings {
 }
 
 export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
-    const defaults = createDefaultSearchKeybindings();
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return defaults;
+        return createDefaultSearchKeybindings();
     }
 
     const candidates = value as Record<string, unknown>;
-    const resolved = new Map<
-        SearchKeybindingActionId,
-        { shortcut: string | null; isPersisted: boolean }
-    >();
-
-    for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
-        const candidate = candidates[definition.id];
-
-        if (candidate === null && definition.allowDisable) {
-            resolved.set(definition.id, { shortcut: null, isPersisted: true });
-            continue;
-        }
-
-        if (typeof candidate === 'string') {
-            const shortcut = normalizeLocalShortcutString(candidate);
-            if (shortcut) {
-                const allowsModifierlessFunction =
-                    definition.allowModifierlessFunctionShortcut &&
-                    isModifierlessFunctionShortcut(shortcut);
-                const passesModifierPolicy =
-                    hasCommandModifier(shortcut) || allowsModifierlessFunction;
-                if (
-                    passesModifierPolicy &&
-                    !isReservedLocalShortcut(shortcut) &&
-                    !isReservedGlobalShortcut(shortcut)
-                ) {
-                    resolved.set(definition.id, { shortcut, isPersisted: true });
-                    continue;
-                }
-            }
-        }
-
-        resolved.set(definition.id, {
-            shortcut: defaults[definition.id],
-            isPersisted: false,
-        });
-    }
-
     const result = createDefaultSearchKeybindings();
     const assignedActionIds = new Set<SearchKeybindingActionId>();
     const usedShortcuts = new Set<string>();
 
-    function assignShortcut(
-        definition: SearchKeybindingDefinition,
-        desired: string | null,
-        fallbackOnConflict = true
-    ) {
-        if (desired === null) {
-            result[definition.id] = null;
-            assignedActionIds.add(definition.id);
-            return true;
-        }
-
-        if (!usedShortcuts.has(desired)) {
-            usedShortcuts.add(desired);
-            result[definition.id] = desired;
-            assignedActionIds.add(definition.id);
-            return true;
-        }
-
-        if (!fallbackOnConflict) {
-            return false;
-        }
-
-        const fallback = normalizeLocalShortcutString(definition.defaultShortcut);
-        if (fallback && !usedShortcuts.has(fallback)) {
-            usedShortcuts.add(fallback);
-            result[definition.id] = fallback;
-        } else {
-            result[definition.id] = null;
-        }
-        assignedActionIds.add(definition.id);
-        return true;
-    }
-
     for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
-        const resolvedShortcut = resolved.get(definition.id);
-        if (!resolvedShortcut?.isPersisted) {
+        const candidate = candidates[definition.id];
+        if (candidate === null) {
+            result[definition.id] = null;
+            assignedActionIds.add(definition.id);
+            continue;
+        }
+        if (typeof candidate !== 'string') {
             continue;
         }
 
-        assignShortcut(definition, resolvedShortcut.shortcut, false);
+        const shortcut = normalizeLocalShortcutString(candidate);
+        if (
+            shortcut &&
+            (hasCommandModifier(shortcut) ||
+                (definition.allowModifierlessFunctionShortcut &&
+                    isModifierlessFunctionShortcut(shortcut))) &&
+            !isReservedLocalShortcut(shortcut) &&
+            !isReservedGlobalShortcut(shortcut) &&
+            !usedShortcuts.has(shortcut)
+        ) {
+            result[definition.id] = shortcut;
+            assignedActionIds.add(definition.id);
+            usedShortcuts.add(shortcut);
+        }
     }
 
     for (const definition of SEARCH_KEYBINDING_DEFINITIONS) {
         if (assignedActionIds.has(definition.id)) {
             continue;
         }
-
-        assignShortcut(definition, defaults[definition.id]);
+        const shortcut = normalizeLocalShortcutString(definition.defaultShortcut);
+        result[definition.id] = shortcut && !usedShortcuts.has(shortcut) ? shortcut : null;
+        if (result[definition.id]) {
+            usedShortcuts.add(shortcut!);
+        }
     }
 
     return result;

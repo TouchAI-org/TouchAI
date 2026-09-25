@@ -25,13 +25,16 @@ import type {
     SearchOverlayState,
     SearchPageController,
 } from '../types';
+import type {
+    SearchPopupSurfaceType,
+    SessionInputHistoryDirection,
+    SessionInputHistoryNavigationResult,
+} from './interaction/useSearchKeyboardRouter';
 import { createSearchKeyboardRouter as createConfigurableSearchKeyboardRouter } from './interaction/useSearchKeyboardRouter';
 
 export type SearchActivationSource = 'shortcut' | 'manual' | 'unknown';
 
 export type SearchHideReason = 'app-blur-hide' | 'manual-dismiss' | 'policy-toggle-hide';
-
-export type SearchPopupSurfaceType = 'model-dropdown-surface' | 'session-history-surface';
 
 export type SearchOverlayCommand =
     | 'noop'
@@ -98,8 +101,11 @@ interface SyncOverlayStateOptions {
     force?: boolean;
 }
 
-export type SessionInputHistoryDirection = 'older' | 'newer';
-export type SessionInputHistoryNavigationResult = 'navigated' | 'blocked' | 'ignored';
+export type {
+    SearchPopupSurfaceType,
+    SessionInputHistoryDirection,
+    SessionInputHistoryNavigationResult,
+} from './interaction/useSearchKeyboardRouter';
 
 export interface UseSearchKeyboardOptions {
     viewReady: Ref<boolean>;
@@ -128,14 +134,7 @@ export interface UseSearchKeyboardOptions {
         direction: SessionInputHistoryDirection
     ) => SessionInputHistoryNavigationResult;
     closeModelDropdown: () => Promise<void>;
-    toggleModelDropdown: () => Promise<void>;
-    openHistoryDialog: () => Promise<void>;
-    startNewSession: () => Promise<void>;
-    reopenLastClosedSession: () => Promise<void>;
-    toggleWindowPin: () => Promise<void>;
-    toggleWindowMaximize: () => Promise<void>;
-    openSettingsWindow: () => Promise<void>;
-    handleSearchKeybindingAction?: (actionId: SearchKeybindingActionId) => void | Promise<void>;
+    handleSearchKeybindingAction: (actionId: SearchKeybindingActionId) => void | Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
     cancelRequest: () => void;
     cancelPendingRequest: () => boolean;
@@ -677,13 +676,6 @@ export function createSearchKeydownHandler(
         hideSearchWindow,
         navigateInputHistory,
         closeModelDropdown,
-        toggleModelDropdown,
-        openHistoryDialog,
-        startNewSession,
-        reopenLastClosedSession,
-        toggleWindowPin,
-        toggleWindowMaximize,
-        openSettingsWindow,
         handleSearchKeybindingAction,
         handleSubmit,
         cancelRequest,
@@ -784,51 +776,7 @@ export function createSearchKeydownHandler(
         onClearDraft: () => {
             queryText.value = '';
         },
-        onSearchKeybindingAction: async (actionId) => {
-            if (handleSearchKeybindingAction) {
-                await handleSearchKeybindingAction(actionId);
-                return;
-            }
-
-            switch (actionId) {
-                case 'search.history.open':
-                    await openHistoryDialog();
-                    return;
-                case 'search.input.focus':
-                    await hideAllPopups();
-                    await controller.focusSearchInput();
-                    return;
-                case 'search.session.new':
-                    if (sessionHistory.value.length > 0) {
-                        await startNewSession();
-                    }
-                    return;
-                case 'search.session.reopenLastClosed':
-                    await reopenLastClosedSession();
-                    return;
-                case 'search.model.toggle':
-                    await toggleModelDropdown();
-                    return;
-                case 'search.quickSearch.toggleView':
-                    if (isQuickSearchOpen.value) {
-                        controller.toggleQuickSearchView();
-                    }
-                    return;
-                case 'search.window.pin':
-                    await toggleWindowPin();
-                    return;
-                case 'search.window.maximize':
-                    await toggleWindowMaximize();
-                    return;
-                case 'search.settings.open':
-                    await openSettingsWindow();
-                    return;
-                default: {
-                    const exhaustiveActionId: never = actionId;
-                    throw new Error(`Unhandled search keybinding action: ${exhaustiveActionId}`);
-                }
-            }
-        },
+        onSearchKeybindingAction: handleSearchKeybindingAction,
     });
 
     const askUserStore = useAskUserStore();
@@ -847,13 +795,10 @@ export function createSearchKeydownHandler(
 
     function routeSearchSurfaceCommand(payload: SearchSurfaceCommandEvent) {
         if (shouldSkipSearchKeyboardRouting()) {
-            console.info('[shortcut-debug] skipped search surface command', payload);
             return false;
         }
 
-        const handled = keyboardRouter.routeCommand(payload.actionId, payload.shortcut);
-        console.info('[shortcut-debug] routed search surface command', payload, { handled });
-        return handled;
+        return keyboardRouter.routeCommand(payload.actionId, payload.shortcut);
     }
 
     async function handleKeyDown(event: KeyboardEvent) {

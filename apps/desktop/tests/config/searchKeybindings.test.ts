@@ -36,7 +36,6 @@ describe('search keybinding configuration', () => {
         expect(getSearchKeybindingDefinition('search.window.maximize')).toMatchObject({
             id: 'search.window.maximize',
             defaultShortcut: 'F11',
-            allowDisable: true,
             allowModifierlessFunctionShortcut: true,
         });
 

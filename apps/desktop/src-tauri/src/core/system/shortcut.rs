@@ -161,14 +161,6 @@ pub fn set_search_surface_shortcuts(
         .lock()
         .map_err(|_| "Failed to lock search surface shortcuts".to_string())?;
     *shortcuts = parsed_entries;
-    log::info!(
-        "[shortcut-debug] synced search surface shortcuts: {}",
-        shortcuts
-            .iter()
-            .map(|entry| format!("{}={}", entry.action_id, entry.shortcut))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
     Ok(())
 }
 

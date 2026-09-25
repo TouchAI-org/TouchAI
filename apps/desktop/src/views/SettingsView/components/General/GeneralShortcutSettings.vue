@@ -29,8 +29,6 @@
         normalizeLocalShortcutString,
     } from '@/utils/shortcuts';
 
-    import { resolveShortcutCaptureCompletion } from './shortcutCapture';
-
     defineOptions({
         name: 'SettingsGeneralShortcutSettings',
     });
@@ -41,7 +39,6 @@
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const isSaving = ref(false);
     const isCapturing = ref(false);
-    const hasCapturedShortcut = ref(false);
     const displayShortcut = ref('');
     const shortcutCapturePrompt = computed(() => t('settings.general.shortcutCapturePrompt'));
     const shortcutRegistrationFailed = ref(false);
@@ -113,7 +110,6 @@
 
         consumeShortcutCaptureEvent(event);
         displayShortcut.value = captured.displayShortcut;
-        hasCapturedShortcut.value = true;
         showGlobalShortcutPresetMenu.value = false;
         void confirmCapturedShortcut(captured.displayShortcut);
     };
@@ -140,7 +136,6 @@
         }
 
         displayShortcut.value = formatGlobalShortcutForSettings(shortcut);
-        hasCapturedShortcut.value = true;
         showGlobalShortcutPresetMenu.value = false;
         void confirmCapturedShortcut(displayShortcut.value);
     };
@@ -149,7 +144,6 @@
 
     const startCapture = () => {
         isCapturing.value = true;
-        hasCapturedShortcut.value = false;
         displayShortcut.value = shortcutCapturePrompt.value;
         showGlobalShortcutPresetMenu.value = true;
     };
@@ -184,26 +178,14 @@
         await saveNewShortcut(shortcut);
     };
 
-    const stopCaptureAndSave = async () => {
+    const stopCapture = () => {
         if (!isCapturing.value) {
             return;
         }
 
         isCapturing.value = false;
         showGlobalShortcutPresetMenu.value = false;
-
-        const completion = resolveShortcutCaptureCompletion({
-            currentShortcut: formatGlobalShortcutForSettings(settings.value.globalShortcut),
-            displayShortcut: displayShortcut.value,
-            hasCapturedShortcut: hasCapturedShortcut.value,
-        });
-
-        displayShortcut.value = completion.displayShortcut;
-        if (completion.action !== 'save') {
-            return;
-        }
-
-        await saveNewShortcut(completion.shortcut);
+        displayShortcut.value = formatGlobalShortcutForSettings(settings.value.globalShortcut);
     };
 
     const handleGlobalShortcutPresetOpenChange = (open: boolean) => {
@@ -216,7 +198,7 @@
             return;
         }
 
-        void stopCaptureAndSave();
+        stopCapture();
     };
 
     const saveNewShortcut = async (newShortcut: string) => {
@@ -251,7 +233,7 @@
                 return;
             }
 
-            await saveShortcutToDatabase(newShortcut);
+            await settingsStore.updateGlobalShortcut(newShortcut);
             settings.value.globalShortcut = newShortcut;
             displayShortcut.value = formatGlobalShortcutForSettings(newShortcut);
             alertMessage.value?.success(t('settings.general.shortcutSaved'), 3000);
@@ -377,15 +359,6 @@
                 4000
             );
             return false;
-        }
-    };
-
-    const saveShortcutToDatabase = async (shortcut: string) => {
-        try {
-            await settingsStore.updateGlobalShortcut(shortcut);
-        } catch (error) {
-            console.error('Failed to save shortcut to database:', error);
-            throw error;
         }
     };
 
