@@ -11,6 +11,8 @@
         @click="handleMarkdownClick"
         @copy="handleMarkdownCopy"
     >
+        <!-- markstream 1.0.6 can observe an overflowing pre as its own scroll root,
+             leaving visible long code blocks stuck in the loading fallback. -->
         <MarkdownRender
             :key="markdownRenderKey"
             :nodes="nodes"
@@ -20,6 +22,7 @@
             :code-block-light-theme="codeBlockLightTheme"
             :code-block-dark-theme="codeBlockDarkTheme"
             :code-block-monaco-options="codeBlockMonacoOptions"
+            :viewport-priority="false"
             :max-live-nodes="maxLiveNodes"
             :batch-rendering="true"
             :initial-render-batch-size="24"
@@ -124,12 +127,17 @@
 
 <script setup lang="ts">
     import { notify } from '@services/NotificationService';
-    import MarkdownRender, { type ParsedNode, parseMarkdownToStructure } from 'markstream-vue';
-    import { computed, watch } from 'vue';
-    import { ref } from 'vue';
+    import MarkdownRender, {
+        type CodeBlockMonacoOptions,
+        type ParsedNode,
+        parseMarkdownToStructure,
+    } from 'markstream-vue';
+    import { computed, ref, watch } from 'vue';
 
     import { getLocale, locale, t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
+    import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
+    import { hasMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
 
     interface Props {
         content: string;
@@ -248,6 +256,10 @@
 
         return parseMarkdownToStructure(input.content, parser, {
             final: input.final,
+            // The incremental parser can reuse an unfinished math boundary and swallow
+            // the next heading. Reparse math-bearing buffers, retaining loading nodes
+            // (final stays false) and the fast path for ordinary prose/code streams.
+            streamParse: hasMathDelimiterOutsideCode(input.content) ? false : 'auto',
         });
     });
 
@@ -268,14 +280,24 @@
         showFontSizeButtons: false,
     });
 
-    const codeBlockMonacoOptions = computed(() => ({
+    // The prop name is retained by markstream, but 1.0.6 forwards it to stream-diffs.
+    // Keep the old code typography instead of inheriting the new renderer defaults.
+    const codeBlockMonacoOptions = computed<CodeBlockMonacoOptions>(() => ({
+        fontSize: 14,
+        lineHeight: 19,
+        fontFamily: "Consolas, 'Courier New', monospace",
+        // Preserve source newlines; long code lines use the TouchAI horizontal scrollbar.
+        wordWrap: 'off',
+        diffWordWrap: 'off',
+        unsafeCSS: codeSurfaceStyles,
         glyphMargin: false,
         autoScrollInitial: !props.final,
     }));
 
     const codeBlockLightTheme = 'one-light';
     const codeBlockDarkTheme = 'one-dark-pro';
-    const codeBlockThemes = [codeBlockLightTheme, codeBlockDarkTheme];
+    // stream-diffs interprets this tuple as [dark, light], not an unordered theme list.
+    const codeBlockThemes = [codeBlockDarkTheme, codeBlockLightTheme];
     const clipboardBlockTags = new Set([
         'address',
         'article',
