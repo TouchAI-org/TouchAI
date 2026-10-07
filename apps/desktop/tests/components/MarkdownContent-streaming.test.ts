@@ -1,4 +1,4 @@
-﻿import { mount } from '@vue/test-utils';
+import { mount } from '@vue/test-utils';
 import { type ParsedNode, parseMarkdownToStructure } from 'markstream-vue';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -53,6 +53,11 @@ describe('MarkdownContent with the real streaming parser', () => {
         ['ordinary prose', 'auto'],
         ['Inline math $x^2$', 'auto'],
         ['```sh\necho $HOME\n```', 'auto'],
+        ['```sh\necho $$ and \\[\n```', 'auto'],
+        ['Inline code `$$ \\[`', 'auto'],
+        [String.raw`\` literal $$ \``, false],
+        ['```sh\necho $$\n```\n\n$$\nx^2\n$$', false],
+        ['Inline code `$$`, then \\[\nx^2\n\\]', false],
         ['$$\nx^2\n$$', false],
         ['\\[\nx^2\n\\]', false],
     ] as const)('selects the parser strategy for %s', (content, streamParse) => {
@@ -128,6 +133,37 @@ describe('MarkdownContent with the real streaming parser', () => {
                 code: 'echo $HOME\n',
                 loading: false,
             });
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it('keeps code delimiters while detecting formulas later in the same message', () => {
+        const content =
+            '```sh\necho $$\necho \\[\n```\n\n' +
+            'Inline markers `$$ \\[` are code.\n\n' +
+            '$$\nx^2\n$$\n\n' +
+            '\\[\n\\frac{1}{2}\n\\]\n\n' +
+            '## After formulas\n\n' +
+            '```sh\necho $$\n```';
+        const wrapper = mount(MarkdownContent, { props: { content, final: false } });
+        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+        try {
+            expect(parseMarkdownToStructure).toHaveBeenLastCalledWith(content, expect.anything(), {
+                final: false,
+                streamParse: false,
+            });
+            const nodes = renderer.props('nodes') as ParsedNode[];
+            expect(mathBlocks(nodes)).toHaveLength(2);
+            expect(nodes.some((node) => node.type === 'heading')).toBe(true);
+            const codeBlocks = nodes.filter(
+                (node): node is Extract<ParsedNode, { type: 'code_block' }> =>
+                    node.type === 'code_block'
+            );
+            expect(codeBlocks.map((node) => node.code)).toEqual([
+                'echo $$\necho \\[\n',
+                'echo $$\n',
+            ]);
         } finally {
             wrapper.unmount();
         }

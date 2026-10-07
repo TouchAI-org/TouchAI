@@ -137,6 +137,7 @@
     import { getLocale, locale, t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
     import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
+    import { hasMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
 
     interface Props {
         content: string;
@@ -258,10 +259,7 @@
             // The incremental parser can reuse an unfinished math boundary and swallow
             // the next heading. Reparse math-bearing buffers, retaining loading nodes
             // (final stays false) and the fast path for ordinary prose/code streams.
-            streamParse:
-                input.content.includes('$$') || input.content.includes(String.raw`\[`)
-                    ? false
-                    : 'auto',
+            streamParse: hasMathDelimiterOutsideCode(input.content) ? false : 'auto',
         });
     });
 
