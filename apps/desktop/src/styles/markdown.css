@@ -136,34 +136,74 @@
         border-color: rgb(219 213 207 / var(--tw-border-opacity)) !important;
     }
 
-    .touchai-markdown .code-block-content {
-        scrollbar-width: thin;
-        scrollbar-color: var(--color-scrollbar-thumb) transparent;
+    /* The upgraded renderer scrolls outside code-block-content, including its
+     * streaming fallback. Keep native scrollbar sizing/colors from overriding
+     * TouchAI's WebKit scrollbar skin in the desktop webview. */
+    .touchai-markdown .code-block-content,
+    .touchai-markdown .code-editor-container,
+    .touchai-markdown .stream-diffs-shell,
+    .touchai-markdown .code-pre-fallback {
+        scrollbar-width: auto;
+        scrollbar-color: auto;
         background-color: var(--touchai-code-body-bg);
     }
 
-    .touchai-markdown .code-block-content::-webkit-scrollbar {
+    /* The constrained editor is the single scroll viewport. The upgraded
+     * stream-diffs shell otherwise adds a second scroll root whose horizontal
+     * bar sits below its full code height and is hidden until vertical scroll
+     * reaches the bottom. */
+    .touchai-markdown .code-editor-container {
+        overflow: auto !important;
+    }
+
+    .touchai-markdown .stream-diffs-shell {
+        overflow: visible !important;
+    }
+
+    .touchai-markdown .code-block-content::-webkit-scrollbar,
+    .touchai-markdown .code-editor-container::-webkit-scrollbar,
+    .touchai-markdown .stream-diffs-shell::-webkit-scrollbar,
+    .touchai-markdown .code-pre-fallback::-webkit-scrollbar {
         width: 6px;
         height: 6px;
     }
 
-    .touchai-markdown .code-block-content::-webkit-scrollbar-track {
+    .touchai-markdown .code-block-content::-webkit-scrollbar-track,
+    .touchai-markdown .code-editor-container::-webkit-scrollbar-track,
+    .touchai-markdown .stream-diffs-shell::-webkit-scrollbar-track,
+    .touchai-markdown .code-pre-fallback::-webkit-scrollbar-track {
         background: transparent;
     }
 
-    .touchai-markdown .code-block-content::-webkit-scrollbar-thumb {
+    .touchai-markdown .code-block-content::-webkit-scrollbar-thumb,
+    .touchai-markdown .code-editor-container::-webkit-scrollbar-thumb,
+    .touchai-markdown .stream-diffs-shell::-webkit-scrollbar-thumb,
+    .touchai-markdown .code-pre-fallback::-webkit-scrollbar-thumb {
         background: var(--color-scrollbar-thumb);
         border-radius: 3px;
     }
 
-    .touchai-markdown .code-block-content::-webkit-scrollbar-thumb:hover {
+    .touchai-markdown .code-block-content::-webkit-scrollbar-thumb:hover,
+    .touchai-markdown .code-editor-container::-webkit-scrollbar-thumb:hover,
+    .touchai-markdown .stream-diffs-shell::-webkit-scrollbar-thumb:hover,
+    .touchai-markdown .code-pre-fallback::-webkit-scrollbar-thumb:hover {
         background: var(--color-scrollbar-thumb-hover);
     }
 
-    .touchai-markdown .code-block-content::-webkit-scrollbar-button {
+    .touchai-markdown .code-block-content::-webkit-scrollbar-button,
+    .touchai-markdown .code-editor-container::-webkit-scrollbar-button,
+    .touchai-markdown .stream-diffs-shell::-webkit-scrollbar-button,
+    .touchai-markdown .code-pre-fallback::-webkit-scrollbar-button {
         display: none;
         width: 0;
         height: 0;
+    }
+
+    .touchai-markdown .code-block-content::-webkit-scrollbar-corner,
+    .touchai-markdown .code-editor-container::-webkit-scrollbar-corner,
+    .touchai-markdown .stream-diffs-shell::-webkit-scrollbar-corner,
+    .touchai-markdown .code-pre-fallback::-webkit-scrollbar-corner {
+        background: transparent;
     }
 
     .touchai-markdown .code-block-content pre,
@@ -181,6 +221,19 @@
     .touchai-markdown .code-action-btn:hover {
         color: var(--color-primary-600);
         background-color: var(--color-primary-100);
+    }
+
+    /* File/Diff surfaces use Shadow DOM; pass theme tokens through the host. */
+    .touchai-markdown .code-block-container diffs-container {
+        /* markstream updates the parent style attribute during surface handoff. */
+        --diffs-font-family: Consolas, 'Courier New', monospace;
+        --diffs-font-size: 14px;
+        --diffs-line-height: 19px;
+        --diffs-bg: var(--touchai-code-body-bg);
+        --diffs-bg-context: var(--touchai-code-body-bg);
+        --diffs-bg-context-gutter: var(--touchai-code-body-bg);
+        --diffs-fg-number: var(--color-primary-400);
+        --diffs-gap-block: 0px;
     }
 
     .touchai-markdown .code-block-container .monaco-editor,
