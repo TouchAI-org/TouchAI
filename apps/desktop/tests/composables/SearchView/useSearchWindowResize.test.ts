@@ -130,6 +130,67 @@ describe('useSearchWindowResize', () => {
         document.body.innerHTML = '';
     });
 
+    it.each([false, true])(
+        'does not maximize without a conversation (quick search: %s)',
+        async (quickSearchOpen) => {
+            const mounted = await mountComposable(() =>
+                useSearchWindowResize({
+                    target: ref<HTMLElement | null>(null),
+                    sessionCount: ref(0),
+                    quickSearchOpen: ref(quickSearchOpen),
+                    defaultSize: ref({ width: 750, height: 60 }),
+                    ready: ref(true),
+                })
+            );
+
+            await flushResizeLifecycle();
+            try {
+                await mounted.result.toggleMaximize();
+
+                expect(currentWindowMock.maximize).not.toHaveBeenCalled();
+                expect(mounted.result.effectiveWindowMaximized.value).toBe(false);
+            } finally {
+                mounted.unmount();
+            }
+        }
+    );
+
+    it('maximizes a conversation and still allows restoring after the conversation closes', async () => {
+        const sessionCount = ref(1);
+        currentWindowMock.maximize.mockImplementation(async () => {
+            currentWindowMock.isMaximized.mockResolvedValue(true);
+        });
+        currentWindowMock.unmaximize.mockImplementation(async () => {
+            currentWindowMock.isMaximized.mockResolvedValue(false);
+        });
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref<HTMLElement | null>(null),
+                sessionCount,
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready: ref(true),
+            })
+        );
+
+        await flushResizeLifecycle();
+        try {
+            await mounted.result.toggleMaximize();
+            expect(currentWindowMock.maximize).toHaveBeenCalledTimes(1);
+            expect(mounted.result.isMaximized.value).toBe(true);
+
+            sessionCount.value = 0;
+            await mounted.result.toggleMaximize();
+            expect(currentWindowMock.unmaximize).toHaveBeenCalledTimes(1);
+            expect(mounted.result.effectiveWindowMaximized.value).toBe(false);
+
+            await mounted.result.toggleMaximize();
+            expect(currentWindowMock.maximize).toHaveBeenCalledTimes(1);
+        } finally {
+            mounted.unmount();
+        }
+    });
+
     it('applies idle defaults and locks the min-height constraint to the configured idle height once ready', async () => {
         const mounted = await mountComposable(() =>
             useSearchWindowResize({

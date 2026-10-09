@@ -45,6 +45,13 @@ vi.mock('@/views/SettingsView/components/General/index.vue', () => ({
     },
 }));
 
+vi.mock('@/views/SettingsView/components/Shortcuts/index.vue', () => ({
+    default: {
+        name: 'ShortcutsView',
+        template: '<section data-testid="shortcuts-view-stub" />',
+    },
+}));
+
 vi.mock('@/views/SettingsView/components/AiServices/index.vue', () => ({
     default: {
         name: 'AiServicesView',
@@ -198,6 +205,11 @@ describe('SettingsWindowView', () => {
         expect(loadingState().attributes('fill')).toBe('min');
         expect(loadingState().attributes('message')).toBe('正在加载常规设置...');
 
+        nav.vm.$emit('navigate', 'shortcuts');
+        await flushPromises();
+        expect(loadingState().attributes('message')).toBe('正在加载快捷键设置...');
+        expect(loadingState().attributes('variant')).toBe('brand');
+
         nav.vm.$emit('navigate', 'ai-services');
         await flushPromises();
         expect(loadingState().attributes('variant')).toBe('brand');
@@ -224,6 +236,10 @@ describe('SettingsWindowView', () => {
         const nav = wrapper.findComponent({ name: 'NavigationSidebar' });
 
         expect(wrapper.find('general-view-stub').exists()).toBe(true);
+
+        nav.vm.$emit('navigate', 'shortcuts');
+        await flushPromises();
+        expect(wrapper.find('shortcuts-view-stub').exists()).toBe(true);
 
         nav.vm.$emit('navigate', 'ai-services');
         await flushPromises();

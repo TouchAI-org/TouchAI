@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026. 鍗冭瘹. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { getSettingValue, setSetting } from '@database/queries';
 import { AppEvent, eventService } from '@services/EventService';
@@ -24,6 +24,7 @@ import {
     serializeGeneralSetting,
     serializeParsedGeneralSettingValue,
 } from './setting';
+
 export type { GeneralSettingsData, OutputScrollBehavior } from './setting';
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -67,6 +68,7 @@ export const useSettingsStore = defineStore('settings', () => {
                     getSettingValue({ key: definition.key })
                 )
             );
+
             GENERAL_SETTING_DEFINITIONS.forEach((definition, index) => {
                 applyPersistedGeneralSettingValue(
                     settings.value,
@@ -75,11 +77,31 @@ export const useSettingsStore = defineStore('settings', () => {
                 );
             });
 
-            await Promise.allSettled(
-                GENERAL_SETTING_DEFINITIONS.map((definition, index) =>
-                    persistDefaultIfMissing(definition.key, settingRows[index] ?? null)
-                )
+            const persistenceResults = await Promise.allSettled(
+                GENERAL_SETTING_DEFINITIONS.map((definition, index) => {
+                    const persistedValue = settingRows[index] ?? null;
+                    if (definition.shouldRewritePersisted?.(persistedValue)) {
+                        return setSetting({
+                            key: definition.key,
+                            value: serializeSetting(definition.key),
+                        });
+                    }
+
+                    return persistDefaultIfMissing(definition.key, persistedValue);
+                })
             );
+            const failedPersistenceKeys = persistenceResults.flatMap((result, index) =>
+                result.status === 'rejected'
+                    ? [GENERAL_SETTING_DEFINITIONS[index]?.key ?? `unknown:${index}`]
+                    : []
+            );
+            if (failedPersistenceKeys.length > 0) {
+                console.warn(
+                    `[SettingsStore] Failed to persist general setting rewrite/default value(s): ${failedPersistenceKeys.join(
+                        ', '
+                    )}`
+                );
+            }
         } finally {
             loading.value = false;
         }

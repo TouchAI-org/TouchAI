@@ -21,6 +21,7 @@ export type {
     McpToolDefinition,
     McpTransportType,
 } from './mcp';
+export type { SearchSurfaceShortcutEntry } from './shortcut';
 export type {
     AppUpdateChannel,
     AppUpdateChannelLatest,

@@ -55,6 +55,16 @@ vi.mock('@/views/SettingsView/components/General/index.vue', () => ({
         },
     },
 }));
+vi.mock('@/views/SettingsView/components/Shortcuts/index.vue', () => ({
+    __esModule: true,
+    default: {
+        name: 'ShortcutsViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
+}));
 vi.mock('@/views/SettingsView/components/AiServices/index.vue', () => ({
     __esModule: true,
     default: {
@@ -146,7 +156,11 @@ describe('SettingsView lazy loading i18n', () => {
 
         await flushMountedPromises();
         expect(wrapper.text()).toContain('Loading general settings...');
+        expect(wrapper.text()).not.toContain('Loading shortcut settings...');
         expect(setTitleMock).toHaveBeenCalledWith('TouchAI - Settings');
+
+        await wrapper.get('[data-testid="settings-nav-shortcuts"]').trigger('click');
+        expect(wrapper.text()).toContain('Loading shortcut settings...');
 
         await wrapper.get('[data-testid="settings-nav-ai-services"]').trigger('click');
         expect(wrapper.text()).toContain('Loading model service settings...');

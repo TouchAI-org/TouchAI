@@ -15,3 +15,10 @@ pub fn register_global_shortcut<R: Runtime>(
 pub fn get_shortcut_status() -> (bool, Option<String>) {
     crate::core::system::shortcut::get_shortcut_status()
 }
+
+#[tauri::command]
+pub fn set_search_surface_shortcuts(
+    entries: Vec<crate::core::system::shortcut::SearchSurfaceShortcutEntry>,
+) -> Result<(), String> {
+    crate::core::system::shortcut::set_search_surface_shortcuts(entries)
+}

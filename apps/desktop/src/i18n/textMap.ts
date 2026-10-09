@@ -508,10 +508,11 @@ export const zhToEnTextMap = {
     未命名图片: 'Image',
     未命名文件: 'File',
     'Shift+Enter 换行，适合分段表述': 'Shift+Enter inserts a new line for structured prompts',
-    'Ctrl+M 或点击模型图标切换模型': 'Ctrl+M or the model icon switches models',
-    'Ctrl+H 快速打开历史会话': 'Ctrl+H opens conversation history',
-    'Ctrl+P 切换窗口置顶': 'Ctrl+P toggles always on top',
-    'Ctrl+N 开启新会话': 'Ctrl+N starts a new conversation',
+    使用配置的快捷键或点击模型图标切换模型:
+        'Use the configured shortcut or the model icon to switch models',
+    使用配置的快捷键快速打开历史会话: 'Use the configured shortcut to open conversation history',
+    使用配置的快捷键切换窗口置顶: 'Use the configured shortcut to toggle always on top',
+    使用配置的快捷键开启新会话: 'Use the configured shortcut to start a new conversation',
     右上角历史按钮可查看和切换历史会话:
         'Use the history button in the top right to view and switch conversations',
     消息下方按钮可复制内容: 'Buttons below a message can copy content',
@@ -663,8 +664,8 @@ export const zhToEnTextMap = {
     加载设置失败: 'Failed to load settings',
     快捷键保存成功: 'Shortcut saved',
     搜索窗口尺寸已更新: 'Search window size updated',
-    '不支持 Win 键组合，请使用 Ctrl、Alt、Shift':
-        'Win key combinations are not supported. Use Ctrl, Alt, or Shift.',
+    '不支持 Win/Super 键组合，请使用 Ctrl、Alt、Shift':
+        'Win/Super key combinations are not supported. Use Ctrl, Alt, or Shift.',
     '确定要删除服务器 "{serverName}" 吗？': 'Delete server "{serverName}"?',
     标准输入输出: 'Standard input/output',
     '兼容Streamable HTTP与SSE': 'Compatible with Streamable HTTP and SSE',

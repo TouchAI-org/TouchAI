@@ -285,4 +285,48 @@ describe('SessionHistoryPopover i18n', () => {
         expect(wrapper.get('.history-session-preview').attributes('translate')).toBe('no');
         expect(wrapper.get('.history-session-preview').text()).toBe('关闭');
     });
+
+    it('uses the configured toggle shortcut and ignores the old default', () => {
+        const wrapper = mount(SessionHistoryPopover, {
+            props: {
+                data: {
+                    activeSessionId: null,
+                    searchQuery: '',
+                    isLoading: false,
+                    toggleShortcut: 'Alt+H',
+                    sessions: [],
+                },
+            },
+        });
+        const handleKeyDown = (
+            wrapper.vm as unknown as { handleKeyDown: (event: KeyboardEvent) => void }
+        ).handleKeyDown;
+
+        handleKeyDown(new KeyboardEvent('keydown', { key: 'h', ctrlKey: true }));
+        expect(wrapper.emitted('close')).toBeUndefined();
+
+        handleKeyDown(new KeyboardEvent('keydown', { key: 'h', altKey: true }));
+        expect(wrapper.emitted('close')).toHaveLength(1);
+    });
+
+    it('does not close from the old history shortcut when the shortcut is disabled', () => {
+        const wrapper = mount(SessionHistoryPopover, {
+            props: {
+                data: {
+                    activeSessionId: null,
+                    searchQuery: '',
+                    isLoading: false,
+                    toggleShortcut: null,
+                    sessions: [],
+                },
+            },
+        });
+        const handleKeyDown = (
+            wrapper.vm as unknown as { handleKeyDown: (event: KeyboardEvent) => void }
+        ).handleKeyDown;
+
+        handleKeyDown(new KeyboardEvent('keydown', { key: 'h', ctrlKey: true }));
+
+        expect(wrapper.emitted('close')).toBeUndefined();
+    });
 });

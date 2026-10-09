@@ -869,6 +869,25 @@ describe('NativeService supporting boundaries', () => {
             payload: { shortcut: 'Ctrl+Shift+K' },
         },
         {
+            name: 'syncs search surface shortcuts',
+            call: () =>
+                shortcut.setSearchSurfaceShortcuts([
+                    {
+                        actionId: 'search.model.toggle',
+                        shortcut: 'Mod+M',
+                    },
+                ]),
+            cmd: 'set_search_surface_shortcuts',
+            payload: {
+                entries: [
+                    {
+                        actionId: 'search.model.toggle',
+                        shortcut: 'Mod+M',
+                    },
+                ],
+            },
+        },
+        {
             name: 'enables autostart',
             call: () => autostart.enableAutostart(),
             cmd: 'enable_autostart',

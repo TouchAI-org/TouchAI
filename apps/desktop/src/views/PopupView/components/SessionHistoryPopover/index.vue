@@ -188,6 +188,7 @@
 
     import { type MessageKey, t } from '@/i18n';
     import { formatMonthDay, formatTime } from '@/i18n/format';
+    import { matchShortcut } from '@/utils/shortcuts';
 
     defineOptions({
         name: 'SessionHistoryPopover',
@@ -706,8 +707,7 @@
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-        // Ctrl+H 关闭弹窗
-        if (event.ctrlKey && event.key === 'h') {
+        if (matchShortcut(props.data?.toggleShortcut, event)) {
             event.preventDefault();
             emit('close');
             return;

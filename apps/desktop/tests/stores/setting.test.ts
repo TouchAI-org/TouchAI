@@ -32,6 +32,7 @@ const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
     'app_update_channel',
     'app_update_auto_check',
     'app_update_last_checked_at',
+    'search_keybindings',
     'browser_settings',
     'search_settings',
 ];
@@ -121,6 +122,7 @@ describe('setting registry', () => {
             'appUpdateChannel',
             'appUpdateAutoCheck',
             'appUpdateLastCheckedAt',
+            'searchKeybindings',
             'searchWindowDefaultSize',
             'browserSettings',
             'searchSettings',
@@ -136,6 +138,7 @@ describe('setting registry', () => {
             'updateAppUpdateChannel',
             'updateAppUpdateAutoCheck',
             'updateAppUpdateLastCheckedAt',
+            'updateSearchKeybindings',
             'updateBrowserSettings',
             'updateSearchSettings',
         ]);

@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale, tt } from '@/i18n';
 import GeneralSection from '@/views/SettingsView/components/General/index.vue';
-import { resolveShortcutCaptureCompletion } from '@/views/SettingsView/components/General/shortcutCapture';
 
 const resolveSettingKey = (input: unknown, fallback?: string) => {
     if (typeof input === 'object' && input !== null && 'key' in input) {
@@ -111,48 +110,6 @@ describe('Settings General shortcut capture i18n', () => {
         expect(tt('请按下快捷键...')).toBe('Press a shortcut...');
     });
 
-    it('restores the current shortcut when the localized prompt is blurred without a captured key', () => {
-        setLocale('en-US');
-
-        expect(
-            resolveShortcutCaptureCompletion({
-                currentShortcut: 'Alt+Space',
-                displayShortcut: tt('请按下快捷键...'),
-                hasCapturedShortcut: false,
-            })
-        ).toEqual({
-            action: 'restore',
-            displayShortcut: 'Alt+Space',
-        });
-    });
-
-    it('does not save when the captured shortcut matches the current shortcut', () => {
-        expect(
-            resolveShortcutCaptureCompletion({
-                currentShortcut: 'Alt+Space',
-                displayShortcut: 'Alt+Space',
-                hasCapturedShortcut: true,
-            })
-        ).toEqual({
-            action: 'skip',
-            displayShortcut: 'Alt+Space',
-        });
-    });
-
-    it('requests saving only after a real shortcut was captured', () => {
-        expect(
-            resolveShortcutCaptureCompletion({
-                currentShortcut: 'Alt+Space',
-                displayShortcut: 'Ctrl+Space',
-                hasCapturedShortcut: true,
-            })
-        ).toEqual({
-            action: 'save',
-            displayShortcut: 'Ctrl+Space',
-            shortcut: 'Ctrl+Space',
-        });
-    });
-
     it('renders general settings copy and option labels in English without DOM localization', async () => {
         setLocale('en-US');
 
@@ -165,9 +122,6 @@ describe('Settings General shortcut capture i18n', () => {
         await flushMountedPromises();
 
         expect(wrapper.text()).toContain('General');
-        expect(wrapper.text()).toContain('Shortcuts');
-        expect(wrapper.text()).toContain('Set the global entry point for opening TouchAI');
-        expect(wrapper.text()).toContain('Activation shortcut');
         expect(wrapper.text()).toContain('Startup and window');
         expect(wrapper.text()).toContain(
             'Control startup behavior and the default search window size'
@@ -184,6 +138,10 @@ describe('Settings General shortcut capture i18n', () => {
         expect(wrapper.text()).toContain('Language');
         expect(wrapper.text()).toContain('Controls the display language used by TouchAI');
         expect(wrapper.text()).toContain('Interface language');
+        expect(wrapper.text()).not.toContain('Activation shortcut');
+        expect(wrapper.text()).not.toContain('Set the global shortcut used to open TouchAI.');
+        expect(wrapper.text()).not.toContain('Toggle window maximize');
+        expect(wrapper.text()).not.toContain('Toggle the search window maximized state.');
         expect(wrapper.text()).not.toContain('常规设置');
         expect(wrapper.text()).not.toContain('输出时滚动策略');
     });
