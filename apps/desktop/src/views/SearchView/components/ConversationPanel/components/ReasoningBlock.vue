@@ -195,7 +195,6 @@
         >
             <div class="reasoning-trace-clip">
                 <div class="reasoning-trace-inner">
-                    <span class="reasoning-trace-line" aria-hidden="true"></span>
                     <div
                         ref="reasoningContentRef"
                         class="reasoning-content custom-scrollbar-thin"
@@ -322,25 +321,15 @@
     }
 
     .reasoning-trace-inner {
-        position: relative;
         margin-top: 0.68rem;
         margin-left: 0;
-        padding-left: 1rem;
-    }
-
-    .reasoning-trace-line {
-        position: absolute;
-        top: 1rem;
-        bottom: 0.125rem;
-        left: 0.09375rem;
-        width: 0.5px;
-        background-color: var(--color-gray-300);
     }
 
     .reasoning-content {
         max-height: 15rem;
         overflow-y: auto;
-        padding: 0.25rem 0.5rem 0.5rem 0;
+        border-left: 0.5px solid var(--color-gray-300);
+        padding: 0.25rem 0.5rem 0.5rem 1rem;
         font-family: var(--font-serif), serif;
         font-size: 14px;
         line-height: 1.8;
