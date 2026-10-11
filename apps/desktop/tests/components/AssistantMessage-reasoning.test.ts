@@ -117,6 +117,8 @@ describe('AssistantMessage interleaved reasoning', () => {
             'First thought More detail on a second line'
         );
         expect(button.find('.reasoning-preview').attributes('translate')).toBe('no');
+        expect(button.find('.reasoning-preview-separator').exists()).toBe(false);
+        expect(button.text()).not.toContain('·');
         expect(button.find('.reasoning-duration').exists()).toBe(false);
         expect(section.find('.markdown').text()).toBe(
             'First thought\n\nMore detail on a second line'
