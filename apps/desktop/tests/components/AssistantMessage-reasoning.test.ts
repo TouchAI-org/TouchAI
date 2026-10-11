@@ -97,6 +97,67 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(sections[1]!.find('.markdown').attributes('data-final')).toBe('true');
     });
 
+    it('previews the beginning of collapsed reasoning and shows the full text on expansion', async () => {
+        const wrapper = render({
+            parts: [
+                {
+                    id: 'r1',
+                    type: 'reasoning',
+                    content: 'First thought\n\nMore detail on a second line',
+                    isStreaming: false,
+                },
+            ],
+        });
+        const section = wrapper.find('.reasoning-section');
+        const button = section.find('button');
+        expect(button.attributes('aria-expanded')).toBe('false');
+        expect(button.find('.reasoning-preview').text()).toBe(
+            'First thought More detail on a second line'
+        );
+        expect(button.find('.reasoning-preview').attributes('translate')).toBe('no');
+        expect(section.find('.markdown').text()).toBe(
+            'First thought\n\nMore detail on a second line'
+        );
+
+        await button.trigger('click');
+        expect(button.attributes('aria-expanded')).toBe('true');
+        expect(button.find('.reasoning-preview').exists()).toBe(false);
+        expect(section.find('.markdown').text()).toBe(
+            'First thought\n\nMore detail on a second line'
+        );
+
+        await button.trigger('click');
+        expect(button.find('.reasoning-preview').text()).toBe(
+            'First thought More detail on a second line'
+        );
+    });
+
+    it('updates a manually collapsed thinking preview as streaming content arrives', async () => {
+        const wrapper = render({
+            isStreaming: true,
+            parts: [{ id: 'r1', type: 'reasoning', content: 'First', isStreaming: true }],
+        });
+        const button = wrapper.find('.reasoning-section button');
+        await button.trigger('click');
+        expect(button.find('.reasoning-preview').text()).toBe('First');
+
+        await wrapper.setProps({
+            message: {
+                ...wrapper.props('message'),
+                parts: [
+                    {
+                        id: 'r1',
+                        type: 'reasoning',
+                        content: 'First, then second',
+                        isStreaming: true,
+                    },
+                ],
+            },
+        });
+        expect(button.attributes('aria-expanded')).toBe('false');
+        expect(button.find('.reasoning-preview').text()).toBe('First, then second');
+    });
+
     it('keeps legacy aggregate-only reasoning visible once', () => {
         const wrapper = render({
             reasoning: 'Legacy thought',
