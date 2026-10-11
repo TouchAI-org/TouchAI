@@ -157,9 +157,23 @@ export interface AiRequestOptions {
 /**
  * provider 流式输出到应用层的统一增量。
  */
+export interface ReasoningSegment {
+    content: string;
+    startedAt?: number;
+    endedAt?: number;
+    /** Legacy fallback for records written before wall-clock timestamps. */
+    durationMs?: number;
+    /** UTF-16 offset in the response where this reasoning segment belongs. */
+    textOffset?: number;
+}
+
 export interface AiStreamChunk {
     content: string;
     reasoning?: string;
+    /** 保留 provider 的思考边界，避免用整个消息的流式状态推断。 */
+    reasoningState?: 'start' | 'end';
+    /** 正文片段边界用于在片段结束时持久化，而非定时保存增量。 */
+    textState?: 'start' | 'end';
     done: boolean;
     finishReason?: string;
     toolCalls?: AiToolCall[];

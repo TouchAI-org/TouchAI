@@ -156,8 +156,28 @@ export function createAiSdkStreamProcessor() {
     }
 
     function consumePart<TOOLS extends ToolSet>(part: TextStreamPart<TOOLS>): AiStreamChunk[] {
+        if (part.type === 'text-start' || part.type === 'text-end') {
+            return [
+                {
+                    content: '',
+                    done: false,
+                    textState: part.type === 'text-start' ? 'start' : 'end',
+                },
+            ];
+        }
+
         if (part.type === 'text-delta') {
             return [{ content: part.text, done: false }];
+        }
+
+        if (part.type === 'reasoning-start' || part.type === 'reasoning-end') {
+            return [
+                {
+                    content: '',
+                    done: false,
+                    reasoningState: part.type === 'reasoning-start' ? 'start' : 'end',
+                },
+            ];
         }
 
         if (part.type === 'reasoning-delta') {

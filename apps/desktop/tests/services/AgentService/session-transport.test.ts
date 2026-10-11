@@ -27,6 +27,7 @@ function createMessageRow(overrides: Partial<MessageRow>): MessageRow {
         role: 'user',
         content: '',
         reasoning: null,
+        reasoning_meta: null,
         attachments: [],
         tool_call_id: null,
         tool_name: null,

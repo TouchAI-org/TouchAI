@@ -78,6 +78,7 @@ export interface MessageEntity {
     role: DbMessageRole;
     content: string;
     reasoning: string | null;
+    reasoning_meta: string | null;
     tool_log_id: number | null;
     tool_log_kind: DbToolLogKind | null;
     created_at: string;
@@ -89,6 +90,7 @@ export interface MessageCreateData {
     role: DbMessageRole;
     content: string;
     reasoning?: string | null;
+    reasoning_meta?: string | null;
     tool_log_id?: number | null;
     tool_log_kind?: DbToolLogKind | null;
     created_at?: string;
@@ -333,6 +335,7 @@ export interface SessionTurnAttemptEntity {
     max_retries: number;
     status: DbTurnStatus;
     checkpoint_json: string;
+    reasoning_progress_json: string | null;
     delivery_manifest_json: string;
     error_message: string | null;
     duration_ms: number | null;
@@ -348,6 +351,7 @@ export interface SessionTurnAttemptCreateData {
     max_retries?: number;
     status?: DbTurnStatus;
     checkpoint_json: string;
+    reasoning_progress_json?: string | null;
     delivery_manifest_json: string;
     error_message?: string | null;
     duration_ms?: number | null;

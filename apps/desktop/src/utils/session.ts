@@ -1,5 +1,5 @@
 import { tt } from '@/i18n';
-import type { TextMessagePart } from '@/types/session';
+import type { ReasoningMessagePart, TextMessagePart } from '@/types/session';
 
 export type SessionStatusReminderKind = 'completed' | 'failed' | 'waiting_approval';
 
@@ -12,6 +12,26 @@ export function createTextPart(content: string): TextMessagePart {
         type: 'text',
         content,
     };
+}
+
+/** 创建保留到达顺序、独立流式状态与耗时信息的思考片段。 */
+export function createReasoningPart(
+    content: string,
+    isStreaming = false,
+    startedAt = isStreaming ? Date.now() : undefined
+): ReasoningMessagePart {
+    const part: ReasoningMessagePart = {
+        id: crypto.randomUUID(),
+        type: 'reasoning',
+        content,
+        isStreaming,
+    };
+
+    if (startedAt !== undefined) {
+        part.startedAt = startedAt;
+    }
+
+    return part;
 }
 
 /**

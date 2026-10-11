@@ -428,7 +428,7 @@
     }
 
     .tool-call-bash-wrapper:hover .tool-call-log-line {
-        color: rgb(75, 85, 99);
+        color: rgb(31, 41, 55);
     }
 
     .tool-call-log-verb {
@@ -465,7 +465,7 @@
 
     .tool-call-bash-wrapper:hover .tool-call-log-content,
     .tool-call-bash-wrapper:hover .tool-call-log-duration {
-        color: rgb(107, 114, 128);
+        color: rgb(75, 85, 99);
     }
 
     .tool-call-bash-detail {
