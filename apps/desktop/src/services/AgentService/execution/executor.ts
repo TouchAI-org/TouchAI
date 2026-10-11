@@ -14,7 +14,7 @@ import { z } from '@/utils/zod';
 
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
 import { AiError, AiErrorCode } from '../contracts/errors';
-import type { AiMessage, AiStreamChunk } from '../contracts/protocol';
+import type { AiMessage, AiStreamChunk, ReasoningSegment } from '../contracts/protocol';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -37,6 +37,11 @@ import {
 } from '../infrastructure/providers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
+import {
+    normalizeOutputParts,
+    outputPartsFromLegacy,
+    type PersistedOutputPart,
+} from '../session/reasoningProgress';
 import type { TurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
@@ -88,6 +93,8 @@ export interface AttemptCheckpoint {
     modelSwitchCount: number;
     modelLanguageContext: ModelLanguageContext;
     executedBuiltInToolIds: BuiltInToolId[];
+    /** Ordered output accumulated before the next safe tool checkpoint. */
+    outputParts?: PersistedOutputPart[];
 }
 
 interface AttemptRuntime {
@@ -103,6 +110,9 @@ interface AttemptRuntime {
     hasVisibleOutputSinceCheckpoint: boolean;
     hasToolActivitySinceCheckpoint: boolean;
     executedBuiltInTools: Set<BuiltInToolId>;
+    outputParts: PersistedOutputPart[];
+    currentStepOutputParts: PersistedOutputPart[];
+    currentStepReasoningStartedAt: number | null;
 }
 
 interface ToolExecutionResult {
@@ -121,11 +131,15 @@ type AttemptStepResult =
           type: 'done';
           chunkResponse: string;
           chunkReasoning: string;
+          outputParts: PersistedOutputPart[];
+          reasoningSegments: ReasoningSegment[];
       }
     | {
           type: 'tool_calls';
           chunkResponse: string;
           chunkReasoning: string;
+          outputParts: PersistedOutputPart[];
+          reasoningSegments: ReasoningSegment[];
           toolCalls: AiToolCall[];
       };
 
@@ -137,6 +151,8 @@ export type AttemptExecutionResult =
           reasoning: string;
           finalStepResponse: string;
           finalStepReasoning: string;
+          finalStepOutputParts: PersistedOutputPart[];
+          finalStepReasoningSegments: ReasoningSegment[];
       }
     | {
           type: 'failed';
@@ -145,6 +161,8 @@ export type AttemptExecutionResult =
           reasoning: string;
           partialResponse: string;
           partialReasoning: string;
+          partialOutputParts: PersistedOutputPart[];
+          partialReasoningSegments: ReasoningSegment[];
           resumeCheckpoint: AttemptCheckpoint;
           hasVisibleOutputSinceCheckpoint: boolean;
           hasToolActivitySinceCheckpoint: boolean;
@@ -583,6 +601,7 @@ export class AiRequestExecutor {
             modelSwitchCount: 0,
             modelLanguageContext: options.modelLanguageContext,
             executedBuiltInToolIds: [],
+            outputParts: [],
         };
     }
 
@@ -609,6 +628,17 @@ export class AiRequestExecutor {
             hasVisibleOutputSinceCheckpoint: false,
             hasToolActivitySinceCheckpoint: false,
             executedBuiltInTools: new Set(startCheckpoint.executedBuiltInToolIds),
+            outputParts: normalizeOutputParts(
+                startCheckpoint.outputParts ??
+                    outputPartsFromLegacy(
+                        startCheckpoint.response,
+                        startCheckpoint.reasoning.trim()
+                            ? [{ content: startCheckpoint.reasoning }]
+                            : []
+                    )
+            ),
+            currentStepOutputParts: [],
+            currentStepReasoningStartedAt: null,
         };
     }
 
@@ -622,6 +652,7 @@ export class AiRequestExecutor {
             modelSwitchCount: runtime.modelSwitchCount,
             modelLanguageContext: runtime.modelLanguageContext,
             executedBuiltInToolIds: [...runtime.executedBuiltInTools],
+            outputParts: normalizeOutputParts(runtime.outputParts),
         };
     }
 
@@ -637,7 +668,9 @@ export class AiRequestExecutor {
         options: Pick<
             RequestExecutionCallbacks,
             'signal' | 'onChunk' | 'onAttachmentManifestResolved'
-        >
+        > & {
+            persister: PersistenceProjector;
+        }
     ): Promise<AttemptStepResult> {
         const stream = this.stream(
             runtime.provider,
@@ -655,46 +688,153 @@ export class AiRequestExecutor {
         let chunkReasoning = '';
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
+        // Each model/tool-loop round is an independent persisted message part.
+        // Keep the aggregate on `runtime.outputParts`, but never leak the
+        // previous round into this round's progress/final-step result.
+        runtime.currentStepOutputParts = [];
+        runtime.currentStepReasoningStartedAt = null;
 
-        for await (const chunk of stream) {
-            throwIfAborted(options.signal);
+        let progressWrites = Promise.resolve();
+        let lastSavedSnapshot = '';
+        const persistProgress = (savedAt: number, force = false, closeLegacyActive = false) => {
+            const parts = this.getCurrentStepOutputParts(runtime, savedAt);
+            const snapshot = JSON.stringify(parts);
+            if (!force && snapshot === lastSavedSnapshot) return;
+            if (parts.length === 0) return;
+            lastSavedSnapshot = snapshot;
 
-            if (chunk.reasoning) {
-                chunkReasoning += chunk.reasoning;
-                runtime.reasoning += chunk.reasoning;
-                runtime.hasVisibleOutputSinceCheckpoint = true;
+            progressWrites = progressWrites
+                .then(() => {
+                    if (typeof options.persister.persistOutputProgress === 'function') {
+                        return options.persister.persistOutputProgress(parts, savedAt);
+                    }
+                    if (typeof options.persister.persistReasoningProgress === 'function') {
+                        return options.persister.persistReasoningProgress(
+                            this.getCurrentStepReasoningSegments(runtime, closeLegacyActive),
+                            savedAt
+                        );
+                    }
+                    return undefined;
+                })
+                .catch((error) => {
+                    console.error('[AiRequestExecutor] Failed to persist output progress:', error);
+                });
+        };
+        const saveProgress = (force = false) => persistProgress(Date.now(), force);
+        let activeTextPart: Extract<PersistedOutputPart, { type: 'text' }> | null = null;
+        const finishTextSegment = () => {
+            if (!activeTextPart) return;
+            activeTextPart = null;
+            saveProgress();
+        };
+        const startReasoningSegment = () => {
+            // Some providers omit text-end; a reasoning fragment also closes text.
+            finishTextSegment();
+            if (runtime.currentStepReasoningStartedAt === null) {
+                runtime.currentStepReasoningStartedAt = Date.now();
+            }
+        };
+        const ensureReasoningPart = () => {
+            const lastPart =
+                runtime.currentStepOutputParts[runtime.currentStepOutputParts.length - 1];
+            if (lastPart?.type === 'reasoning' && lastPart.endedAt === undefined) {
+                return lastPart;
             }
 
-            if (chunk.content) {
-                chunkResponse += chunk.content;
-                runtime.response += chunk.content;
-                runtime.hasVisibleOutputSinceCheckpoint = true;
+            const part: PersistedOutputPart = {
+                type: 'reasoning',
+                content: '',
+                startedAt: runtime.currentStepReasoningStartedAt ?? Date.now(),
+            };
+            runtime.currentStepOutputParts.push(part);
+            runtime.outputParts.push(part);
+            return part;
+        };
+        const finishReasoningSegment = () => {
+            const lastPart =
+                runtime.currentStepOutputParts[runtime.currentStepOutputParts.length - 1];
+            const closed =
+                lastPart?.type === 'reasoning' &&
+                lastPart.endedAt === undefined &&
+                lastPart.content.trim().length > 0;
+            if (closed) {
+                lastPart.endedAt = Date.now();
             }
-
-            if (
-                chunk.toolEvent ||
-                (chunk.toolCallDeltas && chunk.toolCallDeltas.length > 0) ||
-                (chunk.done && chunk.toolCalls && chunk.toolCalls.length > 0)
-            ) {
-                runtime.hasToolActivitySinceCheckpoint = true;
+            runtime.currentStepReasoningStartedAt = null;
+            if (closed) saveProgress();
+        };
+        const appendText = (content: string) => {
+            if (activeTextPart) {
+                activeTextPart.content += content;
+                return;
             }
-
-            options.onChunk?.(chunk);
-
-            if (chunk.done) {
-                finishReason = chunk.finishReason;
-                toolCalls = chunk.toolCalls;
-                break;
+            const part: PersistedOutputPart = { type: 'text', content };
+            activeTextPart = part;
+            runtime.currentStepOutputParts.push(part);
+            runtime.outputParts.push(part);
+        };
+        try {
+            for await (const chunk of stream) {
+                throwIfAborted(options.signal);
+                if (chunk.textState === 'start') {
+                    finishReasoningSegment();
+                    finishTextSegment();
+                }
+                if (chunk.reasoningState === 'start') {
+                    finishReasoningSegment();
+                    startReasoningSegment();
+                }
+                if (chunk.reasoning) {
+                    startReasoningSegment();
+                    const reasoningPart = ensureReasoningPart();
+                    reasoningPart.content += chunk.reasoning;
+                    chunkReasoning += chunk.reasoning;
+                    runtime.reasoning += chunk.reasoning;
+                    runtime.hasVisibleOutputSinceCheckpoint = true;
+                }
+                if (chunk.content) {
+                    finishReasoningSegment();
+                    appendText(chunk.content);
+                    chunkResponse += chunk.content;
+                    runtime.response += chunk.content;
+                    runtime.hasVisibleOutputSinceCheckpoint = true;
+                }
+                if (
+                    chunk.toolEvent ||
+                    chunk.toolCallDeltas?.length ||
+                    (chunk.done && chunk.toolCalls?.length)
+                ) {
+                    runtime.hasToolActivitySinceCheckpoint = true;
+                    finishReasoningSegment();
+                    finishTextSegment();
+                }
+                if (chunk.reasoningState === 'end' || chunk.done) {
+                    finishReasoningSegment();
+                }
+                if (chunk.textState === 'end' || chunk.done) {
+                    finishTextSegment();
+                }
+                options.onChunk?.(chunk);
+                if (chunk.done) {
+                    finishReason = chunk.finishReason;
+                    toolCalls = chunk.toolCalls;
+                    break;
+                }
             }
+        } finally {
+            // Match OpenCode's durability boundary: streaming deltas stay live-only;
+            // completed fragments and terminal partial output are flushed as full parts.
+            finishReasoningSegment();
+            finishTextSegment();
+            persistProgress(Date.now(), true, true);
+            await progressWrites;
         }
 
+        const outputParts = normalizeOutputParts(runtime.currentStepOutputParts);
+        const reasoningSegments = this.getCurrentStepReasoningSegments(runtime, false);
         const isToolRelated = finishReason === 'tool_calls' || finishReason === 'tool_use';
         if (!isToolRelated || !toolCalls || toolCalls.length === 0) {
-            return {
-                type: 'done',
-                chunkResponse,
-                chunkReasoning,
-            };
+            return { type: 'done', chunkResponse, chunkReasoning, outputParts, reasoningSegments };
         }
 
         runtime.hasToolActivitySinceCheckpoint = true;
@@ -702,8 +842,51 @@ export class AiRequestExecutor {
             type: 'tool_calls',
             chunkResponse,
             chunkReasoning,
+            outputParts,
+            reasoningSegments,
             toolCalls,
         };
+    }
+
+    private getCurrentStepOutputParts(
+        runtime: AttemptRuntime,
+        closeActiveAt?: number
+    ): PersistedOutputPart[] {
+        return runtime.currentStepOutputParts.map((part) => {
+            if (
+                part.type === 'reasoning' &&
+                closeActiveAt !== undefined &&
+                part.endedAt === undefined &&
+                part.startedAt !== undefined
+            ) {
+                return { ...part, endedAt: Math.max(part.startedAt, closeActiveAt) };
+            }
+            return { ...part };
+        });
+    }
+
+    private getCurrentStepReasoningSegments(
+        runtime: AttemptRuntime,
+        closeActiveSegment = true
+    ): ReasoningSegment[] {
+        const parts = this.getCurrentStepOutputParts(
+            runtime,
+            closeActiveSegment ? Date.now() : undefined
+        );
+        let textOffset = 0;
+        return parts.flatMap((part): ReasoningSegment[] => {
+            if (part.type === 'text') {
+                textOffset += part.content.length;
+                return [];
+            }
+            const segment: ReasoningSegment = {
+                content: part.content,
+                ...(part.startedAt !== undefined ? { startedAt: part.startedAt } : {}),
+                ...(part.endedAt !== undefined ? { endedAt: part.endedAt } : {}),
+                textOffset,
+            };
+            return part.content.trim() ? [segment] : [];
+        });
     }
 
     private async executeToolCall(
@@ -788,7 +971,9 @@ export class AiRequestExecutor {
 
         const toolCallMessageId = await options.persister.persistToolCallMessage(
             options.step.chunkResponse,
-            options.step.chunkReasoning
+            options.step.chunkReasoning,
+            options.step.reasoningSegments,
+            options.step.outputParts
         );
 
         const toolResults = await Promise.all(
@@ -885,7 +1070,7 @@ export class AiRequestExecutor {
     async runAttempt(options: RunAttemptOptions): Promise<AttemptExecutionResult> {
         const runtime = await this.createAttemptRuntime(options.startCheckpoint);
         let resumeCheckpoint = options.startCheckpoint;
-
+        let finalStepReasoningSegments: ReasoningSegment[];
         try {
             while (true) {
                 throwIfAborted(options.signal);
@@ -893,6 +1078,7 @@ export class AiRequestExecutor {
                 const step = await this.consumeModelStep(runtime, {
                     signal: options.signal,
                     onChunk: options.onChunk,
+                    persister: options.persister,
                     onAttachmentManifestResolved: async (request) => {
                         try {
                             await options.persister.syncDeliveryManifestRequest(request);
@@ -906,6 +1092,7 @@ export class AiRequestExecutor {
                 });
 
                 if (step.type === 'done') {
+                    finalStepReasoningSegments = step.reasoningSegments;
                     break;
                 }
 
@@ -949,6 +1136,8 @@ export class AiRequestExecutor {
                     runtime.reasoning,
                     resumeCheckpoint.reasoning
                 ),
+                finalStepOutputParts: normalizeOutputParts(runtime.currentStepOutputParts),
+                finalStepReasoningSegments,
             };
         } catch (error) {
             // AI SDK RetryError 包装了真正的错误——解包后传递给分类器
@@ -986,6 +1175,8 @@ export class AiRequestExecutor {
                     runtime.reasoning,
                     resumeCheckpoint.reasoning
                 ),
+                partialOutputParts: normalizeOutputParts(runtime.currentStepOutputParts),
+                partialReasoningSegments: this.getCurrentStepReasoningSegments(runtime),
                 resumeCheckpoint,
                 hasVisibleOutputSinceCheckpoint: runtime.hasVisibleOutputSinceCheckpoint,
                 hasToolActivitySinceCheckpoint: runtime.hasToolActivitySinceCheckpoint,

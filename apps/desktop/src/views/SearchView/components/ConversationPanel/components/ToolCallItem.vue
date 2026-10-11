@@ -441,6 +441,7 @@
     }
 
     .tool-call-toggle:hover {
+        color: rgb(31, 41, 55);
         border-color: rgba(219, 213, 207, 0.95);
         background: rgba(251, 251, 246, 0.95);
         box-shadow: 0 3px 10px rgba(107, 95, 84, 0.14);
@@ -477,7 +478,7 @@
     }
 
     .tool-call-log-wrapper:hover .tool-call-log-line {
-        color: rgb(75, 85, 99);
+        color: rgb(31, 41, 55);
     }
 
     .tool-call-log-verb {
@@ -510,7 +511,7 @@
 
     .tool-call-log-wrapper:hover .tool-call-log-content,
     .tool-call-log-wrapper:hover .tool-call-log-duration {
-        color: rgb(107, 114, 128);
+        color: rgb(75, 85, 99);
     }
 
     .tool-call-icon {
@@ -637,7 +638,7 @@
     }
 
     .tool-call-toggle:hover .tool-call-arrow {
-        color: rgb(107, 114, 128);
+        color: rgb(75, 85, 99);
     }
 
     .tool-call-arrow--expanded {

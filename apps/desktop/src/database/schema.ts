@@ -81,6 +81,7 @@ export const messages = sqliteTable('messages', {
     }).notNull(),
     content: text('content').notNull(),
     reasoning: text('reasoning'),
+    reasoning_meta: text('reasoning_meta'),
     tool_log_id: integer('tool_log_id'), // 关联 mcp_tool_logs 表 ID（仅 tool_result 消息使用）
     tool_log_kind: text('tool_log_kind', {
         enum: ['mcp', 'builtin'],
@@ -336,6 +337,7 @@ export const sessionTurnAttempts = sqliteTable(
             .notNull()
             .default('pending'),
         checkpoint_json: text('checkpoint_json').notNull(),
+        reasoning_progress_json: text('reasoning_progress_json'),
         delivery_manifest_json: text('delivery_manifest_json').notNull(),
         error_message: text('error_message'),
         duration_ms: integer('duration_ms'),

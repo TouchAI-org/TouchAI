@@ -24,13 +24,23 @@ import {
     type WidgetInfo,
 } from '@/types/session';
 import { parseDbDateTimestamp } from '@/utils/date';
-import { createTextPart } from '@/utils/session';
+import { createReasoningPart, createTextPart } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
 import { AiError } from '../contracts/errors';
+import type { ReasoningSegment } from '../contracts/protocol';
 import { getRetryStatusMessage } from '../execution/retry';
 import type { PromptSnapshot } from '../prompt/types';
 import { getSessionData, type SessionData } from './manager';
+import {
+    getOutputPartReasoning,
+    getOutputPartText,
+    normalizeReasoningSegments,
+    parseInterruptedOutputProgress,
+    parseInterruptedReasoningProgress,
+    parsePersistedOutputParts,
+    type PersistedOutputPart,
+} from './reasoningProgress';
 import {
     ensureAssistantWidgets,
     ensureWidgetPart,
@@ -46,6 +56,9 @@ interface PersistedHistoryEntry {
     role: MessageRow['role'];
     content: string;
     reasoning: string | null;
+    reasoningSegments: ReasoningSegment[] | null;
+    outputParts: PersistedOutputPart[] | null;
+    interruptedReasoningSegments?: ReasoningSegment[];
     created_at: string;
     attachments?: Awaited<ReturnType<typeof hydratePersistedAttachments>>;
     toolCalls?: ToolCallInfo[];
@@ -90,6 +103,29 @@ function parseToolArguments(raw: string | null): Record<string, unknown> {
         return JSON.parse(raw) as Record<string, unknown>;
     } catch {
         return {};
+    }
+}
+
+function parseOutputParts(raw: string | null): PersistedOutputPart[] | null {
+    return parsePersistedOutputParts(raw);
+}
+
+function parseReasoningSegments(raw: string | null): ReasoningSegment[] | null {
+    if (!raw) {
+        return null;
+    }
+
+    try {
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            return null;
+        }
+
+        const segments = normalizeReasoningSegments(parsed);
+
+        return segments.length > 0 ? segments : null;
+    } catch {
+        return null;
     }
 }
 
@@ -247,6 +283,8 @@ async function buildPersistedEntries(
                 role: row.role,
                 content: row.content,
                 reasoning: row.reasoning,
+                reasoningSegments: parseReasoningSegments(row.reasoning_meta),
+                outputParts: parseOutputParts(row.reasoning_meta),
                 created_at: row.created_at,
                 attachments:
                     row.role === 'user'
@@ -313,6 +351,75 @@ async function buildPersistedEntries(
  * @param entries 已聚合的持久化历史记录。
  * @returns UI 可直接消费的对话历史。
  */
+function appendAssistantOutput(
+    message: SessionMessage,
+    content: string,
+    reasoning: string | null,
+    segments: ReasoningSegment[],
+    outputParts?: PersistedOutputPart[] | null
+): void {
+    if (outputParts && outputParts.length > 0) {
+        for (const part of outputParts) {
+            if (part.type === 'text') {
+                message.parts.push(createTextPart(part.content));
+                message.content += part.content;
+            } else {
+                appendReasoningPart(message, {
+                    content: part.content,
+                    startedAt: part.startedAt,
+                    endedAt: part.endedAt,
+                    durationMs: part.durationMs,
+                });
+                message.reasoning = `${message.reasoning ?? ''}${part.content}`;
+            }
+        }
+        return;
+    }
+
+    const normalizedReasoning = reasoning?.trim()
+        ? reasoning
+        : segments.map((segment) => segment.content).join('');
+    const orderedSegments = [...segments]
+        .filter((segment) => segment.content.trim())
+        .sort((a, b) => (a.textOffset ?? 0) - (b.textOffset ?? 0));
+    const hasTextOffsets = orderedSegments.some((segment) => segment.textOffset !== undefined);
+
+    if (!hasTextOffsets) {
+        for (const segment of orderedSegments) appendReasoningPart(message, segment);
+        if (normalizedReasoning && orderedSegments.length === 0) {
+            appendReasoningPart(message, { content: normalizedReasoning });
+        }
+        if (content) message.parts.push(createTextPart(content));
+    } else {
+        let textCursor = 0;
+        for (const segment of orderedSegments) {
+            const textOffset = Math.max(
+                0,
+                Math.min(content.length, segment.textOffset ?? textCursor)
+            );
+            if (textOffset > textCursor) {
+                message.parts.push(createTextPart(content.slice(textCursor, textOffset)));
+            }
+            appendReasoningPart(message, segment);
+            textCursor = Math.max(textCursor, textOffset);
+        }
+        if (textCursor < content.length) {
+            message.parts.push(createTextPart(content.slice(textCursor)));
+        }
+    }
+
+    if (content) message.content += content;
+    if (normalizedReasoning) message.reasoning = `${message.reasoning ?? ''}${normalizedReasoning}`;
+}
+
+function appendReasoningPart(message: SessionMessage, segment: ReasoningSegment): void {
+    const part = createReasoningPart(segment.content);
+    part.startedAt = segment.startedAt;
+    part.endedAt = segment.endedAt;
+    part.durationMs = segment.durationMs;
+    message.parts.push(part);
+}
+
 function convertEntriesToSessionHistory(
     entries: PersistedHistoryEntry[],
     promptSnapshotsByMessageId: Map<number, PromptSnapshot>
@@ -505,13 +612,17 @@ function convertEntriesToSessionHistory(
 
         const assistantMessage = ensureAssistantMessage(entry);
 
-        if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.reasoning?.trim()) {
-            assistantMessage.reasoning = `${assistantMessage.reasoning ?? ''}${entry.reasoning}`;
-        }
-
-        if ((entry.role === 'assistant' || entry.role === 'tool_call') && entry.content) {
-            assistantMessage.content += entry.content;
-            assistantMessage.parts.push(createTextPart(entry.content));
+        if (entry.role === 'assistant' || entry.role === 'tool_call') {
+            const reasoningSegments =
+                entry.reasoningSegments ??
+                (entry.reasoning?.trim() ? [{ content: entry.reasoning }] : []);
+            appendAssistantOutput(
+                assistantMessage,
+                entry.content,
+                entry.reasoning,
+                reasoningSegments,
+                entry.outputParts
+            );
         }
 
         if (entry.role === 'tool_call' && entry.toolCalls?.length) {
@@ -605,7 +716,7 @@ function hasVisibleAssistantContent(message: SessionMessage): boolean {
     }
 
     return message.parts.some((part) => {
-        if (part.type === 'text') {
+        if (part.type === 'text' || part.type === 'reasoning') {
             return !!part.content.trim();
         }
 
@@ -896,14 +1007,116 @@ export async function buildSessionHistory(
         }
     }
 
-    return injectDerivedRequestStatuses(
-        convertEntriesToSessionHistory(
-            await buildPersistedEntries(messages, resolveServerName),
-            promptSnapshotsByMessageId
-        ),
-        turns,
-        attempts
+    const buildResult = convertEntriesToSessionHistory(
+        await buildPersistedEntries(messages, resolveServerName),
+        promptSnapshotsByMessageId
     );
+    const latestAttempts = new Map<number, SessionTurnAttemptHistoryRow>();
+    for (const attempt of attempts) {
+        const previous = latestAttempts.get(attempt.turn_id);
+        if (
+            !previous ||
+            attempt.attempt_index > previous.attempt_index ||
+            (attempt.attempt_index === previous.attempt_index && attempt.id > previous.id)
+        ) {
+            latestAttempts.set(attempt.turn_id, attempt);
+        }
+    }
+    for (const turn of turns) {
+        const attempt = latestAttempts.get(turn.id);
+        if (
+            !attempt ||
+            (turn.status !== 'streaming' && turn.status !== 'pending') ||
+            (attempt.status !== 'streaming' && attempt.status !== 'pending')
+        )
+            continue;
+        const outputProgress = parseInterruptedOutputProgress(attempt.reasoning_progress_json);
+        let recoveredParts: PersistedOutputPart[] | null = null;
+        let recovered: ReasoningSegment[];
+        let recoveredResponse = '';
+        if (outputProgress && 'version' in outputProgress) {
+            recoveredParts = outputProgress.parts;
+            recoveredResponse = getOutputPartText(recoveredParts);
+            recovered = recoveredParts.flatMap((part): ReasoningSegment[] =>
+                part.type === 'reasoning'
+                    ? [
+                          {
+                              content: part.content,
+                              ...(part.startedAt !== undefined
+                                  ? { startedAt: part.startedAt }
+                                  : {}),
+                              ...(part.endedAt !== undefined ? { endedAt: part.endedAt } : {}),
+                          },
+                      ]
+                    : []
+            );
+        } else if (outputProgress) {
+            recovered = outputProgress.segments;
+            recoveredResponse = outputProgress.response;
+        } else {
+            recovered = parseInterruptedReasoningProgress(attempt.reasoning_progress_json);
+        }
+        const recoveredReasoning = recoveredParts
+            ? getOutputPartReasoning(recoveredParts)
+            : recovered.map((segment: ReasoningSegment) => segment.content).join('');
+        if (!recoveredResponse && !recoveredReasoning) continue;
+
+        const responseIndex =
+            turn.response_message_id === null
+                ? undefined
+                : buildResult.historyIndexByPersistedMessageId.get(turn.response_message_id);
+        const promptIndex =
+            turn.prompt_message_id === null
+                ? undefined
+                : buildResult.historyIndexByPersistedMessageId.get(turn.prompt_message_id);
+        const insertionIndex =
+            promptIndex === undefined ? buildResult.history.length : promptIndex + 1;
+        let message = buildResult.history[responseIndex ?? insertionIndex];
+        if (message?.role !== 'assistant') {
+            message = {
+                id: 'assistant-recovered-' + attempt.id,
+                role: 'assistant',
+                content: '',
+                parts: [],
+                timestamp: parseDbDateTimestamp(attempt.started_at),
+            };
+            buildResult.history.splice(insertionIndex, 0, message);
+            for (const [id, index] of buildResult.historyIndexByPersistedMessageId) {
+                if (index >= insertionIndex)
+                    buildResult.historyIndexByPersistedMessageId.set(id, index + 1);
+            }
+        }
+
+        if (recoveredParts) {
+            // Version 2 progress contains only the current, uncommitted model step.
+            // Committing its message clears progress in the same transaction, so
+            // matching text in earlier tool rounds is not evidence of duplication.
+            appendAssistantOutput(message, '', '', [], recoveredParts);
+        } else {
+            const responseAlreadyPersisted =
+                !recoveredResponse ||
+                message.content === recoveredResponse ||
+                message.content.endsWith(recoveredResponse);
+            const missingSegments = recovered.filter(
+                (segment: ReasoningSegment) =>
+                    !message.parts.some(
+                        (part) =>
+                            part.type === 'reasoning' &&
+                            part.content === segment.content &&
+                            part.startedAt === segment.startedAt
+                    )
+            );
+            if (!responseAlreadyPersisted || missingSegments.length > 0) {
+                appendAssistantOutput(
+                    message,
+                    responseAlreadyPersisted ? '' : recoveredResponse,
+                    missingSegments.map((segment: ReasoningSegment) => segment.content).join(''),
+                    missingSegments
+                );
+            }
+        }
+    }
+    return injectDerivedRequestStatuses(buildResult, turns, attempts);
 }
 
 /**

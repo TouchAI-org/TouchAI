@@ -365,6 +365,8 @@ export class AiConversationRuntime {
                 response: result.finalStepResponse,
                 reasoning: result.finalStepReasoning,
                 durationMs: Date.now() - this.startedAt,
+                reasoningSegments: result.finalStepReasoningSegments,
+                outputParts: result.finalStepOutputParts,
             });
         } catch (persistError) {
             console.error('[AiConversationRuntime] Failed to persist completion:', persistError);
@@ -432,7 +434,9 @@ export class AiConversationRuntime {
                     try {
                         await context.persister.markCancelled(
                             attemptResult.partialResponse,
-                            attemptResult.partialReasoning
+                            attemptResult.partialReasoning,
+                            attemptResult.partialReasoningSegments,
+                            attemptResult.partialOutputParts
                         );
                     } catch (persistError) {
                         console.error(
@@ -500,7 +504,9 @@ export class AiConversationRuntime {
                     await context.persister.markFailed(
                         attemptResult.error.message,
                         attemptResult.partialResponse,
-                        attemptResult.partialReasoning
+                        attemptResult.partialReasoning,
+                        attemptResult.partialReasoningSegments,
+                        attemptResult.partialOutputParts
                     );
                 } catch (persistError) {
                     console.error(

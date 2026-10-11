@@ -34,10 +34,19 @@ import type {
     AiMessage,
     AttachmentDeliveryManifest,
     AttachmentDeliveryManifestRequest,
+    ReasoningSegment,
 } from '../contracts/protocol';
 import type { AttemptCheckpoint } from '../execution/executor';
 import type { ModelLanguageContext } from '../languageContext';
 import type { PromptSnapshot } from '../prompt/types';
+import {
+    normalizeOutputParts,
+    normalizeReasoningSegments,
+    type PersistedOutputPart,
+    serializeOutputParts,
+    serializeOutputProgress,
+    serializeReasoningProgress,
+} from '../session/reasoningProgress';
 import type { TaskExecutionMode } from '../task/types';
 
 /**
@@ -78,6 +87,8 @@ interface CompleteTurnOptions {
     reasoning: string;
     durationMs: number;
     tokensUsed?: number | null;
+    reasoningSegments?: ReasoningSegment[];
+    outputParts?: PersistedOutputPart[];
 }
 
 /**
@@ -144,6 +155,7 @@ interface PersistedAttemptCheckpoint {
     modelSwitchCount: number;
     modelLanguageContext: ModelLanguageContext;
     executedBuiltInToolIds: AttemptCheckpoint['executedBuiltInToolIds'];
+    outputParts?: PersistedOutputPart[];
 }
 
 function sanitizeCheckpointModel(
@@ -215,12 +227,19 @@ function serializeCheckpoint(checkpoint: AttemptCheckpoint): string {
         modelSwitchCount: checkpoint.modelSwitchCount,
         modelLanguageContext: checkpoint.modelLanguageContext,
         executedBuiltInToolIds: checkpoint.executedBuiltInToolIds,
+        outputParts: normalizeOutputParts(checkpoint.outputParts),
     };
     return JSON.stringify(persisted);
 }
 
 function serializeCurrentDeliveryManifest(manifest: AttachmentDeliveryManifest): string {
     return serializeAttachmentDeliveryManifest(manifest);
+}
+
+function serializeReasoningSegments(segments: ReasoningSegment[] | undefined): string | null {
+    const normalized = normalizeReasoningSegments(segments);
+
+    return normalized.length > 0 ? JSON.stringify(normalized) : null;
 }
 
 export class PersistenceProjector {
@@ -320,7 +339,10 @@ export class PersistenceProjector {
                               null,
                               null,
                               [],
-                              tx
+                              tx,
+                              undefined,
+                              options.reasoningSegments,
+                              options.outputParts
                           )
                         : this.assistantMessageId;
 
@@ -354,7 +376,9 @@ export class PersistenceProjector {
     async markFailed(
         errorMessage: string,
         partialResponse?: string,
-        partialReasoning = ''
+        partialReasoning = '',
+        reasoningSegments: ReasoningSegment[] = [],
+        outputParts?: PersistedOutputPart[]
     ): Promise<void> {
         try {
             const result = await db.transaction(async (tx) => {
@@ -367,7 +391,10 @@ export class PersistenceProjector {
                               null,
                               null,
                               [],
-                              tx
+                              tx,
+                              undefined,
+                              reasoningSegments,
+                              outputParts
                           )
                         : this.assistantMessageId;
 
@@ -397,7 +424,12 @@ export class PersistenceProjector {
     /**
      * 当前轮次取消阶段：更新取消状态。
      */
-    async markCancelled(partialResponse?: string, partialReasoning = ''): Promise<void> {
+    async markCancelled(
+        partialResponse?: string,
+        partialReasoning = '',
+        reasoningSegments: ReasoningSegment[] = [],
+        outputParts?: PersistedOutputPart[]
+    ): Promise<void> {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
@@ -409,7 +441,10 @@ export class PersistenceProjector {
                               null,
                               null,
                               [],
-                              tx
+                              tx,
+                              undefined,
+                              reasoningSegments,
+                              outputParts
                           )
                         : this.assistantMessageId;
 
@@ -539,8 +574,41 @@ export class PersistenceProjector {
     /**
      * 持久化工具调用消息。
      */
-    async persistToolCallMessage(text?: string, reasoning = ''): Promise<number> {
-        return this.persistMessage('tool_call', text || '', reasoning);
+    async persistToolCallMessage(
+        text?: string,
+        reasoning = '',
+        reasoningSegments: ReasoningSegment[] = [],
+        outputParts?: PersistedOutputPart[]
+    ): Promise<number> {
+        const result = await db.transaction(async (tx) => {
+            const messageId = await this.persistMessage(
+                'tool_call',
+                text || '',
+                reasoning,
+                null,
+                null,
+                [],
+                tx,
+                undefined,
+                reasoningSegments,
+                outputParts
+            );
+            if (this.attemptState) {
+                await updateSessionTurnAttempt({
+                    id: this.attemptState.entity.id,
+                    attemptPatch: { reasoning_progress_json: null },
+                    database: tx,
+                });
+            }
+            return messageId;
+        });
+        if (this.attemptState) {
+            this.attemptState = new AttemptState(
+                { ...this.attemptState.entity, reasoning_progress_json: null },
+                this.attemptState.startedAtMs
+            );
+        }
+        return result;
     }
 
     /**
@@ -563,6 +631,59 @@ export class PersistenceProjector {
         );
     }
 
+    async persistReasoningProgress(segments: ReasoningSegment[], savedAt: number): Promise<void> {
+        const attempt = this.attemptState;
+        if (!attempt || segments.length === 0) return;
+        await this.persistTemporaryProgress(serializeReasoningProgress(segments, savedAt));
+    }
+
+    async persistOutputProgress(parts: PersistedOutputPart[], savedAt: number): Promise<void>;
+    async persistOutputProgress(
+        response: string,
+        segments: ReasoningSegment[],
+        savedAt: number
+    ): Promise<void>;
+    async persistOutputProgress(
+        partsOrResponse: PersistedOutputPart[] | string,
+        savedAtOrSegments: number | ReasoningSegment[],
+        legacySavedAt?: number
+    ): Promise<void> {
+        if (!this.attemptState) return;
+
+        if (Array.isArray(partsOrResponse)) {
+            const parts = normalizeOutputParts(partsOrResponse);
+            if (parts.length === 0) return;
+            await this.persistTemporaryProgress(
+                serializeOutputProgress(parts, savedAtOrSegments as number)
+            );
+            return;
+        }
+
+        const segments = savedAtOrSegments as ReasoningSegment[];
+        if (!partsOrResponse && segments.length === 0) return;
+        await this.persistTemporaryProgress(
+            serializeOutputProgress(partsOrResponse, segments, legacySavedAt as number)
+        );
+    }
+
+    private async persistTemporaryProgress(progressJson: string): Promise<void> {
+        const attempt = this.attemptState;
+        if (!attempt) return;
+        await updateSessionTurnAttempt({
+            id: attempt.entity.id,
+            attemptPatch: { reasoning_progress_json: progressJson },
+        });
+        if (this.attemptState?.entity.id === attempt.entity.id) {
+            this.attemptState = new AttemptState(
+                {
+                    ...this.attemptState.entity,
+                    reasoning_progress_json: progressJson,
+                },
+                this.attemptState.startedAtMs
+            );
+        }
+    }
+
     async persistCheckpoint(checkpoint: AttemptCheckpoint): Promise<void> {
         if (!this.attemptState) {
             return;
@@ -574,6 +695,7 @@ export class PersistenceProjector {
                 id: this.attemptState!.entity.id,
                 attemptPatch: {
                     checkpoint_json: checkpointJson,
+                    reasoning_progress_json: null,
                 },
                 database: tx,
             });
@@ -583,6 +705,7 @@ export class PersistenceProjector {
             {
                 ...this.attemptState.entity,
                 checkpoint_json: checkpointJson,
+                reasoning_progress_json: null,
                 delivery_manifest_json: this.attemptState.entity.delivery_manifest_json,
             },
             this.attemptState.startedAtMs
@@ -654,7 +777,9 @@ export class PersistenceProjector {
         toolLogKind?: ToolLogKind | null,
         attachments: Array<AttachmentIndex | AttachmentEntity> = [],
         database: DatabaseExecutor = db,
-        sessionId?: number
+        sessionId?: number,
+        reasoningSegments: ReasoningSegment[] = [],
+        outputParts?: PersistedOutputPart[]
     ): Promise<number> {
         const resolvedSessionId = sessionId ?? (await this.ensureSessionId(database));
 
@@ -664,6 +789,10 @@ export class PersistenceProjector {
                 role: role as MessageRole,
                 content,
                 reasoning: reasoning?.trim() ? reasoning : null,
+                reasoning_meta:
+                    outputParts && outputParts.length > 0
+                        ? serializeOutputParts(outputParts)
+                        : serializeReasoningSegments(reasoningSegments),
                 tool_log_id: toolLogId ?? null,
                 tool_log_kind: toolLogKind ?? null,
             },
@@ -779,6 +908,7 @@ export class PersistenceProjector {
                 status,
                 error_message: errorMessage,
                 duration_ms: durationMs,
+                reasoning_progress_json: null,
                 finished_at: finishedAtText,
                 updated_at: finishedAtText,
             },
@@ -791,6 +921,7 @@ export class PersistenceProjector {
                 status,
                 error_message: errorMessage,
                 duration_ms: durationMs,
+                reasoning_progress_json: null,
                 finished_at: finishedAtText,
                 updated_at: finishedAtText,
             },

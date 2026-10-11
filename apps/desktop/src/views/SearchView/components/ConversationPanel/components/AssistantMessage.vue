@@ -14,53 +14,22 @@
 
                 <!-- 正常 AI 消息 -->
                 <template v-else>
-                    <!-- 推理过程显示（如果存在）-->
-                    <div v-if="message.reasoning" class="reasoning-section mb-4 w-full">
-                        <button
-                            class="flex w-full items-center gap-2 px-1 py-2 text-left text-sm font-normal text-gray-700 transition-colors hover:text-gray-900"
-                            @click="toggleReasoning"
-                        >
-                            <AppIcon
-                                name="chevron-right"
-                                :class="
-                                    isReasoningExpanded
-                                        ? 'h-4 w-4 rotate-90 transition-transform'
-                                        : 'h-4 w-4 transition-transform'
-                                "
-                            />
-                            <span v-if="message.isStreaming && !message.content">
-                                {{ t('assistant.reasoning.thinking') }}
-                            </span>
-                            <span v-else>{{ t('assistant.reasoning.title') }}</span>
-                            <span
-                                v-if="message.isStreaming && !message.content"
-                                class="ml-2 flex items-center gap-1 text-xs text-gray-500"
-                            >
-                                <div
-                                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-500"
-                                ></div>
-                            </span>
-                        </button>
-                        <div
-                            v-show="isReasoningExpanded"
-                            class="reasoning-content custom-scrollbar-thin mt-2 max-h-60 w-full overflow-y-auto border-l-1 border-gray-300 py-1 pr-2 pl-4 text-sm text-gray-500"
-                        >
-                            <MarkdownContent
-                                :content="message.reasoning"
-                                :final="!message.isStreaming"
-                                variant="reasoning"
-                            />
-                        </div>
-                    </div>
-
                     <div v-if="renderedParts.length > 0" class="assistant-message-parts">
                         <div
                             v-for="part in renderedParts"
                             :key="part.id"
                             class="assistant-message-part"
                         >
+                            <ReasoningBlock
+                                v-if="part.type === 'reasoning'"
+                                :content="part.content"
+                                :is-streaming="part.isStreaming"
+                                :started-at="part.startedAt"
+                                :ended-at="part.endedAt"
+                                :duration-ms="part.durationMs"
+                            />
                             <MarkdownContent
-                                v-if="part.type === 'text'"
+                                v-else-if="part.type === 'text'"
                                 :content="part.content"
                                 :final="!message.isStreaming"
                             />
@@ -120,7 +89,6 @@
 
 <script setup lang="ts">
     import ActionButton from '@components/ActionButton.vue';
-    import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { notify } from '@services/NotificationService';
     import { computed, onUnmounted, ref, watch } from 'vue';
@@ -136,6 +104,7 @@
         WidgetInfo,
     } from '@/types/session';
 
+    import ReasoningBlock from './ReasoningBlock.vue';
     import ToolApprovalHistoryCard from './ToolApprovalHistoryCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
     import WidgetFrame from './WidgetFrame.vue';
@@ -151,6 +120,15 @@
     }>();
 
     type RenderedPart =
+        | {
+              id: string;
+              type: 'reasoning';
+              content: string;
+              isStreaming: boolean;
+              startedAt?: number;
+              endedAt?: number;
+              durationMs?: number;
+          }
         | {
               id: string;
               type: 'text';
@@ -241,7 +219,6 @@
         stopTipRotation();
     });
 
-    const isReasoningExpanded = ref(true); // 默认展开
     const isRequestStateMessage = computed(() => {
         return !!(props.message.isCancelled || props.message.isRetrying || props.message.isError);
     });
@@ -260,7 +237,30 @@
             (props.message.widgets ?? []).map((widget) => widget.callId)
         );
 
+        // 兼容旧快照：没有有序思考片段时才使用汇总字段。
+        if (
+            props.message.reasoning &&
+            !props.message.parts.some((part) => part.type === 'reasoning')
+        ) {
+            parts.push({
+                id: props.message.id + '-legacy-reasoning',
+                type: 'reasoning',
+                content: props.message.reasoning,
+                isStreaming:
+                    !!props.message.isStreaming &&
+                    !props.message.content &&
+                    props.message.parts.length === 0,
+            });
+        }
+
         for (const part of props.message.parts) {
+            if (part.type === 'reasoning') {
+                parts.push({
+                    ...part,
+                    isStreaming: !!props.message.isStreaming && part.isStreaming,
+                });
+                continue;
+            }
             if (part.type === 'text') {
                 if (part.content) {
                     parts.push({
@@ -320,21 +320,6 @@
         return !props.message.isStreaming && !isRequestStateMessage.value;
     });
 
-    // 切换 reasoning 展开/收缩
-    function toggleReasoning() {
-        isReasoningExpanded.value = !isReasoningExpanded.value;
-    }
-
-    // 当 content 开始出现时，自动收缩 reasoning
-    watch(
-        () => props.message.content,
-        (newContent, oldContent) => {
-            if (newContent && !oldContent && props.message.reasoning) {
-                isReasoningExpanded.value = false;
-            }
-        }
-    );
-
     async function handleCopy() {
         try {
             await clipboardService.writeText(props.message.content);
@@ -358,58 +343,6 @@
 
     .assistant-message-part {
         min-width: 0;
-    }
-
-    /* reasoning 样式 */
-    .reasoning-content {
-        font-family:
-            'Source Han Sans CN',
-            'Noto Sans SC',
-            -apple-system,
-            BlinkMacSystemFont,
-            'Segoe UI',
-            sans-serif;
-        line-height: 1.8;
-    }
-
-    .reasoning-content :deep(p) {
-        margin-bottom: 0.75em;
-        color: var(--color-gray-500);
-    }
-
-    .reasoning-content :deep(ul),
-    .reasoning-content :deep(ol) {
-        padding-left: 1.25em;
-        margin-bottom: 0.75em;
-    }
-
-    .reasoning-content :deep(li) {
-        margin-bottom: 0.5em;
-        color: var(--color-gray-500);
-    }
-
-    .reasoning-content :deep(strong) {
-        font-weight: 600;
-        color: var(--color-gray-500);
-    }
-
-    .reasoning-content :deep(code) {
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-        font-size: 0.9em;
-        background-color: var(--color-gray-100);
-        padding: 0.15em 0.35em;
-        border-radius: 3px;
-        color: var(--color-gray-500);
-    }
-
-    .reasoning-content :deep(h1),
-    .reasoning-content :deep(h2),
-    .reasoning-content :deep(h3),
-    .reasoning-content :deep(h4),
-    .reasoning-content :deep(h5),
-    .reasoning-content :deep(h6) {
-        color: var(--color-gray-500);
-        font-weight: 600;
     }
 
     .streaming-indicator {
