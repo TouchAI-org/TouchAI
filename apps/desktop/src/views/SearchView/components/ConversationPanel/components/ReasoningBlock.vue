@@ -173,7 +173,6 @@
                 </span>
             </span>
             <template v-if="!isExpanded && preview">
-                <span class="reasoning-preview-separator" aria-hidden="true">·</span>
                 <span class="reasoning-preview" data-no-i18n="true" translate="no">
                     {{ preview }}
                 </span>
@@ -282,18 +281,18 @@
         animation: reasoning-shimmer 1.4s linear infinite;
     }
 
-    .reasoning-preview-separator {
-        flex: 0 0 auto;
-        margin: 0 0.375rem;
-        color: var(--color-gray-400);
-    }
-
     .reasoning-preview {
         min-width: 0;
+        margin-left: 0.375rem;
         overflow: hidden;
         color: var(--color-gray-400);
         text-overflow: ellipsis;
         white-space: nowrap;
+        transition: color 0.16s ease;
+    }
+
+    .reasoning-trigger:hover .reasoning-preview {
+        color: rgb(75, 85, 99);
     }
 
     .reasoning-duration {
@@ -301,11 +300,6 @@
         margin-left: 0.375rem;
         color: rgb(156, 163, 175);
         white-space: nowrap;
-        transition: color 0.16s ease;
-    }
-
-    .reasoning-trigger:hover .reasoning-duration {
-        color: rgb(75, 85, 99);
     }
 
     .reasoning-trace {
@@ -330,7 +324,7 @@
     .reasoning-trace-inner {
         position: relative;
         margin-top: 0.25rem;
-        margin-left: 0.3125rem;
+        margin-left: 0;
         padding-left: 1rem;
     }
 
