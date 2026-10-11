@@ -79,21 +79,23 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(sections[0]!.find('.reasoning-shimmer').exists()).toBe(false);
         expect(sections[1]!.find('.reasoning-shimmer').exists()).toBe(true);
         expect(wrapper.find('.reasoning-sparkle').exists()).toBe(false);
-        expect(sections[0]!.find('[data-icon="chevron-right"]').exists()).toBe(true);
-        expect(sections[1]!.find('[data-icon="chevron-down"]').exists()).toBe(true);
+        expect(sections[0]!.find('.reasoning-heading svg').exists()).toBe(false);
+        expect(sections[1]!.find('.reasoning-heading svg').exists()).toBe(false);
         expect(sections[0]!.find('button').attributes('aria-expanded')).toBe('false');
         expect(sections[0]!.find('.reasoning-label-content').text()).toBe('已思考');
         expect(sections[1]!.find('button').attributes('aria-expanded')).toBe('true');
-        expect(sections[1]!.find('.reasoning-label-content').text()).toBe('思考中 （1s）');
+        expect(sections[1]!.find('.reasoning-label-content').text()).toBe('思考中');
+        expect(sections[1]!.find('.reasoning-duration').text()).toBe('(1s)');
         await sections[0]!.find('button').trigger('click');
         expect(sections[0]!.find('button').attributes('aria-expanded')).toBe('true');
-        expect(sections[0]!.find('[data-icon="chevron-down"]').exists()).toBe(true);
+        expect(sections[0]!.find('svg').exists()).toBe(false);
         expect(sections[1]!.find('button').attributes('aria-expanded')).toBe('true');
-        expect(sections[1]!.find('.reasoning-label-content').text()).toBe('思考中 （1s）');
+        expect(sections[1]!.find('.reasoning-label-content').text()).toBe('思考中');
+        expect(sections[1]!.find('.reasoning-duration').text()).toBe('(1s)');
         await wrapper.setProps({ message: { ...wrapper.props('message'), isStreaming: false } });
         expect(wrapper.find('.reasoning-shimmer').exists()).toBe(false);
         expect(sections[1]!.find('button').attributes('aria-expanded')).toBe('false');
-        expect(sections[1]!.find('[data-icon="chevron-right"]').exists()).toBe(true);
+        expect(sections[1]!.find('svg').exists()).toBe(false);
         expect(sections[1]!.find('.markdown').attributes('data-final')).toBe('true');
     });
 
@@ -115,6 +117,7 @@ describe('AssistantMessage interleaved reasoning', () => {
             'First thought More detail on a second line'
         );
         expect(button.find('.reasoning-preview').attributes('translate')).toBe('no');
+        expect(button.find('.reasoning-duration').exists()).toBe(false);
         expect(section.find('.markdown').text()).toBe(
             'First thought\n\nMore detail on a second line'
         );
@@ -130,6 +133,33 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(button.find('.reasoning-preview').text()).toBe(
             'First thought More detail on a second line'
         );
+    });
+
+    it('keeps the elapsed time at the end of a truncated collapsed preview', async () => {
+        const wrapper = render({
+            parts: [
+                {
+                    id: 'r1',
+                    type: 'reasoning',
+                    content: 'A long opening thought followed by more details',
+                    isStreaming: false,
+                    startedAt: 1_000,
+                    endedAt: 3_500,
+                },
+            ],
+        });
+        const button = wrapper.find('.reasoning-section button');
+        expect(button.element.lastElementChild?.classList.contains('reasoning-duration')).toBe(
+            true
+        );
+        expect(button.find('.reasoning-duration').text()).toBe('(2s)');
+        expect(button.find('.reasoning-preview').exists()).toBe(true);
+        await button.trigger('click');
+        expect(button.find('.reasoning-preview').exists()).toBe(false);
+        expect(button.element.lastElementChild?.classList.contains('reasoning-duration')).toBe(
+            true
+        );
+        expect(button.find('.reasoning-duration').text()).toBe('(2s)');
     });
 
     it('updates a manually collapsed thinking preview as streaming content arrives', async () => {
@@ -202,17 +232,13 @@ describe('AssistantMessage interleaved reasoning', () => {
                 },
             ],
         });
-        expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe(
-            '思考中 （1s）'
-        );
+        expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe('思考中');
+        expect(wrapper.find('.reasoning-section .reasoning-duration').text()).toBe('(1s)');
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe(
-            '思考中 （1s）'
-        );
+        expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe('思考中');
+        expect(wrapper.find('.reasoning-section .reasoning-duration').text()).toBe('(1s)');
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe(
-            '思考中 （2s）'
-        );
+        expect(wrapper.find('.reasoning-section .reasoning-duration').text()).toBe('(2s)');
 
         await wrapper.setProps({
             message: {
@@ -230,9 +256,8 @@ describe('AssistantMessage interleaved reasoning', () => {
                 ],
             },
         });
-        expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe(
-            '已思考 （2s）'
-        );
+        expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe('已思考');
+        expect(wrapper.find('.reasoning-section .reasoning-duration').text()).toBe('(2s)');
     });
     it('does not invent a duration when a completed part only has a start timestamp', () => {
         const wrapper = render({
@@ -249,6 +274,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         });
 
         expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe('已思考');
+        expect(wrapper.find('.reasoning-section .reasoning-duration').exists()).toBe(false);
     });
 
     it('opens a completed reasoning block at the bottom when it has not been manually scrolled', async () => {
@@ -370,7 +396,8 @@ describe('AssistantMessage interleaved reasoning', () => {
         });
         const buttons = wrapper.findAll('.reasoning-section button');
         expect(buttons[0]!.find('.reasoning-label-content').text()).toBe('Thought');
-        expect(buttons[1]!.find('.reasoning-label-content').text()).toBe('Thinking (1s)');
+        expect(buttons[1]!.find('.reasoning-label-content').text()).toBe('Thinking');
+        expect(buttons[1]!.find('.reasoning-duration').text()).toBe('(1s)');
         expect(buttons[0]!.attributes('aria-controls')).not.toBe(
             buttons[1]!.attributes('aria-controls')
         );

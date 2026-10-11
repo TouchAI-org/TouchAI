@@ -1,7 +1,6 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
 
@@ -41,21 +40,9 @@
         return Math.max(0, props.durationMs ?? 0);
     });
     const elapsedSeconds = computed(() => Math.max(1, Math.floor(elapsedMs.value / 1000)));
-    const label = computed(() => {
-        if (props.isStreaming) {
-            return t('assistant.reasoning.thinking', {
-                seconds: elapsedSeconds.value,
-            });
-        }
-
-        if (hasDuration.value) {
-            return t('assistant.reasoning.completed', {
-                seconds: elapsedSeconds.value,
-            });
-        }
-
-        return t('assistant.reasoning.completedWithoutTiming');
-    });
+    const label = computed(() =>
+        t(props.isStreaming ? 'assistant.reasoning.thinking' : 'assistant.reasoning.completed')
+    );
 
     function stopElapsedTimer() {
         if (elapsedTimer !== null) {
@@ -184,11 +171,6 @@
                         {{ label }}
                     </span>
                 </span>
-                <AppIcon
-                    :name="isExpanded ? 'chevron-down' : 'chevron-right'"
-                    class="reasoning-disclosure-icon shrink-0"
-                    aria-hidden="true"
-                />
             </span>
             <template v-if="!isExpanded && preview">
                 <span class="reasoning-preview-separator" aria-hidden="true">·</span>
@@ -196,6 +178,14 @@
                     {{ preview }}
                 </span>
             </template>
+            <span
+                v-if="isStreaming || hasDuration"
+                class="reasoning-duration"
+                data-no-i18n="true"
+                translate="no"
+            >
+                {{ `(${elapsedSeconds}s)` }}
+            </span>
         </button>
 
         <div
@@ -306,18 +296,16 @@
         white-space: nowrap;
     }
 
-    .reasoning-disclosure-icon {
-        width: 1em;
-        height: 1em;
-        flex: 0 0 1em;
-        margin-left: -0.25rem;
-        color: var(--color-gray-400);
-        line-height: 1;
-        transition: color 100ms ease;
+    .reasoning-duration {
+        flex: 0 0 auto;
+        margin-left: 0.375rem;
+        color: rgb(156, 163, 175);
+        white-space: nowrap;
+        transition: color 0.16s ease;
     }
 
-    .reasoning-trigger:hover .reasoning-disclosure-icon {
-        color: rgb(31, 41, 55);
+    .reasoning-trigger:hover .reasoning-duration {
+        color: rgb(75, 85, 99);
     }
 
     .reasoning-trace {
