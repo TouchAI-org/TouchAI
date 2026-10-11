@@ -1,1 +1,2 @@
-ALTER TABLE `messages` ADD `reasoning_meta` text;
+ALTER TABLE `messages` ADD `reasoning_meta` text;--> statement-breakpoint
+ALTER TABLE `session_turn_attempts` ADD `reasoning_progress_json` text;

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9f74514d-d803-410b-b3eb-fc504f198976",
+  "id": "df5bde3c-04a7-4fd4-ac7d-41b5b0927c22",
   "prevId": "51c90d49-1108-41e8-9ca1-0145856bf19a",
   "tables": {
     "attachment_remote_refs": {
@@ -1470,6 +1470,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "reasoning_progress_json": {
+          "name": "reasoning_progress_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "delivery_manifest_json": {
