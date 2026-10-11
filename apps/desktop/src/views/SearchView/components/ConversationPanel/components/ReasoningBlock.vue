@@ -323,7 +323,7 @@
 
     .reasoning-trace-inner {
         position: relative;
-        margin-top: 0.25rem;
+        margin-top: 0.68rem;
         margin-left: 0;
         padding-left: 1rem;
     }
