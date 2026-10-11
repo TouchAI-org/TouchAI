@@ -16,6 +16,7 @@
     }>();
 
     const contentId = useId();
+    const preview = computed(() => props.content.replace(/\s+/g, ' ').trim());
     const reasoningContentRef = ref<HTMLElement | null>(null);
     const isExpanded = ref(props.isStreaming);
     const now = ref(Date.now());
@@ -169,6 +170,7 @@
         <button
             type="button"
             class="reasoning-trigger"
+            :class="{ 'reasoning-trigger-preview': !isExpanded && preview }"
             :aria-expanded="isExpanded"
             :aria-controls="contentId"
             @click="toggleExpanded"
@@ -188,6 +190,12 @@
                     aria-hidden="true"
                 />
             </span>
+            <template v-if="!isExpanded && preview">
+                <span class="reasoning-preview-separator" aria-hidden="true">·</span>
+                <span class="reasoning-preview" data-no-i18n="true" translate="no">
+                    {{ preview }}
+                </span>
+            </template>
         </button>
 
         <div
@@ -239,6 +247,10 @@
         transition: color 100ms ease;
     }
 
+    .reasoning-trigger-preview {
+        width: 100%;
+    }
+
     .reasoning-trigger:hover {
         color: rgb(31, 41, 55);
     }
@@ -250,6 +262,7 @@
 
     .reasoning-heading {
         display: inline-flex;
+        flex: 0 0 auto;
         min-width: 0;
         align-items: center;
         gap: 0.25rem;
@@ -277,6 +290,20 @@
         background-clip: text;
         -webkit-background-clip: text;
         animation: reasoning-shimmer 1.4s linear infinite;
+    }
+
+    .reasoning-preview-separator {
+        flex: 0 0 auto;
+        margin: 0 0.375rem;
+        color: var(--color-gray-400);
+    }
+
+    .reasoning-preview {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--color-gray-400);
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .reasoning-disclosure-icon {
