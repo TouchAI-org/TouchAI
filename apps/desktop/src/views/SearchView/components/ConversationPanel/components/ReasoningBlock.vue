@@ -330,7 +330,7 @@
 
     .reasoning-trace-line {
         position: absolute;
-        top: -0.5rem;
+        top: 1rem;
         bottom: 0.125rem;
         left: 0.09375rem;
         width: 0.5px;
