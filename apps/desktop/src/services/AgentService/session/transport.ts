@@ -2,8 +2,8 @@
 
 import {
     findMessagesBySessionId,
+    findToolLogByReference,
     findToolLogRowsBySessionId,
-    findUnambiguousToolLogByStoredReference,
     type ToolLogHistoryRow,
 } from '@database/queries/messages';
 import type { MessagePartEntity } from '@database/types';
@@ -35,22 +35,15 @@ function buildAssistantTransportContent(row: {
     reasoning: string | null;
     parts: MessagePartEntity[];
 }): AiMessage['content'] {
-    if (row.parts.length > 0) {
-        return row.parts.map((part) =>
-            part.type === 'reasoning'
-                ? ({ type: 'reasoning', text: part.content } as const)
-                : ({ type: 'text', text: part.content } as const)
-        );
-    }
-
-    if (!row.reasoning?.trim()) {
-        return row.content;
-    }
-
-    return [
-        { type: 'reasoning', text: row.reasoning },
-        ...(row.content ? [{ type: 'text', text: row.content } as const] : []),
-    ];
+    return row.parts.flatMap((part): AiContentPart[] => {
+        if (part.type === 'text') {
+            return [{ type: 'text', text: part.content }];
+        }
+        if (part.type === 'reasoning') {
+            return [{ type: 'reasoning', text: part.content }];
+        }
+        return [];
+    });
 }
 
 const MISSING_TOOL_RESULT_PLACEHOLDER = 'Missing historical tool result.';
@@ -222,7 +215,7 @@ export async function loadSessionTransportMessages(options: {
         }
 
         if (row.role === 'tool_result') {
-            const toolLog = findUnambiguousToolLogByStoredReference(
+            const toolLog = findToolLogByReference(
                 toolLogByIdentity,
                 row.tool_log_id,
                 row.tool_log_kind

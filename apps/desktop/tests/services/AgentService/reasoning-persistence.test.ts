@@ -15,7 +15,7 @@ const queries = vi.hoisted(() => ({
     createMessage: vi.fn(),
     createMessageParts: vi.fn(),
     updateMessage: vi.fn(),
-    deleteMessagePartsByMessageId: vi.fn(),
+    syncOutputParts: vi.fn(),
     createSessionTurn: vi.fn(),
     createSessionTurnAttempt: vi.fn(),
     updateSession: vi.fn(),
@@ -65,6 +65,7 @@ function createCheckpoint(): AttemptCheckpoint {
         messages: [{ role: 'user', content: 'hello' }],
         response: '',
         reasoning: '',
+        outputParts: [],
         iteration: 0,
         modelSwitchCount: 0,
         executedBuiltInToolIds: [],
@@ -122,7 +123,8 @@ describe('reasoning persistence', () => {
                 await projector.markCancelled('', '', [], closed);
             }
             expect(queries.createMessage).toHaveBeenCalledTimes(2);
-            expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+            expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+                11,
                 [
                     expect.objectContaining({
                         message_id: 11,
@@ -152,7 +154,8 @@ describe('reasoning persistence', () => {
         ];
         await projector.persistToolCallMessage('Checking', 'Plan', [], parts);
         expect(queries.updateSessionTurnAttempt).not.toHaveBeenCalled();
-        expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+        expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+            11,
             [
                 {
                     message_id: 11,
@@ -189,7 +192,8 @@ describe('reasoning persistence', () => {
             } else {
                 await projector.markCancelled('Partial answer', 'Plan', [], parts);
             }
-            expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+            expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+                11,
                 [
                     {
                         message_id: 11,
@@ -221,9 +225,13 @@ describe('reasoning persistence', () => {
             response: 'Answer',
             reasoning: 'Thought',
             durationMs: 6000,
-            reasoningSegments: completed,
+            outputParts: [
+                { type: 'reasoning', ...completed[0]! },
+                { type: 'text', content: 'Answer' },
+            ],
         });
-        expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+        expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+            11,
             [
                 {
                     message_id: 11,
@@ -268,8 +276,9 @@ describe('reasoning persistence', () => {
             expect.objectContaining({ role: 'assistant' }),
             {}
         );
-        expect(queries.deleteMessagePartsByMessageId).toHaveBeenCalledWith(11, {});
-        expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+        expect(queries.syncOutputParts).toHaveBeenCalledTimes(2);
+        expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+            11,
             expect.arrayContaining([
                 expect.objectContaining({ message_id: 11, type: 'text', content: 'Answer' }),
             ]),
@@ -293,7 +302,12 @@ describe('reasoning persistence', () => {
         ];
         await projector.persistOutputProgress(parts);
         expect(await projector.persistToolCallMessage('', 'Plan', [], parts)).toBe(11);
-        await projector.markCompleted({ response: 'Answer', reasoning: '', durationMs: 5000 });
+        await projector.markCompleted({
+            response: 'Answer',
+            reasoning: '',
+            durationMs: 5000,
+            outputParts: [{ type: 'text', content: 'Answer' }],
+        });
         expect(queries.createMessage).toHaveBeenCalledTimes(3); // prompt, tool step, final reply
         expect(queries.updateMessage).toHaveBeenCalledWith(
             11,

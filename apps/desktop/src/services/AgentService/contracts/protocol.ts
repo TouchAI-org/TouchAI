@@ -161,10 +161,6 @@ export interface ReasoningSegment {
     content: string;
     startedAt?: number;
     endedAt?: number;
-    /** Legacy fallback for records written before wall-clock timestamps. */
-    durationMs?: number;
-    /** UTF-16 offset in the response where this reasoning segment belongs. */
-    textOffset?: number;
 }
 
 export interface AiStreamChunk {

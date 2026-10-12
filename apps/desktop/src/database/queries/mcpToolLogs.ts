@@ -1,159 +1,60 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
-
-import { and, count, desc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { db } from '../index';
-import { mcpToolLogs } from '../schema';
+import { messageParts, messages } from '../schema';
 import type { McpToolLogCreateData, McpToolLogEntity, McpToolLogUpdateData } from '../types';
-
-/**
- * 根据会话 ID 查找所有工具日志
- */
-export const findMcpToolLogsBySessionId = async (sessionId: number): Promise<McpToolLogEntity[]> =>
-    db
-        .select()
-        .from(mcpToolLogs)
-        .where(eq(mcpToolLogs.session_id, sessionId))
-        .orderBy(desc(mcpToolLogs.created_at))
-        .all();
-
-/**
- * 根据服务器 ID 查找所有工具日志
- */
+import {
+    countToolParts,
+    createToolPart,
+    findToolParts,
+    toolData,
+    updateToolPart,
+} from './toolParts';
+export const findMcpToolLogsBySessionId = async (id: number) =>
+    (await findToolParts('mcp', eq(messages.session_id, id))) as McpToolLogEntity[];
 export const findMcpToolLogsByServerId = async (
-    serverId: number,
-    options?: { limit?: number; offset?: number }
-): Promise<McpToolLogEntity[]> => {
-    const limit = options?.limit ?? 100;
-    const offset = options?.offset ?? 0;
-
-    return db
-        .select()
-        .from(mcpToolLogs)
-        .where(eq(mcpToolLogs.server_id, serverId))
-        .orderBy(desc(mcpToolLogs.created_at))
-        .limit(limit)
-        .offset(offset)
-        .all();
-};
-
-/**
- * 根据 tool_call_id 查找工具日志
- */
-export const findMcpToolLogByCallId = async (
-    toolCallId: string
-): Promise<McpToolLogEntity | undefined> =>
-    await db.select().from(mcpToolLogs).where(eq(mcpToolLogs.tool_call_id, toolCallId)).get();
-
-/**
- * 根据 ID 查找工具日志
- */
-export const findMcpToolLogById = async (id: number): Promise<McpToolLogEntity | undefined> =>
-    await db.select().from(mcpToolLogs).where(eq(mcpToolLogs.id, id)).get();
-
-/**
- * 根据消息 ID 查找工具日志
- */
-export const findMcpToolLogsByMessageId = async (messageId: number): Promise<McpToolLogEntity[]> =>
-    db
-        .select()
-        .from(mcpToolLogs)
-        .where(eq(mcpToolLogs.message_id, messageId))
-        .orderBy(mcpToolLogs.id)
-        .all();
-
-/**
- * 根据会话 ID 和迭代次数查找工具日志
- */
-export const findMcpToolLogsBySessionIdAndIteration = async (
-    sessionId: number,
-    iteration: number
-): Promise<McpToolLogEntity[]> =>
-    db
-        .select()
-        .from(mcpToolLogs)
-        .where(and(eq(mcpToolLogs.session_id, sessionId), eq(mcpToolLogs.iteration, iteration)))
-        .orderBy(desc(mcpToolLogs.created_at))
-        .all();
-
-/**
- * 创建 MCP 工具日志
- */
-export const createMcpToolLog = async (data: McpToolLogCreateData): Promise<McpToolLogEntity> => {
-    const createdToolLog = await db.insert(mcpToolLogs).values(data).returning().get();
-
-    if (!createdToolLog || createdToolLog.id === undefined) {
-        throw new Error('Failed to create MCP tool log');
-    }
-    return createdToolLog;
-};
-
-/**
- * 更新 MCP 工具日志
- */
-export const updateMcpToolLog = async (
     id: number,
-    data: McpToolLogUpdateData
-): Promise<McpToolLogEntity | undefined> => {
-    const updatedToolLog = await db
-        .update(mcpToolLogs)
-        .set(data)
-        .where(eq(mcpToolLogs.id, id))
-        .returning()
-        .get();
-
-    return updatedToolLog && updatedToolLog.id !== undefined ? updatedToolLog : undefined;
-};
-
-/**
- * 根据 tool_call_id 更新工具日志
- */
-export const updateMcpToolLogByCallId = async (
-    toolCallId: string,
-    data: McpToolLogUpdateData
-): Promise<McpToolLogEntity | undefined> => {
-    const updatedToolLog = await db
-        .update(mcpToolLogs)
-        .set(data)
-        .where(eq(mcpToolLogs.tool_call_id, toolCallId))
-        .returning()
-        .get();
-
-    return updatedToolLog && updatedToolLog.id !== undefined ? updatedToolLog : undefined;
-};
-
-/**
- * 删除 MCP 工具日志
- */
+    options?: { limit?: number; offset?: number }
+) => (await findToolParts('mcp', eq(toolData('server_id'), id), options)) as McpToolLogEntity[];
+export const findMcpToolLogByCallId = async (id: string) =>
+    (await findToolParts('mcp', eq(messageParts.tool_call_id, id)))[0] as
+        | McpToolLogEntity
+        | undefined;
+export const findMcpToolLogById = async (id: number) =>
+    (await findToolParts('mcp', eq(messageParts.id, id)))[0] as McpToolLogEntity | undefined;
+export const findMcpToolLogsByMessageId = async (id: number) =>
+    (await findToolParts('mcp', eq(messageParts.message_id, id))) as McpToolLogEntity[];
+export const findMcpToolLogsBySessionIdAndIteration = async (id: number, iteration: number) =>
+    (await findToolParts(
+        'mcp',
+        and(eq(messages.session_id, id), eq(toolData('iteration'), iteration))
+    )) as McpToolLogEntity[];
+export const createMcpToolLog = async (data: McpToolLogCreateData) =>
+    (await createToolPart('mcp', { ...data })) as McpToolLogEntity;
+export const updateMcpToolLog = async (id: number, data: McpToolLogUpdateData) =>
+    (await updateToolPart('mcp', eq(messageParts.id, id), { ...data })) as
+        | McpToolLogEntity
+        | undefined;
+export const updateMcpToolLogByCallId = async (id: string, data: McpToolLogUpdateData) =>
+    (await updateToolPart('mcp', eq(messageParts.tool_call_id, id), { ...data })) as
+        | McpToolLogEntity
+        | undefined;
 export const deleteMcpToolLog = async (id: number): Promise<void> => {
-    await db.delete(mcpToolLogs).where(eq(mcpToolLogs.id, id)).run();
+    await db
+        .delete(messageParts)
+        .where(
+            and(
+                eq(messageParts.id, id),
+                eq(messageParts.type, 'tool_call'),
+                eq(messageParts.tool_kind, 'mcp')
+            )
+        )
+        .run();
 };
-
-/**
- * 删除会话的所有工具日志
- */
-export const deleteMcpToolLogsBySessionId = async (sessionId: number): Promise<void> => {
-    await db.delete(mcpToolLogs).where(eq(mcpToolLogs.session_id, sessionId)).run();
+export const deleteMcpToolLogsBySessionId = async (id: number): Promise<void> => {
+    const parts = await findMcpToolLogsBySessionId(id);
+    for (const part of parts) await deleteMcpToolLog(part.id);
 };
-
-/**
- * 统计 MCP 工具日志数量
- */
-export const countMcpToolLogs = async (): Promise<number> => {
-    const result = await db.select({ count: count() }).from(mcpToolLogs).get();
-
-    return result?.count || 0;
-};
-
-/**
- * 统计会话的工具日志数量
- */
-export const countMcpToolLogsBySessionId = async (sessionId: number): Promise<number> => {
-    const result = await db
-        .select({ count: count() })
-        .from(mcpToolLogs)
-        .where(eq(mcpToolLogs.session_id, sessionId))
-        .get();
-
-    return result?.count || 0;
-};
+export const countMcpToolLogs = async () => countToolParts('mcp');
+export const countMcpToolLogsBySessionId = async (id: number) =>
+    countToolParts('mcp', eq(messages.session_id, id));

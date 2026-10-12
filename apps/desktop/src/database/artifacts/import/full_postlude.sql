@@ -5,7 +5,6 @@ WHERE name IN (
     'sessions',
     'messages',
     'attachments',
-    'message_attachments',
     'session_turns',
     'session_turn_attempts',
     'settings',
@@ -18,7 +17,6 @@ INSERT INTO main.sqlite_sequence (name, seq) SELECT 'models', COALESCE(MAX(id), 
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'sessions', COALESCE(MAX(id), 0) FROM main.sessions;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'messages', COALESCE(MAX(id), 0) FROM main.messages;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'attachments', COALESCE(MAX(id), 0) FROM main.attachments;
-INSERT INTO main.sqlite_sequence (name, seq) SELECT 'message_attachments', COALESCE(MAX(id), 0) FROM main.message_attachments;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'session_turns', COALESCE(MAX(id), 0) FROM main.session_turns;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'session_turn_attempts', COALESCE(MAX(id), 0) FROM main.session_turn_attempts;
 INSERT INTO main.sqlite_sequence (name, seq) SELECT 'settings', COALESCE(MAX(id), 0) FROM main.settings;

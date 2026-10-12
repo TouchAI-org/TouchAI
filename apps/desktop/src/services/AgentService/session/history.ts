@@ -247,21 +247,34 @@ async function buildPersistedEntries(
 
     for (const row of rows) {
         if (!currentEntry || currentEntry.id !== row.id) {
-            const outputParts: PersistedOutputPart[] = row.parts.map((part) => ({
-                type: part.type,
-                content: part.content,
-                ...(part.type === 'reasoning' && part.started_at !== null
-                    ? { startedAt: part.started_at }
-                    : {}),
-                ...(part.type === 'reasoning' && part.started_at !== null
-                    ? {
-                          // An open persisted part was interrupted. Do not count offline time.
-                          endedAt:
-                              part.ended_at ??
-                              Math.max(part.started_at, parseDbDateTimestamp(part.updated_at)),
-                      }
-                    : {}),
-            }));
+            const outputParts: PersistedOutputPart[] = row.parts.flatMap(
+                (part): PersistedOutputPart[] => {
+                    if (part.type === 'text') {
+                        return part.content ? [{ type: 'text', content: part.content }] : [];
+                    }
+                    if (part.type !== 'reasoning') {
+                        return [];
+                    }
+                    return [
+                        {
+                            type: 'reasoning',
+                            content: part.content,
+                            ...(part.started_at !== null ? { startedAt: part.started_at } : {}),
+                            ...(part.started_at !== null
+                                ? {
+                                      // An open persisted part was interrupted. Do not count offline time.
+                                      endedAt:
+                                          part.ended_at ??
+                                          Math.max(
+                                              part.started_at,
+                                              parseDbDateTimestamp(part.updated_at)
+                                          ),
+                                  }
+                                : {}),
+                        },
+                    ];
+                }
+            );
             const reasoningSegments = outputParts.flatMap((part): ReasoningSegment[] =>
                 part.type === 'reasoning'
                     ? [
@@ -348,72 +361,21 @@ async function buildPersistedEntries(
  * @param entries 已聚合的持久化历史记录。
  * @returns UI 可直接消费的对话历史。
  */
-function appendAssistantOutput(
-    message: SessionMessage,
-    content: string,
-    reasoning: string | null,
-    segments: ReasoningSegment[],
-    outputParts?: PersistedOutputPart[] | null
-): void {
-    if (outputParts && outputParts.length > 0) {
-        for (const part of outputParts) {
-            if (part.type === 'text') {
-                message.parts.push(createTextPart(part.content));
-                message.content += part.content;
-            } else {
-                appendReasoningPart(message, {
-                    content: part.content,
-                    startedAt: part.startedAt,
-                    endedAt: part.endedAt,
-                    durationMs: part.durationMs,
-                });
-                message.reasoning = `${message.reasoning ?? ''}${part.content}`;
-            }
-        }
-        return;
-    }
-
-    const normalizedReasoning = reasoning?.trim()
-        ? reasoning
-        : segments.map((segment) => segment.content).join('');
-    const orderedSegments = [...segments]
-        .filter((segment) => segment.content.trim())
-        .sort((a, b) => (a.textOffset ?? 0) - (b.textOffset ?? 0));
-    const hasTextOffsets = orderedSegments.some((segment) => segment.textOffset !== undefined);
-
-    if (!hasTextOffsets) {
-        for (const segment of orderedSegments) appendReasoningPart(message, segment);
-        if (normalizedReasoning && orderedSegments.length === 0) {
-            appendReasoningPart(message, { content: normalizedReasoning });
-        }
-        if (content) message.parts.push(createTextPart(content));
-    } else {
-        let textCursor = 0;
-        for (const segment of orderedSegments) {
-            const textOffset = Math.max(
-                0,
-                Math.min(content.length, segment.textOffset ?? textCursor)
-            );
-            if (textOffset > textCursor) {
-                message.parts.push(createTextPart(content.slice(textCursor, textOffset)));
-            }
-            appendReasoningPart(message, segment);
-            textCursor = Math.max(textCursor, textOffset);
-        }
-        if (textCursor < content.length) {
-            message.parts.push(createTextPart(content.slice(textCursor)));
+function appendAssistantOutput(message: SessionMessage, outputParts: PersistedOutputPart[]): void {
+    for (const part of outputParts) {
+        if (part.type === 'text') {
+            message.parts.push(createTextPart(part.content));
+            message.content += part.content;
+        } else {
+            appendReasoningPart(message, part);
+            message.reasoning = `${message.reasoning ?? ''}${part.content}`;
         }
     }
-
-    if (content) message.content += content;
-    if (normalizedReasoning) message.reasoning = `${message.reasoning ?? ''}${normalizedReasoning}`;
 }
-
 function appendReasoningPart(message: SessionMessage, segment: ReasoningSegment): void {
     const part = createReasoningPart(segment.content);
     part.startedAt = segment.startedAt;
     part.endedAt = segment.endedAt;
-    part.durationMs = segment.durationMs;
     message.parts.push(part);
 }
 
@@ -610,16 +572,7 @@ function convertEntriesToSessionHistory(
         const assistantMessage = ensureAssistantMessage(entry);
 
         if (entry.role === 'assistant' || entry.role === 'tool_call') {
-            const reasoningSegments =
-                entry.reasoningSegments ??
-                (entry.reasoning?.trim() ? [{ content: entry.reasoning }] : []);
-            appendAssistantOutput(
-                assistantMessage,
-                entry.content,
-                entry.reasoning,
-                reasoningSegments,
-                entry.outputParts
-            );
+            appendAssistantOutput(assistantMessage, entry.outputParts ?? []);
         }
 
         if (entry.role === 'tool_call' && entry.toolCalls?.length) {

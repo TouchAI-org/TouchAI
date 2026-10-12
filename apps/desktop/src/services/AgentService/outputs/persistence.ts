@@ -8,20 +8,22 @@ import {
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
-    deleteMessagePartsByMessageId,
     refreshSessionMetadata,
+    syncOutputParts,
     updateMessage,
     updateSession,
     updateSessionTurn,
     updateSessionTurnAttempt,
 } from '@database/queries';
 import type { MessageRole, ToolLogKind, TurnStatus } from '@database/schema';
+import { messageParts } from '@database/schema';
 import type { AttachmentEntity } from '@database/types';
 import type {
     SessionTurnAttemptEntity,
     SessionTurnEntity,
     SessionTurnUpdateData,
 } from '@database/types';
+import { eq } from 'drizzle-orm';
 
 import {
     type AttachmentIndex,
@@ -33,21 +35,13 @@ import {
 import { toDbTimestamp } from '@/utils/date';
 
 import type {
-    AiContentPart,
-    AiMessage,
     AttachmentDeliveryManifest,
     AttachmentDeliveryManifestRequest,
     ReasoningSegment,
 } from '../contracts/protocol';
 import type { AttemptCheckpoint } from '../execution/executor';
-import type { ModelLanguageContext } from '../languageContext';
 import type { PromptSnapshot } from '../prompt/types';
-import {
-    normalizeOutputParts,
-    normalizeReasoningSegments,
-    outputPartsFromLegacy,
-    type PersistedOutputPart,
-} from '../session/reasoningProgress';
+import { normalizeOutputParts, type PersistedOutputPart } from '../session/reasoningProgress';
 import type { TaskExecutionMode } from '../task/types';
 
 /**
@@ -101,136 +95,19 @@ interface CompleteTurnOptions {
  * - 失败/取消：更新当前尝试与轮次状态
  * - 重试：结束当前失败尝试，并创建下一次尝试
  */
-type PersistedCheckpointModel = Pick<
-    AttemptCheckpoint['activeModel'],
-    | 'id'
-    | 'provider_id'
-    | 'provider_name'
-    | 'provider_driver'
-    | 'model_id'
-    | 'name'
-    | 'attachment'
-    | 'reasoning'
-    | 'tool_call'
-    | 'context_limit'
-    | 'output_limit'
->;
-
-type PersistedAiContentPart =
-    | Extract<AiContentPart, { type: 'text' }>
-    | Extract<AiContentPart, { type: 'reasoning' }>
-    | {
-          type: 'image';
-          alias: string;
-          name: string;
-          size: number | null;
-          mimeType: string;
-          kind: 'image';
-          semanticIntent: Extract<AiContentPart, { type: 'image' }>['semanticIntent'];
-          redacted: true;
-      }
-    | {
-          type: 'file';
-          alias: string;
-          name: string;
-          size: number | null;
-          mimeType: string;
-          kind: Extract<AiContentPart, { type: 'file' }>['kind'];
-          semanticIntent: Extract<AiContentPart, { type: 'file' }>['semanticIntent'];
-          transportMode: 'inline-text' | 'inline-base64';
-          redacted: true;
-      }
-    | Extract<AiContentPart, { type: 'tool_use' }>
-    | Extract<AiContentPart, { type: 'tool_result' }>;
-
-interface PersistedAiMessage extends Omit<AiMessage, 'content'> {
-    content: string | PersistedAiContentPart[];
-}
-
-interface PersistedAttemptCheckpoint {
-    activeModel: PersistedCheckpointModel;
-    messages: PersistedAiMessage[];
-    response: string;
-    reasoning: string;
-    iteration: number;
-    modelSwitchCount: number;
-    modelLanguageContext: ModelLanguageContext;
-    executedBuiltInToolIds: AttemptCheckpoint['executedBuiltInToolIds'];
-    outputParts?: PersistedOutputPart[];
-}
-
-function sanitizeCheckpointModel(
-    model: AttemptCheckpoint['activeModel']
-): PersistedCheckpointModel {
-    return {
-        id: model.id,
-        provider_id: model.provider_id,
-        provider_name: model.provider_name,
-        provider_driver: model.provider_driver,
-        model_id: model.model_id,
-        name: model.name,
-        attachment: model.attachment,
-        reasoning: model.reasoning,
-        tool_call: model.tool_call,
-        context_limit: model.context_limit,
-        output_limit: model.output_limit,
-    };
-}
-
-function sanitizeContentPart(part: AiContentPart): PersistedAiContentPart {
-    switch (part.type) {
-        case 'image':
-            return {
-                type: 'image',
-                alias: part.meta.alias,
-                name: part.name,
-                size: part.size,
-                mimeType: part.mimeType,
-                kind: 'image',
-                semanticIntent: part.semanticIntent,
-                redacted: true,
-            };
-        case 'file':
-            return {
-                type: 'file',
-                alias: part.meta.alias,
-                name: part.name,
-                size: part.size,
-                mimeType: part.mimeType,
-                kind: part.kind,
-                semanticIntent: part.semanticIntent,
-                transportMode: part.textContent !== undefined ? 'inline-text' : 'inline-base64',
-                redacted: true,
-            };
-        default:
-            return part;
-    }
-}
-
-function sanitizeMessage(message: AiMessage): PersistedAiMessage {
-    return {
-        ...message,
-        content:
-            typeof message.content === 'string'
-                ? message.content
-                : message.content.map((part) => sanitizeContentPart(part)),
-    };
-}
-
 function serializeCheckpoint(checkpoint: AttemptCheckpoint): string {
-    // checkpoint_json 仅用于诊断与恢复参考，不应重复落库密钥或附件正文。
-    const persisted: PersistedAttemptCheckpoint = {
-        activeModel: sanitizeCheckpointModel(checkpoint.activeModel),
-        messages: checkpoint.messages.map((message) => sanitizeMessage(message)),
-        response: checkpoint.response,
-        reasoning: checkpoint.reasoning,
+    return JSON.stringify({
+        activeModelId: checkpoint.activeModel.id,
         iteration: checkpoint.iteration,
         modelSwitchCount: checkpoint.modelSwitchCount,
         modelLanguageContext: checkpoint.modelLanguageContext,
         executedBuiltInToolIds: checkpoint.executedBuiltInToolIds,
-        outputParts: normalizeOutputParts(checkpoint.outputParts),
-    };
-    return JSON.stringify(persisted);
+        outputBoundary: {
+            textLength: checkpoint.response.length,
+            reasoningLength: checkpoint.reasoning.length,
+            partCount: checkpoint.outputParts.length,
+        },
+    });
 }
 
 function serializeCurrentDeliveryManifest(manifest: AttachmentDeliveryManifest): string {
@@ -604,7 +481,7 @@ export class PersistenceProjector {
 
     /**
      * 持久化工具结果消息。
-     * @param toolLogId 对应工具日志表记录编号
+     * @param toolLogId 对应 tool_call 片段编号
      */
     async persistToolResultMessage(
         result: string,
@@ -744,13 +621,13 @@ export class PersistenceProjector {
     private async persistMessage(
         role: MessageRole,
         content: string,
-        reasoning?: string | null,
+        _reasoning?: string | null,
         toolLogId?: number | null,
-        toolLogKind?: ToolLogKind | null,
+        _toolLogKind?: ToolLogKind | null,
         attachments: Array<AttachmentIndex | AttachmentEntity> = [],
         database: DatabaseExecutor = db,
         sessionId?: number,
-        reasoningSegments: ReasoningSegment[] = [],
+        _reasoningSegments?: ReasoningSegment[],
         outputParts?: PersistedOutputPart[]
     ): Promise<number> {
         const resolvedSessionId = sessionId ?? (await this.ensureSessionId(database));
@@ -760,50 +637,60 @@ export class PersistenceProjector {
         let messageId: number;
         if (reusableMessageId !== null) {
             messageId = reusableMessageId;
-            await updateMessage(
-                messageId,
-                { role, tool_log_id: toolLogId ?? null, tool_log_kind: toolLogKind ?? null },
-                database
-            );
-            await deleteMessagePartsByMessageId(messageId, database);
+            await updateMessage(messageId, { role }, database);
         } else {
             const message = await createMessage(
                 {
                     session_id: resolvedSessionId,
                     role,
-                    tool_log_id: toolLogId ?? null,
-                    tool_log_kind: toolLogKind ?? null,
                 },
                 database
             );
             messageId = message.id;
         }
 
-        const persistedParts = normalizeOutputParts(
-            outputParts && outputParts.length > 0
-                ? outputParts
-                : role === 'assistant' || role === 'tool_call'
-                  ? outputPartsFromLegacy(content, [
-                        ...normalizeReasoningSegments(reasoningSegments),
-                        ...(reasoning?.trim() && reasoningSegments.length === 0
-                            ? [{ content: reasoning }]
-                            : []),
-                    ])
-                  : content
-                    ? [{ type: 'text' as const, content }]
-                    : []
-        );
-        await createMessageParts(
-            persistedParts.map((part, sortOrder) => ({
-                message_id: messageId,
-                type: part.type,
-                content: part.content,
-                started_at: part.type === 'reasoning' ? (part.startedAt ?? null) : null,
-                ended_at: part.type === 'reasoning' ? (part.endedAt ?? null) : null,
-                sort_order: sortOrder,
-            })),
-            database
-        );
+        const persistedParts = normalizeOutputParts(outputParts ?? []);
+        if (role === 'assistant' || role === 'tool_call') {
+            await syncOutputParts(
+                messageId,
+                persistedParts.map((part, sortOrder) => ({
+                    message_id: messageId,
+                    type: part.type,
+                    content: part.content,
+                    started_at: part.type === 'reasoning' ? (part.startedAt ?? null) : null,
+                    ended_at: part.type === 'reasoning' ? (part.endedAt ?? null) : null,
+                    sort_order: sortOrder,
+                })),
+                database
+            );
+        } else if (role === 'tool_result') {
+            const call =
+                toolLogId !== null && toolLogId !== undefined
+                    ? await database
+                          .select()
+                          .from(messageParts)
+                          .where(eq(messageParts.id, toolLogId))
+                          .get()
+                    : undefined;
+            await createMessageParts(
+                [
+                    {
+                        message_id: messageId,
+                        type: 'tool_result',
+                        content,
+                        sort_order: 0,
+                        tool_call_id: call?.tool_call_id ?? null,
+                        tool_kind: call?.tool_kind ?? null,
+                    },
+                ],
+                database
+            );
+        } else if (content) {
+            await createMessageParts(
+                [{ message_id: messageId, type: 'text', content, sort_order: 0 }],
+                database
+            );
+        }
 
         await refreshSessionMetadata(resolvedSessionId, database);
 

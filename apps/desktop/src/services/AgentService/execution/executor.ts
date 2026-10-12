@@ -37,11 +37,7 @@ import {
 } from '../infrastructure/providers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
-import {
-    normalizeOutputParts,
-    outputPartsFromLegacy,
-    type PersistedOutputPart,
-} from '../session/reasoningProgress';
+import { normalizeOutputParts, type PersistedOutputPart } from '../session/reasoningProgress';
 import type { TurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
@@ -94,7 +90,7 @@ export interface AttemptCheckpoint {
     modelLanguageContext: ModelLanguageContext;
     executedBuiltInToolIds: BuiltInToolId[];
     /** Ordered output accumulated before the next safe tool checkpoint. */
-    outputParts?: PersistedOutputPart[];
+    outputParts: PersistedOutputPart[];
 }
 
 interface AttemptRuntime {
@@ -628,15 +624,7 @@ export class AiRequestExecutor {
             hasVisibleOutputSinceCheckpoint: false,
             hasToolActivitySinceCheckpoint: false,
             executedBuiltInTools: new Set(startCheckpoint.executedBuiltInToolIds),
-            outputParts: normalizeOutputParts(
-                startCheckpoint.outputParts ??
-                    outputPartsFromLegacy(
-                        startCheckpoint.response,
-                        startCheckpoint.reasoning.trim()
-                            ? [{ content: startCheckpoint.reasoning }]
-                            : []
-                    )
-            ),
+            outputParts: normalizeOutputParts(startCheckpoint.outputParts),
             currentStepOutputParts: [],
             currentStepReasoningStartedAt: null,
         };
@@ -859,17 +847,14 @@ export class AiRequestExecutor {
             runtime,
             closeActiveSegment ? Date.now() : undefined
         );
-        let textOffset = 0;
         return parts.flatMap((part): ReasoningSegment[] => {
             if (part.type === 'text') {
-                textOffset += part.content.length;
                 return [];
             }
             const segment: ReasoningSegment = {
                 content: part.content,
                 ...(part.startedAt !== undefined ? { startedAt: part.startedAt } : {}),
                 ...(part.endedAt !== undefined ? { endedAt: part.endedAt } : {}),
-                textOffset,
             };
             return part.content.trim() ? [segment] : [];
         });

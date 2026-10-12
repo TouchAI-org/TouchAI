@@ -1,3 +1,35 @@
+CREATE TEMP TABLE IF NOT EXISTS temp_import_synthetic_sessions (
+    id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, title TEXT NOT NULL,
+    model TEXT NOT NULL, provider_id INTEGER, last_message_preview TEXT,
+    last_message_at TEXT, message_count INTEGER NOT NULL, pinned_at TEXT,
+    archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TEMP TABLE IF NOT EXISTS temp_import_synthetic_messages (
+    id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, role TEXT NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    tool_kind TEXT NOT NULL, legacy_id INTEGER NOT NULL
+);
+
+DROP TABLE IF EXISTS temp_import_sessions;
+CREATE TEMP TABLE temp_import_sessions AS
+SELECT
+    id, session_id, title, model, provider_id, last_message_preview,
+    last_message_at, message_count, pinned_at, archived_at, created_at, updated_at
+FROM imported.sessions
+UNION ALL
+SELECT
+    id, session_id, title, model, provider_id, last_message_preview,
+    last_message_at, message_count, pinned_at, archived_at, created_at, updated_at
+FROM temp_import_synthetic_sessions;
+
+DROP TABLE IF EXISTS temp_import_messages;
+CREATE TEMP TABLE temp_import_messages AS
+SELECT id, session_id, role, created_at, updated_at
+FROM imported.messages
+UNION ALL
+SELECT id, session_id, role, created_at, updated_at
+FROM temp_import_synthetic_messages;
+
 INSERT INTO main.sessions (
     session_id, title, model, provider_id, last_message_preview, last_message_at,
     message_count, pinned_at, archived_at, created_at, updated_at
@@ -14,7 +46,7 @@ SELECT
     source_sessions.archived_at,
     source_sessions.created_at,
     source_sessions.updated_at
-FROM imported.sessions AS source_sessions
+FROM temp_import_sessions AS source_sessions
 LEFT JOIN imported.providers AS source_session_providers
     ON source_session_providers.id = source_sessions.provider_id
 LEFT JOIN main.providers AS target_session_providers
@@ -42,7 +74,7 @@ INSERT INTO temp_session_map (source_session_id, target_session_id)
 SELECT
     source_sessions.id,
     target_sessions.id
-FROM imported.sessions AS source_sessions
+FROM temp_import_sessions AS source_sessions
 INNER JOIN main.sessions AS target_sessions
     ON target_sessions.session_id = source_sessions.session_id;
 
@@ -54,13 +86,13 @@ WITH source_messages_with_target_session AS (
         session_map.target_session_id,
         source_messages.role,
         coalesce((
-            SELECT json_group_array(json_object('type', type, 'content', content, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
-            FROM (SELECT type, content, started_at, ended_at, sort_order FROM temp_import_message_parts
+            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'tool_call_id', tool_call_id, 'tool_kind', tool_kind, 'attachment_id', attachment_id, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, data, tool_call_id, tool_kind, attachment_id, started_at, ended_at, sort_order FROM temp_import_message_parts
                   WHERE message_id = source_messages.id ORDER BY sort_order, id)
         ), '[]') AS content,
         source_messages.created_at,
         source_messages.updated_at
-    FROM imported.messages AS source_messages
+    FROM temp_import_messages AS source_messages
     INNER JOIN temp_session_map AS session_map
         ON session_map.source_session_id = source_messages.session_id
 )
@@ -85,8 +117,8 @@ WITH target_messages_in_scope AS (
         target_messages.session_id AS target_session_id,
         target_messages.role,
         coalesce((
-            SELECT json_group_array(json_object('type', type, 'content', content, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
-            FROM (SELECT type, content, started_at, ended_at, sort_order FROM main.message_parts
+            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'tool_call_id', tool_call_id, 'tool_kind', tool_kind, 'attachment_id', attachment_id, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, data, tool_call_id, tool_kind, attachment_id, started_at, ended_at, sort_order FROM main.message_parts
                   WHERE message_id = target_messages.id ORDER BY sort_order, id)
         ), '[]') AS content,
         target_messages.created_at
@@ -128,13 +160,48 @@ FROM temp_ranked_source_messages AS source_messages
 INNER JOIN temp_new_message_map AS message_map
     ON message_map.source_message_id = source_messages.source_message_id;
 
-INSERT INTO main.message_parts (message_id, type, content, started_at, ended_at, sort_order, created_at, updated_at)
-SELECT message_map.target_message_id, source_parts.type, source_parts.content,
-       source_parts.started_at, source_parts.ended_at, source_parts.sort_order,
-       source_parts.created_at, source_parts.updated_at
+INSERT INTO main.attachments (
+    hash, type, original_name, origin_path, mime_type, size, created_at
+)
+SELECT
+    source_attachments.hash,
+    source_attachments.type,
+    source_attachments.original_name,
+    source_attachments.origin_path,
+    source_attachments.mime_type,
+    source_attachments.size,
+    source_attachments.created_at
+FROM imported.attachments AS source_attachments
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM main.attachments AS existing_attachments
+    WHERE existing_attachments.hash = source_attachments.hash
+);
+
+INSERT INTO main.message_parts (
+    message_id, type, content, data, tool_call_id, tool_kind, attachment_id,
+    started_at, ended_at, sort_order, created_at, updated_at
+)
+SELECT
+    message_map.target_message_id,
+    source_parts.type,
+    source_parts.content,
+    source_parts.data,
+    source_parts.tool_call_id,
+    source_parts.tool_kind,
+    target_attachments.id,
+    source_parts.started_at,
+    source_parts.ended_at,
+    source_parts.sort_order,
+    source_parts.created_at,
+    source_parts.updated_at
 FROM temp_import_message_parts AS source_parts
 INNER JOIN temp_new_message_map AS message_map
-    ON message_map.source_message_id = source_parts.message_id;
+    ON message_map.source_message_id = source_parts.message_id
+LEFT JOIN imported.attachments AS source_attachments
+    ON source_attachments.id = source_parts.attachment_id
+LEFT JOIN main.attachments AS target_attachments
+    ON target_attachments.hash = source_attachments.hash;
 
 DROP TABLE IF EXISTS temp_ranked_target_messages;
 CREATE TEMP TABLE temp_ranked_target_messages AS
@@ -144,8 +211,8 @@ WITH target_messages_in_scope AS (
         target_messages.session_id AS target_session_id,
         target_messages.role,
         coalesce((
-            SELECT json_group_array(json_object('type', type, 'content', content, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
-            FROM (SELECT type, content, started_at, ended_at, sort_order FROM main.message_parts
+            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'tool_call_id', tool_call_id, 'tool_kind', tool_kind, 'attachment_id', attachment_id, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, data, tool_call_id, tool_kind, attachment_id, started_at, ended_at, sort_order FROM main.message_parts
                   WHERE message_id = target_messages.id ORDER BY sort_order, id)
         ), '[]') AS content,
         target_messages.created_at
@@ -185,47 +252,6 @@ INNER JOIN temp_ranked_target_messages AS target_messages
    AND target_messages.created_at = source_messages.created_at
    AND target_messages.occurrence_index = source_messages.occurrence_index;
 
-INSERT INTO main.attachments (
-    hash, type, original_name, origin_path, mime_type, size, created_at
-)
-SELECT
-    source_attachments.hash,
-    source_attachments.type,
-    source_attachments.original_name,
-    source_attachments.origin_path,
-    source_attachments.mime_type,
-    source_attachments.size,
-    source_attachments.created_at
-FROM imported.attachments AS source_attachments
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM main.attachments AS existing_attachments
-    WHERE existing_attachments.hash = source_attachments.hash
-);
-
-INSERT INTO main.message_attachments (
-    message_id, attachment_id, sort_order, origin_path, created_at
-)
-SELECT
-    message_map.target_message_id,
-    target_attachments.id,
-    source_message_attachments.sort_order,
-    source_message_attachments.origin_path,
-    source_message_attachments.created_at
-FROM imported.message_attachments AS source_message_attachments
-INNER JOIN temp_message_map AS message_map
-    ON message_map.source_message_id = source_message_attachments.message_id
-INNER JOIN imported.attachments AS source_attachments
-    ON source_attachments.id = source_message_attachments.attachment_id
-INNER JOIN main.attachments AS target_attachments
-    ON target_attachments.hash = source_attachments.hash
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM main.message_attachments AS existing_message_attachments
-    WHERE existing_message_attachments.message_id = message_map.target_message_id
-      AND existing_message_attachments.attachment_id = target_attachments.id
-      AND existing_message_attachments.sort_order = source_message_attachments.sort_order
-);
 
 DROP TABLE IF EXISTS temp_resolved_turns;
 CREATE TEMP TABLE temp_resolved_turns AS
@@ -380,7 +406,19 @@ SELECT
     source_attempts.attempt_index,
     source_attempts.max_retries,
     source_attempts.status,
-    source_attempts.checkpoint_json,
+    CASE WHEN json_valid(source_attempts.checkpoint_json) AND (
+    json_type(source_attempts.checkpoint_json, '$.messages') IS NOT NULL OR json_type(source_attempts.checkpoint_json, '$.activeModel') IS NOT NULL
+    OR json_type(source_attempts.checkpoint_json, '$.response') IS NOT NULL OR json_type(source_attempts.checkpoint_json, '$.reasoning') IS NOT NULL
+    OR json_type(source_attempts.checkpoint_json, '$.outputParts') IS NOT NULL
+) THEN json_set(
+    json_remove(source_attempts.checkpoint_json, '$.messages', '$.activeModel', '$.response', '$.reasoning', '$.outputParts'),
+    '$.activeModelId', coalesce(json_extract(source_attempts.checkpoint_json, '$.activeModelId'), json_extract(source_attempts.checkpoint_json, '$.activeModel.id')),
+    '$.outputBoundary', json(coalesce(json_extract(source_attempts.checkpoint_json, '$.outputBoundary'), json_object(
+        'textLength', length(coalesce(json_extract(source_attempts.checkpoint_json, '$.response'), '')),
+        'reasoningLength', length(coalesce(json_extract(source_attempts.checkpoint_json, '$.reasoning'), '')),
+        'partCount', coalesce(json_array_length(source_attempts.checkpoint_json, '$.outputParts'), 0)
+    )))
+) ELSE source_attempts.checkpoint_json END,
     source_attempts.error_message,
     source_attempts.duration_ms,
     source_attempts.started_at,

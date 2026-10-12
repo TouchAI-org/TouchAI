@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { type DatabaseExecutor, db } from '../index';
@@ -54,8 +54,63 @@ export function messageText(messageId: AnySQLiteColumn) {
     return sql<string>`coalesce((
         SELECT group_concat(content, '') FROM (
             SELECT content FROM message_parts
-            WHERE message_id = ${messageId} AND type = 'text'
+            WHERE message_id = ${messageId} AND type IN ('text', 'tool_result')
             ORDER BY sort_order, id
         )
     ), '')`;
+}
+
+/** Update only changed output parts; caller owns the transaction. Tool/file parts are untouched. */
+export async function syncOutputParts(
+    messageId: number,
+    drafts: MessagePartCreateData[],
+    database: DatabaseExecutor = db
+): Promise<void> {
+    const existing = await database
+        .select()
+        .from(messageParts)
+        .where(
+            and(
+                eq(messageParts.message_id, messageId),
+                inArray(messageParts.type, ['text', 'reasoning'])
+            )
+        )
+        .all();
+    const byOrder = new Map(existing.map((part) => [part.sort_order, part]));
+    for (const draft of drafts) {
+        const previous = byOrder.get(draft.sort_order);
+        if (!previous) {
+            await database.insert(messageParts).values(draft).run();
+            continue;
+        }
+        if (
+            previous.type === draft.type &&
+            previous.content === draft.content &&
+            previous.started_at === (draft.started_at ?? null) &&
+            previous.ended_at === (draft.ended_at ?? null)
+        )
+            continue;
+        await database
+            .update(messageParts)
+            .set({
+                type: draft.type,
+                content: draft.content,
+                started_at: draft.started_at ?? null,
+                ended_at: draft.ended_at ?? null,
+                updated_at: sql`datetime('now')`,
+            })
+            .where(eq(messageParts.id, previous.id))
+            .run();
+    }
+    const orders = drafts.map((part) => part.sort_order);
+    await database
+        .delete(messageParts)
+        .where(
+            and(
+                eq(messageParts.message_id, messageId),
+                inArray(messageParts.type, ['text', 'reasoning']),
+                ...(orders.length ? [notInArray(messageParts.sort_order, orders)] : [])
+            )
+        )
+        .run();
 }

@@ -11,7 +11,6 @@
         isStreaming: boolean;
         startedAt?: number;
         endedAt?: number;
-        durationMs?: number;
     }>();
 
     const contentId = useId();
@@ -27,9 +26,7 @@
     const hasWallClockDuration = computed(
         () => props.startedAt !== undefined && props.endedAt !== undefined
     );
-    const hasDuration = computed(
-        () => hasWallClockDuration.value || props.durationMs !== undefined
-    );
+    const hasDuration = computed(() => hasWallClockDuration.value);
     const elapsedMs = computed(() => {
         if (props.isStreaming) {
             return Math.max(0, now.value - (props.startedAt ?? fallbackStartedAt.value));
@@ -37,7 +34,7 @@
         if (hasWallClockDuration.value) {
             return Math.max(0, props.endedAt! - props.startedAt!);
         }
-        return Math.max(0, props.durationMs ?? 0);
+        return 0;
     });
     const elapsedSeconds = computed(() => Math.max(1, Math.floor(elapsedMs.value / 1000)));
     const label = computed(() =>
@@ -122,7 +119,7 @@
 
     // 每轮思考独立折叠；流式期间默认展开，但仍允许用户手动收起。
     watch(
-        () => [props.isStreaming, props.startedAt, props.endedAt, props.durationMs] as const,
+        () => [props.isStreaming, props.startedAt, props.endedAt] as const,
         ([streaming, startedAt]) => {
             if (startedAt !== undefined) {
                 fallbackStartedAt.value = startedAt;

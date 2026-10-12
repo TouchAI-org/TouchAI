@@ -78,6 +78,7 @@ function createCheckpoint(): AttemptCheckpoint {
         response: '',
 
         reasoning: '',
+        outputParts: [],
 
         iteration: 0,
 

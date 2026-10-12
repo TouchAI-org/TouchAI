@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
 
+import { syncOutputParts } from '@database/queries/messageParts';
 import { findMessagesBySessionId } from '@database/queries/messages';
 import { listSessions, refreshSessionMetadata } from '@database/queries/sessions';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
@@ -16,11 +17,11 @@ const journal = JSON.parse(readFileSync(`${databaseRoot}/drizzle/meta/_journal.j
     entries: Array<{ tag: string }>;
 };
 const databases: SqliteDatabase[] = [];
-function openDatabase(beforeParts = false) {
+function openDatabase(entryCount = journal.entries.length) {
     const database = new DatabaseSync(':memory:');
     databases.push(database);
     database.exec('PRAGMA foreign_keys = ON');
-    const entries = beforeParts ? journal.entries.slice(0, -1) : journal.entries;
+    const entries = journal.entries.slice(0, entryCount);
     for (const entry of entries) {
         database.exec(readFileSync(`${databaseRoot}/drizzle/${entry.tag}.sql`, 'utf8'));
     }
@@ -65,6 +66,72 @@ function seedSearch(database: SqliteDatabase) {
 }
 
 describe('normalized message parts database contract', () => {
+    it('searches canonical tool results and keeps their FTS row in sync', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seedSearch(database);
+        database.exec(
+            "UPDATE messages SET role = 'tool_result' WHERE id = 2; INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (2, 'tool_result', 'Tool output needle', 0)"
+        );
+        expect(await listSessions({ query: 'output needle' })).toHaveLength(1);
+        expect(await listSessions({ query: 'needle' })).toHaveLength(1);
+        expect(await listSessions({ query: 'To' })).toHaveLength(1);
+        database.exec(
+            "UPDATE message_parts SET content = 'Replacement result' WHERE message_id = 2"
+        );
+        expect(await listSessions({ query: 'needle' })).toHaveLength(0);
+        expect(await listSessions({ query: 'Replacement' })).toHaveLength(1);
+        database.exec('DELETE FROM message_parts WHERE message_id = 2');
+        expect(ftsIds(database, 'Replacement')).toEqual([]);
+    });
+    it('updates output parts in place without rewriting tool or attachment parts', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seedSearch(database);
+        database.exec(
+            "INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (1, 'tool_call', '', 3), (1, 'attachment', '', 4)"
+        );
+        const original = database
+            .prepare('SELECT * FROM message_parts WHERE message_id = 1 ORDER BY sort_order')
+            .all();
+        const drafts = [
+            { message_id: 1, type: 'text' as const, content: 'First ', sort_order: 0 },
+            {
+                message_id: 1,
+                type: 'reasoning' as const,
+                content: 'Updated plan',
+                sort_order: 1,
+                started_at: 1000,
+                ended_at: 3000,
+            },
+            { message_id: 1, type: 'text' as const, content: 'New answer', sort_order: 2 },
+        ];
+        await syncOutputParts(1, drafts);
+        const updated = database
+            .prepare('SELECT * FROM message_parts WHERE message_id = 1 ORDER BY sort_order')
+            .all();
+        expect(updated.map((part) => part.id)).toEqual(original.map((part) => part.id));
+        expect(updated[0]).toEqual(original[0]);
+        expect(updated.slice(3)).toEqual(original.slice(3));
+        expect(ftsIds(database, 'New answer')).toEqual([1]);
+        expect(ftsIds(database, 'Updated plan')).toEqual([]);
+        const start = getTauriInvokeCalls('database_query').length;
+        await syncOutputParts(1, drafts);
+        const queries = getTauriInvokeCalls('database_query').slice(start);
+        expect(
+            queries.filter((call) =>
+                /^(insert|update)/i.test((call.payload as { request: { sql: string } }).request.sql)
+            )
+        ).toEqual([]);
+        await syncOutputParts(1, []);
+        expect(
+            database
+                .prepare('SELECT type FROM message_parts WHERE message_id = 1 ORDER BY sort_order')
+                .all()
+        ).toEqual([{ type: 'tool_call' }, { type: 'attachment' }]);
+        expect(ftsIds(database, 'New answer')).toEqual([]);
+    });
+
     it('stores message content only in parts', () => {
         const database = openDatabase();
         const columns = database.prepare('PRAGMA table_info(messages)').all();
@@ -72,13 +139,14 @@ describe('normalized message parts database contract', () => {
         expect(columns.map((column) => column.name)).not.toContain('reasoning');
     });
     it('preserves legacy content and reasoning and backfills the index', () => {
-        const database = openDatabase(true);
+        const database = openDatabase(4);
         database.exec(`
             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'migration', 'Migration', 'test');
             INSERT INTO messages (id, session_id, role, content, reasoning) VALUES (1, 1, 'assistant', 'Existing answer', 'Existing thought');
         `);
-        const last = journal.entries[journal.entries.length - 1]!;
-        database.exec(readFileSync(`${databaseRoot}/drizzle/${last.tag}.sql`, 'utf8'));
+        for (const entry of journal.entries.slice(4)) {
+            database.exec(readFileSync(`${databaseRoot}/drizzle/${entry.tag}.sql`, 'utf8'));
+        }
         expect(
             database
                 .prepare('SELECT type, content, sort_order FROM message_parts ORDER BY sort_order')

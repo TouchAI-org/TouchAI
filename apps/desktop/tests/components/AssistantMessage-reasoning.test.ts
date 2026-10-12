@@ -190,17 +190,14 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(button.find('.reasoning-preview').text()).toBe('First, then second');
     });
 
-    it('keeps legacy aggregate-only reasoning visible once', () => {
+    it('renders only canonical parts without duplicating an aggregate reasoning field', () => {
         const wrapper = render({
             reasoning: 'Legacy thought',
             content: 'Answer',
             parts: [{ id: 't1', type: 'text', content: 'Answer' }],
         });
-        expect(wrapper.findAll('.reasoning-section')).toHaveLength(1);
-        expect(wrapper.findAll('.markdown').map((node) => node.text())).toEqual([
-            'Legacy thought',
-            'Answer',
-        ]);
+        expect(wrapper.findAll('.reasoning-section')).toHaveLength(0);
+        expect(wrapper.findAll('.markdown').map((node) => node.text())).toEqual(['Answer']);
     });
 
     it('stops shimmer at the reasoning end, even while the message is streaming', async () => {

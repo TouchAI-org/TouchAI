@@ -1,7 +1,8 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type {
-    BuiltInToolLog,
+    BuiltInToolApprovalState as DbBuiltInToolApprovalState,
+    BuiltInToolLogStatus as DbBuiltInToolLogStatus,
     MessageRole,
     ProviderDriver,
     StatisticKey,
@@ -78,8 +79,6 @@ export interface MessageEntity {
     role: DbMessageRole;
     /** 从有序 text parts 派生的正文，不是 messages 表字段。 */
     content: string;
-    tool_log_id: number | null;
-    tool_log_kind: DbToolLogKind | null;
     created_at: string;
     updated_at: string;
 }
@@ -87,19 +86,21 @@ export interface MessageEntity {
 export interface MessageCreateData {
     session_id: number;
     role: DbMessageRole;
-    tool_log_id?: number | null;
-    tool_log_kind?: DbToolLogKind | null;
     created_at?: string;
     updated_at?: string;
 }
 
-export type MessagePartType = 'text' | 'reasoning';
+export type MessagePartType = 'text' | 'reasoning' | 'tool_call' | 'tool_result' | 'attachment';
 
 export interface MessagePartEntity {
     id: number;
     message_id: number;
     type: MessagePartType;
     content: string;
+    data: string;
+    tool_call_id: string | null;
+    tool_kind: DbToolLogKind | null;
+    attachment_id: number | null;
     started_at: number | null;
     ended_at: number | null;
     sort_order: number;
@@ -111,6 +112,10 @@ export interface MessagePartCreateData {
     message_id: number;
     type: MessagePartType;
     content: string;
+    data?: string;
+    tool_call_id?: string | null;
+    tool_kind?: DbToolLogKind | null;
+    attachment_id?: number | null;
     started_at?: number | null;
     ended_at?: number | null;
     sort_order: number;
@@ -520,8 +525,8 @@ export type McpToolLogUpdateData = Partial<McpToolLogCreateData>;
 // ==================== 内置工具 ====================
 
 export type BuiltInToolRiskLevel = 'low' | 'medium' | 'high';
-export type BuiltInToolLogStatus = BuiltInToolLog['status'];
-export type BuiltInToolApprovalState = BuiltInToolLog['approval_state'];
+export type BuiltInToolLogStatus = DbBuiltInToolLogStatus;
+export type BuiltInToolApprovalState = DbBuiltInToolApprovalState;
 
 export interface BuiltInToolEntity {
     id: number;

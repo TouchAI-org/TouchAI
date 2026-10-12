@@ -26,7 +26,6 @@
                                 :is-streaming="part.isStreaming"
                                 :started-at="part.startedAt"
                                 :ended-at="part.endedAt"
-                                :duration-ms="part.durationMs"
                             />
                             <MarkdownContent
                                 v-else-if="part.type === 'text'"
@@ -127,7 +126,6 @@
               isStreaming: boolean;
               startedAt?: number;
               endedAt?: number;
-              durationMs?: number;
           }
         | {
               id: string;
@@ -236,22 +234,6 @@
         const widgetBackedToolCallIds = new Set(
             (props.message.widgets ?? []).map((widget) => widget.callId)
         );
-
-        // 兼容旧快照：没有有序思考片段时才使用汇总字段。
-        if (
-            props.message.reasoning &&
-            !props.message.parts.some((part) => part.type === 'reasoning')
-        ) {
-            parts.push({
-                id: props.message.id + '-legacy-reasoning',
-                type: 'reasoning',
-                content: props.message.reasoning,
-                isStreaming:
-                    !!props.message.isStreaming &&
-                    !props.message.content &&
-                    props.message.parts.length === 0,
-            });
-        }
 
         for (const part of props.message.parts) {
             if (part.type === 'reasoning') {

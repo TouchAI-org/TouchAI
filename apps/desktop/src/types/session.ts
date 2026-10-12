@@ -66,8 +66,6 @@ export interface ReasoningMessagePart {
     startedAt?: number;
     /** 思考片段结束的墙钟时间。 */
     endedAt?: number;
-    /** 兼容旧版只持久化 durationMs 的历史数据。 */
-    durationMs?: number;
 }
 
 export interface ToolCallMessagePart {

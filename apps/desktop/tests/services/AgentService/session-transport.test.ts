@@ -27,7 +27,25 @@ function createMessageRow(overrides: Partial<MessageRow>): MessageRow {
         role: 'user',
         content: '',
         reasoning: null,
-        parts: [],
+        parts: overrides.content
+            ? [
+                  {
+                      id: 1,
+                      message_id: overrides.id ?? 1,
+                      type: 'text',
+                      content: overrides.content,
+                      data: '{}',
+                      tool_call_id: null,
+                      tool_kind: null,
+                      attachment_id: null,
+                      started_at: null,
+                      ended_at: null,
+                      sort_order: 0,
+                      created_at: BASE_TIME,
+                      updated_at: BASE_TIME,
+                  },
+              ]
+            : [],
         attachments: [],
         tool_call_id: null,
         tool_name: null,
@@ -100,7 +118,7 @@ describe('AgentService session transport', () => {
             },
             {
                 role: 'assistant',
-                content: '',
+                content: [],
                 tool_calls: [
                     {
                         id: 'call_f58b800del5b468cb4296985',
@@ -117,7 +135,7 @@ describe('AgentService session transport', () => {
             },
             {
                 role: 'assistant',
-                content: 'request was interrupted',
+                content: [{ type: 'text', text: 'request was interrupted' }],
             },
         ]);
     });
@@ -160,7 +178,7 @@ describe('AgentService session transport', () => {
             },
             {
                 role: 'assistant',
-                content: '',
+                content: [],
                 tool_calls: [
                     {
                         id: 'call_rejected',
@@ -177,12 +195,12 @@ describe('AgentService session transport', () => {
             },
             {
                 role: 'assistant',
-                content: '未执行删除。',
+                content: [{ type: 'text', text: '未执行删除。' }],
             },
         ]);
     });
 
-    it('does not resolve legacy tool results to MCP when built-in and MCP log ids collide', async () => {
+    it('resolves migrated tool results by explicit references instead of guessing across sources', async () => {
         mocks.findToolLogRowsBySessionId.mockResolvedValue([
             createToolLog({
                 source: 'builtin',
@@ -230,7 +248,7 @@ describe('AgentService session transport', () => {
                 role: 'tool_result',
                 content: 'builtin result',
                 tool_log_id: 1,
-                tool_log_kind: null,
+                tool_log_kind: 'builtin',
             }),
             createMessageRow({
                 id: 33,
@@ -255,7 +273,7 @@ describe('AgentService session transport', () => {
             },
             {
                 role: 'assistant',
-                content: '',
+                content: [],
                 tool_calls: [
                     {
                         id: 'call_builtin',
@@ -283,7 +301,7 @@ describe('AgentService session transport', () => {
             },
             {
                 role: 'assistant',
-                content: 'done',
+                content: [{ type: 'text', text: 'done' }],
             },
         ]);
     });
