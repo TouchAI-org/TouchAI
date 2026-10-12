@@ -1,0 +1,61 @@
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+
+import { asc, eq, inArray, sql } from 'drizzle-orm';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+
+import { type DatabaseExecutor, db } from '../index';
+import { messageParts } from '../schema';
+import type { MessagePartCreateData, MessagePartEntity } from '../types';
+
+/**
+ * 按消息批量读取片段，避免历史恢复时按消息逐条查询。
+ */
+export const findMessagePartsByMessageIds = async (
+    messageIds: number[]
+): Promise<MessagePartEntity[]> => {
+    if (messageIds.length === 0) {
+        return [];
+    }
+
+    return db
+        .select()
+        .from(messageParts)
+        .where(inArray(messageParts.message_id, messageIds))
+        .orderBy(asc(messageParts.message_id), asc(messageParts.sort_order), asc(messageParts.id))
+        .all();
+};
+
+/**
+ * 创建一条消息的有序片段。
+ */
+export const createMessageParts = async (
+    parts: MessagePartCreateData[],
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    if (parts.length === 0) {
+        return;
+    }
+
+    await database.insert(messageParts).values(parts).run();
+};
+
+/**
+ * 删除消息片段。通常由 messages 的级联删除完成，保留该方法供显式清理使用。
+ */
+export const deleteMessagePartsByMessageId = async (
+    messageId: number,
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    await database.delete(messageParts).where(eq(messageParts.message_id, messageId)).run();
+};
+
+/** 正文仅存于 parts；摘要等 SQL 读路径按原始顺序派生，不再保存第二份全文。 */
+export function messageText(messageId: AnySQLiteColumn) {
+    return sql<string>`coalesce((
+        SELECT group_concat(content, '') FROM (
+            SELECT content FROM message_parts
+            WHERE message_id = ${messageId} AND type = 'text'
+            ORDER BY sort_order, id
+        )
+    ), '')`;
+}

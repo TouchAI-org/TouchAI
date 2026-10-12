@@ -79,9 +79,6 @@ export const messages = sqliteTable('messages', {
     role: text('role', {
         enum: ['user', 'assistant', 'system', 'tool_call', 'tool_result'],
     }).notNull(),
-    content: text('content').notNull(),
-    reasoning: text('reasoning'),
-    reasoning_meta: text('reasoning_meta'),
     tool_log_id: integer('tool_log_id'), // 关联 mcp_tool_logs 表 ID（仅 tool_result 消息使用）
     tool_log_kind: text('tool_log_kind', {
         enum: ['mcp', 'builtin'],
@@ -93,6 +90,39 @@ export const messages = sqliteTable('messages', {
         .notNull()
         .default(sql`(datetime('now'))`),
 });
+
+/**
+ * 消息输出片段表。
+ *
+ * text 与 reasoning 作为同级片段保存，sort_order 保留模型实际输出顺序；
+ * reasoning 的墙钟起止时间直接归属于片段本身。
+ */
+export const messageParts = sqliteTable(
+    'message_parts',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        message_id: integer('message_id')
+            .notNull()
+            .references(() => messages.id, { onDelete: 'cascade' }),
+        type: text('type', { enum: ['text', 'reasoning'] }).notNull(),
+        content: text('content').notNull(),
+        started_at: integer('started_at'),
+        ended_at: integer('ended_at'),
+        sort_order: integer('sort_order').notNull(),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        uniqueIndex('message_parts_message_id_sort_order_idx').on(
+            table.message_id,
+            table.sort_order
+        ),
+    ]
+);
 
 /**
  * 附件缓存表
@@ -337,7 +367,6 @@ export const sessionTurnAttempts = sqliteTable(
             .notNull()
             .default('pending'),
         checkpoint_json: text('checkpoint_json').notNull(),
-        reasoning_progress_json: text('reasoning_progress_json'),
         delivery_manifest_json: text('delivery_manifest_json').notNull(),
         error_message: text('error_message'),
         duration_ms: integer('duration_ms'),
@@ -552,6 +581,10 @@ export type SessionUpdate = Partial<NewSession>;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type MessageUpdate = Partial<NewMessage>;
+
+export type MessagePart = typeof messageParts.$inferSelect;
+export type NewMessagePart = typeof messageParts.$inferInsert;
+export type MessagePartUpdate = Partial<NewMessagePart>;
 
 export type Attachment = typeof attachments.$inferSelect;
 export type NewAttachment = typeof attachments.$inferInsert;

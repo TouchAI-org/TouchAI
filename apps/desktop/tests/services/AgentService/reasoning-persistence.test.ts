@@ -13,6 +13,9 @@ vi.mock('@/services/AgentService/catalog', () => ({
 
 const queries = vi.hoisted(() => ({
     createMessage: vi.fn(),
+    createMessageParts: vi.fn(),
+    updateMessage: vi.fn(),
+    deleteMessagePartsByMessageId: vi.fn(),
     createSessionTurn: vi.fn(),
     createSessionTurnAttempt: vi.fn(),
     updateSession: vi.fn(),
@@ -70,6 +73,30 @@ function createCheckpoint(): AttemptCheckpoint {
 }
 
 describe('reasoning persistence', () => {
+    it('does not write temporary output to attempts while streaming', async () => {
+        queries.updateSessionTurnAttempt.mockClear();
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+        queries.updateSessionTurnAttempt.mockClear();
+        provider.stream.mockImplementation(async function* () {
+            yield { content: '', reasoning: 'Plan', done: false };
+            yield { content: '', reasoningState: 'end', done: false };
+            yield { content: 'Answer', done: true };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: projector,
+        });
+        expect(result.type).toBe('completed');
+        expect(queries.updateSessionTurnAttempt).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+            finalStepOutputParts: [
+                { type: 'reasoning', content: 'Plan' },
+                { type: 'text', content: 'Answer' },
+            ],
+        });
+    });
+
     beforeEach(() => {
         vi.resetAllMocks();
         let messageId = 10;
@@ -78,110 +105,117 @@ describe('reasoning persistence', () => {
         queries.createSessionTurnAttempt.mockImplementation(async (draft) => ({
             ...draft,
             id: 3,
-            reasoning_progress_json: null,
         }));
     });
 
-    it.each(['output', 'legacy reasoning'] as const)(
-        'preserves the real projector receiver when saving %s progress from the executor',
-        async (mode) => {
+    it.each(['failed', 'cancelled'] as const)(
+        'keeps the assistant link when %s before the first reasoning delta',
+        async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
-            if (mode === 'legacy reasoning') {
-                Object.defineProperty(projector, 'persistOutputProgress', { value: undefined });
+            const start = { type: 'reasoning' as const, content: '', startedAt: 1000 };
+            await projector.persistOutputProgress([start]);
+            const closed = [{ ...start, endedAt: 1500 }];
+            if (status === 'failed') {
+                await projector.markFailed('offline', '', '', [], closed);
+            } else {
+                await projector.markCancelled('', '', [], closed);
             }
-            queries.updateSessionTurnAttempt.mockClear();
-            provider.stream.mockImplementation(async function* () {
-                yield { content: '', reasoning: 'Plan', done: false };
-                yield { content: '', reasoningState: 'end', done: false };
-                yield { content: 'Answer', done: true };
-            });
-            const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
-            const result = await new AiRequestExecutor().runAttempt({
-                startCheckpoint: createCheckpoint(),
-                persister: projector,
-            });
-
-            expect(result.type).toBe('completed');
-            expect(errors).not.toHaveBeenCalled();
-            expect(queries.updateSessionTurnAttempt).toHaveBeenCalledWith({
-                id: 3,
-                attemptPatch: { reasoning_progress_json: expect.any(String) },
-            });
-            const writes = queries.updateSessionTurnAttempt.mock.calls.map(([args]) =>
-                JSON.parse(args.attemptPatch.reasoning_progress_json)
+            expect(queries.createMessage).toHaveBeenCalledTimes(2);
+            expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+                [
+                    expect.objectContaining({
+                        message_id: 11,
+                        type: 'reasoning',
+                        content: '',
+                        started_at: 1000,
+                        ended_at: 1500,
+                    }),
+                ],
+                expect.anything()
             );
-            const thought = {
-                content: 'Plan',
-                startedAt: expect.any(Number),
-                endedAt: expect.any(Number),
-            };
-            expect(writes[0]).toMatchObject(
-                mode === 'output'
-                    ? { version: 2, parts: [{ type: 'reasoning', ...thought }] }
-                    : { segments: [thought] }
+            expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    turnPatch: expect.objectContaining({ status, response_message_id: 11 }),
+                })
             );
-            if (mode === 'output') {
-                expect(writes[writes.length - 1].parts).toMatchObject([
-                    { type: 'reasoning', ...thought },
-                    { type: 'text', content: 'Answer' },
-                ]);
-            }
         }
     );
 
-    it('saves answer text without rewriting the full checkpoint', async () => {
+    it('persists ordered tool-call parts without a temporary attempt snapshot', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        await projector.persistOutputProgress('Partial answer', [], 6000);
-        expect(queries.updateSessionTurnAttempt).toHaveBeenLastCalledWith({
-            id: 3,
-            attemptPatch: {
-                reasoning_progress_json: JSON.stringify({
-                    response: 'Partial answer',
-                    segments: [],
-                    savedAt: 6000,
-                }),
-            },
-        });
-    });
-
-    it('clears temporary output atomically when handing it off to a tool-call message', async () => {
-        const projector = createProjector();
-        await projector.recordTurnStart(createCheckpoint());
+        queries.updateSessionTurnAttempt.mockClear();
         const parts = [
             { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
             { type: 'text' as const, content: 'Checking' },
         ];
-        await projector.persistOutputProgress(parts, 2500);
         await projector.persistToolCallMessage('Checking', 'Plan', [], parts);
-        expect(queries.updateSessionTurnAttempt).toHaveBeenLastCalledWith({
-            id: 3,
-            attemptPatch: { reasoning_progress_json: null },
-            database: expect.any(Object),
-        });
-        const toolCall = queries.createMessage.mock.calls.find(
-            ([draft]) => draft.role === 'tool_call'
-        )!;
-        expect(JSON.parse(toolCall[0].reasoning_meta)).toEqual({ version: 2, parts });
-        expect(toolCall[1]).toBe(
-            queries.updateSessionTurnAttempt.mock.calls[
-                queries.updateSessionTurnAttempt.mock.calls.length - 1
-            ]![0].database
+        expect(queries.updateSessionTurnAttempt).not.toHaveBeenCalled();
+        expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+            [
+                {
+                    message_id: 11,
+                    type: 'reasoning',
+                    content: 'Plan',
+                    started_at: 1000,
+                    ended_at: 2000,
+                    sort_order: 0,
+                },
+                {
+                    message_id: 11,
+                    type: 'text',
+                    content: 'Checking',
+                    started_at: null,
+                    ended_at: null,
+                    sort_order: 1,
+                },
+            ],
+            {}
         );
     });
 
-    it('updates only the reasoning snapshot during streaming and persists wall-clock boundaries in the final message', async () => {
+    it.each(['failed', 'cancelled'] as const)(
+        'commits partial ordered output on %s without a temporary snapshot',
+        async (status) => {
+            const projector = createProjector();
+            await projector.recordTurnStart(createCheckpoint());
+            const parts = [
+                { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
+                { type: 'text' as const, content: 'Partial answer' },
+            ];
+            if (status === 'failed') {
+                await projector.markFailed('Offline', 'Partial answer', 'Plan', [], parts);
+            } else {
+                await projector.markCancelled('Partial answer', 'Plan', [], parts);
+            }
+            expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+                [
+                    {
+                        message_id: 11,
+                        type: 'reasoning',
+                        content: 'Plan',
+                        started_at: 1000,
+                        ended_at: 2000,
+                        sort_order: 0,
+                    },
+                    {
+                        message_id: 11,
+                        type: 'text',
+                        content: 'Partial answer',
+                        started_at: null,
+                        ended_at: null,
+                        sort_order: 1,
+                    },
+                ],
+                {}
+            );
+        }
+    );
+
+    it('persists wall-clock boundaries in the completed message', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        const active = [{ content: 'Thought', startedAt: 1000 }];
-        await projector.persistReasoningProgress(active, 6000);
-        expect(queries.updateSessionTurnAttempt).toHaveBeenLastCalledWith({
-            id: 3,
-            attemptPatch: {
-                reasoning_progress_json: JSON.stringify({ segments: active, savedAt: 6000 }),
-            },
-        });
         const completed = [{ content: 'Thought', startedAt: 1000, endedAt: 6500 }];
         await projector.markCompleted({
             response: 'Answer',
@@ -189,25 +223,93 @@ describe('reasoning persistence', () => {
             durationMs: 6000,
             reasoningSegments: completed,
         });
-        const assistantDraft = queries.createMessage.mock.calls.find(
-            ([draft]) => draft.role === 'assistant'
-        )?.[0];
-        expect(JSON.parse(assistantDraft.reasoning_meta)).toEqual(completed);
-        expect(assistantDraft.reasoning_meta).not.toContain('durationMs');
+        expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+            [
+                {
+                    message_id: 11,
+                    type: 'reasoning',
+                    content: 'Thought',
+                    started_at: 1000,
+                    ended_at: 6500,
+                    sort_order: 0,
+                },
+                {
+                    message_id: 11,
+                    type: 'text',
+                    content: 'Answer',
+                    started_at: null,
+                    ended_at: null,
+                    sort_order: 1,
+                },
+            ],
+            {}
+        );
     });
 
-    it('clears the temporary snapshot only when committing a safe checkpoint', async () => {
+    it('reuses the streaming message when completing a turn', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+        const thought = {
+            type: 'reasoning' as const,
+            content: 'Plan',
+            startedAt: 1000,
+            endedAt: 2000,
+        };
+        await projector.persistOutputProgress([thought]);
+        await projector.markCompleted({
+            response: 'Answer',
+            reasoning: 'Plan',
+            durationMs: 5000,
+            outputParts: [thought, { type: 'text', content: 'Answer' }],
+        });
+        expect(queries.createMessage).toHaveBeenCalledTimes(2); // prompt + one assistant
+        expect(queries.updateMessage).toHaveBeenCalledWith(
+            11,
+            expect.objectContaining({ role: 'assistant' }),
+            {}
+        );
+        expect(queries.deleteMessagePartsByMessageId).toHaveBeenCalledWith(11, {});
+        expect(queries.createMessageParts).toHaveBeenLastCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({ message_id: 11, type: 'text', content: 'Answer' }),
+            ]),
+            {}
+        );
+        expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                turnPatch: expect.objectContaining({
+                    response_message_id: 11,
+                    status: 'completed',
+                }),
+            })
+        );
+    });
+
+    it('reuses the streaming message as a tool-call step without leaking it into the final reply', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+        const parts = [
+            { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
+        ];
+        await projector.persistOutputProgress(parts);
+        expect(await projector.persistToolCallMessage('', 'Plan', [], parts)).toBe(11);
+        await projector.markCompleted({ response: 'Answer', reasoning: '', durationMs: 5000 });
+        expect(queries.createMessage).toHaveBeenCalledTimes(3); // prompt, tool step, final reply
+        expect(queries.updateMessage).toHaveBeenCalledWith(
+            11,
+            expect.objectContaining({ role: 'tool_call' }),
+            {}
+        );
+    });
+
+    it('updates only the checkpoint at a safe boundary', async () => {
         const projector = createProjector();
         const checkpoint = createCheckpoint();
         await projector.recordTurnStart(checkpoint);
-        await projector.persistReasoningProgress([{ content: 'Thought', startedAt: 1000 }], 6000);
         await projector.persistCheckpoint(checkpoint);
         expect(queries.updateSessionTurnAttempt).toHaveBeenLastCalledWith({
             id: 3,
-            attemptPatch: {
-                checkpoint_json: expect.any(String),
-                reasoning_progress_json: null,
-            },
+            attemptPatch: { checkpoint_json: expect.any(String) },
             database: {},
         });
     });

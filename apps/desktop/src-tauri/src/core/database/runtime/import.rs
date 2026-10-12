@@ -55,6 +55,11 @@ pub(crate) async fn run_import_backup(
             .await
             .map_err(|error| format!("Failed to begin import transaction: {error}"))?;
 
+        if let Err(error) = prepare_import_message_parts(&mut connection).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+            return Err(error);
+        }
+
         let merge_result = match request.mode {
             DatabaseImportMode::ChatOnly => {
                 merge_chat_data(&mut connection, &database_contract).await
@@ -171,6 +176,68 @@ async fn ensure_import_required_tables(
     Ok(())
 }
 
+/// Normalize current and legacy backups into a temporary parts source without
+/// modifying the attached backup. The merge contract only reads this one shape.
+async fn prepare_import_message_parts(
+    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
+) -> Result<(), String> {
+    sqlx::raw_sql(
+        "DROP TABLE IF EXISTS temp_import_message_parts;
+         CREATE TEMP TABLE temp_import_message_parts (
+             id INTEGER PRIMARY KEY, message_id INTEGER NOT NULL,
+             type TEXT NOT NULL, content TEXT NOT NULL,
+             started_at INTEGER, ended_at INTEGER, sort_order INTEGER NOT NULL,
+             created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+         );",
+    )
+    .execute(&mut **connection)
+    .await
+    .map_err(|error| format!("Failed to prepare import parts: {error}"))?;
+
+    let has_parts = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM imported.sqlite_master WHERE type = 'table' AND name = 'message_parts'",
+    )
+    .fetch_one(&mut **connection)
+    .await
+    .map_err(|error| format!("Failed to inspect import parts: {error}"))? > 0;
+
+    if has_parts {
+        sqlx::query("INSERT INTO temp_import_message_parts SELECT id, message_id, type, content, started_at, ended_at, sort_order, created_at, updated_at FROM imported.message_parts")
+            .execute(&mut **connection)
+            .await
+            .map_err(|error| format!("Failed to load import parts: {error}"))?;
+        return Ok(());
+    }
+
+    let has_reasoning = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM pragma_table_info('messages', 'imported') WHERE name = 'reasoning'",
+    )
+    .fetch_one(&mut **connection)
+    .await
+    .map_err(|error| format!("Failed to inspect legacy reasoning: {error}"))?
+        > 0;
+    if has_reasoning {
+        sqlx::raw_sql(
+            "INSERT INTO temp_import_message_parts (message_id, type, content, sort_order, created_at, updated_at)
+             SELECT id, 'reasoning', reasoning, 0, created_at, updated_at FROM imported.messages WHERE coalesce(reasoning, '') <> '';
+             INSERT INTO temp_import_message_parts (message_id, type, content, sort_order, created_at, updated_at)
+             SELECT id, 'text', content, CASE WHEN coalesce(reasoning, '') <> '' THEN 1 ELSE 0 END, created_at, updated_at FROM imported.messages WHERE content <> '';",
+        )
+        .execute(&mut **connection)
+        .await
+        .map_err(|error| format!("Failed to normalize legacy import parts: {error}"))?;
+    } else {
+        sqlx::query(
+            "INSERT INTO temp_import_message_parts (message_id, type, content, sort_order, created_at, updated_at)
+             SELECT id, 'text', content, 0, created_at, updated_at FROM imported.messages WHERE content <> ''",
+        )
+        .execute(&mut **connection)
+        .await
+        .map_err(|error| format!("Failed to normalize legacy import text: {error}"))?;
+    }
+    Ok(())
+}
+
 async fn merge_chat_data(
     connection: &mut sqlx::pool::PoolConnection<Sqlite>,
     database_contract: &DatabaseContractSource,
@@ -205,4 +272,126 @@ async fn merge_full_data(
 
 fn escape_sqlite_string(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::*;
+
+    async fn import_connection() -> sqlx::pool::PoolConnection<Sqlite> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let mut connection = pool.acquire().await.unwrap();
+        sqlx::query("ATTACH DATABASE ':memory:' AS imported")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        connection
+    }
+
+    #[tokio::test]
+    async fn normalizes_legacy_reasoning_and_text_without_changing_source() {
+        let mut connection = import_connection().await;
+        sqlx::raw_sql(
+            "CREATE TABLE imported.messages (id INTEGER PRIMARY KEY, content TEXT, reasoning TEXT, created_at TEXT, updated_at TEXT);
+             INSERT INTO imported.messages VALUES (7, 'Answer', 'Plan', 'created', 'updated');",
+        )
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+
+        // Repreparing on the same pooled connection must not duplicate parts.
+        prepare_import_message_parts(&mut connection).await.unwrap();
+        prepare_import_message_parts(&mut connection).await.unwrap();
+        let parts = sqlx::query_as::<_, (i64, String, String, i64, String, String)>(
+            "SELECT message_id, type, content, sort_order, created_at, updated_at FROM temp_import_message_parts ORDER BY sort_order",
+        )
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(
+            parts,
+            vec![
+                (
+                    7,
+                    "reasoning".into(),
+                    "Plan".into(),
+                    0,
+                    "created".into(),
+                    "updated".into()
+                ),
+                (
+                    7,
+                    "text".into(),
+                    "Answer".into(),
+                    1,
+                    "created".into(),
+                    "updated".into()
+                ),
+            ]
+        );
+        let source = sqlx::query_as::<_, (String, String)>(
+            "SELECT content, reasoning FROM imported.messages",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(source, ("Answer".into(), "Plan".into()));
+    }
+
+    #[tokio::test]
+    async fn normalizes_legacy_text_without_a_reasoning_column() {
+        let mut connection = import_connection().await;
+        sqlx::raw_sql(
+            "CREATE TABLE imported.messages (id INTEGER PRIMARY KEY, content TEXT, created_at TEXT, updated_at TEXT);
+             INSERT INTO imported.messages VALUES (7, 'Answer', 'created', 'updated');",
+        )
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+        prepare_import_message_parts(&mut connection).await.unwrap();
+        let part = sqlx::query_as::<_, (String, String, i64)>(
+            "SELECT type, content, sort_order FROM temp_import_message_parts",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(part, ("text".into(), "Answer".into(), 0));
+    }
+
+    #[tokio::test]
+    async fn imports_normalized_parts_with_their_wall_clock_boundaries() {
+        let mut connection = import_connection().await;
+        sqlx::raw_sql(
+            "CREATE TABLE imported.message_parts (
+                 id INTEGER PRIMARY KEY, message_id INTEGER, type TEXT, content TEXT,
+                 started_at INTEGER, ended_at INTEGER, sort_order INTEGER,
+                 created_at TEXT, updated_at TEXT
+             );
+             INSERT INTO imported.message_parts VALUES (3, 7, 'reasoning', 'Plan', 1000, 3400, 0, 'created', 'updated');
+             INSERT INTO imported.message_parts VALUES (4, 7, 'text', 'Answer', NULL, NULL, 1, 'created', 'updated');",
+        )
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+        prepare_import_message_parts(&mut connection).await.unwrap();
+        let parts = sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>)>(
+            "SELECT type, content, started_at, ended_at FROM temp_import_message_parts ORDER BY sort_order",
+        )
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(
+            parts,
+            vec![
+                ("reasoning".into(), "Plan".into(), Some(1000), Some(3400)),
+                ("text".into(), "Answer".into(), None, None),
+            ]
+        );
+    }
 }

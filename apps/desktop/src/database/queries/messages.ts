@@ -1,12 +1,13 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { asc, count, eq, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import type { PersistedToolLogStatus } from '../schema';
 import { builtInToolLogs, mcpToolLogs, messages } from '../schema';
-import type { MessageCreateData, MessageEntity } from '../types';
+import type { MessageCreateData, MessageEntity, MessagePartEntity } from '../types';
 import { findAttachmentsByMessageIds, type MessageAttachmentRow } from './attachments';
+import { findMessagePartsByMessageIds } from './messageParts';
 
 export interface ToolLogHistoryRow {
     source: 'mcp' | 'builtin';
@@ -23,6 +24,10 @@ export interface ToolLogHistoryRow {
 }
 
 export interface MessageRow extends MessageEntity {
+    /** 有序的模型输出片段；reasoning 与 text 均来自此处。 */
+    parts: MessagePartEntity[];
+    /** 兼容现有会话投影的 reasoning 聚合，不是数据库字段。 */
+    reasoning: string | null;
     attachments: MessageAttachmentRow[];
     tool_call_id: string | null;
     tool_name: string | null;
@@ -67,12 +72,23 @@ export function findUnambiguousToolLogByStoredReference(
 }
 
 function buildMessageRow(
-    row: MessageEntity,
+    row: Omit<MessageEntity, 'content'>,
+    parts: MessagePartEntity[],
     attachments: MessageAttachmentRow[],
     toolLog?: ToolLogHistoryRow
 ): MessageRow {
     return {
         ...row,
+        content: parts
+            .filter((part) => part.type === 'text')
+            .map((part) => part.content)
+            .join(''),
+        parts,
+        reasoning:
+            parts
+                .filter((part) => part.type === 'reasoning')
+                .map((part) => part.content)
+                .join('') || null,
         tool_log_id: toolLog?.log_id ?? row.tool_log_id,
         tool_log_kind: toolLog?.source ?? row.tool_log_kind,
         attachments,
@@ -108,13 +124,22 @@ export const findMessagesBySessionId = async (sessionId: number): Promise<Messag
         return [];
     }
 
-    const [attachmentRows, toolLogs] = await Promise.all([
-        findAttachmentsByMessageIds(Array.from(new Set(baseRows.map((row) => row.id)))),
+    const messageIds = Array.from(new Set(baseRows.map((row) => row.id)));
+    const [attachmentRows, toolLogs, partRows] = await Promise.all([
+        findAttachmentsByMessageIds(messageIds),
         findToolLogRowsBySessionId(sessionId),
+        findMessagePartsByMessageIds(messageIds),
     ]);
 
     const attachmentsByMessageId = new Map<number, MessageAttachmentRow[]>();
+    const partsByMessageId = new Map<number, MessagePartEntity[]>();
     const toolLogsByMessageId = new Map<number, ToolLogHistoryRow[]>();
+
+    for (const part of partRows) {
+        const existing = partsByMessageId.get(part.message_id) ?? [];
+        existing.push(part);
+        partsByMessageId.set(part.message_id, existing);
+    }
     const toolLogByIdentity = new Map<string, ToolLogHistoryRow>();
 
     for (const attachmentRow of attachmentRows) {
@@ -179,13 +204,15 @@ export const findMessagesBySessionId = async (sessionId: number): Promise<Messag
             const messageToolLogs = toolLogsByMessageId.get(row.id) ?? [];
 
             if (messageToolLogs.length === 0) {
-                rows.push(buildMessageRow(row, attachments));
+                rows.push(buildMessageRow(row, partsByMessageId.get(row.id) ?? [], attachments));
                 continue;
             }
 
             pendingToolResultQueue.push(...messageToolLogs);
             rows.push(
-                ...messageToolLogs.map((toolLog) => buildMessageRow(row, attachments, toolLog))
+                ...messageToolLogs.map((toolLog) =>
+                    buildMessageRow(row, partsByMessageId.get(row.id) ?? [], attachments, toolLog)
+                )
             );
             continue;
         }
@@ -202,11 +229,13 @@ export const findMessagesBySessionId = async (sessionId: number): Promise<Messag
 
             const toolLog = resolvedById ?? takeQueuedToolLog(row.tool_log_kind ?? undefined);
 
-            rows.push(buildMessageRow(row, attachments, toolLog));
+            rows.push(
+                buildMessageRow(row, partsByMessageId.get(row.id) ?? [], attachments, toolLog)
+            );
             continue;
         }
 
-        rows.push(buildMessageRow(row, attachments));
+        rows.push(buildMessageRow(row, partsByMessageId.get(row.id) ?? [], attachments));
     }
 
     return rows;
@@ -279,7 +308,7 @@ export const findToolLogRowsBySessionId = async (
 export const createMessage = async (
     data: MessageCreateData,
     database: DatabaseExecutor = db
-): Promise<MessageEntity> => {
+): Promise<Omit<MessageEntity, 'content'>> => {
     const createdMessage = await database.insert(messages).values(data).returning().get();
 
     if (!createdMessage || createdMessage.id === undefined) {
@@ -287,6 +316,19 @@ export const createMessage = async (
     }
 
     return createdMessage;
+};
+
+/** 更新消息身份；正文由 message_parts 保存。 */
+export const updateMessage = async (
+    messageId: number,
+    patch: Partial<Pick<MessageEntity, 'role' | 'tool_log_id' | 'tool_log_kind'>>,
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    await database
+        .update(messages)
+        .set({ ...patch, updated_at: sql`datetime('now')` })
+        .where(eq(messages.id, messageId))
+        .run();
 };
 
 /**
