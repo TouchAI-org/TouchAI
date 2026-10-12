@@ -53,7 +53,11 @@ WITH source_messages_with_target_session AS (
         source_messages.id AS source_message_id,
         session_map.target_session_id,
         source_messages.role,
-        source_messages.content,
+        coalesce((
+            SELECT json_group_array(json_object('type', type, 'content', content, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, started_at, ended_at, sort_order FROM temp_import_message_parts
+                  WHERE message_id = source_messages.id ORDER BY sort_order, id)
+        ), '[]') AS content,
         source_messages.created_at,
         source_messages.updated_at
     FROM imported.messages AS source_messages
@@ -80,7 +84,11 @@ WITH target_messages_in_scope AS (
         target_messages.id AS target_message_id,
         target_messages.session_id AS target_session_id,
         target_messages.role,
-        target_messages.content,
+        coalesce((
+            SELECT json_group_array(json_object('type', type, 'content', content, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, started_at, ended_at, sort_order FROM main.message_parts
+                  WHERE message_id = target_messages.id ORDER BY sort_order, id)
+        ), '[]') AS content,
         target_messages.created_at
     FROM main.messages AS target_messages
     WHERE target_messages.session_id IN (
@@ -100,15 +108,10 @@ SELECT
     ) AS occurrence_index
 FROM target_messages_in_scope;
 
-INSERT INTO main.messages (
-    session_id, role, content, created_at, updated_at
-)
-SELECT
-    source_messages.target_session_id,
-    source_messages.role,
-    source_messages.content,
-    source_messages.created_at,
-    source_messages.updated_at
+DROP TABLE IF EXISTS temp_new_message_map;
+CREATE TEMP TABLE temp_new_message_map AS
+SELECT source_messages.source_message_id,
+       (SELECT coalesce(max(id), 0) FROM main.messages) + ROW_NUMBER() OVER (ORDER BY source_messages.source_message_id) AS target_message_id
 FROM temp_ranked_source_messages AS source_messages
 LEFT JOIN temp_ranked_target_messages AS target_messages
     ON target_messages.target_session_id = source_messages.target_session_id
@@ -118,6 +121,21 @@ LEFT JOIN temp_ranked_target_messages AS target_messages
    AND target_messages.occurrence_index = source_messages.occurrence_index
 WHERE target_messages.target_message_id IS NULL;
 
+INSERT INTO main.messages (id, session_id, role, created_at, updated_at)
+SELECT message_map.target_message_id, source_messages.target_session_id,
+       source_messages.role, source_messages.created_at, source_messages.updated_at
+FROM temp_ranked_source_messages AS source_messages
+INNER JOIN temp_new_message_map AS message_map
+    ON message_map.source_message_id = source_messages.source_message_id;
+
+INSERT INTO main.message_parts (message_id, type, content, started_at, ended_at, sort_order, created_at, updated_at)
+SELECT message_map.target_message_id, source_parts.type, source_parts.content,
+       source_parts.started_at, source_parts.ended_at, source_parts.sort_order,
+       source_parts.created_at, source_parts.updated_at
+FROM temp_import_message_parts AS source_parts
+INNER JOIN temp_new_message_map AS message_map
+    ON message_map.source_message_id = source_parts.message_id;
+
 DROP TABLE IF EXISTS temp_ranked_target_messages;
 CREATE TEMP TABLE temp_ranked_target_messages AS
 WITH target_messages_in_scope AS (
@@ -125,7 +143,11 @@ WITH target_messages_in_scope AS (
         target_messages.id AS target_message_id,
         target_messages.session_id AS target_session_id,
         target_messages.role,
-        target_messages.content,
+        coalesce((
+            SELECT json_group_array(json_object('type', type, 'content', content, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, started_at, ended_at, sort_order FROM main.message_parts
+                  WHERE message_id = target_messages.id ORDER BY sort_order, id)
+        ), '[]') AS content,
         target_messages.created_at
     FROM main.messages AS target_messages
     WHERE target_messages.session_id IN (

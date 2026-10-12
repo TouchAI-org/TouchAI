@@ -8,6 +8,7 @@ export * from './llmMetadata';
 export * from './mcpServers';
 export * from './mcpToolLogs';
 export * from './mcpTools';
+export * from './messageParts';
 export * from './messages';
 export * from './models';
 export * from './providers';

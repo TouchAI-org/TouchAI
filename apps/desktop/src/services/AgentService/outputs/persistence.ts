@@ -4,10 +4,13 @@ import { type DatabaseExecutor, db } from '@database';
 import {
     createMessage,
     createMessageAttachment,
+    createMessageParts,
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
+    deleteMessagePartsByMessageId,
     refreshSessionMetadata,
+    updateMessage,
     updateSession,
     updateSessionTurn,
     updateSessionTurnAttempt,
@@ -42,10 +45,8 @@ import type { PromptSnapshot } from '../prompt/types';
 import {
     normalizeOutputParts,
     normalizeReasoningSegments,
+    outputPartsFromLegacy,
     type PersistedOutputPart,
-    serializeOutputParts,
-    serializeOutputProgress,
-    serializeReasoningProgress,
 } from '../session/reasoningProgress';
 import type { TaskExecutionMode } from '../task/types';
 
@@ -236,12 +237,6 @@ function serializeCurrentDeliveryManifest(manifest: AttachmentDeliveryManifest):
     return serializeAttachmentDeliveryManifest(manifest);
 }
 
-function serializeReasoningSegments(segments: ReasoningSegment[] | undefined): string | null {
-    const normalized = normalizeReasoningSegments(segments);
-
-    return normalized.length > 0 ? JSON.stringify(normalized) : null;
-}
-
 export class PersistenceProjector {
     private readonly prompt: string;
     private readonly attachments: AttachmentIndex[];
@@ -258,6 +253,7 @@ export class PersistenceProjector {
 
     private userMessageId: number | null;
     private assistantMessageId: number | null;
+    private pendingOutputMessageId: number | null = null;
     private turn: SessionTurnEntity | null;
     private turnStartedAtMs: number | null;
     private attemptState: AttemptState | null;
@@ -383,7 +379,11 @@ export class PersistenceProjector {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
-                    (partialResponse?.trim() || partialReasoning.trim()) && !this.assistantMessageId
+                    (partialResponse?.trim() ||
+                        partialReasoning.trim() ||
+                        outputParts?.length ||
+                        this.pendingOutputMessageId !== null) &&
+                    !this.assistantMessageId
                         ? await this.persistMessage(
                               'assistant',
                               partialResponse ?? '',
@@ -433,7 +433,11 @@ export class PersistenceProjector {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
-                    (partialResponse?.trim() || partialReasoning.trim()) && !this.assistantMessageId
+                    (partialResponse?.trim() ||
+                        partialReasoning.trim() ||
+                        outputParts?.length ||
+                        this.pendingOutputMessageId !== null) &&
+                    !this.assistantMessageId
                         ? await this.persistMessage(
                               'assistant',
                               partialResponse ?? '',
@@ -580,8 +584,8 @@ export class PersistenceProjector {
         reasoningSegments: ReasoningSegment[] = [],
         outputParts?: PersistedOutputPart[]
     ): Promise<number> {
-        const result = await db.transaction(async (tx) => {
-            const messageId = await this.persistMessage(
+        const messageId = await db.transaction((tx) =>
+            this.persistMessage(
                 'tool_call',
                 text || '',
                 reasoning,
@@ -592,23 +596,10 @@ export class PersistenceProjector {
                 undefined,
                 reasoningSegments,
                 outputParts
-            );
-            if (this.attemptState) {
-                await updateSessionTurnAttempt({
-                    id: this.attemptState.entity.id,
-                    attemptPatch: { reasoning_progress_json: null },
-                    database: tx,
-                });
-            }
-            return messageId;
-        });
-        if (this.attemptState) {
-            this.attemptState = new AttemptState(
-                { ...this.attemptState.entity, reasoning_progress_json: null },
-                this.attemptState.startedAtMs
-            );
-        }
-        return result;
+            )
+        );
+        this.pendingOutputMessageId = null;
+        return messageId;
     }
 
     /**
@@ -621,67 +612,50 @@ export class PersistenceProjector {
         toolLogKind: ToolLogKind | null,
         attachments: AttachmentIndex[] = []
     ): Promise<number> {
-        return this.persistMessage(
-            'tool_result',
-            result,
-            null,
-            toolLogId,
-            toolLogKind,
-            attachments
+        return db.transaction((tx) =>
+            this.persistMessage(
+                'tool_result',
+                result,
+                null,
+                toolLogId,
+                toolLogKind,
+                attachments,
+                tx
+            )
         );
     }
 
-    async persistReasoningProgress(segments: ReasoningSegment[], savedAt: number): Promise<void> {
-        const attempt = this.attemptState;
-        if (!attempt || segments.length === 0) return;
-        await this.persistTemporaryProgress(serializeReasoningProgress(segments, savedAt));
-    }
-
-    async persistOutputProgress(parts: PersistedOutputPart[], savedAt: number): Promise<void>;
-    async persistOutputProgress(
-        response: string,
-        segments: ReasoningSegment[],
-        savedAt: number
-    ): Promise<void>;
-    async persistOutputProgress(
-        partsOrResponse: PersistedOutputPart[] | string,
-        savedAtOrSegments: number | ReasoningSegment[],
-        legacySavedAt?: number
-    ): Promise<void> {
-        if (!this.attemptState) return;
-
-        if (Array.isArray(partsOrResponse)) {
-            const parts = normalizeOutputParts(partsOrResponse);
-            if (parts.length === 0) return;
-            await this.persistTemporaryProgress(
-                serializeOutputProgress(parts, savedAtOrSegments as number)
+    /** 片段边界写入正式 parts（推理开始/结束、正文结束）；没有定时快照。 */
+    async persistOutputProgress(parts: PersistedOutputPart[]): Promise<void> {
+        if (!this.attemptState || parts.length === 0) return;
+        const normalized = normalizeOutputParts(parts);
+        if (normalized.length === 0) return;
+        const response = normalized
+            .filter((part) => part.type === 'text')
+            .map((part) => part.content)
+            .join('');
+        const reasoning = normalized
+            .filter((part) => part.type === 'reasoning')
+            .map((part) => part.content)
+            .join('');
+        const result = await db.transaction(async (tx) => {
+            const messageId = await this.persistMessage(
+                'assistant',
+                response,
+                reasoning,
+                null,
+                null,
+                [],
+                tx,
+                undefined,
+                [],
+                normalized
             );
-            return;
-        }
-
-        const segments = savedAtOrSegments as ReasoningSegment[];
-        if (!partsOrResponse && segments.length === 0) return;
-        await this.persistTemporaryProgress(
-            serializeOutputProgress(partsOrResponse, segments, legacySavedAt as number)
-        );
-    }
-
-    private async persistTemporaryProgress(progressJson: string): Promise<void> {
-        const attempt = this.attemptState;
-        if (!attempt) return;
-        await updateSessionTurnAttempt({
-            id: attempt.entity.id,
-            attemptPatch: { reasoning_progress_json: progressJson },
+            const turn = await this.patchTurn({ response_message_id: messageId }, tx);
+            return { messageId, turn };
         });
-        if (this.attemptState?.entity.id === attempt.entity.id) {
-            this.attemptState = new AttemptState(
-                {
-                    ...this.attemptState.entity,
-                    reasoning_progress_json: progressJson,
-                },
-                this.attemptState.startedAtMs
-            );
-        }
+        this.pendingOutputMessageId = result.messageId;
+        this.turn = result.turn;
     }
 
     async persistCheckpoint(checkpoint: AttemptCheckpoint): Promise<void> {
@@ -695,7 +669,6 @@ export class PersistenceProjector {
                 id: this.attemptState!.entity.id,
                 attemptPatch: {
                     checkpoint_json: checkpointJson,
-                    reasoning_progress_json: null,
                 },
                 database: tx,
             });
@@ -705,7 +678,6 @@ export class PersistenceProjector {
             {
                 ...this.attemptState.entity,
                 checkpoint_json: checkpointJson,
-                reasoning_progress_json: null,
                 delivery_manifest_json: this.attemptState.entity.delivery_manifest_json,
             },
             this.attemptState.startedAtMs
@@ -783,19 +755,53 @@ export class PersistenceProjector {
     ): Promise<number> {
         const resolvedSessionId = sessionId ?? (await this.ensureSessionId(database));
 
-        const message = await createMessage(
-            {
-                session_id: resolvedSessionId,
-                role: role as MessageRole,
-                content,
-                reasoning: reasoning?.trim() ? reasoning : null,
-                reasoning_meta:
-                    outputParts && outputParts.length > 0
-                        ? serializeOutputParts(outputParts)
-                        : serializeReasoningSegments(reasoningSegments),
-                tool_log_id: toolLogId ?? null,
-                tool_log_kind: toolLogKind ?? null,
-            },
+        const reusableMessageId =
+            role === 'assistant' || role === 'tool_call' ? this.pendingOutputMessageId : null;
+        let messageId: number;
+        if (reusableMessageId !== null) {
+            messageId = reusableMessageId;
+            await updateMessage(
+                messageId,
+                { role, tool_log_id: toolLogId ?? null, tool_log_kind: toolLogKind ?? null },
+                database
+            );
+            await deleteMessagePartsByMessageId(messageId, database);
+        } else {
+            const message = await createMessage(
+                {
+                    session_id: resolvedSessionId,
+                    role,
+                    tool_log_id: toolLogId ?? null,
+                    tool_log_kind: toolLogKind ?? null,
+                },
+                database
+            );
+            messageId = message.id;
+        }
+
+        const persistedParts = normalizeOutputParts(
+            outputParts && outputParts.length > 0
+                ? outputParts
+                : role === 'assistant' || role === 'tool_call'
+                  ? outputPartsFromLegacy(content, [
+                        ...normalizeReasoningSegments(reasoningSegments),
+                        ...(reasoning?.trim() && reasoningSegments.length === 0
+                            ? [{ content: reasoning }]
+                            : []),
+                    ])
+                  : content
+                    ? [{ type: 'text' as const, content }]
+                    : []
+        );
+        await createMessageParts(
+            persistedParts.map((part, sortOrder) => ({
+                message_id: messageId,
+                type: part.type,
+                content: part.content,
+                started_at: part.type === 'reasoning' ? (part.startedAt ?? null) : null,
+                ended_at: part.type === 'reasoning' ? (part.endedAt ?? null) : null,
+                sort_order: sortOrder,
+            })),
             database
         );
 
@@ -815,7 +821,7 @@ export class PersistenceProjector {
                 const originPath = 'originPath' in source ? source.originPath : source.origin_path;
                 await createMessageAttachment(
                     {
-                        message_id: message.id,
+                        message_id: messageId,
                         attachment_id: entity.id,
                         sort_order: index,
                         origin_path: originPath,
@@ -825,7 +831,7 @@ export class PersistenceProjector {
             }
         }
 
-        return message.id;
+        return messageId;
     }
 
     private async ensureTurnRecord(
@@ -908,7 +914,6 @@ export class PersistenceProjector {
                 status,
                 error_message: errorMessage,
                 duration_ms: durationMs,
-                reasoning_progress_json: null,
                 finished_at: finishedAtText,
                 updated_at: finishedAtText,
             },
@@ -921,7 +926,6 @@ export class PersistenceProjector {
                 status,
                 error_message: errorMessage,
                 duration_ms: durationMs,
-                reasoning_progress_json: null,
                 finished_at: finishedAtText,
                 updated_at: finishedAtText,
             },

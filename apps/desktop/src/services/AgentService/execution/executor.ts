@@ -690,48 +690,40 @@ export class AiRequestExecutor {
         let toolCalls: AiToolCall[] | undefined;
         // Each model/tool-loop round is an independent persisted message part.
         // Keep the aggregate on `runtime.outputParts`, but never leak the
-        // previous round into this round's progress/final-step result.
+        // previous round into this round's final-step result.
         runtime.currentStepOutputParts = [];
         runtime.currentStepReasoningStartedAt = null;
 
         let progressWrites = Promise.resolve();
         let lastSavedSnapshot = '';
-        const persistProgress = (savedAt: number, force = false, closeLegacyActive = false) => {
-            const parts = this.getCurrentStepOutputParts(runtime, savedAt);
+        const saveOutputParts = () => {
+            const parts = normalizeOutputParts(this.getCurrentStepOutputParts(runtime));
             const snapshot = JSON.stringify(parts);
-            if (!force && snapshot === lastSavedSnapshot) return;
-            if (parts.length === 0) return;
+            if (parts.length === 0 || snapshot === lastSavedSnapshot) return;
             lastSavedSnapshot = snapshot;
-
             progressWrites = progressWrites
-                .then(() => {
+                .then(async () => {
                     if (typeof options.persister.persistOutputProgress === 'function') {
-                        return options.persister.persistOutputProgress(parts, savedAt);
+                        await options.persister.persistOutputProgress(parts);
                     }
-                    if (typeof options.persister.persistReasoningProgress === 'function') {
-                        return options.persister.persistReasoningProgress(
-                            this.getCurrentStepReasoningSegments(runtime, closeLegacyActive),
-                            savedAt
-                        );
-                    }
-                    return undefined;
                 })
                 .catch((error) => {
-                    console.error('[AiRequestExecutor] Failed to persist output progress:', error);
+                    console.error('[AiRequestExecutor] Failed to persist output parts:', error);
                 });
         };
-        const saveProgress = (force = false) => persistProgress(Date.now(), force);
         let activeTextPart: Extract<PersistedOutputPart, { type: 'text' }> | null = null;
         const finishTextSegment = () => {
             if (!activeTextPart) return;
             activeTextPart = null;
-            saveProgress();
+            saveOutputParts();
         };
         const startReasoningSegment = () => {
             // Some providers omit text-end; a reasoning fragment also closes text.
             finishTextSegment();
             if (runtime.currentStepReasoningStartedAt === null) {
                 runtime.currentStepReasoningStartedAt = Date.now();
+                ensureReasoningPart();
+                saveOutputParts();
             }
         };
         const ensureReasoningPart = () => {
@@ -753,15 +745,12 @@ export class AiRequestExecutor {
         const finishReasoningSegment = () => {
             const lastPart =
                 runtime.currentStepOutputParts[runtime.currentStepOutputParts.length - 1];
-            const closed =
-                lastPart?.type === 'reasoning' &&
-                lastPart.endedAt === undefined &&
-                lastPart.content.trim().length > 0;
+            const closed = lastPart?.type === 'reasoning' && lastPart.endedAt === undefined;
             if (closed) {
                 lastPart.endedAt = Date.now();
+                saveOutputParts();
             }
             runtime.currentStepReasoningStartedAt = null;
-            if (closed) saveProgress();
         };
         const appendText = (content: string) => {
             if (activeTextPart) {
@@ -822,11 +811,8 @@ export class AiRequestExecutor {
                 }
             }
         } finally {
-            // Match OpenCode's durability boundary: streaming deltas stay live-only;
-            // completed fragments and terminal partial output are flushed as full parts.
             finishReasoningSegment();
             finishTextSegment();
-            persistProgress(Date.now(), true, true);
             await progressWrites;
         }
 

@@ -1,11 +1,12 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, count, desc, eq, exists, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { aliasedTable } from 'drizzle-orm/alias';
 
 import { type DatabaseExecutor, db } from '../index';
 import { messages, models, sessions, sessionTurns } from '../schema';
 import type { SessionCreateData, SessionEntity, SessionUpdateData } from '../types';
+import { messageText } from './messageParts';
 
 export interface ListSessionsOptions {
     query?: string;
@@ -116,22 +117,34 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
     if (query) {
         const pattern = `%${escapeLikePattern(query)}%`;
         const titleMatches = sql`lower(${sessions.title}) LIKE ${pattern} ESCAPE '\\'`;
-        const contentMatches = exists(
+        // The compact trigram index only supplies candidates, never the source text.
+        // Quote a single three-codepoint token to keep MATCH literal and bounded;
+        // the full LIKE check below rejects false positives and preserves old semantics.
+        // Short queries (and NUL-containing input) cannot safely use trigram MATCH.
+        const token = Array.from(query).slice(0, 3);
+        const indexedCandidates =
+            token.length === 3 && !query.includes('\0')
+                ? sql`${searchableMessages.id} IN (
+                    SELECT rowid FROM message_search_fts
+                    WHERE message_search_fts MATCH ${'"' + token.join('').replace(/"/g, '""') + '"'}
+                )`
+                : undefined;
+        const contentMatches = inArray(
+            sessions.id,
             drizzle
-                .select({ id: searchableMessages.id })
+                .select({ sessionId: searchableMessages.session_id })
                 .from(searchableMessages)
                 .where(
                     and(
-                        eq(searchableMessages.session_id, sessions.id),
                         or(
                             eq(searchableMessages.role, 'user'),
                             eq(searchableMessages.role, 'assistant'),
                             eq(searchableMessages.role, 'tool_result')
                         ),
-                        sql`lower(${searchableMessages.content}) LIKE ${pattern} ESCAPE '\\'`
+                        indexedCandidates,
+                        sql`lower(${messageText(searchableMessages.id)}) LIKE ${pattern} ESCAPE '\\'`
                     )
                 )
-                .limit(1)
         );
         const searchWhereClause = or(titleMatches, contentMatches)!;
 
@@ -248,7 +261,7 @@ export const refreshSessionMetadata = async (
             and(
                 eq(toolResultMessages.session_id, sessionId),
                 eq(toolResultMessages.role, 'tool_result'),
-                sql`trim(${toolResultMessages.content}) <> ''`
+                sql`trim(${messageText(toolResultMessages.id)}) <> ''`
             )
         )
         .orderBy(desc(toolResultMessages.created_at), desc(toolResultMessages.id))
@@ -268,7 +281,7 @@ export const refreshSessionMetadata = async (
             and(
                 eq(toolCallMessages.session_id, sessionId),
                 eq(toolCallMessages.role, 'tool_call'),
-                sql`trim(${toolCallMessages.content}) <> ''`
+                sql`trim(${messageText(toolCallMessages.id)}) <> ''`
             )
         )
         .orderBy(desc(toolCallMessages.created_at), desc(toolCallMessages.id))
@@ -278,9 +291,9 @@ export const refreshSessionMetadata = async (
         .select({
             value: sql<string>`
                 CASE
-                    WHEN length(${assistantMessages.content}) > 160
-                        THEN substr(${assistantMessages.content}, 1, 160) || '...'
-                    ELSE ${assistantMessages.content}
+                    WHEN length(${messageText(assistantMessages.id)}) > 160
+                        THEN substr(${messageText(assistantMessages.id)}, 1, 160) || '...'
+                    ELSE ${messageText(assistantMessages.id)}
                 END
             `,
         })
@@ -298,9 +311,9 @@ export const refreshSessionMetadata = async (
         .select({
             value: sql<string>`
                 CASE
-                    WHEN length(${toolResultMessages.content}) > 160
-                        THEN substr(${toolResultMessages.content}, 1, 160) || '...'
-                    ELSE ${toolResultMessages.content}
+                    WHEN length(${messageText(toolResultMessages.id)}) > 160
+                        THEN substr(${messageText(toolResultMessages.id)}, 1, 160) || '...'
+                    ELSE ${messageText(toolResultMessages.id)}
                 END
             `,
         })
@@ -309,7 +322,7 @@ export const refreshSessionMetadata = async (
             and(
                 eq(toolResultMessages.session_id, sessionId),
                 eq(toolResultMessages.role, 'tool_result'),
-                sql`trim(${toolResultMessages.content}) <> ''`
+                sql`trim(${messageText(toolResultMessages.id)}) <> ''`
             )
         )
         .orderBy(desc(toolResultMessages.created_at), desc(toolResultMessages.id))
@@ -319,9 +332,9 @@ export const refreshSessionMetadata = async (
         .select({
             value: sql<string>`
                 CASE
-                    WHEN length(${userMessages.content}) > 160
-                        THEN substr(${userMessages.content}, 1, 160) || '...'
-                    ELSE ${userMessages.content}
+                    WHEN length(${messageText(userMessages.id)}) > 160
+                        THEN substr(${messageText(userMessages.id)}, 1, 160) || '...'
+                    ELSE ${messageText(userMessages.id)}
                 END
             `,
         })
@@ -334,9 +347,9 @@ export const refreshSessionMetadata = async (
         .select({
             value: sql<string>`
                 CASE
-                    WHEN length(${toolCallMessages.content}) > 160
-                        THEN substr(${toolCallMessages.content}, 1, 160) || '...'
-                    ELSE ${toolCallMessages.content}
+                    WHEN length(${messageText(toolCallMessages.id)}) > 160
+                        THEN substr(${messageText(toolCallMessages.id)}, 1, 160) || '...'
+                    ELSE ${messageText(toolCallMessages.id)}
                 END
             `,
         })
@@ -345,7 +358,7 @@ export const refreshSessionMetadata = async (
             and(
                 eq(toolCallMessages.session_id, sessionId),
                 eq(toolCallMessages.role, 'tool_call'),
-                sql`trim(${toolCallMessages.content}) <> ''`
+                sql`trim(${messageText(toolCallMessages.id)}) <> ''`
             )
         )
         .orderBy(desc(toolCallMessages.created_at), desc(toolCallMessages.id))

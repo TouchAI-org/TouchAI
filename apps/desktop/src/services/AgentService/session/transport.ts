@@ -6,6 +6,7 @@ import {
     findUnambiguousToolLogByStoredReference,
     type ToolLogHistoryRow,
 } from '@database/queries/messages';
+import type { MessagePartEntity } from '@database/types';
 
 import type { AiContentPart, AiMessage } from '../contracts/protocol';
 import type { AiToolCall } from '../contracts/tooling';
@@ -32,7 +33,16 @@ function toTransportToolName(toolLog: ToolLogHistoryRow): string {
 function buildAssistantTransportContent(row: {
     content: string;
     reasoning: string | null;
+    parts: MessagePartEntity[];
 }): AiMessage['content'] {
+    if (row.parts.length > 0) {
+        return row.parts.map((part) =>
+            part.type === 'reasoning'
+                ? ({ type: 'reasoning', text: part.content } as const)
+                : ({ type: 'text', text: part.content } as const)
+        );
+    }
+
     if (!row.reasoning?.trim()) {
         return row.content;
     }

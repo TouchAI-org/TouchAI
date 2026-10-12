@@ -20,20 +20,6 @@ export type PersistedOutputPart =
           durationMs?: number;
       };
 
-export interface PersistedOutputProgress {
-    version: 2;
-    parts: PersistedOutputPart[];
-    savedAt: number;
-}
-
-export interface LegacyPersistedOutputProgress {
-    response: string;
-    segments: ReasoningSegment[];
-    savedAt: number;
-}
-
-export type ParsedOutputProgress = PersistedOutputProgress | LegacyPersistedOutputProgress;
-
 /** Normalize both wall-clock records and legacy duration-only history. */
 export function normalizeReasoningSegments(raw: unknown): ReasoningSegment[] {
     if (!Array.isArray(raw)) return [];
@@ -85,15 +71,18 @@ export function normalizeOutputParts(raw: unknown): PersistedOutputPart[] {
             endedAt?: unknown;
             durationMs?: unknown;
         };
-        if (typeof part.content !== 'string' || part.content.length === 0) return [];
+        if (typeof part.content !== 'string') return [];
 
         if (part.type === 'text') {
+            if (part.content.length === 0) return [];
             return [{ type: 'text', content: part.content }];
         }
 
         if (part.type !== 'reasoning') return [];
 
         const startedAt = isValidTimestamp(part.startedAt) ? part.startedAt : undefined;
+        // A reasoning start is durable even before the first content delta.
+        if (part.content.length === 0 && startedAt === undefined) return [];
         const endedAt =
             startedAt !== undefined && isValidTimestamp(part.endedAt) && part.endedAt >= startedAt
                 ? part.endedAt
@@ -158,25 +147,6 @@ export function outputPartsFromLegacy(
     return parts;
 }
 
-export function getOutputPartText(parts: PersistedOutputPart[]): string {
-    return parts
-        .filter(
-            (part): part is Extract<PersistedOutputPart, { type: 'text' }> => part.type === 'text'
-        )
-        .map((part) => part.content)
-        .join('');
-}
-
-export function getOutputPartReasoning(parts: PersistedOutputPart[]): string {
-    return parts
-        .filter(
-            (part): part is Extract<PersistedOutputPart, { type: 'reasoning' }> =>
-                part.type === 'reasoning'
-        )
-        .map((part) => part.content)
-        .join('');
-}
-
 export function getReasoningSegmentsFromOutputParts(
     parts: PersistedOutputPart[]
 ): ReasoningSegment[] {
@@ -189,187 +159,6 @@ export function getReasoningSegmentsFromOutputParts(
                 ...(isValidTimestamp(part.endedAt) ? { endedAt: part.endedAt } : {}),
                 ...(isValidTimestamp(part.durationMs) && part.startedAt === undefined
                     ? { durationMs: Math.round(part.durationMs) }
-                    : {}),
-            },
-        ];
-    });
-}
-
-/** Serialize the canonical ordered part metadata stored on a message. */
-export function serializeOutputParts(parts: PersistedOutputPart[]): string {
-    return JSON.stringify({ version: 2, parts: normalizeOutputParts(parts) });
-}
-
-/**
- * Serialize a temporary checkpoint. The legacy overload is intentionally kept so old callers
- * and already-written snapshots remain readable during the migration.
- */
-export function serializeOutputProgress(parts: PersistedOutputPart[], savedAt: number): string;
-export function serializeOutputProgress(
-    response: string,
-    segments: ReasoningSegment[],
-    savedAt: number
-): string;
-export function serializeOutputProgress(
-    partsOrResponse: PersistedOutputPart[] | string,
-    savedAtOrSegments: number | ReasoningSegment[],
-    legacySavedAt?: number
-): string {
-    if (typeof partsOrResponse === 'string') {
-        return JSON.stringify({
-            response: partsOrResponse,
-            segments: serializeSegments(savedAtOrSegments as ReasoningSegment[]),
-            savedAt: legacySavedAt as number,
-        } satisfies LegacyPersistedOutputProgress);
-    }
-
-    return JSON.stringify({
-        version: 2,
-        parts: normalizeOutputParts(partsOrResponse),
-        savedAt: savedAtOrSegments as number,
-    } satisfies PersistedOutputProgress);
-}
-
-/** Serialize the old reasoning-only progress shape for compatibility with existing callers. */
-export function serializeReasoningProgress(segments: ReasoningSegment[], savedAt: number): string {
-    return JSON.stringify({
-        segments: serializeSegments(segments),
-        savedAt,
-    });
-}
-
-function serializeSegments(segments: ReasoningSegment[]): ReasoningSegment[] {
-    return segments
-        .filter((segment) => typeof segment.content === 'string' && segment.content.trim())
-        .map((segment) => ({
-            content: segment.content,
-            ...(isValidTimestamp(segment.startedAt) ? { startedAt: segment.startedAt } : {}),
-            ...(isValidTimestamp(segment.endedAt) ? { endedAt: segment.endedAt } : {}),
-            ...(isValidTimestamp(segment.durationMs)
-                ? { durationMs: Math.round(segment.durationMs) }
-                : {}),
-            ...(isValidTimestamp(segment.textOffset)
-                ? { textOffset: Math.round(segment.textOffset) }
-                : {}),
-        }));
-}
-
-export function parsePersistedOutputParts(
-    raw: string | null | undefined
-): PersistedOutputPart[] | null {
-    if (!raw) return null;
-    try {
-        const parsed: unknown = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return null;
-        const record = parsed as { version?: unknown; parts?: unknown };
-        if (record.version !== 2 || !Array.isArray(record.parts)) return null;
-        const parts = normalizeOutputParts(record.parts);
-        return parts.length > 0 ? parts : null;
-    } catch {
-        return null;
-    }
-}
-
-export function parseInterruptedOutputProgress(
-    raw: string | null | undefined
-): ParsedOutputProgress | null {
-    if (!raw) return null;
-    try {
-        const parsed: unknown = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return null;
-        const record = parsed as {
-            version?: unknown;
-            parts?: unknown;
-            response?: unknown;
-            segments?: unknown;
-            savedAt?: unknown;
-        };
-        if (!isValidTimestamp(record.savedAt)) return null;
-
-        if (record.version === 2 && Array.isArray(record.parts)) {
-            return {
-                version: 2,
-                parts: restoreInterruptedOutputParts(record.parts, record.savedAt),
-                savedAt: record.savedAt,
-            };
-        }
-
-        if (typeof record.response === 'string' && Array.isArray(record.segments)) {
-            return {
-                response: record.response,
-                segments: restoreInterruptedSegments(record.segments, record.savedAt),
-                savedAt: record.savedAt,
-            };
-        }
-        return null;
-    } catch {
-        return null;
-    }
-}
-
-export function parseInterruptedReasoningProgress(
-    raw: string | null | undefined
-): ReasoningSegment[] {
-    if (!raw) return [];
-
-    try {
-        const parsed: unknown = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return [];
-        const record = parsed as {
-            segments?: unknown;
-            savedAt?: unknown;
-            version?: unknown;
-            parts?: unknown;
-        };
-        if (!isValidTimestamp(record.savedAt)) return [];
-        if (record.version === 2 && Array.isArray(record.parts)) {
-            return getReasoningSegmentsFromOutputParts(
-                restoreInterruptedOutputParts(record.parts, record.savedAt)
-            );
-        }
-        if (!Array.isArray(record.segments)) return [];
-        return restoreInterruptedSegments(record.segments, record.savedAt);
-    } catch {
-        return [];
-    }
-}
-
-function restoreInterruptedOutputParts(raw: unknown[], savedAt: number): PersistedOutputPart[] {
-    return normalizeOutputParts(raw).map((part) => {
-        if (part.type !== 'reasoning' || part.endedAt !== undefined) return part;
-        return {
-            ...part,
-            ...(part.startedAt !== undefined ? { endedAt: savedAt } : {}),
-        };
-    });
-}
-
-function restoreInterruptedSegments(raw: unknown[], savedAt: number): ReasoningSegment[] {
-    return raw.flatMap((value): ReasoningSegment[] => {
-        if (!value || typeof value !== 'object') return [];
-        const segment = value as {
-            content?: unknown;
-            startedAt?: unknown;
-            endedAt?: unknown;
-            textOffset?: unknown;
-        };
-        if (
-            typeof segment.content !== 'string' ||
-            !segment.content.trim() ||
-            !isValidTimestamp(segment.startedAt) ||
-            (segment.endedAt !== undefined && !isValidTimestamp(segment.endedAt))
-        ) {
-            return [];
-        }
-        const endedAt = segment.endedAt ?? savedAt;
-        if (endedAt < segment.startedAt) return [];
-        return [
-            {
-                content: segment.content,
-                startedAt: segment.startedAt,
-                endedAt,
-                ...(isValidTimestamp(segment.textOffset)
-                    ? { textOffset: Math.round(segment.textOffset) }
                     : {}),
             },
         ];
