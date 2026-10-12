@@ -36,7 +36,14 @@ vi.mock('markdown-it-emoji', () => ({
 vi.mock('markstream-vue', () => ({
     default: {
         name: 'MarkdownRender',
-        props: ['nodes', 'codeBlockMonacoOptions'],
+        props: [
+            'nodes',
+            'codeBlockMonacoOptions',
+            'themes',
+            'viewportPriority',
+            'batchRendering',
+            'maxLiveNodes',
+        ],
         unmounted() {
             markdownRenderUnmountedMock();
         },
@@ -89,6 +96,80 @@ describe('MarkdownContent i18n', () => {
         vi.resetModules();
         const { setLocale } = await import('@/i18n');
         setLocale('zh-CN');
+    });
+
+    it('preserves the original code typography and the File/Diff theme order', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: { content: '```javascript\nconst value = 1;\n```', final: true },
+        });
+        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+
+        expect(renderer.props('themes')).toEqual(['one-dark-pro', 'one-light']);
+        expect(renderer.props('codeBlockMonacoOptions')).toMatchObject({
+            fontSize: 14,
+            lineHeight: 19,
+            fontFamily: "Consolas, 'Courier New', monospace",
+            glyphMargin: false,
+            autoScrollInitial: false,
+        });
+        // Trusted application CSS is passed through the supported Shadow DOM hook.
+        expect(renderer.props('codeBlockMonacoOptions').unsafeCSS).toContain('pre[data-file]');
+    });
+
+    it.each(['default', 'reasoning'] as const)(
+        'disables soft wrapping for streaming and finalized code/diff blocks in %s messages',
+        async (variant) => {
+            const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+            const content = '```text\n' + 'long code line '.repeat(100) + '\nsecond line';
+            const wrapper = mount(MarkdownContent, {
+                props: { content, final: false, variant },
+            });
+            const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+
+            expect(renderer.props('codeBlockMonacoOptions')).toMatchObject({
+                wordWrap: 'off',
+                diffWordWrap: 'off',
+                autoScrollInitial: true,
+            });
+
+            await wrapper.setProps({ content: content + '\n```', final: true });
+            expect(renderer.props('codeBlockMonacoOptions')).toMatchObject({
+                wordWrap: 'off',
+                diffWordWrap: 'off',
+                autoScrollInitial: false,
+            });
+            wrapper.unmount();
+        }
+    );
+
+    it('passes the TouchAI scrollbar skin into the File/Diff Shadow DOM', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: { content: '```javascript\nconst value = 1;\n```', final: true },
+        });
+        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+        const styles = renderer.props('codeBlockMonacoOptions').unsafeCSS;
+
+        expect(styles).toContain('[data-code]::-webkit-scrollbar-thumb');
+        expect(styles).toContain('var(--color-scrollbar-thumb)');
+        expect(styles).toContain('var(--color-scrollbar-thumb-hover)');
+        expect(styles).toContain('[data-code]::-webkit-scrollbar-button');
+        expect(styles).toContain('display: none');
+    });
+
+    it('bypasses self-root viewport deferral without disabling batched rendering', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: { content: '```javascript\n' + 'x'.repeat(900) + '\n```', final: true },
+        });
+        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+
+        expect(renderer.props('viewportPriority')).toBe(false);
+        expect(renderer.props('batchRendering')).toBe(true);
+        expect(renderer.props('maxLiveNodes')).toBe(0);
+        await wrapper.setProps({ variant: 'reasoning' });
+        expect(wrapper.findComponent({ name: 'MarkdownRender' }).props('maxLiveNodes')).toBe(320);
     });
 
     it('configures markstream labels for English locale', async () => {

@@ -1,0 +1,65 @@
+/* Applied inside stream-diffs' Shadow DOM through its supported unsafeCSS option.
+ * This is trusted static application CSS, never Markdown or model-generated input.
+ * Restrict the old Monaco gutter geometry to files; preserve native diff gutters.
+ */
+pre[data-file] [data-column-number] {
+    box-sizing: border-box;
+    width: 64px;
+    padding-inline: 0 26px;
+}
+
+pre[data-file] [data-line-number-content] {
+    min-width: 38px;
+}
+
+pre[data-file] [data-line] {
+    padding-inline-start: 0;
+}
+
+/* Shadow-root code scrollers cannot inherit document pseudo-element rules.
+ * Preserve the renderer's measured scrollbar gutter and split-diff scroll sync;
+ * only replace its transparent/hover-dependent skin with TouchAI's shared colors.
+ */
+pre:is([data-file], [data-diff]) [data-code] {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+    /* Let the light-DOM code viewport own both axes. Keeping this inner grid
+     * non-scrollable lets its horizontal overflow participate in the outer
+     * scrollport, so the horizontal bar stays at the viewport bottom. */
+    overflow: visible !important;
+    width: max-content;
+    min-width: 100%;
+}
+
+/* Split diffs render two contained code grids side by side. Content containment
+ * otherwise hides their long-line overflow from the light-DOM scroll owner. */
+pre[data-diff][data-diff-type='split'] [data-code] {
+    contain: none !important;
+}
+
+pre:is([data-file], [data-diff]) [data-code]::-webkit-scrollbar {
+    width: 6px;
+    height: var(--diffs-scrollbar-gutter, 6px);
+}
+
+pre:is([data-file], [data-diff]) [data-code]::-webkit-scrollbar-thumb,
+pre:is([data-file], [data-diff]):hover [data-code]::-webkit-scrollbar-thumb {
+    background: var(--color-scrollbar-thumb);
+    border: 0;
+    border-radius: 3px;
+}
+
+pre:is([data-file], [data-diff]) [data-code]::-webkit-scrollbar-thumb:hover {
+    background: var(--color-scrollbar-thumb-hover);
+}
+
+pre:is([data-file], [data-diff]) [data-code]::-webkit-scrollbar-track,
+pre:is([data-file], [data-diff]) [data-code]::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+pre:is([data-file], [data-diff]) [data-code]::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+}

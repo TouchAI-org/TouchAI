@@ -12,6 +12,8 @@ export default defineConfig({
   plugins: [vue(), tailwindcss(), Icons()],
   test: {
     environment: 'jsdom',
+    // This stylesheet is passed as text into the code renderer's Shadow DOM.
+    css: { include: [/markdown-code-surface\.css/] },
     globals: true,
     include: ['tests/**/*.test.{ts,js}'],
     exclude: ['node_modules', 'dist', '.idea', '.git', '.cache'],
