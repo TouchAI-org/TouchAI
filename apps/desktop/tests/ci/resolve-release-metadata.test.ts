@@ -104,6 +104,8 @@ describe('resolveReleaseMetadata', () => {
                 releaseInput({
                     eventName: 'schedule',
                     packageVersion: '1.2.3',
+                    stableBaseVersion: '1.2.3',
+                    latestNightly: null,
                     runNumber: 42,
                     runAttempt: 3,
                     date: new Date('2026-05-22T18:00:00Z'),
@@ -236,6 +238,7 @@ describe('resolveReleaseMetadata', () => {
                     eventName: 'schedule',
                     packageVersion: '1.2.3',
                     stableBaseVersion: '2.0.0',
+                    latestNightly: null,
                     runNumber: 42,
                     runAttempt: 1,
                     date: new Date('2026-05-22T18:00:00Z'),
