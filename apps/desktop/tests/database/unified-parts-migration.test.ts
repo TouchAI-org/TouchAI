@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 import { describe, expect, it } from 'vitest';
@@ -17,8 +17,28 @@ function applyMigrations(
     end = journal.entries.length
 ) {
     for (const entry of journal.entries.slice(start, end)) {
-        db.exec(readFileSync(`${root}/${entry.tag}.sql`, 'utf8'));
+        db.exec('BEGIN');
+        try {
+            for (const statement of migrationStatements(entry.tag)) db.exec(statement);
+            db.exec('COMMIT');
+        } catch (error) {
+            db.exec('ROLLBACK');
+            throw error;
+        }
     }
+}
+
+function migrationStatements(tag: string) {
+    return readFileSync(`${root}/${tag}.sql`, 'utf8')
+        .split('--> statement-breakpoint')
+        .map((statement) => statement.trim())
+        .filter(Boolean);
+}
+
+function pendingSnapshotFiles() {
+    return readdirSync(`${root}/meta`).filter(
+        (file) => /^\d+_snapshot\.json$/.test(file) && Number(file.split('_')[0]) >= 4
+    );
 }
 
 function migrated() {
@@ -29,6 +49,45 @@ function migrated() {
 }
 
 describe('complete parts migration', () => {
+    it('ships one migration and one final snapshot after the published baseline', () => {
+        const pending = journal.entries.slice(4);
+        expect(pending).toHaveLength(1);
+        expect(pending[0]!.tag).toMatch(/^0004_/);
+        const snapshotFiles = pendingSnapshotFiles();
+        expect(snapshotFiles).toEqual(['0004_snapshot.json']);
+    });
+    it('rolls back the consolidated schema and backfill together on failure', () => {
+        const db = new DatabaseSync(':memory:');
+        db.exec('PRAGMA foreign_keys=ON');
+        applyMigrations(db, 0, 4);
+        db.exec(`
+            INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'rollback', 'Test', 'test');
+            INSERT INTO messages (id, session_id, role, content, reasoning)
+            VALUES (1, 1, 'assistant', 'Original answer', 'Original thought');
+        `);
+        try {
+            db.exec('BEGIN');
+            for (const statement of migrationStatements(journal.entries[4]!.tag))
+                db.exec(statement);
+            expect(() => db.exec('INSERT INTO nonexistent_table VALUES (1)')).toThrow();
+            db.exec('ROLLBACK');
+            expect(db.prepare('SELECT content, reasoning FROM messages WHERE id=1').get()).toEqual({
+                content: 'Original answer',
+                reasoning: 'Original thought',
+            });
+            expect(
+                db
+                    .prepare(
+                        "SELECT name FROM sqlite_master WHERE name IN ('message_parts', 'message_search_fts')"
+                    )
+                    .all()
+            ).toEqual([]);
+            expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+        } finally {
+            db.close();
+        }
+    });
+
     it('removes duplicated output and provider credentials from legacy checkpoints', () => {
         const db = new DatabaseSync(':memory:');
         applyMigrations(db, 0, journal.entries.length - 1);
@@ -80,12 +139,10 @@ describe('complete parts migration', () => {
         db.exec(`
             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'collision', 'Test', 'test');
             INSERT INTO mcp_servers (id, name, transport_type) VALUES (1, 'server', 'stdio');
-            INSERT INTO messages (id, session_id, role, tool_log_id, tool_log_kind) VALUES
-                (1, 1, 'tool_call', 1, 'builtin'), (2, 1, 'tool_call', 1, 'mcp'),
-                (3, 1, 'tool_result', 1, 'builtin'), (4, 1, 'tool_result', 1, 'mcp'),
-                (5, 1, 'tool_result', 1, NULL), (6, 1, 'tool_result', 99, 'builtin');
-            INSERT INTO message_parts (message_id, type, content, sort_order) VALUES
-                (5, 'text', 'Ambiguous result', 0), (6, 'text', 'Unmatched result', 0);
+            INSERT INTO messages (id, session_id, role, content, tool_log_id, tool_log_kind) VALUES
+                (1, 1, 'tool_call', '', 1, 'builtin'), (2, 1, 'tool_call', '', 1, 'mcp'),
+                (3, 1, 'tool_result', '', 1, 'builtin'), (4, 1, 'tool_result', '', 1, 'mcp'),
+                (5, 1, 'tool_result', 'Ambiguous result', 1, NULL), (6, 1, 'tool_result', 'Unmatched result', 99, 'builtin');
             INSERT INTO built_in_tool_logs (id, tool_id, tool_call_id, message_id, iteration, input, status)
             VALUES (1, 'shell', 'builtin-call', 1, 1, '{}', 'completed');
             INSERT INTO mcp_tool_logs (id, server_id, tool_name, tool_call_id, message_id, iteration, input, status)
@@ -145,9 +202,8 @@ describe('complete parts migration', () => {
         applyMigrations(db, 0, journal.entries.length - 1);
         db.exec(`
             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'migration-test', 'Test', 'test');
-            INSERT INTO messages (id, session_id, role, tool_log_id, tool_log_kind)
-            VALUES (1, 1, 'tool_call', 1, 'builtin'), (2, 1, 'tool_result', 1, 'builtin');
-            INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (2, 'text', 'hi result', 0);
+            INSERT INTO messages (id, session_id, role, content, tool_log_id, tool_log_kind)
+            VALUES (1, 1, 'tool_call', '', 1, 'builtin'), (2, 1, 'tool_result', 'hi result', 1, 'builtin');
             INSERT INTO attachments (id, hash, type, original_name, origin_path)
             VALUES (1, 'hash-1', 'file', 'one.txt', 'C:/one.txt');
             INSERT INTO message_attachments (message_id, attachment_id, sort_order, origin_path)

@@ -1,15 +1,38 @@
--- Extend the canonical part row before moving legacy message-body records.
-ALTER TABLE `message_parts` ADD `data` text DEFAULT '{}' NOT NULL;
---> statement-breakpoint
-ALTER TABLE `message_parts` ADD `tool_call_id` text;
---> statement-breakpoint
-ALTER TABLE `message_parts` ADD `tool_kind` text;
---> statement-breakpoint
-ALTER TABLE `message_parts` ADD `attachment_id` integer REFERENCES `attachments`(`id`) ON DELETE cascade;
+CREATE TABLE `message_parts` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`message_id` integer NOT NULL,
+	`type` text NOT NULL,
+	`content` text NOT NULL,
+	`data` text DEFAULT '{}' NOT NULL,
+	`tool_call_id` text,
+	`tool_kind` text,
+	`attachment_id` integer,
+	`started_at` integer,
+	`ended_at` integer,
+	`sort_order` integer NOT NULL,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`attachment_id`) REFERENCES `attachments`(`id`) ON UPDATE no action ON DELETE cascade
+);
 --> statement-breakpoint
 CREATE INDEX `message_parts_tool_call_idx` ON `message_parts` (`tool_kind`,`tool_call_id`);
 --> statement-breakpoint
-
+CREATE UNIQUE INDEX `message_parts_message_id_sort_order_idx` ON `message_parts` (`message_id`,`sort_order`);
+--> statement-breakpoint
+-- Preserve existing messages before removing their legacy content columns.
+INSERT INTO `message_parts` (`message_id`, `type`, `content`, `sort_order`, `created_at`, `updated_at`)
+SELECT `id`, 'reasoning', `reasoning`, 0, `created_at`, `updated_at`
+FROM `messages` WHERE coalesce(`reasoning`, '') <> '';
+--> statement-breakpoint
+INSERT INTO `message_parts` (`message_id`, `type`, `content`, `sort_order`, `created_at`, `updated_at`)
+SELECT `id`, 'text', `content`, CASE WHEN coalesce(`reasoning`, '') <> '' THEN 1 ELSE 0 END, `created_at`, `updated_at`
+FROM `messages` WHERE `content` <> '';
+--> statement-breakpoint
+ALTER TABLE `messages` DROP COLUMN `content`;
+--> statement-breakpoint
+ALTER TABLE `messages` DROP COLUMN `reasoning`;
+--> statement-breakpoint
 -- Resolve legacy tool logs exactly once. A log that did not have a message is
 -- preserved under a synthetic message rather than being silently discarded.
 CREATE TEMP TABLE `_legacy_tool_sources` AS
@@ -225,24 +248,26 @@ SELECT
     source.created_at
 FROM _legacy_attachment_sources AS source;
 --> statement-breakpoint
-
-DROP TABLE `message_attachments`;
+DROP TABLE `built_in_tool_logs`;
 --> statement-breakpoint
 DROP TABLE `mcp_tool_logs`;
 --> statement-breakpoint
-DROP TABLE `built_in_tool_logs`;
+DROP TABLE `message_attachments`;
 --> statement-breakpoint
 ALTER TABLE `messages` DROP COLUMN `tool_log_id`;
 --> statement-breakpoint
 ALTER TABLE `messages` DROP COLUMN `tool_log_kind`;
-
 --> statement-breakpoint
--- Preserve tool-result search when its body becomes a typed canonical part.
-DROP TRIGGER trg_message_parts_search_insert;
---> statement-breakpoint
-DROP TRIGGER trg_message_parts_search_delete;
---> statement-breakpoint
-DROP TRIGGER trg_message_parts_search_update;
+-- Derived search index only: message_parts remains the sole content store.
+-- detail=none stores document IDs without token positions. Search verifies candidates
+-- against ordered text parts, preserving literal substring and cross-part matches.
+CREATE VIRTUAL TABLE `message_search_fts` USING fts5(
+    content,
+    content='',
+    contentless_delete=1,
+    tokenize='trigram',
+    detail=none
+);
 --> statement-breakpoint
 CREATE TRIGGER trg_message_parts_search_insert
 AFTER INSERT ON message_parts
@@ -298,9 +323,6 @@ BEGIN
     WHERE messages.id IN (OLD.message_id, NEW.message_id)
       AND EXISTS (SELECT 1 FROM message_parts WHERE message_id = messages.id AND type IN ('text', 'tool_result'));
 END;
-
---> statement-breakpoint
-DELETE FROM message_search_fts;
 --> statement-breakpoint
 INSERT INTO message_search_fts(rowid, content)
 SELECT message_id, group_concat(content, '')
@@ -310,7 +332,6 @@ FROM (
     ORDER BY message_id, sort_order, id
 )
 GROUP BY message_id;
-
 --> statement-breakpoint
 -- Keep execution controls and output boundaries, not another copy of the transcript.
 UPDATE session_turn_attempts
