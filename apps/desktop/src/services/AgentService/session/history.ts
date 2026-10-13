@@ -28,11 +28,10 @@ import { createReasoningPart, createTextPart } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
 import { AiError } from '../contracts/errors';
-import type { ReasoningSegment } from '../contracts/protocol';
+import type { PersistedOutputPart } from '../contracts/protocol';
 import { getRetryStatusMessage } from '../execution/retry';
 import type { PromptSnapshot } from '../prompt/types';
 import { getSessionData, type SessionData } from './manager';
-import type { PersistedOutputPart } from './reasoningProgress';
 import {
     ensureAssistantWidgets,
     ensureWidgetPart,
@@ -47,10 +46,7 @@ interface PersistedHistoryEntry {
     id: number;
     role: MessageRow['role'];
     content: string;
-    reasoning: string | null;
-    reasoningSegments: ReasoningSegment[] | null;
-    outputParts: PersistedOutputPart[] | null;
-    interruptedReasoningSegments?: ReasoningSegment[];
+    outputParts: PersistedOutputPart[];
     created_at: string;
     attachments?: Awaited<ReturnType<typeof hydratePersistedAttachments>>;
     toolCalls?: ToolCallInfo[];
@@ -275,26 +271,11 @@ async function buildPersistedEntries(
                     ];
                 }
             );
-            const reasoningSegments = outputParts.flatMap((part): ReasoningSegment[] =>
-                part.type === 'reasoning'
-                    ? [
-                          {
-                              content: part.content,
-                              ...(part.startedAt !== undefined
-                                  ? { startedAt: part.startedAt }
-                                  : {}),
-                              ...(part.endedAt !== undefined ? { endedAt: part.endedAt } : {}),
-                          },
-                      ]
-                    : []
-            );
             currentEntry = {
                 id: row.id,
                 role: row.role,
                 content: row.content,
-                reasoning: reasoningSegments.map((segment) => segment.content).join('') || null,
-                reasoningSegments: reasoningSegments.length > 0 ? reasoningSegments : null,
-                outputParts: outputParts.length > 0 ? outputParts : null,
+                outputParts,
                 created_at: row.created_at,
                 attachments:
                     row.role === 'user'
@@ -372,7 +353,10 @@ function appendAssistantOutput(message: SessionMessage, outputParts: PersistedOu
         }
     }
 }
-function appendReasoningPart(message: SessionMessage, segment: ReasoningSegment): void {
+function appendReasoningPart(
+    message: SessionMessage,
+    segment: Extract<PersistedOutputPart, { type: 'reasoning' }>
+): void {
     const part = createReasoningPart(segment.content);
     part.startedAt = segment.startedAt;
     part.endedAt = segment.endedAt;
@@ -572,7 +556,7 @@ function convertEntriesToSessionHistory(
         const assistantMessage = ensureAssistantMessage(entry);
 
         if (entry.role === 'assistant' || entry.role === 'tool_call') {
-            appendAssistantOutput(assistantMessage, entry.outputParts ?? []);
+            appendAssistantOutput(assistantMessage, entry.outputParts);
         }
 
         if (entry.role === 'tool_call' && entry.toolCalls?.length) {

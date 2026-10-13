@@ -192,7 +192,6 @@ describe('complete parts migration', () => {
             messages: [{ role: 'assistant', content: 'Repeated output' }],
             response: 'Answer',
             reasoning: 'Plan',
-            outputParts: [{ type: 'text', content: 'Answer' }],
             iteration: 2,
             modelSwitchCount: 1,
             modelLanguageContext: { language: 'zh' },
@@ -221,7 +220,7 @@ describe('complete parts migration', () => {
                 modelSwitchCount: 1,
                 modelLanguageContext: { language: 'zh' },
                 executedBuiltInToolIds: ['shell'],
-                outputBoundary: { textLength: 6, reasoningLength: 4, partCount: 1 },
+                outputBoundary: { textLength: 6, reasoningLength: 4, partCount: 2 },
             });
         } finally {
             db.close();

@@ -337,13 +337,13 @@ UPDATE session_turn_attempts
 SET checkpoint_json = CASE WHEN json_valid(checkpoint_json) AND (
     json_type(checkpoint_json, '$.messages') IS NOT NULL OR json_type(checkpoint_json, '$.activeModel') IS NOT NULL
     OR json_type(checkpoint_json, '$.response') IS NOT NULL OR json_type(checkpoint_json, '$.reasoning') IS NOT NULL
-    OR json_type(checkpoint_json, '$.outputParts') IS NOT NULL
 ) THEN json_set(
-    json_remove(checkpoint_json, '$.messages', '$.activeModel', '$.response', '$.reasoning', '$.outputParts'),
-    '$.activeModelId', coalesce(json_extract(checkpoint_json, '$.activeModelId'), json_extract(checkpoint_json, '$.activeModel.id')),
-    '$.outputBoundary', json(coalesce(json_extract(checkpoint_json, '$.outputBoundary'), json_object(
+    json_remove(checkpoint_json, '$.messages', '$.activeModel', '$.response', '$.reasoning'),
+    '$.activeModelId', json_extract(checkpoint_json, '$.activeModel.id'),
+    '$.outputBoundary', json_object(
         'textLength', length(coalesce(json_extract(checkpoint_json, '$.response'), '')),
         'reasoningLength', length(coalesce(json_extract(checkpoint_json, '$.reasoning'), '')),
-        'partCount', coalesce(json_array_length(checkpoint_json, '$.outputParts'), 0)
-    )))
+        'partCount', (length(coalesce(json_extract(checkpoint_json, '$.response'), '')) > 0)
+            + (length(coalesce(json_extract(checkpoint_json, '$.reasoning'), '')) > 0)
+    )
 ) ELSE checkpoint_json END;

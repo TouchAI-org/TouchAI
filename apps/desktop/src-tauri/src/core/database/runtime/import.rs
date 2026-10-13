@@ -1,17 +1,17 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-//! 备份导入执行流程。
+//! 备份先通过统一迁移升级，再按当前数据库契约合并。
 
 use std::{fs, path::PathBuf};
 
-use sqlx::{Sqlite, SqlitePool};
+use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection, SqlitePool};
 
 use super::super::{
-    contract::{execute_sql_artifact_on_connection, DatabaseContractSource},
+    contract::{execute_sql_artifact_on_connection, migrate_database, DatabaseContractSource},
     protocol::types::{DatabaseImportMode, DatabaseImportRequest},
 };
 
-/// 执行数据导入。
+/// 原备份只读；所有升级只发生在临时副本，导入不猜测旧字段或中间格式。
 pub(crate) async fn run_import_backup(
     pool: SqlitePool,
     database_path: PathBuf,
@@ -22,726 +22,476 @@ pub(crate) async fn run_import_backup(
     if !source_path.is_file() {
         return Err("导入文件不存在或不是有效数据库文件".to_string());
     }
-
-    let current_database_path =
-        fs::canonicalize(&database_path).unwrap_or_else(|_| database_path.clone());
-    let canonical_source_path = fs::canonicalize(&source_path)
+    let source_path = fs::canonicalize(&source_path)
         .map_err(|error| format!("Failed to resolve import path: {error}"))?;
-    if canonical_source_path == current_database_path {
+    let current_path = fs::canonicalize(&database_path).unwrap_or(database_path.clone());
+    if source_path == current_path {
         return Err("不能导入当前正在使用的数据库文件".to_string());
     }
 
-    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-        .execute(&pool)
-        .await
-        .map_err(|error| format!("Failed to checkpoint sqlite WAL before import: {error}"))?;
-
+    let snapshot =
+        prepare_import_database(&source_path, &database_path, &database_contract).await?;
+    let snapshot_path = snapshot.path().join("touchai.db");
     let mut connection = pool
         .acquire()
         .await
         .map_err(|error| format!("Failed to acquire sqlite connection for import: {error}"))?;
+    sqlx::query("ATTACH DATABASE ? AS imported")
+        .bind(snapshot_path.to_string_lossy().as_ref())
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| format!("Failed to attach import database: {error}"))?;
 
-    attach_import_source(
-        &mut connection,
-        canonical_source_path.to_string_lossy().into_owned(),
-    )
-    .await?;
     let import_result = async {
-        validate_import_source(&mut connection).await?;
-        ensure_import_required_tables(&mut connection).await?;
-
         sqlx::query("BEGIN EXCLUSIVE")
             .execute(&mut *connection)
             .await
             .map_err(|error| format!("Failed to begin import transaction: {error}"))?;
-
-        if let Err(error) = prepare_import_message_parts(&mut connection).await {
-            let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
-            return Err(error);
-        }
-
-        let merge_result = match request.mode {
-            DatabaseImportMode::ChatOnly => {
-                merge_chat_data(&mut connection, &database_contract).await
+        let merge_result: Result<(), String> = async {
+            if matches!(request.mode, DatabaseImportMode::Full) {
+                execute_sql_artifact_on_connection(
+                    &mut connection,
+                    &database_contract,
+                    &["artifacts", "import", "full_prelude.sql"],
+                )
+                .await?;
             }
-            DatabaseImportMode::Full => merge_full_data(&mut connection, &database_contract).await,
-        };
-
-        if let Err(error) = merge_result {
-            let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
-            return Err(error);
+            execute_sql_artifact_on_connection(
+                &mut connection,
+                &database_contract,
+                &["artifacts", "import", "chat_merge.sql"],
+            )
+            .await?;
+            sqlx::query("COMMIT")
+                .execute(&mut *connection)
+                .await
+                .map_err(|error| format!("Failed to commit import transaction: {error}"))?;
+            Ok(())
         }
+        .await;
+        if merge_result.is_err() {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+        }
+        merge_result
+    }
+    .await;
+    let detach_result = sqlx::query("DETACH DATABASE imported")
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| format!("Failed to detach import database: {error}"));
+    // Do not return a connection with a still-attached temporary database to the pool.
+    if detach_result.is_err() {
+        let _ = connection.close().await;
+    }
+    import_result?;
+    detach_result?;
+    Ok(())
+}
 
-        sqlx::query("COMMIT")
-            .execute(&mut *connection)
+async fn prepare_import_database(
+    source_path: &std::path::Path,
+    database_path: &std::path::Path,
+    database_contract: &DatabaseContractSource,
+) -> Result<tempfile::TempDir, String> {
+    let snapshot = tempfile::tempdir_in(database_path.parent().ok_or("数据库路径没有父目录")?)
+        .map_err(|error| format!("Failed to create import workspace: {error}"))?;
+    let snapshot_path = snapshot.path().join("touchai.db");
+    let mut source = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(source_path)
+            .read_only(true),
+    )
+    .await
+    .map_err(|error| format!("Failed to open import database: {error}"))?;
+    let copy_result = async {
+        let has_meta = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'touchai_meta'",
+        )
+        .fetch_one(&mut source)
+        .await
+        .map_err(|error| format!("Failed to inspect import database: {error}"))?;
+        if has_meta == 0 {
+            return Err("该文件不是 TouchAI 数据库".to_string());
+        }
+        let app_id =
+            sqlx::query_scalar::<_, String>("SELECT value FROM touchai_meta WHERE key = 'app_id'")
+                .fetch_optional(&mut source)
+                .await
+                .map_err(|error| format!("Failed to validate import database: {error}"))?;
+        if app_id.as_deref() != Some("touchai") {
+            return Err("该文件不是 TouchAI 数据库".to_string());
+        }
+        // SQLite takes a consistent snapshot including committed WAL data.
+        sqlx::query("VACUUM INTO ?")
+            .bind(snapshot_path.to_string_lossy().as_ref())
+            .execute(&mut source)
             .await
-            .map_err(|error| format!("Failed to commit import transaction: {error}"))?;
-
+            .map_err(|error| format!("Failed to snapshot import database: {error}"))?;
         Ok(())
     }
     .await;
+    let close_result = source.close().await;
+    copy_result?;
+    close_result.map_err(|error| format!("Failed to close import source: {error}"))?;
 
-    let detach_result = detach_import_source(&mut connection).await;
-    import_result?;
-    detach_result
-}
-
-async fn attach_import_source(
-    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-    source_path: String,
-) -> Result<(), String> {
-    let attach_sql = format!(
-        "ATTACH DATABASE '{}' AS imported",
-        escape_sqlite_string(&source_path)
-    );
-
-    sqlx::raw_sql(&attach_sql)
-        .execute(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to attach import database: {error}"))?;
-
-    Ok(())
-}
-
-async fn detach_import_source(
-    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-) -> Result<(), String> {
-    sqlx::query("DETACH DATABASE imported")
-        .execute(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to detach import database: {error}"))?;
-    Ok(())
-}
-
-async fn validate_import_source(
-    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-) -> Result<(), String> {
-    let meta_table_exists = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM imported.sqlite_master WHERE type = 'table' AND name = 'touchai_meta'",
-    )
-    .fetch_one(&mut **connection)
-    .await
-    .map_err(|error| format!("Failed to inspect import database: {error}"))?;
-
-    if meta_table_exists == 0 {
-        return Err("该文件不是 TouchAI 数据库".to_string());
-    }
-
-    let app_id = sqlx::query_scalar::<_, String>(
-        "SELECT value FROM imported.touchai_meta WHERE key = 'app_id' LIMIT 1",
-    )
-    .fetch_optional(&mut **connection)
-    .await
-    .map_err(|error| format!("Failed to validate import database meta: {error}"))?;
-
-    if app_id.as_deref() != Some("touchai") {
-        return Err("该文件不是 TouchAI 数据库".to_string());
-    }
-
-    Ok(())
-}
-
-async fn import_table_exists(
-    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-    table: &str,
-) -> Result<bool, String> {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM imported.sqlite_master WHERE type = 'table' AND name = ?",
-    )
-    .bind(table)
-    .fetch_one(&mut **connection)
-    .await
-    .map(|count| count > 0)
-    .map_err(|error| format!("Failed to inspect import table '{table}': {error}"))
-}
-
-async fn ensure_import_required_tables(
-    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-) -> Result<(), String> {
-    // These tables exist in every supported backup generation. Tables removed by
-    // the message-parts migration are intentionally optional and normalized below.
-    const REQUIRED_TABLES: &[&str] = &[
-        "providers",
-        "models",
-        "sessions",
-        "messages",
-        "attachments",
-        "session_turns",
-        "session_turn_attempts",
-        "llm_metadata",
-        "settings",
-        "statistics",
-        "touchai_meta",
-    ];
-
-    for &table in REQUIRED_TABLES {
-        if !import_table_exists(connection, table).await? {
-            return Err(format!("导入数据库缺少必需数据表: {table}"));
+    let mut upgraded =
+        SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&snapshot_path))
+            .await
+            .map_err(|error| format!("Failed to open import snapshot: {error}"))?;
+    let upgrade_result = async {
+        migrate_database(&mut upgraded, database_contract).await?;
+        if !sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&mut upgraded)
+            .await
+            .map_err(|error| format!("Failed to validate upgraded database: {error}"))?
+            .is_empty()
+        {
+            return Err("导入数据库存在无效的外键引用".to_string());
         }
+        Ok(())
     }
-
-    Ok(())
-}
-
-/// Normalize current and legacy backups into a temporary parts source without
-/// modifying the attached backup. The merge contract only reads this one shape.
-async fn prepare_import_message_parts(
-    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-) -> Result<(), String> {
-    sqlx::raw_sql(
-        "DROP TABLE IF EXISTS temp_import_message_parts;
-         CREATE TEMP TABLE temp_import_message_parts (
-             id INTEGER PRIMARY KEY, message_id INTEGER NOT NULL,
-             type TEXT NOT NULL, content TEXT NOT NULL, data TEXT NOT NULL DEFAULT '{}',
-             tool_call_id TEXT GENERATED ALWAYS AS (CASE WHEN type IN ('tool_call', 'tool_result') THEN json_extract(data, '$.toolCallId') END) VIRTUAL,
-             tool_kind TEXT GENERATED ALWAYS AS (CASE WHEN type IN ('tool_call', 'tool_result') THEN json_extract(data, '$.toolKind') END) VIRTUAL,
-             attachment_id INTEGER GENERATED ALWAYS AS (CASE WHEN type = 'attachment' THEN json_extract(data, '$.attachmentId') END) VIRTUAL,
-             started_at INTEGER, ended_at INTEGER, sort_order INTEGER NOT NULL,
-             created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-         );
-         DROP TABLE IF EXISTS temp_import_synthetic_sessions;
-         CREATE TEMP TABLE temp_import_synthetic_sessions (
-             id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, title TEXT NOT NULL,
-             model TEXT NOT NULL, provider_id INTEGER, last_message_preview TEXT,
-             last_message_at TEXT, message_count INTEGER NOT NULL, pinned_at TEXT,
-             archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-         );
-         DROP TABLE IF EXISTS temp_import_synthetic_messages;
-         CREATE TEMP TABLE temp_import_synthetic_messages (
-             id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, role TEXT NOT NULL,
-             created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-             tool_kind TEXT NOT NULL, legacy_id INTEGER NOT NULL
-         );
-         DROP TABLE IF EXISTS temp_import_legacy_tool_sources;
-         CREATE TEMP TABLE temp_import_legacy_tool_sources (
-             tool_kind TEXT NOT NULL, legacy_id INTEGER NOT NULL, message_id INTEGER,
-             session_id INTEGER, tool_call_id TEXT NOT NULL, created_at TEXT NOT NULL,
-             data TEXT NOT NULL,
-             PRIMARY KEY (tool_kind, legacy_id)
-         );",
-    )
-    .execute(&mut **connection)
-    .await
-    .map_err(|error| format!("Failed to prepare import parts: {error}"))?;
-
-    let has_parts = import_table_exists(connection, "message_parts").await?;
-    if has_parts {
-        let has_part_metadata = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM pragma_table_xinfo('message_parts', 'imported')
-             WHERE name IN ('data', 'tool_call_id', 'tool_kind', 'attachment_id')",
-        )
-        .fetch_one(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to inspect import part metadata: {error}"))?
-            == 4;
-        if has_part_metadata {
-            sqlx::query(
-                "INSERT INTO temp_import_message_parts
-                 (id, message_id, type, content, data,
-                  started_at, ended_at, sort_order, created_at, updated_at)
-                 SELECT id, message_id, type, content,
-                        CASE WHEN type IN ('tool_call', 'tool_result')
-                             THEN json_set(data, '$.toolCallId', tool_call_id, '$.toolKind', tool_kind)
-                             WHEN type = 'attachment'
-                             THEN json_set(data, '$.attachmentId', attachment_id)
-                             ELSE data END,
-                        started_at, ended_at, sort_order, created_at, updated_at
-                 FROM imported.message_parts",
-            )
-            .execute(&mut **connection)
-            .await
-            .map_err(|error| format!("Failed to load import parts: {error}"))?;
-        } else {
-            sqlx::query(
-                "INSERT INTO temp_import_message_parts
-                 (id, message_id, type, content, started_at, ended_at, sort_order, created_at, updated_at)
-                 SELECT id, message_id, type, content, started_at, ended_at, sort_order, created_at, updated_at
-                 FROM imported.message_parts",
-            )
-            .execute(&mut **connection)
-            .await
-            .map_err(|error| format!("Failed to load legacy import parts: {error}"))?;
-        }
-    } else {
-        let has_reasoning = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM pragma_table_info('messages', 'imported') WHERE name = 'reasoning'",
-        )
-        .fetch_one(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to inspect legacy reasoning: {error}"))?
-            > 0;
-        if has_reasoning {
-            sqlx::raw_sql(
-                "INSERT INTO temp_import_message_parts
-                 (message_id, type, content, sort_order, created_at, updated_at)
-                 SELECT id, 'reasoning', reasoning, 0, created_at, updated_at
-                 FROM imported.messages WHERE coalesce(reasoning, '') <> '';
-                 INSERT INTO temp_import_message_parts
-                 (message_id, type, content, sort_order, created_at, updated_at)
-                 SELECT id, 'text', content,
-                        CASE WHEN coalesce(reasoning, '') <> '' THEN 1 ELSE 0 END,
-                        created_at, updated_at
-                 FROM imported.messages WHERE content <> '';",
-            )
-            .execute(&mut **connection)
-            .await
-            .map_err(|error| format!("Failed to normalize legacy import parts: {error}"))?;
-        } else {
-            sqlx::query(
-                "INSERT INTO temp_import_message_parts
-                 (message_id, type, content, sort_order, created_at, updated_at)
-                 SELECT id, 'text', content, 0, created_at, updated_at
-                 FROM imported.messages WHERE content <> ''",
-            )
-            .execute(&mut **connection)
-            .await
-            .map_err(|error| format!("Failed to normalize legacy import text: {error}"))?;
-        }
-    }
-
-    let has_mcp_logs = import_table_exists(connection, "mcp_tool_logs").await?;
-    if has_mcp_logs {
-        sqlx::query(
-            "INSERT INTO temp_import_legacy_tool_sources
-             (tool_kind, legacy_id, message_id, session_id, tool_call_id, created_at, data)
-             SELECT 'mcp', id, message_id, session_id, tool_call_id, created_at,
-                    json_object(
-                        'server_id', server_id, 'tool_name', tool_name,
-                        'iteration', iteration, 'input', input, 'output', output,
-                        'status', status, 'duration_ms', duration_ms,
-                        'error_message', error_message
-                    )
-             FROM imported.mcp_tool_logs",
-        )
-        .execute(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to normalize MCP tool logs: {error}"))?;
-    }
-
-    let has_builtin_logs = import_table_exists(connection, "built_in_tool_logs").await?;
-    if has_builtin_logs {
-        sqlx::query(
-            "INSERT INTO temp_import_legacy_tool_sources
-             (tool_kind, legacy_id, message_id, session_id, tool_call_id, created_at, data)
-             SELECT 'builtin', id, message_id, session_id, tool_call_id, created_at,
-                    json_object(
-                        'tool_id', tool_id, 'iteration', iteration,
-                        'input', input, 'output', output, 'status', status,
-                        'approval_state', approval_state,
-                        'approval_summary', approval_summary,
-                        'duration_ms', duration_ms, 'error_message', error_message,
-                        'conversation_semantic_json', conversation_semantic_json
-                    )
-             FROM imported.built_in_tool_logs",
-        )
-        .execute(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to normalize built-in tool logs: {error}"))?;
-    }
-
-    let has_legacy_refs = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM pragma_table_info('messages', 'imported')
-         WHERE name IN ('role', 'tool_log_id', 'tool_log_kind')",
-    )
-    .fetch_one(&mut **connection)
-    .await
-    .map_err(|error| format!("Failed to inspect legacy tool references: {error}"))?
-        == 3;
-    if has_legacy_refs {
-        sqlx::raw_sql(
-            "UPDATE temp_import_legacy_tool_sources
-             SET message_id = (
-                 SELECT MIN(messages.id) FROM imported.messages AS messages
-                 WHERE messages.role <> 'tool_result'
-                   AND messages.tool_log_id = temp_import_legacy_tool_sources.legacy_id
-                   AND messages.tool_log_kind = temp_import_legacy_tool_sources.tool_kind
-             ) WHERE message_id IS NULL;
-             DROP TABLE IF EXISTS temp_import_legacy_tool_results;
-             CREATE TEMP TABLE temp_import_legacy_tool_results AS
-             SELECT messages.id AS message_id,
-                    CASE WHEN COUNT(sources.legacy_id) = 1 THEN MAX(sources.tool_call_id) END AS tool_call_id,
-                    CASE WHEN COUNT(sources.legacy_id) = 1 THEN MAX(sources.tool_kind) END AS tool_kind
-             FROM imported.messages AS messages
-             LEFT JOIN temp_import_legacy_tool_sources AS sources
-               ON sources.legacy_id = messages.tool_log_id
-              AND (sources.tool_kind = messages.tool_log_kind OR messages.tool_log_kind IS NULL)
-             WHERE messages.role = 'tool_result'
-             GROUP BY messages.id;
-             UPDATE temp_import_message_parts
-             SET type = 'tool_result',
-                 data = json_set(data,
-                     '$.toolCallId', (SELECT tool_call_id FROM temp_import_legacy_tool_results WHERE message_id = temp_import_message_parts.message_id),
-                     '$.toolKind', (SELECT tool_kind FROM temp_import_legacy_tool_results WHERE message_id = temp_import_message_parts.message_id))
-             WHERE type = 'text' AND message_id IN (SELECT message_id FROM temp_import_legacy_tool_results);
-             INSERT INTO temp_import_message_parts
-             (message_id, type, content, data, sort_order, created_at, updated_at)
-             SELECT results.message_id, 'tool_result', '', json_object('toolCallId', results.tool_call_id, 'toolKind', results.tool_kind),
-                    coalesce((SELECT max(sort_order) + 1 FROM temp_import_message_parts WHERE message_id = results.message_id), 0),
-                    messages.created_at, messages.updated_at
-             FROM temp_import_legacy_tool_results AS results
-             JOIN imported.messages AS messages ON messages.id = results.message_id
-             WHERE NOT EXISTS (SELECT 1 FROM temp_import_message_parts WHERE message_id = results.message_id AND type = 'tool_result');
-             DROP TABLE temp_import_legacy_tool_results;",
-        )
-        .execute(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to normalize legacy tool results: {error}"))?;
-    }
-
-    // A legacy log can outlive its message after a crash. Keep it visible by
-    // giving it a synthetic message; null session IDs go to one import archive.
-    sqlx::raw_sql(
-        "INSERT INTO temp_import_synthetic_sessions
-         (id, session_id, title, model, provider_id, last_message_preview,
-          last_message_at, message_count, pinned_at, archived_at, created_at, updated_at)
-         SELECT -1, '__import-orphan-tools__', 'Imported tool activity', 'migration',
-                NULL, NULL, NULL, 0, NULL, datetime('now'), datetime('now'), datetime('now')
-         WHERE EXISTS (
-             SELECT 1 FROM temp_import_legacy_tool_sources WHERE message_id IS NULL AND session_id IS NULL
-         );
-         INSERT INTO temp_import_synthetic_messages
-         (id, session_id, role, created_at, updated_at, tool_kind, legacy_id)
-         SELECT
-             -ROW_NUMBER() OVER (ORDER BY tool_kind, legacy_id),
-             coalesce(session_id, -1), 'tool_call', created_at, created_at,
-             tool_kind, legacy_id
-         FROM temp_import_legacy_tool_sources
-         WHERE message_id IS NULL;
-         INSERT INTO temp_import_message_parts
-         (message_id, type, content, data,
-          sort_order, created_at, updated_at)
-         SELECT
-             coalesce(source.message_id, synthetic.id), 'tool_call', '',
-             json_set(source.data, '$.toolCallId', source.tool_call_id, '$.toolKind', source.tool_kind),
-             coalesce((
-                 SELECT max(existing.sort_order) + 1
-                 FROM temp_import_message_parts AS existing
-                 WHERE existing.message_id = coalesce(source.message_id, synthetic.id)
-             ), 0) + row_number() OVER (
-                 PARTITION BY coalesce(source.message_id, synthetic.id)
-                 ORDER BY source.created_at, source.tool_kind, source.legacy_id
-             ) - 1,
-             source.created_at, source.created_at
-         FROM temp_import_legacy_tool_sources AS source
-         LEFT JOIN temp_import_synthetic_messages AS synthetic
-           ON synthetic.tool_kind = source.tool_kind AND synthetic.legacy_id = source.legacy_id
-         WHERE NOT EXISTS (
-             SELECT 1 FROM temp_import_message_parts AS existing
-             WHERE existing.message_id = coalesce(source.message_id, synthetic.id)
-               AND existing.type = 'tool_call'
-               AND existing.tool_call_id = source.tool_call_id
-               AND existing.tool_kind = source.tool_kind
-         );",
-    )
-    .execute(&mut **connection)
-    .await
-    .map_err(|error| format!("Failed to normalize legacy tool logs: {error}"))?;
-
-    let has_legacy_attachments = import_table_exists(connection, "message_attachments").await?;
-    if has_legacy_attachments {
-        sqlx::query(
-            "INSERT INTO temp_import_message_parts
-             (message_id, type, content, data, sort_order, created_at, updated_at)
-             SELECT source.message_id, 'attachment', '',
-                    json_object('attachmentId', source.attachment_id, 'originPath', source.origin_path),
-                    coalesce((SELECT max(existing.sort_order) + 1
-                              FROM temp_import_message_parts AS existing
-                              WHERE existing.message_id = source.message_id), 0)
-                    + row_number() OVER (
-                        PARTITION BY source.message_id
-                        ORDER BY source.sort_order, source.id
-                    ) - 1,
-                    source.created_at, source.created_at
-             FROM imported.message_attachments AS source
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM temp_import_message_parts AS existing
-                 WHERE existing.message_id = source.message_id
-                   AND existing.type = 'attachment'
-                   AND existing.attachment_id = source.attachment_id
-             )",
-        )
-        .execute(&mut **connection)
-        .await
-        .map_err(|error| format!("Failed to normalize legacy import attachments: {error}"))?;
-    }
-
-    Ok(())
-}
-
-async fn merge_chat_data(
-    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-    database_contract: &DatabaseContractSource,
-) -> Result<(), String> {
-    execute_sql_artifact_on_connection(
-        connection,
-        database_contract,
-        &["artifacts", "import", "chat_merge.sql"],
-    )
-    .await
-}
-
-async fn merge_full_data(
-    connection: &mut sqlx::pool::PoolConnection<Sqlite>,
-    database_contract: &DatabaseContractSource,
-) -> Result<(), String> {
-    execute_sql_artifact_on_connection(
-        connection,
-        database_contract,
-        &["artifacts", "import", "full_prelude.sql"],
-    )
-    .await?;
-    merge_chat_data(connection, database_contract).await?;
-    execute_sql_artifact_on_connection(
-        connection,
-        database_contract,
-        &["artifacts", "import", "full_postlude.sql"],
-    )
-    .await?;
-    Ok(())
-}
-
-fn escape_sqlite_string(value: &str) -> String {
-    value.replace('\'', "''")
+    .await;
+    let close_result = upgraded.close().await;
+    upgrade_result?;
+    close_result.map_err(|error| format!("Failed to close import snapshot: {error}"))?;
+    Ok(snapshot)
 }
 
 #[cfg(test)]
 mod tests {
-    use sqlx::sqlite::SqlitePoolOptions;
-
     use super::*;
+    use crate::core::database::contract::{create_sqlite_pool, migrate_database};
 
-    async fn import_connection() -> sqlx::pool::PoolConnection<Sqlite> {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+    fn contract() -> DatabaseContractSource {
+        DatabaseContractSource::from_root(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .join("src/database"),
+        )
+        .unwrap()
+    }
+
+    async fn backup(path: &std::path::Path, entry_count: usize) -> SqlitePool {
+        let pool = create_sqlite_pool(path).await.unwrap();
+        let contract = contract();
+        let journal: serde_json::Value = serde_json::from_str(
+            &contract
+                .read_text(&["drizzle", "meta", "_journal.json"])
+                .unwrap(),
+        )
+        .unwrap();
+        sqlx::raw_sql("CREATE TABLE migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at INTEGER NOT NULL)")
+            .execute(&pool).await.unwrap();
         let mut connection = pool.acquire().await.unwrap();
-        sqlx::query("ATTACH DATABASE ':memory:' AS imported")
-            .execute(&mut *connection)
+        for entry in journal["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .take(entry_count)
+        {
+            let tag = entry["tag"].as_str().unwrap();
+            let sql = contract
+                .read_text(&["drizzle", &format!("{tag}.sql")])
+                .unwrap();
+            for statement in sql
+                .split("--> statement-breakpoint")
+                .filter(|s| !s.trim().is_empty())
+            {
+                sqlx::raw_sql(statement)
+                    .execute(&mut *connection)
+                    .await
+                    .unwrap();
+            }
+            sqlx::query("INSERT INTO migrations (hash, created_at) VALUES (?, 0)")
+                .bind(tag)
+                .execute(&mut *connection)
+                .await
+                .unwrap();
+        }
+        drop(connection);
+        sqlx::query("INSERT INTO touchai_meta (key, value) VALUES ('app_id', 'touchai')")
+            .execute(&pool)
             .await
             .unwrap();
-        connection
+        pool
     }
 
     #[tokio::test]
-    async fn normalizes_legacy_tool_results_with_call_identity_including_empty_results() {
-        let mut connection = import_connection().await;
+    async fn upgrades_released_backup_before_import_without_modifying_source() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, 4).await;
         sqlx::raw_sql(
-            "CREATE TABLE imported.messages (
-                 id INTEGER PRIMARY KEY, role TEXT, content TEXT, tool_log_id INTEGER,
-                 tool_log_kind TEXT, created_at TEXT, updated_at TEXT
-             );
-             INSERT INTO imported.messages VALUES
-                 (1, 'tool_call', '', 1, 'mcp', 'created', 'updated'),
-                 (2, 'tool_result', 'Result', 1, 'mcp', 'created', 'updated'),
-                 (3, 'tool_call', '', 2, 'mcp', 'created', 'updated'),
-                 (4, 'tool_result', '', 2, NULL, 'created', 'updated');
-             CREATE TABLE imported.mcp_tool_logs (
-                 id INTEGER PRIMARY KEY, message_id INTEGER, session_id INTEGER,
-                 tool_call_id TEXT, created_at TEXT, server_id INTEGER, tool_name TEXT,
-                 iteration INTEGER, input TEXT, output TEXT, status TEXT,
-                 duration_ms INTEGER, error_message TEXT
-             );
-             INSERT INTO imported.mcp_tool_logs VALUES
-                 (1, 1, 1, 'call-1', 'created', 1, 'tool', 0, '{}', 'Result', 'completed', 42, NULL),
-                 (2, NULL, 1, 'call-2', 'created', 1, 'tool', 0, '{}', '', 'completed', 42, NULL);",
-        )
-        .execute(&mut *connection).await.unwrap();
-        prepare_import_message_parts(&mut connection).await.unwrap();
-        let parts = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
-            "SELECT message_id, content, tool_call_id, tool_kind FROM temp_import_message_parts
-             WHERE type = 'tool_result' ORDER BY message_id",
-        )
-        .fetch_all(&mut *connection)
-        .await
-        .unwrap();
+            "INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'old-chat', 'Old', 'test');
+             INSERT INTO messages (id, session_id, role, content, reasoning) VALUES (1, 1, 'assistant', 'Answer', 'Plan');
+             INSERT INTO attachments (id, hash, type, original_name, origin_path) VALUES (1, 'file-hash', 'file', 'test.txt', '/test');
+             INSERT INTO message_attachments (message_id, attachment_id, sort_order, origin_path) VALUES (1, 1, 0, '/test');
+             INSERT INTO built_in_tool_logs (tool_call_id, tool_id, input, session_id, message_id) VALUES ('call-1', 'bash', '{}', 1, 1);"
+        ).execute(&source).await.unwrap();
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        sqlx::raw_sql("INSERT INTO sessions (id, session_id, title, model) VALUES (99, 'watermark', 'Temp', 'test');
+             INSERT INTO messages (id, session_id, role) VALUES (100, 99, 'user');
+             DELETE FROM messages WHERE id = 100;
+             DELETE FROM sessions WHERE id = 99;")
+            .execute(&target).await.unwrap();
+        for mode in [DatabaseImportMode::ChatOnly, DatabaseImportMode::Full] {
+            run_import_backup(
+                target.clone(),
+                target_path.clone(),
+                contract(),
+                DatabaseImportRequest {
+                    source_path: source_path.to_string_lossy().into_owned(),
+                    mode,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let parts: Vec<(String, String)> =
+            sqlx::query_as("SELECT type, content FROM message_parts ORDER BY sort_order, id")
+                .fetch_all(&target)
+                .await
+                .unwrap();
+        assert!(parts.contains(&("text".into(), "Answer".into())));
+        assert!(parts.contains(&("reasoning".into(), "Plan".into())));
+        assert!(parts.iter().any(|part| part.0 == "tool_call"));
+        assert!(parts.iter().any(|part| part.0 == "attachment"));
         assert_eq!(
-            parts,
-            vec![
-                (
-                    2,
-                    "Result".into(),
-                    Some("call-1".into()),
-                    Some("mcp".into())
-                ),
-                (4, "".into(), Some("call-2".into()), Some("mcp".into())),
-            ]
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM messages")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            1
         );
-        let call_parent = sqlx::query_scalar::<_, i64>(
-            "SELECT message_id FROM temp_import_message_parts WHERE type = 'tool_call' AND tool_call_id = 'call-2'",
-        ).fetch_one(&mut *connection).await.unwrap();
-        assert_eq!(call_parent, 3);
-    }
-
-    #[tokio::test]
-    async fn normalizes_legacy_reasoning_and_text_without_changing_source() {
-        let mut connection = import_connection().await;
-        sqlx::raw_sql(
-            "CREATE TABLE imported.messages (id INTEGER PRIMARY KEY, content TEXT, reasoning TEXT, created_at TEXT, updated_at TEXT);
-             INSERT INTO imported.messages VALUES (7, 'Answer', 'Plan', 'created', 'updated');",
-        )
-        .execute(&mut *connection)
-        .await
-        .unwrap();
-
-        // Repreparing on the same pooled connection must not duplicate parts.
-        prepare_import_message_parts(&mut connection).await.unwrap();
-        prepare_import_message_parts(&mut connection).await.unwrap();
-        let parts = sqlx::query_as::<_, (i64, String, String, i64, String, String)>(
-            "SELECT message_id, type, content, sort_order, created_at, updated_at FROM temp_import_message_parts ORDER BY sort_order",
-        )
-        .fetch_all(&mut *connection)
-        .await
-        .unwrap();
         assert_eq!(
-            parts,
-            vec![
-                (
-                    7,
-                    "reasoning".into(),
-                    "Plan".into(),
-                    0,
-                    "created".into(),
-                    "updated".into()
-                ),
-                (
-                    7,
-                    "text".into(),
-                    "Answer".into(),
-                    1,
-                    "created".into(),
-                    "updated".into()
-                ),
-            ]
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM message_search_fts WHERE message_search_fts MATCH 'Ans'"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            1
         );
-        let source = sqlx::query_as::<_, (String, String)>(
-            "SELECT content, reasoning FROM imported.messages",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .unwrap();
-        assert_eq!(source, ("Answer".into(), "Plan".into()));
-    }
-
-    #[tokio::test]
-    async fn normalizes_legacy_text_without_a_reasoning_column() {
-        let mut connection = import_connection().await;
-        sqlx::raw_sql(
-            "CREATE TABLE imported.messages (id INTEGER PRIMARY KEY, content TEXT, created_at TEXT, updated_at TEXT);
-             INSERT INTO imported.messages VALUES (7, 'Answer', 'created', 'updated');",
-        )
-        .execute(&mut *connection)
-        .await
-        .unwrap();
-        prepare_import_message_parts(&mut connection).await.unwrap();
-        let part = sqlx::query_as::<_, (String, String, i64)>(
-            "SELECT type, content, sort_order FROM temp_import_message_parts",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .unwrap();
-        assert_eq!(part, ("text".into(), "Answer".into(), 0));
-    }
-
-    #[tokio::test]
-    async fn imports_normalized_parts_with_their_wall_clock_boundaries() {
-        let mut connection = import_connection().await;
-        sqlx::raw_sql(
-            "CREATE TABLE imported.message_parts (
-                 id INTEGER PRIMARY KEY, message_id INTEGER, type TEXT, content TEXT,
-                 started_at INTEGER, ended_at INTEGER, sort_order INTEGER,
-                 created_at TEXT, updated_at TEXT
-             );
-             INSERT INTO imported.message_parts VALUES (3, 7, 'reasoning', 'Plan', 1000, 3400, 0, 'created', 'updated');
-             INSERT INTO imported.message_parts VALUES (4, 7, 'text', 'Answer', NULL, NULL, 1, 'created', 'updated');",
-        )
-        .execute(&mut *connection)
-        .await
-        .unwrap();
-        prepare_import_message_parts(&mut connection).await.unwrap();
-        let parts = sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>)>(
-            "SELECT type, content, started_at, ended_at FROM temp_import_message_parts ORDER BY sort_order",
-        )
-        .fetch_all(&mut *connection)
-        .await
-        .unwrap();
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&target)
+            .await
+            .unwrap()
+            .is_empty());
         assert_eq!(
-            parts,
-            vec![
-                ("reasoning".into(), "Plan".into(), Some(1000), Some(3400)),
-                ("text".into(), "Answer".into(), None, None),
-            ]
+            sqlx::query_scalar::<_, String>("SELECT content FROM messages")
+                .fetch_one(&source)
+                .await
+                .unwrap(),
+            "Answer"
         );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM migrations")
+                .fetch_one(&source)
+                .await
+                .unwrap(),
+            4
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT id FROM messages")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            101
+        );
+        let imported_session = sqlx::query_scalar::<_, i64>("SELECT id FROM sessions")
+            .fetch_one(&target)
+            .await
+            .unwrap();
+        let next_id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO messages (session_id, role) VALUES (?, 'user') RETURNING id",
+        )
+        .bind(imported_session)
+        .fetch_one(&target)
+        .await
+        .unwrap();
+        assert_eq!(next_id, 102);
+        // The source pool stays open above: data still in its WAL must be included.
+        source.close().await;
+        target.close().await;
     }
 
     #[tokio::test]
-    async fn imports_generated_part_metadata_from_current_backup() {
-        let mut connection = import_connection().await;
-        sqlx::raw_sql(
-            "CREATE TABLE imported.message_parts (
-                 id INTEGER PRIMARY KEY, message_id INTEGER, type TEXT, content TEXT,
-                 data TEXT, tool_call_id TEXT GENERATED ALWAYS AS (json_extract(data, '$.toolCallId')) VIRTUAL,
-                 tool_kind TEXT GENERATED ALWAYS AS (json_extract(data, '$.toolKind')) VIRTUAL,
-                 attachment_id INTEGER GENERATED ALWAYS AS (json_extract(data, '$.attachmentId')) VIRTUAL,
-                 started_at INTEGER, ended_at INTEGER, sort_order INTEGER,
-                 created_at TEXT, updated_at TEXT
-             );
-             INSERT INTO imported.message_parts
-                 (id, message_id, type, content, data, sort_order, created_at, updated_at)
-             VALUES
-                 (1, 7, 'tool_call', '', '{\"toolCallId\":\"call-1\",\"toolKind\":\"mcp\"}', 0, 'created', 'updated'),
-                 (2, 7, 'attachment', '', '{\"attachmentId\":42}', 1, 'created', 'updated');",
+    async fn rejects_experimental_migration_history_without_changing_target() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, 5).await;
+        sqlx::query(
+            "INSERT INTO migrations (hash, created_at) VALUES ('0005_experimental_parts', 0)",
         )
-        .execute(&mut *connection)
+        .execute(&source)
         .await
         .unwrap();
-        prepare_import_message_parts(&mut connection).await.unwrap();
-        let rows = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            "SELECT type, tool_call_id, attachment_id FROM temp_import_message_parts ORDER BY id",
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        let error = run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::ChatOnly,
+            },
         )
-        .fetch_all(&mut *connection)
         .await
-        .unwrap();
+        .unwrap_err();
+        assert!(error.contains("0005_experimental_parts"), "{error}");
         assert_eq!(
-            rows,
-            vec![
-                ("tool_call".into(), Some("call-1".into()), None),
-                ("attachment".into(), None, Some(42))
-            ]
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sessions")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            0
         );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM migrations")
+                .fetch_one(&source)
+                .await
+                .unwrap(),
+            6
+        );
+        source.close().await;
+        target.close().await;
+    }
+    #[tokio::test]
+    async fn rejects_non_prefix_migration_histories() {
+        for invalid_history in [
+            "DELETE FROM migrations WHERE id=2",
+            "UPDATE migrations SET hash=CASE id WHEN 1 THEN '0001_silent_reasoning' WHEN 2 THEN '0000_lyrical_toad' ELSE hash END",
+            "INSERT INTO migrations (hash, created_at) VALUES ('0004_ordinary_solo', 0)",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let source_path = root.path().join("source.db");
+            let source = backup(&source_path, 5).await;
+            sqlx::raw_sql(invalid_history).execute(&source).await.unwrap();
+            let error = prepare_import_database(&source_path, &root.path().join("target.db"), &contract())
+                .await.unwrap_err();
+            assert!(error.contains("不支持的数据库迁移历史"), "{error}");
+            // The failed snapshot and its WAL files are removed even on Windows.
+            let leftovers = fs::read_dir(root.path()).unwrap()
+                .map(|entry| entry.unwrap().path()).filter(|path| path.is_dir()).collect::<Vec<_>>();
+            assert!(leftovers.is_empty(), "{invalid_history}: {leftovers:?}");
+            source.close().await;
+        }
     }
 
     #[tokio::test]
-    async fn imports_physical_part_metadata_from_older_backup_into_data() {
-        let mut connection = import_connection().await;
-        sqlx::raw_sql(
-            "CREATE TABLE imported.message_parts (
-                 id INTEGER PRIMARY KEY, message_id INTEGER, type TEXT, content TEXT,
-                 data TEXT, tool_call_id TEXT, tool_kind TEXT, attachment_id INTEGER,
-                 started_at INTEGER, ended_at INTEGER, sort_order INTEGER,
-                 created_at TEXT, updated_at TEXT
-             );
-             INSERT INTO imported.message_parts VALUES
-                 (1, 7, 'tool_call', '', '{}', 'call-1', 'builtin', NULL, NULL, NULL, 0, 'created', 'updated'),
-                 (2, 7, 'attachment', '', '{}', NULL, NULL, 42, NULL, NULL, 1, 'created', 'updated');",
+    async fn failed_full_import_rolls_back_and_detaches_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, 5).await;
+        // Valid history but malformed schema: fail after full_prelude has begun writes.
+        sqlx::query("DROP TABLE settings")
+            .execute(&source)
+            .await
+            .unwrap();
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('keep', 'unchanged')")
+            .execute(&target)
+            .await
+            .unwrap();
+        let error = run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::Full,
+            },
         )
-        .execute(&mut *connection)
         .await
-        .unwrap();
-        prepare_import_message_parts(&mut connection).await.unwrap();
-        let rows = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            "SELECT type, tool_call_id, attachment_id FROM temp_import_message_parts ORDER BY id",
-        )
-        .fetch_all(&mut *connection)
-        .await
-        .unwrap();
+        .unwrap_err();
+        assert!(error.contains("settings"), "{error}");
         assert_eq!(
-            rows,
-            vec![
-                ("tool_call".into(), Some("call-1".into()), None),
-                ("attachment".into(), None, Some(42))
-            ]
+            sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key='keep'")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            "unchanged"
         );
+        let attached: Vec<(i64, String, String)> = sqlx::query_as("PRAGMA database_list")
+            .fetch_all(&target)
+            .await
+            .unwrap();
+        assert!(attached.iter().all(|(_, name, _)| name != "imported"));
+        assert!(fs::read_dir(root.path())
+            .unwrap()
+            .all(|entry| !entry.unwrap().path().is_dir()));
+        source.close().await;
+        target.close().await;
+    }
+
+    #[tokio::test]
+    async fn current_backup_keeps_order_and_timestamps_on_repeated_import() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, 5).await;
+        sqlx::raw_sql("INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'current', 'Current', 'test');
+             INSERT INTO messages (id, session_id, role) VALUES (1, 1, 'assistant');
+             INSERT INTO message_parts (message_id, type, content, started_at, ended_at, sort_order) VALUES
+             (1, 'reasoning', 'Plan', 1000, 2000, 0), (1, 'text', 'First', NULL, NULL, 1),
+             (1, 'reasoning', 'Review', 3000, 4500, 2), (1, 'text', 'Final', NULL, NULL, 3);")
+            .execute(&source).await.unwrap();
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            run_import_backup(
+                target.clone(),
+                target_path.clone(),
+                contract(),
+                DatabaseImportRequest {
+                    source_path: source_path.to_string_lossy().into_owned(),
+                    mode: DatabaseImportMode::ChatOnly,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let query = "SELECT type, content, started_at, ended_at, sort_order FROM message_parts ORDER BY sort_order";
+        type Part = (String, String, Option<i64>, Option<i64>, i64);
+        let source_parts: Vec<Part> = sqlx::query_as(query).fetch_all(&source).await.unwrap();
+        let target_parts: Vec<Part> = sqlx::query_as(query).fetch_all(&target).await.unwrap();
+        assert_eq!(target_parts, source_parts);
+        source.close().await;
+        target.close().await;
+    }
+
+    #[tokio::test]
+    async fn rejects_unrelated_database_without_leaking_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("unrelated.db");
+        let source = create_sqlite_pool(&source_path).await.unwrap();
+        sqlx::query("CREATE TABLE unrelated (id INTEGER)")
+            .execute(&source)
+            .await
+            .unwrap();
+        let error =
+            prepare_import_database(&source_path, &root.path().join("target.db"), &contract())
+                .await
+                .unwrap_err();
+        assert!(error.contains("不是 TouchAI 数据库"), "{error}");
+        assert!(fs::read_dir(root.path())
+            .unwrap()
+            .all(|entry| !entry.unwrap().path().is_dir()));
+        source.close().await;
     }
 }

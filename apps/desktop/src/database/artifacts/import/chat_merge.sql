@@ -1,35 +1,3 @@
-CREATE TEMP TABLE IF NOT EXISTS temp_import_synthetic_sessions (
-    id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, title TEXT NOT NULL,
-    model TEXT NOT NULL, provider_id INTEGER, last_message_preview TEXT,
-    last_message_at TEXT, message_count INTEGER NOT NULL, pinned_at TEXT,
-    archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-);
-CREATE TEMP TABLE IF NOT EXISTS temp_import_synthetic_messages (
-    id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, role TEXT NOT NULL,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-    tool_kind TEXT NOT NULL, legacy_id INTEGER NOT NULL
-);
-
-DROP TABLE IF EXISTS temp_import_sessions;
-CREATE TEMP TABLE temp_import_sessions AS
-SELECT
-    id, session_id, title, model, provider_id, last_message_preview,
-    last_message_at, message_count, pinned_at, archived_at, created_at, updated_at
-FROM imported.sessions
-UNION ALL
-SELECT
-    id, session_id, title, model, provider_id, last_message_preview,
-    last_message_at, message_count, pinned_at, archived_at, created_at, updated_at
-FROM temp_import_synthetic_sessions;
-
-DROP TABLE IF EXISTS temp_import_messages;
-CREATE TEMP TABLE temp_import_messages AS
-SELECT id, session_id, role, created_at, updated_at
-FROM imported.messages
-UNION ALL
-SELECT id, session_id, role, created_at, updated_at
-FROM temp_import_synthetic_messages;
-
 INSERT INTO main.sessions (
     session_id, title, model, provider_id, last_message_preview, last_message_at,
     message_count, pinned_at, archived_at, created_at, updated_at
@@ -46,7 +14,7 @@ SELECT
     source_sessions.archived_at,
     source_sessions.created_at,
     source_sessions.updated_at
-FROM temp_import_sessions AS source_sessions
+FROM imported.sessions AS source_sessions
 LEFT JOIN imported.providers AS source_session_providers
     ON source_session_providers.id = source_sessions.provider_id
 LEFT JOIN main.providers AS target_session_providers
@@ -74,7 +42,7 @@ INSERT INTO temp_session_map (source_session_id, target_session_id)
 SELECT
     source_sessions.id,
     target_sessions.id
-FROM temp_import_sessions AS source_sessions
+FROM imported.sessions AS source_sessions
 INNER JOIN main.sessions AS target_sessions
     ON target_sessions.session_id = source_sessions.session_id;
 
@@ -110,7 +78,7 @@ SELECT source_parts.id, source_parts.message_id, source_parts.type, source_parts
        )) ELSE source_parts.data END AS data,
        source_parts.started_at, source_parts.ended_at, source_parts.sort_order,
        source_parts.created_at, source_parts.updated_at
-FROM temp_import_message_parts AS source_parts;
+FROM imported.message_parts AS source_parts;
 DROP TABLE IF EXISTS temp_ranked_source_messages;
 CREATE TEMP TABLE temp_ranked_source_messages AS
 WITH source_messages_with_target_session AS (
@@ -125,7 +93,7 @@ WITH source_messages_with_target_session AS (
         ), '[]') AS content,
         source_messages.created_at,
         source_messages.updated_at
-    FROM temp_import_messages AS source_messages
+    FROM imported.messages AS source_messages
     INNER JOIN temp_session_map AS session_map
         ON session_map.source_session_id = source_messages.session_id
 )
@@ -176,7 +144,7 @@ FROM target_messages_in_scope;
 DROP TABLE IF EXISTS temp_new_message_map;
 CREATE TEMP TABLE temp_new_message_map AS
 SELECT source_messages.source_message_id,
-       (SELECT coalesce(max(id), 0) FROM main.messages) + ROW_NUMBER() OVER (ORDER BY source_messages.source_message_id) AS target_message_id
+       (SELECT max(coalesce(max(id), 0), coalesce((SELECT seq FROM main.sqlite_sequence WHERE name = 'messages'), 0)) FROM main.messages) + ROW_NUMBER() OVER (ORDER BY source_messages.source_message_id) AS target_message_id
 FROM temp_ranked_source_messages AS source_messages
 LEFT JOIN temp_ranked_target_messages AS target_messages
     ON target_messages.target_session_id = source_messages.target_session_id
@@ -414,19 +382,7 @@ SELECT
     source_attempts.attempt_index,
     source_attempts.max_retries,
     source_attempts.status,
-    CASE WHEN json_valid(source_attempts.checkpoint_json) AND (
-    json_type(source_attempts.checkpoint_json, '$.messages') IS NOT NULL OR json_type(source_attempts.checkpoint_json, '$.activeModel') IS NOT NULL
-    OR json_type(source_attempts.checkpoint_json, '$.response') IS NOT NULL OR json_type(source_attempts.checkpoint_json, '$.reasoning') IS NOT NULL
-    OR json_type(source_attempts.checkpoint_json, '$.outputParts') IS NOT NULL
-) THEN json_set(
-    json_remove(source_attempts.checkpoint_json, '$.messages', '$.activeModel', '$.response', '$.reasoning', '$.outputParts'),
-    '$.activeModelId', coalesce(json_extract(source_attempts.checkpoint_json, '$.activeModelId'), json_extract(source_attempts.checkpoint_json, '$.activeModel.id')),
-    '$.outputBoundary', json(coalesce(json_extract(source_attempts.checkpoint_json, '$.outputBoundary'), json_object(
-        'textLength', length(coalesce(json_extract(source_attempts.checkpoint_json, '$.response'), '')),
-        'reasoningLength', length(coalesce(json_extract(source_attempts.checkpoint_json, '$.reasoning'), '')),
-        'partCount', coalesce(json_array_length(source_attempts.checkpoint_json, '$.outputParts'), 0)
-    )))
-) ELSE source_attempts.checkpoint_json END,
+    source_attempts.checkpoint_json,
     source_attempts.error_message,
     source_attempts.duration_ms,
     source_attempts.started_at,

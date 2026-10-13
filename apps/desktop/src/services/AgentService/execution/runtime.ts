@@ -362,10 +362,7 @@ export class AiConversationRuntime {
     ): Promise<ExecuteRequestResult> {
         try {
             await context.persister.markCompleted({
-                response: result.finalStepResponse,
-                reasoning: result.finalStepReasoning,
                 durationMs: Date.now() - this.startedAt,
-                reasoningSegments: result.finalStepReasoningSegments,
                 outputParts: result.finalStepOutputParts,
             });
         } catch (persistError) {
@@ -432,12 +429,7 @@ export class AiConversationRuntime {
 
                 if (attemptResult.error.is(AiErrorCode.REQUEST_CANCELLED)) {
                     try {
-                        await context.persister.markCancelled(
-                            attemptResult.partialResponse,
-                            attemptResult.partialReasoning,
-                            attemptResult.partialReasoningSegments,
-                            attemptResult.partialOutputParts
-                        );
+                        await context.persister.markCancelled(attemptResult.partialOutputParts);
                     } catch (persistError) {
                         console.error(
                             '[AiConversationRuntime] Failed to persist cancellation:',
@@ -503,9 +495,6 @@ export class AiConversationRuntime {
                 try {
                     await context.persister.markFailed(
                         attemptResult.error.message,
-                        attemptResult.partialResponse,
-                        attemptResult.partialReasoning,
-                        attemptResult.partialReasoningSegments,
                         attemptResult.partialOutputParts
                     );
                 } catch (persistError) {

@@ -154,15 +154,6 @@ export interface AiRequestOptions {
     ) => Promise<void> | void;
 }
 
-/**
- * provider 流式输出到应用层的统一增量。
- */
-export interface ReasoningSegment {
-    content: string;
-    startedAt?: number;
-    endedAt?: number;
-}
-
 export interface AiStreamChunk {
     content: string;
     reasoning?: string;
@@ -190,4 +181,43 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export interface JsonObject {
     [key: string]: JsonValue | undefined;
+}
+
+/** Ordered text/reasoning output shared by execution and persistence. */
+export type PersistedOutputPart =
+    | { type: 'text'; content: string }
+    | { type: 'reasoning'; content: string; startedAt?: number; endedAt?: number };
+/** Validate the sole persisted output format without changing logical order. */
+export function normalizeOutputParts(raw: unknown): PersistedOutputPart[] {
+    if (!Array.isArray(raw)) return [];
+    return raw.flatMap((value): PersistedOutputPart[] => {
+        if (!value || typeof value !== 'object') return [];
+        const part = value as {
+            type?: unknown;
+            content?: unknown;
+            startedAt?: unknown;
+            endedAt?: unknown;
+        };
+        if (typeof part.content !== 'string') return [];
+        if (part.type === 'text')
+            return part.content ? [{ type: 'text', content: part.content }] : [];
+        if (part.type !== 'reasoning') return [];
+        const startedAt = validTime(part.startedAt) ? part.startedAt : undefined;
+        if (!part.content && startedAt === undefined) return [];
+        const endedAt =
+            startedAt !== undefined && validTime(part.endedAt) && part.endedAt >= startedAt
+                ? part.endedAt
+                : undefined;
+        return [
+            {
+                type: 'reasoning',
+                content: part.content,
+                ...(startedAt !== undefined ? { startedAt } : {}),
+                ...(endedAt !== undefined ? { endedAt } : {}),
+            },
+        ];
+    });
+}
+function validTime(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }

@@ -278,7 +278,6 @@ describe('normalized message parts database contract', () => {
                 (1, 'text', 'Middle', 1, NULL, NULL),
                 (1, 'reasoning', 'Second thought', 2, 3000, 4000),
                 (1, 'text', 'Answer', 3, NULL, NULL);
-            CREATE TEMP TABLE temp_import_message_parts AS SELECT * FROM imported.message_parts;
         `);
         const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
         database.exec(merge);
@@ -336,7 +335,6 @@ describe('normalized message parts database contract', () => {
             INSERT INTO imported.messages (id, session_id, role) VALUES (1, 1, 'user');
             INSERT INTO imported.message_parts (message_id, type, content, data, sort_order)
             VALUES (1, 'attachment', '', '{"attachmentId":7,"originPath":"/backup"}', 0);
-            CREATE TEMP TABLE temp_import_message_parts AS SELECT * FROM imported.message_parts;
         `);
         const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
         database.exec(merge);
@@ -350,7 +348,7 @@ describe('normalized message parts database contract', () => {
         ).toEqual([{ attachment_id: 2, data: '{"attachmentId":2,"originPath":"/backup"}' }]);
         expect(
             database
-                .prepare("SELECT data FROM temp_import_message_parts WHERE type = 'attachment'")
+                .prepare("SELECT data FROM imported.message_parts WHERE type = 'attachment'")
                 .get()?.data
         ).toBe('{"attachmentId":7,"originPath":"/backup"}');
         expect(database.prepare('SELECT COUNT(*) AS count FROM main.messages').get()?.count).toBe(

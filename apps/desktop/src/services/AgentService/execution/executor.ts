@@ -2,7 +2,7 @@
 
 import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
-import type { ProviderDriver, ToolLogKind } from '@database/schema';
+import type { ProviderDriver } from '@database/schema';
 
 import { tt } from '@/i18n';
 import {
@@ -14,7 +14,12 @@ import { z } from '@/utils/zod';
 
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
 import { AiError, AiErrorCode } from '../contracts/errors';
-import type { AiMessage, AiStreamChunk, ReasoningSegment } from '../contracts/protocol';
+import {
+    type AiMessage,
+    type AiStreamChunk,
+    normalizeOutputParts,
+    type PersistedOutputPart,
+} from '../contracts/protocol';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -37,7 +42,6 @@ import {
 } from '../infrastructure/providers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
-import { normalizeOutputParts, type PersistedOutputPart } from '../session/reasoningProgress';
 import type { TurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
@@ -116,7 +120,6 @@ interface ToolExecutionResult {
     result: string;
     isError: boolean;
     toolLogId: number | null;
-    toolLogKind: ToolLogKind | null;
     attachments?: AttachmentIndex[];
     builtInToolId?: BuiltInToolId;
     controlSignal?: BuiltInToolControlSignal;
@@ -125,17 +128,11 @@ interface ToolExecutionResult {
 type AttemptStepResult =
     | {
           type: 'done';
-          chunkResponse: string;
-          chunkReasoning: string;
           outputParts: PersistedOutputPart[];
-          reasoningSegments: ReasoningSegment[];
       }
     | {
           type: 'tool_calls';
-          chunkResponse: string;
-          chunkReasoning: string;
           outputParts: PersistedOutputPart[];
-          reasoningSegments: ReasoningSegment[];
           toolCalls: AiToolCall[];
       };
 
@@ -145,20 +142,14 @@ export type AttemptExecutionResult =
           model: ModelWithProvider;
           response: string;
           reasoning: string;
-          finalStepResponse: string;
-          finalStepReasoning: string;
           finalStepOutputParts: PersistedOutputPart[];
-          finalStepReasoningSegments: ReasoningSegment[];
       }
     | {
           type: 'failed';
           error: AiError;
           response: string;
           reasoning: string;
-          partialResponse: string;
-          partialReasoning: string;
           partialOutputParts: PersistedOutputPart[];
-          partialReasoningSegments: ReasoningSegment[];
           resumeCheckpoint: AttemptCheckpoint;
           hasVisibleOutputSinceCheckpoint: boolean;
           hasToolActivitySinceCheckpoint: boolean;
@@ -239,29 +230,13 @@ function cloneAiMessages(messages: AiMessage[]): AiMessage[] {
     return JSON.parse(JSON.stringify(messages)) as AiMessage[];
 }
 
-function subtractCheckpointContent(current: string, checkpoint: string): string {
-    return current.startsWith(checkpoint) ? current.slice(checkpoint.length) : current;
-}
-
 function buildAssistantToolCallHistoryMessage(
-    chunkResponse: string,
-    chunkReasoning: string,
+    parts: PersistedOutputPart[],
     toolCalls: AiToolCall[]
 ): AiMessage {
-    if (!chunkReasoning.trim()) {
-        return {
-            role: 'assistant',
-            content: chunkResponse,
-            tool_calls: toolCalls,
-        };
-    }
-
     return {
         role: 'assistant',
-        content: [
-            { type: 'reasoning', text: chunkReasoning },
-            ...(chunkResponse ? [{ type: 'text' as const, text: chunkResponse }] : []),
-        ],
+        content: parts.map((part) => ({ type: part.type, text: part.content })),
         tool_calls: toolCalls,
     };
 }
@@ -472,7 +447,6 @@ export class AiRequestExecutor {
         result: string;
         isError: boolean;
         toolLogId: number | null;
-        toolLogKind: ToolLogKind | null;
         attachments?: AttachmentIndex[];
         builtInToolId?: undefined;
         controlSignal?: undefined;
@@ -497,7 +471,6 @@ export class AiRequestExecutor {
                 result: errorResult,
                 isError: true,
                 toolLogId: null,
-                toolLogKind: null,
                 controlSignal: undefined,
             };
         }
@@ -577,7 +550,6 @@ export class AiRequestExecutor {
             result: toolResult.result,
             isError: toolResult.isError,
             toolLogId,
-            toolLogKind: 'mcp',
             attachments: toolResult.attachments,
             controlSignal: undefined,
         };
@@ -672,8 +644,6 @@ export class AiRequestExecutor {
             options.onAttachmentManifestResolved,
             runtime.activeModel.reasoning === 1
         );
-        let chunkResponse = '';
-        let chunkReasoning = '';
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
         // Each model/tool-loop round is an independent persisted message part.
@@ -691,9 +661,7 @@ export class AiRequestExecutor {
             lastSavedSnapshot = snapshot;
             progressWrites = progressWrites
                 .then(async () => {
-                    if (typeof options.persister.persistOutputProgress === 'function') {
-                        await options.persister.persistOutputProgress(parts);
-                    }
+                    await options.persister.persistOutputProgress(parts);
                 })
                 .catch((error) => {
                     console.error('[AiRequestExecutor] Failed to persist output parts:', error);
@@ -765,14 +733,12 @@ export class AiRequestExecutor {
                     startReasoningSegment();
                     const reasoningPart = ensureReasoningPart();
                     reasoningPart.content += chunk.reasoning;
-                    chunkReasoning += chunk.reasoning;
                     runtime.reasoning += chunk.reasoning;
                     runtime.hasVisibleOutputSinceCheckpoint = true;
                 }
                 if (chunk.content) {
                     finishReasoningSegment();
                     appendText(chunk.content);
-                    chunkResponse += chunk.content;
                     runtime.response += chunk.content;
                     runtime.hasVisibleOutputSinceCheckpoint = true;
                 }
@@ -805,19 +771,15 @@ export class AiRequestExecutor {
         }
 
         const outputParts = normalizeOutputParts(runtime.currentStepOutputParts);
-        const reasoningSegments = this.getCurrentStepReasoningSegments(runtime, false);
         const isToolRelated = finishReason === 'tool_calls' || finishReason === 'tool_use';
         if (!isToolRelated || !toolCalls || toolCalls.length === 0) {
-            return { type: 'done', chunkResponse, chunkReasoning, outputParts, reasoningSegments };
+            return { type: 'done', outputParts };
         }
 
         runtime.hasToolActivitySinceCheckpoint = true;
         return {
             type: 'tool_calls',
-            chunkResponse,
-            chunkReasoning,
             outputParts,
-            reasoningSegments,
             toolCalls,
         };
     }
@@ -836,27 +798,6 @@ export class AiRequestExecutor {
                 return { ...part, endedAt: Math.max(part.startedAt, closeActiveAt) };
             }
             return { ...part };
-        });
-    }
-
-    private getCurrentStepReasoningSegments(
-        runtime: AttemptRuntime,
-        closeActiveSegment = true
-    ): ReasoningSegment[] {
-        const parts = this.getCurrentStepOutputParts(
-            runtime,
-            closeActiveSegment ? Date.now() : undefined
-        );
-        return parts.flatMap((part): ReasoningSegment[] => {
-            if (part.type === 'text') {
-                return [];
-            }
-            const segment: ReasoningSegment = {
-                content: part.content,
-                ...(part.startedAt !== undefined ? { startedAt: part.startedAt } : {}),
-                ...(part.endedAt !== undefined ? { endedAt: part.endedAt } : {}),
-            };
-            return part.content.trim() ? [segment] : [];
         });
     }
 
@@ -886,7 +827,6 @@ export class AiRequestExecutor {
                 result: parsedToolArguments.errorResult,
                 isError: true,
                 toolLogId: null,
-                toolLogKind: null,
             };
         }
 
@@ -933,17 +873,10 @@ export class AiRequestExecutor {
         });
 
         runtime.messages.push(
-            buildAssistantToolCallHistoryMessage(
-                options.step.chunkResponse,
-                options.step.chunkReasoning,
-                options.step.toolCalls
-            )
+            buildAssistantToolCallHistoryMessage(options.step.outputParts, options.step.toolCalls)
         );
 
         const toolCallMessageId = await options.persister.persistToolCallMessage(
-            options.step.chunkResponse,
-            options.step.chunkReasoning,
-            options.step.reasoningSegments,
             options.step.outputParts
         );
 
@@ -975,7 +908,6 @@ export class AiRequestExecutor {
             result,
             isError,
             toolLogId,
-            toolLogKind,
             attachments,
         } of toolResults) {
             throwIfAttachmentsUnsupportedByModel(attachments, nextModel);
@@ -988,12 +920,7 @@ export class AiRequestExecutor {
                 isError,
             });
 
-            await options.persister.persistToolResultMessage(
-                result,
-                toolLogId,
-                toolLogKind,
-                attachments
-            );
+            await options.persister.persistToolResultMessage(result, toolLogId, attachments);
 
             if (builtInToolId && !isError) {
                 runtime.executedBuiltInTools.add(builtInToolId);
@@ -1041,7 +968,6 @@ export class AiRequestExecutor {
     async runAttempt(options: RunAttemptOptions): Promise<AttemptExecutionResult> {
         const runtime = await this.createAttemptRuntime(options.startCheckpoint);
         let resumeCheckpoint = options.startCheckpoint;
-        let finalStepReasoningSegments: ReasoningSegment[];
         try {
             while (true) {
                 throwIfAborted(options.signal);
@@ -1063,7 +989,6 @@ export class AiRequestExecutor {
                 });
 
                 if (step.type === 'done') {
-                    finalStepReasoningSegments = step.reasoningSegments;
                     break;
                 }
 
@@ -1099,16 +1024,7 @@ export class AiRequestExecutor {
                 model: runtime.activeModel,
                 response: runtime.response,
                 reasoning: runtime.reasoning,
-                finalStepResponse: subtractCheckpointContent(
-                    runtime.response,
-                    resumeCheckpoint.response
-                ),
-                finalStepReasoning: subtractCheckpointContent(
-                    runtime.reasoning,
-                    resumeCheckpoint.reasoning
-                ),
                 finalStepOutputParts: normalizeOutputParts(runtime.currentStepOutputParts),
-                finalStepReasoningSegments,
             };
         } catch (error) {
             // AI SDK RetryError 包装了真正的错误——解包后传递给分类器
@@ -1138,16 +1054,7 @@ export class AiRequestExecutor {
                 error: classifiedError,
                 response: runtime.response,
                 reasoning: runtime.reasoning,
-                partialResponse: subtractCheckpointContent(
-                    runtime.response,
-                    resumeCheckpoint.response
-                ),
-                partialReasoning: subtractCheckpointContent(
-                    runtime.reasoning,
-                    resumeCheckpoint.reasoning
-                ),
                 partialOutputParts: normalizeOutputParts(runtime.currentStepOutputParts),
-                partialReasoningSegments: this.getCurrentStepReasoningSegments(runtime),
                 resumeCheckpoint,
                 hasVisibleOutputSinceCheckpoint: runtime.hasVisibleOutputSinceCheckpoint,
                 hasToolActivitySinceCheckpoint: runtime.hasToolActivitySinceCheckpoint,

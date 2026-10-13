@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PersistedOutputPart } from '@/services/AgentService/session/reasoningProgress';
 import {
-    getReasoningSegmentsFromOutputParts,
     normalizeOutputParts,
-} from '@/services/AgentService/session/reasoningProgress';
+    type PersistedOutputPart,
+} from '@/services/AgentService/contracts/protocol';
 
 describe('persisted output parts', () => {
     it('keeps a durable reasoning-start marker without accepting empty text', () => {
@@ -25,9 +24,5 @@ describe('persisted output parts', () => {
             { type: 'text', content: 'Final answer' },
         ];
         expect(normalizeOutputParts(parts)).toEqual(parts);
-        expect(getReasoningSegmentsFromOutputParts(parts)).toEqual([
-            { content: 'Plan', startedAt: 1_000, endedAt: 2_000 },
-            { content: 'Review', startedAt: 3_000, endedAt: 6_500 },
-        ]);
     });
 });

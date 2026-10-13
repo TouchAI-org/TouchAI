@@ -118,9 +118,9 @@ describe('reasoning persistence', () => {
             await projector.persistOutputProgress([start]);
             const closed = [{ ...start, endedAt: 1500 }];
             if (status === 'failed') {
-                await projector.markFailed('offline', '', '', [], closed);
+                await projector.markFailed('offline', closed);
             } else {
-                await projector.markCancelled('', '', [], closed);
+                await projector.markCancelled(closed);
             }
             expect(queries.createMessage).toHaveBeenCalledTimes(2);
             expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
@@ -152,7 +152,7 @@ describe('reasoning persistence', () => {
             { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
             { type: 'text' as const, content: 'Checking' },
         ];
-        await projector.persistToolCallMessage('Checking', 'Plan', [], parts);
+        await projector.persistToolCallMessage(parts);
         expect(queries.updateSessionTurnAttempt).not.toHaveBeenCalled();
         expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
             11,
@@ -188,9 +188,9 @@ describe('reasoning persistence', () => {
                 { type: 'text' as const, content: 'Partial answer' },
             ];
             if (status === 'failed') {
-                await projector.markFailed('Offline', 'Partial answer', 'Plan', [], parts);
+                await projector.markFailed('Offline', parts);
             } else {
-                await projector.markCancelled('Partial answer', 'Plan', [], parts);
+                await projector.markCancelled(parts);
             }
             expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
                 11,
@@ -217,13 +217,35 @@ describe('reasoning persistence', () => {
         }
     );
 
+    it.each(['failed', 'cancelled'] as const)(
+        'preserves durable output when %s without a final snapshot',
+        async (status) => {
+            const projector = createProjector();
+            await projector.recordTurnStart(createCheckpoint());
+            await projector.persistOutputProgress([
+                { type: 'reasoning', content: 'Saved thought', startedAt: 1000, endedAt: 2000 },
+                { type: 'text', content: 'Saved answer' },
+            ]);
+            queries.syncOutputParts.mockClear();
+            if (status === 'failed') {
+                await projector.markFailed('Unexpected runtime error');
+            } else {
+                await projector.markCancelled();
+            }
+            expect(queries.syncOutputParts).not.toHaveBeenCalled();
+            expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    turnPatch: expect.objectContaining({ status, response_message_id: 11 }),
+                })
+            );
+        }
+    );
+
     it('persists wall-clock boundaries in the completed message', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         const completed = [{ content: 'Thought', startedAt: 1000, endedAt: 6500 }];
         await projector.markCompleted({
-            response: 'Answer',
-            reasoning: 'Thought',
             durationMs: 6000,
             outputParts: [
                 { type: 'reasoning', ...completed[0]! },
@@ -265,8 +287,6 @@ describe('reasoning persistence', () => {
         };
         await projector.persistOutputProgress([thought]);
         await projector.markCompleted({
-            response: 'Answer',
-            reasoning: 'Plan',
             durationMs: 5000,
             outputParts: [thought, { type: 'text', content: 'Answer' }],
         });
@@ -301,10 +321,8 @@ describe('reasoning persistence', () => {
             { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
         ];
         await projector.persistOutputProgress(parts);
-        expect(await projector.persistToolCallMessage('', 'Plan', [], parts)).toBe(11);
+        expect(await projector.persistToolCallMessage(parts)).toBe(11);
         await projector.markCompleted({
-            response: 'Answer',
-            reasoning: '',
             durationMs: 5000,
             outputParts: [{ type: 'text', content: 'Answer' }],
         });

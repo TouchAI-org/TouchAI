@@ -30,11 +30,7 @@ function toTransportToolName(toolLog: ToolLogHistoryRow): string {
     return toolLog.tool_name;
 }
 
-function buildAssistantTransportContent(row: {
-    content: string;
-    reasoning: string | null;
-    parts: MessagePartEntity[];
-}): AiMessage['content'] {
+function buildAssistantTransportContent(row: { parts: MessagePartEntity[] }): AiMessage['content'] {
     return row.parts.flatMap((part): AiContentPart[] => {
         if (part.type === 'text') {
             return [{ type: 'text', text: part.content }];

@@ -110,7 +110,10 @@ describe('AiRequestExecutor', () => {
         const persistCheckpoint = vi.fn().mockResolvedValue(undefined);
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistCheckpoint } as never,
+            persister: {
+                persistCheckpoint,
+                persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+            } as never,
         });
         expect(result).toMatchObject({
             type: 'failed',
@@ -176,6 +179,46 @@ describe('AiRequestExecutor', () => {
             { type: 'text', content: 'Answer complete' },
         ]);
         expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('preserves interleaved output order in the next live tool-loop request', async () => {
+        providerMock.stream
+            .mockImplementationOnce(async function* () {
+                yield { content: '', reasoning: 'Plan', done: false };
+                yield { content: 'First answer', done: false };
+                yield { content: '', reasoning: 'Review', done: false };
+                yield { content: 'Second answer', done: false };
+                yield {
+                    content: '',
+                    done: true,
+                    finishReason: 'tool_calls',
+                    toolCalls: [{ id: 'call-1', name: 'test', arguments: '{' }],
+                };
+            })
+            .mockImplementationOnce(async function* (request) {
+                expect(request.messages[1]).toEqual({
+                    role: 'assistant',
+                    content: [
+                        { type: 'reasoning', text: 'Plan' },
+                        { type: 'text', text: 'First answer' },
+                        { type: 'reasoning', text: 'Review' },
+                        { type: 'text', text: 'Second answer' },
+                    ],
+                    tool_calls: [{ id: 'call-1', name: 'test', arguments: '{' }],
+                });
+                yield { content: 'Done', done: true };
+            });
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: {
+                persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+                persistToolCallMessage: vi.fn().mockResolvedValue(1),
+                persistToolResultMessage: vi.fn().mockResolvedValue(undefined),
+                persistCheckpoint: vi.fn().mockResolvedValue(undefined),
+            } as never,
+        });
+        expect(outcome.type).toBe('completed');
+        expect(providerMock.stream).toHaveBeenCalledTimes(2);
     });
 
     it('keeps the original request error when provider error classification fails', async () => {
