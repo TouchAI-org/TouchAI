@@ -49,6 +49,102 @@ function migrated() {
 }
 
 describe('complete parts migration', () => {
+    it('derives read-only indexed tool identifiers from data', () => {
+        const db = migrated();
+        try {
+            const columns = db.prepare('PRAGMA table_xinfo(message_parts)').all();
+            for (const name of ['tool_call_id', 'tool_kind', 'attachment_id']) {
+                expect(columns.find((column) => column.name === name)?.hidden).toBe(2);
+            }
+            db.exec(`
+                INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'generated', 'Test', 'test');
+                INSERT INTO messages (id, session_id, role) VALUES (1, 1, 'assistant');
+                INSERT INTO message_parts (message_id, type, content, data, sort_order)
+                VALUES (1, 'tool_call', '', '{"toolCallId":"call-1","toolKind":"builtin","status":"pending"}', 0);
+            `);
+            expect(
+                db.prepare('SELECT tool_call_id, tool_kind, attachment_id FROM message_parts').get()
+            ).toEqual({
+                tool_call_id: 'call-1',
+                tool_kind: 'builtin',
+                attachment_id: null,
+            });
+            db.exec(
+                `UPDATE message_parts SET data = json_set(data, '$.toolCallId', 'call-2', '$.toolKind', 'mcp')`
+            );
+            expect(db.prepare('SELECT tool_call_id, tool_kind FROM message_parts').get()).toEqual({
+                tool_call_id: 'call-2',
+                tool_kind: 'mcp',
+            });
+            expect(() => db.exec("UPDATE message_parts SET tool_call_id = 'duplicate'")).toThrow(
+                /generated column/
+            );
+            expect(() =>
+                db.exec(
+                    "INSERT INTO message_parts (message_id, type, content, data, tool_kind, sort_order) VALUES (1, 'tool_call', '', '{}', 'mcp', 1)"
+                )
+            ).toThrow(/generated column/);
+            const plan = db
+                .prepare(
+                    "EXPLAIN QUERY PLAN SELECT id FROM message_parts WHERE tool_kind='mcp' AND tool_call_id='call-2'"
+                )
+                .all();
+            expect(
+                plan.some((row) => String(row.detail).includes('message_parts_tool_call_idx'))
+            ).toBe(true);
+            db.exec("UPDATE message_parts SET type = 'text'");
+            expect(
+                db.prepare('SELECT tool_call_id, tool_kind, attachment_id FROM message_parts').get()
+            ).toEqual({
+                tool_call_id: null,
+                tool_kind: null,
+                attachment_id: null,
+            });
+            expect(() => db.exec("UPDATE message_parts SET data = '[]'")).toThrow();
+        } finally {
+            db.close();
+        }
+    });
+
+    it('enforces attachment references and cascades deletion using the virtual projection', () => {
+        const db = migrated();
+        try {
+            db.exec(`
+                INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'attachments', 'Test', 'test');
+                INSERT INTO messages (id, session_id, role) VALUES (1, 1, 'user');
+                INSERT INTO attachments (id, hash, type, original_name, origin_path) VALUES (1, 'hash', 'file', 'test.txt', '/cache/test.txt');
+                INSERT INTO message_parts (message_id, type, content, data, sort_order)
+                VALUES (1, 'attachment', '', '{"attachmentId":1,"originPath":"/original/test.txt"}', 0);
+                INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (1, 'text', 'Keep this body', 1);
+            `);
+            expect(
+                db.prepare("SELECT attachment_id FROM message_parts WHERE type='attachment'").get()
+                    ?.attachment_id
+            ).toBe(1);
+            expect(() =>
+                db.exec(
+                    "UPDATE message_parts SET data = json_set(data, '$.attachmentId', 999) WHERE type='attachment'"
+                )
+            ).toThrow(/FOREIGN KEY/);
+            expect(() =>
+                db.exec("UPDATE message_parts SET data = '{}' WHERE type='attachment'")
+            ).toThrow();
+            db.exec('BEGIN; DELETE FROM attachments WHERE id=1; ROLLBACK;');
+            expect(
+                db
+                    .prepare("SELECT count(*) AS count FROM message_parts WHERE type='attachment'")
+                    .get()?.count
+            ).toBe(1);
+            db.exec('DELETE FROM attachments WHERE id=1');
+            expect(db.prepare('SELECT type, content FROM message_parts').all()).toEqual([
+                { type: 'text', content: 'Keep this body' },
+            ]);
+            expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+        } finally {
+            db.close();
+        }
+    });
+
     it('ships one migration and one final snapshot after the published baseline', () => {
         const pending = journal.entries.slice(4);
         expect(pending).toHaveLength(1);
@@ -185,7 +281,7 @@ describe('complete parts migration', () => {
                 expect(tables).not.toContain(table);
             }
             const parts = db
-                .prepare('pragma table_info(message_parts)')
+                .prepare('pragma table_xinfo(message_parts)')
                 .all()
                 .map((row) => row.name);
             for (const column of ['attachment_id', 'tool_call_id', 'tool_kind', 'data']) {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a8367745-31e9-4510-8cce-c8b1b33d7ebc",
+  "id": "f26168fa-1e14-4ed2-ada6-a5d4179ba990",
   "prevId": "51c90d49-1108-41e8-9ca1-0145856bf19a",
   "tables": {
     "attachment_remote_refs": {
@@ -681,21 +681,33 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
+          "autoincrement": false,
+          "generated": {
+            "as": "(CASE WHEN \"type\" IN ('tool_call', 'tool_result') THEN json_extract(\"data\", '$.toolCallId') END)",
+            "type": "virtual"
+          }
         },
         "tool_kind": {
           "name": "tool_kind",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
+          "autoincrement": false,
+          "generated": {
+            "as": "(CASE WHEN \"type\" IN ('tool_call', 'tool_result') THEN json_extract(\"data\", '$.toolKind') END)",
+            "type": "virtual"
+          }
         },
         "attachment_id": {
           "name": "attachment_id",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
+          "autoincrement": false,
+          "generated": {
+            "as": "(CASE WHEN \"type\" = 'attachment' THEN json_extract(\"data\", '$.attachmentId') END)",
+            "type": "virtual"
+          }
         },
         "started_at": {
           "name": "started_at",
@@ -744,6 +756,13 @@
           ],
           "isUnique": false
         },
+        "message_parts_attachment_idx": {
+          "name": "message_parts_attachment_idx",
+          "columns": [
+            "attachment_id"
+          ],
+          "isUnique": false
+        },
         "message_parts_message_id_sort_order_idx": {
           "name": "message_parts_message_id_sort_order_idx",
           "columns": [
@@ -783,7 +802,16 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "message_parts_data_object_check": {
+          "name": "message_parts_data_object_check",
+          "value": "json_valid(\"message_parts\".\"data\") AND json_type(\"message_parts\".\"data\") = 'object'"
+        },
+        "message_parts_attachment_check": {
+          "name": "message_parts_attachment_check",
+          "value": "\"message_parts\".\"type\" <> 'attachment' OR (json_type(\"message_parts\".\"data\", '$.attachmentId') IS 'integer' AND json_extract(\"message_parts\".\"data\", '$.attachmentId') > 0)"
+        }
+      }
     },
     "messages": {
       "name": "messages",

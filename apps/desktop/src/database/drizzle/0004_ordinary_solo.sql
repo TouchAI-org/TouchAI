@@ -4,22 +4,23 @@ CREATE TABLE `message_parts` (
 	`type` text NOT NULL,
 	`content` text NOT NULL,
 	`data` text DEFAULT '{}' NOT NULL,
-	`tool_call_id` text,
-	`tool_kind` text,
-	`attachment_id` integer,
+	`tool_call_id` text GENERATED ALWAYS AS (CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolCallId') END) VIRTUAL,
+	`tool_kind` text GENERATED ALWAYS AS (CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolKind') END) VIRTUAL,
+	`attachment_id` integer GENERATED ALWAYS AS (CASE WHEN "type" = 'attachment' THEN json_extract("data", '$.attachmentId') END) VIRTUAL,
 	`started_at` integer,
 	`ended_at` integer,
 	`sort_order` integer NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
 	FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`attachment_id`) REFERENCES `attachments`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`attachment_id`) REFERENCES `attachments`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "message_parts_data_object_check" CHECK(json_valid("message_parts"."data") AND json_type("message_parts"."data") = 'object'),
+	CONSTRAINT "message_parts_attachment_check" CHECK("message_parts"."type" <> 'attachment' OR (json_type("message_parts"."data", '$.attachmentId') IS 'integer' AND json_extract("message_parts"."data", '$.attachmentId') > 0))
 );
 --> statement-breakpoint
-CREATE INDEX `message_parts_tool_call_idx` ON `message_parts` (`tool_kind`,`tool_call_id`);
---> statement-breakpoint
-CREATE UNIQUE INDEX `message_parts_message_id_sort_order_idx` ON `message_parts` (`message_id`,`sort_order`);
---> statement-breakpoint
+CREATE INDEX `message_parts_tool_call_idx` ON `message_parts` (`tool_kind`,`tool_call_id`);--> statement-breakpoint
+CREATE INDEX `message_parts_attachment_idx` ON `message_parts` (`attachment_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `message_parts_message_id_sort_order_idx` ON `message_parts` (`message_id`,`sort_order`);--> statement-breakpoint
 -- Preserve existing messages before removing their legacy content columns.
 INSERT INTO `message_parts` (`message_id`, `type`, `content`, `sort_order`, `created_at`, `updated_at`)
 SELECT `id`, 'reasoning', `reasoning`, 0, `created_at`, `updated_at`
@@ -111,12 +112,13 @@ GROUP BY messages.id;
 --> statement-breakpoint
 UPDATE message_parts
 SET type = 'tool_result',
-    tool_call_id = (SELECT tool_call_id FROM _legacy_tool_results WHERE message_id = message_parts.message_id),
-    tool_kind = (SELECT tool_kind FROM _legacy_tool_results WHERE message_id = message_parts.message_id)
+    data = json_set(data,
+        '$.toolCallId', (SELECT tool_call_id FROM _legacy_tool_results WHERE message_id = message_parts.message_id),
+        '$.toolKind', (SELECT tool_kind FROM _legacy_tool_results WHERE message_id = message_parts.message_id))
 WHERE type = 'text' AND message_id IN (SELECT message_id FROM _legacy_tool_results);
 --> statement-breakpoint
-INSERT INTO message_parts (message_id, type, content, tool_call_id, tool_kind, sort_order, created_at, updated_at)
-SELECT results.message_id, 'tool_result', '', results.tool_call_id, results.tool_kind,
+INSERT INTO message_parts (message_id, type, content, data, sort_order, created_at, updated_at)
+SELECT results.message_id, 'tool_result', '', json_object('toolCallId', results.tool_call_id, 'toolKind', results.tool_kind),
        COALESCE((SELECT MAX(sort_order) + 1 FROM message_parts WHERE message_id = results.message_id), 0),
        messages.created_at, messages.updated_at
 FROM _legacy_tool_results AS results
@@ -187,16 +189,14 @@ LEFT JOIN _legacy_orphan_tool_messages AS orphan
 --> statement-breakpoint
 
 INSERT INTO message_parts (
-    message_id, type, content, data, tool_call_id, tool_kind,
+    message_id, type, content, data,
     sort_order, created_at, updated_at
 )
 SELECT
     resolved.message_id,
     'tool_call',
     '',
-    resolved.data,
-    resolved.tool_call_id,
-    resolved.tool_kind,
+    json_set(resolved.data, '$.toolCallId', resolved.tool_call_id, '$.toolKind', resolved.tool_kind),
     COALESCE(
         (
             SELECT MAX(existing.sort_order) + 1
@@ -224,15 +224,14 @@ FROM message_attachments AS source;
 --> statement-breakpoint
 
 INSERT INTO message_parts (
-    message_id, type, content, data, attachment_id,
+    message_id, type, content, data,
     sort_order, created_at, updated_at
 )
 SELECT
     source.message_id,
     'attachment',
     '',
-    json_object('originPath', source.origin_path),
-    source.attachment_id,
+    json_object('attachmentId', source.attachment_id, 'originPath', source.origin_path),
     COALESCE(
         (
             SELECT MAX(existing.sort_order) + 1

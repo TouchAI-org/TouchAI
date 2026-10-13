@@ -9,6 +9,7 @@ function toolPayload(data: Record<string, unknown>): Record<string, unknown> {
     const payload = { ...data };
     for (const key of ['message_id', 'session_id', 'tool_call_id', 'created_at'])
         delete payload[key];
+    if (typeof data.tool_call_id === 'string') payload.toolCallId = data.tool_call_id;
     return payload;
 }
 
@@ -60,7 +61,9 @@ export async function createToolPart(
             messageId = row.id;
         }
         const maximum = await tx
-            .select({ value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)` })
+            .select({
+                value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value'),
+            })
             .from(messageParts)
             .where(eq(messageParts.message_id, messageId))
             .get();
@@ -73,8 +76,6 @@ export async function createToolPart(
                 type: 'tool_call',
                 content: '',
                 sort_order: (maximum?.value ?? -1) + 1,
-                tool_kind: kind,
-                tool_call_id: String(callId),
                 data: JSON.stringify({
                     iteration: 1,
                     output: null,
@@ -89,6 +90,8 @@ export async function createToolPart(
                           }
                         : {}),
                     ...payload,
+                    toolCallId: callId,
+                    toolKind: kind,
                 }),
                 ...(typeof createdAt === 'string' ? { created_at: createdAt } : {}),
             })
@@ -122,14 +125,13 @@ export async function updateToolPart(
             .all();
         let result: ToolPartEntity | undefined;
         for (const part of existing) {
-            const { message_id, tool_call_id, created_at } = patch;
+            const { message_id, created_at } = patch;
             const payload = toolPayload(patch);
             const updated = await tx
                 .update(messageParts)
                 .set({
-                    data: JSON.stringify({ ...JSON.parse(part.data), ...payload }),
+                    data: JSON.stringify({ ...JSON.parse(part.data), ...payload, toolKind: kind }),
                     ...(typeof message_id === 'number' ? { message_id } : {}),
-                    ...(typeof tool_call_id === 'string' ? { tool_call_id } : {}),
                     ...(typeof created_at === 'string' ? { created_at } : {}),
                     updated_at: sql`datetime('now')`,
                 })

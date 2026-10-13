@@ -3,7 +3,9 @@
 import type {
     BuiltInToolApprovalState as DbBuiltInToolApprovalState,
     BuiltInToolLogStatus as DbBuiltInToolLogStatus,
+    MessagePart as DbMessagePart,
     MessageRole,
+    NewMessagePart as DbNewMessagePart,
     ProviderDriver,
     StatisticKey,
     ToolLogKind,
@@ -92,36 +94,9 @@ export interface MessageCreateData {
 
 export type MessagePartType = 'text' | 'reasoning' | 'tool_call' | 'tool_result' | 'attachment';
 
-export interface MessagePartEntity {
-    id: number;
-    message_id: number;
-    type: MessagePartType;
-    content: string;
-    data: string;
-    tool_call_id: string | null;
-    tool_kind: DbToolLogKind | null;
-    attachment_id: number | null;
-    started_at: number | null;
-    ended_at: number | null;
-    sort_order: number;
-    created_at: string;
-    updated_at: string;
-}
-
-export interface MessagePartCreateData {
-    message_id: number;
-    type: MessagePartType;
-    content: string;
-    data?: string;
-    tool_call_id?: string | null;
-    tool_kind?: DbToolLogKind | null;
-    attachment_id?: number | null;
-    started_at?: number | null;
-    ended_at?: number | null;
-    sort_order: number;
-    created_at?: string;
-    updated_at?: string;
-}
+// Infer the write contract from the schema so generated projections cannot be supplied.
+export type MessagePartEntity = DbMessagePart;
+export type MessagePartCreateData = DbNewMessagePart;
 
 export interface AttachmentEntity {
     id: number;

@@ -679,8 +679,10 @@ export class PersistenceProjector {
                         type: 'tool_result',
                         content,
                         sort_order: 0,
-                        tool_call_id: call?.tool_call_id ?? null,
-                        tool_kind: call?.tool_kind ?? null,
+                        data: JSON.stringify({
+                            toolCallId: call?.tool_call_id ?? null,
+                            toolKind: call?.tool_kind ?? null,
+                        }),
                     },
                 ],
                 database

@@ -6,6 +6,16 @@
 读取时按 `(sort_order, id)` 拼接 `type IN ('text', 'tool_result')` 的片段，得到消息正文。
 搜索、历史恢复和摘要使用相同顺序；推理不参与正文搜索。
 
+## 类型元数据的唯一来源
+
+工具标识与附件引用只写入 `message_parts.data`：工具片段使用 `toolCallId`、`toolKind`，
+附件片段使用 `attachmentId`、`originPath`。`tool_call_id`、`tool_kind`、`attachment_id`
+是 SQLite `VIRTUAL` 生成列，只读、不在表记录中保存第二份字段值（查询索引仍需存储索引键）；Drizzle 的写入类型也排除这些列。
+工具索引、附件索引和附件外键使用生成列，不需要同步触发器或第二套写入逻辑。
+附件删除仍由外键级联清理其片段；附件片段必须引用有效的正整数附件 ID。
+备份导入在临时表中统一旧字段，再按附件 hash 映射到本地 ID，然后进行消息去重与插入。
+旧格式转换仅存在于导入入口，正常读写只使用当前格式。
+
 ## FTS5
 
 `message_search_fts` 是派生索引，不是另一份消息存储：
@@ -38,7 +48,7 @@
 
 FTS 虚拟表与触发器使用 Drizzle custom migration SQL；它们不映射为业务 schema 实体。
 当前 PR 的 custom SQL 已合并至唯一尚未发布的
-`0004_wide_starhawk` 迁移，从已发布的 `0003` 直接建立最终 parts 结构，
+`0004_ordinary_solo` 迁移，从已发布的 `0003` 直接建立最终 parts 结构，
 迁移正文、思考、工具、附件关联并精简 checkpoint，最后一次性创建和回填索引。
 关系表 SQL、最终 snapshot 与 journal 由 Drizzle CLI 重新生成；数据搬迁与 FTS 使用 custom SQL。
 后续已发布迁移不应修改，应使用新的 custom migration；不要手工给关系表快照添加虚拟表。

@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // ==================== Tauri 相关类型 ====================
 
@@ -105,11 +105,21 @@ export const messageParts = sqliteTable(
         }).notNull(),
         content: text('content').notNull(),
         data: text('data').notNull().default('{}'),
-        tool_call_id: text('tool_call_id'),
-        tool_kind: text('tool_kind', { enum: ['mcp', 'builtin'] }),
-        attachment_id: integer('attachment_id').references(() => attachments.id, {
-            onDelete: 'cascade',
-        }),
+        // Read-only projections: data is the only writable source for typed metadata.
+        tool_call_id: text('tool_call_id').generatedAlwaysAs(
+            sql`CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolCallId') END`,
+            { mode: 'virtual' }
+        ),
+        tool_kind: text('tool_kind', { enum: ['mcp', 'builtin'] }).generatedAlwaysAs(
+            sql`CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolKind') END`,
+            { mode: 'virtual' }
+        ),
+        attachment_id: integer('attachment_id')
+            .references(() => attachments.id, { onDelete: 'cascade' })
+            .generatedAlwaysAs(
+                sql`CASE WHEN "type" = 'attachment' THEN json_extract("data", '$.attachmentId') END`,
+                { mode: 'virtual' }
+            ),
         started_at: integer('started_at'),
         ended_at: integer('ended_at'),
         sort_order: integer('sort_order').notNull(),
@@ -122,6 +132,15 @@ export const messageParts = sqliteTable(
     },
     (table) => [
         index('message_parts_tool_call_idx').on(table.tool_kind, table.tool_call_id),
+        index('message_parts_attachment_idx').on(table.attachment_id),
+        check(
+            'message_parts_data_object_check',
+            sql`json_valid(${table.data}) AND json_type(${table.data}) = 'object'`
+        ),
+        check(
+            'message_parts_attachment_check',
+            sql`${table.type} <> 'attachment' OR (json_type(${table.data}, '$.attachmentId') IS 'integer' AND json_extract(${table.data}, '$.attachmentId') > 0)`
+        ),
         uniqueIndex('message_parts_message_id_sort_order_idx').on(
             table.message_id,
             table.sort_order
@@ -144,10 +163,6 @@ export const attachments = sqliteTable('attachments', {
         .notNull()
         .default(sql`(datetime('now'))`),
 });
-
-/**
- * 消息附件关联表
- */
 
 /**
  * provider 侧附件远端引用缓存表。

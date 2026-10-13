@@ -78,6 +78,39 @@ FROM temp_import_sessions AS source_sessions
 INNER JOIN main.sessions AS target_sessions
     ON target_sessions.session_id = source_sessions.session_id;
 
+INSERT INTO main.attachments (
+    hash, type, original_name, origin_path, mime_type, size, created_at
+)
+SELECT
+    source_attachments.hash,
+    source_attachments.type,
+    source_attachments.original_name,
+    source_attachments.origin_path,
+    source_attachments.mime_type,
+    source_attachments.size,
+    source_attachments.created_at
+FROM imported.attachments AS source_attachments
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM main.attachments AS existing_attachments
+    WHERE existing_attachments.hash = source_attachments.hash
+);
+
+-- Keep the normalized source immutable: this projection maps imported attachment IDs
+-- to local IDs by hash without changing source IDs on repeated merge attempts.
+DROP TABLE IF EXISTS temp_mapped_message_parts;
+CREATE TEMP TABLE temp_mapped_message_parts AS
+SELECT source_parts.id, source_parts.message_id, source_parts.type, source_parts.content,
+       CASE WHEN source_parts.type = 'attachment' THEN json_set(source_parts.data, '$.attachmentId', (
+           SELECT target_attachments.id
+           FROM imported.attachments AS source_attachments
+           INNER JOIN main.attachments AS target_attachments
+               ON target_attachments.hash = source_attachments.hash
+           WHERE source_attachments.id = source_parts.attachment_id
+       )) ELSE source_parts.data END AS data,
+       source_parts.started_at, source_parts.ended_at, source_parts.sort_order,
+       source_parts.created_at, source_parts.updated_at
+FROM temp_import_message_parts AS source_parts;
 DROP TABLE IF EXISTS temp_ranked_source_messages;
 CREATE TEMP TABLE temp_ranked_source_messages AS
 WITH source_messages_with_target_session AS (
@@ -86,8 +119,8 @@ WITH source_messages_with_target_session AS (
         session_map.target_session_id,
         source_messages.role,
         coalesce((
-            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'tool_call_id', tool_call_id, 'tool_kind', tool_kind, 'attachment_id', attachment_id, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
-            FROM (SELECT type, content, data, tool_call_id, tool_kind, attachment_id, started_at, ended_at, sort_order FROM temp_import_message_parts
+            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, data, started_at, ended_at, sort_order FROM temp_mapped_message_parts
                   WHERE message_id = source_messages.id ORDER BY sort_order, id)
         ), '[]') AS content,
         source_messages.created_at,
@@ -117,8 +150,8 @@ WITH target_messages_in_scope AS (
         target_messages.session_id AS target_session_id,
         target_messages.role,
         coalesce((
-            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'tool_call_id', tool_call_id, 'tool_kind', tool_kind, 'attachment_id', attachment_id, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
-            FROM (SELECT type, content, data, tool_call_id, tool_kind, attachment_id, started_at, ended_at, sort_order FROM main.message_parts
+            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, data, started_at, ended_at, sort_order FROM main.message_parts
                   WHERE message_id = target_messages.id ORDER BY sort_order, id)
         ), '[]') AS content,
         target_messages.created_at
@@ -160,26 +193,8 @@ FROM temp_ranked_source_messages AS source_messages
 INNER JOIN temp_new_message_map AS message_map
     ON message_map.source_message_id = source_messages.source_message_id;
 
-INSERT INTO main.attachments (
-    hash, type, original_name, origin_path, mime_type, size, created_at
-)
-SELECT
-    source_attachments.hash,
-    source_attachments.type,
-    source_attachments.original_name,
-    source_attachments.origin_path,
-    source_attachments.mime_type,
-    source_attachments.size,
-    source_attachments.created_at
-FROM imported.attachments AS source_attachments
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM main.attachments AS existing_attachments
-    WHERE existing_attachments.hash = source_attachments.hash
-);
-
 INSERT INTO main.message_parts (
-    message_id, type, content, data, tool_call_id, tool_kind, attachment_id,
+    message_id, type, content, data,
     started_at, ended_at, sort_order, created_at, updated_at
 )
 SELECT
@@ -187,21 +202,14 @@ SELECT
     source_parts.type,
     source_parts.content,
     source_parts.data,
-    source_parts.tool_call_id,
-    source_parts.tool_kind,
-    target_attachments.id,
     source_parts.started_at,
     source_parts.ended_at,
     source_parts.sort_order,
     source_parts.created_at,
     source_parts.updated_at
-FROM temp_import_message_parts AS source_parts
+FROM temp_mapped_message_parts AS source_parts
 INNER JOIN temp_new_message_map AS message_map
-    ON message_map.source_message_id = source_parts.message_id
-LEFT JOIN imported.attachments AS source_attachments
-    ON source_attachments.id = source_parts.attachment_id
-LEFT JOIN main.attachments AS target_attachments
-    ON target_attachments.hash = source_attachments.hash;
+    ON message_map.source_message_id = source_parts.message_id;
 
 DROP TABLE IF EXISTS temp_ranked_target_messages;
 CREATE TEMP TABLE temp_ranked_target_messages AS
@@ -211,8 +219,8 @@ WITH target_messages_in_scope AS (
         target_messages.session_id AS target_session_id,
         target_messages.role,
         coalesce((
-            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'tool_call_id', tool_call_id, 'tool_kind', tool_kind, 'attachment_id', attachment_id, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
-            FROM (SELECT type, content, data, tool_call_id, tool_kind, attachment_id, started_at, ended_at, sort_order FROM main.message_parts
+            SELECT json_group_array(json_object('type', type, 'content', content, 'data', data, 'started_at', started_at, 'ended_at', ended_at, 'sort_order', sort_order))
+            FROM (SELECT type, content, data, started_at, ended_at, sort_order FROM main.message_parts
                   WHERE message_id = target_messages.id ORDER BY sort_order, id)
         ), '[]') AS content,
         target_messages.created_at

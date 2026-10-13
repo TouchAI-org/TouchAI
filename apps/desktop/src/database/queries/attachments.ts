@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
@@ -56,7 +56,7 @@ export async function createMessageAttachment(
     database: DatabaseExecutor = db
 ): Promise<void> {
     const maximum = await database
-        .select({ value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)` })
+        .select({ value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value') })
         .from(messageParts)
         .where(eq(messageParts.message_id, data.message_id))
         .get();
@@ -66,8 +66,10 @@ export async function createMessageAttachment(
             message_id: data.message_id,
             type: 'attachment',
             content: '',
-            attachment_id: data.attachment_id,
-            data: JSON.stringify({ originPath: data.origin_path }),
+            data: JSON.stringify({
+                attachmentId: data.attachment_id,
+                originPath: data.origin_path,
+            }),
             sort_order: (maximum?.value ?? -1) + 1,
             ...(data.created_at ? { created_at: data.created_at } : {}),
         })
@@ -95,7 +97,9 @@ export async function findAttachmentsByMessageIds(
             hash: attachments.hash,
             type: attachments.type,
             original_name: attachments.original_name,
-            origin_path: sql<string>`json_extract(${messageParts.data}, '$.originPath')`,
+            origin_path: sql<string>`json_extract(${messageParts.data}, '$.originPath')`.as(
+                'origin_path'
+            ),
             mime_type: attachments.mime_type,
             size: attachments.size,
             created_at: attachments.created_at,

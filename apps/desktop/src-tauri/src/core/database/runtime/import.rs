@@ -193,7 +193,9 @@ async fn prepare_import_message_parts(
          CREATE TEMP TABLE temp_import_message_parts (
              id INTEGER PRIMARY KEY, message_id INTEGER NOT NULL,
              type TEXT NOT NULL, content TEXT NOT NULL, data TEXT NOT NULL DEFAULT '{}',
-             tool_call_id TEXT, tool_kind TEXT, attachment_id INTEGER,
+             tool_call_id TEXT GENERATED ALWAYS AS (CASE WHEN type IN ('tool_call', 'tool_result') THEN json_extract(data, '$.toolCallId') END) VIRTUAL,
+             tool_kind TEXT GENERATED ALWAYS AS (CASE WHEN type IN ('tool_call', 'tool_result') THEN json_extract(data, '$.toolKind') END) VIRTUAL,
+             attachment_id INTEGER GENERATED ALWAYS AS (CASE WHEN type = 'attachment' THEN json_extract(data, '$.attachmentId') END) VIRTUAL,
              started_at INTEGER, ended_at INTEGER, sort_order INTEGER NOT NULL,
              created_at TEXT NOT NULL, updated_at TEXT NOT NULL
          );
@@ -225,7 +227,7 @@ async fn prepare_import_message_parts(
     let has_parts = import_table_exists(connection, "message_parts").await?;
     if has_parts {
         let has_part_metadata = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM pragma_table_info('message_parts', 'imported')
+            "SELECT COUNT(*) FROM pragma_table_xinfo('message_parts', 'imported')
              WHERE name IN ('data', 'tool_call_id', 'tool_kind', 'attachment_id')",
         )
         .fetch_one(&mut **connection)
@@ -235,9 +237,14 @@ async fn prepare_import_message_parts(
         if has_part_metadata {
             sqlx::query(
                 "INSERT INTO temp_import_message_parts
-                 (id, message_id, type, content, data, tool_call_id, tool_kind, attachment_id,
+                 (id, message_id, type, content, data,
                   started_at, ended_at, sort_order, created_at, updated_at)
-                 SELECT id, message_id, type, content, data, tool_call_id, tool_kind, attachment_id,
+                 SELECT id, message_id, type, content,
+                        CASE WHEN type IN ('tool_call', 'tool_result')
+                             THEN json_set(data, '$.toolCallId', tool_call_id, '$.toolKind', tool_kind)
+                             WHEN type = 'attachment'
+                             THEN json_set(data, '$.attachmentId', attachment_id)
+                             ELSE data END,
                         started_at, ended_at, sort_order, created_at, updated_at
                  FROM imported.message_parts",
             )
@@ -362,12 +369,13 @@ async fn prepare_import_message_parts(
              GROUP BY messages.id;
              UPDATE temp_import_message_parts
              SET type = 'tool_result',
-                 tool_call_id = (SELECT tool_call_id FROM temp_import_legacy_tool_results WHERE message_id = temp_import_message_parts.message_id),
-                 tool_kind = (SELECT tool_kind FROM temp_import_legacy_tool_results WHERE message_id = temp_import_message_parts.message_id)
+                 data = json_set(data,
+                     '$.toolCallId', (SELECT tool_call_id FROM temp_import_legacy_tool_results WHERE message_id = temp_import_message_parts.message_id),
+                     '$.toolKind', (SELECT tool_kind FROM temp_import_legacy_tool_results WHERE message_id = temp_import_message_parts.message_id))
              WHERE type = 'text' AND message_id IN (SELECT message_id FROM temp_import_legacy_tool_results);
              INSERT INTO temp_import_message_parts
-             (message_id, type, content, tool_call_id, tool_kind, sort_order, created_at, updated_at)
-             SELECT results.message_id, 'tool_result', '', results.tool_call_id, results.tool_kind,
+             (message_id, type, content, data, sort_order, created_at, updated_at)
+             SELECT results.message_id, 'tool_result', '', json_object('toolCallId', results.tool_call_id, 'toolKind', results.tool_kind),
                     coalesce((SELECT max(sort_order) + 1 FROM temp_import_message_parts WHERE message_id = results.message_id), 0),
                     messages.created_at, messages.updated_at
              FROM temp_import_legacy_tool_results AS results
@@ -400,11 +408,11 @@ async fn prepare_import_message_parts(
          FROM temp_import_legacy_tool_sources
          WHERE message_id IS NULL;
          INSERT INTO temp_import_message_parts
-         (message_id, type, content, data, tool_call_id, tool_kind,
+         (message_id, type, content, data,
           sort_order, created_at, updated_at)
          SELECT
-             coalesce(source.message_id, synthetic.id), 'tool_call', '', source.data,
-             source.tool_call_id, source.tool_kind,
+             coalesce(source.message_id, synthetic.id), 'tool_call', '',
+             json_set(source.data, '$.toolCallId', source.tool_call_id, '$.toolKind', source.tool_kind),
              coalesce((
                  SELECT max(existing.sort_order) + 1
                  FROM temp_import_message_parts AS existing
@@ -433,9 +441,9 @@ async fn prepare_import_message_parts(
     if has_legacy_attachments {
         sqlx::query(
             "INSERT INTO temp_import_message_parts
-             (message_id, type, content, data, attachment_id, sort_order, created_at, updated_at)
+             (message_id, type, content, data, sort_order, created_at, updated_at)
              SELECT source.message_id, 'attachment', '',
-                    json_object('originPath', source.origin_path), source.attachment_id,
+                    json_object('attachmentId', source.attachment_id, 'originPath', source.origin_path),
                     coalesce((SELECT max(existing.sort_order) + 1
                               FROM temp_import_message_parts AS existing
                               WHERE existing.message_id = source.message_id), 0)
@@ -663,6 +671,76 @@ mod tests {
             vec![
                 ("reasoning".into(), "Plan".into(), Some(1000), Some(3400)),
                 ("text".into(), "Answer".into(), None, None),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn imports_generated_part_metadata_from_current_backup() {
+        let mut connection = import_connection().await;
+        sqlx::raw_sql(
+            "CREATE TABLE imported.message_parts (
+                 id INTEGER PRIMARY KEY, message_id INTEGER, type TEXT, content TEXT,
+                 data TEXT, tool_call_id TEXT GENERATED ALWAYS AS (json_extract(data, '$.toolCallId')) VIRTUAL,
+                 tool_kind TEXT GENERATED ALWAYS AS (json_extract(data, '$.toolKind')) VIRTUAL,
+                 attachment_id INTEGER GENERATED ALWAYS AS (json_extract(data, '$.attachmentId')) VIRTUAL,
+                 started_at INTEGER, ended_at INTEGER, sort_order INTEGER,
+                 created_at TEXT, updated_at TEXT
+             );
+             INSERT INTO imported.message_parts
+                 (id, message_id, type, content, data, sort_order, created_at, updated_at)
+             VALUES
+                 (1, 7, 'tool_call', '', '{\"toolCallId\":\"call-1\",\"toolKind\":\"mcp\"}', 0, 'created', 'updated'),
+                 (2, 7, 'attachment', '', '{\"attachmentId\":42}', 1, 'created', 'updated');",
+        )
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+        prepare_import_message_parts(&mut connection).await.unwrap();
+        let rows = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
+            "SELECT type, tool_call_id, attachment_id FROM temp_import_message_parts ORDER BY id",
+        )
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("tool_call".into(), Some("call-1".into()), None),
+                ("attachment".into(), None, Some(42))
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn imports_physical_part_metadata_from_older_backup_into_data() {
+        let mut connection = import_connection().await;
+        sqlx::raw_sql(
+            "CREATE TABLE imported.message_parts (
+                 id INTEGER PRIMARY KEY, message_id INTEGER, type TEXT, content TEXT,
+                 data TEXT, tool_call_id TEXT, tool_kind TEXT, attachment_id INTEGER,
+                 started_at INTEGER, ended_at INTEGER, sort_order INTEGER,
+                 created_at TEXT, updated_at TEXT
+             );
+             INSERT INTO imported.message_parts VALUES
+                 (1, 7, 'tool_call', '', '{}', 'call-1', 'builtin', NULL, NULL, NULL, 0, 'created', 'updated'),
+                 (2, 7, 'attachment', '', '{}', NULL, NULL, 42, NULL, NULL, 1, 'created', 'updated');",
+        )
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+        prepare_import_message_parts(&mut connection).await.unwrap();
+        let rows = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
+            "SELECT type, tool_call_id, attachment_id FROM temp_import_message_parts ORDER BY id",
+        )
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("tool_call".into(), Some("call-1".into()), None),
+                ("attachment".into(), None, Some(42))
             ]
         );
     }

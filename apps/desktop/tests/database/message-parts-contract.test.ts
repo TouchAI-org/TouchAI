@@ -3,10 +3,17 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
 
+import {
+    createMessageAttachment,
+    findAttachmentsByMessageIds,
+} from '@database/queries/attachments';
 import { syncOutputParts } from '@database/queries/messageParts';
 import { findMessagesBySessionId } from '@database/queries/messages';
 import { listSessions, refreshSessionMetadata } from '@database/queries/sessions';
+import { createToolPart, findToolParts, updateToolPart } from '@database/queries/toolParts';
+import { messageParts } from '@database/schema';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
+import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
@@ -29,7 +36,19 @@ function openDatabase(entryCount = journal.entries.length) {
 }
 function routeQueriesTo(database: SqliteDatabase) {
     interceptTauriInvoke((call) => {
-        if (call.cmd !== 'database_query') return undefined;
+        if (call.cmd === 'database_tx_begin') {
+            database.exec('BEGIN');
+            return 'test-tx';
+        }
+        if (call.cmd === 'database_tx_commit') {
+            database.exec('COMMIT');
+            return null;
+        }
+        if (call.cmd === 'database_tx_rollback') {
+            database.exec('ROLLBACK');
+            return null;
+        }
+        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
         const { request } = call.payload as {
             request: { sql: string; params: SQLInputValue[]; method: string };
         };
@@ -66,6 +85,80 @@ function seedSearch(database: SqliteDatabase) {
 }
 
 describe('normalized message parts database contract', () => {
+    it('writes and patches tool identifiers only inside data through Drizzle', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seedSearch(database);
+        const created = await createToolPart('builtin', {
+            message_id: 1,
+            tool_call_id: 'call-original',
+            tool_id: 'shell',
+            input: '{}',
+        });
+        const savedData = () =>
+            JSON.parse(
+                String(
+                    database.prepare("SELECT data FROM message_parts WHERE type='tool_call'").get()
+                        ?.data
+                )
+            );
+        expect(savedData()).toMatchObject({
+            toolCallId: 'call-original',
+            toolKind: 'builtin',
+            status: 'pending',
+        });
+        const updated = await updateToolPart('builtin', eq(messageParts.id, created.id), {
+            tool_call_id: 'call-renamed',
+            status: 'success',
+            output: 'result',
+        });
+        expect(updated?.tool_call_id).toBe('call-renamed');
+        expect(savedData()).toMatchObject({
+            toolCallId: 'call-renamed',
+            toolKind: 'builtin',
+            output: 'result',
+        });
+        expect(
+            await findToolParts('builtin', eq(messageParts.tool_call_id, 'call-original'))
+        ).toEqual([]);
+        expect(
+            await findToolParts('builtin', eq(messageParts.tool_call_id, 'call-renamed'))
+        ).toHaveLength(1);
+        const writes = getTauriInvokeCalls('database_tx_query')
+            .map((call) => (call.payload as { request: { sql: string } }).request.sql)
+            .filter((sql) => /^(insert|update)/i.test(sql));
+        for (const sql of writes) {
+            const assignment = sql.split(/returning/i)[0]!;
+            expect(assignment).not.toMatch(/"(tool_call_id|tool_kind|attachment_id)"/);
+        }
+    });
+
+    it('writes an attachment reference in data and joins through its virtual column', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seedSearch(database);
+        database.exec(
+            "INSERT INTO attachments (id, hash, type, original_name, origin_path) VALUES (7, 'file-hash', 'file', 'test.txt', '/cache/file.txt')"
+        );
+        await createMessageAttachment({
+            message_id: 1,
+            attachment_id: 7,
+            origin_path: '/original/file.txt',
+            sort_order: 0,
+        });
+        const part = database
+            .prepare("SELECT data, attachment_id FROM message_parts WHERE type='attachment'")
+            .get()!;
+        expect(JSON.parse(String(part.data))).toEqual({
+            attachmentId: 7,
+            originPath: '/original/file.txt',
+        });
+        expect(part.attachment_id).toBe(7);
+        expect(await findAttachmentsByMessageIds([1])).toMatchObject([
+            { id: 7, origin_path: '/original/file.txt', message_id: 1 },
+        ]);
+    });
+
     it('searches canonical tool results and keeps their FTS row in sync', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
@@ -89,7 +182,8 @@ describe('normalized message parts database contract', () => {
         routeQueriesTo(database);
         seedSearch(database);
         database.exec(
-            "INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (1, 'tool_call', '', 3), (1, 'attachment', '', 4)"
+            "INSERT INTO attachments (id, hash, type, original_name, origin_path) VALUES (7, 'file-hash', 'file', 'test.txt', '/cache/file.txt');" +
+                "INSERT INTO message_parts (message_id, type, content, data, sort_order) VALUES (1, 'tool_call', '', '{}', 3), (1, 'attachment', '', '{\"attachmentId\":7}', 4)"
         );
         const original = database
             .prepare('SELECT * FROM message_parts WHERE message_id = 1 ORDER BY sort_order')
@@ -221,6 +315,48 @@ describe('normalized message parts database contract', () => {
         expect(
             database.prepare('SELECT count(*) AS count FROM message_search_fts').get()?.count
         ).toBe(1);
+    });
+    it('remaps imported attachment IDs without mutating source parts or duplicating messages', () => {
+        const database = openDatabase();
+        database.exec(
+            "INSERT INTO attachments (id, hash, type, original_name, origin_path) VALUES (2, 'same-hash', 'file', 'local.txt', '/local'), (7, 'other-hash', 'file', 'other.txt', '/other')"
+        );
+        database.exec("ATTACH DATABASE ':memory:' AS imported");
+        const tables = database
+            .prepare(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'message_search_fts%'"
+            )
+            .all();
+        for (const table of tables)
+            database.exec(String(table.sql).replace('CREATE TABLE ', 'CREATE TABLE imported.'));
+        database.exec(`
+            INSERT INTO imported.attachments (id, hash, type, original_name, origin_path)
+            VALUES (7, 'same-hash', 'file', 'backup.txt', '/backup');
+            INSERT INTO imported.sessions (id, session_id, title, model) VALUES (1, 'import-attachment', 'Import', 'test');
+            INSERT INTO imported.messages (id, session_id, role) VALUES (1, 1, 'user');
+            INSERT INTO imported.message_parts (message_id, type, content, data, sort_order)
+            VALUES (1, 'attachment', '', '{"attachmentId":7,"originPath":"/backup"}', 0);
+            CREATE TEMP TABLE temp_import_message_parts AS SELECT * FROM imported.message_parts;
+        `);
+        const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
+        database.exec(merge);
+        database.exec(merge);
+        expect(
+            database
+                .prepare(
+                    "SELECT attachment_id, data FROM main.message_parts WHERE type = 'attachment'"
+                )
+                .all()
+        ).toEqual([{ attachment_id: 2, data: '{"attachmentId":2,"originPath":"/backup"}' }]);
+        expect(
+            database
+                .prepare("SELECT data FROM temp_import_message_parts WHERE type = 'attachment'")
+                .get()?.data
+        ).toBe('{"attachmentId":7,"originPath":"/backup"}');
+        expect(database.prepare('SELECT COUNT(*) AS count FROM main.messages').get()?.count).toBe(
+            1
+        );
+        expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     });
     it('derives history, previews and substring searches from ordered parts', async () => {
         const database = openDatabase();
