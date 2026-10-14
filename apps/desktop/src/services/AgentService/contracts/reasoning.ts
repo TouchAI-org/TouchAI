@@ -1,13 +1,12 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 /**
- * Canonical reasoning-effort values shared across providers.
+ * TouchAI 统一思考档位。
  *
- * Provider-specific request values are translated in the provider layer so
- * callers never need to know whether a backend expects `high`, `xhigh`,
- * `max`, or a provider-specific providerOptions key.
+ * 请求层只传递这里定义的档位；具体供应商在各自 provider driver 中把它
+ * 翻译成自己的 reasoning effort / thinking 参数。
  */
-export const REASONING_EFFORTS = [
+export const REASONING_LEVELS = [
     'none',
     'minimal',
     'low',
@@ -17,10 +16,12 @@ export const REASONING_EFFORTS = [
     'max',
 ] as const;
 
-export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
-const reasoningEffortSet = new Set<string>(REASONING_EFFORTS);
+export const DEFAULT_REASONING_LEVEL: ReasoningLevel = 'max';
 
-export function isReasoningEffort(value: unknown): value is ReasoningEffort {
-    return typeof value === 'string' && reasoningEffortSet.has(value);
+const reasoningLevelSet = new Set<string>(REASONING_LEVELS);
+
+export function isReasoningLevel(value: unknown): value is ReasoningLevel {
+    return typeof value === 'string' && reasoningLevelSet.has(value);
 }

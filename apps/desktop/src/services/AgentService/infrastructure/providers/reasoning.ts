@@ -1,49 +1,77 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { ProviderDriver } from '@database/schema';
-
 import type { JsonObject } from '../../contracts/protocol';
-import type { ReasoningEffort } from '../../contracts/reasoning';
+import {
+    DEFAULT_REASONING_LEVEL,
+    REASONING_LEVELS,
+    type ReasoningLevel,
+} from '../../contracts/reasoning';
 
-export type ReasoningTransport = 'openai' | 'openai-compatible' | 'deepseek' | 'mimo';
+export type OpenAiReasoningEffort = ReasoningLevel;
+export type DeepSeekReasoningEffort = Extract<ReasoningLevel, 'low' | 'high' | 'max'>;
 
-export interface ProviderReasoningCapabilities {
-    supportsReasoning: boolean;
-    supportedEfforts: readonly ReasoningEffort[];
-    defaultEffort?: ReasoningEffort;
-    transport?: ReasoningTransport;
-    parsesReasoningContent: boolean;
-}
+const OPENAI_GPT5_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
+const OPENAI_GPT5_1_LEVELS = ['none', 'low', 'medium', 'high'] as const;
+const OPENAI_GPT5_2_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh'] as const;
+const OPENAI_GPT5_4_PRO_LEVELS = ['medium', 'high', 'xhigh'] as const;
+const OPENAI_GPT5_6_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+const OPENAI_GPT6_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+const OPENAI_GPT6_SOL_LUNA_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+const OPENAI_O_SERIES_LEVELS = ['low', 'medium', 'high'] as const;
 
-const OPENAI_DRIVER_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
-const OPENAI_O_SERIES_EFFORTS = ['low', 'medium', 'high'] as const;
-const OPENAI_GPT5_EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
-const OPENAI_GPT5_1_EFFORTS = ['none', 'low', 'medium', 'high'] as const;
-const OPENAI_GPT5_2_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh'] as const;
-const OPENAI_GPT5_4_PRO_EFFORTS = ['medium', 'high', 'xhigh'] as const;
-const OPENAI_GPT5_6_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
-const OPENAI_GPT6_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-const OPENAI_GPT6_SOL_LUNA_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
-const DEEPSEEK_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-const ALL_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
-
-const unsupportedReasoningCapabilities: ProviderReasoningCapabilities = {
-    supportsReasoning: false,
-    supportedEfforts: [],
-    parsesReasoningContent: false,
+const DEEPSEEK_LEVEL_MAP: Record<ReasoningLevel, DeepSeekReasoningEffort | null> = {
+    none: null,
+    minimal: 'low',
+    low: 'low',
+    medium: 'high',
+    high: 'high',
+    xhigh: 'max',
+    max: 'max',
 };
 
-function createOpenAiCapabilities(
-    supportedEfforts: readonly ReasoningEffort[],
-    defaultEffort: ReasoningEffort
-): ProviderReasoningCapabilities {
-    return {
-        supportsReasoning: true,
-        supportedEfforts,
-        defaultEffort,
-        transport: 'openai',
-        parsesReasoningContent: false,
-    };
+function resolveRequestedReasoningLevel(level: ReasoningLevel | undefined): ReasoningLevel {
+    return level ?? DEFAULT_REASONING_LEVEL;
+}
+
+const reasoningLevelIndex = new Map<ReasoningLevel, number>(
+    REASONING_LEVELS.map((level, index) => [level, index])
+);
+
+function clampToSupportedLevel(
+    requested: ReasoningLevel,
+    supported: readonly ReasoningLevel[]
+): ReasoningLevel | undefined {
+    const requestedIndex = reasoningLevelIndex.get(requested);
+    if (requestedIndex === undefined || supported.length === 0) {
+        return undefined;
+    }
+
+    const firstSupported = supported[0];
+    if (!firstSupported) {
+        return undefined;
+    }
+
+    let nearest: ReasoningLevel = firstSupported;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const candidate of supported) {
+        const candidateIndex = reasoningLevelIndex.get(candidate);
+        if (candidateIndex === undefined) {
+            continue;
+        }
+
+        const distance = Math.abs(candidateIndex - requestedIndex);
+        const nearestIndex = reasoningLevelIndex.get(nearest) ?? 0;
+        if (
+            distance < nearestDistance ||
+            (distance === nearestDistance && candidateIndex > nearestIndex)
+        ) {
+            nearest = candidate;
+            nearestDistance = distance;
+        }
+    }
+
+    return nearest;
 }
 
 interface OpenAiGptVersion {
@@ -71,13 +99,7 @@ function normalizeOpenAiModelId(modelId: string): string {
     return slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized;
 }
 
-/**
- * OpenAI 官方模型的 reasoning effort 上限随模型版本变化。这里只覆盖
- * 已知的 reasoning 模型族；未知模型不发送 effort，避免把无效参数透传。
- */
-function getOpenAiReasoningCapabilities(
-    modelId: string
-): ProviderReasoningCapabilities | undefined {
+function getOpenAiSupportedLevels(modelId: string): readonly ReasoningLevel[] | undefined {
     const normalizedModelId = normalizeOpenAiModelId(modelId);
     const gptVersion = parseOpenAiGptVersion(normalizedModelId);
 
@@ -88,142 +110,83 @@ function getOpenAiReasoningCapabilities(
 
         if (gptVersion.major >= 6) {
             if (gptVersion.variant?.startsWith('sol') || gptVersion.variant?.startsWith('luna')) {
-                return createOpenAiCapabilities(OPENAI_GPT6_SOL_LUNA_EFFORTS, 'max');
+                return OPENAI_GPT6_SOL_LUNA_LEVELS;
             }
-            return createOpenAiCapabilities(OPENAI_GPT6_EFFORTS, 'max');
+            return OPENAI_GPT6_LEVELS;
         }
 
         if (gptVersion.major === 5) {
             if (gptVersion.minor === 6) {
-                return createOpenAiCapabilities(OPENAI_GPT5_6_EFFORTS, 'max');
+                return OPENAI_GPT5_6_LEVELS;
             }
             if (gptVersion.minor === 4 && gptVersion.variant?.startsWith('pro')) {
-                return createOpenAiCapabilities(OPENAI_GPT5_4_PRO_EFFORTS, 'xhigh');
+                return OPENAI_GPT5_4_PRO_LEVELS;
             }
             if (gptVersion.minor === 2 || gptVersion.minor === 4 || gptVersion.minor === 5) {
-                return createOpenAiCapabilities(OPENAI_GPT5_2_EFFORTS, 'xhigh');
+                return OPENAI_GPT5_2_LEVELS;
             }
             if (gptVersion.minor === 1) {
-                return createOpenAiCapabilities(OPENAI_GPT5_1_EFFORTS, 'high');
+                return OPENAI_GPT5_1_LEVELS;
             }
             if (gptVersion.minor === undefined) {
-                return createOpenAiCapabilities(OPENAI_GPT5_EFFORTS, 'high');
+                return OPENAI_GPT5_LEVELS;
             }
         }
     }
 
     if (/^o\d+(?:-|$)/.test(normalizedModelId)) {
-        return createOpenAiCapabilities(OPENAI_O_SERIES_EFFORTS, 'high');
+        return OPENAI_O_SERIES_LEVELS;
     }
 
     return undefined;
 }
 
-const providerReasoningCapabilitiesByDriver: Record<ProviderDriver, ProviderReasoningCapabilities> =
-    {
-        openai: {
-            supportsReasoning: true,
-            supportedEfforts: OPENAI_DRIVER_EFFORTS,
-            defaultEffort: 'xhigh',
-            transport: 'openai',
-            parsesReasoningContent: false,
-        },
-        'openai-compatible': {
-            supportsReasoning: true,
-            supportedEfforts: ALL_EFFORTS,
-            defaultEffort: 'max',
-            transport: 'openai-compatible',
-            parsesReasoningContent: true,
-        },
-        anthropic: unsupportedReasoningCapabilities,
-        'anthropic-compatible': unsupportedReasoningCapabilities,
-        google: unsupportedReasoningCapabilities,
-        deepseek: {
-            supportsReasoning: true,
-            supportedEfforts: DEEPSEEK_EFFORTS,
-            defaultEffort: 'max',
-            transport: 'deepseek',
-            parsesReasoningContent: true,
-        },
-        xai: unsupportedReasoningCapabilities,
-        moonshot: unsupportedReasoningCapabilities,
-        alibaba: unsupportedReasoningCapabilities,
-        minimax: unsupportedReasoningCapabilities,
-        zhipu: unsupportedReasoningCapabilities,
-        mimo: {
-            supportsReasoning: true,
-            supportedEfforts: ALL_EFFORTS,
-            defaultEffort: 'max',
-            transport: 'mimo',
-            parsesReasoningContent: true,
-        },
-    };
-
-export function getProviderReasoningCapabilities(
-    driver: ProviderDriver,
-    modelId?: string
-): ProviderReasoningCapabilities {
-    if (driver === 'openai' && modelId) {
-        return getOpenAiReasoningCapabilities(modelId) ?? unsupportedReasoningCapabilities;
+/**
+ * OpenAI 官方模型支持的 effort 随模型版本变化。这里把 TouchAI
+ * 统一档位映射到该模型最近的受支持档位，未知或非 reasoning 模型不发送参数。
+ */
+export function translateOpenAiReasoningLevel(
+    level: ReasoningLevel | undefined,
+    modelId: string
+): OpenAiReasoningEffort | undefined {
+    const supported = getOpenAiSupportedLevels(modelId);
+    if (!supported) {
+        return undefined;
     }
 
-    return providerReasoningCapabilitiesByDriver[driver];
+    return clampToSupportedLevel(resolveRequestedReasoningLevel(level), supported) as
+        | OpenAiReasoningEffort
+        | undefined;
 }
 
-export function getDefaultReasoningEffort(
-    driver: ProviderDriver | undefined,
-    modelId?: string
-): ReasoningEffort | undefined {
-    if (!driver) {
-        return undefined;
-    }
-
-    return getProviderReasoningCapabilities(driver, modelId).defaultEffort;
+/**
+ * OpenAI-compatible 中转站由上游决定具体语义，TouchAI 只做统一档位透传。
+ */
+export function translateOpenAiCompatibleReasoningLevel(
+    level: ReasoningLevel | undefined
+): ReasoningLevel {
+    return resolveRequestedReasoningLevel(level);
 }
 
-export function resolveReasoningEffort(
-    driver: ProviderDriver | undefined,
-    requested?: unknown,
-    modelId?: string
-): ReasoningEffort | undefined {
-    if (!driver) {
-        return undefined;
+/**
+ * DeepSeek 的规范值只有 low / high / max；medium 和 xhigh 在驱动层归一化。
+ */
+export function translateDeepSeekReasoningOptions(
+    level: ReasoningLevel | undefined
+): JsonObject | undefined {
+    const resolved = resolveRequestedReasoningLevel(level);
+    const reasoningEffort = DEEPSEEK_LEVEL_MAP[resolved];
+
+    if (!reasoningEffort) {
+        return { thinking: { type: 'disabled' } };
     }
 
-    const capabilities = getProviderReasoningCapabilities(driver, modelId);
-    if (!capabilities.supportsReasoning || !capabilities.defaultEffort) {
-        return undefined;
-    }
-
-    if (
-        typeof requested === 'string' &&
-        capabilities.supportedEfforts.some((effort) => effort === requested)
-    ) {
-        return requested as ReasoningEffort;
-    }
-
-    return capabilities.defaultEffort;
+    return { reasoningEffort };
 }
 
-export function buildReasoningProviderOptions(
-    driver: ProviderDriver | undefined,
-    requested?: unknown,
-    modelId?: string
-): Record<string, JsonObject> | undefined {
-    if (!driver) {
-        return undefined;
-    }
-
-    const capabilities = getProviderReasoningCapabilities(driver, modelId);
-    const effort = resolveReasoningEffort(driver, requested, modelId);
-
-    if (!capabilities.transport || !effort) {
-        return undefined;
-    }
-
-    return {
-        [capabilities.transport]: {
-            reasoningEffort: effort,
-        },
-    };
+/**
+ * MiMo 使用自己的 OpenAI-compatible provider key，当前按统一档位透传。
+ */
+export function translateMimoReasoningLevel(level: ReasoningLevel | undefined): ReasoningLevel {
+    return resolveRequestedReasoningLevel(level);
 }

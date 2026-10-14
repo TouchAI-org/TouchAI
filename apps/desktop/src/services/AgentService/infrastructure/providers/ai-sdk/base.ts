@@ -5,7 +5,7 @@ import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import type { AiRequestOptions, AiResponse, JsonObject } from '../../../contracts/protocol';
-import { buildReasoningProviderOptions } from '../reasoning';
+import type { ReasoningLevel } from '../../../contracts/reasoning';
 import type {
     AiProvider,
     AiProviderConfig,
@@ -379,7 +379,20 @@ export abstract class AiSdkProviderBase implements AiProvider {
     protected getStreamProviderOptions(
         options: AiRequestOptions
     ): Record<string, JsonObject> | undefined {
-        return buildReasoningProviderOptions(this.driver, options.reasoningEffort, options.model);
+        return this.getReasoningProviderOptions(options.reasoningLevel, options.model);
+    }
+
+    /**
+     * Provider driver 在这里把 TouchAI 统一档位翻译成自己的 providerOptions。
+     * 基类默认不发送任何供应商特有参数。
+     */
+    protected getReasoningProviderOptions(
+        level: ReasoningLevel | undefined,
+        modelId: string
+    ): Record<string, JsonObject> | undefined {
+        void level;
+        void modelId;
+        return undefined;
     }
 
     /**

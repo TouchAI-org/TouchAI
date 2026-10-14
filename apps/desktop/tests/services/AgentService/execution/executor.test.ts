@@ -98,7 +98,7 @@ describe('AiRequestExecutor', () => {
         vi.useRealTimers();
     });
 
-    it('requests the highest reasoning effort even when model metadata disables reasoning', async () => {
+    it('passes the canonical max reasoning level even when model metadata disables reasoning', async () => {
         providerMock.stream.mockImplementation(async function* () {
             yield { content: 'Done', done: true };
         });
@@ -110,28 +110,7 @@ describe('AiRequestExecutor', () => {
 
         expect(outcome.type).toBe('completed');
         expect(providerMock.stream).toHaveBeenCalledWith(
-            expect.objectContaining({ reasoningEffort: 'max' })
-        );
-    });
-
-    it('uses the active OpenAI model capability when resolving reasoning effort', async () => {
-        providerMock.stream.mockImplementation(async function* () {
-            yield { content: 'Done', done: true };
-        });
-        const checkpoint = createCheckpoint();
-        checkpoint.activeModel.provider_driver = 'openai';
-        checkpoint.activeModel.provider_name = 'OpenAI';
-        checkpoint.activeModel.model_id = 'gpt-5.1';
-        checkpoint.activeModel.name = 'gpt-5.1';
-
-        const outcome = await new AiRequestExecutor().runAttempt({
-            startCheckpoint: checkpoint,
-            persister: {} as never,
-        });
-
-        expect(outcome.type).toBe('completed');
-        expect(providerMock.stream).toHaveBeenCalledWith(
-            expect.objectContaining({ reasoningEffort: 'high' })
+            expect.objectContaining({ reasoningLevel: 'max' })
         );
     });
 

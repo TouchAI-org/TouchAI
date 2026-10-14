@@ -20,7 +20,7 @@ import {
     normalizeOutputParts,
     type PersistedOutputPart,
 } from '../contracts/protocol';
-import type { ReasoningEffort } from '../contracts/reasoning';
+import { DEFAULT_REASONING_LEVEL, type ReasoningLevel } from '../contracts/reasoning';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -40,7 +40,6 @@ import {
     type AiProvider,
     createProviderFromRegistry,
     parseProviderConfigJson,
-    resolveReasoningEffort,
 } from '../infrastructure/providers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
@@ -397,7 +396,7 @@ export class AiRequestExecutor {
         attachmentRequestIndex?: number,
         onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
         supportsReasoning = true,
-        reasoningEffort?: ReasoningEffort
+        reasoningLevel?: ReasoningLevel
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
         console.debug(
             `[AiRequestExecutor] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
@@ -407,7 +406,7 @@ export class AiRequestExecutor {
             providerId,
             messages,
             supportsReasoning,
-            reasoningEffort,
+            reasoningLevel,
             tools,
             modelLanguageContext,
             signal,
@@ -637,13 +636,9 @@ export class AiRequestExecutor {
         }
     ): Promise<AttemptStepResult> {
         // Relay metadata is not authoritative: some models report reasoning=0
-        // while still requiring an explicit reasoning_effort to expose thinking.
-        // Provider/model capability resolution decides whether an option is emitted.
-        const reasoningEffort = resolveReasoningEffort(
-            runtime.activeModel.provider_driver,
-            undefined,
-            runtime.activeModel.model_id
-        );
+        // while still requiring an explicit reasoning option to expose thinking.
+        // The executor always passes TouchAI's canonical level; each provider
+        // driver translates it into the vendor-specific request parameter.
         const stream = this.stream(
             runtime.provider,
             runtime.activeModel.provider_id,
@@ -655,7 +650,7 @@ export class AiRequestExecutor {
             runtime.iteration,
             options.onAttachmentManifestResolved,
             runtime.activeModel.reasoning === 1,
-            reasoningEffort
+            DEFAULT_REASONING_LEVEL
         );
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;

@@ -4,7 +4,10 @@ import { createDeepSeek } from '@ai-sdk/deepseek';
 
 import { z } from '@/utils/zod';
 
+import type { JsonObject } from '../../../contracts/protocol';
+import type { ReasoningLevel } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { translateDeepSeekReasoningOptions } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 
 const deepseekModelsSchema = z.object({
@@ -50,6 +53,13 @@ export class DeepSeekProviderAdapter extends AiSdkProviderBase {
             id: model.id,
             name: model.id,
         }));
+    }
+
+    protected override getReasoningProviderOptions(
+        level: ReasoningLevel | undefined
+    ): Record<string, JsonObject> | undefined {
+        const options = translateDeepSeekReasoningOptions(level);
+        return options ? { deepseek: options } : undefined;
     }
 
     getApiTargets(): ProviderApiTargets {

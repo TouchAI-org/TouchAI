@@ -4,7 +4,10 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
 import { z } from '@/utils/zod';
 
+import type { JsonObject } from '../../../contracts/protocol';
+import type { ReasoningLevel } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { translateMimoReasoningLevel } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
@@ -50,6 +53,16 @@ export class MiMoProviderAdapter extends AiSdkProviderBase {
             id: model.id,
             name: model.id,
         }));
+    }
+
+    protected override getReasoningProviderOptions(
+        level: ReasoningLevel | undefined
+    ): Record<string, JsonObject> {
+        return {
+            mimo: {
+                reasoningEffort: translateMimoReasoningLevel(level),
+            },
+        };
     }
 
     getApiTargets(): ProviderApiTargets {

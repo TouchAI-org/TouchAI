@@ -4,7 +4,10 @@ import { createOpenAI } from '@ai-sdk/openai';
 
 import { z } from '@/utils/zod';
 
+import type { JsonObject } from '../../../contracts/protocol';
+import type { ReasoningLevel } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { translateOpenAiReasoningLevel } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
@@ -51,6 +54,14 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
             id: model.id,
             name: model.id,
         }));
+    }
+
+    protected override getReasoningProviderOptions(
+        level: ReasoningLevel | undefined,
+        modelId: string
+    ): Record<string, JsonObject> | undefined {
+        const reasoningEffort = translateOpenAiReasoningLevel(level, modelId);
+        return reasoningEffort ? { openai: { reasoningEffort } } : undefined;
     }
 
     getApiTargets(): ProviderApiTargets {

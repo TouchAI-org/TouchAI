@@ -14,12 +14,12 @@ export {
     providerDriverDefinitions,
 } from './drivers';
 export {
-    buildReasoningProviderOptions,
-    getDefaultReasoningEffort,
-    getProviderReasoningCapabilities,
-    type ProviderReasoningCapabilities,
-    type ReasoningTransport,
-    resolveReasoningEffort,
+    type DeepSeekReasoningEffort,
+    type OpenAiReasoningEffort,
+    translateDeepSeekReasoningOptions,
+    translateMimoReasoningLevel,
+    translateOpenAiCompatibleReasoningLevel,
+    translateOpenAiReasoningLevel,
 } from './reasoning';
 export type {
     AiProvider,

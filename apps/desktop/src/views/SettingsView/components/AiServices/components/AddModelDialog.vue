@@ -5,16 +5,13 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
-    import type { NewModel, ProviderDriver } from '@database/schema';
+    import type { NewModel } from '@database/schema';
     import { ref, watch } from 'vue';
 
     import { t } from '@/i18n';
-
-    import ReasoningEffortSelect from './ReasoningEffortSelect.vue';
     interface Props {
         providerId: number;
         open?: boolean;
-        driver?: ProviderDriver;
     }
 
     interface Emits {
@@ -186,8 +183,6 @@
                     </button>
                 </div>
             </div>
-
-            <ReasoningEffortSelect :driver="driver" />
         </div>
 
         <div class="mt-6 flex gap-3">
