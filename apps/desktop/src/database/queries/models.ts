@@ -30,6 +30,7 @@ export const modelWithProviderSelection = {
     modalities: models.modalities,
     open_weights: models.open_weights,
     reasoning: models.reasoning,
+    reasoning_options: models.reasoning_options,
     release_date: models.release_date,
     temperature: models.temperature,
     tool_call: models.tool_call,
@@ -239,6 +240,7 @@ export const syncAllModelsMetadata = async (database: DatabaseExecutor = db): Pr
                 m2.modalities,
                 m2.open_weights,
                 m2.reasoning,
+                m2.reasoning_options,
                 m2.release_date,
                 m2.temperature,
                 m2.tool_call,
@@ -280,6 +282,12 @@ export const syncAllModelsMetadata = async (database: DatabaseExecutor = db): Pr
                 WHERE ranked_metadata.model_row_id = models.id
                   AND ranked_metadata.rn = 1
             ), reasoning),
+            reasoning_options = COALESCE((
+                SELECT ranked_metadata.reasoning_options
+                FROM ranked_metadata
+                WHERE ranked_metadata.model_row_id = models.id
+                  AND ranked_metadata.rn = 1
+            ), reasoning_options),
             release_date = COALESCE((
                 SELECT ranked_metadata.release_date
                 FROM ranked_metadata

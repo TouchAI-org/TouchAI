@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3
  */
 
@@ -16,6 +16,8 @@ import {
 } from '@/utils/modelSchemas';
 import { z } from '@/utils/zod';
 
+import { normalizeReasoningOptions, serializeReasoningOptions } from '../contracts/reasoning';
+
 const rawModelSchema = z.object({
     id: z.string().min(1),
     name: z.string().min(1),
@@ -28,6 +30,7 @@ const rawModelSchema = z.object({
     tool_call: z.boolean().catch(false),
     knowledge: z.string().optional(),
     limit: modelLimitSchema.optional(),
+    reasoning_options: z.unknown().optional(),
 });
 const rawModelDataSchema = z.record(
     z.string(),
@@ -72,6 +75,14 @@ function mergeCapabilities(target: NewLlmMetadata, source: NewLlmMetadata): void
     } else if (target.knowledge && source.knowledge) {
         target.knowledge =
             source.knowledge.length > target.knowledge.length ? source.knowledge : target.knowledge;
+    }
+
+    const targetReasoning = normalizeReasoningOptions(target.reasoning_options);
+    const sourceReasoning = normalizeReasoningOptions(source.reasoning_options);
+    if (sourceReasoning.length > targetReasoning.length) {
+        target.reasoning_options = serializeReasoningOptions(sourceReasoning);
+    } else if (targetReasoning.length > 0) {
+        target.reasoning_options = serializeReasoningOptions(targetReasoning);
     }
 
     if (!target.release_date && source.release_date) {
@@ -120,6 +131,9 @@ function parseRawData(rawData: RawModelData): NewLlmMetadata[] {
                 tool_call: model.tool_call ? 1 : 0,
                 knowledge: model.knowledge || null,
                 limit: serializedLimit,
+                reasoning_options: serializeReasoningOptions(
+                    normalizeReasoningOptions(model.reasoning_options)
+                ),
             };
 
             const existing = metadataMap.get(entry.model_id);

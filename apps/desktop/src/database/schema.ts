@@ -298,6 +298,7 @@ export const models = sqliteTable('models', {
     modalities: text('modalities'), // JSON string: {input: [], output: []}
     open_weights: integer('open_weights').notNull().default(0),
     reasoning: integer('reasoning').notNull().default(0),
+    reasoning_options: text('reasoning_options'), // JSON string: ReasoningOption[]
     release_date: text('release_date'),
     temperature: integer('temperature').notNull().default(1),
     tool_call: integer('tool_call').notNull().default(0),
@@ -407,6 +408,7 @@ export const llmMetadata = sqliteTable('llm_metadata', {
     modalities: text('modalities').notNull(), // JSON string
     open_weights: integer('open_weights').notNull().default(0),
     reasoning: integer('reasoning').notNull().default(0),
+    reasoning_options: text('reasoning_options'), // JSON string: ReasoningOption[]
     release_date: text('release_date'),
     temperature: integer('temperature').notNull().default(1),
     tool_call: integer('tool_call').notNull().default(0),

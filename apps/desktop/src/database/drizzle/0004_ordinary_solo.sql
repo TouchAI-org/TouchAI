@@ -361,3 +361,6 @@ SET checkpoint_json = CASE WHEN json_valid(checkpoint_json) AND (
             + (length(coalesce(json_extract(checkpoint_json, '$.reasoning'), '')) > 0)
     )
 ) ELSE checkpoint_json END;
+--> statement-breakpoint
+ALTER TABLE `llm_metadata` ADD `reasoning_options` text;--> statement-breakpoint
+ALTER TABLE `models` ADD `reasoning_options` text;

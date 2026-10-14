@@ -352,6 +352,13 @@
           "autoincrement": false,
           "default": 0
         },
+        "reasoning_options": {
+          "name": "reasoning_options",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "release_date": {
           "name": "release_date",
           "type": "text",
@@ -950,6 +957,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "reasoning_options": {
+          "name": "reasoning_options",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "release_date": {
           "name": "release_date",

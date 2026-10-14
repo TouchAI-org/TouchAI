@@ -202,6 +202,7 @@ export interface ModelEntity {
     modalities: string | null;
     open_weights: number;
     reasoning: number;
+    reasoning_options: string | null;
     release_date: string | null;
     temperature: number;
     tool_call: number;
@@ -223,6 +224,7 @@ export interface ModelCreateData {
     modalities?: string | null;
     open_weights?: number;
     reasoning?: number;
+    reasoning_options?: string | null;
     release_date?: string | null;
     temperature?: number;
     tool_call?: number;
@@ -257,6 +259,7 @@ export interface ModelWithProvider {
     modalities: string | null;
     open_weights: number;
     reasoning: number;
+    reasoning_options: string | null;
     release_date: string | null;
     temperature: number;
     tool_call: number;
@@ -353,6 +356,7 @@ export interface LlmMetadataEntity {
     modalities: string;
     open_weights: number;
     reasoning: number;
+    reasoning_options: string | null;
     release_date: string | null;
     temperature: number;
     tool_call: number;
@@ -369,6 +373,7 @@ export interface LlmMetadataCreateData {
     modalities: string;
     open_weights?: number;
     reasoning?: number;
+    reasoning_options?: string | null;
     release_date?: string | null;
     temperature?: number;
     tool_call?: number;
