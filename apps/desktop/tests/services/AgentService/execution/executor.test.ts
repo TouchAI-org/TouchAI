@@ -97,6 +97,23 @@ describe('AiRequestExecutor', () => {
     afterEach(() => {
         vi.useRealTimers();
     });
+
+    it('requests the highest reasoning effort even when model metadata disables reasoning', async () => {
+        providerMock.stream.mockImplementation(async function* () {
+            yield { content: 'Done', done: true };
+        });
+
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: {} as never,
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(providerMock.stream).toHaveBeenCalledWith(
+            expect.objectContaining({ reasoningEffort: 'max' })
+        );
+    });
+
     it('returns the failed stream fragments with their wall-clock boundaries without persisting a snapshot', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);

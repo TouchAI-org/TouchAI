@@ -13,6 +13,14 @@ export {
     type ProviderDriverDefinition,
     providerDriverDefinitions,
 } from './drivers';
+export {
+    buildReasoningProviderOptions,
+    getDefaultReasoningEffort,
+    getProviderReasoningCapabilities,
+    type ProviderReasoningCapabilities,
+    type ReasoningTransport,
+    resolveReasoningEffort,
+} from './reasoning';
 export type {
     AiProvider,
     AiProviderConfig,

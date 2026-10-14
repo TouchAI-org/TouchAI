@@ -5,6 +5,7 @@ import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import type { AiRequestOptions, AiResponse, JsonObject } from '../../../contracts/protocol';
+import { buildReasoningProviderOptions } from '../reasoning';
 import type {
     AiProvider,
     AiProviderConfig,
@@ -378,8 +379,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
     protected getStreamProviderOptions(
         options: AiRequestOptions
     ): Record<string, JsonObject> | undefined {
-        void options;
-        return undefined;
+        return buildReasoningProviderOptions(this.driver, options.reasoningEffort);
     }
 
     /**

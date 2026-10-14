@@ -20,6 +20,7 @@ import {
     normalizeOutputParts,
     type PersistedOutputPart,
 } from '../contracts/protocol';
+import type { ReasoningEffort } from '../contracts/reasoning';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -39,6 +40,7 @@ import {
     type AiProvider,
     createProviderFromRegistry,
     parseProviderConfigJson,
+    resolveReasoningEffort,
 } from '../infrastructure/providers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
@@ -394,7 +396,8 @@ export class AiRequestExecutor {
         signal?: AbortSignal,
         attachmentRequestIndex?: number,
         onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
-        supportsReasoning = true
+        supportsReasoning = true,
+        reasoningEffort?: ReasoningEffort
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
         console.debug(
             `[AiRequestExecutor] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
@@ -404,6 +407,7 @@ export class AiRequestExecutor {
             providerId,
             messages,
             supportsReasoning,
+            reasoningEffort,
             tools,
             modelLanguageContext,
             signal,
@@ -632,6 +636,7 @@ export class AiRequestExecutor {
             persister: PersistenceProjector;
         }
     ): Promise<AttemptStepResult> {
+        const reasoningEffort = resolveReasoningEffort(runtime.activeModel.provider_driver);
         const stream = this.stream(
             runtime.provider,
             runtime.activeModel.provider_id,
@@ -642,7 +647,8 @@ export class AiRequestExecutor {
             options.signal,
             runtime.iteration,
             options.onAttachmentManifestResolved,
-            runtime.activeModel.reasoning === 1
+            runtime.activeModel.reasoning === 1,
+            reasoningEffort
         );
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;

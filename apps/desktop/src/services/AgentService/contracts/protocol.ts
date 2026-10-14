@@ -3,6 +3,7 @@
 import type { ProviderDriver } from '@database/schema';
 
 import type { ModelLanguageContext } from '../languageContext';
+import type { ReasoningEffort } from './reasoning';
 import type { AiToolCall, AiToolCallDelta, AiToolDefinition, ToolEvent } from './tooling';
 
 export type AttachmentTransportMode =
@@ -144,6 +145,7 @@ export interface AiRequestOptions {
     providerId?: number;
     messages: AiMessage[];
     supportsReasoning?: boolean;
+    reasoningEffort?: ReasoningEffort;
     stream?: boolean;
     signal?: AbortSignal;
     tools?: AiToolDefinition[];

@@ -12,4 +12,5 @@
  */
 export { AiError, AiErrorCode } from './errors';
 export type * from './protocol';
+export * from './reasoning';
 export type * from './tooling';
