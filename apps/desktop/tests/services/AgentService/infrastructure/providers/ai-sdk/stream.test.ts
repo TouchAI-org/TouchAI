@@ -152,4 +152,65 @@ describe('AI SDK reasoning lifecycle', () => {
             { content: '', done: false, reasoningState: 'end' },
         ]);
     });
+
+    it('accumulates reasoning provider metadata across start/delta/end by itemId', () => {
+        const processor = createAiSdkStreamProcessor({ modelId: 'gpt-5.2' });
+
+        expect(
+            processor.consumePart({
+                type: 'reasoning-start',
+                id: 'rs_1',
+                providerMetadata: { openai: { itemId: 'rs_1' } },
+            })
+        ).toEqual([
+            {
+                content: '',
+                done: false,
+                reasoningState: 'start',
+                reasoningProviderOptions: { openai: { itemId: 'rs_1' } },
+            },
+        ]);
+
+        expect(
+            processor.consumePart({
+                type: 'reasoning-delta',
+                id: 'rs_1',
+                text: 'Think',
+                providerMetadata: { openai: { itemId: 'rs_1' } },
+            })
+        ).toEqual([
+            {
+                content: '',
+                done: false,
+                reasoning: 'Think',
+                reasoningProviderOptions: { openai: { itemId: 'rs_1' } },
+            },
+        ]);
+
+        expect(
+            processor.consumePart({
+                type: 'reasoning-end',
+                id: 'rs_1',
+                providerMetadata: {
+                    openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+                },
+            })
+        ).toEqual([
+            {
+                content: '',
+                done: false,
+                reasoningState: 'end',
+                reasoningProviderOptions: {
+                    openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+                },
+            },
+        ]);
+    });
+
+    it('omits reasoning provider metadata when the stream carries none', () => {
+        const processor = createAiSdkStreamProcessor();
+        expect(processor.consumePart({ type: 'reasoning-delta', id: 'r1', text: 'x' })).toEqual([
+            { content: '', done: false, reasoning: 'x' },
+        ]);
+    });
 });

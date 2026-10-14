@@ -365,4 +365,39 @@ describe('reasoning persistence', () => {
             database: {},
         });
     });
+
+    it('persists reasoning provider options into the message part data column', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+        await projector.markCompleted({
+            durationMs: 5000,
+            outputParts: [
+                {
+                    type: 'reasoning',
+                    content: 'Thought',
+                    startedAt: 1000,
+                    endedAt: 6500,
+                    providerOptions: {
+                        openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+                    },
+                },
+                { type: 'text', content: 'Answer' },
+            ],
+        });
+        expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+            11,
+            [
+                expect.objectContaining({
+                    message_id: 11,
+                    type: 'reasoning',
+                    content: 'Thought',
+                    data: JSON.stringify({
+                        openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+                    }),
+                }),
+                expect.objectContaining({ message_id: 11, type: 'text', content: 'Answer' }),
+            ],
+            {}
+        );
+    });
 });

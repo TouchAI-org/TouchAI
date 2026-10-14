@@ -5,6 +5,7 @@ import type { FinishReason, TextStreamPart, ToolSet } from 'ai';
 import type { AiStreamChunk, JsonObject } from '@/services/AgentService/contracts/protocol';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 
+import { logReasoningDelta } from '../reasoning/debug';
 import { normalizeToolName, toJsonObjectRecord } from './utils';
 
 interface ToolStreamState {
@@ -14,6 +15,8 @@ interface ToolStreamState {
     namesByCallId: Map<string, string>;
     providerOptionsByCallId: Map<string, Record<string, JsonObject>>;
     finalToolCallsByCallId: Map<string, AiToolCall>;
+    /** 按 reasoning itemId 累积 provider 元数据（itemId / encrypted_content）。 */
+    reasoningProviderOptionsById: Map<string, Record<string, JsonObject>>;
 }
 
 function createInitialState(): ToolStreamState {
@@ -24,7 +27,20 @@ function createInitialState(): ToolStreamState {
         namesByCallId: new Map(),
         providerOptionsByCallId: new Map(),
         finalToolCallsByCallId: new Map(),
+        reasoningProviderOptionsById: new Map(),
     };
+}
+
+/** 浅合并两层 providerOptions：外层按 provider key，内层按字段。 */
+function mergeProviderOptions(
+    target: Record<string, JsonObject> | undefined,
+    incoming: Record<string, JsonObject>
+): Record<string, JsonObject> {
+    const merged: Record<string, JsonObject> = { ...(target ?? {}) };
+    for (const [provider, options] of Object.entries(incoming)) {
+        merged[provider] = { ...(merged[provider] ?? {}), ...options };
+    }
+    return merged;
 }
 
 function getToolIndex(state: ToolStreamState, callId: string): number {
@@ -136,7 +152,7 @@ function mapFinishReason(reason: FinishReason | undefined, hasToolCalls: boolean
 /**
  * 把 AI SDK 全量流事件收束成应用现有的增量协议。
  */
-export function createAiSdkStreamProcessor() {
+export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
     const state = createInitialState();
 
     /**
@@ -155,6 +171,31 @@ export function createAiSdkStreamProcessor() {
         return normalized;
     }
 
+    /**
+     * 累积 reasoning 的 providerMetadata。
+     *
+     * OpenAI Responses 的 reasoning-start 带 itemId，reasoning-end 才带
+     * reasoningEncryptedContent，因此按 itemId 合并整段思考的元数据。
+     */
+    function captureReasoningProviderOptions(
+        eventId: string,
+        providerMetadata: unknown
+    ): Record<string, JsonObject> | undefined {
+        const normalized = toJsonObjectRecord(providerMetadata);
+        if (!normalized) {
+            return state.reasoningProviderOptionsById.get(eventId);
+        }
+
+        const itemId = normalized.openai?.itemId;
+        const key = typeof itemId === 'string' && itemId ? itemId : eventId;
+        const merged = mergeProviderOptions(
+            state.reasoningProviderOptionsById.get(key),
+            normalized
+        );
+        state.reasoningProviderOptionsById.set(key, merged);
+        return merged;
+    }
+
     function consumePart<TOOLS extends ToolSet>(part: TextStreamPart<TOOLS>): AiStreamChunk[] {
         if (part.type === 'text-start' || part.type === 'text-end') {
             return [
@@ -171,17 +212,42 @@ export function createAiSdkStreamProcessor() {
         }
 
         if (part.type === 'reasoning-start' || part.type === 'reasoning-end') {
+            const reasoningProviderOptions = captureReasoningProviderOptions(
+                part.id,
+                (part as { providerMetadata?: unknown }).providerMetadata
+            );
+            logReasoningDelta({
+                modelId: options.modelId ?? 'unknown',
+                kind: part.type === 'reasoning-start' ? 'start' : 'end',
+            });
             return [
                 {
                     content: '',
                     done: false,
                     reasoningState: part.type === 'reasoning-start' ? 'start' : 'end',
+                    ...(reasoningProviderOptions ? { reasoningProviderOptions } : {}),
                 },
             ];
         }
 
         if (part.type === 'reasoning-delta') {
-            return [{ content: '', reasoning: part.text, done: false }];
+            const reasoningProviderOptions = captureReasoningProviderOptions(
+                part.id,
+                (part as { providerMetadata?: unknown }).providerMetadata
+            );
+            logReasoningDelta({
+                modelId: options.modelId ?? 'unknown',
+                kind: 'delta',
+                length: part.text.length,
+            });
+            return [
+                {
+                    content: '',
+                    reasoning: part.text,
+                    done: false,
+                    ...(reasoningProviderOptions ? { reasoningProviderOptions } : {}),
+                },
+            ];
         }
 
         if (part.type === 'tool-input-start') {

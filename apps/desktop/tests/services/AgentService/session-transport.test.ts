@@ -183,6 +183,61 @@ describe('AgentService session transport', () => {
         ]);
     });
 
+    it('restores reasoning provider options from the persisted part data', async () => {
+        mocks.findMessagesBySessionId.mockResolvedValue([
+            createMessageRow({
+                role: 'assistant',
+                parts: [
+                    createMessagePart({
+                        id: 1,
+                        type: 'reasoning',
+                        content: 'plan',
+                        sort_order: 0,
+                        data: JSON.stringify({
+                            openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+                        }),
+                    }),
+                    createMessagePart({ id: 2, type: 'text', content: 'answer', sort_order: 1 }),
+                ],
+            }),
+        ]);
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'reasoning',
+                        text: 'plan',
+                        providerOptions: {
+                            openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+                        },
+                    },
+                    { type: 'text', text: 'answer' },
+                ],
+            },
+        ]);
+    });
+
+    it('ignores malformed reasoning part data', async () => {
+        mocks.findMessagesBySessionId.mockResolvedValue([
+            createMessageRow({
+                role: 'assistant',
+                parts: [
+                    createMessagePart({
+                        id: 1,
+                        type: 'reasoning',
+                        content: 'plan',
+                        sort_order: 0,
+                        data: '[]',
+                    }),
+                ],
+            }),
+        ]);
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+            { role: 'assistant', content: [{ type: 'reasoning', text: 'plan' }] },
+        ]);
+    });
+
     it('omits blank text and reasoning parts from provider transport', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({

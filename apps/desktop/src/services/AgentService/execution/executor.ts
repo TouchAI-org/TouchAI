@@ -17,10 +17,16 @@ import { AiError, AiErrorCode } from '../contracts/errors';
 import {
     type AiMessage,
     type AiStreamChunk,
+    type JsonObject,
     normalizeOutputParts,
     type PersistedOutputPart,
 } from '../contracts/protocol';
-import { DEFAULT_REASONING_LEVEL, type ReasoningLevel } from '../contracts/reasoning';
+import {
+    DEFAULT_REASONING_LEVEL,
+    parseReasoningOptions,
+    type ReasoningLevel,
+    type ReasoningOption,
+} from '../contracts/reasoning';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -61,6 +67,19 @@ const formatToolNotFoundError = (toolName: string): string =>
     tt('未找到工具：{toolName}', { toolName });
 const formatToolExecutionFailedError = (errorMessage: string): string =>
     tt('工具执行失败：{error}', { error: errorMessage });
+
+/** 合并 reasoning 片段的 providerOptions（外层 provider，内层字段）。 */
+function mergeReasoningProviderOptions(
+    target: Record<string, JsonObject> | undefined,
+    incoming: Record<string, JsonObject> | undefined
+): Record<string, JsonObject> | undefined {
+    if (!incoming) return target;
+    const merged: Record<string, JsonObject> = { ...(target ?? {}) };
+    for (const [provider, options] of Object.entries(incoming)) {
+        merged[provider] = { ...(merged[provider] ?? {}), ...options };
+    }
+    return merged;
+}
 
 interface ProviderErrorDetails {
     statusCode?: number;
@@ -237,11 +256,18 @@ function buildAssistantToolCallHistoryMessage(
 ): AiMessage {
     return {
         role: 'assistant',
-        content: parts.map((part) => ({ type: part.type, text: part.content })),
+        content: parts.map((part) =>
+            part.type === 'reasoning'
+                ? {
+                      type: 'reasoning' as const,
+                      text: part.content,
+                      ...(part.providerOptions ? { providerOptions: part.providerOptions } : {}),
+                  }
+                : { type: part.type, text: part.content }
+        ),
         tool_calls: toolCalls,
     };
 }
-
 async function buildToolResultMessageContent(
     result: string,
     attachments?: AttachmentIndex[]
@@ -396,7 +422,8 @@ export class AiRequestExecutor {
         attachmentRequestIndex?: number,
         onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
         supportsReasoning = true,
-        reasoningLevel?: ReasoningLevel
+        reasoningLevel?: ReasoningLevel,
+        reasoningOptions?: ReasoningOption[]
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
         console.debug(
             `[AiRequestExecutor] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
@@ -407,6 +434,7 @@ export class AiRequestExecutor {
             messages,
             supportsReasoning,
             reasoningLevel,
+            reasoningOptions,
             tools,
             modelLanguageContext,
             signal,
@@ -650,7 +678,8 @@ export class AiRequestExecutor {
             runtime.iteration,
             options.onAttachmentManifestResolved,
             runtime.activeModel.reasoning === 1,
-            DEFAULT_REASONING_LEVEL
+            DEFAULT_REASONING_LEVEL,
+            parseReasoningOptions(runtime.activeModel.reasoning_options)
         );
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
@@ -681,19 +710,24 @@ export class AiRequestExecutor {
             activeTextPart = null;
             saveOutputParts();
         };
-        const startReasoningSegment = () => {
+        const startReasoningSegment = (providerOptions?: Record<string, JsonObject>) => {
             // Some providers omit text-end; a reasoning fragment also closes text.
             finishTextSegment();
             if (runtime.currentStepReasoningStartedAt === null) {
                 runtime.currentStepReasoningStartedAt = Date.now();
-                ensureReasoningPart();
+                ensureReasoningPart(providerOptions);
                 saveOutputParts();
             }
         };
-        const ensureReasoningPart = () => {
+        const ensureReasoningPart = (providerOptions?: Record<string, JsonObject>) => {
             const lastPart =
                 runtime.currentStepOutputParts[runtime.currentStepOutputParts.length - 1];
             if (lastPart?.type === 'reasoning' && lastPart.endedAt === undefined) {
+                const merged = mergeReasoningProviderOptions(
+                    lastPart.providerOptions,
+                    providerOptions
+                );
+                if (merged) lastPart.providerOptions = merged;
                 return lastPart;
             }
 
@@ -701,6 +735,7 @@ export class AiRequestExecutor {
                 type: 'reasoning',
                 content: '',
                 startedAt: runtime.currentStepReasoningStartedAt ?? Date.now(),
+                ...(providerOptions ? { providerOptions } : {}),
             };
             runtime.currentStepOutputParts.push(part);
             runtime.outputParts.push(part);
@@ -735,11 +770,11 @@ export class AiRequestExecutor {
                 }
                 if (chunk.reasoningState === 'start') {
                     finishReasoningSegment();
-                    startReasoningSegment();
+                    startReasoningSegment(chunk.reasoningProviderOptions);
                 }
                 if (chunk.reasoning) {
-                    startReasoningSegment();
-                    const reasoningPart = ensureReasoningPart();
+                    startReasoningSegment(chunk.reasoningProviderOptions);
+                    const reasoningPart = ensureReasoningPart(chunk.reasoningProviderOptions);
                     reasoningPart.content += chunk.reasoning;
                     runtime.reasoning += chunk.reasoning;
                     runtime.hasVisibleOutputSinceCheckpoint = true;

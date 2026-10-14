@@ -94,7 +94,8 @@ export async function syncOutputParts(
             previous.type === draft.type &&
             previous.content === draft.content &&
             previous.started_at === (draft.started_at ?? null) &&
-            previous.ended_at === (draft.ended_at ?? null)
+            previous.ended_at === (draft.ended_at ?? null) &&
+            previous.data === (draft.data ?? '{}')
         )
             continue;
         await database
@@ -102,6 +103,7 @@ export async function syncOutputParts(
             .set({
                 type: draft.type,
                 content: draft.content,
+                data: draft.data ?? '{}',
                 started_at: draft.started_at ?? null,
                 ended_at: draft.ended_at ?? null,
                 updated_at: sql`datetime('now')`,

@@ -25,4 +25,29 @@ describe('persisted output parts', () => {
         ];
         expect(normalizeOutputParts(parts)).toEqual(parts);
     });
+
+    it('preserves valid reasoning provider options', () => {
+        const parts: PersistedOutputPart[] = [
+            {
+                type: 'reasoning',
+                content: 'Plan',
+                providerOptions: { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' } },
+            },
+        ];
+        expect(normalizeOutputParts(parts)).toEqual(parts);
+    });
+
+    it('drops malformed reasoning provider options', () => {
+        expect(
+            normalizeOutputParts([
+                { type: 'reasoning', content: 'Plan', providerOptions: 'nope' },
+                { type: 'reasoning', content: 'Plan', providerOptions: { openai: 'nope' } },
+                { type: 'reasoning', content: 'Plan', providerOptions: {} },
+            ])
+        ).toEqual([
+            { type: 'reasoning', content: 'Plan' },
+            { type: 'reasoning', content: 'Plan' },
+            { type: 'reasoning', content: 'Plan' },
+        ]);
+    });
 });

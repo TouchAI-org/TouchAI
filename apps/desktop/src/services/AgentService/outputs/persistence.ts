@@ -582,6 +582,9 @@ export class PersistenceProjector {
                     message_id: messageId,
                     type: part.type,
                     content: part.content,
+                    ...(part.type === 'reasoning' && part.providerOptions
+                        ? { data: JSON.stringify(part.providerOptions) }
+                        : {}),
                     started_at: part.type === 'reasoning' ? (part.startedAt ?? null) : null,
                     ended_at: part.type === 'reasoning' ? (part.endedAt ?? null) : null,
                     sort_order: sortOrder,

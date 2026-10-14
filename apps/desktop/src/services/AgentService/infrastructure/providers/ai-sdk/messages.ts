@@ -20,6 +20,7 @@ import type {
     AttachmentDeliveryManifestEntry,
     AttachmentDeliveryManifestRequest,
     AttachmentPromptMeta,
+    JsonObject,
 } from '@/services/AgentService/contracts/protocol';
 import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 import {
@@ -361,15 +362,16 @@ async function mapToolAttachmentPart(
     };
 }
 
-function mapAssistantContentParts(
-    content: AiMessage['content'],
-    supportsReasoning: boolean
-): Array<{ type: 'text'; text: string } | { type: 'reasoning'; text: string }> {
+type AssistantMappedPart =
+    | { type: 'text'; text: string }
+    | { type: 'reasoning'; text: string; providerOptions?: Record<string, JsonObject> };
+
+function mapAssistantContentParts(content: AiMessage['content']): AssistantMappedPart[] {
     if (!Array.isArray(content)) {
         return content ? [{ type: 'text', text: content }] : [];
     }
 
-    const parts: Array<{ type: 'text'; text: string } | { type: 'reasoning'; text: string }> = [];
+    const parts: AssistantMappedPart[] = [];
 
     for (const part of content) {
         if (part.type === 'text') {
@@ -378,9 +380,13 @@ function mapAssistantContentParts(
         }
 
         if (part.type === 'reasoning') {
-            if (supportsReasoning) {
-                parts.push({ type: 'reasoning', text: part.text });
-            }
+            // R9：不要用 supportsReasoning 硬 gate。metadata 可能错误地报告 reasoning=0，
+            // 是否真正发送交给 provider / AI SDK 决定；无法回放的 reasoning 会被 SDK 跳过。
+            parts.push({
+                type: 'reasoning',
+                text: part.text,
+                ...(part.providerOptions ? { providerOptions: part.providerOptions } : {}),
+            });
             continue;
         }
 
@@ -568,7 +574,6 @@ export async function buildModelMessages(
     const mappedMessages: ModelMessage[] = [];
     const pendingHoistedToolAttachmentMessages: ModelMessage[] = [];
     const manifestEntries: AttachmentDeliveryManifestEntry[] = [];
-    const supportsReasoning = options.supportsReasoning ?? true;
     const deliveryPlan = planAttachmentDeliveryForMessages({
         messages: options.messages,
         providerDriver: options.providerDriver,
@@ -637,7 +642,7 @@ export async function buildModelMessages(
         }
 
         flushPendingHoistedToolAttachmentMessages();
-        const contentParts = mapAssistantContentParts(message.content, supportsReasoning);
+        const contentParts = mapAssistantContentParts(message.content);
         const toolCallParts: ToolCallPart[] =
             message.tool_calls?.flatMap((toolCall) => {
                 const toolName = normalizeToolName(toolCall.name);

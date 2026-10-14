@@ -5,7 +5,7 @@ import { findMessagesBySessionId } from '@database/queries/messages';
 import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type { MessagePartEntity } from '@database/types';
 
-import type { AiContentPart, AiMessage } from '../contracts/protocol';
+import type { AiContentPart, AiMessage, JsonObject } from '../contracts/protocol';
 import type { AiToolCall } from '../contracts/tooling';
 import {
     type AttachmentCapabilities,
@@ -15,13 +15,34 @@ import {
     hydratePersistedAttachments,
 } from '../infrastructure/attachments';
 
+/** 读取 reasoning 片段持久化的 providerOptions；无有效内容时返回 undefined。 */
+function readReasoningProviderOptions(data: string): Record<string, JsonObject> | undefined {
+    if (!data || data === '{}') return undefined;
+    try {
+        const parsed = JSON.parse(data) as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+        const entries = Object.entries(parsed as Record<string, unknown>);
+        if (entries.length === 0) return undefined;
+        return parsed as Record<string, JsonObject>;
+    } catch {
+        return undefined;
+    }
+}
+
 function buildAssistantTransportContent(row: { parts: MessagePartEntity[] }): AiMessage['content'] {
     return row.parts.flatMap((part): AiContentPart[] => {
         if (part.type === 'text' && part.content.trim()) {
             return [{ type: 'text', text: part.content }];
         }
         if (part.type === 'reasoning' && part.content.trim()) {
-            return [{ type: 'reasoning', text: part.content }];
+            const providerOptions = readReasoningProviderOptions(part.data);
+            return [
+                {
+                    type: 'reasoning',
+                    text: part.content,
+                    ...(providerOptions ? { providerOptions } : {}),
+                },
+            ];
         }
         return [];
     });

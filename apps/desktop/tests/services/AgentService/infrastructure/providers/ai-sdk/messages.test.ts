@@ -229,3 +229,61 @@ describe('AI SDK tool result messages', () => {
         });
     });
 });
+
+describe('AI SDK reasoning replay', () => {
+    it('preserves reasoning provider options when replaying assistant content', async () => {
+        const providerOptions = {
+            openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+        };
+
+        const { messages } = await buildModelMessages({
+            providerDriver: 'openai',
+            modelId: 'gpt-5.2',
+            supportsReasoning: true,
+            messages: [
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'reasoning', text: 'Think', providerOptions },
+                        { type: 'text', text: 'Answer' },
+                    ],
+                },
+            ],
+        });
+
+        expect(messages).toHaveLength(1);
+        expect(messages[0]).toEqual({
+            role: 'assistant',
+            content: [
+                { type: 'reasoning', text: 'Think', providerOptions },
+                { type: 'text', text: 'Answer' },
+            ],
+        });
+    });
+
+    it('keeps reasoning parts even when metadata reports no reasoning support (R9)', async () => {
+        const { messages } = await buildModelMessages({
+            providerDriver: 'openai',
+            modelId: 'gpt-4.1',
+            supportsReasoning: false,
+            messages: [
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'reasoning', text: 'Think' },
+                        { type: 'text', text: 'Answer' },
+                    ],
+                },
+            ],
+        });
+
+        // 是否真正发送由 provider / AI SDK 决定，不再用 supportsReasoning 硬 gate。
+        expect(messages[0]).toEqual({
+            role: 'assistant',
+            content: [
+                { type: 'reasoning', text: 'Think' },
+                { type: 'text', text: 'Answer' },
+            ],
+        });
+    });
+});
