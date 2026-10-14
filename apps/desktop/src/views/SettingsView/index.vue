@@ -91,6 +91,30 @@
     const SETTINGS_ENTRY_LOADING_DELAY_MS = 180;
     let loadingDelayTimer: ReturnType<typeof setTimeout> | null = null;
     const contentScrollRef = ref<HTMLElement | null>(null);
+    const contentDragRegionRef = ref<HTMLElement | null>(null);
+    const dragExcludeSelector = [
+        'button',
+        'a',
+        'input',
+        'textarea',
+        'select',
+        'label',
+        'summary',
+        '[role="button"]',
+        '[role="tab"]',
+        '[role="link"]',
+        '[role="checkbox"]',
+        '[role="switch"]',
+        '[role="radio"]',
+        '[role="slider"]',
+        '[role="separator"]',
+        '[role="dialog"]',
+        '[tabindex]',
+        '[contenteditable]:not([contenteditable="false"])',
+        '[data-tauri-drag-region="false"]',
+        '[data-drag-exclude="true"]',
+        '.cursor-pointer',
+    ].join(',');
     const isWindowMaximized = ref(false);
     useScrollbarStabilizer(contentScrollRef);
     const shellVisibilityClass = computed(() =>
@@ -105,6 +129,36 @@
             return null;
         }
     })();
+
+    async function handleContentDragMouseDown(event: MouseEvent) {
+        if (event.button !== 0 || event.defaultPrevented || !currentWindow) {
+            return;
+        }
+
+        const target = event.target;
+        if (!(target instanceof Element) || target.closest(dragExcludeSelector)) {
+            return;
+        }
+
+        // 内容层保留点击命中；仅把顶部拖拽带内的非交互区域交给原生窗口。
+        const bounds = contentDragRegionRef.value?.getBoundingClientRect();
+        if (
+            !bounds ||
+            event.clientX < bounds.left ||
+            event.clientX >= bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY >= bounds.bottom
+        ) {
+            return;
+        }
+
+        event.preventDefault();
+        try {
+            await currentWindow.startDragging();
+        } catch (error) {
+            console.error('[SettingsView] Failed to start window dragging:', error);
+        }
+    }
 
     const handleNavigate = (section: NavigationSection) => {
         activeSection.value = section;
@@ -239,13 +293,14 @@
             >
                 <div class="flex h-full min-h-0 flex-col">
                     <div
+                        ref="contentDragRegionRef"
                         class="absolute inset-x-0 top-0 z-10 h-9 shrink-0"
                         data-testid="settings-content-drag-region"
                         data-tauri-drag-region
                     />
 
                     <div
-                        class="absolute top-2.5 right-3 z-20 flex items-center gap-1"
+                        class="absolute top-2.5 right-3 z-30 flex items-center gap-1"
                         data-testid="settings-window-controls"
                     >
                         <button
@@ -292,8 +347,9 @@
                     </div>
 
                     <main
-                        class="min-w-0 flex-1 overflow-hidden"
+                        class="relative z-20 min-w-0 flex-1 overflow-hidden"
                         data-testid="settings-content-shell"
+                        @mousedown="handleContentDragMouseDown"
                     >
                         <div
                             :key="activeSection"
