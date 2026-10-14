@@ -4,6 +4,7 @@
     import { Dialog, DialogContent } from '@components/ui/dialog';
 
     interface Props {
+        open?: boolean;
         maxWidthClass?: string;
         dismissible?: boolean;
         contentClass?: string;
@@ -11,9 +12,11 @@
 
     interface Emits {
         (e: 'close'): void;
+        (e: 'closed'): void;
     }
 
     const props = withDefaults(defineProps<Props>(), {
+        open: true,
         maxWidthClass: 'max-w-md',
         dismissible: false,
         contentClass: '',
@@ -32,16 +35,24 @@
             event.preventDefault();
         }
     };
+
+    const onAnimationEnd = (event: AnimationEvent) => {
+        if (event.target === event.currentTarget && event.animationName === 't-modal-out') {
+            emit('closed');
+        }
+    };
 </script>
 
 <template>
-    <Dialog :open="true" @update:open="onOpenChange">
+    <Dialog :open="props.open" @update:open="onOpenChange">
         <DialogContent
+            :inert="!props.open || undefined"
             :class="`w-full ${maxWidthClass} rounded-xl border border-gray-200 bg-white p-6 shadow-xl ${contentClass}`"
             :overlay-class="'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm'"
             @escape-key-down="preventWhenLocked"
             @pointer-down-outside="preventWhenLocked"
             @interact-outside="preventWhenLocked"
+            @animationend="onAnimationEnd"
         >
             <slot />
         </DialogContent>

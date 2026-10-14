@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -202,9 +202,9 @@
         cursor: pointer;
         pointer-events: auto;
         transition:
-            background-color 0.2s ease,
-            transform 0.2s ease,
-            box-shadow 0.2s ease;
+            background-color var(--duration-quick) var(--ease-smooth-out),
+            transform var(--duration-quick) var(--ease-smooth-out),
+            box-shadow var(--duration-quick) var(--ease-smooth-out);
     }
 
     .timeline-marker:hover,
@@ -245,7 +245,7 @@
         text-overflow: ellipsis;
         opacity: 0;
         pointer-events: none;
-        transition: opacity 0.2s ease;
+        transition: opacity var(--duration-quick) var(--ease-smooth-out);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
 

@@ -355,7 +355,7 @@
                             :key="activeSection"
                             :ref="setContentScrollElement"
                             :class="[
-                                'h-full w-full',
+                                't-page h-full w-full',
                                 activeContentSection.scrollable
                                     ? 'settings-scrollbar overflow-y-auto'
                                     : '',

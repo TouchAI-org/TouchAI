@@ -91,8 +91,8 @@
         border: 0;
         cursor: pointer;
         transition:
-            background-color 0.18s ease,
-            color 0.18s ease;
+            background-color var(--duration-quick) var(--ease-smooth-out),
+            color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .touchai-markdown .inline-code-node:hover,

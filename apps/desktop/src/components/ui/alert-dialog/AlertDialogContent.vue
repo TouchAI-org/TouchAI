@@ -8,14 +8,18 @@
         useForwardPropsEmits,
     } from 'reka-ui';
     import type { HTMLAttributes } from 'vue';
-    import { computed } from 'vue';
+    import { computed, mergeProps, useAttrs } from 'vue';
 
     import { cn } from '@/lib/utils';
+
+    defineOptions({ inheritAttrs: false });
 
     interface Props extends AlertDialogContentProps {
         class?: HTMLAttributes['class'];
         overlayClass?: HTMLAttributes['class'];
     }
+
+    const attrs = useAttrs();
 
     const props = defineProps<Props>();
     const emits = defineEmits<AlertDialogContentEmits>();
@@ -28,6 +32,7 @@
     });
 
     const forwarded = useForwardPropsEmits(delegatedProps, emits);
+    const forwardedWithAttrs = computed(() => mergeProps(forwarded.value, attrs));
 </script>
 
 <template>
@@ -36,17 +41,17 @@
             :class="
                 cn(
                     'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm',
-                    'data-[state=open]:animate-in data-[state=closed]:animate-out',
+                    't-overlay',
                     props.overlayClass
                 )
             "
         />
         <AlertDialogContent
-            v-bind="forwarded"
+            v-bind="forwardedWithAttrs"
             :class="
                 cn(
                     'fixed top-[50%] left-[50%] z-50 grid w-full max-w-md translate-x-[-50%] translate-y-[-50%]',
-                    'data-[state=open]:animate-in data-[state=closed]:animate-out',
+                    't-modal',
                     props.class
                 )
             "

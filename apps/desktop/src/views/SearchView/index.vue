@@ -1355,7 +1355,7 @@
             class="w-full border-t-[0.5px] border-gray-300/80"
         ></div>
         <div
-            v-if="searchViewContentReady && askUserStore.current"
+            v-if="searchViewContentReady"
             aria-hidden="true"
             class="ask-user-divider relative z-10 w-full"
         ></div>

@@ -60,7 +60,8 @@
     }
 
     .loading-state-logo {
-        animation: loading-state-logo-breathe 2.6s ease-in-out infinite;
+        animation: loading-state-logo-breathe var(--motion-loading-cycle) var(--ease-in-out)
+            infinite;
     }
 
     @media (prefers-reduced-motion: reduce) {

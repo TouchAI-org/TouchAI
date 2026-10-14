@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import DialogShell from '@components/DialogShell.vue';
@@ -12,52 +12,50 @@
     import { parseModelModalities, supportsImageModality } from '@/utils/modelSchemas';
     interface Props {
         model: Model;
+        open?: boolean;
     }
 
     interface Emits {
         (e: 'update', data: Partial<Model>): void;
         (e: 'cancel'): void;
+        (e: 'closed'): void;
     }
 
-    const props = defineProps<Props>();
+    const props = withDefaults(defineProps<Props>(), { open: true });
     const emit = defineEmits<Emits>();
 
     const alert = useAlert();
 
-    const form = ref({
-        name: props.model.name,
-        model_id: props.model.model_id,
-        reasoning: props.model.reasoning === 1,
-        tool_call: props.model.tool_call === 1,
-        attachment: props.model.attachment === 1,
-        open_weights: props.model.open_weights === 1,
-        multimodal: false,
-    });
+    const createForm = (model: Model) => {
+        const form = {
+            name: model.name,
+            model_id: model.model_id,
+            reasoning: model.reasoning === 1,
+            tool_call: model.tool_call === 1,
+            attachment: model.attachment === 1,
+            open_weights: model.open_weights === 1,
+            multimodal: false,
+        };
+        if (model.modalities) {
+            form.multimodal = supportsImageModality(parseModelModalities(model.modalities));
+        }
+        return form;
+    };
 
-    // 初始化多模态状态
-    if (props.model.modalities) {
-        form.value.multimodal = supportsImageModality(parseModelModalities(props.model.modalities));
-    }
+    const form = ref(createForm(props.model));
 
-    // 监听 model 变化，更新表单
+    // Refresh on identity changes and on every genuine opening so a cancelled
+    // edit never survives into the next edit of the same model.
     watch(
         () => props.model,
         (newModel) => {
-            form.value = {
-                name: newModel.name,
-                model_id: newModel.model_id,
-                reasoning: newModel.reasoning === 1,
-                tool_call: newModel.tool_call === 1,
-                attachment: newModel.attachment === 1,
-                open_weights: newModel.open_weights === 1,
-                multimodal: false,
-            };
-
-            if (newModel.modalities) {
-                form.value.multimodal = supportsImageModality(
-                    parseModelModalities(newModel.modalities)
-                );
-            }
+            form.value = createForm(newModel);
+        }
+    );
+    watch(
+        () => props.open,
+        (open, wasOpen) => {
+            if (open && wasOpen === false) form.value = createForm(props.model);
         }
     );
 
@@ -109,7 +107,7 @@
 </script>
 
 <template>
-    <DialogShell>
+    <DialogShell :open="props.open" @closed="emit('closed')">
         <h2 class="mb-5 text-[15px] font-medium text-neutral-950">
             {{ t('settings.ai.editModel.title') }}
         </h2>

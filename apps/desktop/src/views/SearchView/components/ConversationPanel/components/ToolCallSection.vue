@@ -2,7 +2,12 @@
 
 <template>
     <div v-if="toolCalls && toolCalls.length > 0" class="tool-call-inline-section w-full">
-        <button type="button" class="tool-call-inline-trigger" @click="toggleSection">
+        <button
+            type="button"
+            class="tool-call-inline-trigger"
+            :aria-expanded="isExpanded"
+            @click="toggleSection"
+        >
             <div class="tool-call-inline-main">
                 <span class="tool-call-inline-icon">
                     <AppIcon name="tool" class="h-3.5 w-3.5" />
@@ -39,20 +44,21 @@
                 />
             </div>
         </button>
-        <transition name="tool-call-fade">
-            <div v-show="isExpanded" class="tool-call-inline-panel mt-2 space-y-1.5">
+        <MotionCollapse :open="isExpanded" lazy>
+            <div class="tool-call-inline-panel mt-2 space-y-1.5">
                 <ToolCallItem
                     v-for="toolCall in toolCalls"
                     :key="toolCall.id"
                     :tool-call="toolCall"
                 />
             </div>
-        </transition>
+        </MotionCollapse>
     </div>
 </template>
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import MotionCollapse from '@components/MotionCollapse.vue';
     import { computed, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -151,9 +157,9 @@
         background: rgba(249, 250, 251, 0.7);
         color: rgb(75, 85, 99);
         transition:
-            border-color 0.2s ease,
-            background-color 0.2s ease,
-            color 0.2s ease;
+            border-color var(--duration-quick) var(--ease-smooth-out),
+            background-color var(--duration-quick) var(--ease-smooth-out),
+            color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .tool-call-inline-trigger:hover {
@@ -208,7 +214,7 @@
         height: 0.4rem;
         border-radius: 999px;
         background: rgb(59, 130, 246);
-        animation: pulse 1.3s ease-in-out infinite;
+        animation: pulse var(--motion-status-cycle) var(--ease-in-out) infinite;
     }
 
     .tool-call-inline-error {
@@ -224,19 +230,6 @@
         border-radius: 0.75rem;
         border: 1px solid rgba(229, 231, 235, 0.9);
         background: rgba(249, 250, 251, 0.65);
-    }
-
-    .tool-call-fade-enter-active,
-    .tool-call-fade-leave-active {
-        transition:
-            opacity 0.2s ease,
-            transform 0.2s ease;
-    }
-
-    .tool-call-fade-enter-from,
-    .tool-call-fade-leave-to {
-        opacity: 0;
-        transform: translateY(-3px);
     }
 
     @keyframes pulse {

@@ -1,0 +1,311 @@
+/* TouchAI motion: transitions-dev semantics, adapted for Vue and Reka presence. */
+:root {
+    --duration-stagger: 40ms;
+    --duration-micro: 80ms;
+    --duration-quick: 150ms;
+    --duration-fast: 250ms;
+    --duration-medium: 350ms;
+    --duration-slow: 400ms;
+    --duration-very-slow: 500ms;
+    --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in-out: ease-in-out;
+    --ease-out: ease-out;
+    --ease-linear: linear;
+    --distance-micro: 4px;
+    --distance-base: 8px;
+    --scale-large: 0.96;
+    --scale-medium: 0.97;
+    --scale-small: 0.98;
+    --scale-tiny: 0.99;
+    --motion-status-cycle: 1400ms;
+    --motion-status-delay-1: -320ms;
+    --motion-status-delay-2: -160ms;
+    --motion-loading-cycle: 2600ms;
+    --motion-spinner-cycle: 800ms;
+}
+
+/* Keep presence mounted until its CSS exit finishes. Different names are
+   intentional: Reka uses animation identity to detect closed surfaces. */
+.t-overlay[data-state='open'] {
+    animation: t-overlay-in var(--duration-fast) var(--ease-smooth-out) both;
+}
+.t-overlay[data-state='closed'] {
+    animation: t-overlay-out var(--duration-quick) var(--ease-smooth-out) both;
+    pointer-events: none;
+}
+.t-modal[data-state='open'] {
+    animation: t-modal-in var(--duration-fast) var(--ease-smooth-out) both;
+}
+.t-modal[data-state='closed'] {
+    animation: t-modal-out var(--duration-quick) var(--ease-smooth-out) both;
+    pointer-events: none;
+}
+.t-dropdown {
+    transform-origin: var(
+        --reka-dropdown-menu-content-transform-origin,
+        var(--reka-select-content-transform-origin, top center)
+    );
+}
+.t-dropdown[data-side='top'] {
+    --motion-menu-offset: var(--distance-micro);
+}
+.t-dropdown[data-side='bottom'] {
+    --motion-menu-offset: calc(-1 * var(--distance-micro));
+}
+.t-dropdown[data-state='open'] {
+    animation: t-dropdown-in var(--duration-fast) var(--ease-smooth-out) both;
+}
+.t-dropdown[data-state='closed'] {
+    animation: t-dropdown-out var(--duration-quick) var(--ease-smooth-out) both;
+    pointer-events: none;
+}
+
+/* Small controls only: list rows, drag regions and native window chrome
+   deliberately do not bounce or shift under a pointer. */
+.t-press {
+    transition-property: background-color, border-color, color, box-shadow, opacity, scale;
+    transition-duration: var(--duration-quick);
+    transition-timing-function: var(--ease-smooth-out);
+}
+.t-press:active:not(:disabled):not([aria-disabled='true']) {
+    scale: var(--scale-small);
+}
+.t-control {
+    transition:
+        border-color var(--duration-quick) var(--ease-smooth-out),
+        background-color var(--duration-quick) var(--ease-smooth-out),
+        box-shadow var(--duration-quick) var(--ease-smooth-out);
+}
+.t-sidebar {
+    transition:
+        width var(--duration-slow) var(--ease-smooth-out),
+        min-width var(--duration-slow) var(--ease-smooth-out),
+        max-width var(--duration-slow) var(--ease-smooth-out),
+        padding var(--duration-slow) var(--ease-smooth-out);
+}
+.t-sidebar[data-resizing='true'] {
+    transition: none !important;
+}
+.t-sidebar-brand,
+.t-sidebar-footer {
+    transition:
+        gap var(--duration-slow) var(--ease-smooth-out),
+        padding var(--duration-slow) var(--ease-smooth-out),
+        opacity var(--duration-quick) var(--ease-smooth-out);
+}
+.t-sidebar-item {
+    transition:
+        background-color var(--duration-quick) var(--ease-smooth-out),
+        color var(--duration-quick) var(--ease-smooth-out),
+        gap var(--duration-slow) var(--ease-smooth-out),
+        padding var(--duration-slow) var(--ease-smooth-out),
+        width var(--duration-slow) var(--ease-smooth-out);
+    scale: 1;
+}
+.t-sidebar-footer .t-press {
+    transition-property:
+        background-color, border-color, color, box-shadow, opacity, scale, width, height, max-height;
+}
+.t-sidebar-item:active {
+    scale: 1;
+}
+.t-progress {
+    transition: width var(--duration-fast) var(--ease-smooth-out);
+}
+.t-rotate-indicator {
+    transition: transform var(--duration-quick) var(--ease-smooth-out);
+}
+.t-toggle-track {
+    transition:
+        background-color var(--duration-quick) var(--ease-smooth-out),
+        box-shadow var(--duration-quick) var(--ease-smooth-out),
+        opacity var(--duration-quick) var(--ease-smooth-out);
+}
+.t-toggle-thumb {
+    transition:
+        transform var(--duration-quick) var(--ease-smooth-out),
+        translate var(--duration-quick) var(--ease-smooth-out),
+        box-shadow var(--duration-quick) var(--ease-smooth-out);
+    box-shadow: 0 1px 2px rgb(17 24 39 / 0.12);
+}
+
+/* Key a page once per navigation, never once per streamed token. No exit
+   delay: the destination mounts immediately, with only a quiet arrival. */
+.t-page {
+    animation: t-page-in var(--duration-fast) var(--ease-smooth-out);
+}
+.t-feedback {
+    animation: t-feedback-in var(--duration-quick) var(--ease-smooth-out);
+}
+.t-icon-enter-active,
+.t-icon-leave-active {
+    transition:
+        opacity var(--duration-quick) var(--ease-in-out),
+        transform var(--duration-quick) var(--ease-smooth-out);
+}
+.t-icon-enter-from,
+.t-icon-leave-to {
+    opacity: 0;
+    transform: scale(var(--scale-large));
+}
+
+.t-fade-enter-active,
+.t-fade-leave-active {
+    transition: opacity var(--duration-quick) var(--ease-smooth-out);
+}
+.t-fade-enter-from,
+.t-fade-leave-to {
+    opacity: 0;
+}
+.t-fade-leave-active {
+    pointer-events: none;
+}
+.t-panel-enter-active {
+    transition:
+        opacity var(--duration-fast) var(--ease-smooth-out),
+        transform var(--duration-fast) var(--ease-smooth-out);
+}
+.t-panel-leave-active {
+    transition:
+        opacity var(--duration-quick) var(--ease-smooth-out),
+        transform var(--duration-quick) var(--ease-smooth-out);
+    pointer-events: none;
+}
+.t-panel-enter-from,
+.t-panel-leave-to {
+    opacity: 0;
+    transform: translateY(var(--distance-micro));
+}
+
+/* Intrinsic height: interruptible in both directions, no measurements or
+   stale timers. Padding belongs inside the clipped track, not the grid. */
+.t-acc-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--duration-quick) var(--ease-smooth-out);
+}
+.t-acc-panel[data-open='true'] {
+    grid-template-rows: 1fr;
+    transition-duration: var(--duration-fast);
+}
+.t-acc-panel-inner {
+    min-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+        opacity var(--duration-quick) var(--ease-smooth-out),
+        visibility 0s var(--duration-quick);
+}
+.t-acc-panel[data-open='true'] > .t-acc-panel-inner {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
+}
+
+.t-tabs-indicator {
+    position: absolute;
+    inset: auto auto 0 0;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    pointer-events: none;
+}
+.t-tabs-indicator[data-animate='true'] {
+    transition:
+        transform var(--duration-fast) var(--ease-smooth-out),
+        width var(--duration-fast) var(--ease-smooth-out);
+}
+
+@keyframes t-overlay-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+@keyframes t-overlay-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+@keyframes t-modal-in {
+    from {
+        opacity: 0;
+        transform: scale(var(--scale-large));
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+@keyframes t-modal-out {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(var(--scale-small));
+    }
+}
+@keyframes t-dropdown-in {
+    from {
+        opacity: 0;
+        transform: translateY(var(--motion-menu-offset, -4px)) scale(var(--scale-medium));
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+@keyframes t-dropdown-out {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(var(--scale-tiny));
+    }
+}
+@keyframes t-page-in {
+    from {
+        opacity: 0;
+        transform: translateY(var(--distance-micro));
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+@keyframes t-feedback-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Covers existing CSS, utility animations and embedded renderers too.
+   A nonzero instant duration preserves animationend/presence cleanup. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-delay: 0ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        transition-delay: 0ms !important;
+        scroll-behavior: auto !important;
+    }
+    .t-press:active {
+        scale: 1;
+    }
+}

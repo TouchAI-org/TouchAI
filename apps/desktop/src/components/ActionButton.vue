@@ -2,7 +2,7 @@
 
 <template>
     <button
-        class="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+        class="t-press flex h-7 w-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600"
         :aria-label="ariaLabel"
         @click.stop="handler"
     >

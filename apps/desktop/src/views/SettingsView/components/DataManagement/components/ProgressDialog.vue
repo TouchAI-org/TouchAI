@@ -5,16 +5,21 @@
     import { Button } from '@components/ui/button';
     import { computed } from 'vue';
 
-    const props = defineProps<{
-        title: string;
-        message: string;
-        progress?: number; // 0-100
-        status?: 'loading' | 'success' | 'warning' | 'error';
-        dismissible?: boolean;
-    }>();
+    const props = withDefaults(
+        defineProps<{
+            title: string;
+            message: string;
+            open?: boolean;
+            progress?: number; // 0-100
+            status?: 'loading' | 'success' | 'warning' | 'error';
+            dismissible?: boolean;
+        }>(),
+        { open: true }
+    );
 
     const emit = defineEmits<{
         dismiss: [];
+        closed: [];
     }>();
 
     const iconConfig = computed<{ name: AppIconName; bg: string; text: string }>(() => {
@@ -38,7 +43,12 @@
 </script>
 
 <template>
-    <DialogShell max-width-class="max-w-sm" content-class="relative">
+    <DialogShell
+        :open="props.open"
+        max-width-class="max-w-sm"
+        content-class="relative"
+        @closed="emit('closed')"
+    >
         <div class="flex flex-col items-center justify-center text-center">
             <Button
                 v-if="props.dismissible"
@@ -70,7 +80,7 @@
             <div v-if="progress !== undefined" class="mt-6 w-full">
                 <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-100">
                     <div
-                        class="bg-primary-700 h-full rounded-full transition-all duration-300 ease-out"
+                        class="t-progress bg-primary-700 h-full rounded-full"
                         :style="{ width: `${progress}%` }"
                     ></div>
                 </div>

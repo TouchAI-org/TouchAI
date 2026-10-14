@@ -46,9 +46,11 @@
 
     // Dialog states
     const showImportModeDialog = ref(false);
+    const isImportModeDialogMounted = ref(false);
 
     // Progress Dialog states
     const showProgressDialog = ref(false);
+    const isProgressDialogMounted = ref(false);
     const progressTitle = ref('');
     const progressMessage = ref('');
     const progressValue = ref(0);
@@ -198,6 +200,7 @@
 
             const exportedPath = await databaseBackup.exportDatabase((msg, prog) => {
                 if (!showProgressDialog.value) {
+                    isProgressDialogMounted.value = true;
                     showProgressDialog.value = true;
                 }
                 updateProgress(msg, prog);
@@ -220,7 +223,16 @@
     };
 
     const openImportModeDialog = () => {
+        isImportModeDialogMounted.value = true;
         showImportModeDialog.value = true;
+    };
+
+    const handleImportModeDialogClosed = () => {
+        if (!showImportModeDialog.value) isImportModeDialogMounted.value = false;
+    };
+
+    const handleProgressDialogClosed = () => {
+        if (!showProgressDialog.value) isProgressDialogMounted.value = false;
     };
 
     const startRestartCountdown = async () => {
@@ -258,6 +270,7 @@
 
             const result = await databaseBackup.importDatabase(mode, (msg, prog) => {
                 if (!showProgressDialog.value) {
+                    isProgressDialogMounted.value = true;
                     showProgressDialog.value = true;
                 }
                 updateProgress(msg, prog);
@@ -499,18 +512,22 @@
             </section>
 
             <ImportModeDialog
-                v-if="showImportModeDialog"
+                v-if="isImportModeDialogMounted"
+                :open="showImportModeDialog"
                 :is-loading="isLoading"
                 @close="showImportModeDialog = false"
                 @select="handleImportSettings"
+                @closed="handleImportModeDialogClosed"
             />
 
             <ProgressDialog
-                v-if="showProgressDialog"
+                v-if="isProgressDialogMounted"
+                :open="showProgressDialog"
                 :title="progressTitle"
                 :message="progressMessage"
                 :progress="progressValue"
                 :status="progressStatus"
+                @closed="handleProgressDialogClosed"
             />
         </div>
     </div>

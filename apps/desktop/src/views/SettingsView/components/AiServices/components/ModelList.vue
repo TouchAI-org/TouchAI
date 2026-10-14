@@ -148,6 +148,7 @@
     const alert = useAlert();
 
     const showAddDialog = ref(false);
+    const isAddDialogMounted = ref(false);
     const showEditDialog = ref(false);
     const editingModel = ref<Model | null>(null);
     const searchQuery = ref('');
@@ -178,7 +179,16 @@
     });
 
     const startCreate = () => {
+        isAddDialogMounted.value = true;
         showAddDialog.value = true;
+    };
+
+    const handleAddDialogClosed = () => {
+        if (!showAddDialog.value) isAddDialogMounted.value = false;
+    };
+
+    const handleEditDialogClosed = () => {
+        if (!showEditDialog.value) editingModel.value = null;
     };
 
     const handleCreate = (data: NewModel) => {
@@ -195,13 +205,12 @@
         if (editingModel.value) {
             emit('update', editingModel.value.id, data);
             showEditDialog.value = false;
-            editingModel.value = null;
         }
     };
 
     const handleCancelEdit = () => {
+        // Keep the snapshot mounted while DialogShell plays its exit animation.
         showEditDialog.value = false;
-        editingModel.value = null;
     };
 
     const handleRefresh = () => {
@@ -328,17 +337,21 @@
         </div>
 
         <AddModelDialog
-            v-if="showAddDialog"
+            v-if="isAddDialogMounted"
+            :open="showAddDialog"
             :provider-id="providerId"
             @create="handleCreate"
             @cancel="showAddDialog = false"
+            @closed="handleAddDialogClosed"
         />
 
         <EditModelDialog
-            v-if="showEditDialog && editingModel"
+            v-if="editingModel"
+            :open="showEditDialog"
             :model="editingModel"
             @update="handleUpdate"
             @cancel="handleCancelEdit"
+            @closed="handleEditDialogClosed"
         />
     </div>
 </template>

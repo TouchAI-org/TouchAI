@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
@@ -17,14 +17,16 @@
     } from '@/services/AgentService/infrastructure/providers';
     interface Props {
         provider: Provider;
+        open?: boolean;
     }
 
     interface Emits {
         (e: 'update', data: Partial<Provider>): void;
         (e: 'cancel'): void;
+        (e: 'closed'): void;
     }
 
-    const props = defineProps<Props>();
+    const props = withDefaults(defineProps<Props>(), { open: true });
     const emit = defineEmits<Emits>();
 
     const alert = useAlert();
@@ -40,6 +42,13 @@
         }
     }
 
+    const resetForm = () => {
+        form.value = {
+            name: props.provider.name,
+            driver: props.provider.driver,
+            logo: props.provider.logo,
+        };
+    };
     const form = ref({
         name: props.provider.name,
         driver: props.provider.driver,
@@ -54,6 +63,12 @@
                 driver: newProvider.driver,
                 logo: newProvider.logo,
             };
+        }
+    );
+    watch(
+        () => props.open,
+        (open, wasOpen) => {
+            if (open && wasOpen === false) resetForm();
         }
     );
 
@@ -104,7 +119,7 @@
 </script>
 
 <template>
-    <DialogShell>
+    <DialogShell :open="props.open" @closed="emit('closed')">
         <h2 class="mb-5 text-[15px] font-medium text-neutral-950">
             {{ t('settings.ai.editProvider.title') }}
         </h2>

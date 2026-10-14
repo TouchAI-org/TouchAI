@@ -4,18 +4,23 @@
     import { type ImportMode } from '@database/backup';
 
     import { t } from '@/i18n';
-    defineProps<{
-        isLoading: boolean;
-    }>();
+    const props = withDefaults(
+        defineProps<{
+            isLoading: boolean;
+            open?: boolean;
+        }>(),
+        { open: true }
+    );
 
     const emit = defineEmits<{
         (e: 'select', mode: ImportMode): void;
         (e: 'close'): void;
+        (e: 'closed'): void;
     }>();
 </script>
 
 <template>
-    <DialogShell dismissible @close="emit('close')">
+    <DialogShell :open="props.open" dismissible @close="emit('close')" @closed="emit('closed')">
         <h3 class="text-[15px] font-medium text-neutral-950">
             {{ t('settings.dataManagement.importMode.title') }}
         </h3>

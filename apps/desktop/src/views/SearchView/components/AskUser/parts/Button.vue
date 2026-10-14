@@ -19,17 +19,14 @@
         :disabled="disabled"
         @click="(e) => emit('click', e)"
     >
-        <span
-            aria-hidden
-            :class="['absolute inset-0 rounded-[inherit] transition-colors duration-80', bgClass]"
-        />
+        <span aria-hidden :class="['t-press absolute inset-0 rounded-[inherit]', bgClass]" />
         <span class="relative inline-flex items-center justify-center gap-1.5">
             <component
                 :is="leadingIcon"
                 v-if="leadingIcon"
                 :size="14"
                 :stroke-width="1.5"
-                class="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
+                class="transition-[stroke-width] duration-[var(--duration-micro)] group-hover:stroke-[2]"
             />
             <span v-if="$slots.default"><slot /></span>
             <component
@@ -37,7 +34,7 @@
                 v-if="trailingIcon"
                 :size="14"
                 :stroke-width="1.5"
-                class="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
+                class="transition-[stroke-width] duration-[var(--duration-micro)] group-hover:stroke-[2]"
             />
         </span>
     </button>
@@ -68,7 +65,7 @@
 
     const baseClasses =
         'group relative isolate inline-flex items-center justify-center outline-none cursor-pointer ' +
-        'transition-colors duration-80 disabled:opacity-50 disabled:pointer-events-none ' +
+        't-press disabled:opacity-50 disabled:pointer-events-none ' +
         'focus-visible:ring-1 focus-visible:ring-[#6B97FF]';
     const sizeClasses = 'h-7 px-3 text-[12px] gap-1';
 

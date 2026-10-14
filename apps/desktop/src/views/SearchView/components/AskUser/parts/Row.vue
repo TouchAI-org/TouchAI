@@ -37,7 +37,7 @@
             <span
                 aria-hidden
                 :class="[
-                    'absolute inline-flex h-5 w-5 items-center justify-center text-[11px] transition-opacity duration-80',
+                    'absolute inline-flex h-5 w-5 items-center justify-center text-[11px] transition-opacity duration-(--duration-quick)',
                     isMulti ? shape.bg : '',
                     isMulti
                         ? chipFilled
@@ -63,10 +63,10 @@
                         shape.bg,
                         onArrowClick ? 'cursor-pointer' : '',
                     ]"
-                    :initial="{ opacity: 0, scale: 0.6 }"
+                    :initial="{ opacity: 0, scale: 0.96 }"
                     :animate="{ opacity: 1, scale: 1 }"
-                    :exit="{ opacity: 0, scale: 0.6, transition: { duration: 0.06 } }"
-                    :transition="{ ...springs.fast, opacity: { duration: 0.08 } }"
+                    :exit="{ opacity: 0, scale: 0.96, transition: transitions.quick }"
+                    :transition="{ ...transitions.quick, opacity: transitions.quick }"
                     @click="handleArrowClick"
                 >
                     <AppIcon name="arrow-right" class="h-3.5 w-3.5" />
@@ -81,11 +81,12 @@
     import { AnimatePresence, motion } from 'motion-v';
 
     defineOptions({ name: 'AskUserRow' });
+    import { useMotion } from '@composables/useMotion';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
     import { fontWeights } from '../lib/fontWeights';
     import { shape } from '../lib/shape';
-    import { springs } from '../lib/springs';
+    const { transitions } = useMotion();
 
     interface Props {
         index: number;

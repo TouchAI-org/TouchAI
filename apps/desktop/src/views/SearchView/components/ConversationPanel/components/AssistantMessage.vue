@@ -337,15 +337,15 @@
         height: 3px;
         border-radius: 50%;
         background-color: var(--color-gray-500);
-        animation: pulse 1.4s infinite ease-in-out;
+        animation: pulse var(--motion-status-cycle) infinite var(--ease-in-out);
     }
 
     .dot:nth-child(1) {
-        animation-delay: -0.32s;
+        animation-delay: var(--motion-status-delay-1);
     }
 
     .dot:nth-child(2) {
-        animation-delay: -0.16s;
+        animation-delay: var(--motion-status-delay-2);
     }
 
     @keyframes pulse {
@@ -372,14 +372,14 @@
         overflow-wrap: anywhere;
         line-height: 1.45;
         opacity: 0.7;
-        transition: opacity 0.3s ease;
+        transition: opacity var(--duration-fast) var(--ease-smooth-out);
     }
 
     .tip-fade-enter-active {
-        transition: opacity 0.3s ease;
+        transition: opacity var(--duration-fast) var(--ease-smooth-out);
     }
     .tip-fade-leave-active {
-        transition: opacity 0.3s ease;
+        transition: opacity var(--duration-fast) var(--ease-smooth-out);
     }
     .tip-fade-enter-from,
     .tip-fade-leave-to {

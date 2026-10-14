@@ -65,7 +65,9 @@
         (key, providerId) => {
             if (key === 'edit') {
                 selectedProviderId.value = providerId;
-                showEditDialog.value = true;
+                openEditProviderDialog(
+                    providers.value.find((provider) => provider.id === providerId)
+                );
             } else if (key === 'delete') {
                 handleDeleteProvider(providerId);
             }
@@ -81,7 +83,10 @@
     const loadingModels = ref(false);
     const error = ref<string | null>(null);
     const showAddDialog = ref(false);
+    const isAddDialogMounted = ref(false);
     const showEditDialog = ref(false);
+    const isEditDialogMounted = ref(false);
+    const editingProvider = ref<Provider | null>(null);
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
     let unlistenAiModelsUpdated: (() => void) | null = null;
@@ -376,11 +381,27 @@
     };
 
     const handleAddCustomProvider = () => {
+        isAddDialogMounted.value = true;
         showAddDialog.value = true;
     };
 
-    const handleEditProvider = () => {
+    const handleAddDialogClosed = () => {
+        if (!showAddDialog.value) isAddDialogMounted.value = false;
+    };
+
+    const openEditProviderDialog = (provider = selectedProvider.value) => {
+        if (!provider) return;
+        editingProvider.value = provider;
+        isEditDialogMounted.value = true;
         showEditDialog.value = true;
+    };
+
+    const handleEditProvider = () => openEditProviderDialog();
+
+    const handleEditDialogClosed = () => {
+        if (showEditDialog.value) return;
+        isEditDialogMounted.value = false;
+        editingProvider.value = null;
     };
 
     const handleCreateProvider = async (data: NewProvider) => {
@@ -403,15 +424,16 @@
     };
 
     const handleUpdateProviderInfo = async (data: Partial<Provider>) => {
-        if (!selectedProviderId.value) return;
+        const providerId = editingProvider.value?.id;
+        if (providerId === undefined) return;
 
         try {
             const normalizedProviderPatch = normalizeProviderPatch(data);
             await updateProvider({
-                id: selectedProviderId.value,
+                id: providerId,
                 providerPatch: normalizedProviderPatch,
             });
-            patchProvider(selectedProviderId.value, normalizedProviderPatch);
+            patchProvider(providerId, normalizedProviderPatch);
             showEditDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
@@ -431,7 +453,7 @@
             providers.value = providers.value.filter((item) => item.id !== providerId);
             removeCachedModels(providerId);
             await ensureProviderSelected();
-            showEditDialog.value = false;
+            if (editingProvider.value?.id === providerId) showEditDialog.value = false;
             alert.success(t('settings.ai.deleteSucceeded'));
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
@@ -766,16 +788,20 @@
         </div>
 
         <AddProviderDialog
-            v-if="showAddDialog"
+            v-if="isAddDialogMounted"
+            :open="showAddDialog"
             @create="handleCreateProvider"
             @cancel="showAddDialog = false"
+            @closed="handleAddDialogClosed"
         />
 
         <EditProviderDialog
-            v-if="showEditDialog && selectedProvider"
-            :provider="selectedProvider"
+            v-if="isEditDialogMounted && editingProvider"
+            :open="showEditDialog"
+            :provider="editingProvider"
             @update="handleUpdateProviderInfo"
             @cancel="showEditDialog = false"
+            @closed="handleEditDialogClosed"
         />
     </div>
 </template>

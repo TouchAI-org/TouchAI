@@ -149,7 +149,7 @@
                 <button
                     :disabled="isToggling"
                     :class="[
-                        'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors',
+                        't-toggle-track relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full',
                         server.enabled ? 'bg-primary-700' : 'bg-neutral-200',
                         isToggling && 'cursor-not-allowed opacity-50',
                     ]"
@@ -158,7 +158,7 @@
                 >
                     <span
                         :class="[
-                            'inline-block h-3 w-3 transform rounded-full bg-white transition-transform',
+                            't-toggle-thumb inline-block h-3 w-3 transform rounded-full bg-white',
                             server.enabled ? 'translate-x-5' : 'translate-x-1',
                         ]"
                     />

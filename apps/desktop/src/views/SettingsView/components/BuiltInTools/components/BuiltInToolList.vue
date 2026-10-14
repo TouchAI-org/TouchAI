@@ -61,7 +61,7 @@
                 <button
                     :disabled="togglingToolIds?.has(tool.id)"
                     :class="[
-                        'relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors',
+                        't-toggle-track relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full',
                         tool.enabled ? 'bg-primary-700' : 'bg-neutral-200',
                         togglingToolIds?.has(tool.id) ? 'cursor-not-allowed opacity-50' : '',
                     ]"
@@ -70,7 +70,7 @@
                 >
                     <span
                         :class="[
-                            'inline-block h-3 w-3 transform rounded-full bg-white transition-transform',
+                            't-toggle-thumb inline-block h-3 w-3 transform rounded-full bg-white',
                             tool.enabled ? 'translate-x-5' : 'translate-x-1',
                         ]"
                     />

@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import DialogShell from '@components/DialogShell.vue';
@@ -6,24 +6,26 @@
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
     import type { NewModel } from '@database/schema';
-    import { ref } from 'vue';
+    import { ref, watch } from 'vue';
 
     import { t } from '@/i18n';
     interface Props {
         providerId: number;
+        open?: boolean;
     }
 
     interface Emits {
         (e: 'create', data: NewModel): void;
         (e: 'cancel'): void;
+        (e: 'closed'): void;
     }
 
-    const props = defineProps<Props>();
+    const props = withDefaults(defineProps<Props>(), { open: true });
     const emit = defineEmits<Emits>();
 
     const alert = useAlert();
 
-    const form = ref({
+    const createInitialForm = () => ({
         name: '',
         model_id: '',
         reasoning: false,
@@ -32,6 +34,18 @@
         open_weights: false,
         multimodal: false,
     });
+    const form = ref(createInitialForm());
+
+    const resetForm = () => {
+        form.value = createInitialForm();
+    };
+
+    watch(
+        () => props.open,
+        (open, wasOpen) => {
+            if (open && wasOpen === false) resetForm();
+        }
+    );
 
     const handleSave = async () => {
         if (!form.value.name || !form.value.model_id) {
@@ -80,7 +94,7 @@
 </script>
 
 <template>
-    <DialogShell>
+    <DialogShell :open="props.open" @closed="emit('closed')">
         <h2 class="mb-5 text-base font-bold text-neutral-950">
             {{ t('settings.ai.addModelTitle') }}
         </h2>

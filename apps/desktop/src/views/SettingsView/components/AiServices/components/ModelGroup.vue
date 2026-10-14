@@ -1,7 +1,8 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import MotionCollapse from '@components/MotionCollapse.vue';
     import { useConfirm } from '@composables/useConfirm';
     import type { Model } from '@database/schema';
     import { ref } from 'vue';
@@ -71,6 +72,7 @@
         <div class="flex items-center gap-2">
             <button
                 class="flex flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-neutral-50"
+                :aria-expanded="isExpanded"
                 @click="toggleExpand"
             >
                 <AppIcon
@@ -98,23 +100,21 @@
             </button>
         </div>
 
-        <div
-            v-show="isExpanded"
-            data-testid="settings-model-group-models"
-            class="mt-2 ml-6 space-y-2"
-        >
-            <ModelCard
-                v-for="model in group.models"
-                :key="model.id"
-                :model="model"
-                :is-default="model.id === defaultModelId"
-                :provider-enabled="providerEnabled"
-                @update="(data) => emit('update', model.id, data)"
-                @delete="emit('delete', model.id)"
-                @set-default="emit('set-default', model.id)"
-                @edit="emit('edit', model)"
-            />
-        </div>
+        <MotionCollapse :open="isExpanded">
+            <div data-testid="settings-model-group-models" class="mt-2 ml-6 space-y-2">
+                <ModelCard
+                    v-for="model in group.models"
+                    :key="model.id"
+                    :model="model"
+                    :is-default="model.id === defaultModelId"
+                    :provider-enabled="providerEnabled"
+                    @update="(data) => emit('update', model.id, data)"
+                    @delete="emit('delete', model.id)"
+                    @set-default="emit('set-default', model.id)"
+                    @edit="emit('edit', model)"
+                />
+            </div>
+        </MotionCollapse>
     </div>
 </template>
 

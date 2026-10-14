@@ -289,7 +289,7 @@
                             @change="patch({ compactOutput: !modelValue.compactOutput })"
                         />
                         <div
-                            class="peer h-5 w-9 rounded-full transition-colors"
+                            class="peer t-toggle-track h-5 w-9 rounded-full"
                             :class="{
                                 'bg-primary-500': modelValue.compactOutput,
                                 'bg-gray-200': !modelValue.compactOutput,
@@ -297,7 +297,7 @@
                             }"
                         >
                             <div
-                                class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform"
+                                class="t-toggle-thumb absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white"
                                 :class="{
                                     'translate-x-4': modelValue.compactOutput,
                                     'translate-x-0': !modelValue.compactOutput,
