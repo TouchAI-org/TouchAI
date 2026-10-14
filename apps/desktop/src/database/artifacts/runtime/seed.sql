@@ -10,6 +10,12 @@ WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'OpenAI');
 INSERT INTO providers (
     name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
 )
+SELECT 'Magpie', 'openai-compatible', 'http://127.0.0.1:3425/v1', NULL, NULL, 'magpie.png', 0, 1
+WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'Magpie');
+
+INSERT INTO providers (
+    name, driver, api_endpoint, api_key, config_json, logo, enabled, is_builtin
+)
 SELECT 'Anthropic', 'anthropic', 'https://api.anthropic.com', NULL, NULL, 'anthropic.png', 0, 1
 WHERE NOT EXISTS (SELECT 1 FROM providers WHERE name = 'Anthropic');
 
