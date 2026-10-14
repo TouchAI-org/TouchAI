@@ -159,7 +159,7 @@
             :aria-controls="contentId"
             @click="toggleExpanded"
         >
-            <span class="reasoning-heading" role="status">
+            <span class="reasoning-heading">
                 <span class="reasoning-label">
                     <span
                         class="reasoning-label-content"

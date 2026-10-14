@@ -17,10 +17,10 @@ import {
 
 function buildAssistantTransportContent(row: { parts: MessagePartEntity[] }): AiMessage['content'] {
     return row.parts.flatMap((part): AiContentPart[] => {
-        if (part.type === 'text') {
+        if (part.type === 'text' && part.content.trim()) {
             return [{ type: 'text', text: part.content }];
         }
-        if (part.type === 'reasoning') {
+        if (part.type === 'reasoning' && part.content.trim()) {
             return [{ type: 'reasoning', text: part.content }];
         }
         return [];

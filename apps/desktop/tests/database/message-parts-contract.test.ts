@@ -696,6 +696,32 @@ describe('normalized message parts database contract', () => {
         expect(await listSessions({ query: 'First answer' })).toHaveLength(1);
         expect(await listSessions({ query: 'Missing' })).toHaveLength(0);
     });
+
+    it('ignores reasoning-only assistant messages when refreshing session metadata', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO sessions (id, session_id, title, model)
+            VALUES (1, 'reasoning-only', 'Conversation', 'test');
+            INSERT INTO messages (id, session_id, role, created_at) VALUES
+                (1, 1, 'assistant', '2026-01-01 00:00:00'),
+                (2, 1, 'assistant', '2026-01-02 00:00:00');
+            INSERT INTO message_parts (message_id, type, content, sort_order) VALUES
+                (1, 'text', 'Visible answer', 0),
+                (2, 'reasoning', 'Hidden thought', 0);
+        `);
+
+        await refreshSessionMetadata(1);
+
+        expect(
+            database
+                .prepare('SELECT last_message_preview, last_message_at FROM sessions WHERE id = 1')
+                .get()
+        ).toEqual({
+            last_message_preview: 'Visible answer',
+            last_message_at: '2026-01-01 00:00:00',
+        });
+    });
 });
 
 describe('contentless-delete message search index', () => {

@@ -183,6 +183,35 @@ describe('AgentService session transport', () => {
         ]);
     });
 
+    it('omits blank text and reasoning parts from provider transport', async () => {
+        mocks.findMessagesBySessionId.mockResolvedValue([
+            createMessageRow({
+                role: 'assistant',
+                parts: [
+                    createMessagePart({ id: 1, type: 'text', content: '', sort_order: 0 }),
+                    createMessagePart({ id: 2, type: 'reasoning', content: '   ', sort_order: 1 }),
+                    createMessagePart({ id: 3, type: 'text', content: 'Answer', sort_order: 2 }),
+                    createMessagePart({
+                        id: 4,
+                        type: 'reasoning',
+                        content: 'Thought',
+                        sort_order: 3,
+                    }),
+                ],
+            }),
+        ]);
+
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    { type: 'text', text: 'Answer' },
+                    { type: 'reasoning', text: 'Thought' },
+                ],
+            },
+        ]);
+    });
+
     it('returns no history without querying when there is no session', async () => {
         expect(await loadSessionTransportMessages({})).toEqual([]);
         expect(mocks.findMessagesBySessionId).not.toHaveBeenCalled();

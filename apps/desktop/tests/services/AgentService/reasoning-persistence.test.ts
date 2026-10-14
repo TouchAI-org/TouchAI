@@ -74,6 +74,16 @@ function createCheckpoint(): AttemptCheckpoint {
 }
 
 describe('reasoning persistence', () => {
+    beforeEach(() => {
+        vi.resetAllMocks();
+        let messageId = 10;
+        queries.createMessage.mockImplementation(async (draft) => ({ ...draft, id: messageId++ }));
+        queries.createSessionTurn.mockImplementation(async (draft) => ({ ...draft, id: 2 }));
+        queries.createSessionTurnAttempt.mockImplementation(async (draft) => ({
+            ...draft,
+            id: 3,
+        }));
+    });
     it('does not write temporary output to attempts while streaming', async () => {
         queries.updateSessionTurnAttempt.mockClear();
         const projector = createProjector();
@@ -96,17 +106,6 @@ describe('reasoning persistence', () => {
                 { type: 'text', content: 'Answer' },
             ],
         });
-    });
-
-    beforeEach(() => {
-        vi.resetAllMocks();
-        let messageId = 10;
-        queries.createMessage.mockImplementation(async (draft) => ({ ...draft, id: messageId++ }));
-        queries.createSessionTurn.mockImplementation(async (draft) => ({ ...draft, id: 2 }));
-        queries.createSessionTurnAttempt.mockImplementation(async (draft) => ({
-            ...draft,
-            id: 3,
-        }));
     });
 
     it.each(['failed', 'cancelled'] as const)(
@@ -304,6 +303,27 @@ describe('reasoning persistence', () => {
             ]),
             {}
         );
+        expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                turnPatch: expect.objectContaining({
+                    response_message_id: 11,
+                    status: 'completed',
+                }),
+            })
+        );
+    });
+
+    it('preserves streamed output when completion has no final parts', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+        await projector.persistOutputProgress([
+            { type: 'reasoning', content: 'Saved thought', startedAt: 1000, endedAt: 2000 },
+        ]);
+        queries.syncOutputParts.mockClear();
+
+        await projector.markCompleted({ durationMs: 5000, outputParts: [] });
+
+        expect(queries.syncOutputParts).not.toHaveBeenCalled();
         expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
             expect.objectContaining({
                 turnPatch: expect.objectContaining({

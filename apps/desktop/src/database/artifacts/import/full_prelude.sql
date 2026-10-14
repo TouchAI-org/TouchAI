@@ -205,16 +205,16 @@ SELECT
         WHEN tools.tool_id = 'upgrade_model'
          AND json_type(tools.config_json, '$.chain') = 'array'
         THEN json_set(tools.config_json, '$.chain', json((
-            SELECT json_group_array(json(mapped.entry))
+            SELECT json_group_array(json(mapped.entry) ORDER BY mapped.chain_key)
             FROM (
                 -- Removed providers cannot be executed; never reuse their source rowids.
-                SELECT json_set(chain.value, '$.providerId', target.id) AS entry
+                SELECT json_set(chain.value, '$.providerId', target.id) AS entry,
+                       chain.key AS chain_key
                 FROM json_each(tools.config_json, '$.chain') AS chain
                 INNER JOIN imported.providers AS source
                     ON source.id = json_extract(chain.value, '$.providerId')
                 INNER JOIN main.providers AS target
                     ON target.name = source.name AND target.driver = source.driver
-                ORDER BY chain.key
             ) AS mapped
         )))
         ELSE tools.config_json

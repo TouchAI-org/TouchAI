@@ -8,6 +8,7 @@ import {
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
+    findMessagePartById,
     refreshSessionMetadata,
     syncOutputParts,
     updateMessage,
@@ -16,14 +17,12 @@ import {
     updateSessionTurnAttempt,
 } from '@database/queries';
 import type { MessageRole, TurnStatus } from '@database/schema';
-import { messageParts } from '@database/schema';
 import type { AttachmentEntity } from '@database/types';
 import type {
     SessionTurnAttemptEntity,
     SessionTurnEntity,
     SessionTurnUpdateData,
 } from '@database/types';
-import { eq } from 'drizzle-orm';
 
 import {
     type AttachmentIndex,
@@ -576,7 +575,7 @@ export class PersistenceProjector {
         }
 
         const persistedParts = normalizeOutputParts(outputParts);
-        if (role === 'assistant' || role === 'tool_call') {
+        if ((role === 'assistant' || role === 'tool_call') && persistedParts.length > 0) {
             await syncOutputParts(
                 messageId,
                 persistedParts.map((part, sortOrder) => ({
@@ -592,11 +591,7 @@ export class PersistenceProjector {
         } else if (role === 'tool_result') {
             const call =
                 toolCallPartId !== null && toolCallPartId !== undefined
-                    ? await database
-                          .select()
-                          .from(messageParts)
-                          .where(eq(messageParts.id, toolCallPartId))
-                          .get()
+                    ? await findMessagePartById(toolCallPartId, database)
                     : undefined;
             await createMessageParts(
                 [

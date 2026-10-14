@@ -33,6 +33,15 @@ export const findMessagePartsByMessageIds = async (
         .all();
 };
 
+/** 按主键读取单个片段。 */
+export const findMessagePartById = async (
+    id: number,
+    database: DatabaseExecutor = db
+): Promise<MessagePartEntity | undefined> => {
+    const part = await database.select().from(messageParts).where(eq(messageParts.id, id)).get();
+    return part;
+};
+
 /**
  * 创建一条消息的有序片段。
  */

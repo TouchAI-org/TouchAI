@@ -54,6 +54,7 @@ beforeEach(() => {
     setLocale('zh-CN');
 });
 afterEach(() => {
+    vi.useRealTimers();
     wrappers.splice(0).forEach((wrapper) => wrapper.unmount());
 });
 

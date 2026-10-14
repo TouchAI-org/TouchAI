@@ -248,7 +248,8 @@ export const refreshSessionMetadata = async (
         .where(
             and(
                 eq(assistantMessages.session_id, sessionId),
-                eq(assistantMessages.role, 'assistant')
+                eq(assistantMessages.role, 'assistant'),
+                sql`trim(${messageText(assistantMessages.id)}) <> ''`
             )
         )
         .orderBy(desc(assistantMessages.created_at), desc(assistantMessages.id))
@@ -301,7 +302,8 @@ export const refreshSessionMetadata = async (
         .where(
             and(
                 eq(assistantMessages.session_id, sessionId),
-                eq(assistantMessages.role, 'assistant')
+                eq(assistantMessages.role, 'assistant'),
+                sql`trim(${messageText(assistantMessages.id)}) <> ''`
             )
         )
         .orderBy(desc(assistantMessages.created_at), desc(assistantMessages.id))
