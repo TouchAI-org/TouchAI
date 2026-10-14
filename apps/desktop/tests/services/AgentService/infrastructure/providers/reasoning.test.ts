@@ -43,6 +43,25 @@ describe('provider reasoning capabilities', () => {
         expect(resolveReasoningEffort('openai-compatible', undefined)).toBe('max');
     });
 
+    it('resolves the highest supported effort for known OpenAI models', () => {
+        expect(resolveReasoningEffort('openai', undefined, 'gpt-5')).toBe('high');
+        expect(resolveReasoningEffort('openai', undefined, 'gpt-5.1')).toBe('high');
+        expect(resolveReasoningEffort('openai', undefined, 'gpt-5.2')).toBe('xhigh');
+        expect(resolveReasoningEffort('openai', undefined, 'gpt-5.4-pro')).toBe('xhigh');
+        expect(resolveReasoningEffort('openai', undefined, 'gpt-5.6')).toBe('max');
+        expect(resolveReasoningEffort('openai', undefined, 'openai/gpt-6')).toBe('max');
+    });
+
+    it('omits effort for unknown or non-reasoning OpenAI models', () => {
+        expect(resolveReasoningEffort('openai', undefined, 'gpt-4o')).toBeUndefined();
+        expect(resolveReasoningEffort('openai', undefined, 'gpt-5-chat-latest')).toBeUndefined();
+    });
+
+    it('falls back to the model-specific highest effort when requested is unsupported', () => {
+        expect(resolveReasoningEffort('openai', 'xhigh', 'gpt-5.1')).toBe('high');
+        expect(resolveReasoningEffort('openai', 'none', 'gpt-5')).toBe('high');
+    });
+
     it('returns undefined when the provider driver is missing', () => {
         expect(resolveReasoningEffort(undefined)).toBeUndefined();
     });
@@ -60,6 +79,16 @@ describe('provider reasoning option translation', () => {
             expect(buildReasoningProviderOptions(driver, effort)).toEqual(expected);
         }
     );
+
+    it('uses model-aware OpenAI effort in providerOptions', () => {
+        expect(buildReasoningProviderOptions('openai', undefined, 'gpt-5.1')).toEqual({
+            openai: { reasoningEffort: 'high' },
+        });
+        expect(buildReasoningProviderOptions('openai', undefined, 'gpt-5.6')).toEqual({
+            openai: { reasoningEffort: 'max' },
+        });
+        expect(buildReasoningProviderOptions('openai', undefined, 'gpt-4o')).toBeUndefined();
+    });
 
     it('never forwards an invalid value to providerOptions', () => {
         expect(buildReasoningProviderOptions('openai-compatible', 'bogus')).toEqual({

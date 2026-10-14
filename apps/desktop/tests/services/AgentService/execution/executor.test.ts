@@ -114,6 +114,27 @@ describe('AiRequestExecutor', () => {
         );
     });
 
+    it('uses the active OpenAI model capability when resolving reasoning effort', async () => {
+        providerMock.stream.mockImplementation(async function* () {
+            yield { content: 'Done', done: true };
+        });
+        const checkpoint = createCheckpoint();
+        checkpoint.activeModel.provider_driver = 'openai';
+        checkpoint.activeModel.provider_name = 'OpenAI';
+        checkpoint.activeModel.model_id = 'gpt-5.1';
+        checkpoint.activeModel.name = 'gpt-5.1';
+
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            persister: {} as never,
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(providerMock.stream).toHaveBeenCalledWith(
+            expect.objectContaining({ reasoningEffort: 'high' })
+        );
+    });
+
     it('returns the failed stream fragments with their wall-clock boundaries without persisting a snapshot', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);

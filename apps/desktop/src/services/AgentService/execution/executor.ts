@@ -636,7 +636,14 @@ export class AiRequestExecutor {
             persister: PersistenceProjector;
         }
     ): Promise<AttemptStepResult> {
-        const reasoningEffort = resolveReasoningEffort(runtime.activeModel.provider_driver);
+        // Relay metadata is not authoritative: some models report reasoning=0
+        // while still requiring an explicit reasoning_effort to expose thinking.
+        // Provider/model capability resolution decides whether an option is emitted.
+        const reasoningEffort = resolveReasoningEffort(
+            runtime.activeModel.provider_driver,
+            undefined,
+            runtime.activeModel.model_id
+        );
         const stream = this.stream(
             runtime.provider,
             runtime.activeModel.provider_id,

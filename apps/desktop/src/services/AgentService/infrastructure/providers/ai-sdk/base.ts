@@ -379,7 +379,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
     protected getStreamProviderOptions(
         options: AiRequestOptions
     ): Record<string, JsonObject> | undefined {
-        return buildReasoningProviderOptions(this.driver, options.reasoningEffort);
+        return buildReasoningProviderOptions(this.driver, options.reasoningEffort, options.model);
     }
 
     /**
