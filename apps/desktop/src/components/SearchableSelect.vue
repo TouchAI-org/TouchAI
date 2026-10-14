@@ -223,6 +223,10 @@
     }
 
     function handleSearchKeydown(event: KeyboardEvent) {
+        if (!isOpen.value) {
+            return;
+        }
+
         if (event.key === 'Escape') {
             event.preventDefault();
             closeDropdown();
@@ -338,7 +342,11 @@
             />
         </button>
 
-        <Transition name="t-panel">
+        <Transition
+            name="t-panel"
+            @before-leave="(element) => element.setAttribute('inert', '')"
+            @before-enter="(element) => element.removeAttribute('inert')"
+        >
             <div
                 v-if="isOpen"
                 class="absolute top-full left-0 z-30 mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-lg"

@@ -114,8 +114,8 @@ describe('context menu motion lifecycle', () => {
         wrapper.unmount();
     });
 
-    it('disposes an old menu on immediate reopen and cleans the active one with its scope', async () => {
-        const { wrapper, menu } = mountMenu();
+    it('replaces a menu without notifying close and notifies once when the new menu closes', async () => {
+        const { wrapper, menu, onClose } = mountMenu();
         menu.open(mouseEvent(10, 12));
         await nextTick();
         const firstId = document
@@ -127,8 +127,13 @@ describe('context menu motion lifecycle', () => {
         const roots = document.querySelectorAll('[data-context-menu-id][role="menu"]');
         expect(roots).toHaveLength(1);
         expect(roots[0]?.getAttribute('data-context-menu-id')).not.toBe(firstId);
+        expect(onClose).not.toHaveBeenCalled();
+
+        menu.close();
+        expect(onClose).toHaveBeenCalledOnce();
 
         wrapper.unmount();
         expect(document.querySelector('[data-context-menu-id][role="menu"]')).toBeNull();
+        expect(onClose).toHaveBeenCalledOnce();
     });
 });
