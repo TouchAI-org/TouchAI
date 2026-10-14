@@ -5,15 +5,26 @@ import type { ProviderDriver } from '@database/schema';
 import type { AiError } from '../../contracts/errors';
 import type { AiRequestOptions, AiResponse, AiStreamChunk } from '../../contracts/protocol';
 import type { AttachmentTransportMode } from '../../contracts/protocol';
+import type { ReasoningMode, ReasoningOption, ReasoningProtocol } from '../../contracts/reasoning';
 
 export interface ModelInfo {
     id: string;
     name: string;
+    /** 上游 /models 返回的 reasoning 能力（如有）。 */
+    reasoningOptions?: ReasoningOption[];
+}
+
+export interface ProviderReasoningConfig {
+    /** 显式指定协议编码器；缺省时由 driver 推断。 */
+    protocol?: ReasoningProtocol;
+    /** 无 metadata 时的 fallback 行为，默认 auto。 */
+    mode?: ReasoningMode;
 }
 
 export interface ProviderConfigJson {
     headers?: Record<string, string>;
     queryParams?: Record<string, string>;
+    reasoning?: ProviderReasoningConfig;
 }
 
 export interface ProviderApiTargets {

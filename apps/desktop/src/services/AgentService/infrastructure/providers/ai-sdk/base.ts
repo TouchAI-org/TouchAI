@@ -5,7 +5,14 @@ import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import type { AiRequestOptions, AiResponse, JsonObject } from '../../../contracts/protocol';
-import type { ReasoningLevel } from '../../../contracts/reasoning';
+import type { ReasoningOption, ReasoningProtocol } from '../../../contracts/reasoning';
+import {
+    encodeReasoning,
+    type ReasoningNative,
+    type ReasoningPlan,
+    resolveReasoning,
+} from '../reasoning';
+import { logReasoningDebug } from '../reasoning/debug';
 import type {
     AiProvider,
     AiProviderConfig,
@@ -229,7 +236,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
     }
 
     async *stream(options: AiRequestOptions) {
-        const processor = createAiSdkStreamProcessor();
+        const processor = createAiSdkStreamProcessor({ modelId: options.model });
         const attachmentContext: ProviderAttachmentRequestContext = {
             driver: this.driver,
             providerId: options.providerId,
@@ -375,32 +382,110 @@ export abstract class AiSdkProviderBase implements AiProvider {
 
     /**
      * 允许 provider 在单次请求级别注入 AI SDK providerOptions。
+     *
+     * 请求层只传 TouchAI 统一档位与 capability；这里交给 resolver + protocol
+     * 编码成具体供应商参数。没有 metadata 时按 provider config 的 mode 走 fallback。
      */
     protected getStreamProviderOptions(
         options: AiRequestOptions
     ): Record<string, JsonObject> | undefined {
-        return this.getReasoningProviderOptions(
-            options.reasoningLevel,
-            options.model,
-            (options.tools?.length ?? 0) > 0
-        );
+        const protocol = this.config.reasoning?.protocol ?? this.getReasoningProtocol();
+        if (!protocol) {
+            return undefined;
+        }
+
+        const mode = this.config.reasoning?.mode ?? 'auto';
+        const hasTools = (options.tools?.length ?? 0) > 0;
+        const capability =
+            options.reasoningOptions && options.reasoningOptions.length > 0
+                ? options.reasoningOptions
+                : this.getFallbackReasoningCapability(options.model);
+
+        const plan = resolveReasoning({
+            level: options.reasoningLevel,
+            capability,
+            protocol,
+            mode,
+            modelId: options.model,
+            hasTools,
+        });
+        const constrained: ReasoningPlan = {
+            ...plan,
+            native: this.applyReasoningConstraint(plan.native, {
+                modelId: options.model,
+                hasTools,
+            }),
+        };
+        const encoded = encodeReasoning(constrained);
+        const providerOptions = this.remapReasoningProviderOptions(encoded.providerOptions);
+
+        logReasoningDebug({
+            protocol: constrained.protocol,
+            mode: constrained.mode,
+            source: constrained.source,
+            requested: constrained.requested,
+            native: constrained.native,
+            modelId: constrained.modelId,
+            hasTools,
+            providerOptions,
+        });
+
+        return providerOptions;
     }
 
     /**
-     * Provider driver 在这里把 TouchAI 统一档位翻译成自己的 providerOptions。
-     * 基类默认不发送任何供应商特有参数。
+     * 某些 SDK 的 providerOptions namespace 与协议默认 namespace 不同，例如 xAI 使用
+     * `xai`、MiMo 使用 `mimo`。协议仍按语义编码，driver 只负责声明最终 namespace。
      */
-    protected getReasoningProviderOptions(
-        level: ReasoningLevel | undefined,
-        modelId: string,
-        hasTools: boolean
-    ): Record<string, JsonObject> | undefined {
-        void level;
-        void modelId;
-        void hasTools;
+    protected getReasoningProviderOptionsKey(): string | undefined {
         return undefined;
     }
 
+    private remapReasoningProviderOptions(
+        providerOptions: Record<string, JsonObject> | undefined
+    ): Record<string, JsonObject> | undefined {
+        const key = this.getReasoningProviderOptionsKey();
+        if (!key || !providerOptions) {
+            return providerOptions;
+        }
+
+        const entries = Object.entries(providerOptions);
+        if (entries.length === 0) {
+            return providerOptions;
+        }
+
+        const merged: JsonObject = {};
+        for (const [, value] of entries) {
+            Object.assign(merged, value);
+        }
+        return { [key]: merged };
+    }
+
+    /**
+     * Provider driver 的默认协议编码器；未声明时不发送 reasoning 参数。
+     */
+    protected getReasoningProtocol(): ReasoningProtocol | undefined {
+        return undefined;
+    }
+
+    /**
+     * metadata 缺失时的兜底 capability（例如 OpenAI 官方硬编码模型表）。
+     */
+    protected getFallbackReasoningCapability(modelId: string): ReasoningOption[] {
+        void modelId;
+        return [];
+    }
+
+    /**
+     * 模型级约束，例如某些模型带 tools 时只能 none。
+     */
+    protected applyReasoningConstraint(
+        native: ReasoningNative,
+        context: { modelId: string; hasTools: boolean }
+    ): ReasoningNative {
+        void context;
+        return native;
+    }
     /**
      * 仅在需要 provider 原始 chunk 做协议修补时开启 raw chunks，避免其余 provider 产生额外流噪音。
      */

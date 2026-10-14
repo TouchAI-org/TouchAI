@@ -3,7 +3,7 @@
 import type { ProviderDriver } from '@database/schema';
 
 import type { ModelLanguageContext } from '../languageContext';
-import type { ReasoningLevel } from './reasoning';
+import type { ReasoningLevel, ReasoningOption } from './reasoning';
 import type { AiToolCall, AiToolCallDelta, AiToolDefinition, ToolEvent } from './tooling';
 
 export type AttachmentTransportMode =
@@ -96,7 +96,7 @@ export interface AttachmentDeliveryManifest {
  */
 export type AiContentPart =
     | { type: 'text'; text: string }
-    | { type: 'reasoning'; text: string }
+    | { type: 'reasoning'; text: string; providerOptions?: Record<string, JsonObject> }
     | {
           type: 'image';
           name: string;
@@ -146,6 +146,8 @@ export interface AiRequestOptions {
     messages: AiMessage[];
     supportsReasoning?: boolean;
     reasoningLevel?: ReasoningLevel;
+    /** 上游 /models 或本地 metadata 声明的 reasoning 能力。 */
+    reasoningOptions?: ReasoningOption[];
     stream?: boolean;
     signal?: AbortSignal;
     tools?: AiToolDefinition[];
@@ -161,6 +163,11 @@ export interface AiStreamChunk {
     reasoning?: string;
     /** 保留 provider 的思考边界，避免用整个消息的流式状态推断。 */
     reasoningState?: 'start' | 'end';
+    /**
+     * reasoning 片段的 provider 元数据（例如 OpenAI Responses 的 itemId 与
+     * encrypted_content）。回放多轮对话时用于还原思考内容。
+     */
+    reasoningProviderOptions?: Record<string, JsonObject>;
     /** 正文片段边界用于在片段结束时持久化，而非定时保存增量。 */
     textState?: 'start' | 'end';
     done: boolean;
@@ -188,7 +195,13 @@ export interface JsonObject {
 /** Ordered text/reasoning output shared by execution and persistence. */
 export type PersistedOutputPart =
     | { type: 'text'; content: string }
-    | { type: 'reasoning'; content: string; startedAt?: number; endedAt?: number };
+    | {
+          type: 'reasoning';
+          content: string;
+          startedAt?: number;
+          endedAt?: number;
+          providerOptions?: Record<string, JsonObject>;
+      };
 /** Validate the sole persisted output format without changing logical order. */
 export function normalizeOutputParts(raw: unknown): PersistedOutputPart[] {
     if (!Array.isArray(raw)) return [];
@@ -199,6 +212,7 @@ export function normalizeOutputParts(raw: unknown): PersistedOutputPart[] {
             content?: unknown;
             startedAt?: unknown;
             endedAt?: unknown;
+            providerOptions?: unknown;
         };
         if (typeof part.content !== 'string') return [];
         if (part.type === 'text')
@@ -210,16 +224,28 @@ export function normalizeOutputParts(raw: unknown): PersistedOutputPart[] {
             startedAt !== undefined && validTime(part.endedAt) && part.endedAt >= startedAt
                 ? part.endedAt
                 : undefined;
+        const providerOptions = validProviderOptions(part.providerOptions);
         return [
             {
                 type: 'reasoning',
                 content: part.content,
                 ...(startedAt !== undefined ? { startedAt } : {}),
                 ...(endedAt !== undefined ? { endedAt } : {}),
+                ...(providerOptions ? { providerOptions } : {}),
             },
         ];
     });
 }
 function validTime(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+/** 仅保留可 JSON 序列化的 providerOptions，避免把任意对象写进持久层。 */
+function validProviderOptions(value: unknown): Record<string, JsonObject> | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const result: Record<string, JsonObject> = {};
+    for (const [key, entry] of Object.entries(value)) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
+        result[key] = entry as JsonObject;
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
 }

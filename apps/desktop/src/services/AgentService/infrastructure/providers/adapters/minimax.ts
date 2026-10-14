@@ -4,6 +4,7 @@ import { createMinimax } from 'vercel-minimax-ai-provider';
 
 import { z } from '@/utils/zod';
 
+import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 
@@ -13,6 +14,7 @@ const minimaxModelsSchema = z.object({
             id: z.string(),
             display_name: z.string().optional(),
             displayName: z.string().optional(),
+            reasoning_options: z.unknown().optional(),
         })
     ),
 });
@@ -63,10 +65,22 @@ export class MiniMaxProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = minimaxModelsSchema.parse(payload);
-        return parsed.data.map((model) => ({
-            id: model.id,
-            name: model.display_name || model.displayName || model.id,
-        }));
+        return parsed.data.map((model) => {
+            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
+            return {
+                id: model.id,
+                name: model.display_name || model.displayName || model.id,
+                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
+            };
+        });
+    }
+
+    protected override getReasoningProtocol(): ReasoningProtocol {
+        return 'openai-chat';
+    }
+
+    protected override getReasoningProviderOptionsKey(): string {
+        return 'minimax';
     }
 
     getApiTargets(): ProviderApiTargets {

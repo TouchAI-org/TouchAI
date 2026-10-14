@@ -2,6 +2,7 @@
 
 import { safeParseJsonWithSchema, z } from '@/utils/zod';
 
+import { REASONING_MODES, REASONING_PROTOCOLS } from '../../contracts/reasoning';
 import type { ProviderConfigJson } from './types';
 
 export const MIMO_API_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
@@ -9,6 +10,12 @@ export const MIMO_API_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
 const providerConfigJsonSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     queryParams: z.record(z.string(), z.string()).optional(),
+    reasoning: z
+        .object({
+            protocol: z.enum(REASONING_PROTOCOLS).optional(),
+            mode: z.enum(REASONING_MODES).optional(),
+        })
+        .optional(),
 });
 
 export function parseProviderConfigJson(configJson?: string | null): ProviderConfigJson {

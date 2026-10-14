@@ -4,16 +4,20 @@ import { createDeepSeek } from '@ai-sdk/deepseek';
 
 import { z } from '@/utils/zod';
 
-import type { JsonObject } from '../../../contracts/protocol';
-import type { ReasoningLevel } from '../../../contracts/reasoning';
+import {
+    normalizeReasoningOptions,
+    type ReasoningOption,
+    type ReasoningProtocol,
+} from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
-import { translateDeepSeekReasoningOptions } from '../reasoning';
+import { DEEPSEEK_REASONING_CAPABILITY } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 
 const deepseekModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
+            reasoning_options: z.unknown().optional(),
         })
     ),
 });
@@ -49,17 +53,23 @@ export class DeepSeekProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = deepseekModelsSchema.parse(payload);
-        return parsed.data.map((model) => ({
-            id: model.id,
-            name: model.id,
-        }));
+        return parsed.data.map((model) => {
+            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
+            return {
+                id: model.id,
+                name: model.id,
+                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
+            };
+        });
     }
 
-    protected override getReasoningProviderOptions(
-        level: ReasoningLevel | undefined
-    ): Record<string, JsonObject> | undefined {
-        const options = translateDeepSeekReasoningOptions(level);
-        return options ? { deepseek: options } : undefined;
+    protected override getReasoningProtocol(): ReasoningProtocol {
+        return 'deepseek-chat';
+    }
+
+    protected override getFallbackReasoningCapability(modelId: string): ReasoningOption[] {
+        void modelId;
+        return DEEPSEEK_REASONING_CAPABILITY;
     }
 
     getApiTargets(): ProviderApiTargets {

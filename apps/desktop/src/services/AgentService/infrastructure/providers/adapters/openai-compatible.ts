@@ -4,10 +4,8 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
 import { z } from '@/utils/zod';
 
-import type { JsonObject } from '../../../contracts/protocol';
-import type { ReasoningLevel } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
-import { translateOpenAiCompatibleReasoningLevel } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
@@ -15,6 +13,7 @@ const openAiCompatibleModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
+            reasoning_options: z.unknown().optional(),
         })
     ),
 });
@@ -24,6 +23,9 @@ const openAiCompatibleModelsSchema = z.object({
  *
  * 使用 @ai-sdk/openai-compatible SDK，默认不发送 stream_options，
  * 兼容不支持该参数的第三方 provider（如 MiMo）。
+ *
+ * 中转站的 reasoning 语义不可信：默认 auto 不发参数；确认支持思考时在
+ * provider config 里设置 `reasoning.mode = 'passthrough'`（或指定 protocol）。
  */
 export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
     readonly name = 'OpenAI 兼容';
@@ -55,20 +57,22 @@ export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = openAiCompatibleModelsSchema.parse(payload);
-        return parsed.data.map((model) => ({
-            id: model.id,
-            name: model.id,
-        }));
+        return parsed.data.map((model) => {
+            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
+            return {
+                id: model.id,
+                name: model.id,
+                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
+            };
+        });
     }
 
-    protected override getReasoningProviderOptions(
-        level: ReasoningLevel | undefined
-    ): Record<string, JsonObject> {
-        return {
-            openaiCompatible: {
-                reasoningEffort: translateOpenAiCompatibleReasoningLevel(level),
-            },
-        };
+    protected override getReasoningProtocol(): ReasoningProtocol {
+        return 'openai-compatible';
+    }
+
+    protected override getReasoningProviderOptionsKey(): string {
+        return 'openaiCompatible';
     }
 
     getApiTargets(): ProviderApiTargets {

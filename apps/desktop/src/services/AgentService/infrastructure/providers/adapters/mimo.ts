@@ -4,10 +4,8 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
 import { z } from '@/utils/zod';
 
-import type { JsonObject } from '../../../contracts/protocol';
-import type { ReasoningLevel } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
-import { translateMimoReasoningLevel } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
@@ -15,6 +13,7 @@ const openAiCompatibleModelsSchema = z.object({
     data: z.array(
         z.object({
             id: z.string(),
+            reasoning_options: z.unknown().optional(),
         })
     ),
 });
@@ -49,20 +48,26 @@ export class MiMoProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = openAiCompatibleModelsSchema.parse(payload);
-        return parsed.data.map((model) => ({
-            id: model.id,
-            name: model.id,
-        }));
+        return parsed.data.map((model) => {
+            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
+            return {
+                id: model.id,
+                name: model.id,
+                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
+            };
+        });
     }
 
-    protected override getReasoningProviderOptions(
-        level: ReasoningLevel | undefined
-    ): Record<string, JsonObject> {
-        return {
-            mimo: {
-                reasoningEffort: translateMimoReasoningLevel(level),
-            },
-        };
+    /**
+     * MiMo 基于 OpenAI-compatible 协议，providerOptions namespace 为 mimo。
+     * 统一档位由 reasoning resolver + openai-compatible encoder 翻译。
+     */
+    protected override getReasoningProtocol(): ReasoningProtocol {
+        return 'openai-compatible';
+    }
+
+    protected override getReasoningProviderOptionsKey(): string {
+        return 'mimo';
     }
 
     getApiTargets(): ProviderApiTargets {

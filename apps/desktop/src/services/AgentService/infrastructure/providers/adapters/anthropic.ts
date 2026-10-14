@@ -5,6 +5,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { z } from '@/utils/zod';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
+import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 
@@ -14,6 +15,7 @@ const anthropicStyleModelsSchema = z.object({
             id: z.string(),
             display_name: z.string().optional(),
             displayName: z.string().optional(),
+            reasoning_options: z.unknown().optional(),
         })
     ),
 });
@@ -67,10 +69,14 @@ export class AnthropicProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = anthropicStyleModelsSchema.parse(payload);
-        return parsed.data.map((model) => ({
-            id: model.id,
-            name: model.display_name || model.displayName || model.id,
-        }));
+        return parsed.data.map((model) => {
+            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
+            return {
+                id: model.id,
+                name: model.display_name || model.displayName || model.id,
+                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
+            };
+        });
     }
 
     protected classifyApiCallError(_statusCode: number | undefined, data: unknown): AiError | null {
@@ -95,6 +101,10 @@ export class AnthropicProviderAdapter extends AiSdkProviderBase {
             return new AiError(AiErrorCode.INVALID_API_KEY, undefined, message);
         }
         return null;
+    }
+
+    protected override getReasoningProtocol(): ReasoningProtocol {
+        return 'anthropic-messages';
     }
 
     getApiTargets(): ProviderApiTargets {

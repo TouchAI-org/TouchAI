@@ -5,6 +5,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from '@/utils/zod';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
+import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 
@@ -14,6 +15,7 @@ const googleModelsSchema = z.object({
             name: z.string(),
             displayName: z.string().nullable().optional(),
             supportedGenerationMethods: z.array(z.string()).nullable().optional(),
+            reasoning_options: z.unknown().optional(),
         })
     ),
 });
@@ -64,9 +66,11 @@ export class GoogleProviderAdapter extends AiSdkProviderBase {
             })
             .map((model) => {
                 const normalizedId = model.name.replace(/^models\//, '');
+                const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
                 return {
                     id: normalizedId,
                     name: model.displayName || normalizedId,
+                    ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
                 };
             });
     }
@@ -91,6 +95,10 @@ export class GoogleProviderAdapter extends AiSdkProviderBase {
         }
 
         return null;
+    }
+
+    protected override getReasoningProtocol(): ReasoningProtocol {
+        return 'google-generative';
     }
 
     getApiTargets(): ProviderApiTargets {
