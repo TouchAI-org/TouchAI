@@ -201,9 +201,21 @@ describe('AiRequestExecutor', () => {
     it('preserves interleaved output order in the next live tool-loop request', async () => {
         providerMock.stream
             .mockImplementationOnce(async function* () {
-                yield { content: '', reasoning: 'Plan', done: false };
+                yield {
+                    content: '',
+                    reasoning: 'Plan',
+                    reasoningProviderOptions: {
+                        openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc_1' },
+                    },
+                    done: false,
+                };
                 yield { content: 'First answer', done: false };
-                yield { content: '', reasoning: 'Review', done: false };
+                yield {
+                    content: '',
+                    reasoning: 'Review',
+                    reasoningProviderOptions: { openai: { itemId: 'rs_2' } },
+                    done: false,
+                };
                 yield { content: 'Second answer', done: false };
                 yield {
                     content: '',
@@ -216,9 +228,19 @@ describe('AiRequestExecutor', () => {
                 expect(request.messages[1]).toEqual({
                     role: 'assistant',
                     content: [
-                        { type: 'reasoning', text: 'Plan' },
+                        {
+                            type: 'reasoning',
+                            text: 'Plan',
+                            providerOptions: {
+                                openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc_1' },
+                            },
+                        },
                         { type: 'text', text: 'First answer' },
-                        { type: 'reasoning', text: 'Review' },
+                        {
+                            type: 'reasoning',
+                            text: 'Review',
+                            providerOptions: { openai: { itemId: 'rs_2' } },
+                        },
                         { type: 'text', text: 'Second answer' },
                     ],
                     tool_calls: [{ id: 'call-1', name: 'test', arguments: '{' }],
