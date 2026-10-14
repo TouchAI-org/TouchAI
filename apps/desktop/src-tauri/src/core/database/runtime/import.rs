@@ -48,6 +48,26 @@ pub(crate) async fn run_import_backup(
             .await
             .map_err(|error| format!("Failed to begin import transaction: {error}"))?;
         let merge_result: Result<(), String> = async {
+            // Local rowids cannot disambiguate duplicate semantic identities across databases.
+            let ambiguous = sqlx::query_scalar::<_, i64>(
+                "SELECT EXISTS (
+                    SELECT 1 FROM imported.providers GROUP BY name, driver HAVING count(*) > 1
+                    UNION ALL
+                    SELECT 1 FROM main.providers GROUP BY name, driver HAVING count(*) > 1
+                    UNION ALL
+                    SELECT 1 FROM imported.models GROUP BY provider_id, model_id HAVING count(*) > 1
+                    UNION ALL
+                    SELECT 1 FROM main.models GROUP BY provider_id, model_id HAVING count(*) > 1
+                )",
+            )
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(|error| format!("Failed to validate import identities: {error}"))?;
+            if ambiguous != 0 {
+                return Err(
+                    "数据库存在重复的供应商或模型标识，无法安全导入；请先消除重复项".to_string(),
+                );
+            }
             if matches!(request.mode, DatabaseImportMode::Full) {
                 execute_sql_artifact_on_connection(
                     &mut connection,
@@ -438,6 +458,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_ambiguous_import_identities_without_changing_target() {
+        for (schema, duplicate) in [
+            ("imported", "provider"),
+            ("main", "provider"),
+            ("imported", "model"),
+            ("main", "model"),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let source_path = root.path().join("source.db");
+            let source = backup(&source_path, 5).await;
+            let target_path = root.path().join("target.db");
+            let target = create_sqlite_pool(&target_path).await.unwrap();
+            migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+                .await
+                .unwrap();
+            for pool in [&source, &target] {
+                sqlx::raw_sql(
+                    "INSERT INTO providers (id, name, driver, api_endpoint, logo) VALUES (1, 'Shared', 'openai', 'http://test', '');
+                     INSERT INTO models (id, provider_id, name, model_id) VALUES (1, 1, 'Shared', 'shared');
+                     INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'keep', 'Unchanged', 'shared');"
+                ).execute(pool).await.unwrap();
+            }
+            sqlx::query("INSERT INTO settings (key, value) VALUES ('keep', 'unchanged')")
+                .execute(&target)
+                .await
+                .unwrap();
+            let pool = if schema == "imported" {
+                &source
+            } else {
+                &target
+            };
+            let sql = if duplicate == "provider" {
+                "INSERT INTO providers (name, driver, api_endpoint, logo) VALUES ('Shared', 'openai', 'http://other', '')"
+            } else {
+                "INSERT INTO models (provider_id, name, model_id) VALUES (1, 'Other', 'shared')"
+            };
+            sqlx::query(sql).execute(pool).await.unwrap();
+            for mode in [DatabaseImportMode::ChatOnly, DatabaseImportMode::Full] {
+                let error = run_import_backup(
+                    target.clone(),
+                    target_path.clone(),
+                    contract(),
+                    DatabaseImportRequest {
+                        source_path: source_path.to_string_lossy().into_owned(),
+                        mode,
+                    },
+                )
+                .await
+                .unwrap_err();
+                assert!(
+                    error.contains("重复的供应商或模型标识"),
+                    "{schema} {duplicate}: {error}"
+                );
+                assert_eq!(
+                    sqlx::query_scalar::<_, String>(
+                        "SELECT title FROM sessions WHERE session_id='keep'"
+                    )
+                    .fetch_one(&target)
+                    .await
+                    .unwrap(),
+                    "Unchanged"
+                );
+                assert_eq!(
+                    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key='keep'")
+                        .fetch_one(&target)
+                        .await
+                        .unwrap(),
+                    "unchanged"
+                );
+                let attached: Vec<(i64, String, String)> = sqlx::query_as("PRAGMA database_list")
+                    .fetch_all(&target)
+                    .await
+                    .unwrap();
+                assert!(attached.iter().all(|(_, name, _)| name != "imported"));
+            }
+            source.close().await;
+            target.close().await;
+        }
+    }
+
+    #[tokio::test]
     async fn current_backup_keeps_order_and_timestamps_on_repeated_import() {
         let root = tempfile::tempdir().unwrap();
         let source_path = root.path().join("source.db");
@@ -465,6 +566,15 @@ mod tests {
             )
             .await
             .unwrap();
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM sqlite_temp_master WHERE type='table'"
+                )
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+                0
+            );
         }
         let query = "SELECT type, content, started_at, ended_at, sort_order FROM message_parts ORDER BY sort_order";
         type Part = (String, String, Option<i64>, Option<i64>, i64);

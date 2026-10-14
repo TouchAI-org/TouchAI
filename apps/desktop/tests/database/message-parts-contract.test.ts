@@ -7,7 +7,7 @@ import {
     createMessageAttachment,
     findAttachmentsByMessageIds,
 } from '@database/queries/attachments';
-import { syncOutputParts } from '@database/queries/messageParts';
+import { getMessageText, syncOutputParts } from '@database/queries/messageParts';
 import { findMessagesBySessionId } from '@database/queries/messages';
 import { listSessions, refreshSessionMetadata } from '@database/queries/sessions';
 import { createToolPart, findToolParts, updateToolPart } from '@database/queries/toolParts';
@@ -33,6 +33,17 @@ function openDatabase(entryCount = journal.entries.length) {
         database.exec(readFileSync(`${databaseRoot}/drizzle/${entry.tag}.sql`, 'utf8'));
     }
     return database;
+}
+function attachImportDatabase(database: SqliteDatabase) {
+    database.exec("ATTACH DATABASE ':memory:' AS imported");
+    const tables = database
+        .prepare(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'message_search_fts%'"
+        )
+        .all();
+    for (const table of tables) {
+        database.exec(String(table.sql).replace('CREATE TABLE ', 'CREATE TABLE imported.'));
+    }
 }
 function routeQueriesTo(database: SqliteDatabase) {
     interceptTauriInvoke((call) => {
@@ -133,6 +144,33 @@ describe('normalized message parts database contract', () => {
         }
     });
 
+    it('updates tool state without moving the part or changing its creation time', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seedSearch(database);
+        const created = await createToolPart('builtin', {
+            message_id: 1,
+            tool_call_id: 'owned-call',
+            tool_id: 'shell',
+            input: '{}',
+            created_at: '2026-10-01 00:00:00',
+        });
+        const patch = {
+            status: 'success' as const,
+            output: 'Done',
+            message_id: 2,
+            created_at: '2026-10-02 00:00:00',
+        };
+        const updated = await updateToolPart('builtin', eq(messageParts.id, created.id), patch);
+        expect(updated).toMatchObject({
+            id: created.id,
+            message_id: 1,
+            created_at: '2026-10-01 00:00:00',
+            status: 'success',
+            output: 'Done',
+        });
+    });
+
     it('writes an attachment reference in data and joins through its virtual column', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
@@ -144,7 +182,6 @@ describe('normalized message parts database contract', () => {
             message_id: 1,
             attachment_id: 7,
             origin_path: '/original/file.txt',
-            sort_order: 0,
         });
         const part = database
             .prepare("SELECT data, attachment_id FROM message_parts WHERE type='attachment'")
@@ -252,13 +289,14 @@ describe('normalized message parts database contract', () => {
         expect(ftsIds(database, 'Existing answer')).toEqual([1]);
         expect(ftsIds(database, 'thought')).toEqual([]);
     });
-    it('cascades message deletion to its parts', () => {
+    it('cascades message deletion to its parts and search index row', () => {
         const database = openDatabase();
         seedSearch(database);
         database.exec('DELETE FROM messages WHERE id = 1');
         expect(database.prepare('SELECT COUNT(*) AS count FROM message_parts').get()?.count).toBe(
             0
         );
+        expect(ftsIds(database, 'First')).toEqual([]);
     });
     it('imports ordered parts once and preserves reasoning timing and search', () => {
         const database = openDatabase();
@@ -315,6 +353,287 @@ describe('normalized message parts database contract', () => {
             database.prepare('SELECT count(*) AS count FROM message_search_fts').get()?.count
         ).toBe(1);
     });
+    it('completes and updates an imported message without replacing existing part IDs', () => {
+        const database = openDatabase();
+        attachImportDatabase(database);
+        database.exec(`
+            INSERT INTO sessions (id, session_id, title, model) VALUES (9, 'partial', 'Partial', 'test');
+            INSERT INTO messages (id, session_id, role, created_at) VALUES (10, 9, 'assistant', '2026-10-01 00:00:00');
+            INSERT INTO message_parts (id, message_id, type, content, sort_order) VALUES (20, 10, 'reasoning', 'Partial plan', 0);
+            INSERT INTO imported.sessions (id, session_id, title, model) VALUES (1, 'partial', 'Full', 'test');
+            INSERT INTO imported.messages (id, session_id, role, created_at) VALUES (1, 1, 'assistant', '2026-10-01 00:00:00');
+            INSERT INTO imported.message_parts (message_id, type, content, sort_order) VALUES
+                (1, 'reasoning', 'Complete plan', 0), (1, 'text', 'Answer', 1);
+        `);
+        const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
+        database.exec(merge);
+        expect(database.prepare('SELECT id FROM messages').all()).toEqual([{ id: 10 }]);
+        const answerId = Number(
+            database.prepare("SELECT id FROM message_parts WHERE type='text'").get()?.id
+        );
+        expect(answerId).toBeGreaterThan(20);
+        expect(
+            database
+                .prepare('SELECT id, type, content FROM message_parts ORDER BY sort_order')
+                .all()
+        ).toEqual([
+            { id: 20, type: 'reasoning', content: 'Complete plan' },
+            { id: answerId, type: 'text', content: 'Answer' },
+        ]);
+        database.exec(
+            "UPDATE imported.message_parts SET content='Revised answer' WHERE type='text'"
+        );
+        database.exec(merge);
+        expect(database.prepare('SELECT id FROM messages').all()).toEqual([{ id: 10 }]);
+        expect(
+            database.prepare("SELECT id, content FROM message_parts WHERE type='text'").get()
+        ).toEqual({ id: answerId, content: 'Revised answer' });
+        expect(ftsIds(database, 'Revised answer')).toEqual([10]);
+        database.exec("DELETE FROM imported.message_parts WHERE type='text'");
+        database.exec(merge);
+        expect(database.prepare('SELECT id FROM message_parts').all()).toEqual([{ id: 20 }]);
+        expect(ftsIds(database, 'Revised answer')).toEqual([]);
+    });
+
+    it('keeps chat-only turns and MCP identities when local IDs differ without copying secrets', () => {
+        const database = openDatabase();
+        attachImportDatabase(database);
+        database.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo) VALUES (1, 'Local', 'openai', 'http://local', '');
+            INSERT INTO models (id, provider_id, name, model_id) VALUES (1, 1, 'Local', 'local-model');
+            INSERT INTO mcp_servers (id, name, transport_type) VALUES (1, 'Local MCP', 'stdio');
+            INSERT INTO imported.providers (id, name, driver, api_endpoint, logo, api_key, config_json) VALUES
+                (1, 'Source', 'openai', 'http://source', '', 'secret', '{"token":"secret"}');
+            INSERT INTO imported.models (id, provider_id, name, model_id, is_default) VALUES (1, 1, 'Source', 'source-model', 1);
+            INSERT INTO imported.mcp_servers (id, name, transport_type, command, env) VALUES (1, 'Source MCP', 'stdio', 'command', '{"TOKEN":"secret"}');
+            INSERT INTO imported.sessions (id, session_id, title, model, provider_id) VALUES (1, 'identity', 'Test', 'source-model', 1);
+            INSERT INTO imported.messages (id, session_id, role) VALUES (1, 1, 'tool_call');
+            INSERT INTO imported.message_parts (message_id, type, content, data, sort_order) VALUES
+                (1, 'tool_call', '', '{"toolCallId":"call","toolKind":"mcp","server_id":1,"tool_name":"test","input":"{}"}', 0);
+            INSERT INTO imported.session_turns (id, session_id, model_id, task_id, prompt_snapshot_json) VALUES (1, 1, 1, 'task', '{}'), (2, NULL, 1, 'deleted-session-task', '{}');
+            INSERT INTO imported.session_turn_attempts (turn_id, attempt_index, checkpoint_json, delivery_manifest_json) VALUES (1, 1, '{"activeModelId":1}', '{"version":1,"requests":[]}');
+        `);
+        const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
+        database.exec(merge);
+        database.exec(merge);
+        expect(
+            database
+                .prepare(
+                    "SELECT id, api_key, config_json, enabled FROM providers WHERE name='Source'"
+                )
+                .get()
+        ).toEqual({ id: 2, api_key: null, config_json: null, enabled: 0 });
+        expect(
+            database
+                .prepare("SELECT provider_id, is_default FROM models WHERE model_id='source-model'")
+                .get()
+        ).toEqual({ provider_id: 2, is_default: 0 });
+        expect(
+            database
+                .prepare(
+                    "SELECT id, command, env, enabled FROM mcp_servers WHERE name='Source MCP'"
+                )
+                .get()
+        ).toEqual({ id: 2, command: null, env: null, enabled: 0 });
+        expect(
+            database
+                .prepare("SELECT json_extract(data, '$.server_id') AS server_id FROM message_parts")
+                .get()
+        ).toEqual({ server_id: 2 });
+        expect(database.prepare('SELECT model_id FROM session_turns ORDER BY id').all()).toEqual([
+            { model_id: 2 },
+            { model_id: 2 },
+        ]);
+        expect(
+            database.prepare('SELECT COUNT(*) AS count FROM session_turn_attempts').get()?.count
+        ).toBe(1);
+        expect(
+            JSON.parse(
+                String(
+                    database.prepare('SELECT checkpoint_json FROM session_turn_attempts').get()
+                        ?.checkpoint_json
+                )
+            ).activeModelId
+        ).toBe(2);
+        expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    });
+
+    it('does not bind imported historical tools to an unrelated local server after source deletion', () => {
+        const database = openDatabase();
+        attachImportDatabase(database);
+        database.exec(`
+            INSERT INTO mcp_servers (id, name, transport_type) VALUES (1, 'Unrelated local server', 'stdio');
+            INSERT INTO imported.sessions (id, session_id, title, model) VALUES (1, 'orphan-tool', 'History', 'test');
+            INSERT INTO imported.messages (id, session_id, role) VALUES (1, 1, 'tool_call'), (2, 1, 'tool_result');
+            INSERT INTO imported.message_parts (message_id, type, content, data, sort_order)
+            VALUES (1, 'tool_call', '', '{"toolKind":"mcp","toolCallId":"historical-call","server_id":1,"tool_name":"lookup","input":"{}","output":"Historical result","status":"success"}', 0),
+                (2, 'tool_result', 'Historical result', '{"toolKind":"mcp","toolCallId":"historical-call"}', 0);
+        `);
+        const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
+        database.exec(merge);
+        database.exec(merge);
+        const data = JSON.parse(
+            String(
+                database.prepare("SELECT data FROM message_parts WHERE type='tool_call'").get()
+                    ?.data
+            )
+        );
+        expect(data).toMatchObject({
+            server_id: null,
+            tool_name: 'lookup',
+            output: 'Historical result',
+        });
+        expect(database.prepare('SELECT count(*) AS count FROM messages').get()?.count).toBe(2);
+        expect(
+            JSON.parse(
+                String(
+                    database
+                        .prepare("SELECT data FROM message_parts WHERE type='tool_result'")
+                        .get()?.data
+                )
+            )
+        ).toEqual({
+            toolKind: 'mcp',
+            toolCallId: 'historical-call',
+        });
+        expect(database.prepare('SELECT count(*) AS count FROM mcp_servers').get()?.count).toBe(1);
+        expect(
+            JSON.parse(
+                String(
+                    database
+                        .prepare("SELECT data FROM imported.message_parts WHERE type='tool_call'")
+                        .get()?.data
+                )
+            ).server_id
+        ).toBe(1);
+    });
+
+    it('merges full settings by provider/model/server identity rather than source row IDs', () => {
+        const database = openDatabase();
+        attachImportDatabase(database);
+        database.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo) VALUES (5, 'Shared', 'openai', 'http://old', '');
+            INSERT INTO models (id, provider_id, name, model_id, is_default) VALUES (6, 5, 'Old', 'shared-model', 1);
+            INSERT INTO mcp_servers (id, name, transport_type) VALUES (7, 'Shared MCP', 'stdio');
+            INSERT INTO mcp_tools (server_id, name, input_schema) VALUES (7, 'test', '{}');
+            INSERT INTO imported.providers (id, name, driver, api_endpoint, logo, api_key, enabled) VALUES (1, 'Shared', 'openai', 'http://new', 'new.png', 'new-key', 1);
+            INSERT INTO imported.models (id, provider_id, name, model_id, is_default, context_limit) VALUES (1, 1, 'New', 'shared-model', 1, 1000);
+            INSERT INTO imported.mcp_servers (id, name, transport_type, command) VALUES (1, 'Shared MCP', 'stdio', 'new-command');
+            INSERT INTO imported.mcp_tools (server_id, name, description, input_schema) VALUES (1, 'test', 'New description', '{"type":"object"}');
+            INSERT INTO imported.settings (key, value) VALUES ('test', 'new');
+        `);
+        database.exec(readFileSync(`${databaseRoot}/artifacts/import/full_prelude.sql`, 'utf8'));
+        database.exec(readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8'));
+        expect(database.prepare('SELECT id, api_endpoint, api_key FROM providers').all()).toEqual([
+            { id: 5, api_endpoint: 'http://new', api_key: 'new-key' },
+        ]);
+        expect(
+            database
+                .prepare('SELECT id, provider_id, name, is_default, context_limit FROM models')
+                .all()
+        ).toEqual([{ id: 6, provider_id: 5, name: 'New', is_default: 1, context_limit: 1000 }]);
+        expect(database.prepare('SELECT id, command FROM mcp_servers').all()).toEqual([
+            { id: 7, command: 'new-command' },
+        ]);
+        expect(database.prepare('SELECT server_id, description FROM mcp_tools').all()).toEqual([
+            { server_id: 7, description: 'New description' },
+        ]);
+        expect(database.prepare("SELECT value FROM settings WHERE key='test'").get()?.value).toBe(
+            'new'
+        );
+        expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    });
+
+    it('remaps upgrade-model chain providers while preserving order on repeated full imports', () => {
+        const database = openDatabase();
+        attachImportDatabase(database);
+        database.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo) VALUES
+                (1, 'Unrelated', 'openai', 'http://local', ''),
+                (5, 'Shared', 'openai', 'http://shared', ''),
+                (8, 'Second', 'openai', 'http://second', '');
+            INSERT INTO imported.providers (id, name, driver, api_endpoint, logo) VALUES
+                (1, 'Shared', 'openai', 'http://shared', ''),
+                (2, 'Second', 'openai', 'http://second', '');
+            INSERT INTO imported.built_in_tools (tool_id, display_name, description, risk_level, config_json) VALUES
+                ('upgrade_model', 'Upgrade', '', 'low', '{"chain":[{"providerId":2,"modelId":"second-model"},{"providerId":1,"modelId":"shared-model"}]}'),
+                ('other_tool', 'Other', '', 'low', '{"chain":[{"providerId":1,"modelId":"unchanged"}]}');
+        `);
+        const fullPrelude = readFileSync(
+            `${databaseRoot}/artifacts/import/full_prelude.sql`,
+            'utf8'
+        );
+        for (let index = 0; index < 2; index++) {
+            database.exec(fullPrelude);
+            expect(
+                JSON.parse(
+                    String(
+                        database
+                            .prepare(
+                                "SELECT config_json FROM built_in_tools WHERE tool_id='upgrade_model'"
+                            )
+                            .get()?.config_json
+                    )
+                )
+            ).toEqual({
+                chain: [
+                    { providerId: 8, modelId: 'second-model' },
+                    { providerId: 5, modelId: 'shared-model' },
+                ],
+            });
+            expect(
+                database
+                    .prepare("SELECT config_json FROM built_in_tools WHERE tool_id='other_tool'")
+                    .get()?.config_json
+            ).toBe('{"chain":[{"providerId":1,"modelId":"unchanged"}]}');
+        }
+        expect(
+            JSON.parse(
+                String(
+                    database
+                        .prepare(
+                            "SELECT config_json FROM imported.built_in_tools WHERE tool_id='upgrade_model'"
+                        )
+                        .get()?.config_json
+                )
+            ).chain[0].providerId
+        ).toBe(2);
+    });
+
+    it('does not bind removed upgrade-chain providers to unrelated local row IDs', () => {
+        const database = openDatabase();
+        attachImportDatabase(database);
+        database.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo) VALUES (1, 'Unrelated', 'openai', 'http://local', '');
+            INSERT INTO imported.built_in_tools (tool_id, display_name, description, risk_level, config_json) VALUES
+                ('upgrade_model', 'Upgrade', '', 'low', '{"chain":[{"providerId":1,"modelId":"missing"}]}');
+        `);
+        database.exec(readFileSync(`${databaseRoot}/artifacts/import/full_prelude.sql`, 'utf8'));
+        expect(
+            JSON.parse(
+                String(
+                    database
+                        .prepare(
+                            "SELECT config_json FROM built_in_tools WHERE tool_id='upgrade_model'"
+                        )
+                        .get()?.config_json
+                )
+            )
+        ).toEqual({ chain: [] });
+    });
+
+    it('releases import workspace tables instead of retaining copied parts on the connection', () => {
+        const database = openDatabase();
+        attachImportDatabase(database);
+        const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
+        for (let index = 0; index < 2; index++) {
+            database.exec(merge);
+            expect(
+                database.prepare("SELECT name FROM sqlite_temp_master WHERE type='table'").all()
+            ).toEqual([]);
+        }
+    });
+
     it('remaps imported attachment IDs without mutating source parts or duplicating messages', () => {
         const database = openDatabase();
         database.exec(
@@ -361,8 +680,12 @@ describe('normalized message parts database contract', () => {
         routeQueriesTo(database);
         seedSearch(database);
         const rows = await findMessagesBySessionId(1);
-        expect(rows[0]?.content).toBe('First answer');
-        expect(rows[0]?.reasoning).toBe('Secret thought');
+        expect(getMessageText(rows[0]!.parts)).toBe('First answer');
+        expect(rows[0]?.parts.find((part) => part.type === 'reasoning')?.content).toBe(
+            'Secret thought'
+        );
+        expect(rows[0]).not.toHaveProperty('content');
+        expect(rows[0]).not.toHaveProperty('reasoning');
         expect(rows[0]?.parts.map((part) => part.type)).toEqual(['text', 'reasoning', 'text']);
         database.exec('DELETE FROM messages WHERE id = 2');
         await refreshSessionMetadata(1);

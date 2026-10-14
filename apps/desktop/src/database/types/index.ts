@@ -3,6 +3,7 @@
 import type {
     BuiltInToolApprovalState as DbBuiltInToolApprovalState,
     BuiltInToolLogStatus as DbBuiltInToolLogStatus,
+    Message as DbMessage,
     MessagePart as DbMessagePart,
     MessageRole,
     NewMessagePart as DbNewMessagePart,
@@ -75,15 +76,7 @@ export type SessionUpdateData = Partial<SessionCreateData>;
 
 // ==================== 消息 ====================
 
-export interface MessageEntity {
-    id: number;
-    session_id: number;
-    role: DbMessageRole;
-    /** 从有序 text parts 派生的正文，不是 messages 表字段。 */
-    content: string;
-    created_at: string;
-    updated_at: string;
-}
+export type MessageEntity = DbMessage;
 
 export interface MessageCreateData {
     session_id: number;
@@ -91,8 +84,6 @@ export interface MessageCreateData {
     created_at?: string;
     updated_at?: string;
 }
-
-export type MessagePartType = 'text' | 'reasoning' | 'tool_call' | 'tool_result' | 'attachment';
 
 // Infer the write contract from the schema so generated projections cannot be supplied.
 export type MessagePartEntity = DbMessagePart;
@@ -119,19 +110,9 @@ export interface AttachmentCreateData {
     created_at?: string;
 }
 
-export interface MessageAttachmentEntity {
-    id: number;
-    message_id: number;
-    attachment_id: number;
-    sort_order: number;
-    origin_path: string;
-    created_at: string;
-}
-
 export interface MessageAttachmentCreateData {
     message_id: number;
     attachment_id: number;
-    sort_order?: number;
     origin_path: string;
     created_at?: string;
 }
@@ -466,7 +447,7 @@ export type McpToolUpdateData = Partial<McpToolCreateData>;
 
 export interface McpToolLogEntity {
     id: number;
-    server_id: number;
+    server_id: number | null;
     tool_name: string;
     tool_call_id: string;
     session_id: number | null;
@@ -495,7 +476,9 @@ export interface McpToolLogCreateData {
     created_at?: string;
 }
 
-export type McpToolLogUpdateData = Partial<McpToolLogCreateData>;
+export type McpToolLogUpdateData = Partial<
+    Omit<McpToolLogCreateData, 'message_id' | 'session_id' | 'created_at'>
+>;
 
 // ==================== 内置工具 ====================
 
@@ -565,4 +548,6 @@ export interface BuiltInToolLogCreateData {
     created_at?: string;
 }
 
-export type BuiltInToolLogUpdateData = Partial<BuiltInToolLogCreateData>;
+export type BuiltInToolLogUpdateData = Partial<
+    Omit<BuiltInToolLogCreateData, 'message_id' | 'session_id' | 'created_at'>
+>;

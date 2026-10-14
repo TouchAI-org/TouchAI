@@ -1,9 +1,32 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
-import { and, asc, count, desc, eq, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, type SQL, sql } from 'drizzle-orm';
 
 import { db } from '../index';
 import { messageParts, messages, type ToolLogKind } from '../schema';
-import type { BuiltInToolLogEntity, McpToolLogEntity } from '../types';
+import type {
+    BuiltInToolLogEntity,
+    BuiltInToolLogUpdateData,
+    McpToolLogEntity,
+    McpToolLogUpdateData,
+    MessagePartEntity,
+} from '../types';
+
+type ToolPartIdentity = 'id' | 'tool_call_id' | 'session_id' | 'message_id' | 'created_at';
+/** The JSON payload stored by tool_call parts, not a flattened message or log reference. */
+export type ToolCallPartData = { toolCallId: string } & (
+    | (Omit<McpToolLogEntity, ToolPartIdentity> & { toolKind: 'mcp' })
+    | (Omit<BuiltInToolLogEntity, ToolPartIdentity> & { toolKind: 'builtin' })
+);
+
+export function readToolCallData(part: MessagePartEntity): ToolCallPartData {
+    return JSON.parse(part.data) as ToolCallPartData;
+}
+
+export function getToolCallName(data: ToolCallPartData): string {
+    return data.toolKind === 'builtin'
+        ? `builtin__${data.tool_id}`
+        : `mcp__${data.server_id}__${data.tool_name}`;
+}
 
 function toolPayload(data: Record<string, unknown>): Record<string, unknown> {
     const payload = { ...data };
@@ -112,7 +135,7 @@ export async function createToolPart(
 export async function updateToolPart(
     kind: ToolLogKind,
     condition: SQL,
-    patch: Record<string, unknown>
+    patch: McpToolLogUpdateData | BuiltInToolLogUpdateData
 ): Promise<ToolPartEntity | undefined> {
     return db.transaction(async (tx) => {
         const existing = await tx
@@ -125,14 +148,11 @@ export async function updateToolPart(
             .all();
         let result: ToolPartEntity | undefined;
         for (const part of existing) {
-            const { message_id, created_at } = patch;
-            const payload = toolPayload(patch);
+            const payload = toolPayload({ ...patch });
             const updated = await tx
                 .update(messageParts)
                 .set({
                     data: JSON.stringify({ ...JSON.parse(part.data), ...payload, toolKind: kind }),
-                    ...(typeof message_id === 'number' ? { message_id } : {}),
-                    ...(typeof created_at === 'string' ? { created_at } : {}),
                     updated_at: sql`datetime('now')`,
                 })
                 .where(eq(messageParts.id, part.id))
@@ -157,14 +177,5 @@ export async function updateToolPart(
         return result;
     });
 }
-export const countToolParts = async (kind: ToolLogKind, condition?: SQL): Promise<number> => {
-    const row = await db
-        .select({ count: count() })
-        .from(messageParts)
-        .innerJoin(messages, eq(messages.id, messageParts.message_id))
-        .where(and(eq(messageParts.type, 'tool_call'), eq(messageParts.tool_kind, kind), condition))
-        .get();
-    return row?.count ?? 0;
-};
 export const toolData = (field: string) =>
     sql`json_extract(${messageParts.data}, ${'$."' + field + '"'})`;

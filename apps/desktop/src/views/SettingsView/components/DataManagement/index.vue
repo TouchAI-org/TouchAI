@@ -263,7 +263,7 @@
                 updateProgress(msg, prog);
             });
 
-            if (!result.sourcePath) {
+            if (!result) {
                 showProgressDialog.value = false;
                 return;
             }
@@ -271,7 +271,7 @@
             // 保存源数据而不是当前语言文案；重启后按导入后的语言显示通知。
             await setMeta({
                 key: MetaKey.IMPORT_SUCCESS,
-                value: serializeImportSuccessStartupPayload(result.importMode),
+                value: serializeImportSuccessStartupPayload(mode),
             });
 
             // 开始重启倒计时

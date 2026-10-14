@@ -467,10 +467,6 @@ export const mcpTools = sqliteTable('mcp_tools', {
 });
 
 /**
- * MCP 工具调用日志表
- */
-
-/**
  * 内置工具表
  */
 export const builtInTools = sqliteTable('built_in_tools', {

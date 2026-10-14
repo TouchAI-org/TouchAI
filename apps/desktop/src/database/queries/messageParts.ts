@@ -7,6 +7,14 @@ import { type DatabaseExecutor, db } from '../index';
 import { messageParts } from '../schema';
 import type { MessagePartCreateData, MessagePartEntity } from '../types';
 
+/** Derive plain text only at consumers that need it; parts remain the source of truth. */
+export function getMessageText(parts: readonly MessagePartEntity[]): string {
+    return parts
+        .filter((part) => part.type === 'text' || part.type === 'tool_result')
+        .map((part) => part.content)
+        .join('');
+}
+
 /**
  * 按消息批量读取片段，避免历史恢复时按消息逐条查询。
  */
@@ -37,16 +45,6 @@ export const createMessageParts = async (
     }
 
     await database.insert(messageParts).values(parts).run();
-};
-
-/**
- * 删除消息片段。通常由 messages 的级联删除完成，保留该方法供显式清理使用。
- */
-export const deleteMessagePartsByMessageId = async (
-    messageId: number,
-    database: DatabaseExecutor = db
-): Promise<void> => {
-    await database.delete(messageParts).where(eq(messageParts.message_id, messageId)).run();
 };
 
 /** 正文仅存于 parts；摘要等 SQL 读路径按原始顺序派生，不再保存第二份全文。 */

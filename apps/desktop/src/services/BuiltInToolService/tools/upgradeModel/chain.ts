@@ -8,8 +8,8 @@ import { nonEmptyTrimmedStringSchema, z } from '../../utils/toolSchema';
 /**
  * 升级链中的单个模型引用。
  *
- * 使用 `providerId + modelId` 组合作为持久化标识，
- * 避免依赖本地数据库自增 ID 这种不稳定主键。
+ * `providerId` 是本地供应商行 ID，导入时需重映射；
+ * `modelId` 是该供应商下的模型标识，不是本地模型行 ID。
  */
 export interface UpgradeModelChainEntry {
     providerId: number;

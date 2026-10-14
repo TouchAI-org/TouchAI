@@ -212,6 +212,12 @@ SELECT
     resolved.created_at
 FROM _legacy_tool_sources_resolved AS resolved;
 --> statement-breakpoint
+DROP TABLE temp._legacy_tool_sources_resolved;
+--> statement-breakpoint
+DROP TABLE temp._legacy_orphan_tool_messages;
+--> statement-breakpoint
+DROP TABLE temp._legacy_tool_sources;
+--> statement-breakpoint
 
 CREATE TEMP TABLE `_legacy_attachment_sources` AS
 SELECT
@@ -247,6 +253,8 @@ SELECT
     source.created_at
 FROM _legacy_attachment_sources AS source;
 --> statement-breakpoint
+DROP TABLE temp._legacy_attachment_sources;
+--> statement-breakpoint
 DROP TABLE `built_in_tool_logs`;
 --> statement-breakpoint
 DROP TABLE `mcp_tool_logs`;
@@ -267,6 +275,12 @@ CREATE VIRTUAL TABLE `message_search_fts` USING fts5(
     tokenize='trigram',
     detail=none
 );
+--> statement-breakpoint
+CREATE TRIGGER trg_messages_search_delete
+AFTER DELETE ON messages
+BEGIN
+    DELETE FROM message_search_fts WHERE rowid = OLD.id;
+END;
 --> statement-breakpoint
 CREATE TRIGGER trg_message_parts_search_insert
 AFTER INSERT ON message_parts

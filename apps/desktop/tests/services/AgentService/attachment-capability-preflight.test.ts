@@ -1,5 +1,6 @@
-import type { MessageRow, ToolLogHistoryRow } from '@database/queries/messages';
+import type { MessageRow } from '@database/queries/messages';
 import type { ModelWithProvider } from '@database/queries/models';
+import { createMessageRow } from '@tests/utils/messages';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiErrorCode } from '@/services/AgentService/contracts/errors';
@@ -15,7 +16,6 @@ const BASE_TIME = '2026-06-03T10:00:00.000Z';
 
 const mocks = vi.hoisted(() => ({
     findMessagesBySessionId: vi.fn<() => Promise<MessageRow[]>>(),
-    findToolLogRowsBySessionId: vi.fn<() => Promise<ToolLogHistoryRow[]>>(),
 }));
 
 vi.mock('@database/queries/messages', async (importOriginal) => {
@@ -24,7 +24,6 @@ vi.mock('@database/queries/messages', async (importOriginal) => {
     return {
         ...actual,
         findMessagesBySessionId: mocks.findMessagesBySessionId,
-        findToolLogRowsBySessionId: mocks.findToolLogRowsBySessionId,
     };
 });
 
@@ -52,31 +51,6 @@ function createMessageAttachment(type: 'image' | 'file') {
         mime_type: type === 'image' ? 'image/png' : 'application/pdf',
         size: 10,
         created_at: BASE_TIME,
-    };
-}
-
-function createMessageRow(overrides: Partial<MessageRow>): MessageRow {
-    return {
-        id: 1,
-        session_id: 1,
-        role: 'user',
-        content: '',
-        reasoning: null,
-        parts: [],
-        attachments: [],
-        tool_call_id: null,
-        tool_name: null,
-        tool_input: null,
-        tool_log_ref_id: null,
-        tool_status: null,
-        tool_duration_ms: null,
-        server_id: null,
-        tool_log_id: null,
-        tool_log_kind: null,
-        builtin_conversation_semantic_json: null,
-        created_at: BASE_TIME,
-        updated_at: BASE_TIME,
-        ...overrides,
     };
 }
 
@@ -115,8 +89,6 @@ function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvi
 describe('AgentService attachment capability preflight', () => {
     beforeEach(() => {
         mocks.findMessagesBySessionId.mockReset();
-        mocks.findToolLogRowsBySessionId.mockReset();
-        mocks.findToolLogRowsBySessionId.mockResolvedValue([]);
     });
 
     it('derives image and file support from model metadata independently', () => {

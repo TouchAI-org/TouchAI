@@ -1,6 +1,6 @@
-import type { MessageRow } from '@database/queries/messages';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
+import { createMessagePart, createMessageRow } from '@tests/utils/messages';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -33,49 +33,6 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
 vi.mock('@/services/BuiltInToolService/tools/widgetTool', () => ({
     SHOW_WIDGET_TOOL_NAME: 'builtin__show_widget',
 }));
-
-function createMessageRow(overrides: Partial<MessageRow>): MessageRow {
-    return {
-        id: 1,
-        session_id: 1,
-        role: 'user',
-        content: '',
-        reasoning: null,
-        parts: overrides.content
-            ? [
-                  {
-                      id: 1,
-                      message_id: overrides.id ?? 1,
-                      type: 'text',
-                      content: overrides.content,
-                      data: '{}',
-                      tool_call_id: null,
-                      tool_kind: null,
-                      attachment_id: null,
-                      started_at: null,
-                      ended_at: null,
-                      sort_order: 0,
-                      created_at: BASE_TIME,
-                      updated_at: BASE_TIME,
-                  },
-              ]
-            : [],
-        attachments: [],
-        tool_call_id: null,
-        tool_name: null,
-        tool_input: null,
-        tool_log_ref_id: null,
-        tool_status: null,
-        tool_duration_ms: null,
-        server_id: null,
-        builtin_conversation_semantic_json: null,
-        tool_log_id: null,
-        tool_log_kind: null,
-        created_at: BASE_TIME,
-        updated_at: BASE_TIME,
-        ...overrides,
-    };
-}
 
 function createTurn(overrides: Partial<SessionTurnHistoryRow>): SessionTurnHistoryRow {
     return {
@@ -229,20 +186,31 @@ describe('AgentService session history i18n', () => {
                     id: 11,
                     role: 'tool_call',
                     content: '',
-                    tool_call_id: 'call-1',
-                    tool_name: 'builtin__bash',
-                    tool_input: JSON.stringify({ command: 'Write-Output 设置' }),
-                    tool_status: 'success',
+                    parts: [
+                        createMessagePart({
+                            type: 'tool_call',
+                            data: JSON.stringify({
+                                toolCallId: 'call-1',
+                                toolKind: 'builtin',
+                                tool_id: 'bash',
+                                input: JSON.stringify({ command: 'Write-Output 设置' }),
+                                status: 'success',
+                                duration_ms: 12,
+                            }),
+                        }),
+                    ],
                 }),
                 createMessageRow({
                     id: 12,
                     role: 'tool_result',
                     content: '[命令无输出]',
-                    tool_call_id: 'call-1',
-                    tool_name: 'builtin__bash',
-                    tool_input: JSON.stringify({ command: 'Write-Output 设置' }),
-                    tool_status: 'success',
-                    tool_duration_ms: 12,
+                    parts: [
+                        createMessagePart({
+                            type: 'tool_result',
+                            content: '[命令无输出]',
+                            data: JSON.stringify({ toolCallId: 'call-1', toolKind: 'builtin' }),
+                        }),
+                    ],
                 }),
             ],
             turns: [],
@@ -266,7 +234,6 @@ describe('AgentService interleaved reasoning history', () => {
                 createMessageRow({
                     id: 2,
                     role: 'tool_call',
-                    reasoning: 'Plan',
                     parts: [
                         {
                             id: 1,
@@ -298,18 +265,24 @@ describe('AgentService interleaved reasoning history', () => {
                             created_at: BASE_TIME,
                             updated_at: BASE_TIME,
                         },
+                        createMessagePart({
+                            id: 7,
+                            message_id: 2,
+                            type: 'tool_call',
+                            sort_order: 2,
+                            data: JSON.stringify({
+                                toolCallId: 'call-1',
+                                toolKind: 'builtin',
+                                tool_id: 'bash',
+                                input: '{}',
+                                status: 'success',
+                            }),
+                        }),
                     ],
-                    content: 'Checking',
-                    tool_call_id: 'call-1',
-                    tool_name: 'builtin__bash',
-                    tool_input: '{}',
-                    tool_log_ref_id: 1,
-                    tool_status: 'success',
                 }),
                 createMessageRow({
                     id: 3,
                     role: 'assistant',
-                    reasoning: 'Review',
                     parts: [
                         {
                             id: 3,
@@ -419,7 +392,6 @@ describe('reasoning wall-clock history', () => {
                     id: 11,
                     role: 'assistant',
                     content: 'Answer',
-                    reasoning: 'Thought',
                     parts: [
                         {
                             id: 5,

@@ -326,7 +326,7 @@ export async function hydratePersistedAttachments(
  * 历史恢复的附件则已经带上 `attachmentId/hash`，可直接复用。
  *
  * @param attachment 前端附件引用。
- * @returns 可写入 message_attachments 的附件记录。
+ * @returns 可写入附件缓存表的附件记录。
  */
 export async function ensurePersistedAttachmentIndex(
     attachment: AttachmentIndex,

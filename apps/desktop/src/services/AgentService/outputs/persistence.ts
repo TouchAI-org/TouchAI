@@ -638,7 +638,6 @@ export class PersistenceProjector {
                     {
                         message_id: messageId,
                         attachment_id: entity.id,
-                        sort_order: index,
                         origin_path: originPath,
                     },
                     database

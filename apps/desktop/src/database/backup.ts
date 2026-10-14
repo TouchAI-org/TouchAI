@@ -7,20 +7,6 @@ import { t } from '@/i18n';
 
 export type ImportMode = 'chat_only' | 'full';
 
-export enum DatabaseVersionStatus {
-    Compatible = 'compatible',
-    NeedsMigration = 'needs_migration',
-    TooNew = 'too_new',
-}
-
-export interface ImportResult {
-    sourcePath: string;
-    importMode: ImportMode;
-    currentBackupPath: string;
-    sourceBackupPath: string | null;
-    migratedSource: boolean;
-}
-
 export interface ProgressCallback {
     (message: string, progress: number): void;
 }
@@ -79,8 +65,10 @@ class DatabaseBackupService {
 
     /**
      * 导入数据库备份。
+     *
+     * 返回 false 只表示用户取消了文件选择；导入成功返回 true，导入失败直接抛出错误。
      */
-    async importDatabase(mode: ImportMode, onProgress?: ProgressCallback): Promise<ImportResult> {
+    async importDatabase(mode: ImportMode, onProgress?: ProgressCallback): Promise<boolean> {
         const sourcePath = await open({
             filters: [
                 {
@@ -94,13 +82,7 @@ class DatabaseBackupService {
         });
 
         if (!sourcePath) {
-            return {
-                sourcePath: '',
-                importMode: mode,
-                currentBackupPath: '',
-                sourceBackupPath: null,
-                migratedSource: false,
-            };
+            return false;
         }
 
         onProgress?.(t('database.backup.importing'), 30);
@@ -110,13 +92,7 @@ class DatabaseBackupService {
         });
         onProgress?.(t('database.backup.importComplete'), 100);
 
-        return {
-            sourcePath,
-            importMode: mode,
-            currentBackupPath: '',
-            sourceBackupPath: null,
-            migratedSource: false,
-        };
+        return true;
     }
 
     /**
