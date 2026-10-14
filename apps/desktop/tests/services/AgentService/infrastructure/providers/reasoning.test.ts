@@ -8,8 +8,8 @@ import {
     type ReasoningLevel,
     type ReasoningOption,
 } from '@/services/AgentService/contracts/reasoning';
-import { OpenAICompatibleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai-compatible';
 import { OpenAIProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai';
+import { OpenAICompatibleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai-compatible';
 import {
     encodeReasoning,
     resolveReasoning,
