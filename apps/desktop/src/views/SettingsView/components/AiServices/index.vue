@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   - Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -619,6 +619,9 @@
                     name: fetchedModel.name,
                     model_id: fetchedModel.id,
                     is_default: 0,
+                    reasoning_options: fetchedModel.reasoningOptions?.length
+                        ? JSON.stringify(fetchedModel.reasoningOptions)
+                        : null,
                 }));
 
             // 避免展示错误
