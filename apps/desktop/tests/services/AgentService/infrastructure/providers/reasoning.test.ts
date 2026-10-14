@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 import {
     DEFAULT_REASONING_LEVEL,
     isReasoningLevel,
     type ReasoningLevel,
 } from '@/services/AgentService/contracts/reasoning';
+import { OpenAIProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai';
 import {
     translateDeepSeekReasoningOptions,
     translateMimoReasoningLevel,
@@ -50,6 +52,44 @@ describe('OpenAI reasoning translation', () => {
         expect(translateOpenAiReasoningLevel('minimal', 'gpt-5.1')).toBe('low');
         expect(translateOpenAiReasoningLevel('none', 'gpt-5.4-pro')).toBe('medium');
         expect(translateOpenAiReasoningLevel('medium', 'gpt-5.2')).toBe('medium');
+    });
+
+    it('uses none for GPT-6 Sol and Luna tool calls on Chat Completions', () => {
+        expect(translateOpenAiReasoningLevel('max', 'gpt-6-sol', true)).toBe('none');
+        expect(translateOpenAiReasoningLevel('max', 'gpt-6-luna', true)).toBe('none');
+        expect(translateOpenAiReasoningLevel('max', 'openai/gpt-6-sol', true)).toBe('none');
+        expect(translateOpenAiReasoningLevel('max', 'gpt-6-sol', false)).toBe('max');
+        expect(translateOpenAiReasoningLevel('max', 'gpt-6', true)).toBe('max');
+    });
+
+    it('passes tool availability from the request into the OpenAI driver translation', () => {
+        const adapter = new OpenAIProviderAdapter({
+            apiEndpoint: 'https://api.openai.com/v1',
+        });
+        const probe = adapter as unknown as {
+            getStreamProviderOptions(options: AiRequestOptions): unknown;
+        };
+        const baseOptions: AiRequestOptions = {
+            model: 'gpt-6-sol',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoningLevel: 'max',
+        };
+
+        expect(
+            probe.getStreamProviderOptions({
+                ...baseOptions,
+                tools: [
+                    {
+                        name: 'test',
+                        description: 'test tool',
+                        input_schema: { type: 'object', properties: {} },
+                    },
+                ],
+            })
+        ).toEqual({ openai: { reasoningEffort: 'none' } });
+        expect(probe.getStreamProviderOptions(baseOptions)).toEqual({
+            openai: { reasoningEffort: 'max' },
+        });
     });
 
     it('omits the option for unknown or non-reasoning OpenAI models', () => {

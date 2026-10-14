@@ -141,14 +141,31 @@ function getOpenAiSupportedLevels(modelId: string): readonly ReasoningLevel[] | 
     return undefined;
 }
 
+function isOpenAiGpt6SolOrLuna(modelId: string): boolean {
+    const gptVersion = parseOpenAiGptVersion(normalizeOpenAiModelId(modelId));
+    if (gptVersion?.major !== 6 || gptVersion.minor !== undefined) {
+        return false;
+    }
+
+    return Boolean(gptVersion.variant?.startsWith('sol') || gptVersion.variant?.startsWith('luna'));
+}
+
 /**
  * OpenAI 官方模型支持的 effort 随模型版本变化。这里把 TouchAI
  * 统一档位映射到该模型最近的受支持档位，未知或非 reasoning 模型不发送参数。
+ *
+ * GPT-6 Sol/Luna 在 Chat Completions 下只有 `none` 支持 function calling，
+ * 因此带工具的请求必须使用 `none`。
  */
 export function translateOpenAiReasoningLevel(
     level: ReasoningLevel | undefined,
-    modelId: string
+    modelId: string,
+    hasTools = false
 ): OpenAiReasoningEffort | undefined {
+    if (hasTools && isOpenAiGpt6SolOrLuna(modelId)) {
+        return 'none';
+    }
+
     const supported = getOpenAiSupportedLevels(modelId);
     if (!supported) {
         return undefined;

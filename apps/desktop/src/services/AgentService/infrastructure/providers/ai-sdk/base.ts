@@ -379,7 +379,11 @@ export abstract class AiSdkProviderBase implements AiProvider {
     protected getStreamProviderOptions(
         options: AiRequestOptions
     ): Record<string, JsonObject> | undefined {
-        return this.getReasoningProviderOptions(options.reasoningLevel, options.model);
+        return this.getReasoningProviderOptions(
+            options.reasoningLevel,
+            options.model,
+            (options.tools?.length ?? 0) > 0
+        );
     }
 
     /**
@@ -388,10 +392,12 @@ export abstract class AiSdkProviderBase implements AiProvider {
      */
     protected getReasoningProviderOptions(
         level: ReasoningLevel | undefined,
-        modelId: string
+        modelId: string,
+        hasTools: boolean
     ): Record<string, JsonObject> | undefined {
         void level;
         void modelId;
+        void hasTools;
         return undefined;
     }
 

@@ -58,9 +58,10 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
 
     protected override getReasoningProviderOptions(
         level: ReasoningLevel | undefined,
-        modelId: string
+        modelId: string,
+        hasTools: boolean
     ): Record<string, JsonObject> | undefined {
-        const reasoningEffort = translateOpenAiReasoningLevel(level, modelId);
+        const reasoningEffort = translateOpenAiReasoningLevel(level, modelId, hasTools);
         return reasoningEffort ? { openai: { reasoningEffort } } : undefined;
     }
 
