@@ -13,7 +13,6 @@ import {
     type SelectableReasoningLevel,
 } from '../../../contracts/reasoning';
 import { encodeReasoning, type ReasoningEncodingHints, resolveReasoning } from '../reasoning';
-import { logReasoningDebug } from '../reasoning/debug';
 import type {
     AiProvider,
     AiProviderConfig,
@@ -417,17 +416,9 @@ export abstract class AiSdkProviderBase implements AiProvider {
         const encoded = encodeReasoning(resolution, this.getReasoningEncodingHints());
         const providerOptions = this.remapReasoningProviderOptions(encoded.providerOptions);
 
-        logReasoningDebug({
-            format: resolution.format,
-            mode: resolution.mode,
-            source: resolution.source,
-            requested: resolution.requested,
-            level: resolution.level,
-            mapped: resolution.mapped,
-            modelId: resolution.modelId,
-            hasTools,
-            providerOptions,
-        });
+        console.debug(
+            `[reasoning] outbound model=${resolution.modelId} format=${resolution.format} mode=${resolution.mode} source=${resolution.source} requested=${resolution.requested} level=${resolution.level} mapped=${resolution.mapped ?? '-'} hasTools=${hasTools} providerOptions=${JSON.stringify(providerOptions ?? {})}`
+        );
 
         return providerOptions;
     }

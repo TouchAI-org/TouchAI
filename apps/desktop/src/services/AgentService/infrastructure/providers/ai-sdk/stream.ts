@@ -5,7 +5,6 @@ import type { FinishReason, TextStreamPart, ToolSet } from 'ai';
 import type { AiStreamChunk, JsonObject } from '@/services/AgentService/contracts/protocol';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 
-import { logReasoningDelta } from '../reasoning/debug';
 import { normalizeToolName, toJsonObjectRecord } from './utils';
 
 interface ToolStreamState {
@@ -216,10 +215,9 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
                 part.id,
                 (part as { providerMetadata?: unknown }).providerMetadata
             );
-            logReasoningDelta({
-                modelId: options.modelId ?? 'unknown',
-                kind: part.type === 'reasoning-start' ? 'start' : 'end',
-            });
+            console.debug(
+                `[reasoning] inbound model=${options.modelId ?? 'unknown'} kind=${part.type === 'reasoning-start' ? 'start' : 'end'}`
+            );
             return [
                 {
                     content: '',
@@ -235,11 +233,9 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
                 part.id,
                 (part as { providerMetadata?: unknown }).providerMetadata
             );
-            logReasoningDelta({
-                modelId: options.modelId ?? 'unknown',
-                kind: 'delta',
-                length: part.text.length,
-            });
+            console.debug(
+                `[reasoning] inbound model=${options.modelId ?? 'unknown'} kind=delta length=${part.text.length}`
+            );
             return [
                 {
                     content: '',
