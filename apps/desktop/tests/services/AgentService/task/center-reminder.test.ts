@@ -54,7 +54,7 @@ describe('SessionTaskCenter status reminders', () => {
             })
         );
 
-        expect(reminder?.body).toBe('Step, Result: lint, passed; test, passed');
+        expect(reminder?.body).toBe('Step, Result; lint, passed; test, passed');
     });
 
     it('creates an open reminder when a background task waits for a user question', () => {
@@ -104,14 +104,14 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'completed',
             title: 'Task completed',
-            body: 'Done: Fixed alert flow, Review diff, pnpm test',
+            body: 'Done; Fixed alert flow; Review diff; pnpm test',
             approval: null,
             replyPlaceholder: 'Reply to TouchAI',
             replyLabel: 'Reply',
         });
     });
 
-    it('sanitizes escaped markdown from completed assistant summaries before notifying', () => {
+    it('preserves escaped formatting as literal assistant text', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'completed',
@@ -131,14 +131,14 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'completed',
             title: 'Task completed',
-            body: '🎯 10. 关键实现要点（续） 1. 数据预处理：统一图像尺寸（建议224x224）',
+            body: '### **🎯 10. 关键实现要点（续）** 1. **数据预处理**：统一图像尺寸（建议224x224）',
             approval: null,
             replyPlaceholder: 'Reply to TouchAI',
             replyLabel: 'Reply',
         });
     });
 
-    it('prefers sanitized failure text over raw markdown error output', () => {
+    it('preserves Markdown syntax in literal failure output', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -149,7 +149,7 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'failed',
             title: 'Task failed',
-            body: 'npm run lint; logs failed',
+            body: '```bash npm run lint ``` [logs](https://example.com) failed',
             approval: null,
             replyPlaceholder: 'Reply to TouchAI',
             replyLabel: 'Reply',
@@ -174,7 +174,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('strips real inline html tags while preserving readable failure text', () => {
+    it('preserves HTML syntax in literal failure output', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -185,14 +185,14 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'failed',
             title: 'Task failed',
-            body: 'Failure: prod; See logs',
+            body: 'Failure: <strong>prod</strong><br>See <a href="https://example.com">logs</a>',
             approval: null,
             replyPlaceholder: 'Reply to TouchAI',
             replyLabel: 'Reply',
         });
     });
 
-    it('drops script-like html blocks from failure notifications', () => {
+    it('preserves script and style diagnostics as notification text', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -203,14 +203,14 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'failed',
             title: 'Task failed',
-            body: 'Failure See logs',
+            body: 'Failure<script>alert(1)</script><style>body{display:none}</style>See logs',
             approval: null,
             replyPlaceholder: 'Reply to TouchAI',
             replyLabel: 'Reply',
         });
     });
 
-    it('drops standalone dangerous html tags from failure notifications', () => {
+    it('preserves unpaired HTML diagnostics as notification text', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -221,7 +221,7 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'failed',
             title: 'Task failed',
-            body: 'Failure See logs',
+            body: 'Failure<script>alert(1)</script></script><iframe>See logs',
             approval: null,
             replyPlaceholder: 'Reply to TouchAI',
             replyLabel: 'Reply',
@@ -304,7 +304,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('does not strip non-markdown path and glob characters from approval content', () => {
+    it('preserves code-formatted paths and literal commands in approval content', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -315,7 +315,7 @@ describe('SessionTaskCenter status reminders', () => {
                     description: 'Inspect __tests__/center.test.ts and packages/**/src',
                     command: 'rg "__tests__/center.test.ts" packages/**/src',
                     riskLabel: 'Medium risk',
-                    reason: 'Check __tests__/center.test.ts before touching packages/**/src',
+                    reason: 'Check `__tests__/center.test.ts` before touching `packages/**/src`',
                     approveLabel: 'Approve',
                     rejectLabel: 'Reject',
                     enterHint: 'Enter to approve',
@@ -337,7 +337,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves markdown markers inside scoped package paths in approval content', () => {
+    it('preserves code-formatted scoped package paths in approval content', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -348,7 +348,7 @@ describe('SessionTaskCenter status reminders', () => {
                     description: 'Inspect packages/@touchai/core/__tests__/center.test.ts',
                     command: 'rg "center" packages/@touchai/core/__tests__/center.test.ts',
                     riskLabel: 'Medium risk',
-                    reason: 'Check packages/@touchai/core/__tests__/center.test.ts before editing',
+                    reason: 'Check `packages/@touchai/core/__tests__/center.test.ts` before editing',
                     approveLabel: 'Approve',
                     rejectLabel: 'Reject',
                     enterHint: 'Enter to approve',
@@ -370,7 +370,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves windows paths and escaped markdown markers in approval content', () => {
+    it('preserves code-formatted Windows paths in approval content', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -382,7 +382,7 @@ describe('SessionTaskCenter status reminders', () => {
                     command:
                         'rg "C:\\Users\\admin\\__tests__\\center.test.ts" D:\\work\\packages\\**\\src',
                     riskLabel: 'Medium risk',
-                    reason: 'Check C:\\Users\\admin\\__tests__\\center.test.ts before touching D:\\work\\packages\\**\\src',
+                    reason: 'Check `C:\\Users\\admin\\__tests__\\center.test.ts` before touching `D:\\work\\packages\\**\\src`',
                     approveLabel: 'Approve',
                     rejectLabel: 'Reject',
                     enterHint: 'Enter to approve',
@@ -461,7 +461,7 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'waiting_approval',
             title: 'Pending',
-            body: 'Review shell redirection. Command: cat <<EOF>out.txt echo "<tag>" >out.txt',
+            body: 'Review shell redirection. Command: cat <<EOF>out.txt echo “<tag>” >out.txt',
             approval: {
                 callId: 'call-3a',
                 approveLabel: 'Approve',
@@ -490,7 +490,7 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder).toEqual({
             kind: 'completed',
             title: 'Task completed',
-            body: 'Step, Result: lint, passed; test, passed',
+            body: 'Step, Result; lint, passed; test, passed',
             approval: null,
             replyPlaceholder: 'Reply to TouchAI',
             replyLabel: 'Reply',
@@ -523,7 +523,7 @@ BufferMemory | 短期记忆 | 简单聊天`,
         expect(reminder).toEqual({
             kind: 'completed',
             title: 'Task completed',
-            body: '🧠 LangChain Memory（记忆管理）详细实现: 📋 1. Memory 核心概念; Memory 是 LangChain 中管理对话历史和上下文的组件，负责在多轮对话中保持状态。 Memory类型, 作用, 适用场景',
+            body: '🧠 LangChain Memory（记忆管理）详细实现; 📋 1. Memory 核心概念; Memory 是 LangChain 中管理对话历史和上下文的组件，负责在多轮对话中保持状态。; Memory类型, 作用, 适用场景',
             approval: null,
             replyPlaceholder: 'Reply to TouchAI',
             replyLabel: 'Reply',

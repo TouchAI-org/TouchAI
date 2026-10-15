@@ -6,8 +6,8 @@ import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventSer
 import {
     buildWaitingApprovalBody,
     buildWaitingUserQuestionBody,
+    previewNotificationText,
     summarizeLatestAssistantResponse,
-    summarizeNotificationText,
 } from '@/utils/reminderText';
 import { getSessionStatusReminderContent } from '@/utils/session';
 
@@ -90,7 +90,7 @@ export function buildSessionStatusReminder(
             kind: 'failed',
             title: tt('任务失败'),
             body:
-                summarizeNotificationText(snapshot.error) ??
+                previewNotificationText(snapshot.error) ??
                 summarizeLatestAssistantResponse(snapshot.sessionHistory) ??
                 getSessionStatusReminderContent('failed'),
             approval: null,
