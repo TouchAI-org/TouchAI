@@ -5,13 +5,14 @@ import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import type { AiRequestOptions, AiResponse, JsonObject } from '../../../contracts/protocol';
-import type { ReasoningOption, ReasoningProtocol } from '../../../contracts/reasoning';
 import {
-    encodeReasoning,
-    type ReasoningNative,
-    type ReasoningPlan,
-    resolveReasoning,
-} from '../reasoning';
+    DEFAULT_THINKING_LEVEL,
+    deriveThinkingLevelMap,
+    type ModelThinkingLevel,
+    type ThinkingFormat,
+    type ThinkingLevelMap,
+} from '../../../contracts/reasoning';
+import { encodeReasoning, resolveReasoning, type ThinkingCompat } from '../reasoning';
 import { logReasoningDebug } from '../reasoning/debug';
 import type {
     AiProvider,
@@ -383,49 +384,47 @@ export abstract class AiSdkProviderBase implements AiProvider {
     /**
      * 允许 provider 在单次请求级别注入 AI SDK providerOptions。
      *
-     * 请求层只传 TouchAI 统一档位与 capability；这里交给 resolver + protocol
+     * 请求层只传 TouchAI 统一档位与 capability；这里交给 resolver + format
      * 编码成具体供应商参数。没有 metadata 时按 provider config 的 mode 走 fallback。
      */
     protected getStreamProviderOptions(
         options: AiRequestOptions
     ): Record<string, JsonObject> | undefined {
-        const protocol = this.config.reasoning?.protocol ?? this.getReasoningProtocol();
-        if (!protocol) {
+        const format = this.config.reasoning?.format ?? this.getReasoningFormat();
+        if (!format) {
             return undefined;
         }
 
         const mode = this.config.reasoning?.mode ?? 'auto';
         const hasTools = (options.tools?.length ?? 0) > 0;
-        const capability =
+        const map =
             options.reasoningOptions && options.reasoningOptions.length > 0
-                ? options.reasoningOptions
-                : this.getFallbackReasoningCapability(options.model);
+                ? deriveThinkingLevelMap(options.reasoningOptions)
+                : this.getFallbackThinkingLevelMap(options.model);
+        const requested = this.applyReasoningConstraint(
+            options.reasoningLevel ?? DEFAULT_THINKING_LEVEL,
+            { modelId: options.model, hasTools }
+        );
 
-        const plan = resolveReasoning({
-            level: options.reasoningLevel,
-            capability,
-            protocol,
+        const resolution = resolveReasoning({
+            level: requested,
+            map,
+            format,
             mode,
             modelId: options.model,
             hasTools,
         });
-        const constrained: ReasoningPlan = {
-            ...plan,
-            native: this.applyReasoningConstraint(plan.native, {
-                modelId: options.model,
-                hasTools,
-            }),
-        };
-        const encoded = encodeReasoning(constrained);
+        const encoded = encodeReasoning(resolution, this.getThinkingCompat());
         const providerOptions = this.remapReasoningProviderOptions(encoded.providerOptions);
 
         logReasoningDebug({
-            protocol: constrained.protocol,
-            mode: constrained.mode,
-            source: constrained.source,
-            requested: constrained.requested,
-            native: constrained.native,
-            modelId: constrained.modelId,
+            format: resolution.format,
+            mode: resolution.mode,
+            source: resolution.source,
+            requested: resolution.requested,
+            level: resolution.level,
+            mapped: resolution.mapped,
+            modelId: resolution.modelId,
             hasTools,
             providerOptions,
         });
@@ -462,29 +461,36 @@ export abstract class AiSdkProviderBase implements AiProvider {
     }
 
     /**
-     * Provider driver 的默认协议编码器；未声明时不发送 reasoning 参数。
+     * Provider driver 的默认编码格式；未声明时不发送 reasoning 参数。
      */
-    protected getReasoningProtocol(): ReasoningProtocol | undefined {
+    protected getReasoningFormat(): ThinkingFormat | undefined {
         return undefined;
     }
 
     /**
-     * metadata 缺失时的兜底 capability（例如 OpenAI 官方硬编码模型表）。
+     * Provider driver 的编码兼容开关（对齐 Pi 的 compat）。
      */
-    protected getFallbackReasoningCapability(modelId: string): ReasoningOption[] {
-        void modelId;
-        return [];
+    protected getThinkingCompat(): ThinkingCompat | undefined {
+        return undefined;
     }
 
     /**
-     * 模型级约束，例如某些模型带 tools 时只能 none。
+     * metadata 缺失时的兜底档位映射（例如 OpenAI 官方硬编码模型表）。
+     */
+    protected getFallbackThinkingLevelMap(modelId: string): ThinkingLevelMap {
+        void modelId;
+        return {};
+    }
+
+    /**
+     * 模型级约束，例如某些模型在 Chat Completions 带 tools 时只能关闭思考。
      */
     protected applyReasoningConstraint(
-        native: ReasoningNative,
+        level: ModelThinkingLevel,
         context: { modelId: string; hasTools: boolean }
-    ): ReasoningNative {
+    ): ModelThinkingLevel {
         void context;
-        return native;
+        return level;
     }
     /**
      * 仅在需要 provider 原始 chunk 做协议修补时开启 raw chunks，避免其余 provider 产生额外流噪音。

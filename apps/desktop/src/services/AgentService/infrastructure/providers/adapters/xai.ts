@@ -4,7 +4,7 @@ import { createXai } from '@ai-sdk/xai';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ThinkingFormat } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 
@@ -72,8 +72,8 @@ export class XaiProviderAdapter extends AiSdkProviderBase {
         });
     }
 
-    protected override getReasoningProtocol(): ReasoningProtocol {
-        return 'openai-chat';
+    protected override getReasoningFormat(): ThinkingFormat {
+        return 'openai';
     }
 
     protected override getReasoningProviderOptionsKey(): string {

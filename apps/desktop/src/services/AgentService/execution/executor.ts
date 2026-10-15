@@ -22,9 +22,9 @@ import {
     type PersistedOutputPart,
 } from '../contracts/protocol';
 import {
-    DEFAULT_REASONING_LEVEL,
+    DEFAULT_THINKING_LEVEL,
+    type ModelThinkingLevel,
     parseReasoningOptions,
-    type ReasoningLevel,
     type ReasoningOption,
 } from '../contracts/reasoning';
 import type {
@@ -422,7 +422,7 @@ export class AiRequestExecutor {
         attachmentRequestIndex?: number,
         onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
         supportsReasoning = true,
-        reasoningLevel?: ReasoningLevel,
+        reasoningLevel?: ModelThinkingLevel,
         reasoningOptions?: ReasoningOption[]
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
         console.debug(
@@ -678,7 +678,7 @@ export class AiRequestExecutor {
             runtime.iteration,
             options.onAttachmentManifestResolved,
             runtime.activeModel.reasoning === 1,
-            DEFAULT_REASONING_LEVEL,
+            DEFAULT_THINKING_LEVEL,
             parseReasoningOptions(runtime.activeModel.reasoning_options)
         );
         let finishReason: string | undefined;

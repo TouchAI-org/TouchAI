@@ -4,11 +4,14 @@ import { createOpenAI } from '@ai-sdk/openai';
 
 import { z } from '@/utils/zod';
 
-import type { ReasoningOption, ReasoningProtocol } from '../../../contracts/reasoning';
+import type {
+    ModelThinkingLevel,
+    ThinkingFormat,
+    ThinkingLevelMap,
+} from '../../../contracts/reasoning';
 import { normalizeReasoningOptions } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
-import type { ReasoningNative } from '../reasoning';
-import { getOpenAiReasoningCapability, isOpenAiGpt6SolOrLuna } from '../reasoning';
+import { getOpenAiThinkingLevelMap, isOpenAiGpt6SolOrLuna } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
@@ -25,7 +28,7 @@ const openAiStyleModelsSchema = z.object({
  * OpenAI 官方适配器。
  *
  * 默认走 Responses API（无状态 + 回传加密 reasoning），设置
- * `reasoning.protocol = 'openai-chat'` 可退回 Chat Completions。
+ * `reasoning.format = 'openai'` 可退回 Chat Completions。
  */
 export class OpenAIProviderAdapter extends AiSdkProviderBase {
     readonly name = 'OpenAI';
@@ -39,7 +42,7 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
     });
 
     protected createLanguageModel(modelId: string) {
-        if (this.getEffectiveProtocol() === 'openai-responses') {
+        if (this.getEffectiveFormat() === 'openai-responses') {
             return this.sdkProvider.responses(modelId);
         }
         return this.sdkProvider.chat(modelId);
@@ -68,12 +71,12 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
         });
     }
 
-    protected override getReasoningProtocol(): ReasoningProtocol {
+    protected override getReasoningFormat(): ThinkingFormat {
         return 'openai-responses';
     }
 
-    protected override getFallbackReasoningCapability(modelId: string): ReasoningOption[] {
-        return getOpenAiReasoningCapability(modelId);
+    protected override getFallbackThinkingLevelMap(modelId: string): ThinkingLevelMap {
+        return getOpenAiThinkingLevelMap(modelId);
     }
 
     /**
@@ -81,21 +84,21 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
      * Responses API 没有该限制。
      */
     protected override applyReasoningConstraint(
-        native: ReasoningNative,
+        level: ModelThinkingLevel,
         context: { modelId: string; hasTools: boolean }
-    ): ReasoningNative {
+    ): ModelThinkingLevel {
         if (
-            this.getEffectiveProtocol() === 'openai-chat' &&
+            this.getEffectiveFormat() === 'openai' &&
             context.hasTools &&
             isOpenAiGpt6SolOrLuna(context.modelId)
         ) {
-            return { kind: 'effort', effort: 'none' };
+            return 'off';
         }
-        return native;
+        return level;
     }
 
-    private getEffectiveProtocol(): ReasoningProtocol {
-        return this.config.reasoning?.protocol ?? this.getReasoningProtocol() ?? 'openai-responses';
+    private getEffectiveFormat(): ThinkingFormat {
+        return this.config.reasoning?.format ?? this.getReasoningFormat() ?? 'openai-responses';
     }
 
     getApiTargets(): ProviderApiTargets {
@@ -110,7 +113,7 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
 
         const sdkBaseUrl = resolveOpenAiStyleSdkBaseUrl(this.normalizedBaseUrl);
         const generationPath =
-            this.getEffectiveProtocol() === 'openai-responses' ? '/responses' : '/chat/completions';
+            this.getEffectiveFormat() === 'openai-responses' ? '/responses' : '/chat/completions';
         return {
             normalizedBaseUrl: this.normalizedBaseUrl,
             sdkBaseUrl,

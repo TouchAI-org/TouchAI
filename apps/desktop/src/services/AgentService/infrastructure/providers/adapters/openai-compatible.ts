@@ -4,7 +4,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ThinkingFormat } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
@@ -67,8 +67,8 @@ export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
         });
     }
 
-    protected override getReasoningProtocol(): ReasoningProtocol {
-        return 'openai-compatible';
+    protected override getReasoningFormat(): ThinkingFormat {
+        return 'openai';
     }
 
     protected override getReasoningProviderOptionsKey(): string {

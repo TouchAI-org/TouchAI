@@ -2,38 +2,72 @@ import { describe, expect, it } from 'vitest';
 
 import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 import {
-    DEFAULT_REASONING_LEVEL,
-    isReasoningLevel,
+    clampThinkingLevel,
+    DEFAULT_THINKING_LEVEL,
+    deriveThinkingLevelMap,
+    isModelThinkingLevel,
+    type ModelThinkingLevel,
     normalizeReasoningOptions,
-    type ReasoningLevel,
     type ReasoningOption,
 } from '@/services/AgentService/contracts/reasoning';
 import { OpenAIProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai';
 import { OpenAICompatibleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai-compatible';
 import {
     encodeReasoning,
+    getOpenAiThinkingLevelMap,
+    type ReasoningResolution,
     resolveReasoning,
-    translateDeepSeekReasoningOptions,
-    translateMimoReasoningLevel,
-    translateOpenAiCompatibleReasoningLevel,
-    translateOpenAiReasoningLevel,
 } from '@/services/AgentService/infrastructure/providers/reasoning';
 
-describe('reasoning level contract', () => {
-    it('accepts only TouchAI canonical reasoning levels', () => {
-        expect(isReasoningLevel('none')).toBe(true);
-        expect(isReasoningLevel('high')).toBe(true);
-        expect(isReasoningLevel('max')).toBe(true);
-        expect(isReasoningLevel('bogus')).toBe(false);
-        expect(isReasoningLevel(undefined)).toBe(false);
+describe('thinking level contract', () => {
+    it('accepts only TouchAI canonical thinking levels', () => {
+        expect(isModelThinkingLevel('off')).toBe(true);
+        expect(isModelThinkingLevel('high')).toBe(true);
+        expect(isModelThinkingLevel('max')).toBe(true);
+        expect(isModelThinkingLevel('none')).toBe(false);
+        expect(isModelThinkingLevel('bogus')).toBe(false);
+        expect(isModelThinkingLevel(undefined)).toBe(false);
     });
 
     it('uses max as the temporary default', () => {
-        expect(DEFAULT_REASONING_LEVEL).toBe('max');
+        expect(DEFAULT_THINKING_LEVEL).toBe('max');
     });
 });
 
-describe('OpenAI reasoning translation', () => {
+describe('thinking level map', () => {
+    it('treats an effort enum without none/off as unable to disable thinking', () => {
+        const map = deriveThinkingLevelMap([
+            { type: 'effort', values: ['minimal', 'low', 'medium', 'high'] },
+        ]);
+        expect(map.off).toBeNull();
+        expect(map.high).toBe('high');
+        expect(map.max).toBeNull();
+        expect(clampThinkingLevel(map, 'max')).toBe('high');
+    });
+
+    it('maps none onto the off level and keeps xhigh/max only when declared', () => {
+        const map = deriveThinkingLevelMap([
+            { type: 'effort', values: ['none', 'low', 'medium', 'high', 'xhigh'] },
+        ]);
+        expect(map.off).toBe('none');
+        expect(map.xhigh).toBe('xhigh');
+        expect(map.max).toBeNull();
+        expect(clampThinkingLevel(map, 'max')).toBe('xhigh');
+    });
+});
+
+describe('OpenAI thinking level map', () => {
+    function resolveLevel(modelId: string, level: ModelThinkingLevel = DEFAULT_THINKING_LEVEL) {
+        return resolveReasoning({
+            level,
+            map: getOpenAiThinkingLevelMap(modelId),
+            format: 'openai-responses',
+            mode: 'auto',
+            modelId,
+            hasTools: false,
+        }).level;
+    }
+
     it.each([
         ['gpt-5', 'high'],
         ['gpt-5.1', 'high'],
@@ -48,29 +82,25 @@ describe('OpenAI reasoning translation', () => {
         ['o3', 'high'],
         ['openai/gpt-6', 'max'],
     ] as const)('clamps the default max level for %s to %s', (modelId, expected) => {
-        expect(translateOpenAiReasoningLevel(undefined, modelId)).toBe(expected);
+        expect(resolveLevel(modelId)).toBe(expected);
     });
 
     it('maps an explicitly requested level to the nearest supported model level', () => {
-        expect(translateOpenAiReasoningLevel('xhigh', 'gpt-5.1')).toBe('high');
-        expect(translateOpenAiReasoningLevel('none', 'gpt-5')).toBe('minimal');
-        expect(translateOpenAiReasoningLevel('minimal', 'gpt-5.1')).toBe('low');
-        expect(translateOpenAiReasoningLevel('none', 'gpt-5.4-pro')).toBe('medium');
-        expect(translateOpenAiReasoningLevel('medium', 'gpt-5.2')).toBe('medium');
+        expect(resolveLevel('gpt-5.1', 'xhigh')).toBe('high');
+        expect(resolveLevel('gpt-5', 'off')).toBe('minimal');
+        expect(resolveLevel('gpt-5.1', 'minimal')).toBe('low');
+        expect(resolveLevel('gpt-5.4-pro', 'off')).toBe('medium');
+        expect(resolveLevel('gpt-5.2', 'medium')).toBe('medium');
     });
 
-    it('uses none for GPT-6 Sol and Luna tool calls on Chat Completions', () => {
-        expect(translateOpenAiReasoningLevel('max', 'gpt-6-sol', true)).toBe('none');
-        expect(translateOpenAiReasoningLevel('max', 'gpt-6-luna', true)).toBe('none');
-        expect(translateOpenAiReasoningLevel('max', 'openai/gpt-6-sol', true)).toBe('none');
-        expect(translateOpenAiReasoningLevel('max', 'gpt-6-sol', false)).toBe('max');
-        expect(translateOpenAiReasoningLevel('max', 'gpt-6', true)).toBe('max');
+    it('returns an empty map for unknown or non-reasoning OpenAI models', () => {
+        expect(getOpenAiThinkingLevelMap('gpt-4o')).toEqual({});
+        expect(getOpenAiThinkingLevelMap('gpt-5-chat-latest')).toEqual({});
+        expect(getOpenAiThinkingLevelMap('unknown-model')).toEqual({});
     });
 
-    it('defaults the official driver to the stateless Responses protocol', () => {
-        const adapter = new OpenAIProviderAdapter({
-            apiEndpoint: 'https://api.openai.com/v1',
-        });
+    it('defaults the official driver to the stateless Responses format', () => {
+        const adapter = new OpenAIProviderAdapter({ apiEndpoint: 'https://api.openai.com/v1' });
         const probe = adapter as unknown as {
             getStreamProviderOptions(options: AiRequestOptions): unknown;
         };
@@ -83,9 +113,9 @@ describe('OpenAI reasoning translation', () => {
         expect(probe.getStreamProviderOptions(baseOptions)).toEqual({
             openai: {
                 store: false,
+                reasoningEffort: 'max',
                 reasoningSummary: 'auto',
                 include: ['reasoning.encrypted_content'],
-                reasoningEffort: 'max',
             },
         });
         expect(
@@ -102,27 +132,28 @@ describe('OpenAI reasoning translation', () => {
         ).toEqual({
             openai: {
                 store: false,
+                reasoningEffort: 'max',
                 reasoningSummary: 'auto',
                 include: ['reasoning.encrypted_content'],
-                reasoningEffort: 'max',
             },
         });
     });
 
-    it('uses Chat Completions transport for non-Responses protocol overrides', () => {
+    it('uses Chat Completions transport for non-Responses format overrides', () => {
         const adapter = new OpenAIProviderAdapter({
             apiEndpoint: 'https://api.openai.com/v1',
-            config: { reasoning: { protocol: 'deepseek-chat' } },
+            config: { reasoning: { format: 'deepseek' } },
         });
 
         expect(adapter.getApiTargets().generationTarget).toBe(
             'https://api.openai.com/v1/chat/completions'
         );
     });
-    it('keeps the Chat Completions constraint when the protocol is overridden', () => {
+
+    it('keeps the Chat Completions constraint when the format is overridden', () => {
         const adapter = new OpenAIProviderAdapter({
             apiEndpoint: 'https://api.openai.com/v1',
-            config: { reasoning: { protocol: 'openai-chat' } },
+            config: { reasoning: { format: 'openai' } },
         });
         const probe = adapter as unknown as {
             getStreamProviderOptions(options: AiRequestOptions): unknown;
@@ -149,53 +180,6 @@ describe('OpenAI reasoning translation', () => {
             openai: { reasoningEffort: 'max' },
         });
     });
-
-    it('omits the option for unknown or non-reasoning OpenAI models', () => {
-        expect(translateOpenAiReasoningLevel(undefined, 'gpt-4o')).toBeUndefined();
-        expect(translateOpenAiReasoningLevel(undefined, 'gpt-5-chat-latest')).toBeUndefined();
-        expect(translateOpenAiReasoningLevel(undefined, 'unknown-model')).toBeUndefined();
-    });
-});
-
-describe('OpenAI-compatible reasoning translation', () => {
-    it('defaults to max and passes canonical levels through unchanged', () => {
-        expect(translateOpenAiCompatibleReasoningLevel(undefined)).toBe('max');
-        expect(translateOpenAiCompatibleReasoningLevel('minimal')).toBe('minimal');
-        expect(translateOpenAiCompatibleReasoningLevel('xhigh')).toBe('xhigh');
-    });
-});
-
-describe('DeepSeek reasoning translation', () => {
-    it.each([
-        ['none', { thinking: { type: 'disabled' } }],
-        ['minimal', { reasoningEffort: 'low', thinking: { type: 'enabled' } }],
-        ['low', { reasoningEffort: 'low', thinking: { type: 'enabled' } }],
-        ['medium', { reasoningEffort: 'high', thinking: { type: 'enabled' } }],
-        ['high', { reasoningEffort: 'high', thinking: { type: 'enabled' } }],
-        ['xhigh', { reasoningEffort: 'max', thinking: { type: 'enabled' } }],
-        ['max', { reasoningEffort: 'max', thinking: { type: 'enabled' } }],
-    ] as const)('maps %s to the DeepSeek provider option', (level, expected) => {
-        expect(translateDeepSeekReasoningOptions(level)).toEqual(expected);
-    });
-
-    it('defaults to max', () => {
-        expect(translateDeepSeekReasoningOptions(undefined)).toEqual({
-            reasoningEffort: 'max',
-            thinking: { type: 'enabled' },
-        });
-    });
-});
-
-describe('MiMo reasoning translation', () => {
-    it('defaults to max and passes canonical levels through unchanged', () => {
-        expect(translateMimoReasoningLevel(undefined)).toBe('max');
-        expect(translateMimoReasoningLevel('high')).toBe('high');
-    });
-
-    it('keeps the canonical level type intact', () => {
-        const level: ReasoningLevel = 'medium';
-        expect(translateMimoReasoningLevel(level)).toBe('medium');
-    });
 });
 
 describe('reasoning capability normalization', () => {
@@ -220,80 +204,85 @@ describe('reasoning capability normalization', () => {
 });
 
 describe('reasoning resolver', () => {
-    const effortCapability: ReasoningOption[] = [
+    const options: ReasoningOption[] = [
         { type: 'effort', values: ['none', 'low', 'medium', 'high'] },
     ];
+    const effortMap = deriveThinkingLevelMap(options);
 
     it('snaps to the nearest supported level and prefers the higher level on ties', () => {
         const plan = resolveReasoning({
             level: 'xhigh',
-            capability: effortCapability,
-            protocol: 'openai-chat',
+            map: effortMap,
+            format: 'openai',
             mode: 'auto',
             modelId: 'test',
             hasTools: false,
         });
-        expect(plan.native).toEqual({ kind: 'effort', effort: 'high' });
+        expect(plan.level).toBe('high');
+        expect(plan.mapped).toBe('high');
         expect(plan.source).toBe('capability');
     });
 
     it('uses max by default and maps it onto the closest native level', () => {
         const plan = resolveReasoning({
             level: undefined,
-            capability: effortCapability,
-            protocol: 'openai-chat',
+            map: effortMap,
+            format: 'openai',
             mode: 'auto',
             modelId: 'test',
             hasTools: false,
         });
         expect(plan.requested).toBe('max');
-        expect(plan.native).toEqual({ kind: 'effort', effort: 'high' });
+        expect(plan.level).toBe('high');
+        expect(plan.mapped).toBe('high');
     });
 
     it('sends nothing when metadata is missing and mode is auto', () => {
         const plan = resolveReasoning({
             level: 'max',
-            capability: [],
-            protocol: 'openai-chat',
+            map: {},
+            format: 'openai',
             mode: 'auto',
             modelId: 'test',
             hasTools: false,
         });
         expect(plan.source).toBe('fallback');
-        expect(plan.native).toEqual({ kind: 'none' });
+        expect(plan.level).toBe('off');
     });
 
     it('passes the canonical level through when mode is passthrough', () => {
         const plan = resolveReasoning({
             level: 'xhigh',
-            capability: [],
-            protocol: 'openai-compatible',
+            map: {},
+            format: 'openai',
             mode: 'passthrough',
             modelId: 'test',
             hasTools: false,
         });
-        expect(plan.native).toEqual({ kind: 'effort', effort: 'xhigh' });
+        expect(plan.level).toBe('xhigh');
+        expect(plan.mapped).toBe('xhigh');
+        expect(plan.source).toBe('fallback');
     });
 
     it('disables reasoning entirely when mode is off', () => {
         const plan = resolveReasoning({
             level: 'max',
-            capability: effortCapability,
-            protocol: 'openai-chat',
+            map: effortMap,
+            format: 'openai',
             mode: 'off',
             modelId: 'test',
             hasTools: false,
         });
         expect(plan.source).toBe('off');
-        expect(plan.native).toEqual({ kind: 'none' });
+        expect(plan.level).toBe('off');
     });
 });
 
-describe('OpenAI-compatible reasoning translation', () => {
-    it('remaps protocol options into the OpenAI-compatible namespace', () => {
+describe('OpenAI-compatible relay', () => {
+    it('remaps encoded options into the OpenAI-compatible namespace', () => {
         const adapter = new OpenAICompatibleProviderAdapter({
             apiEndpoint: 'https://relay.example.com/v1',
-            config: { reasoning: { protocol: 'deepseek-chat', mode: 'passthrough' } },
+            config: { reasoning: { format: 'deepseek', mode: 'passthrough' } },
         });
         const probe = adapter as unknown as {
             getStreamProviderOptions(options: AiRequestOptions): unknown;
@@ -313,93 +302,86 @@ describe('OpenAI-compatible reasoning translation', () => {
         });
     });
 });
-describe('reasoning protocol encoders', () => {
-    function planFor(
-        protocol: Parameters<typeof encodeReasoning>[0]['protocol'],
-        native: Parameters<typeof encodeReasoning>[0]['native']
-    ) {
+
+describe('reasoning format encoders', () => {
+    function plan(
+        format: ReasoningResolution['format'],
+        level: ModelThinkingLevel,
+        mapped: string | undefined,
+        extra: Partial<ReasoningResolution> = {}
+    ): ReasoningResolution {
         return {
-            protocol,
-            mode: 'auto' as const,
-            requested: 'max' as const,
-            native,
-            source: 'capability' as const,
+            format,
+            mode: 'auto',
+            requested: 'max',
+            level,
+            mapped,
+            map: {},
+            budgetTokens: undefined,
+            source: 'capability',
             hasTools: false,
             modelId: 'test',
+            ...extra,
         };
     }
 
-    it('encodes openai-chat as reasoningEffort only', () => {
-        expect(encodeReasoning(planFor('openai-chat', { kind: 'effort', effort: 'high' }))).toEqual(
-            { providerOptions: { openai: { reasoningEffort: 'high' } } }
-        );
+    it('encodes openai as reasoningEffort only', () => {
+        expect(encodeReasoning(plan('openai', 'high', 'high'))).toEqual({
+            providerOptions: { openai: { reasoningEffort: 'high' } },
+        });
     });
 
     it('encodes openai-responses with stateless replay options', () => {
-        expect(
-            encodeReasoning(planFor('openai-responses', { kind: 'effort', effort: 'max' }))
-        ).toEqual({
+        expect(encodeReasoning(plan('openai-responses', 'max', 'max'))).toEqual({
             providerOptions: {
                 openai: {
                     store: false,
+                    reasoningEffort: 'max',
                     reasoningSummary: 'auto',
                     include: ['reasoning.encrypted_content'],
-                    reasoningEffort: 'max',
                 },
             },
         });
     });
 
-    it('encodes deepseek-chat toggle and effort', () => {
-        expect(
-            encodeReasoning(planFor('deepseek-chat', { kind: 'toggle', enabled: false }))
-        ).toEqual({ providerOptions: { deepseek: { thinking: { type: 'disabled' } } } });
-        expect(
-            encodeReasoning(planFor('deepseek-chat', { kind: 'effort', effort: 'max' }))
-        ).toEqual({
+    it('encodes openrouter as reasoning.effort', () => {
+        expect(encodeReasoning(plan('openrouter', 'high', 'high'))).toEqual({
+            providerOptions: { openaiCompatible: { reasoning: { effort: 'high' } } },
+        });
+    });
+
+    it('encodes deepseek thinking toggle and effort', () => {
+        expect(encodeReasoning(plan('deepseek', 'off', undefined))).toEqual({
+            providerOptions: { deepseek: { thinking: { type: 'disabled' } } },
+        });
+        expect(encodeReasoning(plan('deepseek', 'max', 'max'))).toEqual({
             providerOptions: {
                 deepseek: { reasoningEffort: 'max', thinking: { type: 'enabled' } },
             },
         });
     });
 
-    it('encodes anthropic-messages toggle as adaptive / disabled thinking', () => {
+    it('encodes anthropic-messages adaptive thinking with effort', () => {
         expect(
-            encodeReasoning(planFor('anthropic-messages', { kind: 'toggle', enabled: true }))
+            encodeReasoning(plan('anthropic-messages', 'high', 'high'), {
+                forceAdaptiveThinking: true,
+            })
         ).toEqual({
             providerOptions: {
-                anthropic: { thinking: { type: 'adaptive', display: 'summarized' } },
+                anthropic: {
+                    thinking: { type: 'adaptive', display: 'summarized' },
+                    effort: 'high',
+                },
             },
         });
-        expect(
-            encodeReasoning(planFor('anthropic-messages', { kind: 'toggle', enabled: false }))
-        ).toEqual({ providerOptions: { anthropic: { thinking: { type: 'disabled' } } } });
-    });
-
-    it('emits nothing when there is no reasoning signal (auto + missing metadata)', () => {
-        const base = {
-            ...planFor('openai-chat', { kind: 'none' as const }),
-            source: 'fallback' as const,
-        };
-        expect(encodeReasoning(base)).toEqual({});
-        expect(encodeReasoning({ ...base, protocol: 'openai-compatible' })).toEqual({});
-        expect(encodeReasoning({ ...base, protocol: 'deepseek-chat' })).toEqual({});
-        expect(encodeReasoning({ ...base, protocol: 'anthropic-messages' })).toEqual({});
-        expect(encodeReasoning({ ...base, protocol: 'google-generative' })).toEqual({});
-    });
-
-    it('keeps only stateless defaults for openai-responses without a reasoning signal', () => {
-        expect(
-            encodeReasoning({
-                ...planFor('openai-responses', { kind: 'none' }),
-                source: 'fallback',
-            })
-        ).toEqual({ providerOptions: { openai: { store: false } } });
+        expect(encodeReasoning(plan('anthropic-messages', 'off', undefined))).toEqual({
+            providerOptions: { anthropic: { thinking: { type: 'disabled' } } },
+        });
     });
 
     it('encodes anthropic-messages budget as thinking budgetTokens', () => {
         expect(
-            encodeReasoning(planFor('anthropic-messages', { kind: 'budget', tokens: 4096 }))
+            encodeReasoning(plan('anthropic-messages', 'medium', undefined, { budgetTokens: 4096 }))
         ).toEqual({
             providerOptions: {
                 anthropic: { thinking: { type: 'enabled', budgetTokens: 4096 } },
@@ -409,7 +391,12 @@ describe('reasoning protocol encoders', () => {
 
     it('encodes google-generative budget as thinkingConfig', () => {
         expect(
-            encodeReasoning(planFor('google-generative', { kind: 'budget', tokens: 2048 }))
+            encodeReasoning(
+                plan('google-generative', 'low', undefined, {
+                    budgetTokens: 2048,
+                    modelId: 'gemini-2.5-pro',
+                })
+            )
         ).toEqual({
             providerOptions: {
                 google: { thinkingConfig: { thinkingBudget: 2048, includeThoughts: true } },
@@ -417,18 +404,32 @@ describe('reasoning protocol encoders', () => {
         });
     });
 
-    it('encodes openai-compatible as a passthrough effort', () => {
-        expect(
-            encodeReasoning(planFor('openai-compatible', { kind: 'effort', effort: 'xhigh' }))
-        ).toEqual({ providerOptions: { openaiCompatible: { reasoningEffort: 'xhigh' } } });
+    it('emits nothing when there is no reasoning signal (auto + missing metadata)', () => {
+        const base = plan('openai', 'off', undefined, { source: 'fallback' });
+        expect(encodeReasoning(base)).toEqual({});
+        for (const format of [
+            'openrouter',
+            'deepseek',
+            'together',
+            'zai',
+            'qwen',
+            'qwen-chat-template',
+            'anthropic-messages',
+            'google-generative',
+        ] as const) {
+            expect(encodeReasoning({ ...base, format })).toEqual({});
+        }
     });
 
-    it('emits nothing when the plan source is off', () => {
+    it('keeps only the stateless default for openai-responses without a reasoning signal', () => {
         expect(
-            encodeReasoning({
-                ...planFor('openai-responses', { kind: 'none' }),
-                source: 'off',
-            })
+            encodeReasoning(plan('openai-responses', 'off', undefined, { source: 'fallback' }))
+        ).toEqual({ providerOptions: { openai: { store: false } } });
+    });
+
+    it('emits nothing when the resolution source is off', () => {
+        expect(
+            encodeReasoning(plan('openai-responses', 'off', undefined, { source: 'off' }))
         ).toEqual({});
     });
 });

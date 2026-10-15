@@ -4,7 +4,7 @@ import { createMoonshotAI } from '@ai-sdk/moonshotai';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ThinkingFormat } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 
@@ -71,8 +71,8 @@ export class MoonshotProviderAdapter extends AiSdkProviderBase {
         });
     }
 
-    protected override getReasoningProtocol(): ReasoningProtocol {
-        return 'deepseek-chat';
+    protected override getReasoningFormat(): ThinkingFormat {
+        return 'deepseek';
     }
 
     protected override getReasoningProviderOptionsKey(): string {

@@ -4,7 +4,7 @@ import { createMinimax } from 'vercel-minimax-ai-provider';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ThinkingFormat } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 
@@ -75,8 +75,8 @@ export class MiniMaxProviderAdapter extends AiSdkProviderBase {
         });
     }
 
-    protected override getReasoningProtocol(): ReasoningProtocol {
-        return 'openai-chat';
+    protected override getReasoningFormat(): ThinkingFormat {
+        return 'openai';
     }
 
     protected override getReasoningProviderOptionsKey(): string {

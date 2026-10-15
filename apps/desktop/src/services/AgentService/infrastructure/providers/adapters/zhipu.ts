@@ -5,7 +5,7 @@ import { createZhipu } from 'zhipu-ai-provider';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ThinkingFormat } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 
@@ -80,8 +80,8 @@ export class ZhipuProviderAdapter extends AiSdkProviderBase {
      * 智谱的 wire format 与 deepseek-chat 一致：`thinking: { type: enabled | disabled }`，
      * providerOptions namespace 为 `zhipu`（SDK 会把该 namespace 原样并入请求体）。
      */
-    protected override getReasoningProtocol(): ReasoningProtocol {
-        return 'deepseek-chat';
+    protected override getReasoningFormat(): ThinkingFormat {
+        return 'deepseek';
     }
 
     protected override getReasoningProviderOptionsKey(): string {
