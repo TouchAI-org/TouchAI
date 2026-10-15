@@ -5,7 +5,7 @@ import type { ProviderDriver } from '@database/schema';
 import type { AiError } from '../../contracts/errors';
 import type { AiRequestOptions, AiResponse, AiStreamChunk } from '../../contracts/protocol';
 import type { AttachmentTransportMode } from '../../contracts/protocol';
-import type { ReasoningMode, ReasoningOption, ThinkingFormat } from '../../contracts/reasoning';
+import type { ReasoningMode, ReasoningOption, ReasoningProtocol } from '../../contracts/reasoning';
 
 export interface ModelInfo {
     id: string;
@@ -16,7 +16,7 @@ export interface ModelInfo {
 
 export interface ProviderReasoningConfig {
     /** 显式指定编码格式；缺省时由 driver 推断。 */
-    format?: ThinkingFormat;
+    format?: ReasoningProtocol;
     /** 无 metadata 时的 fallback 行为，默认 auto。 */
     mode?: ReasoningMode;
 }

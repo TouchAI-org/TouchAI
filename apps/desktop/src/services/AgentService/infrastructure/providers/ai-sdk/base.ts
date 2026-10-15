@@ -6,13 +6,13 @@ import { type FinishReason, type LanguageModel, streamText } from 'ai';
 import { AiError, AiErrorCode } from '../../../contracts/errors';
 import type { AiRequestOptions, AiResponse, JsonObject } from '../../../contracts/protocol';
 import {
-    DEFAULT_THINKING_LEVEL,
-    deriveThinkingLevelMap,
-    type ModelThinkingLevel,
-    type ThinkingFormat,
-    type ThinkingLevelMap,
+    DEFAULT_REASONING_LEVEL,
+    deriveReasoningLevelMap,
+    type ReasoningLevelMap,
+    type ReasoningProtocol,
+    type SelectableReasoningLevel,
 } from '../../../contracts/reasoning';
-import { encodeReasoning, resolveReasoning, type ThinkingCompat } from '../reasoning';
+import { encodeReasoning, type ReasoningEncodingHints, resolveReasoning } from '../reasoning';
 import { logReasoningDebug } from '../reasoning/debug';
 import type {
     AiProvider,
@@ -390,7 +390,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
     protected getStreamProviderOptions(
         options: AiRequestOptions
     ): Record<string, JsonObject> | undefined {
-        const format = this.config.reasoning?.format ?? this.getReasoningFormat();
+        const format = this.config.reasoning?.format ?? this.getReasoningProtocol();
         if (!format) {
             return undefined;
         }
@@ -399,10 +399,10 @@ export abstract class AiSdkProviderBase implements AiProvider {
         const hasTools = (options.tools?.length ?? 0) > 0;
         const map =
             options.reasoningOptions && options.reasoningOptions.length > 0
-                ? deriveThinkingLevelMap(options.reasoningOptions)
-                : this.getFallbackThinkingLevelMap(options.model);
+                ? deriveReasoningLevelMap(options.reasoningOptions)
+                : this.getFallbackReasoningLevelMap(options.model);
         const requested = this.applyReasoningConstraint(
-            options.reasoningLevel ?? DEFAULT_THINKING_LEVEL,
+            options.reasoningLevel ?? DEFAULT_REASONING_LEVEL,
             { modelId: options.model, hasTools }
         );
 
@@ -414,7 +414,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
             modelId: options.model,
             hasTools,
         });
-        const encoded = encodeReasoning(resolution, this.getThinkingCompat());
+        const encoded = encodeReasoning(resolution, this.getReasoningEncodingHints());
         const providerOptions = this.remapReasoningProviderOptions(encoded.providerOptions);
 
         logReasoningDebug({
@@ -463,21 +463,21 @@ export abstract class AiSdkProviderBase implements AiProvider {
     /**
      * Provider driver 的默认编码格式；未声明时不发送 reasoning 参数。
      */
-    protected getReasoningFormat(): ThinkingFormat | undefined {
+    protected getReasoningProtocol(): ReasoningProtocol | undefined {
         return undefined;
     }
 
     /**
-     * Provider driver 的编码兼容开关（对齐 Pi 的 compat）。
+     * Provider driver 的编码兼容开关。
      */
-    protected getThinkingCompat(): ThinkingCompat | undefined {
+    protected getReasoningEncodingHints(): ReasoningEncodingHints | undefined {
         return undefined;
     }
 
     /**
      * metadata 缺失时的兜底档位映射（例如 OpenAI 官方硬编码模型表）。
      */
-    protected getFallbackThinkingLevelMap(modelId: string): ThinkingLevelMap {
+    protected getFallbackReasoningLevelMap(modelId: string): ReasoningLevelMap {
         void modelId;
         return {};
     }
@@ -486,9 +486,9 @@ export abstract class AiSdkProviderBase implements AiProvider {
      * 模型级约束，例如某些模型在 Chat Completions 带 tools 时只能关闭思考。
      */
     protected applyReasoningConstraint(
-        level: ModelThinkingLevel,
+        level: SelectableReasoningLevel,
         context: { modelId: string; hasTools: boolean }
-    ): ModelThinkingLevel {
+    ): SelectableReasoningLevel {
         void context;
         return level;
     }

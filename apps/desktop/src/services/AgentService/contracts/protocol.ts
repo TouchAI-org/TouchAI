@@ -3,7 +3,7 @@
 import type { ProviderDriver } from '@database/schema';
 
 import type { ModelLanguageContext } from '../languageContext';
-import type { ModelThinkingLevel, ReasoningOption } from './reasoning';
+import type { ReasoningOption, SelectableReasoningLevel } from './reasoning';
 import type { AiToolCall, AiToolCallDelta, AiToolDefinition, ToolEvent } from './tooling';
 
 export type AttachmentTransportMode =
@@ -145,7 +145,7 @@ export interface AiRequestOptions {
     providerId?: number;
     messages: AiMessage[];
     supportsReasoning?: boolean;
-    reasoningLevel?: ModelThinkingLevel;
+    reasoningLevel?: SelectableReasoningLevel;
     /** 上游 /models 或本地 metadata 声明的 reasoning 能力。 */
     reasoningOptions?: ReasoningOption[];
     stream?: boolean;

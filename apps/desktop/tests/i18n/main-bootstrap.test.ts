@@ -10,6 +10,7 @@ const {
     builtInToolSyncMock,
     isLlmMetadataEmptyMock,
     initializeFontLoaderMock,
+    seedModelMetadataFromSnapshotMock,
     initializeLoggerMock,
     syncAllModelsMetadataMock,
     updateModelMetadataMock,
@@ -26,6 +27,7 @@ const {
     builtInToolSyncMock: vi.fn(),
     isLlmMetadataEmptyMock: vi.fn(),
     initializeFontLoaderMock: vi.fn(),
+    seedModelMetadataFromSnapshotMock: vi.fn(),
     initializeLoggerMock: vi.fn(),
     syncAllModelsMetadataMock: vi.fn(),
     updateModelMetadataMock: vi.fn(),
@@ -60,6 +62,7 @@ vi.mock('@database/queries', () => ({
 }));
 
 vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
+    seedModelMetadataFromSnapshot: seedModelMetadataFromSnapshotMock,
     updateModelMetadata: updateModelMetadataMock,
 }));
 
@@ -126,6 +129,7 @@ describe('app bootstrap i18n', () => {
         builtInToolSyncMock.mockResolvedValue(undefined);
         isLlmMetadataEmptyMock.mockResolvedValue(false);
         syncAllModelsMetadataMock.mockResolvedValue(undefined);
+        seedModelMetadataFromSnapshotMock.mockResolvedValue(undefined);
         updateModelMetadataMock.mockResolvedValue(undefined);
         getCurrentWindowMock.mockReturnValue({
             label: 'main',
@@ -153,14 +157,31 @@ describe('app bootstrap i18n', () => {
         expect(settingsInitializeOrder).toBeLessThan(appMountMock.mock.invocationCallOrder[0]!);
     });
 
-    it('refreshes remote model metadata during bootstrap when local metadata is empty', async () => {
+    it('seeds bundled metadata and refreshes remote metadata during bootstrap when local metadata is empty', async () => {
         isLlmMetadataEmptyMock.mockResolvedValue(true);
 
         const { initializeApp } = await import('@/bootstrap');
         await initializeApp();
 
+        expect(seedModelMetadataFromSnapshotMock).toHaveBeenCalledTimes(1);
         expect(updateModelMetadataMock).toHaveBeenCalledTimes(1);
         expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
+    });
+
+    it('still refreshes remote model metadata when the bundled snapshot fails to load', async () => {
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        isLlmMetadataEmptyMock.mockResolvedValue(true);
+        seedModelMetadataFromSnapshotMock.mockRejectedValue(new Error('snapshot unavailable'));
+
+        const { initializeApp } = await import('@/bootstrap');
+        await initializeApp();
+
+        expect(updateModelMetadataMock).toHaveBeenCalledTimes(1);
+        expect(consoleSpy).toHaveBeenCalledWith(
+            '[Bootstrap] Failed to seed bundled model metadata:',
+            expect.any(Error)
+        );
+        consoleSpy.mockRestore();
     });
 
     it('syncs cached model metadata during bootstrap without refreshing remote metadata', async () => {

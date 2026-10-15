@@ -5,7 +5,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { z } from '@/utils/zod';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
-import { normalizeReasoningOptions, type ThinkingFormat } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 
@@ -103,7 +103,7 @@ export class AnthropicProviderAdapter extends AiSdkProviderBase {
         return null;
     }
 
-    protected override getReasoningFormat(): ThinkingFormat {
+    protected override getReasoningProtocol(): ReasoningProtocol {
         return 'anthropic-messages';
     }
 

@@ -9,6 +9,9 @@ coverage/
 # Drizzle 生成的迁移文件
 apps/desktop/src/database/drizzle/
 
+# 内置模型元数据快照（由 apps/desktop/scripts/update-model-metadata.mjs 生成）
+apps/desktop/src/services/AgentService/infrastructure/modelMetadata/snapshot.json
+
 # 配置文件（保持原样）
 *.config.js
 *.config.ts

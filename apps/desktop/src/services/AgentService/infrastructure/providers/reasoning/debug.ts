@@ -2,9 +2,9 @@
 
 import type { JsonObject } from '../../../contracts/protocol';
 import type {
-    ModelThinkingLevel,
     ReasoningMode,
-    ThinkingFormat,
+    ReasoningProtocol,
+    SelectableReasoningLevel,
 } from '../../../contracts/reasoning';
 
 /**
@@ -36,11 +36,11 @@ function redact(value: unknown, depth = 0): unknown {
 }
 
 export interface ReasoningDebugEvent {
-    format: ThinkingFormat;
+    format: ReasoningProtocol;
     mode: ReasoningMode;
     source: 'capability' | 'fallback' | 'off';
-    requested: ModelThinkingLevel;
-    level: ModelThinkingLevel;
+    requested: SelectableReasoningLevel;
+    level: SelectableReasoningLevel;
     mapped: string | undefined;
     modelId: string;
     hasTools: boolean;

@@ -1,12 +1,12 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { JsonObject, JsonValue } from '../../../contracts/protocol';
-import { thinkingBudgetForLevel, type ThinkingFormat } from '../../../contracts/reasoning';
+import { budgetForReasoningLevel, type ReasoningProtocol } from '../../../contracts/reasoning';
 import type {
     ChatTemplateKwargValue,
     ReasoningEncoderResult,
+    ReasoningEncodingHints,
     ReasoningResolution,
-    ThinkingCompat,
 } from './types';
 
 function providerOptions(key: string, options: JsonObject): ReasoningEncoderResult {
@@ -17,7 +17,7 @@ function isEnabled(res: ReasoningResolution): boolean {
     return res.level !== 'off';
 }
 
-function supportsEffort(compat: ThinkingCompat | undefined): boolean {
+function supportsEffort(compat: ReasoningEncodingHints | undefined): boolean {
     return compat?.supportsReasoningEffort ?? true;
 }
 
@@ -41,18 +41,18 @@ function shouldEmitOff(res: ReasoningResolution): boolean {
     return res.source === 'capability' || res.mode === 'passthrough';
 }
 
-function resolveBudgetField(compat: ThinkingCompat | undefined): string | undefined {
-    if (compat?.thinkingTokenBudgetField) {
-        return compat.thinkingTokenBudgetField;
+function resolveBudgetField(compat: ReasoningEncodingHints | undefined): string | undefined {
+    if (compat?.tokenBudgetField) {
+        return compat.tokenBudgetField;
     }
-    if (compat?.supportsThinkingTokenBudget) {
+    if (compat?.supportsTokenBudget) {
         return 'thinking_token_budget';
     }
     return undefined;
 }
 
 /**
- * 顶层思考预算字段（独立于 thinkingFormat），与 Pi 一致。
+ * 顶层思考预算字段（独立于 reasoningProtocol）。
  *
  * 部分 OpenAI 兼容服务端用同一个 `max_tokens` 承载思考与回答，不设上限时
  * 思考可能吃光整个响应。
@@ -60,13 +60,14 @@ function resolveBudgetField(compat: ThinkingCompat | undefined): string | undefi
 function applyBudgetField(
     options: JsonObject,
     res: ReasoningResolution,
-    compat: ThinkingCompat | undefined
+    compat: ReasoningEncodingHints | undefined
 ): void {
     const field = resolveBudgetField(compat);
     if (!field) {
         return;
     }
-    const budget = res.budgetTokens ?? thinkingBudgetForLevel(res.level, compat?.thinkingBudgets);
+    const budget =
+        res.budgetTokens ?? budgetForReasoningLevel(res.level, compat?.reasoningTokenBudgets);
     if (budget === undefined) {
         return;
     }
@@ -74,7 +75,7 @@ function applyBudgetField(
 }
 
 /** openai：默认的 reasoning_effort 编码。 */
-function encodeOpenAi(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeOpenAi(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     const options: JsonObject = {};
     if (isEnabled(res)) {
         if (supportsEffort(compat)) {
@@ -91,7 +92,10 @@ function encodeOpenAi(res: ReasoningResolution, compat: ThinkingCompat | undefin
 }
 
 /** openai-responses：无状态 + 回传加密 reasoning，附带 reasoning.effort。 */
-function encodeOpenAiResponses(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeOpenAiResponses(
+    res: ReasoningResolution,
+    compat: ReasoningEncodingHints | undefined
+) {
     const options: JsonObject = { store: false };
     if (isEnabled(res)) {
         options.reasoningEffort = effortValue(res);
@@ -105,7 +109,7 @@ function encodeOpenAiResponses(res: ReasoningResolution, compat: ThinkingCompat 
 }
 
 /** openrouter：reasoning: { effort }。 */
-function encodeOpenRouter(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeOpenRouter(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     const options: JsonObject = {};
     if (isEnabled(res)) {
         options.reasoning = { effort: effortValue(res) };
@@ -117,7 +121,7 @@ function encodeOpenRouter(res: ReasoningResolution, compat: ThinkingCompat | und
 }
 
 /** deepseek：thinking.type + reasoningEffort。 */
-function encodeDeepSeek(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeDeepSeek(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     const options: JsonObject = {};
     if (isEnabled(res)) {
         options.thinking = { type: 'enabled' };
@@ -132,7 +136,7 @@ function encodeDeepSeek(res: ReasoningResolution, compat: ThinkingCompat | undef
 }
 
 /** together：reasoning.enabled + reasoningEffort。 */
-function encodeTogether(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeTogether(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     // auto + 无 metadata：resolver 给出 level=off/source=fallback，此时不发送任何 reasoning 参数。
     if (!isEnabled(res) && !shouldEmitOff(res)) {
         return {};
@@ -146,7 +150,7 @@ function encodeTogether(res: ReasoningResolution, compat: ThinkingCompat | undef
 }
 
 /** zai：thinking.type + clear_thinking + reasoningEffort。 */
-function encodeZai(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeZai(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     // auto + 无 metadata：resolver 给出 level=off/source=fallback，此时不发送任何 reasoning 参数。
     if (!isEnabled(res) && !shouldEmitOff(res)) {
         return {};
@@ -164,7 +168,7 @@ function encodeZai(res: ReasoningResolution, compat: ThinkingCompat | undefined)
 }
 
 /** qwen：enable_thinking + reasoningEffort。 */
-function encodeQwen(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeQwen(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     // auto + 无 metadata：resolver 给出 level=off/source=fallback，此时不发送任何 reasoning 参数。
     if (!isEnabled(res) && !shouldEmitOff(res)) {
         return {};
@@ -178,7 +182,10 @@ function encodeQwen(res: ReasoningResolution, compat: ThinkingCompat | undefined
 }
 
 /** qwen-chat-template：chat_template_kwargs。 */
-function encodeQwenChatTemplate(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeQwenChatTemplate(
+    res: ReasoningResolution,
+    compat: ReasoningEncodingHints | undefined
+) {
     // auto + 无 metadata：resolver 给出 level=off/source=fallback，此时不发送任何 reasoning 参数。
     if (!isEnabled(res) && !shouldEmitOff(res)) {
         return {};
@@ -194,7 +201,7 @@ function encodeQwenChatTemplate(res: ReasoningResolution, compat: ThinkingCompat
 }
 
 /** chat-template：由 compat.chatTemplateKwargs 驱动。 */
-function encodeChatTemplate(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeChatTemplate(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     const options: JsonObject = {};
     const kwargs = buildChatTemplateValues(res, compat?.chatTemplateKwargs, compat);
     if (kwargs) {
@@ -205,7 +212,7 @@ function encodeChatTemplate(res: ReasoningResolution, compat: ThinkingCompat | u
 }
 
 /** baseten：chat_template_args + reasoningEffort。 */
-function encodeBaseten(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeBaseten(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     const options: JsonObject = {};
     const args = buildChatTemplateValues(res, compat?.chatTemplateArgs, compat);
     if (args) {
@@ -222,7 +229,10 @@ function encodeBaseten(res: ReasoningResolution, compat: ThinkingCompat | undefi
 }
 
 /** string-thinking：thinking 直接是字符串。 */
-function encodeStringThinking(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeStringThinking(
+    res: ReasoningResolution,
+    compat: ReasoningEncodingHints | undefined
+) {
     const options: JsonObject = {};
     if (isEnabled(res)) {
         options.thinking = effortValue(res);
@@ -234,7 +244,7 @@ function encodeStringThinking(res: ReasoningResolution, compat: ThinkingCompat |
 }
 
 /** ant-ling：reasoning.effort（仅当 map 命中字符串）。 */
-function encodeAntLing(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeAntLing(res: ReasoningResolution, compat: ReasoningEncodingHints | undefined) {
     const options: JsonObject = {};
     if (isEnabled(res) && typeof res.mapped === 'string') {
         options.reasoning = { effort: res.mapped };
@@ -244,7 +254,7 @@ function encodeAntLing(res: ReasoningResolution, compat: ThinkingCompat | undefi
 }
 
 /** 把统一档位映射成 Anthropic 自适应思考的 effort。 */
-function mapThinkingLevelToEffort(res: ReasoningResolution): string {
+function mapReasoningLevelToEffort(res: ReasoningResolution): string {
     if (typeof res.mapped === 'string') {
         return res.mapped;
     }
@@ -260,7 +270,10 @@ function mapThinkingLevelToEffort(res: ReasoningResolution): string {
 }
 
 /** anthropic-messages：自适应思考用 effort，老模型用 budgetTokens。 */
-function encodeAnthropicMessages(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeAnthropicMessages(
+    res: ReasoningResolution,
+    compat: ReasoningEncodingHints | undefined
+) {
     const options: JsonObject = {};
     if (!isEnabled(res)) {
         if (shouldEmitOff(res)) {
@@ -268,17 +281,17 @@ function encodeAnthropicMessages(res: ReasoningResolution, compat: ThinkingCompa
         }
     } else if (compat?.forceAdaptiveThinking) {
         options.thinking = { type: 'adaptive', display: 'summarized' };
-        options.effort = mapThinkingLevelToEffort(res);
+        options.effort = mapReasoningLevelToEffort(res);
     } else {
         const budget =
-            res.budgetTokens ?? thinkingBudgetForLevel(res.level, compat?.thinkingBudgets);
+            res.budgetTokens ?? budgetForReasoningLevel(res.level, compat?.reasoningTokenBudgets);
         options.thinking =
             budget === undefined ? { type: 'enabled' } : { type: 'enabled', budgetTokens: budget };
     }
     return providerOptions('anthropic', options);
 }
 
-const GOOGLE_THINKING_LEVEL = {
+const GOOGLE_REASONING_LEVEL = {
     minimal: 'MINIMAL',
     low: 'LOW',
     medium: 'MEDIUM',
@@ -286,7 +299,7 @@ const GOOGLE_THINKING_LEVEL = {
 } as const;
 
 /** Gemini 3 / Gemma 4 等使用离散 thinkingLevel，其余用 thinkingBudget。 */
-function usesGoogleThinkingLevel(modelId: string): boolean {
+function usesGoogleReasoningLevel(modelId: string): boolean {
     const id = modelId.toLowerCase();
     return (
         /gemini-3(?:\.\d+)?-(?:pro|flash)/.test(id) ||
@@ -296,7 +309,9 @@ function usesGoogleThinkingLevel(modelId: string): boolean {
     );
 }
 
-function resolveGoogleThinkingLevel(res: ReasoningResolution): keyof typeof GOOGLE_THINKING_LEVEL {
+function resolveGoogleReasoningLevel(
+    res: ReasoningResolution
+): keyof typeof GOOGLE_REASONING_LEVEL {
     const mapped = typeof res.mapped === 'string' ? res.mapped.toLowerCase() : res.level;
     switch (mapped) {
         case 'minimal':
@@ -310,20 +325,23 @@ function resolveGoogleThinkingLevel(res: ReasoningResolution): keyof typeof GOOG
 }
 
 /** google-generative：thinkingLevel 或 thinkingBudget。 */
-function encodeGoogleGenerative(res: ReasoningResolution, compat: ThinkingCompat | undefined) {
+function encodeGoogleGenerative(
+    res: ReasoningResolution,
+    compat: ReasoningEncodingHints | undefined
+) {
     const options: JsonObject = {};
     if (!isEnabled(res)) {
         if (shouldEmitOff(res)) {
             options.thinkingConfig = { thinkingBudget: 0, includeThoughts: false };
         }
-    } else if (usesGoogleThinkingLevel(res.modelId)) {
+    } else if (usesGoogleReasoningLevel(res.modelId)) {
         options.thinkingConfig = {
-            thinkingLevel: GOOGLE_THINKING_LEVEL[resolveGoogleThinkingLevel(res)],
+            thinkingLevel: GOOGLE_REASONING_LEVEL[resolveGoogleReasoningLevel(res)],
             includeThoughts: true,
         };
     } else {
         const budget =
-            res.budgetTokens ?? thinkingBudgetForLevel(res.level, compat?.thinkingBudgets);
+            res.budgetTokens ?? budgetForReasoningLevel(res.level, compat?.reasoningTokenBudgets);
         options.thinkingConfig = {
             thinkingBudget: budget ?? -1,
             includeThoughts: true,
@@ -335,7 +353,7 @@ function encodeGoogleGenerative(res: ReasoningResolution, compat: ThinkingCompat
 function buildChatTemplateValues(
     res: ReasoningResolution,
     values: Record<string, ChatTemplateKwargValue> | undefined,
-    compat: ThinkingCompat | undefined
+    compat: ReasoningEncodingHints | undefined
 ): JsonObject | undefined {
     if (!values) {
         return undefined;
@@ -354,7 +372,7 @@ function buildChatTemplateValues(
 function resolveChatTemplateValue(
     res: ReasoningResolution,
     value: ChatTemplateKwargValue,
-    compat: ThinkingCompat | undefined
+    compat: ReasoningEncodingHints | undefined
 ): JsonValue | undefined {
     if (typeof value !== 'object' || value === null) {
         return value;
@@ -368,17 +386,19 @@ function resolveChatTemplateValue(
         return enabled;
     }
     if (value.$var === 'thinking.budget') {
-        return res.budgetTokens ?? thinkingBudgetForLevel(res.level, compat?.thinkingBudgets);
+        return (
+            res.budgetTokens ?? budgetForReasoningLevel(res.level, compat?.reasoningTokenBudgets)
+        );
     }
     return enabled ? effortValue(res) : offValue(res);
 }
 
 type Encoder = (
     res: ReasoningResolution,
-    compat: ThinkingCompat | undefined
+    compat: ReasoningEncodingHints | undefined
 ) => ReasoningEncoderResult;
 
-const encoders: Record<ThinkingFormat, Encoder> = {
+const encoders: Record<ReasoningProtocol, Encoder> = {
     openai: encodeOpenAi,
     openrouter: encodeOpenRouter,
     deepseek: encodeDeepSeek,
@@ -403,7 +423,7 @@ const encoders: Record<ThinkingFormat, Encoder> = {
  */
 export function encodeReasoning(
     resolution: ReasoningResolution,
-    compat?: ThinkingCompat
+    compat?: ReasoningEncodingHints
 ): ReasoningEncoderResult {
     if (resolution.source === 'off') {
         return {};

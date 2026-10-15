@@ -6,11 +6,11 @@ import { z } from '@/utils/zod';
 
 import {
     normalizeReasoningOptions,
-    type ThinkingFormat,
-    type ThinkingLevelMap,
+    type ReasoningLevelMap,
+    type ReasoningProtocol,
 } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
-import { DEEPSEEK_THINKING_LEVEL_MAP } from '../reasoning';
+import { DEEPSEEK_REASONING_LEVEL_MAP } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 
 const deepseekModelsSchema = z.object({
@@ -63,13 +63,13 @@ export class DeepSeekProviderAdapter extends AiSdkProviderBase {
         });
     }
 
-    protected override getReasoningFormat(): ThinkingFormat {
+    protected override getReasoningProtocol(): ReasoningProtocol {
         return 'deepseek';
     }
 
-    protected override getFallbackThinkingLevelMap(modelId: string): ThinkingLevelMap {
+    protected override getFallbackReasoningLevelMap(modelId: string): ReasoningLevelMap {
         void modelId;
-        return DEEPSEEK_THINKING_LEVEL_MAP;
+        return DEEPSEEK_REASONING_LEVEL_MAP;
     }
 
     getApiTargets(): ProviderApiTargets {

@@ -31,7 +31,8 @@
         "check:rust": "node ./scripts/run-rust-command.mjs check",
         "check": "pnpm type:check && pnpm test:typecheck && pnpm lint:check && pnpm format:check && cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check && pnpm check:rust",
         "db:generate": "drizzle-kit generate",
-        "db:studio": "drizzle-kit studio"
+        "db:studio": "drizzle-kit studio",
+        "update:model-metadata": "node ./scripts/update-model-metadata.mjs"
     },
     "dependencies": {
         "@ai-sdk/alibaba": "^1.0.62",

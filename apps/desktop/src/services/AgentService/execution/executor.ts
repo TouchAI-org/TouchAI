@@ -22,10 +22,10 @@ import {
     type PersistedOutputPart,
 } from '../contracts/protocol';
 import {
-    DEFAULT_THINKING_LEVEL,
-    type ModelThinkingLevel,
+    DEFAULT_REASONING_LEVEL,
     parseReasoningOptions,
     type ReasoningOption,
+    type SelectableReasoningLevel,
 } from '../contracts/reasoning';
 import type {
     AiToolCall,
@@ -422,7 +422,7 @@ export class AiRequestExecutor {
         attachmentRequestIndex?: number,
         onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
         supportsReasoning = true,
-        reasoningLevel?: ModelThinkingLevel,
+        reasoningLevel?: SelectableReasoningLevel,
         reasoningOptions?: ReasoningOption[]
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
         console.debug(
@@ -664,7 +664,7 @@ export class AiRequestExecutor {
         }
     ): Promise<AttemptStepResult> {
         // Relay metadata is not authoritative: some models report reasoning=0
-        // while still requiring an explicit reasoning option to expose thinking.
+        // while still requiring an explicit reasoning option to expose reasoning.
         // The executor always passes TouchAI's canonical level; each provider
         // driver translates it into the vendor-specific request parameter.
         const stream = this.stream(
@@ -678,7 +678,7 @@ export class AiRequestExecutor {
             runtime.iteration,
             options.onAttachmentManifestResolved,
             runtime.activeModel.reasoning === 1,
-            DEFAULT_THINKING_LEVEL,
+            DEFAULT_REASONING_LEVEL,
             parseReasoningOptions(runtime.activeModel.reasoning_options)
         );
         let finishReason: string | undefined;

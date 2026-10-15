@@ -2,10 +2,7 @@
  * Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { db } from '@database';
-import { syncAllModelsMetadata } from '@database/queries/models.ts';
-import { setStatistic } from '@database/queries/statistics.ts';
-import { llmMetadata, type NewLlmMetadata, StatisticKey } from '@database/schema.ts';
+import type { NewLlmMetadata } from '@database/schema.ts';
 
 import {
     modelLimitSchema,
@@ -16,7 +13,7 @@ import {
 } from '@/utils/modelSchemas';
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, serializeReasoningOptions } from '../contracts/reasoning';
+import { normalizeReasoningOptions, serializeReasoningOptions } from '../../contracts/reasoning';
 
 const rawModelSchema = z.object({
     id: z.string().min(1),
@@ -32,6 +29,7 @@ const rawModelSchema = z.object({
     limit: modelLimitSchema.optional(),
     reasoning_options: z.unknown().optional(),
 });
+
 const rawModelDataSchema = z.record(
     z.string(),
     z.object({
@@ -40,7 +38,6 @@ const rawModelDataSchema = z.record(
 );
 
 type RawModelData = z.infer<typeof rawModelDataSchema>;
-const MODEL_METADATA_SOURCE_URL = 'https://llm-metadata.pages.dev/api/all.json';
 
 /**
  * 合并同一模型的能力字段。
@@ -169,40 +166,16 @@ function deduplicateMetadata(metadataList: NewLlmMetadata[]): NewLlmMetadata[] {
 }
 
 /**
- * 从远端拉取并刷新本地模型元数据。
+ * 把原始目录解析成可入库的去重列表。
+ *
+ * 空目录直接拒绝：远端可能返回 200 但内容为空，此时覆盖会清空本地缓存。
  */
-export async function updateModelMetadata(): Promise<void> {
-    try {
-        const response = await fetch(MODEL_METADATA_SOURCE_URL);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch metadata: ${response.statusText}`);
-        }
-        const rawData = rawModelDataSchema.parse(await response.json());
+export function buildMetadataList(rawData: unknown): NewLlmMetadata[] {
+    const filteredList = deduplicateMetadata(parseRawData(rawModelDataSchema.parse(rawData)));
 
-        const metadataList = parseRawData(rawData);
-        const filteredList = deduplicateMetadata(metadataList);
-
-        await db.transaction(async (tx) => {
-            await tx.delete(llmMetadata).run();
-
-            if (filteredList.length > 0) {
-                await tx
-                    .insert(llmMetadata)
-                    .values(filteredList)
-                    .onConflictDoNothing({ target: llmMetadata.model_id })
-                    .run();
-            }
-
-            await syncAllModelsMetadata(tx);
-
-            await setStatistic({
-                key: StatisticKey.MODEL_METADATA_LAST_UPDATED_AT,
-                value: new Date().toISOString(),
-                database: tx,
-            });
-        });
-    } catch (error) {
-        console.error('[ModelMetadata] Failed to update metadata:', error);
-        throw error;
+    if (filteredList.length === 0) {
+        throw new Error('Refusing to replace model metadata with an empty catalog');
     }
+
+    return filteredList;
 }

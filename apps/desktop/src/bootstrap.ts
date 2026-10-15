@@ -11,7 +11,10 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import { installI18n } from './i18n';
 import router from './router';
-import { updateModelMetadata } from './services/AgentService/infrastructure/modelMetadata';
+import {
+    seedModelMetadataFromSnapshot,
+    updateModelMetadata,
+} from './services/AgentService/infrastructure/modelMetadata';
 import { builtInToolService } from './services/BuiltInToolService/service';
 import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
@@ -121,6 +124,7 @@ function scheduleAppUpdateChecks(): void {
 async function initializeModelMetadata(): Promise<void> {
     try {
         if (await isLlmMetadataEmpty()) {
+            await seedBundledModelMetadata();
             await updateModelMetadata();
             return;
         }
@@ -128,6 +132,17 @@ async function initializeModelMetadata(): Promise<void> {
         await syncAllModelsMetadata();
     } catch (error) {
         console.warn('[Bootstrap] Failed to initialize model metadata:', error);
+    }
+}
+
+/**
+ * 内置快照只是兜底数据，解析失败时不应阻断后续的远端刷新。
+ */
+async function seedBundledModelMetadata(): Promise<void> {
+    try {
+        await seedModelMetadataFromSnapshot();
+    } catch (error) {
+        console.warn('[Bootstrap] Failed to seed bundled model metadata:', error);
     }
 }
 

@@ -1,10 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { deriveThinkingLevelMap, type ThinkingLevelMap } from '../../../contracts/reasoning';
+import { deriveReasoningLevelMap, type ReasoningLevelMap } from '../../../contracts/reasoning';
 
 /**
  * OpenAI 官方模型支持的 effort 随模型版本变化。metadata 缺失时用这张表兜底；
- * 表里存的是厂商原生 effort 值，`deriveThinkingLevelMap` 会把它翻译成统一档位映射。
+ * 表里存的是厂商原生 effort 值，`deriveReasoningLevelMap` 会把它翻译成统一档位映射。
  */
 const OPENAI_GPT5_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
 const OPENAI_GPT5_1_LEVELS = ['none', 'low', 'medium', 'high'] as const;
@@ -84,15 +84,15 @@ export function getOpenAiSupportedLevels(modelId: string): readonly string[] | u
 }
 
 /**
- * 把硬编码模型表包装成 Pi 风格的 `thinkingLevelMap`，供 resolver 统一处理。
+ * 把硬编码模型表包装成 `reasoningLevelMap`，供 resolver 统一处理。
  * metadata 缺失时作为 OpenAI 官方 driver 的兜底能力。
  */
-export function getOpenAiThinkingLevelMap(modelId: string): ThinkingLevelMap {
+export function getOpenAiReasoningLevelMap(modelId: string): ReasoningLevelMap {
     const supported = getOpenAiSupportedLevels(modelId);
     if (!supported) {
         return {};
     }
-    return deriveThinkingLevelMap([{ type: 'effort', values: [...supported] }]);
+    return deriveReasoningLevelMap([{ type: 'effort', values: [...supported] }]);
 }
 
 /**

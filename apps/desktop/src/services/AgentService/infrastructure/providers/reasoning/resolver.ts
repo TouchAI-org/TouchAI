@@ -1,16 +1,16 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import {
-    clampThinkingLevel,
-    DEFAULT_THINKING_LEVEL,
-    MIN_ANSWER_TOKENS,
-    MODEL_THINKING_LEVELS,
-    type ModelThinkingLevel,
-    type ThinkingLevelMap,
+    clampReasoningLevel,
+    DEFAULT_REASONING_LEVEL,
+    MIN_RESPONSE_TOKENS,
+    type ReasoningLevelMap,
+    SELECTABLE_REASONING_LEVELS,
+    type SelectableReasoningLevel,
 } from '../../../contracts/reasoning';
 import type { ReasoningResolution, ResolveReasoningInput } from './types';
 
-function hasMapEntries(map: ThinkingLevelMap): boolean {
+function hasMapEntries(map: ReasoningLevelMap): boolean {
     return Object.keys(map).length > 0;
 }
 
@@ -18,7 +18,7 @@ function hasMapEntries(map: ThinkingLevelMap): boolean {
  * budget 形态模型的思考预算：在原生 min/max 之间按档位线性插值。
  */
 function budgetTokensFor(
-    level: ModelThinkingLevel,
+    level: SelectableReasoningLevel,
     range: { min?: number; max?: number } | undefined
 ): number | undefined {
     if (!range) {
@@ -28,20 +28,20 @@ function budgetTokensFor(
         return 0;
     }
 
-    const min = range.min ?? MIN_ANSWER_TOKENS;
+    const min = range.min ?? MIN_RESPONSE_TOKENS;
     const max = range.max ?? Math.max(min, 32768);
-    const index = MODEL_THINKING_LEVELS.indexOf(level);
-    const ratio = index / (MODEL_THINKING_LEVELS.length - 1);
+    const index = SELECTABLE_REASONING_LEVELS.indexOf(level);
+    const ratio = index / (SELECTABLE_REASONING_LEVELS.length - 1);
     const tokens = Math.round(min + (max - min) * ratio);
     return Math.min(max, Math.max(min, tokens));
 }
 
 /**
- * 未传档位时使用 DEFAULT_THINKING_LEVEL；根据 `thinkingLevelMap` clamp 到模型
+ * 未传档位时使用 DEFAULT_REASONING_LEVEL；根据 `reasoningLevelMap` clamp 到模型
  * 支持的档位；没有 metadata 时按 mode 走 provider fallback。
  */
 export function resolveReasoning(input: ResolveReasoningInput): ReasoningResolution {
-    const requested = input.level ?? DEFAULT_THINKING_LEVEL;
+    const requested = input.level ?? DEFAULT_REASONING_LEVEL;
     const base = {
         format: input.format,
         mode: input.mode,
@@ -62,7 +62,7 @@ export function resolveReasoning(input: ResolveReasoningInput): ReasoningResolut
     }
 
     if (hasMapEntries(input.map)) {
-        const level = clampThinkingLevel(input.map, requested);
+        const level = clampReasoningLevel(input.map, requested);
         const mapped = input.map[level];
         return {
             ...base,

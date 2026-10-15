@@ -5,13 +5,13 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { z } from '@/utils/zod';
 
 import type {
-    ModelThinkingLevel,
-    ThinkingFormat,
-    ThinkingLevelMap,
+    ReasoningLevelMap,
+    ReasoningProtocol,
+    SelectableReasoningLevel,
 } from '../../../contracts/reasoning';
 import { normalizeReasoningOptions } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
-import { getOpenAiThinkingLevelMap, isOpenAiGpt6SolOrLuna } from '../reasoning';
+import { getOpenAiReasoningLevelMap, isOpenAiGpt6SolOrLuna } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
@@ -71,12 +71,12 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
         });
     }
 
-    protected override getReasoningFormat(): ThinkingFormat {
+    protected override getReasoningProtocol(): ReasoningProtocol {
         return 'openai-responses';
     }
 
-    protected override getFallbackThinkingLevelMap(modelId: string): ThinkingLevelMap {
-        return getOpenAiThinkingLevelMap(modelId);
+    protected override getFallbackReasoningLevelMap(modelId: string): ReasoningLevelMap {
+        return getOpenAiReasoningLevelMap(modelId);
     }
 
     /**
@@ -84,9 +84,9 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
      * Responses API 没有该限制。
      */
     protected override applyReasoningConstraint(
-        level: ModelThinkingLevel,
+        level: SelectableReasoningLevel,
         context: { modelId: string; hasTools: boolean }
-    ): ModelThinkingLevel {
+    ): SelectableReasoningLevel {
         if (
             this.getEffectiveFormat() === 'openai' &&
             context.hasTools &&
@@ -97,8 +97,8 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
         return level;
     }
 
-    private getEffectiveFormat(): ThinkingFormat {
-        return this.config.reasoning?.format ?? this.getReasoningFormat() ?? 'openai-responses';
+    private getEffectiveFormat(): ReasoningProtocol {
+        return this.config.reasoning?.format ?? this.getReasoningProtocol() ?? 'openai-responses';
     }
 
     getApiTargets(): ProviderApiTargets {

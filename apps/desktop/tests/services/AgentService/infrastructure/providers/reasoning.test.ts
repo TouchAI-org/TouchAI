@@ -2,65 +2,68 @@ import { describe, expect, it } from 'vitest';
 
 import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 import {
-    clampThinkingLevel,
-    DEFAULT_THINKING_LEVEL,
-    deriveThinkingLevelMap,
-    isModelThinkingLevel,
-    type ModelThinkingLevel,
+    clampReasoningLevel,
+    DEFAULT_REASONING_LEVEL,
+    deriveReasoningLevelMap,
+    isSelectableReasoningLevel,
     normalizeReasoningOptions,
     type ReasoningOption,
+    type SelectableReasoningLevel,
 } from '@/services/AgentService/contracts/reasoning';
 import { OpenAIProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai';
 import { OpenAICompatibleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai-compatible';
 import {
     encodeReasoning,
-    getOpenAiThinkingLevelMap,
+    getOpenAiReasoningLevelMap,
     type ReasoningResolution,
     resolveReasoning,
 } from '@/services/AgentService/infrastructure/providers/reasoning';
 
-describe('thinking level contract', () => {
-    it('accepts only TouchAI canonical thinking levels', () => {
-        expect(isModelThinkingLevel('off')).toBe(true);
-        expect(isModelThinkingLevel('high')).toBe(true);
-        expect(isModelThinkingLevel('max')).toBe(true);
-        expect(isModelThinkingLevel('none')).toBe(false);
-        expect(isModelThinkingLevel('bogus')).toBe(false);
-        expect(isModelThinkingLevel(undefined)).toBe(false);
+describe('reasoning level contract', () => {
+    it('accepts only TouchAI canonical reasoning levels', () => {
+        expect(isSelectableReasoningLevel('off')).toBe(true);
+        expect(isSelectableReasoningLevel('high')).toBe(true);
+        expect(isSelectableReasoningLevel('max')).toBe(true);
+        expect(isSelectableReasoningLevel('none')).toBe(false);
+        expect(isSelectableReasoningLevel('bogus')).toBe(false);
+        expect(isSelectableReasoningLevel(undefined)).toBe(false);
     });
 
     it('uses max as the temporary default', () => {
-        expect(DEFAULT_THINKING_LEVEL).toBe('max');
+        expect(DEFAULT_REASONING_LEVEL).toBe('max');
     });
 });
 
-describe('thinking level map', () => {
-    it('treats an effort enum without none/off as unable to disable thinking', () => {
-        const map = deriveThinkingLevelMap([
+describe('reasoning level map', () => {
+    it('treats an effort enum without none/off as unable to disable reasoning', () => {
+        const map = deriveReasoningLevelMap([
             { type: 'effort', values: ['minimal', 'low', 'medium', 'high'] },
         ]);
         expect(map.off).toBeNull();
         expect(map.high).toBe('high');
         expect(map.max).toBeNull();
-        expect(clampThinkingLevel(map, 'max')).toBe('high');
+        expect(clampReasoningLevel(map, 'max')).toBe('high');
     });
 
     it('maps none onto the off level and keeps xhigh/max only when declared', () => {
-        const map = deriveThinkingLevelMap([
+        const map = deriveReasoningLevelMap([
             { type: 'effort', values: ['none', 'low', 'medium', 'high', 'xhigh'] },
         ]);
         expect(map.off).toBe('none');
         expect(map.xhigh).toBe('xhigh');
         expect(map.max).toBeNull();
-        expect(clampThinkingLevel(map, 'max')).toBe('xhigh');
+        expect(clampReasoningLevel(map, 'max')).toBe('xhigh');
     });
 });
 
-describe('OpenAI thinking level map', () => {
-    function resolveLevel(modelId: string, level: ModelThinkingLevel = DEFAULT_THINKING_LEVEL) {
+describe('OpenAI reasoning level map', () => {
+    function resolveLevel(
+        modelId: string,
+        level: SelectableReasoningLevel = DEFAULT_REASONING_LEVEL
+    ) {
         return resolveReasoning({
             level,
-            map: getOpenAiThinkingLevelMap(modelId),
+            map: getOpenAiReasoningLevelMap(modelId),
             format: 'openai-responses',
             mode: 'auto',
             modelId,
@@ -94,9 +97,9 @@ describe('OpenAI thinking level map', () => {
     });
 
     it('returns an empty map for unknown or non-reasoning OpenAI models', () => {
-        expect(getOpenAiThinkingLevelMap('gpt-4o')).toEqual({});
-        expect(getOpenAiThinkingLevelMap('gpt-5-chat-latest')).toEqual({});
-        expect(getOpenAiThinkingLevelMap('unknown-model')).toEqual({});
+        expect(getOpenAiReasoningLevelMap('gpt-4o')).toEqual({});
+        expect(getOpenAiReasoningLevelMap('gpt-5-chat-latest')).toEqual({});
+        expect(getOpenAiReasoningLevelMap('unknown-model')).toEqual({});
     });
 
     it('defaults the official driver to the stateless Responses format', () => {
@@ -207,7 +210,7 @@ describe('reasoning resolver', () => {
     const options: ReasoningOption[] = [
         { type: 'effort', values: ['none', 'low', 'medium', 'high'] },
     ];
-    const effortMap = deriveThinkingLevelMap(options);
+    const effortMap = deriveReasoningLevelMap(options);
 
     it('snaps to the nearest supported level and prefers the higher level on ties', () => {
         const plan = resolveReasoning({
@@ -306,7 +309,7 @@ describe('OpenAI-compatible relay', () => {
 describe('reasoning format encoders', () => {
     function plan(
         format: ReasoningResolution['format'],
-        level: ModelThinkingLevel,
+        level: SelectableReasoningLevel,
         mapped: string | undefined,
         extra: Partial<ReasoningResolution> = {}
     ): ReasoningResolution {

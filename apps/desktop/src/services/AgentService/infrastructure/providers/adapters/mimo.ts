@@ -4,7 +4,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ThinkingFormat } from '../../../contracts/reasoning';
+import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
@@ -62,7 +62,7 @@ export class MiMoProviderAdapter extends AiSdkProviderBase {
      * MiMo 基于 OpenAI-compatible 协议，providerOptions namespace 为 mimo。
      * 统一档位由 reasoning resolver + openai-compatible encoder 翻译。
      */
-    protected override getReasoningFormat(): ThinkingFormat {
+    protected override getReasoningProtocol(): ReasoningProtocol {
         return 'openai';
     }
 
