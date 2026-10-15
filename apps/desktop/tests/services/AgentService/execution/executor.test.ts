@@ -44,6 +44,8 @@ function createCheckpoint(): AttemptCheckpoint {
 
             reasoning: 0,
 
+            reasoning_options: null,
+
             release_date: null,
 
             temperature: 1,

@@ -22,6 +22,7 @@ function createModel(id: number, overrides: Partial<ModelWithProvider> = {}): Mo
         }),
         open_weights: 0,
         reasoning: 0,
+        reasoning_options: null,
         release_date: null,
         temperature: 0,
         tool_call: 1,

@@ -68,6 +68,7 @@ function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvi
         modalities: JSON.stringify({ input: ['text'], output: ['text'] }),
         open_weights: 0,
         reasoning: 1,
+        reasoning_options: null,
         release_date: null,
         temperature: 1,
         tool_call: 1,

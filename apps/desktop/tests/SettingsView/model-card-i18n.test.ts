@@ -56,6 +56,7 @@ function createModel(overrides = {}) {
         modalities: null,
         open_weights: 0,
         reasoning: 0,
+        reasoning_options: null,
         release_date: null,
         temperature: 1,
         tool_call: 1,
