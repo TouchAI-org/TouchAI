@@ -283,7 +283,7 @@ impl DatabaseRuntime {
             .take()
             .ok_or_else(|| format!("Transaction '{tx_id}' is already closed"))?;
 
-        sqlx::query(sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql))
             .execute(&mut *connection)
             .await
             .map_err(|error| format!("Failed to finalize sqlite transaction '{tx_id}': {error}"))?;

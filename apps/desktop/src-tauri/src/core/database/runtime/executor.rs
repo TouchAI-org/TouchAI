@@ -90,8 +90,8 @@ where
 fn build_query<'q>(
     sql: &'q str,
     params: Vec<JsonValue>,
-) -> Result<sqlx::query::Query<'q, Sqlite, SqliteArguments<'q>>, String> {
-    let mut query = sqlx::query(sql);
+) -> Result<sqlx::query::Query<'q, Sqlite, SqliteArguments>, String> {
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
 
     for param in params {
         query = match param {

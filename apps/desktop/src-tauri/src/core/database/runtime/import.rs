@@ -218,7 +218,7 @@ mod tests {
                 .split("--> statement-breakpoint")
                 .filter(|s| !s.trim().is_empty())
             {
-                sqlx::raw_sql(statement)
+                sqlx::raw_sql(sqlx::AssertSqlSafe(statement))
                     .execute(&mut *connection)
                     .await
                     .unwrap();

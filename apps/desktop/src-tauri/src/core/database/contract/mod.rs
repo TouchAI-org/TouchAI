@@ -160,7 +160,7 @@ pub(crate) async fn migrate_database(
             .map_err(|error| format!("Failed to begin migration '{tag}': {error}"))?;
 
         for statement in statements {
-            sqlx::raw_sql(statement)
+            sqlx::raw_sql(sqlx::AssertSqlSafe(statement))
                 .execute(&mut *transaction)
                 .await
                 .map_err(|error| format!("Failed to execute migration '{tag}': {error}"))?;
@@ -225,12 +225,15 @@ pub(crate) async fn execute_sql_artifact_on_pool(
     segments: &[&str],
 ) -> Result<(), String> {
     let sql = read_sql_artifact(database_contract, segments)?;
-    sqlx::raw_sql(&sql).execute(pool).await.map_err(|error| {
-        format!(
-            "Failed to execute database artifact '{:?}': {error}",
-            segments
-        )
-    })?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+        .execute(pool)
+        .await
+        .map_err(|error| {
+            format!(
+                "Failed to execute database artifact '{:?}': {error}",
+                segments
+            )
+        })?;
     Ok(())
 }
 
@@ -241,7 +244,7 @@ pub(crate) async fn execute_sql_artifact_on_connection(
     segments: &[&str],
 ) -> Result<(), String> {
     let sql = read_sql_artifact(database_contract, segments)?;
-    sqlx::raw_sql(&sql)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
         .execute(&mut **connection)
         .await
         .map_err(|error| {

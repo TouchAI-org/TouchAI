@@ -23,7 +23,7 @@ mod win {
         Graphics::Dwm::{
             DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
         },
-        Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn, HRGN},
+        Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn, HGDIOBJ, HRGN},
         UI::WindowsAndMessaging::GetClientRect,
     };
 
@@ -99,15 +99,15 @@ mod win {
             if region.is_invalid() {
                 return Err(format!(
                     "Failed to create rounded window region: {}",
-                    windows::core::Error::from_win32()
+                    windows::core::Error::from_thread()
                 ));
             }
 
-            if SetWindowRgn(hwnd, region, true) == 0 {
-                let _ = DeleteObject(region);
+            if SetWindowRgn(hwnd, Some(region), true) == 0 {
+                let _ = DeleteObject(HGDIOBJ(region.0));
                 return Err(format!(
                     "Failed to apply rounded window region: {}",
-                    windows::core::Error::from_win32()
+                    windows::core::Error::from_thread()
                 ));
             }
         }
@@ -119,10 +119,10 @@ mod win {
         let no_region = HRGN(std::ptr::null_mut());
 
         unsafe {
-            if SetWindowRgn(hwnd, no_region, true) == 0 {
+            if SetWindowRgn(hwnd, Some(no_region), true) == 0 {
                 return Err(format!(
                     "Failed to clear rounded window region: {}",
-                    windows::core::Error::from_win32()
+                    windows::core::Error::from_thread()
                 ));
             }
         }

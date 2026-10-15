@@ -137,7 +137,7 @@ fn apply_centered_window_frame_atomically<R: Runtime>(
     unsafe {
         SetWindowPos(
             hwnd,
-            HWND::default(),
+            None,
             physical_x,
             physical_y,
             physical_width,

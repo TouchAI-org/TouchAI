@@ -198,7 +198,7 @@ pub(super) fn focus_search_webview_content<R: Runtime>(
                     GetWindow(container_hwnd, GW_CHILD).unwrap_or_default()
                 };
                 let focus_target = select_search_webview_focus_hwnd(container_hwnd, content_hwnd);
-                let _ = SetFocus(focus_target);
+                let _ = SetFocus(Some(focus_target));
                 let _ = webview.controller().SetIsVisible(true);
                 webview
                     .controller()
