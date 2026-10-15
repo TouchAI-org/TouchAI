@@ -16,8 +16,7 @@ const REMINDER_SHORT_CLAUSE_MAX_CHARS_EN = 32;
 const REMINDER_SHORT_CLAUSE_MAX_CHARS_DEFAULT = 24;
 
 const REMINDER_MARKDOWN_ESCAPE_PATTERN = /\\([\\`*_{}[\]()#+.!>-])/g;
-const REMINDER_PATH_LIKE_TOKEN_PATTERN = /\S*[\\/]\S*/g;
-const REMINDER_PATH_WRAPPER_TRIM_PATTERN = /^[("'[{]+|[)"'\],.;:!?}]+$/g;
+const REMINDER_PATH_WRAPPER_TRIM_PATTERN = /^[('"[{<]+|[)"'\],.;:!?}>]+$/g;
 const REMINDER_DANGEROUS_HTML_TAG_NAMES = [
     'script',
     'style',
@@ -26,21 +25,26 @@ const REMINDER_DANGEROUS_HTML_TAG_NAMES = [
     'embed',
     'template',
 ];
-const REMINDER_PATH_SEGMENT_PATTERN = '(?:[A-Za-z0-9._@-]+|\\*{1,2})';
+const REMINDER_PATH_SEGMENT_PATTERN = String.raw`[\p{L}\p{N}\p{M}._@*?\[\]{},-]+`;
 const REMINDER_POSIX_RELATIVE_PATH_PATTERN = new RegExp(
-    `^(?:${REMINDER_PATH_SEGMENT_PATTERN}/)+${REMINDER_PATH_SEGMENT_PATTERN}$`
+    `^(?:${REMINDER_PATH_SEGMENT_PATTERN}/)+${REMINDER_PATH_SEGMENT_PATTERN}$`,
+    'u'
 );
 const REMINDER_WINDOWS_RELATIVE_PATH_PATTERN = new RegExp(
-    `^(?:${REMINDER_PATH_SEGMENT_PATTERN}\\\\)+${REMINDER_PATH_SEGMENT_PATTERN}$`
+    `^(?:${REMINDER_PATH_SEGMENT_PATTERN}\\\\)+${REMINDER_PATH_SEGMENT_PATTERN}$`,
+    'u'
 );
 const REMINDER_POSIX_ABSOLUTE_PATH_PATTERN = new RegExp(
-    `^(?:/|\\.{1,2}/|~/)(?:${REMINDER_PATH_SEGMENT_PATTERN}/)*${REMINDER_PATH_SEGMENT_PATTERN}$`
+    `^(?:/|\\.{1,2}/|~/)(?:${REMINDER_PATH_SEGMENT_PATTERN}/)*${REMINDER_PATH_SEGMENT_PATTERN}$`,
+    'u'
 );
 const REMINDER_WINDOWS_ABSOLUTE_PATH_PATTERN = new RegExp(
-    `^(?:[A-Za-z]:\\\\|\\.{1,2}\\\\|~\\\\)(?:${REMINDER_PATH_SEGMENT_PATTERN}\\\\)*${REMINDER_PATH_SEGMENT_PATTERN}$`
+    `^(?:[A-Za-z]:\\\\|\\.{1,2}\\\\|~\\\\)(?:${REMINDER_PATH_SEGMENT_PATTERN}\\\\)*${REMINDER_PATH_SEGMENT_PATTERN}$`,
+    'u'
 );
 const REMINDER_WINDOWS_UNC_PATH_PATTERN = new RegExp(
-    `^\\\\\\\\${REMINDER_PATH_SEGMENT_PATTERN}(?:\\\\${REMINDER_PATH_SEGMENT_PATTERN})+$`
+    `^\\\\\\\\${REMINDER_PATH_SEGMENT_PATTERN}(?:\\\\${REMINDER_PATH_SEGMENT_PATTERN})+$`,
+    'u'
 );
 const REMINDER_COMMAND_FENCE_PATTERN = /^\s*(```|~~~)[^\r\n`~]*\r?\n([\s\S]*?)\r?\n\1\s*$/;
 
@@ -66,22 +70,70 @@ type ReminderInlineHtmlTag = {
     tagName: string;
 };
 
-type ReminderCompleteHtmlTag = {
-    endIndex: number;
-    raw: string;
-};
-
-type ReminderDangerousHtmlTag = {
-    endIndex: number;
-    isClosing: boolean;
-    isComplete: boolean;
-    isSelfClosing: boolean;
-    tagName: string;
-};
-
-const REMINDER_INLINE_LINE_BREAK_HTML_TAGS = new Set(['br', 'hr']);
-const REMINDER_DANGEROUS_INLINE_HTML_TAGS = new Set(REMINDER_DANGEROUS_HTML_TAG_NAMES);
-const REMINDER_INLINE_ZERO_WIDTH_HTML_TAGS = new Set(['wbr']);
+const REMINDER_LINE_BREAK_HTML_TAGS = new Set([
+    'br',
+    'hr',
+    'div',
+    'p',
+    'section',
+    'article',
+    'header',
+    'footer',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'li',
+    'ul',
+    'ol',
+    'tr',
+    'blockquote',
+    'pre',
+]);
+const REMINDER_KNOWN_HTML_TAGS = new Set([
+    ...REMINDER_LINE_BREAK_HTML_TAGS,
+    'a',
+    'b',
+    'i',
+    'u',
+    's',
+    'em',
+    'strong',
+    'span',
+    'code',
+    'del',
+    'ins',
+    'small',
+    'sub',
+    'sup',
+    'mark',
+    'kbd',
+    'samp',
+    'var',
+    'abbr',
+    'title',
+    'img',
+    'input',
+    'link',
+    'meta',
+    'wbr',
+    'table',
+    'thead',
+    'tbody',
+    'tfoot',
+    'th',
+    'td',
+    'dl',
+    'dt',
+    'dd',
+    'details',
+    'summary',
+    'figure',
+    'figcaption',
+]);
+const REMINDER_DANGEROUS_HTML_TAGS = new Set(REMINDER_DANGEROUS_HTML_TAG_NAMES);
 
 const reminderMarkdownParser = getMarkdown('touchai-reminder-markdown', {
     enableContainers: false,
@@ -90,12 +142,34 @@ const reminderMarkdownParser = getMarkdown('touchai-reminder-markdown', {
     },
 });
 
+// markstream exposes markdown-it utilities as unknown values at this boundary.
+const decodeReminderHtmlEntity = reminderMarkdownParser.utils.unescapeAll as (
+    value: string
+) => string;
+
+function decodeReminderHtmlText(value: string): string {
+    // Only entities are HTML syntax here; backslashes in paths remain literal.
+    return value.replace(
+        /&(?:#[xX][0-9a-fA-F]+|#\d+|[A-Za-z][A-Za-z0-9]+);/g,
+        decodeReminderHtmlEntity
+    );
+}
+
 function truncateNotificationText(value: string, maxChars: number): string {
     if (value.length <= maxChars) {
         return value;
     }
 
-    return `${value.slice(0, maxChars - 3).trimEnd()}...`;
+    if (maxChars <= 3) {
+        return '.'.repeat(Math.max(0, maxChars));
+    }
+    let end = maxChars - 3;
+    // A notification budget is measured in UTF-16 units, but must not split a code point.
+    const lastCodeUnit = value.charCodeAt(end - 1);
+    if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
+        end -= 1;
+    }
+    return `${value.slice(0, end).trimEnd()}...`;
 }
 
 function isEnglishReminderLocale(): boolean {
@@ -136,253 +210,61 @@ function hasTerminalPunctuation(value: string): boolean {
 }
 
 function limitReminderMarkdownSource(value: string): string {
-    return value.length <= REMINDER_MARKDOWN_SCAN_MAX_CHARS
-        ? value
-        : value.slice(0, REMINDER_MARKDOWN_SCAN_MAX_CHARS);
+    if (value.length <= REMINDER_MARKDOWN_SCAN_MAX_CHARS) return value;
+    let end = REMINDER_MARKDOWN_SCAN_MAX_CHARS;
+    const lastCodeUnit = value.charCodeAt(end - 1);
+    if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) end -= 1;
+    return value.slice(0, end);
 }
 
 function unescapeReminderMarkdown(value: string): string {
-    return value.replace(REMINDER_MARKDOWN_ESCAPE_PATTERN, '$1');
-}
-
-function isReminderAsciiWhitespace(value: string): boolean {
-    return value === ' ' || value === '\n' || value === '\r' || value === '\t' || value === '\f';
-}
-
-function isReminderHtmlTagNameStart(value: string): boolean {
-    const code = value.charCodeAt(0);
-    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-}
-
-function isReminderHtmlTagNameChar(value: string): boolean {
-    const code = value.charCodeAt(0);
-    return (
-        (code >= 65 && code <= 90) ||
-        (code >= 97 && code <= 122) ||
-        (code >= 48 && code <= 57) ||
-        value === ':' ||
-        value === '-'
+    return value.replace(REMINDER_MARKDOWN_ESCAPE_PATTERN, (match, marker: string) =>
+        marker === '[' || marker === ']' ? match : marker
     );
 }
 
-function readReminderHtmlTagName(
-    value: string,
-    startIndex: number
-): { isClosing: boolean; nameEndIndex: number; tagName: string } | null {
-    if (value[startIndex] !== '<') {
-        return null;
+/** Find a complete HTML fragment without treating quoted `>` as its boundary. */
+function findReminderHtmlEnd(value: string, start: number): number | null {
+    if (value.startsWith('<!--', start)) {
+        const end = value.indexOf('-->', start + 4);
+        return end < 0 ? value.length : end + 3;
     }
-
-    let index = startIndex + 1;
-    while (index < value.length && isReminderAsciiWhitespace(value[index] ?? '')) {
-        index += 1;
-    }
-
-    let isClosing = false;
-    if (value[index] === '/') {
-        isClosing = true;
-        index += 1;
-        while (index < value.length && isReminderAsciiWhitespace(value[index] ?? '')) {
-            index += 1;
+    if (!/^<\/?[A-Za-z]/.test(value.slice(start, start + 3))) return null;
+    let quote = '';
+    for (let index = start + 1; index < value.length; index += 1) {
+        const char = value[index];
+        if (quote) {
+            if (char === quote) quote = '';
+        } else if (char === '"' || char === "'") {
+            quote = char;
+        } else if (char === '>') {
+            return index + 1;
         }
     }
-
-    const nameStartIndex = index;
-    if (!isReminderHtmlTagNameStart(value[index] ?? '')) {
-        return null;
-    }
-
-    index += 1;
-    while (index < value.length && isReminderHtmlTagNameChar(value[index] ?? '')) {
-        index += 1;
-    }
-
-    const nextChar = value[index];
-    if (nextChar && !isReminderAsciiWhitespace(nextChar) && nextChar !== '/' && nextChar !== '>') {
-        return null;
-    }
-
-    return {
-        isClosing,
-        nameEndIndex: index,
-        tagName: value.slice(nameStartIndex, index).toLowerCase(),
-    };
-}
-
-function isReminderHtmlTagSelfClosing(value: string, closingBracketIndex: number): boolean {
-    let index = closingBracketIndex - 1;
-    while (index >= 0 && isReminderAsciiWhitespace(value[index] ?? '')) {
-        index -= 1;
-    }
-
-    return value[index] === '/';
-}
-
-function readDangerousReminderHtmlTag(
-    value: string,
-    startIndex: number
-): ReminderDangerousHtmlTag | null {
-    const tagName = readReminderHtmlTagName(value, startIndex);
-    if (!tagName || !REMINDER_DANGEROUS_INLINE_HTML_TAGS.has(tagName.tagName)) {
-        return null;
-    }
-
-    const closingBracketIndex = value.indexOf('>', tagName.nameEndIndex);
-    if (closingBracketIndex === -1) {
-        return {
-            endIndex: tagName.nameEndIndex,
-            isClosing: tagName.isClosing,
-            isComplete: false,
-            isSelfClosing: false,
-            tagName: tagName.tagName,
-        };
-    }
-
-    return {
-        endIndex: closingBracketIndex + 1,
-        isClosing: tagName.isClosing,
-        isComplete: true,
-        isSelfClosing: isReminderHtmlTagSelfClosing(value, closingBracketIndex),
-        tagName: tagName.tagName,
-    };
-}
-
-function findDangerousReminderHtmlBlockEnd(
-    value: string,
-    startIndex: number,
-    tagName: string
-): number | null {
-    let depth = 0;
-    let index = startIndex;
-
-    while (index < value.length) {
-        const tagStartIndex = value.indexOf('<', index);
-        if (tagStartIndex === -1) {
-            return null;
-        }
-
-        const tag = readDangerousReminderHtmlTag(value, tagStartIndex);
-        if (!tag || tag.tagName !== tagName || !tag.isComplete) {
-            index = tagStartIndex + 1;
-            continue;
-        }
-
-        if (tag.isClosing) {
-            if (depth === 0) {
-                return tag.endIndex;
-            }
-
-            depth -= 1;
-        } else if (!tag.isSelfClosing) {
-            depth += 1;
-        }
-
-        index = tag.endIndex;
-    }
-
     return null;
 }
 
-/**
- * Notifications are rendered as plain text today, but script-like HTML
- * fragments still have no value in reminder summaries and are safer to remove.
- */
-function stripDangerousReminderHtml(value: string): string {
-    let result = '';
+/** Tokenize only HTML fragments, never code spans/fences. Input is already bounded. */
+function tokenizeReminderHtml(value: string): ReminderMarkdownToken[] {
+    const tokens: ReminderMarkdownToken[] = [];
+    let textStart = 0;
     let index = 0;
-
     while (index < value.length) {
-        const tagStartIndex = value.indexOf('<', index);
-        if (tagStartIndex === -1) {
-            result += value.slice(index);
-            break;
-        }
-
-        result += value.slice(index, tagStartIndex);
-        const tag = readDangerousReminderHtmlTag(value, tagStartIndex);
-        if (!tag) {
-            result += '<';
-            index = tagStartIndex + 1;
+        const tagEnd = value[index] === '<' ? findReminderHtmlEnd(value, index) : null;
+        if (tagEnd === null) {
+            index += 1;
             continue;
         }
-
-        result += ' ';
-        if (!tag.isClosing && !tag.isSelfClosing && tag.isComplete) {
-            index =
-                findDangerousReminderHtmlBlockEnd(value, tag.endIndex, tag.tagName) ?? tag.endIndex;
-            continue;
-        }
-
-        index = tag.endIndex;
+        tokens.push({
+            type: 'text',
+            content: decodeReminderHtmlText(value.slice(textStart, index)),
+        });
+        tokens.push({ type: 'html_inline', content: value.slice(index, tagEnd) });
+        index = tagEnd;
+        textStart = tagEnd;
     }
-
-    return result;
-}
-
-function readCompleteReminderHtmlTag(
-    value: string,
-    startIndex: number
-): ReminderCompleteHtmlTag | null {
-    if (!readReminderHtmlTagName(value, startIndex)) {
-        return null;
-    }
-
-    const closingBracketIndex = value.indexOf('>', startIndex + 1);
-    if (closingBracketIndex === -1) {
-        return null;
-    }
-
-    return {
-        endIndex: closingBracketIndex + 1,
-        raw: value.slice(startIndex, closingBracketIndex + 1),
-    };
-}
-
-function normalizeReminderCompleteHtmlTag(tag: string): string {
-    const parsedTag = parseReminderInlineHtmlTag(tag);
-    if (!parsedTag) {
-        return tag;
-    }
-
-    if (REMINDER_INLINE_LINE_BREAK_HTML_TAGS.has(parsedTag.tagName)) {
-        return '\n';
-    }
-
-    if (
-        REMINDER_INLINE_ZERO_WIDTH_HTML_TAGS.has(parsedTag.tagName) ||
-        REMINDER_DANGEROUS_INLINE_HTML_TAGS.has(parsedTag.tagName)
-    ) {
-        return '';
-    }
-
-    return '';
-}
-
-function normalizeReminderHtmlFragments(value: string): string {
-    const sanitized = stripDangerousReminderHtml(value);
-    let result = '';
-    let index = 0;
-
-    while (index < sanitized.length) {
-        const tagStartIndex = sanitized.indexOf('<', index);
-        if (tagStartIndex === -1) {
-            result += sanitized.slice(index);
-            break;
-        }
-
-        result += sanitized.slice(index, tagStartIndex);
-        const tag = readCompleteReminderHtmlTag(sanitized, tagStartIndex);
-        if (!tag) {
-            result += '<';
-            index = tagStartIndex + 1;
-            continue;
-        }
-
-        result += normalizeReminderCompleteHtmlTag(tag.raw);
-        index = tag.endIndex;
-    }
-
-    return result;
+    tokens.push({ type: 'text', content: decodeReminderHtmlText(value.slice(textStart)) });
+    return tokens;
 }
 
 function isReminderPathLikeToken(token: string): boolean {
@@ -397,63 +279,117 @@ function isReminderPathLikeToken(token: string): boolean {
 }
 
 function protectPathLikeMarkdownToken(token: string): string {
+    // Keep surrounding emphasis as markup, not as part of a glob path.
+    const wrapper = token.match(/^(\*{1,3}|_{1,3})([\s\S]+)\1$/);
+    const firstSegment = token.split(/[\\/]/, 1)[0] ?? '';
+    if (
+        wrapper?.[1] &&
+        wrapper[2] &&
+        !firstSegment.endsWith(wrapper[1]) &&
+        (wrapper[1] !== '*' || !/[*?[\]{}]/.test(wrapper[2])) &&
+        isReminderPathLikeToken(wrapper[2])
+    ) {
+        return `${wrapper[1]}${protectPathLikeMarkdownToken(wrapper[2])}${wrapper[1]}`;
+    }
     if (!isReminderPathLikeToken(token)) {
+        return unescapeReminderMarkdown(token);
+    }
+
+    if (!/[`*_]/.test(token) || /^!?\[[^\]]*]\([^)]+\)$/.test(token)) {
         return token;
     }
 
-    if (!/[`*_]/.test(token)) {
-        return token;
-    }
-
-    if (/^!?\[[^\]]*]\([^)]+\)$/.test(token)) {
-        return token;
-    }
-
-    return token.replace(/([\\`*_])/g, '\\$1');
+    return token.replace(/([\\`*_<>])/g, '\\$1');
 }
 
-/**
- * Bound regex work to a small prefix and preserve path-like markdown fragments
- * so emphasis markers inside file paths survive plain-text conversion.
- */
-function prepareReminderMarkdownSource(value: string): string {
-    const normalized = limitReminderMarkdownSource(
-        stripDangerousReminderHtml(value.replace(/\r\n?/g, '\n'))
-    );
-    const protectedPaths: string[] = [];
-    const withPlaceholders = normalized.replace(REMINDER_PATH_LIKE_TOKEN_PATTERN, (token) => {
-        if (!isReminderPathLikeToken(token)) {
-            return token;
-        }
-
-        const placeholder = `%%TOUCHAI_REMINDER_PATH_${protectedPaths.length}%%`;
-        protectedPaths.push(protectPathLikeMarkdownToken(token));
-        return placeholder;
-    });
-    const unescaped = unescapeReminderMarkdown(withPlaceholders);
-    return protectedPaths.reduce(
-        (text, token, index) => text.replace(`%%TOUCHAI_REMINDER_PATH_${index}%%`, token),
-        unescaped
-    );
+/** Find a code span's matching delimiter, so brackets inside it stay literal. */
+function findReminderCodeSpanEnd(value: string, start: number): number | null {
+    let openingEnd = start + 1;
+    while (value[openingEnd] === '`') openingEnd += 1;
+    let closingStart = value.indexOf('`', openingEnd);
+    while (closingStart >= 0) {
+        let closingEnd = closingStart + 1;
+        while (value[closingEnd] === '`') closingEnd += 1;
+        if (closingEnd - closingStart === openingEnd - start) return closingEnd;
+        closingStart = value.indexOf('`', closingEnd);
+    }
+    return null;
 }
 
-/** Keep fallback HTML cleanup conservative so diagnostics like `<title>` survive. */
-function stripHtmlToText(value: string): string {
-    if (!value) {
-        return '';
-    }
-
-    const sanitized = stripDangerousReminderHtml(value);
-
-    if (typeof DOMParser !== 'undefined') {
-        try {
-            return new DOMParser().parseFromString(sanitized, 'text/html').body.textContent ?? '';
-        } catch {
-            // Fall back to a conservative tag strip when DOM parsing is unavailable.
+/** Protect prose paths, leaving code spans and HTML tag attributes verbatim. */
+function prepareReminderProse(value: string): string {
+    let result = '';
+    let start = 0;
+    let index = 0;
+    const prepareFragment = (end: number): string =>
+        value
+            .slice(start, end)
+            .replace(
+                /(^|\n) {0,3}(?:\\#){1,6}(?:[\t ]+|$)/g,
+                (match: string, lineBreak: string, offset: number) =>
+                    offset === 0 && start > 0 && value[start - 1] !== '\n' ? match : lineBreak
+            )
+            .replace(/\S+/g, protectPathLikeMarkdownToken);
+    while (index < value.length) {
+        let verbatimEnd: number | null = null;
+        let preparedLabel: string | null = null;
+        if (value[index] === '[') {
+            let depth = 1;
+            let labelEnd = index + 1;
+            for (; labelEnd < value.length; labelEnd += 1) {
+                if (value[labelEnd] === '\\') {
+                    labelEnd += 1;
+                } else if (value[labelEnd] === '`') {
+                    const codeEnd = findReminderCodeSpanEnd(value, labelEnd);
+                    if (codeEnd !== null) labelEnd = codeEnd - 1;
+                } else if (value[labelEnd] === '<') {
+                    const tagEnd = findReminderHtmlEnd(value, labelEnd);
+                    if (tagEnd !== null) labelEnd = tagEnd - 1;
+                } else if (value[labelEnd] === '[') {
+                    depth += 1;
+                } else if (value[labelEnd] === ']' && --depth === 0) {
+                    break;
+                }
+            }
+            const label = value.slice(index + 1, labelEnd);
+            if (depth === 0 && /[/\\]/.test(label)) {
+                // Prepare the complete label before whitespace separates its path tokens.
+                preparedLabel = `[${prepareReminderProse(label)}]`;
+                verbatimEnd = labelEnd + 1;
+            }
+        } else if (value[index] === '<') {
+            const tagEnd = findReminderHtmlEnd(value, index);
+            if (tagEnd !== null) {
+                const fragment = value.slice(index, tagEnd);
+                const tag = parseReminderInlineHtmlTag(fragment);
+                if ((tag?.isClosing && !tag.hasAttributes) || !isReminderPathLikeToken(fragment)) {
+                    verbatimEnd = tagEnd;
+                }
+            }
+        } else if (value[index] === '`') {
+            let backslashes = 0;
+            for (let before = index - 1; before >= 0 && value[before] === '\\'; before -= 1) {
+                backslashes += 1;
+            }
+            if (backslashes % 2 === 0) {
+                verbatimEnd = findReminderCodeSpanEnd(value, index);
+            }
+            if (verbatimEnd === null) {
+                index += 1;
+                while (value[index] === '`') index += 1;
+                continue;
+            }
         }
+        if (verbatimEnd === null) {
+            index += 1;
+            continue;
+        }
+        result += prepareFragment(index);
+        result += preparedLabel ?? value.slice(index, verbatimEnd);
+        index = verbatimEnd;
+        start = verbatimEnd;
     }
-
-    return normalizeReminderHtmlFragments(sanitized);
+    return result + prepareFragment(value.length);
 }
 
 /** Parse a single markdown-it html_inline token into tag metadata when it is real tag syntax. */
@@ -473,101 +409,87 @@ function parseReminderInlineHtmlTag(value: string): ReminderInlineHtmlTag | null
     };
 }
 
-/**
- * Reverse-scan inline HTML tokens once so opening tags can be stripped in O(n)
- * when a matching closing tag appears later in the same inline fragment.
- */
-function collectPairedReminderInlineHtmlOpenings(tokens: ReminderMarkdownToken[]): Set<number> {
-    const pairedOpeningIndexes = new Set<number>();
-    const closingCounts = new Map<string, number>();
-
-    for (let index = tokens.length - 1; index >= 0; index -= 1) {
-        const token = tokens[index];
-        if (token?.type !== 'html_inline') {
-            continue;
-        }
-
-        const parsedTag = parseReminderInlineHtmlTag(token.content ?? '');
-        if (!parsedTag || parsedTag.isSelfClosing) {
-            continue;
-        }
-
-        if (parsedTag.isClosing) {
-            closingCounts.set(parsedTag.tagName, (closingCounts.get(parsedTag.tagName) ?? 0) + 1);
-            continue;
-        }
-
-        const closingCount = closingCounts.get(parsedTag.tagName) ?? 0;
-        if (closingCount <= 0) {
-            continue;
-        }
-
-        pairedOpeningIndexes.add(index);
-        if (closingCount === 1) {
-            closingCounts.delete(parsedTag.tagName);
+/** Pair tags once so code and unmatched angle-bracket diagnostics remain literal. */
+function pairReminderHtmlTags(tokens: ReminderMarkdownToken[]): Map<number, number> {
+    const pairs = new Map<number, number>();
+    const openings = new Map<string, number[]>();
+    tokens.forEach((token, index) => {
+        if (token.type !== 'html_inline') return;
+        const tag = parseReminderInlineHtmlTag(token.content ?? '');
+        if (!tag || tag.isSelfClosing) return;
+        if (!tag.isClosing) {
+            const stack = openings.get(tag.tagName) ?? [];
+            stack.push(index);
+            openings.set(tag.tagName, stack);
         } else {
-            closingCounts.set(parsedTag.tagName, closingCount - 1);
+            const opening = openings.get(tag.tagName)?.pop();
+            if (opening !== undefined) pairs.set(opening, index);
         }
-    }
-
-    return pairedOpeningIndexes;
+    });
+    return pairs;
 }
 
-/** Strip complete HTML tags in the fallback path and keep incomplete diagnostics literal. */
-function normalizeReminderFallbackHtml(value: string): string {
-    return normalizeReminderHtmlFragments(value);
-}
-
-function normalizeReminderInlineHtmlToken(
-    tokenContent: string,
-    index: number,
-    pairedOpeningIndexes: Set<number>,
-    openTags: Map<string, number>
-): string {
-    const parsedTag = parseReminderInlineHtmlTag(tokenContent);
-    if (!parsedTag) {
-        return tokenContent;
-    }
-
-    if (REMINDER_INLINE_LINE_BREAK_HTML_TAGS.has(parsedTag.tagName)) {
-        return '\n';
-    }
-
-    if (REMINDER_INLINE_ZERO_WIDTH_HTML_TAGS.has(parsedTag.tagName)) {
-        return '';
-    }
-
-    if (REMINDER_DANGEROUS_INLINE_HTML_TAGS.has(parsedTag.tagName)) {
-        return '';
-    }
-
-    if (parsedTag.isClosing) {
-        const openCount = openTags.get(parsedTag.tagName) ?? 0;
-        if (openCount <= 0) {
-            return tokenContent;
-        }
-
-        if (openCount === 1) {
-            openTags.delete(parsedTag.tagName);
+/** Join only blocks spanned by actual dangerous HTML pairs; code tokens stay literal. */
+function mergeReminderDangerousHtmlBlocks(
+    tokens: ReminderMarkdownToken[]
+): ReminderMarkdownToken[] {
+    const leaves: { token: ReminderMarkdownToken; block: number }[] = [];
+    const visit = (token: ReminderMarkdownToken, block: number): void => {
+        const children =
+            token.type === 'html_block'
+                ? tokenizeReminderHtml(token.content ?? '')
+                : token.children;
+        if (children?.length) {
+            children.forEach((child) => visit(child, block));
         } else {
-            openTags.set(parsedTag.tagName, openCount - 1);
+            leaves.push({ token, block });
         }
-        return '';
+    };
+    tokens.forEach(visit);
+    const ranges: { start: number; end: number }[] = [];
+    for (const [opening, closing] of pairReminderHtmlTags(leaves.map(({ token }) => token))) {
+        const first = leaves[opening];
+        const last = leaves[closing];
+        const tag = parseReminderInlineHtmlTag(first?.token.content ?? '');
+        if (
+            first &&
+            last &&
+            first.block !== last.block &&
+            tag &&
+            REMINDER_DANGEROUS_HTML_TAGS.has(tag.tagName)
+        ) {
+            ranges.push({ start: first.block, end: last.block });
+        }
     }
-
-    if (parsedTag.isSelfClosing) {
-        return parsedTag.hasAttributes ? '' : tokenContent;
+    ranges.sort((a, b) => a.start - b.start);
+    const merged: typeof ranges = [];
+    for (const range of ranges) {
+        const previous = merged[merged.length - 1];
+        if (previous && range.start <= previous.end) {
+            previous.end = Math.max(previous.end, range.end);
+        } else {
+            merged.push({ ...range });
+        }
     }
-
-    const shouldStripOpening = parsedTag.hasAttributes || pairedOpeningIndexes.has(index);
-    if (!shouldStripOpening) {
-        return tokenContent;
+    const result: ReminderMarkdownToken[] = [];
+    let cursor = 0;
+    for (const { start, end } of merged) {
+        result.push(...tokens.slice(cursor, start), {
+            type: 'inline',
+            children: leaves
+                .filter(({ block }) => block >= start && block <= end)
+                .map(({ token }) => token),
+        });
+        // The merged text may start inside a cell; retain row/cell boundaries for the collector.
+        result.push(
+            ...tokens
+                .slice(start + 1, end + 1)
+                .filter((token) => /_(?:open|close)$/.test(token.type))
+        );
+        cursor = end + 1;
     }
-
-    openTags.set(parsedTag.tagName, (openTags.get(parsedTag.tagName) ?? 0) + 1);
-    return '';
+    return [...result, ...tokens.slice(cursor)];
 }
-
 function normalizeCommandTypography(value: string): string {
     return value.replace(/[\u201c\u201d]/g, '"').replace(/[\u2018\u2019]/g, "'");
 }
@@ -602,8 +524,8 @@ function extractReminderInlineText(
     }
 
     let text = '';
-    const openInlineHtmlTags = new Map<string, number>();
-    const pairedOpeningIndexes = collectPairedReminderInlineHtmlOpenings(tokens);
+    const htmlPairs = pairReminderHtmlTags(tokens);
+    const pairedClosings = new Set(htmlPairs.values());
 
     for (let index = 0; index < tokens.length; index += 1) {
         const token = tokens[index];
@@ -620,13 +542,39 @@ function extractReminderInlineText(
             case 'hardbreak':
                 text += '\n';
                 break;
-            case 'html_inline':
-                text += normalizeReminderInlineHtmlToken(
-                    token.content ?? '',
-                    index,
-                    pairedOpeningIndexes,
-                    openInlineHtmlTags
-                );
+            case 'html_inline': {
+                const content = token.content ?? '';
+                if (content.startsWith('<!--')) break;
+                const tag = parseReminderInlineHtmlTag(content);
+                if (!tag) {
+                    text += content;
+                    break;
+                }
+                if (REMINDER_DANGEROUS_HTML_TAGS.has(tag.tagName)) {
+                    // Suppress a paired element's contents, but not text after an unmatched tag.
+                    index = htmlPairs.get(index) ?? index;
+                    text += ' ';
+                    break;
+                }
+                const isMarkup =
+                    (tag.hasAttributes &&
+                        (REMINDER_KNOWN_HTML_TAGS.has(tag.tagName) || tag.tagName.includes('-'))) ||
+                    htmlPairs.has(index) ||
+                    pairedClosings.has(index);
+                if (
+                    tag.tagName === 'br' ||
+                    tag.tagName === 'hr' ||
+                    tag.tagName === 'wbr' ||
+                    (isMarkup && REMINDER_LINE_BREAK_HTML_TAGS.has(tag.tagName))
+                ) {
+                    text += '\n';
+                } else if (!isMarkup) {
+                    text += content;
+                }
+                break;
+            }
+            case 'html_block':
+                text += extractReminderInlineText(tokenizeReminderHtml(token.content ?? ''), '');
                 break;
             case 'link':
                 text += extractReminderInlineText(
@@ -652,7 +600,7 @@ function extractReminderInlineText(
         }
     }
 
-    return text || fallback;
+    return text;
 }
 
 function pushReminderClauses(target: string[], value: string): void {
@@ -666,7 +614,7 @@ function pushReminderClauses(target: string[], value: string): void {
 
 function fallbackReminderClauses(value: string): string[] {
     const clauses: string[] = [];
-    pushReminderClauses(clauses, normalizeReminderFallbackHtml(value));
+    pushReminderClauses(clauses, extractReminderInlineText(tokenizeReminderHtml(value), ''));
     return clauses;
 }
 
@@ -674,13 +622,25 @@ function collectReminderClauses(
     value: string,
     mode: Extract<ReminderTextMode, 'natural' | 'summary'>
 ): string[] {
-    const source = prepareReminderMarkdownSource(value);
+    const source = limitReminderMarkdownSource(value).replace(/\r\n?/g, '\n');
     if (!source.trim()) {
         return [];
     }
 
     try {
-        const tokens = reminderMarkdownParser.parse(source, {}) as ReminderMarkdownToken[];
+        const environment = {};
+        const parsed = reminderMarkdownParser.parse(source, environment) as ReminderMarkdownToken[];
+        const tokens = mergeReminderDangerousHtmlBlocks(
+            parsed.map((token) => {
+                if (token.type !== 'inline') return token;
+                const content = token.content ?? '';
+                const prepared = prepareReminderProse(content);
+                if (prepared === content) return token;
+                // Copy references without the parser's non-enumerable document reset marker.
+                const inline = reminderMarkdownParser.parseInline(prepared, { ...environment });
+                return { ...token, content: prepared, children: inline[0]?.children ?? [] };
+            })
+        );
         const clauses: string[] = [];
         let currentTableRow: string[] | null = null;
         let insideTableCell = false;
@@ -729,7 +689,10 @@ function collectReminderClauses(
                     pushReminderClauses(clauses, token.content ?? '');
                     break;
                 case 'html_block':
-                    pushReminderClauses(clauses, stripHtmlToText(token.content ?? ''));
+                    pushReminderClauses(
+                        clauses,
+                        extractReminderInlineText(tokenizeReminderHtml(token.content ?? ''), '')
+                    );
                     break;
                 default:
                     break;
