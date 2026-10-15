@@ -21,7 +21,9 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP,
 };
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, TRUE, WPARAM};
+use windows::core::BOOL;
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, TRUE, WPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VK_SPACE,
@@ -178,7 +180,7 @@ fn install_system_menu_interceptor<R: Runtime>(window: &WebviewWindow<R>) -> Res
 /// 因此需在 webview 就绪、子窗口已创建后调用此函数，才能在源头拦截。
 fn install_system_menu_interceptor_on_children(hwnd: HWND) {
     unsafe {
-        let _ = EnumChildWindows(hwnd, Some(install_subclass_on_child), LPARAM(0));
+        let _ = EnumChildWindows(Some(hwnd), Some(install_subclass_on_child), LPARAM(0));
     }
 }
 
@@ -249,9 +251,9 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                         return Ok(());
                     }
 
-                    let Some(search_surface_command_window) = &search_surface_command_window else {
+                    if search_surface_command_window.is_none() {
                         return Ok(());
-                    };
+                    }
 
                     if is_key_up
                         && handled_key_downs
@@ -261,25 +263,31 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                     {
                         return Ok(());
                     }
+                }
 
-                    let is_ctrl_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
-                    let is_alt_down = (GetKeyState(i32::from(VK_MENU.0)) as u16 & 0x8000) != 0;
-                    let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
-                    let is_super_down = (GetKeyState(i32::from(VK_LWIN.0)) as u16 & 0x8000) != 0
-                        || (GetKeyState(i32::from(VK_RWIN.0)) as u16 & 0x8000) != 0;
+                // Alt+Space 的 system-key 事件在 Alt 可能已抬起后才送达，
+                // 因此该路径按语义直接取 true，其余路径读取真实修饰键状态。
+                let is_system_menu_command =
+                    is_system_menu_accelerator_command(key_event_kind.0, virtual_key);
+                let is_ctrl_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
+                let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
+                let is_super_down = (GetKeyState(i32::from(VK_LWIN.0)) as u16 & 0x8000) != 0
+                    || (GetKeyState(i32::from(VK_RWIN.0)) as u16 & 0x8000) != 0;
+                let is_alt_down = if is_system_menu_command {
+                    true
+                } else {
+                    (GetKeyState(i32::from(VK_MENU.0)) as u16 & 0x8000) != 0
+                };
 
-                    let Some(command) =
-                        crate::core::system::shortcut::find_search_surface_command_for_windows_accelerator(
-                            virtual_key,
-                            is_ctrl_down,
-                            is_alt_down,
-                            is_shift_down,
-                            is_super_down,
-                        )
-                    else {
-                        return Ok(());
-                    };
-
+                if let Some(command) =
+                    crate::core::system::shortcut::find_search_surface_command_for_windows_accelerator(
+                        virtual_key,
+                        is_ctrl_down,
+                        is_alt_down,
+                        is_shift_down,
+                        is_super_down,
+                    )
+                {
                     if let Ok(args2) =
                         Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
                     {
@@ -291,39 +299,14 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                             .lock()
                             .map(|mut keys| keys.insert(virtual_key));
                     }
-                    let _ = search_surface_command_window.emit("search-surface-command", command);
+                    if let Some(search_surface_command_window) = &search_surface_command_window {
+                        let _ = search_surface_command_window.emit("search-surface-command", command);
+                    }
                     return Ok(());
                 }
 
-                let is_ctrl_down = (GetKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000) != 0;
-                let is_shift_down = (GetKeyState(i32::from(VK_SHIFT.0)) as u16 & 0x8000) != 0;
-                let is_super_down = (GetKeyState(i32::from(VK_LWIN.0)) as u16 & 0x8000) != 0
-                    || (GetKeyState(i32::from(VK_RWIN.0)) as u16 & 0x8000) != 0;
-
-                if let Some(search_surface_command_window) = &search_surface_command_window {
-                    if let Some(command) =
-                        crate::core::system::shortcut::find_search_surface_command_for_windows_accelerator(
-                            virtual_key,
-                            is_ctrl_down,
-                            true,
-                            is_shift_down,
-                            is_super_down,
-                        )
-                    {
-                        if let Ok(args2) =
-                            Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
-                        {
-                            let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
-                        }
-                        let _ = args.SetHandled(true);
-                        if is_key_down {
-                            let _ = handled_key_downs
-                                .lock()
-                                .map(|mut keys| keys.insert(virtual_key));
-                        }
-                        let _ = search_surface_command_window.emit("search-surface-command", command);
-                        return Ok(());
-                    }
+                if !is_system_menu_command {
+                    return Ok(());
                 }
 
                 let _ = app_handle.emit(

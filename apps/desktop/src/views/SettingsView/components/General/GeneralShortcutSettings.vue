@@ -2,25 +2,21 @@
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
-    import {
-        AppEvent,
-        eventService,
-        type ShortcutCaptureSystemKeyEvent,
-    } from '@services/EventService';
+    import { type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
-    import { type UnlistenFn } from '@tauri-apps/api/event';
     import { storeToRefs } from 'pinia';
-    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, onMounted, ref, watch } from 'vue';
 
     import {
         getSearchKeybindingDefinition,
-        type SearchKeybindingActionId,
+        SEARCH_KEYBINDING_DEFINITIONS,
     } from '@/config/searchKeybindings';
     import { type MessageKey, type MessageParams, t } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
     import {
         captureShortcutFromKeyboardEvent,
+        findShortcutConflict,
         formatShortcutForDisplay,
         hasCommandModifier,
         isMacPlatform,
@@ -28,6 +24,13 @@
         isReservedLocalShortcutKey,
         normalizeLocalShortcutString,
     } from '@/utils/shortcuts';
+
+    import {
+        assembleSystemKeyShortcut,
+        useCaptureInputFocus,
+        useKeydownCaptureListener,
+        useSystemKeyCaptureSubscription,
+    } from '../../composables/useShortcutCapture';
 
     defineOptions({
         name: 'SettingsGeneralShortcutSettings',
@@ -41,6 +44,7 @@
     const isCapturing = ref(false);
     const displayShortcut = ref('');
     const shortcutCapturePrompt = computed(() => t('settings.general.shortcutCapturePrompt'));
+    const { focusCaptureInput, clearCaptureSelection } = useCaptureInputFocus();
     const shortcutRegistrationFailed = ref(false);
     const showGlobalShortcutPresetMenu = ref(false);
     const globalShortcutPresetOptions = computed(() => {
@@ -53,28 +57,6 @@
             value: shortcut,
         }));
     });
-
-    function formatGlobalShortcutForSettings(shortcut: string | null | undefined): string {
-        return formatShortcutForDisplay(shortcut);
-    }
-
-    function findGlobalShortcutSearchConflict(shortcut: string): SearchKeybindingActionId | null {
-        const normalizedShortcut = normalizeLocalShortcutString(shortcut);
-        if (!normalizedShortcut) {
-            return null;
-        }
-
-        for (const [actionId, searchShortcut] of Object.entries(
-            settings.value.searchKeybindings
-        ) as Array<[SearchKeybindingActionId, string | null]>) {
-            const normalizedSearchShortcut = normalizeLocalShortcutString(searchShortcut);
-            if (normalizedSearchShortcut === normalizedShortcut) {
-                return actionId;
-            }
-        }
-
-        return null;
-    }
 
     function consumeShortcutCaptureEvent(event: KeyboardEvent) {
         event.preventDefault();
@@ -119,45 +101,21 @@
             return;
         }
 
-        const modifiers: string[] = [];
-        if (payload.ctrl) {
-            modifiers.push('Ctrl');
-        }
-        if (payload.alt) {
-            modifiers.push('Alt');
-        }
-        if (payload.shift) {
-            modifiers.push('Shift');
-        }
-
-        const shortcut = [...modifiers, payload.key].join('+');
-        if (!hasCommandModifier(shortcut)) {
+        const shortcut = assembleSystemKeyShortcut(payload, { primaryLabel: 'Ctrl' });
+        if (!shortcut || !hasCommandModifier(shortcut)) {
             return;
         }
 
-        displayShortcut.value = formatGlobalShortcutForSettings(shortcut);
+        displayShortcut.value = formatShortcutForDisplay(shortcut);
         showGlobalShortcutPresetMenu.value = false;
         void confirmCapturedShortcut(displayShortcut.value);
     };
-
-    let unlistenSystemKey: UnlistenFn | null = null;
 
     const startCapture = () => {
         isCapturing.value = true;
         displayShortcut.value = shortcutCapturePrompt.value;
         showGlobalShortcutPresetMenu.value = true;
     };
-
-    function focusShortcutCaptureInput(event: MouseEvent) {
-        event.preventDefault();
-        (event.currentTarget as HTMLInputElement).focus();
-    }
-
-    function clearShortcutCaptureSelection(event: Event) {
-        const input = event.currentTarget as HTMLInputElement;
-        const cursorPosition = input.value.length;
-        input.setSelectionRange(cursorPosition, cursorPosition);
-    }
 
     const confirmCapturedShortcut = async (shortcut: string) => {
         if (!isCapturing.value) {
@@ -171,7 +129,7 @@
             normalizeLocalShortcutString(shortcut) ===
             normalizeLocalShortcutString(settings.value.globalShortcut)
         ) {
-            displayShortcut.value = formatGlobalShortcutForSettings(settings.value.globalShortcut);
+            displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
             return;
         }
 
@@ -185,7 +143,7 @@
 
         isCapturing.value = false;
         showGlobalShortcutPresetMenu.value = false;
-        displayShortcut.value = formatGlobalShortcutForSettings(settings.value.globalShortcut);
+        displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
     };
 
     const handleGlobalShortcutPresetOpenChange = (open: boolean) => {
@@ -204,15 +162,21 @@
     const saveNewShortcut = async (newShortcut: string) => {
         if (isReservedGlobalShortcut(newShortcut)) {
             shortcutRegistrationFailed.value = false;
-            displayShortcut.value = formatGlobalShortcutForSettings(settings.value.globalShortcut);
+            displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
             alertMessage.value?.warning(t('settings.general.globalShortcutReservedOnMac'), 4000);
             return;
         }
 
-        const conflictActionId = findGlobalShortcutSearchConflict(newShortcut);
+        const conflictActionId = findShortcutConflict(
+            newShortcut,
+            SEARCH_KEYBINDING_DEFINITIONS.map((definition) => ({
+                id: definition.id,
+                shortcut: settings.value.searchKeybindings[definition.id],
+            }))
+        );
         if (conflictActionId) {
             shortcutRegistrationFailed.value = false;
-            displayShortcut.value = formatGlobalShortcutForSettings(settings.value.globalShortcut);
+            displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
             alertMessage.value?.error(
                 t('settings.general.searchShortcuts.errors.duplicate', {
                     action: t(getSearchKeybindingDefinition(conflictActionId).labelKey),
@@ -229,18 +193,18 @@
             const registered = await registerShortcut(newShortcut);
             if (!registered) {
                 shortcutRegistrationFailed.value = true;
-                displayShortcut.value = formatGlobalShortcutForSettings(newShortcut);
+                displayShortcut.value = formatShortcutForDisplay(newShortcut);
                 return;
             }
 
             await settingsStore.updateGlobalShortcut(newShortcut);
             settings.value.globalShortcut = newShortcut;
-            displayShortcut.value = formatGlobalShortcutForSettings(newShortcut);
+            displayShortcut.value = formatShortcutForDisplay(newShortcut);
             alertMessage.value?.success(t('settings.general.shortcutSaved'), 3000);
         } catch (error) {
             console.error('Failed to save shortcut:', error);
             alertMessage.value?.error(t('settings.general.saveShortcutFailed'), 3000);
-            displayShortcut.value = formatGlobalShortcutForSettings(settings.value.globalShortcut);
+            displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
             shortcutRegistrationFailed.value = false;
         } finally {
             isSaving.value = false;
@@ -260,19 +224,13 @@
         await saveNewShortcut(shortcut);
     };
 
-    watch(isCapturing, (newValue) => {
-        if (newValue) {
-            window.addEventListener('keydown', captureShortcut, { capture: true });
-        } else {
-            window.removeEventListener('keydown', captureShortcut, { capture: true });
-        }
-    });
+    useKeydownCaptureListener(isCapturing, captureShortcut, { capture: true });
 
     watch(
         () => settings.value.globalShortcut,
         (shortcut) => {
             if (!isCapturing.value && !shortcutRegistrationFailed.value) {
-                displayShortcut.value = formatGlobalShortcutForSettings(shortcut);
+                displayShortcut.value = formatShortcutForDisplay(shortcut);
             }
         }
     );
@@ -280,7 +238,7 @@
     const loadSettings = async () => {
         try {
             await settingsStore.initialize();
-            displayShortcut.value = formatGlobalShortcutForSettings(settings.value.globalShortcut);
+            displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
 
             const [failed, error] = await native.shortcut.getShortcutStatus();
             if (failed) {
@@ -362,23 +320,10 @@
         }
     };
 
-    onMounted(async () => {
-        await loadSettings();
+    onMounted(loadSettings);
 
-        try {
-            unlistenSystemKey = await eventService.on(
-                AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY,
-                handleSystemKeyCapture
-            );
-        } catch (error) {
-            console.error('Failed to subscribe to system key capture event:', error);
-        }
-    });
-
-    onUnmounted(() => {
-        window.removeEventListener('keydown', captureShortcut, { capture: true });
-        unlistenSystemKey?.();
-        unlistenSystemKey = null;
+    useSystemKeyCaptureSubscription(handleSystemKeyCapture, (error) => {
+        console.error('Failed to subscribe to system key capture event:', error);
     });
 </script>
 
@@ -436,8 +381,8 @@
                                             :disabled="isSaving"
                                             :placeholder="t('settings.general.shortcutPlaceholder')"
                                             @pointerdown.stop
-                                            @mousedown="focusShortcutCaptureInput"
-                                            @select="clearShortcutCaptureSelection"
+                                            @mousedown="focusCaptureInput"
+                                            @select="clearCaptureSelection"
                                             @dragstart.prevent
                                             @keydown.capture="captureShortcut"
                                             @click.stop

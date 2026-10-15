@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
     createDefaultSearchKeybindings,
     getSearchKeybindingDefinition,
-    isSearchKeybindingActionId,
     normalizeSearchKeybindings,
     SEARCH_KEYBINDING_ACTION_IDS,
     SEARCH_KEYBINDING_DEFINITIONS,
@@ -28,8 +27,6 @@ describe('search keybinding configuration', () => {
         expect(SEARCH_KEYBINDING_DEFINITIONS.map((definition) => definition.id)).toEqual(
             SEARCH_KEYBINDING_ACTION_IDS
         );
-        expect(isSearchKeybindingActionId('search.history.open')).toBe(true);
-        expect(isSearchKeybindingActionId('search.request.cancel')).toBe(false);
     });
 
     it('returns definitions for known actions and rejects unknown actions', () => {

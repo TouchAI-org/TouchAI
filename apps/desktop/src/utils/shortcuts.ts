@@ -46,22 +46,15 @@ const SUPPORTED_NON_CHARACTER_KEYS = new Set([
     'Insert',
     'Space',
 ]);
-const RESERVED_LOCAL_SHORTCUT_KEYS = new Set([
-    'Backspace',
-    'Del',
-    'Enter',
-    'Esc',
-    'Home',
-    'End',
-    'PageUp',
-    'PageDown',
-    'Tab',
-    'Up',
-    'Down',
-    'Left',
-    'Right',
-]);
-const MODIFIER_KEYS = new Set(['Control', 'Alt', 'Shift', 'Meta', 'OS']);
+
+/** 可录入但不能被占用为可配置快捷键的非字符键。 */
+const ALLOWED_NON_CHARACTER_SHORTCUT_KEYS = new Set(['Insert', 'Space']);
+
+const RESERVED_LOCAL_SHORTCUT_KEYS = new Set(
+    [...SUPPORTED_NON_CHARACTER_KEYS].filter((key) => !ALLOWED_NON_CHARACTER_SHORTCUT_KEYS.has(key))
+);
+
+export const MODIFIER_KEYS = new Set(['Control', 'Alt', 'Shift', 'Meta', 'OS']);
 
 const KEY_DISPLAY_MAP: Record<string, string> = {
     ' ': 'Space',
@@ -293,15 +286,6 @@ export function formatShortcutForDisplay(shortcut: string | null | undefined): s
     return [...displayModifiers, key].join('+');
 }
 
-export function toCurrentPlatformShortcut(shortcut: string | null | undefined): string | null {
-    const normalized = normalizeLocalShortcutString(shortcut);
-    if (!normalized) {
-        return null;
-    }
-
-    return formatShortcutForDisplay(normalized);
-}
-
 export function matchShortcut(
     shortcut: string | null | undefined,
     input: ShortcutMatchInput
@@ -413,16 +397,6 @@ export function isReservedGlobalShortcut(shortcut: string | null | undefined): b
 
     const normalized = normalizeLocalShortcutString(shortcut);
     return normalized === 'Mod+Space' || normalized === 'Ctrl+Space';
-}
-
-export function hasRequiredModifier(shortcut: string | null | undefined): boolean {
-    const normalized = normalizeLocalShortcutString(shortcut);
-    if (!normalized) {
-        return false;
-    }
-
-    const { modifiers } = createShortcutParts(normalized);
-    return modifiers.length > 0;
 }
 
 export function hasCommandModifier(shortcut: string | null | undefined): boolean {

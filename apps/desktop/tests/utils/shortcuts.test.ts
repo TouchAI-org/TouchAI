@@ -5,7 +5,6 @@ import {
     findShortcutConflict,
     formatShortcutForDisplay,
     hasCommandModifier,
-    hasRequiredModifier,
     isModifierlessFunctionShortcut,
     isReservedGlobalShortcut,
     isReservedLocalShortcut,
@@ -13,7 +12,6 @@ import {
     matchShortcut,
     normalizeLocalShortcutString,
     resolveKeyboardEventShortcutKey,
-    toCurrentPlatformShortcut,
 } from '@/utils/shortcuts';
 
 const originalPlatform = navigator.platform;
@@ -62,15 +60,12 @@ describe('shortcut utilities', () => {
 
     it('formats display shortcuts for the current platform', () => {
         expect(formatShortcutForDisplay('Mod+Shift+H')).toBe('Ctrl+Shift+H');
-        expect(toCurrentPlatformShortcut('Mod+H')).toBe('Ctrl+H');
-        expect(toCurrentPlatformShortcut('')).toBeNull();
         expect(formatShortcutForDisplay(null)).toBeTruthy();
 
         setPlatform('MacIntel');
 
         expect(formatShortcutForDisplay('Mod+Ctrl+Alt+Shift+H')).toBe('Cmd+Ctrl+Option+Shift+H');
         expect(formatShortcutForDisplay('Alt+Space')).toBe('Option+Space');
-        expect(toCurrentPlatformShortcut('Mod+H')).toBe('Cmd+H');
     });
 
     it('resolves keyboard event keys from display key aliases and function-row codes', () => {
@@ -195,11 +190,6 @@ describe('shortcut utilities', () => {
         expect(isReservedLocalShortcut(null)).toBe(false);
         expect(isReservedLocalShortcutKey('ArrowDown')).toBe(true);
         expect(isReservedLocalShortcutKey('BrightnessUp', 'F2')).toBe(false);
-
-        expect(hasRequiredModifier('Mod+K')).toBe(true);
-        expect(hasRequiredModifier('Shift+K')).toBe(true);
-        expect(hasRequiredModifier('F11')).toBe(false);
-        expect(hasRequiredModifier('')).toBe(false);
 
         expect(hasCommandModifier('Mod+K')).toBe(true);
         expect(hasCommandModifier('Alt+Shift+K')).toBe(true);

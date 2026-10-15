@@ -101,12 +101,6 @@ const SEARCH_KEYBINDING_DEFINITION_MAP = new Map(
     SEARCH_KEYBINDING_DEFINITIONS.map((definition) => [definition.id, definition])
 );
 
-const SEARCH_KEYBINDING_ACTION_ID_SET = new Set<string>(SEARCH_KEYBINDING_ACTION_IDS);
-
-export function isSearchKeybindingActionId(value: string): value is SearchKeybindingActionId {
-    return SEARCH_KEYBINDING_ACTION_ID_SET.has(value);
-}
-
 export function getSearchKeybindingDefinition(
     actionId: SearchKeybindingActionId
 ): SearchKeybindingDefinition {

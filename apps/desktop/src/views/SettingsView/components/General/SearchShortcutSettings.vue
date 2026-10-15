@@ -1,14 +1,9 @@
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
-    import {
-        AppEvent,
-        eventService,
-        type ShortcutCaptureSystemKeyEvent,
-    } from '@services/EventService';
-    import type { UnlistenFn } from '@tauri-apps/api/event';
+    import { type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
     import { storeToRefs } from 'pinia';
-    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, ref } from 'vue';
 
     import {
         getSearchKeybindingDefinition,
@@ -27,9 +22,16 @@
         isReservedGlobalShortcut,
         isReservedLocalShortcut,
         isReservedLocalShortcutKey,
+        MODIFIER_KEYS,
         normalizeLocalShortcutString,
-        toCurrentPlatformShortcut,
     } from '@/utils/shortcuts';
+
+    import {
+        assembleSystemKeyShortcut,
+        useCaptureInputFocus,
+        useKeydownCaptureListener,
+        useSystemKeyCaptureSubscription,
+    } from '../../composables/useShortcutCapture';
 
     defineOptions({
         name: 'SettingsSearchShortcutSettings',
@@ -59,7 +61,7 @@
     const captureDisplay = ref('');
     const searchShortcutErrorActionId = ref<SearchKeybindingActionId | null>(null);
     const shortcutCapturePrompt = computed(() => t('settings.general.shortcutCapturePrompt'));
-    let unlistenSystemKey: UnlistenFn | null = null;
+    const { focusCaptureInput, clearCaptureSelection } = useCaptureInputFocus();
 
     function formatSearchShortcutForSettings(shortcut: string | null | undefined): string {
         const normalizedShortcut = normalizeLocalShortcutString(shortcut);
@@ -200,12 +202,6 @@
         alertMessage.value?.error(t(messageKey, params), 3000);
     }
 
-    function isModifierOnlyKey(key: string) {
-        return (
-            key === 'Control' || key === 'Alt' || key === 'Shift' || key === 'Meta' || key === 'OS'
-        );
-    }
-
     const captureSearchShortcut = (event: KeyboardEvent) => {
         const actionId = activeSearchShortcutActionId.value;
         if (!actionId || isSaving.value) {
@@ -218,7 +214,7 @@
 
         const captured = captureShortcutFromKeyboardEvent(event);
         if (!captured) {
-            if (isModifierOnlyKey(event.key)) {
+            if (MODIFIER_KEYS.has(event.key)) {
                 return;
             }
 
@@ -252,18 +248,9 @@
             return;
         }
 
-        const modifiers: string[] = [];
-        if (payload.ctrl) {
-            modifiers.push(isMacPlatform() ? 'Ctrl' : 'Mod');
-        }
-        if (payload.alt) {
-            modifiers.push('Alt');
-        }
-        if (payload.shift) {
-            modifiers.push('Shift');
-        }
-
-        const shortcut = normalizeLocalShortcutString([...modifiers, payload.key].join('+'));
+        const shortcut = assembleSystemKeyShortcut(payload, {
+            primaryLabel: isMacPlatform() ? 'Ctrl' : 'Mod',
+        });
         if (!shortcut) {
             reportSearchShortcutError(
                 actionId,
@@ -350,14 +337,7 @@
             const comparableGlobalShortcut = normalizeLocalShortcutString(
                 settings.value.globalShortcut
             );
-            const comparableLocalShortcut = normalizeLocalShortcutString(
-                toCurrentPlatformShortcut(normalizedShortcut)
-            );
-            if (
-                comparableGlobalShortcut &&
-                comparableLocalShortcut &&
-                comparableGlobalShortcut === comparableLocalShortcut
-            ) {
+            if (comparableGlobalShortcut && comparableGlobalShortcut === normalizedShortcut) {
                 reportSearchShortcutError(
                     actionId,
                     'settings.general.searchShortcuts.errors.globalConflict'
@@ -398,18 +378,11 @@
     }
 
     function focusSearchShortcutInput(event: MouseEvent, row: SettingsSearchShortcutGroupRow) {
-        event.preventDefault();
         if (row.kind !== 'configurable') {
             return;
         }
 
-        (event.currentTarget as HTMLInputElement).focus();
-    }
-
-    function clearSearchShortcutSelection(event: Event) {
-        const input = event.currentTarget as HTMLInputElement;
-        const cursorPosition = input.value.length;
-        input.setSelectionRange(cursorPosition, cursorPosition);
+        focusCaptureInput(event);
     }
 
     async function confirmCapturedSearchShortcut(
@@ -452,28 +425,13 @@
         );
     }
 
-    watch(activeSearchShortcutActionId, (actionId) => {
-        window.removeEventListener('keydown', captureSearchShortcut);
-        if (actionId) {
-            window.addEventListener('keydown', captureSearchShortcut);
-        }
-    });
+    useKeydownCaptureListener(
+        computed(() => activeSearchShortcutActionId.value !== null),
+        captureSearchShortcut
+    );
 
-    onMounted(async () => {
-        try {
-            unlistenSystemKey = await eventService.on(
-                AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY,
-                handleSystemKeyCapture
-            );
-        } catch (error) {
-            console.error('Failed to subscribe to search shortcut system key event:', error);
-        }
-    });
-
-    onUnmounted(() => {
-        window.removeEventListener('keydown', captureSearchShortcut);
-        unlistenSystemKey?.();
-        unlistenSystemKey = null;
+    useSystemKeyCaptureSubscription(handleSystemKeyCapture, (error) => {
+        console.error('Failed to subscribe to search shortcut system key event:', error);
     });
 </script>
 
@@ -529,7 +487,7 @@
                                 "
                                 :tabindex="row.kind === 'fixed' ? -1 : 0"
                                 @mousedown="focusSearchShortcutInput($event, row)"
-                                @select="clearSearchShortcutSelection"
+                                @select="clearCaptureSelection"
                                 @dragstart.prevent
                                 @focus="startSearchShortcutCapture(row)"
                                 @blur="stopSearchShortcutCapture(row)"
