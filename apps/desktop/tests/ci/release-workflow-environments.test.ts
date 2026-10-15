@@ -35,7 +35,9 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('Sync Release Please lockfile version');
         expect(workflow).toContain('node scripts/ci/set-release-version.mjs "$release_version"');
         expect(workflow).toContain('Format Release Please generated files');
-        expect(workflow).toContain('Push formatted release PR files');
+        expect(workflow).toContain('Refresh model metadata snapshot');
+        expect(workflow).toContain('node scripts/ci/refresh-model-metadata-snapshot.mjs');
+        expect(workflow).toContain('Push release PR files');
         expect(workflow).toContain("steps.release.outputs.prs_created == 'true'");
         expect(workflow).toContain('pnpm exec prettier --write');
         expect(workflow).toContain('--ignore-path .prettierignore');
@@ -43,8 +45,9 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('apps/desktop/src-tauri/Cargo.lock');
         expect(workflow).toContain('apps/desktop/src-tauri/tauri.conf.json');
         expect(workflow).toContain(
-            'git commit --no-verify -m "chore: format release please files"'
+            'apps/desktop/src/services/AgentService/infrastructure/modelMetadata/snapshot.json'
         );
+        expect(workflow).toContain('git commit --no-verify -m "chore: sync release please files"');
         expect(workflow).toContain('git push origin HEAD:"$RELEASE_PR_BRANCH"');
     });
 

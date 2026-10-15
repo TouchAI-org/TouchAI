@@ -94,21 +94,26 @@ jobs:
                     .release-please-manifest.json \
                     apps/desktop/src-tauri/tauri.conf.json
 
-            - name: Push formatted release PR files
+            - name: Refresh model metadata snapshot
+              if: ${{ steps.release.outputs.prs_created == 'true' }}
+              working-directory: apps/desktop
+              run: node scripts/ci/refresh-model-metadata-snapshot.mjs
+
+            - name: Push release PR files
               if: ${{ steps.release.outputs.prs_created == 'true' }}
               env:
                   RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
                   RELEASE_PR_BRANCH: ${{ steps.release_pr.outputs.branch }}
               run: |
                   if git diff --quiet; then
-                      echo "Release Please generated files already match repository formatting."
+                      echo "Release PR files already match the repository."
                       exit 0
                   fi
 
                   git config user.name "github-actions[bot]"
                   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-                  git add .release-please-manifest.json apps/desktop/src-tauri/Cargo.lock apps/desktop/src-tauri/tauri.conf.json
-                  git commit --no-verify -m "chore: format release please files"
+                  git add .release-please-manifest.json apps/desktop/src-tauri/Cargo.lock apps/desktop/src-tauri/tauri.conf.json apps/desktop/src/services/AgentService/infrastructure/modelMetadata/snapshot.json
+                  git commit --no-verify -m "chore: sync release please files"
                   git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
                   git push origin HEAD:"$RELEASE_PR_BRANCH"
 
