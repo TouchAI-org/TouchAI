@@ -427,6 +427,30 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "llm_metadata_aliases": {
+      "name": "llm_metadata_aliases",
+      "columns": {
+        "alias": {
+          "name": "alias",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "mcp_servers": {
       "name": "mcp_servers",
       "columns": {

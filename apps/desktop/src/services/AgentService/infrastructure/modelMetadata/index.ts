@@ -8,7 +8,7 @@ import { replaceModelMetadata } from './store';
 
 export { buildMetadataList } from './catalog';
 
-const MODEL_METADATA_SOURCE_URL = 'https://llm-metadata.pages.dev/api/all.json';
+const MODEL_METADATA_SOURCE_URL = 'https://models.dev/api.json';
 
 /**
  * 用内置快照填充本地元数据。

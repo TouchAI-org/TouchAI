@@ -8,6 +8,7 @@ const {
     settingsInitializeMock,
     appUpdateCheckNowMock,
     builtInToolSyncMock,
+    isLlmMetadataAliasEmptyMock,
     isLlmMetadataEmptyMock,
     initializeFontLoaderMock,
     seedModelMetadataFromSnapshotMock,
@@ -25,6 +26,7 @@ const {
     settingsInitializeMock: vi.fn(),
     appUpdateCheckNowMock: vi.fn(),
     builtInToolSyncMock: vi.fn(),
+    isLlmMetadataAliasEmptyMock: vi.fn(),
     isLlmMetadataEmptyMock: vi.fn(),
     initializeFontLoaderMock: vi.fn(),
     seedModelMetadataFromSnapshotMock: vi.fn(),
@@ -57,6 +59,7 @@ vi.mock('@services/AppUpdateService', () => ({
 }));
 
 vi.mock('@database/queries', () => ({
+    isLlmMetadataAliasEmpty: isLlmMetadataAliasEmptyMock,
     isLlmMetadataEmpty: isLlmMetadataEmptyMock,
     syncAllModelsMetadata: syncAllModelsMetadataMock,
 }));
@@ -127,6 +130,7 @@ describe('app bootstrap i18n', () => {
         settingsInitializeMock.mockResolvedValue(undefined);
         appUpdateCheckNowMock.mockResolvedValue(false);
         builtInToolSyncMock.mockResolvedValue(undefined);
+        isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
         isLlmMetadataEmptyMock.mockResolvedValue(false);
         syncAllModelsMetadataMock.mockResolvedValue(undefined);
         seedModelMetadataFromSnapshotMock.mockResolvedValue(undefined);
@@ -186,12 +190,25 @@ describe('app bootstrap i18n', () => {
 
     it('syncs cached model metadata during bootstrap without refreshing remote metadata', async () => {
         isLlmMetadataEmptyMock.mockResolvedValue(false);
+        isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
 
         const { initializeApp } = await import('@/bootstrap');
         await initializeApp();
 
         expect(updateModelMetadataMock).not.toHaveBeenCalled();
         expect(syncAllModelsMetadataMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes metadata when the cached catalog has no aliases yet', async () => {
+        isLlmMetadataEmptyMock.mockResolvedValue(false);
+        isLlmMetadataAliasEmptyMock.mockResolvedValue(true);
+
+        const { initializeApp } = await import('@/bootstrap');
+        await initializeApp();
+
+        expect(seedModelMetadataFromSnapshotMock).toHaveBeenCalledTimes(1);
+        expect(updateModelMetadataMock).toHaveBeenCalledTimes(1);
+        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
     });
 
     it('continues bootstrap when remote model metadata refresh fails', async () => {

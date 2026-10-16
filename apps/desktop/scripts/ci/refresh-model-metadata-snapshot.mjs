@@ -43,7 +43,7 @@ export async function refreshModelMetadataSnapshot({ projectRoot, sourceUrl, fet
 
     try {
         const previous = await readSnapshot(targetPath);
-        const { providers, models } = await updateModelMetadataSnapshot({
+        const { models, aliases } = await updateModelMetadataSnapshot({
             projectRoot,
             sourceUrl,
             fetchImpl,
@@ -53,8 +53,8 @@ export async function refreshModelMetadataSnapshot({ projectRoot, sourceUrl, fet
         return {
             status: next === previous ? 'unchanged' : 'updated',
             targetPath,
-            providers,
             models,
+            aliases,
             digest: digestOf(next),
         };
     } catch (error) {
@@ -70,8 +70,8 @@ function formatSummary(result) {
         lines.push(`- Reason: ${result.reason}`);
     } else {
         lines.push(`- Status: ${result.status}`);
-        lines.push(`- Providers: ${result.providers}`);
         lines.push(`- Models: ${result.models}`);
+        lines.push(`- Aliases: ${result.aliases}`);
         lines.push(`- sha256: \`${result.digest}\``);
     }
 

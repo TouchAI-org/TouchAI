@@ -3,8 +3,8 @@ export type ModelMetadataRefreshStatus = 'updated' | 'unchanged' | 'skipped';
 export type ModelMetadataRefreshResult = {
     status: ModelMetadataRefreshStatus;
     targetPath: string;
-    providers?: number;
     models?: number;
+    aliases?: number;
     digest?: string;
     reason?: string;
 };

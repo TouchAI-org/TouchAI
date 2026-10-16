@@ -364,3 +364,8 @@ SET checkpoint_json = CASE WHEN json_valid(checkpoint_json) AND (
 --> statement-breakpoint
 ALTER TABLE `llm_metadata` ADD `reasoning_options` text;--> statement-breakpoint
 ALTER TABLE `models` ADD `reasoning_options` text;
+--> statement-breakpoint
+CREATE TABLE `llm_metadata_aliases` (
+	`alias` text PRIMARY KEY NOT NULL,
+	`model_id` text NOT NULL
+);

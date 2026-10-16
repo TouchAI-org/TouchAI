@@ -24,7 +24,7 @@
         updateModel,
         updateProvider,
     } from '@database/queries';
-    import { isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
+    import { isLlmMetadataAliasEmpty, isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
     import { AppEvent, eventService } from '@services/EventService';
@@ -667,7 +667,7 @@
     onMounted(async () => {
         // 检查 llm-metadata 是否为空，如果为空则自动获取
         try {
-            const isEmpty = await isLlmMetadataEmpty();
+            const isEmpty = (await isLlmMetadataEmpty()) || (await isLlmMetadataAliasEmpty());
             if (isEmpty) {
                 console.log('[AiServicesView] llm-metadata is empty, fetching...');
                 await updateModelMetadata();

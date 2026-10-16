@@ -2,23 +2,21 @@ export const MODEL_METADATA_SOURCE_URL: string;
 
 export const MODEL_METADATA_SNAPSHOT_PATH: string;
 
-export type TrimmedModelMetadataCatalog = Record<
-    string,
-    {
-        models: Record<string, Record<string, unknown>>;
-    }
->;
-
-export function trimCatalog(rawCatalog: unknown): TrimmedModelMetadataCatalog;
-
-export function countCatalog(catalog: TrimmedModelMetadataCatalog): {
-    providers: number;
-    models: number;
+export type ModelMetadataCatalog = {
+    models: Record<string, Record<string, unknown>>;
+    alias: Record<string, string>;
 };
 
-export function assertCatalogFloor(catalog: TrimmedModelMetadataCatalog): {
-    providers: number;
+export function buildCatalog(rawCatalog: unknown): ModelMetadataCatalog;
+
+export function countCatalog(catalog: ModelMetadataCatalog): {
     models: number;
+    aliases: number;
+};
+
+export function assertCatalogFloor(catalog: ModelMetadataCatalog): {
+    models: number;
+    aliases: number;
 };
 
 export function updateModelMetadataSnapshot(options?: {
@@ -27,6 +25,6 @@ export function updateModelMetadataSnapshot(options?: {
     fetchImpl?: typeof fetch;
 }): Promise<{
     targetPath: string;
-    providers: number;
     models: number;
+    aliases: number;
 }>;

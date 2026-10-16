@@ -3,6 +3,7 @@ SET is_default = 0;
 
 DELETE FROM main.settings;
 DELETE FROM main.statistics;
+DELETE FROM main.llm_metadata_aliases;
 DELETE FROM main.llm_metadata;
 
 -- Provider and model ids are local rowids, so full import matches them by
@@ -114,13 +115,18 @@ SELECT key, value, created_at, updated_at
 FROM imported.statistics;
 
 INSERT INTO main.llm_metadata (
-    model_id, name, attachment, modalities, open_weights, reasoning,
+    model_id, name, attachment, modalities, open_weights, reasoning, reasoning_options,
     release_date, temperature, tool_call, knowledge, [limit], created_at, updated_at
 )
 SELECT
-    model_id, name, attachment, modalities, open_weights, reasoning,
+    model_id, name, attachment, modalities, open_weights, reasoning, reasoning_options,
     release_date, temperature, tool_call, knowledge, [limit], created_at, updated_at
 FROM imported.llm_metadata;
+
+INSERT INTO main.llm_metadata_aliases (alias, model_id)
+SELECT
+    alias, model_id
+FROM imported.llm_metadata_aliases;
 
 INSERT INTO main.mcp_servers (
     name, transport_type, command, args, env, cwd, url, headers,

@@ -32,6 +32,7 @@ const eventServiceMock = vi.hoisted(() => ({
 }));
 
 const llmMetadataMock = vi.hoisted(() => ({
+    isLlmMetadataAliasEmpty: vi.fn().mockResolvedValue(false),
     isLlmMetadataEmpty: vi.fn().mockResolvedValue(false),
 }));
 

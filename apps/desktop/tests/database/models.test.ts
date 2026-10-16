@@ -60,7 +60,7 @@ describe('model database queries', () => {
         ]);
     });
 
-    it('does not sync metadata from unrelated prefix model ids', async () => {
+    it('matches runtime model ids through the alias table instead of prefix LIKE scans', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {
                 return { rows: [], rowsAffected: 1, lastInsertId: null };
@@ -76,18 +76,12 @@ describe('model database queries', () => {
             .find((candidate) => candidate?.method === 'run');
         const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
 
+        expect(normalizedSql).toContain('WITH RECURSIVE candidate_model_ids');
         expect(normalizedSql).toContain(
-            'CASE WHEN lower(m2.model_id) = lower(source_models.model_id) THEN 1 ELSE 0 END DESC'
+            'JOIN llm_metadata_aliases AS alias_map ON alias_map.alias = candidate_model_ids.candidate'
         );
-        expect(normalizedSql).toContain(
-            "substr(m2.model_id, length(source_models.model_id) + 1) GLOB '-[0-9][0-9][0-9][0-9]'"
-        );
-        expect(normalizedSql).toContain(
-            "lower(substr(m2.model_id, length(source_models.model_id) + 1)) = '-latest'"
-        );
-        expect(normalizedSql).not.toContain(
-            "lower(m2.model_id) LIKE '%' || lower(models.model_id) || '%'"
-        );
+        expect(normalizedSql).toContain('match_depth ASC');
+        expect(normalizedSql).not.toContain('LIKE');
     });
 
     it('uses only sqlite-safe model metadata matching SQL', async () => {
@@ -109,7 +103,7 @@ describe('model database queries', () => {
         expect(normalizedSql).not.toContain('lower(models.model_id)');
         expect(normalizedSql).not.toContain('length(models.model_id)');
         expect(normalizedSql).toContain(
-            'substr(lower(m2.model_id), 1, length(source_models.model_id))'
+            'substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate)'
         );
     });
 });

@@ -3,7 +3,7 @@
 import { count, eq } from 'drizzle-orm';
 
 import { db } from '../index';
-import { llmMetadata } from '../schema';
+import { llmMetadata, llmMetadataAliases } from '../schema';
 import type { LlmMetadataCreateData, LlmMetadataEntity } from '../types';
 
 /**
@@ -38,9 +38,10 @@ export async function insertLlmMetadata(data: LlmMetadataCreateData[]): Promise<
 }
 
 /**
- * 清空 LLM 元数据表
+ * 清空 LLM 元数据表及其别名
  */
 export async function clearLlmMetadata(): Promise<void> {
+    await db.delete(llmMetadataAliases).run();
     await db.delete(llmMetadata).run();
 }
 
@@ -49,6 +50,17 @@ export async function clearLlmMetadata(): Promise<void> {
  */
 export async function isLlmMetadataEmpty(): Promise<boolean> {
     const result = await db.select({ count: count() }).from(llmMetadata).get();
+
+    return (result?.count ?? 0) === 0;
+}
+
+/**
+ * 检查别名表是否为空
+ *
+ * 旧版本的缓存只有模型记录、没有别名，此时需要重新拉取一次远端目录。
+ */
+export async function isLlmMetadataAliasEmpty(): Promise<boolean> {
+    const result = await db.select({ count: count() }).from(llmMetadataAliases).get();
 
     return (result?.count ?? 0) === 0;
 }

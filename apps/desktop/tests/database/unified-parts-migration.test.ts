@@ -11,6 +11,12 @@ const journal = JSON.parse(readFileSync(`${root}/meta/_journal.json`, 'utf8')) a
     entries: { tag: string }[];
 };
 
+/**
+ * 迁移到 0004 之前的状态，用于构造旧数据；0004 引入统一的 message_parts。
+ * 后续迁移不应改变这里的语义，所以不写死 journal 长度。
+ */
+const PARTS_MIGRATION_INDEX = journal.entries.findIndex((entry) => entry.tag.startsWith('0004_'));
+
 function applyMigrations(
     db: InstanceType<typeof DatabaseSync>,
     start = 0,
@@ -145,12 +151,12 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('ships one migration and one final snapshot after the published baseline', () => {
+    it('keeps the published baseline intact and ships a snapshot for every later migration', () => {
         const pending = journal.entries.slice(4);
-        expect(pending).toHaveLength(1);
         expect(pending[0]!.tag).toMatch(/^0004_/);
-        const snapshotFiles = pendingSnapshotFiles();
-        expect(snapshotFiles).toEqual(['0004_snapshot.json']);
+
+        const snapshotIndexes = pendingSnapshotFiles().map((file) => file.slice(0, 4));
+        expect(snapshotIndexes).toEqual(pending.map((entry) => entry.tag.slice(0, 4)));
     });
     it('rolls back the consolidated schema and backfill together on failure', () => {
         const db = new DatabaseSync(':memory:');
@@ -186,7 +192,7 @@ describe('complete parts migration', () => {
 
     it('removes duplicated output and provider credentials from legacy checkpoints', () => {
         const db = new DatabaseSync(':memory:');
-        applyMigrations(db, 0, journal.entries.length - 1);
+        applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
         const checkpoint = {
             activeModel: { id: 7, provider: { api_key: 'secret' } },
             messages: [{ role: 'assistant', content: 'Repeated output' }],
@@ -206,7 +212,7 @@ describe('complete parts migration', () => {
         db.prepare(
             "INSERT INTO session_turn_attempts (turn_id, attempt_index, max_retries, status, checkpoint_json, delivery_manifest_json) VALUES (1, 1, 3, 'failed', ?, '{}')"
         ).run(JSON.stringify(checkpoint));
-        applyMigrations(db, journal.entries.length - 1);
+        applyMigrations(db, PARTS_MIGRATION_INDEX);
         try {
             const result = JSON.parse(
                 String(
@@ -230,7 +236,7 @@ describe('complete parts migration', () => {
     it('preserves empty results and does not guess ambiguous legacy tool kinds', () => {
         const db = new DatabaseSync(':memory:');
         db.exec('PRAGMA foreign_keys=ON');
-        applyMigrations(db, 0, journal.entries.length - 1);
+        applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
         db.exec(`
             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'collision', 'Test', 'test');
             INSERT INTO mcp_servers (id, name, transport_type) VALUES (1, 'server', 'stdio');
@@ -243,7 +249,7 @@ describe('complete parts migration', () => {
             INSERT INTO mcp_tool_logs (id, server_id, tool_name, tool_call_id, message_id, iteration, input, status)
             VALUES (1, 1, 'tool', 'mcp-call', 2, 1, '{}', 'completed');
         `);
-        applyMigrations(db, journal.entries.length - 1);
+        applyMigrations(db, PARTS_MIGRATION_INDEX);
         try {
             expect(
                 db
@@ -294,7 +300,7 @@ describe('complete parts migration', () => {
     it('migrates legacy tools and attachments before removing their tables', () => {
         const db = new DatabaseSync(':memory:');
         db.exec('PRAGMA foreign_keys=ON');
-        applyMigrations(db, 0, journal.entries.length - 1);
+        applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
         db.exec(`
             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'migration-test', 'Test', 'test');
             INSERT INTO messages (id, session_id, role, content, tool_log_id, tool_log_kind)
@@ -310,7 +316,7 @@ describe('complete parts migration', () => {
                 (id, tool_id, tool_call_id, session_id, iteration, input, output, status, approval_state, duration_ms, error_message)
             VALUES (2, 'shell', 'orphan-call', 1, 1, '{"command":"echo orphan"}', NULL, 'failed', 'none', NULL, 'failed');
         `);
-        applyMigrations(db, journal.entries.length - 1);
+        applyMigrations(db, PARTS_MIGRATION_INDEX);
         try {
             const parts = db
                 .prepare(

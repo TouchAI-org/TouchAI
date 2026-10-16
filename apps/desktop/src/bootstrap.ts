@@ -1,6 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-import { isLlmMetadataEmpty, syncAllModelsMetadata } from '@database/queries';
+import {
+    isLlmMetadataAliasEmpty,
+    isLlmMetadataEmpty,
+    syncAllModelsMetadata,
+} from '@database/queries';
 import { appUpdateService } from '@services/AppUpdateService';
 import { initializeLogger } from '@services/LoggerService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -123,7 +127,8 @@ function scheduleAppUpdateChecks(): void {
 
 async function initializeModelMetadata(): Promise<void> {
     try {
-        if (await isLlmMetadataEmpty()) {
+        // 旧版本的缓存没有别名表，需要重新拉一次远端目录才能用上新匹配。
+        if ((await isLlmMetadataEmpty()) || (await isLlmMetadataAliasEmpty())) {
             await seedBundledModelMetadata();
             await updateModelMetadata();
             return;

@@ -423,6 +423,17 @@ export const llmMetadata = sqliteTable('llm_metadata', {
 });
 
 /**
+ * LLM 元数据别名表
+ *
+ * 中转站等上游对同一模型存在多种写法（前缀、日期、-thinking 等），
+ * 这里维护别名到元数据模型的映射，供运行时同步做精确匹配。
+ */
+export const llmMetadataAliases = sqliteTable('llm_metadata_aliases', {
+    alias: text('alias').primaryKey(),
+    model_id: text('model_id').notNull(),
+});
+
+/**
  * MCP 服务器表
  */
 export const mcpServers = sqliteTable('mcp_servers', {
@@ -572,6 +583,9 @@ export type SessionTurnAttemptUpdate = Partial<NewSessionTurnAttempt>;
 export type LlmMetadata = typeof llmMetadata.$inferSelect;
 export type NewLlmMetadata = typeof llmMetadata.$inferInsert;
 export type LlmMetadataUpdate = Partial<NewLlmMetadata>;
+
+export type LlmMetadataAlias = typeof llmMetadataAliases.$inferSelect;
+export type NewLlmMetadataAlias = typeof llmMetadataAliases.$inferInsert;
 
 export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;

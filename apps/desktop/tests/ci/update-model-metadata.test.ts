@@ -6,29 +6,27 @@ import { describe, expect, it } from 'vitest';
 
 import {
     assertCatalogFloor,
+    buildCatalog,
     countCatalog,
     MODEL_METADATA_SNAPSHOT_PATH,
-    trimCatalog,
     updateModelMetadataSnapshot,
 } from '../../scripts/update-model-metadata.mjs';
 
-type Catalog = Record<string, { models: Record<string, Record<string, unknown>> }>;
+type ProviderCatalog = Record<string, { models: Record<string, Record<string, unknown>> }>;
 
-function buildCatalog(providerCount: number, modelsPerProvider: number): Catalog {
-    const catalog: Catalog = {};
+function model(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+    return { id, name: id, reasoning: true, ...extra };
+}
+
+function buildCatalogFixture(modelCount: number, providerCount = 2): ProviderCatalog {
+    const catalog: ProviderCatalog = {};
 
     for (let providerIndex = 0; providerIndex < providerCount; providerIndex += 1) {
         const models: Record<string, Record<string, unknown>> = {};
 
-        for (let modelIndex = 0; modelIndex < modelsPerProvider; modelIndex += 1) {
+        for (let modelIndex = 0; modelIndex < modelCount; modelIndex += 1) {
             const id = `provider-${providerIndex}-model-${modelIndex}`;
-            models[id] = {
-                id,
-                name: id,
-                reasoning: true,
-                cost: { input: 1 },
-                description: 'not retained',
-            };
+            models[id] = model(id, { canonical_model_id: `provider-${providerIndex}/${id}` });
         }
 
         catalog[`provider-${providerIndex}`] = { models };
@@ -48,7 +46,7 @@ async function withTempProjectRoot(run: (projectRoot: string) => Promise<void>):
 
 describe('update model metadata snapshot', () => {
     it('retains only the fields the runtime reads', () => {
-        const catalog = trimCatalog({
+        const catalog = buildCatalog({
             openai: {
                 models: {
                     'gpt-5.2': {
@@ -63,22 +61,100 @@ describe('update model metadata snapshot', () => {
             },
         });
 
-        expect(catalog).toEqual({
-            openai: {
+        expect(catalog.models['gpt-5.2']).toEqual({
+            id: 'gpt-5.2',
+            name: 'GPT-5.2',
+            reasoning: true,
+            reasoning_options: [{ type: 'effort', values: ['low', 'high'] }],
+        });
+    });
+
+    it('keeps one record per canonical model and prefers the owning provider', () => {
+        const catalog = buildCatalog({
+            deepseek: {
                 models: {
-                    'gpt-5.2': {
-                        id: 'gpt-5.2',
-                        name: 'GPT-5.2',
+                    'deepseek-flash': {
+                        id: 'deepseek-flash',
+                        name: 'DeepSeek Flash',
                         reasoning: true,
-                        reasoning_options: [{ type: 'effort', values: ['low', 'high'] }],
+                        limit: { context: 1000000 },
+                        canonical_model_id: 'deepseek/deepseek-v4.1-flash',
+                    },
+                },
+            },
+            relay: {
+                models: {
+                    'deepseek-v4.1-flash': {
+                        id: 'deepseek-v4.1-flash',
+                        name: 'DeepSeek V4.1 Flash',
+                        reasoning: true,
+                        limit: { context: 1 },
+                        canonical_model_id: 'deepseek/deepseek-v4.1-flash',
                     },
                 },
             },
         });
+
+        expect(Object.keys(catalog.models)).toEqual(['deepseek/deepseek-v4.1-flash']);
+        expect(catalog.models['deepseek/deepseek-v4.1-flash']?.limit).toEqual({ context: 1000000 });
+        expect(catalog.alias['deepseek-v4.1-flash']).toBe('deepseek/deepseek-v4.1-flash');
+        expect(catalog.alias['deepseek-flash']).toBe('deepseek/deepseek-v4.1-flash');
+    });
+
+    it('resolves relay spellings of a model to the record that owns it', () => {
+        const catalog = buildCatalog({
+            deepseek: {
+                models: {
+                    'deepseek-flash': {
+                        id: 'deepseek-flash',
+                        name: 'DeepSeek V4.1 Flash',
+                        reasoning: true,
+                        reasoning_options: [
+                            { type: 'toggle' },
+                            { type: 'effort', values: ['low', 'high', 'max'] },
+                        ],
+                        limit: { context: 1000000, output: 393216 },
+                        canonical_model_id: 'deepseek/deepseek-v4.1-flash',
+                    },
+                },
+            },
+            relay: {
+                models: {
+                    'deepseek-ai/DeepSeek-V4.1-Flash': {
+                        id: 'deepseek-ai/DeepSeek-V4.1-Flash',
+                        name: 'DeepSeek V4.1 Flash',
+                        reasoning: true,
+                        canonical_model_id: 'deepseek/deepseek-v4.1-flash',
+                    },
+                },
+            },
+        });
+
+        expect(catalog.models['deepseek/deepseek-v4.1-flash']?.reasoning_options).toEqual([
+            { type: 'toggle' },
+            { type: 'effort', values: ['low', 'high', 'max'] },
+        ]);
+        expect(catalog.alias['deepseek-ai/deepseek-v4.1-flash']).toBe(
+            'deepseek/deepseek-v4.1-flash'
+        );
+        expect(catalog.alias['deepseek-flash']).toBe('deepseek/deepseek-v4.1-flash');
+    });
+
+    it('falls back to the model key when an entry has no canonical id', () => {
+        const catalog = buildCatalog({
+            openai: {
+                models: {
+                    'gpt-5.2': { id: 'gpt-5.2', name: 'GPT-5.2', reasoning: true },
+                },
+            },
+        });
+
+        expect(Object.keys(catalog.models)).toEqual(['gpt-5.2']);
+        expect(catalog.alias['gpt-5.2']).toBe('gpt-5.2');
     });
 
     it('skips malformed providers and models instead of failing the whole refresh', () => {
-        const catalog = trimCatalog({
+        const catalog = buildCatalog({
             broken: 'not a provider',
             empty: {},
             openai: {
@@ -89,50 +165,53 @@ describe('update model metadata snapshot', () => {
             },
         });
 
-        expect(catalog).toEqual({
-            openai: { models: { 'gpt-5.2': { id: 'gpt-5.2', name: 'GPT-5.2' } } },
-        });
+        expect(Object.keys(catalog.models)).toEqual(['gpt-5.2']);
     });
 
     it('rejects payloads that are not keyed by provider id', () => {
-        expect(() => trimCatalog([{ models: {} }])).toThrow(
+        expect(() => buildCatalog([{ models: {} }])).toThrow(
             'Model metadata payload must be an object keyed by provider id.'
         );
     });
 
-    it('counts providers and models across the catalog', () => {
-        expect(countCatalog(buildCatalog(3, 4))).toEqual({ providers: 3, models: 12 });
+    it('counts models and aliases across the catalog', () => {
+        expect(countCatalog(buildCatalog(buildCatalogFixture(3)))).toEqual({
+            models: 6,
+            aliases: 12,
+        });
     });
 
     it('refuses to write a truncated catalog', () => {
-        expect(() => assertCatalogFloor(buildCatalog(1, 1))).toThrow(
+        expect(() => assertCatalogFloor(buildCatalog(buildCatalogFixture(1)))).toThrow(
             /Refusing to write a truncated snapshot/
         );
-        expect(assertCatalogFloor(buildCatalog(40, 10))).toEqual({ providers: 40, models: 400 });
     });
 
     it('writes the snapshot relative to the project root', async () => {
         await withTempProjectRoot(async (projectRoot) => {
+            const fetchImpl = (async () => ({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                json: async () => buildCatalogFixture(1000, 2),
+            })) as unknown as typeof fetch;
+
             const result = await updateModelMetadataSnapshot({
                 projectRoot,
                 sourceUrl: 'https://example.test/api.json',
-                fetchImpl: (async () => ({
-                    ok: true,
-                    status: 200,
-                    statusText: 'OK',
-                    json: async () => buildCatalog(40, 10),
-                })) as unknown as typeof fetch,
+                fetchImpl,
             });
 
-            expect(result).toEqual({
-                targetPath: join(projectRoot, MODEL_METADATA_SNAPSHOT_PATH),
-                providers: 40,
-                models: 400,
-            });
+            expect(result.targetPath).toBe(join(projectRoot, MODEL_METADATA_SNAPSHOT_PATH));
+            expect(result.models).toBe(2000);
+            expect(result.aliases).toBe(4000);
 
-            const written = JSON.parse(await readFile(result.targetPath, 'utf8')) as Catalog;
-            expect(Object.keys(written)).toHaveLength(40);
-            expect(written['provider-0']?.models['provider-0-model-0']).toEqual({
+            const written = JSON.parse(await readFile(result.targetPath, 'utf8')) as {
+                models: Record<string, unknown>;
+                alias: Record<string, string>;
+            };
+            expect(Object.keys(written.models)).toHaveLength(2000);
+            expect(written.models['provider-0/provider-0-model-0']).toEqual({
                 id: 'provider-0-model-0',
                 name: 'provider-0-model-0',
                 reasoning: true,
@@ -142,16 +221,18 @@ describe('update model metadata snapshot', () => {
 
     it('leaves the existing snapshot untouched when the fetched catalog is truncated', async () => {
         await withTempProjectRoot(async (projectRoot) => {
+            const fetchImpl = (async () => ({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                json: async () => buildCatalogFixture(1),
+            })) as unknown as typeof fetch;
+
             await expect(
                 updateModelMetadataSnapshot({
                     projectRoot,
                     sourceUrl: 'https://example.test/api.json',
-                    fetchImpl: (async () => ({
-                        ok: true,
-                        status: 200,
-                        statusText: 'OK',
-                        json: async () => buildCatalog(1, 1),
-                    })) as unknown as typeof fetch,
+                    fetchImpl,
                 })
             ).rejects.toThrow('Refusing to write a truncated snapshot');
 

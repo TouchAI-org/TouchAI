@@ -59,6 +59,7 @@ vi.mock('@database/queries', () => ({
 }));
 
 vi.mock('@/database/queries/llmMetadata.ts', () => ({
+    isLlmMetadataAliasEmpty: vi.fn(async () => false),
     isLlmMetadataEmpty: vi.fn(async () => false),
 }));
 
