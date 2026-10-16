@@ -82,4 +82,25 @@ describe('normalizeTauriBundleAssets', () => {
             await rm(root, { recursive: true, force: true });
         }
     });
+
+    it('renames RPM bundles that carry the RPM prerelease marker', async () => {
+        const normalizeTauriBundleAssets = await loadNormalizer();
+        const { root, releaseDir } = await createFixture();
+
+        await writeFile(join(releaseDir, 'TouchAI-0.2.0~beta.1-1.x86_64.rpm'), 'rpm');
+
+        try {
+            expect(normalizeTauriBundleAssets).toBeTypeOf('function');
+            await normalizeTauriBundleAssets?.(root, releaseDir, {
+                channel: 'beta',
+                version: '0.2.0-beta.1',
+            });
+
+            await expect(
+                readFile(join(releaseDir, 'TouchAI-beta-0.2.0-beta.1-linux-x86_64.rpm'), 'utf8')
+            ).resolves.toBe('rpm');
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
 });

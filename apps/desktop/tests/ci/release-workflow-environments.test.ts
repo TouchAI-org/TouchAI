@@ -93,9 +93,23 @@ describe('release workflow deployment environments', () => {
             'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles app,dmg --ci'
         );
         expect(workflow).toContain(
-            'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles appimage,deb,rpm --ci'
+            'node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles appimage,deb --ci'
+        );
+        expect(workflow).toContain(
+            'node scripts/ci/retry-release-command.mjs -- pnpm tauri bundle --bundles rpm --ci --config'
         );
         expect(workflow).not.toMatch(/run:\s+pnpm tauri build/);
+    });
+
+    it('bundles the Linux RPM with an RPM-safe version', async () => {
+        const workflow = await readWorkflow('velopack-build.yml');
+
+        expect(workflow).toContain('Build Linux RPM bundle');
+        expect(workflow).toContain('RELEASE_VERSION: ${{ inputs.version }}');
+        expect(workflow).toContain(
+            'rpm_config="$(node scripts/ci/rpm-bundle-config.mjs "$RELEASE_VERSION")"'
+        );
+        expect(workflow).toContain('--bundles rpm --ci --config "$rpm_config"');
     });
 
     it('attaches public release assets to GitHub releases from the staged asset directory', async () => {

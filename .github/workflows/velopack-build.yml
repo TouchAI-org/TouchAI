@@ -464,7 +464,17 @@ jobs:
 
             - name: Build Linux bundles
               working-directory: apps/desktop
-              run: node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles appimage,deb,rpm --ci
+              run: node scripts/ci/retry-release-command.mjs -- pnpm tauri build --bundles appimage,deb --ci
+
+            - name: Build Linux RPM bundle
+              working-directory: apps/desktop
+              env:
+                  RELEASE_VERSION: ${{ inputs.version }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  rpm_config="$(node scripts/ci/rpm-bundle-config.mjs "$RELEASE_VERSION")"
+                  node scripts/ci/retry-release-command.mjs -- pnpm tauri bundle --bundles rpm --ci --config "$rpm_config"
 
             - name: Stage Linux release assets
               shell: bash
