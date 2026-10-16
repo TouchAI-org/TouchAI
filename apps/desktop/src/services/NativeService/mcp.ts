@@ -81,16 +81,21 @@ export async function listTools(serverId: number): Promise<McpToolDefinition[]> 
 
 /**
  * 调用 MCP 工具
+ *
+ * `timeoutMs` 会透传到 Rust 侧，由 rmcp 的请求级超时在到点时取消远端调用，
+ * 避免本地已判定超时、远端仍在执行。
  */
 export async function callTool(
     serverId: number,
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    timeoutMs?: number
 ): Promise<McpToolCallResponse> {
     return invoke('mcp_call_tool', {
         serverId,
         toolName,
         arguments: args,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
     });
 }
 

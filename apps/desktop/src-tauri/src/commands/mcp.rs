@@ -39,9 +39,10 @@ pub async fn mcp_call_tool(
     server_id: i64,
     tool_name: String,
     arguments: serde_json::Value,
+    timeout_ms: Option<u64>,
 ) -> Result<McpToolCallResponse, String> {
     client_manager
-        .call_tool(server_id, tool_name, arguments)
+        .call_tool(server_id, tool_name, arguments, timeout_ms)
         .await
 }
 

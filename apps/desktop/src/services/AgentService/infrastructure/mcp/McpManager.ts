@@ -265,10 +265,11 @@ export class McpManager {
     async callTool(
         serverId: number,
         toolName: string,
-        args: Record<string, unknown>
+        args: Record<string, unknown>,
+        timeoutMs?: number
     ): Promise<McpToolCallResponse> {
         try {
-            return await mcp.callTool(serverId, toolName, args);
+            return await mcp.callTool(serverId, toolName, args, timeoutMs);
         } catch (error) {
             console.error(`[McpManager] Failed to call tool ${toolName}:`, error);
             throw error;
@@ -461,8 +462,14 @@ export class McpManager {
         // 模型建议的超时收敛到允许区间；未建议时沿用服务器配置。
         const effectiveTimeout = clampTimeoutMs(options?.requestedTimeoutMs, resolved.toolTimeout);
 
-        // 将工具调用与超时和中止信号进行竞争
-        const callPromise = this.callTool(resolved.serverId, resolved.originalName, args);
+        // 超时同时下发给 Rust：rmcp 会在到点时向服务器发送取消通知，避免本地已
+        // 判定超时、远端却仍在执行造成副作用重复。这里的竞争负责本地等待与中止信号。
+        const callPromise = this.callTool(
+            resolved.serverId,
+            resolved.originalName,
+            args,
+            effectiveTimeout
+        );
         const response = await raceWithTimeoutAndSignal(
             callPromise,
             effectiveTimeout,

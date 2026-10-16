@@ -6,8 +6,8 @@ use super::types::*;
 use log::{debug, error, info, warn};
 use reqwest as mcp_reqwest;
 use rmcp::{
-    model::CallToolRequestParams,
-    service::{RunningService, ServiceExt},
+    model::{CallToolRequest, CallToolRequestParams, CallToolResult, ClientRequest, ServerResult},
+    service::{PeerRequestOptions, RunningService, ServiceError, ServiceExt},
     transport::{
         streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
         StreamableHttpClientTransport, TokioChildProcess,
@@ -394,10 +394,15 @@ impl McpClient {
     }
 
     /// 调用服务器上的工具。
+    ///
+    /// 传入 `timeout_ms` 时，超时由 rmcp 的请求级超时负责：到点会向服务器发送
+    /// `notifications/cancelled` 并返回超时错误，避免本地已判定超时、远端却仍在
+    /// 执行造成副作用重复。
     pub async fn call_tool(
         &self,
         tool_name: String,
         arguments: serde_json::Value,
+        timeout_ms: Option<u64>,
     ) -> Result<McpToolCallResponse, String> {
         let service = self.service.read().await;
         let service = service
@@ -405,14 +410,14 @@ impl McpClient {
             .ok_or_else(|| "Service not connected".to_string())?;
 
         // 将参数转换为 JsonObject
-        let request = if let Some(args_obj) = arguments.as_object().cloned() {
+        let params = if let Some(args_obj) = arguments.as_object().cloned() {
             CallToolRequestParams::new(tool_name).with_arguments(args_obj)
         } else {
             CallToolRequestParams::new(tool_name)
         };
 
         // 调用工具
-        match service.peer().call_tool(request).await {
+        match Self::dispatch_call(service, params, timeout_ms).await {
             Ok(response) => {
                 // 转换内容
                 let content: Vec<ToolContent> = response
@@ -468,10 +473,55 @@ impl McpClient {
                 })
             }
             Err(e) => {
-                let err_msg = format!("Failed to call tool: {}", e);
-                error!("{}", err_msg);
-                Err(err_msg)
+                // dispatch_call 已把错误格式化成可读信息，这里只负责记录并透传。
+                error!("{}", e);
+                Err(e)
             }
+        }
+    }
+
+    /// 按是否给出超时选择调用路径。
+    ///
+    /// 有超时时走 rmcp 的请求级超时（到点会向服务器发送取消通知）；否则沿用默认的
+    /// `call_tool`，保留 MRTR 多轮交互语义。
+    async fn dispatch_call(
+        service: &McpService,
+        params: CallToolRequestParams,
+        timeout_ms: Option<u64>,
+    ) -> Result<CallToolResult, String> {
+        match timeout_ms.filter(|ms| *ms > 0) {
+            Some(ms) => {
+                let request = ClientRequest::CallToolRequest(CallToolRequest::new(params));
+                let options = PeerRequestOptions::with_timeout(Duration::from_millis(ms));
+                let response = service
+                    .peer()
+                    .send_request_with_option(request, options)
+                    .await
+                    .map_err(Self::format_call_error)?
+                    .await_response()
+                    .await
+                    .map_err(Self::format_call_error)?;
+
+                match response {
+                    ServerResult::CallToolResult(result) => Ok(result),
+                    other => Err(format!("Unexpected MCP tool response: {:?}", other)),
+                }
+            }
+            None => service
+                .peer()
+                .call_tool(params)
+                .await
+                .map_err(Self::format_call_error),
+        }
+    }
+
+    /// 统一把 rmcp 调用错误格式化成可读信息；超时给出稳定文案，便于前端识别。
+    fn format_call_error(error: ServiceError) -> String {
+        match error {
+            ServiceError::Timeout { timeout } => {
+                format!("Tool execution timed out ({}ms)", timeout.as_millis())
+            }
+            other => format!("Failed to call tool: {}", other),
         }
     }
 
@@ -522,5 +572,26 @@ impl McpClient {
     async fn clear_error(&self) {
         let mut current_error = self.error.lock().await;
         *current_error = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_call_error_maps_timeout_to_a_stable_message() {
+        let message = McpClient::format_call_error(ServiceError::Timeout {
+            timeout: Duration::from_millis(1500),
+        });
+
+        assert_eq!(message, "Tool execution timed out (1500ms)");
+    }
+
+    #[test]
+    fn format_call_error_keeps_the_generic_prefix_for_other_errors() {
+        let message = McpClient::format_call_error(ServiceError::TransportClosed);
+
+        assert!(message.starts_with("Failed to call tool:"));
     }
 }

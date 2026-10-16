@@ -142,6 +142,31 @@ describe('McpManager.executeTool adaptive timeout', () => {
         await assertion;
     });
 
+    it('forwards the effective timeout to the native call so the server can be cancelled', async () => {
+        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
+        const mcpManager = await manager();
+
+        await mcpManager.executeTool(
+            'mcp__1__search',
+            {},
+            {
+                resolved: RESOLVED,
+                requestedTimeoutMs: 5000,
+            }
+        );
+
+        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, 5000);
+    });
+
+    it('forwards the server-configured timeout when the model requests nothing', async () => {
+        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
+        const mcpManager = await manager();
+
+        await mcpManager.executeTool('mcp__1__search', {}, { resolved: RESOLVED });
+
+        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
+    });
+
     it('resolves with the tool result when the native call finishes first', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();

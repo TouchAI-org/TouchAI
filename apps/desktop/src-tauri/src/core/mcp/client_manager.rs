@@ -111,18 +111,21 @@ impl McpClientManager {
     }
 
     /// 调用服务器上的工具。
+    ///
+    /// `timeout_ms` 透传给客户端，由 rmcp 的请求级超时负责在到点时取消远端调用。
     pub async fn call_tool(
         &self,
         server_id: i64,
         tool_name: String,
         arguments: serde_json::Value,
+        timeout_ms: Option<u64>,
     ) -> Result<McpToolCallResponse, String> {
         let clients = self.clients.read().await;
         let client = clients
             .get(&server_id)
             .ok_or_else(|| format!("Server {} not found", server_id))?;
 
-        client.call_tool(tool_name, arguments).await
+        client.call_tool(tool_name, arguments, timeout_ms).await
     }
 
     /// 获取服务器状态。
