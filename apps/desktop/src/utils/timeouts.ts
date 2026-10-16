@@ -72,3 +72,18 @@ export function clampTimeoutMs(
 
     return Math.min(Math.max(requested, TOOL_TIMEOUT_MIN_MS), max);
 }
+
+/**
+ * 把用户配置的超时换算成模型可建议区间的上限。
+ *
+ * 用户配置的值既是这次调用的默认超时，也是模型建议值的硬上限：模型只能在
+ * 这个范围内收紧，任何超过它的建议都会被 {@link clampTimeoutMs} 收敛回来。
+ *
+ * 返回 `undefined` 的情况有两种，含义都是“不提供 `_meta` 超时信封”：
+ * - 非正数：用户明确关闭了超时，此时不应让模型再引入一个超时；
+ * - 小于 {@link TOOL_TIMEOUT_MIN_MS}：`[1 秒, 配置值]` 区间为空，
+ *   无法给出合法的 schema，但配置值本身仍然生效。
+ */
+export function resolveAdaptiveTimeoutCeilingMs(configuredTimeoutMs: number): number | undefined {
+    return configuredTimeoutMs >= TOOL_TIMEOUT_MIN_MS ? configuredTimeoutMs : undefined;
+}

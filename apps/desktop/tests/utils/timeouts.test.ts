@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     clampTimeoutMs,
     parseRequestedTimeoutMs,
+    resolveAdaptiveTimeoutCeilingMs,
     TOOL_TIMEOUT_MAX_MS,
     TOOL_TIMEOUT_MIN_MS,
 } from '@/utils/timeouts';
@@ -76,5 +77,24 @@ describe('parseRequestedTimeoutMs', () => {
 
         expect(parsed.requestedTimeoutMs).toBeUndefined();
         expect(parsed.sanitizedToolArgs).toEqual({});
+    });
+});
+
+describe('resolveAdaptiveTimeoutCeilingMs', () => {
+    it('returns the configured timeout when it can form a valid range', () => {
+        expect(resolveAdaptiveTimeoutCeilingMs(TOOL_TIMEOUT_MIN_MS)).toBe(TOOL_TIMEOUT_MIN_MS);
+        expect(resolveAdaptiveTimeoutCeilingMs(30000)).toBe(30000);
+        expect(resolveAdaptiveTimeoutCeilingMs(TOOL_TIMEOUT_MAX_MS * 2)).toBe(
+            TOOL_TIMEOUT_MAX_MS * 2
+        );
+    });
+
+    it('returns undefined when the user disabled the timeout', () => {
+        expect(resolveAdaptiveTimeoutCeilingMs(0)).toBeUndefined();
+        expect(resolveAdaptiveTimeoutCeilingMs(-1)).toBeUndefined();
+    });
+
+    it('returns undefined when the configured timeout leaves no valid range', () => {
+        expect(resolveAdaptiveTimeoutCeilingMs(TOOL_TIMEOUT_MIN_MS - 1)).toBeUndefined();
     });
 });

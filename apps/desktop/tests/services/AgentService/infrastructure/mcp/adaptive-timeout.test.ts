@@ -217,7 +217,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         }
     );
 
-    it('bounds a model-requested timeout by the shared maximum when the server disables it', async () => {
+    it('ignores a model-requested timeout when the server disables it', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();
 
@@ -230,7 +230,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
             }
         );
 
-        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, TOOL_TIMEOUT_MAX_MS);
+        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
     });
 
     it('localizes the native timeout error before it reaches the caller', async () => {
@@ -299,8 +299,8 @@ describe('McpManager.getEnabledToolDefinitions adaptive timeout ceiling', () => 
         await expect(ceilingFor(30000)).resolves.toBe(30000);
     });
 
-    it('falls back to the shared maximum when the server disables its timeout', async () => {
-        await expect(ceilingFor(0)).resolves.toBe(TOOL_TIMEOUT_MAX_MS);
+    it('omits the _meta envelope when the server disables its timeout', async () => {
+        await expect(ceilingFor(0)).resolves.toBeUndefined();
     });
 
     it('omits the _meta envelope when the configured timeout leaves no valid range', async () => {

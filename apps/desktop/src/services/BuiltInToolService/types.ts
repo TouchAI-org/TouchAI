@@ -112,8 +112,9 @@ export abstract class BuiltInTool<
      * 该工具消费模型通过 `_meta.timeoutMs` 建议的超时时，实际生效的上限
      * （毫秒）；`undefined` 表示不支持，工具目录不会给它注入 `_meta`。
      *
-     * 只有真正把 `context.requestedTimeoutMs` 落到执行的工具才覆写，
-     * 且必须与执行路径的硬上限（含 Rust 侧）保持一致。
+     * 只有真正把 `context.requestedTimeoutMs` 落到执行的工具才提供，
+     * 且必须与执行路径的硬上限（含 Rust 侧）保持一致。上限需要跟随用户
+     * 配置变化时，覆写 {@link buildToolDefinition} 按配置计算。
      */
     readonly adaptiveTimeoutCeilingMs?: number;
 
