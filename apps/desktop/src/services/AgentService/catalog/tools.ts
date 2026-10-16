@@ -3,7 +3,7 @@
 import type { ModelWithProvider } from '@database/queries/models';
 
 import { builtInToolService } from '@/services/BuiltInToolService';
-import { TOOL_TIMEOUT_MAX_MS, TOOL_TIMEOUT_MIN_MS } from '@/utils/timeouts';
+import { TOOL_TIMEOUT_MAX_MS, TOOL_TIMEOUT_META_KEY, TOOL_TIMEOUT_MIN_MS } from '@/utils/timeouts';
 
 import type { AiToolDefinition } from '../contracts/tooling';
 import { mcpManager } from '../infrastructure/mcp';
@@ -33,19 +33,30 @@ function buildAdaptiveTimeoutMetaProperty(ceilingMs: number): Record<string, unk
     };
 }
 
+/**
+ * 返回带 `_meta` 超时参数的工具定义；不支持或发生键冲突时原样返回。
+ *
+ * 只有真正注入 `_meta` 的定义才会带上 `adaptiveTimeoutCeilingMs`，执行器据此
+ * 判断“是否应把 `_meta` 当作超时信封剥离”。若工具自身已声明 `_meta` 业务参数
+ * （属性或 required），则放弃自适应超时，避免覆盖或吞掉服务器定义的参数。
+ */
 function withAdaptiveTimeoutSchema(tool: AiToolDefinition): AiToolDefinition {
     const { adaptiveTimeoutCeilingMs, ...definition } = tool;
-    if (adaptiveTimeoutCeilingMs === undefined) {
+    const { properties, required } = definition.input_schema;
+    const hasMetaCollision =
+        TOOL_TIMEOUT_META_KEY in properties || required?.includes(TOOL_TIMEOUT_META_KEY);
+    if (adaptiveTimeoutCeilingMs === undefined || hasMetaCollision) {
         return definition;
     }
 
     return {
         ...definition,
+        adaptiveTimeoutCeilingMs: Math.min(adaptiveTimeoutCeilingMs, TOOL_TIMEOUT_MAX_MS),
         input_schema: {
             ...definition.input_schema,
             properties: {
-                ...definition.input_schema.properties,
-                _meta: buildAdaptiveTimeoutMetaProperty(
+                ...properties,
+                [TOOL_TIMEOUT_META_KEY]: buildAdaptiveTimeoutMetaProperty(
                     Math.min(adaptiveTimeoutCeilingMs, TOOL_TIMEOUT_MAX_MS)
                 ),
             },

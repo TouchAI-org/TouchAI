@@ -160,7 +160,6 @@ export async function executeBashTool(
     const effectiveTimeout = clampTimeoutMs(
         context.requestedTimeoutMs,
         config.timeoutMs,
-        undefined,
         BASH_TOOL_TIMEOUT_MAX_MS
     );
 

@@ -876,9 +876,17 @@ export class AiRequestExecutor {
             };
         }
 
-        const { requestedTimeoutMs, sanitizedToolArgs } = parseRequestedTimeoutMs(
-            parsedToolArguments.toolArgs
-        );
+        // 只有声明了自适应超时的工具才会把 `_meta` 当作超时信封剥离；
+        // 其余工具（含自带 `_meta` 业务参数的 MCP 工具）原样透传参数。
+        const supportsAdaptiveTimeout =
+            runtime.tools?.some(
+                (tool) =>
+                    tool.name === options.toolCall.name &&
+                    tool.adaptiveTimeoutCeilingMs !== undefined
+            ) ?? false;
+        const { requestedTimeoutMs, sanitizedToolArgs } = supportsAdaptiveTimeout
+            ? parseRequestedTimeoutMs(parsedToolArguments.toolArgs)
+            : { requestedTimeoutMs: undefined, sanitizedToolArgs: parsedToolArguments.toolArgs };
 
         const builtInResult = await builtInToolService.executeTool({
             toolCall: options.toolCall,

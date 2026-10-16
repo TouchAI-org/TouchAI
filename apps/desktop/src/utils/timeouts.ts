@@ -12,9 +12,10 @@ export const TOOL_TIMEOUT_META_KEY = '_meta';
 /**
  * 模型可建议的工具调用超时边界（毫秒）。
  *
- * 这是“模型建议超时”的唯一真源：工具 schema 描述、schema 的
+ * 这是“模型建议超时”的默认区间：schema 描述、schema 的
  * minimum / maximum 以及执行期收敛都引用这组常量，避免多处硬编码
- * 后互相漂移。Rust 侧 `built_in_tools::bash` 的上限必须与之一致。
+ * 后互相漂移。单个工具可以声明更小的上限（例如 Bash 受 Rust 侧
+ * `built_in_tools::bash` 的硬上限约束），此时以该工具的声明为准。
  */
 export const TOOL_TIMEOUT_MIN_MS = 1000;
 export const TOOL_TIMEOUT_MAX_MS = 600000;
@@ -55,19 +56,19 @@ export function parseRequestedTimeoutMs(toolArgs: Record<string, unknown>): {
 }
 
 /**
- * 把模型建议的超时收敛到 `[min, max]`；缺省或非法时回退到 `fallback`。
+ * 把模型建议的超时收敛到 `[TOOL_TIMEOUT_MIN_MS, max]`；缺省或非法时回退到 `fallback`。
  *
  * 入参应为有限整数（{@link parseRequestedTimeoutMs} 已保证），这里只做区间收敛。
+ * `max` 允许调用方传入工具自己的封顶值（默认取共享上限）。
  */
 export function clampTimeoutMs(
     requested: number | undefined | null,
     fallback: number,
-    min: number = TOOL_TIMEOUT_MIN_MS,
     max: number = TOOL_TIMEOUT_MAX_MS
 ): number {
     if (typeof requested !== 'number' || !Number.isInteger(requested)) {
         return fallback;
     }
 
-    return Math.min(Math.max(requested, min), max);
+    return Math.min(Math.max(requested, TOOL_TIMEOUT_MIN_MS), max);
 }

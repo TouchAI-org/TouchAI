@@ -56,7 +56,7 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
         expect(byName['builtin__read']?.input_schema.properties).not.toHaveProperty('_meta');
     });
 
-    it('never leaks the internal ceiling field into the provider payload', async () => {
+    it('marks only the tools whose schema actually received the _meta parameter', async () => {
         getEnabledToolDefinitionsMock.mockResolvedValue([
             tool('builtin__bash', { adaptiveTimeoutCeilingMs: 120000 }),
             tool('builtin__read'),
@@ -64,10 +64,74 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
 
         const { resolveToolDefinitions } = await import('@/services/AgentService/catalog/tools');
         const definitions = await resolveToolDefinitions(model);
+        const byName = Object.fromEntries((definitions ?? []).map((item) => [item.name, item]));
+
+        // The capability flag is what the executor gates `_meta` stripping on,
+        // so it must be present exactly when `_meta` was injected.
+        expect(byName['builtin__bash']?.adaptiveTimeoutCeilingMs).toBe(120000);
+        expect(byName['builtin__read']).not.toHaveProperty('adaptiveTimeoutCeilingMs');
+    });
+
+    it('keeps the ceiling out of the provider-facing input schema', async () => {
+        getEnabledToolDefinitionsMock.mockResolvedValue([
+            tool('builtin__bash', { adaptiveTimeoutCeilingMs: 120000 }),
+        ]);
+
+        const { resolveToolDefinitions } = await import('@/services/AgentService/catalog/tools');
+        const definitions = await resolveToolDefinitions(model);
 
         for (const definition of definitions ?? []) {
-            expect(definition).not.toHaveProperty('adaptiveTimeoutCeilingMs');
+            expect(definition.input_schema).not.toHaveProperty('adaptiveTimeoutCeilingMs');
+            expect(definition.input_schema.properties).not.toHaveProperty(
+                'adaptiveTimeoutCeilingMs'
+            );
         }
+    });
+
+    it('skips adaptive timeout when the tool already declares a _meta property', async () => {
+        getEnabledMcpToolsMock.mockResolvedValue([
+            {
+                name: 'mcp__1__custom',
+                description: 'custom',
+                input_schema: {
+                    type: 'object' as const,
+                    properties: { _meta: { type: 'object' } },
+                },
+                adaptiveTimeoutCeilingMs: TOOL_TIMEOUT_MAX_MS,
+            },
+        ]);
+
+        const { resolveToolDefinitions } = await import('@/services/AgentService/catalog/tools');
+        const definitions = await resolveToolDefinitions(model);
+        const custom = definitions?.find((item) => item.name === 'mcp__1__custom');
+
+        // The server's own `_meta` schema is preserved verbatim and the tool is
+        // not marked as supporting adaptive timeout.
+        expect(custom?.input_schema.properties._meta).toEqual({ type: 'object' });
+        expect(custom).not.toHaveProperty('adaptiveTimeoutCeilingMs');
+    });
+
+    it('skips adaptive timeout when _meta is a required tool argument', async () => {
+        getEnabledMcpToolsMock.mockResolvedValue([
+            {
+                name: 'mcp__1__required-meta',
+                description: 'required meta',
+                input_schema: {
+                    type: 'object' as const,
+                    properties: { arg: { type: 'string' } },
+                    required: ['_meta'],
+                },
+                adaptiveTimeoutCeilingMs: TOOL_TIMEOUT_MAX_MS,
+            },
+        ]);
+
+        const { resolveToolDefinitions } = await import('@/services/AgentService/catalog/tools');
+        const definitions = await resolveToolDefinitions(model);
+        const definition = definitions?.find((item) => item.name === 'mcp__1__required-meta');
+
+        expect(definition?.input_schema.properties).not.toHaveProperty('_meta');
+        expect(definition?.input_schema.required).toEqual(['_meta']);
+        expect(definition).not.toHaveProperty('adaptiveTimeoutCeilingMs');
     });
 
     it('exposes each tool-specific ceiling instead of a shared upper bound', async () => {

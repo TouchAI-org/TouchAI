@@ -33,8 +33,8 @@ describe('clampTimeoutMs', () => {
     });
 
     it('honors a tighter tool-specific ceiling', () => {
-        expect(clampTimeoutMs(600000, 15000, undefined, 120000)).toBe(120000);
-        expect(clampTimeoutMs(45000, 15000, undefined, 120000)).toBe(45000);
+        expect(clampTimeoutMs(600000, 15000, 120000)).toBe(120000);
+        expect(clampTimeoutMs(45000, 15000, 120000)).toBe(45000);
     });
 });
 
