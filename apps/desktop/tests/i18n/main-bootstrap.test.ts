@@ -14,7 +14,7 @@ const {
     seedModelMetadataFromSnapshotMock,
     initializeLoggerMock,
     syncAllModelsMetadataMock,
-    updateModelMetadataMock,
+    refreshModelMetadataIfStaleMock,
     originalWindowOpenMock,
     openUrlMock,
     routerMock,
@@ -32,7 +32,7 @@ const {
     seedModelMetadataFromSnapshotMock: vi.fn(),
     initializeLoggerMock: vi.fn(),
     syncAllModelsMetadataMock: vi.fn(),
-    updateModelMetadataMock: vi.fn(),
+    refreshModelMetadataIfStaleMock: vi.fn(),
     originalWindowOpenMock: vi.fn(),
     openUrlMock: vi.fn(),
     routerMock: {
@@ -65,8 +65,8 @@ vi.mock('@database/queries', () => ({
 }));
 
 vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
+    refreshModelMetadataIfStale: refreshModelMetadataIfStaleMock,
     seedModelMetadataFromSnapshot: seedModelMetadataFromSnapshotMock,
-    updateModelMetadata: updateModelMetadataMock,
 }));
 
 vi.mock('@/services/BuiltInToolService/service', () => ({
@@ -134,7 +134,7 @@ describe('app bootstrap i18n', () => {
         isLlmMetadataEmptyMock.mockResolvedValue(false);
         syncAllModelsMetadataMock.mockResolvedValue(undefined);
         seedModelMetadataFromSnapshotMock.mockResolvedValue(undefined);
-        updateModelMetadataMock.mockResolvedValue(undefined);
+        refreshModelMetadataIfStaleMock.mockResolvedValue({ status: 'unchanged' });
         getCurrentWindowMock.mockReturnValue({
             label: 'main',
         });
@@ -161,45 +161,41 @@ describe('app bootstrap i18n', () => {
         expect(settingsInitializeOrder).toBeLessThan(appMountMock.mock.invocationCallOrder[0]!);
     });
 
-    it('seeds bundled metadata and refreshes remote metadata during bootstrap when local metadata is empty', async () => {
+    it('seeds bundled metadata during bootstrap when local metadata is empty', async () => {
         isLlmMetadataEmptyMock.mockResolvedValue(true);
 
         const { initializeApp } = await import('@/bootstrap');
         await initializeApp();
 
         expect(seedModelMetadataFromSnapshotMock).toHaveBeenCalledTimes(1);
-        expect(updateModelMetadataMock).toHaveBeenCalledTimes(1);
         expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
     });
 
-    it('still refreshes remote model metadata when the bundled snapshot fails to load', async () => {
-        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        isLlmMetadataEmptyMock.mockResolvedValue(true);
-        seedModelMetadataFromSnapshotMock.mockRejectedValue(new Error('snapshot unavailable'));
-
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(updateModelMetadataMock).toHaveBeenCalledTimes(1);
-        expect(consoleSpy).toHaveBeenCalledWith(
-            '[Bootstrap] Failed to seed bundled model metadata:',
-            expect.any(Error)
-        );
-        consoleSpy.mockRestore();
-    });
-
-    it('syncs cached model metadata during bootstrap without refreshing remote metadata', async () => {
+    it('checks the remote catalog after mount without blocking startup', async () => {
         isLlmMetadataEmptyMock.mockResolvedValue(false);
         isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
 
         const { initializeApp } = await import('@/bootstrap');
         await initializeApp();
 
-        expect(updateModelMetadataMock).not.toHaveBeenCalled();
+        expect(appMountMock).toHaveBeenCalledWith('#app');
+        expect(refreshModelMetadataIfStaleMock).toHaveBeenCalledTimes(1);
+
+        const refreshOrder = refreshModelMetadataIfStaleMock.mock.invocationCallOrder[0]!;
+        expect(refreshOrder).toBeGreaterThan(appMountMock.mock.invocationCallOrder[0]!);
+    });
+
+    it('syncs cached model metadata during bootstrap', async () => {
+        isLlmMetadataEmptyMock.mockResolvedValue(false);
+        isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
+
+        const { initializeApp } = await import('@/bootstrap');
+        await initializeApp();
+
         expect(syncAllModelsMetadataMock).toHaveBeenCalledTimes(1);
     });
 
-    it('refreshes metadata when the cached catalog has no aliases yet', async () => {
+    it('reseeds metadata when the cached catalog has no aliases yet', async () => {
         isLlmMetadataEmptyMock.mockResolvedValue(false);
         isLlmMetadataAliasEmptyMock.mockResolvedValue(true);
 
@@ -207,24 +203,41 @@ describe('app bootstrap i18n', () => {
         await initializeApp();
 
         expect(seedModelMetadataFromSnapshotMock).toHaveBeenCalledTimes(1);
-        expect(updateModelMetadataMock).toHaveBeenCalledTimes(1);
         expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
     });
 
-    it('continues bootstrap when remote model metadata refresh fails', async () => {
-        const metadataError = new Error('metadata unavailable');
+    it('continues bootstrap when seeding the bundled snapshot fails', async () => {
         const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         isLlmMetadataEmptyMock.mockResolvedValue(true);
-        updateModelMetadataMock.mockRejectedValue(metadataError);
+        seedModelMetadataFromSnapshotMock.mockRejectedValue(new Error('snapshot unavailable'));
 
         const { initializeApp } = await import('@/bootstrap');
         await expect(initializeApp()).resolves.toBeUndefined();
 
         expect(appMountMock).toHaveBeenCalledWith('#app');
         expect(consoleSpy).toHaveBeenCalledWith(
-            '[Bootstrap] Failed to initialize model metadata:',
-            metadataError
+            '[Bootstrap] Failed to seed bundled model metadata:',
+            expect.any(Error)
         );
+        consoleSpy.mockRestore();
+    });
+
+    it('keeps running when the remote metadata check fails', async () => {
+        const metadataError = new Error('metadata unavailable');
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        isLlmMetadataEmptyMock.mockResolvedValue(false);
+        isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
+        refreshModelMetadataIfStaleMock.mockRejectedValue(metadataError);
+
+        const { initializeApp } = await import('@/bootstrap');
+        await expect(initializeApp()).resolves.toBeUndefined();
+
+        await vi.waitFor(() => {
+            expect(consoleSpy).toHaveBeenCalledWith(
+                '[Bootstrap] Failed to refresh model metadata:',
+                metadataError
+            );
+        });
         consoleSpy.mockRestore();
     });
 
@@ -256,7 +269,7 @@ describe('app bootstrap i18n', () => {
         expect(builtInToolSyncMock).not.toHaveBeenCalled();
         expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
         expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
-        expect(updateModelMetadataMock).not.toHaveBeenCalled();
+        expect(refreshModelMetadataIfStaleMock).not.toHaveBeenCalled();
         expect(settingsInitializeMock).not.toHaveBeenCalled();
         expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
     });
@@ -273,7 +286,7 @@ describe('app bootstrap i18n', () => {
         expect(initializeFontLoaderMock).not.toHaveBeenCalled();
         expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
         expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
-        expect(updateModelMetadataMock).not.toHaveBeenCalled();
+        expect(refreshModelMetadataIfStaleMock).not.toHaveBeenCalled();
         expect(settingsInitializeMock).not.toHaveBeenCalled();
         expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
     });

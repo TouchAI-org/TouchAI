@@ -16,8 +16,8 @@ import App from './App.vue';
 import { installI18n } from './i18n';
 import router from './router';
 import {
+    refreshModelMetadataIfStale,
     seedModelMetadataFromSnapshot,
-    updateModelMetadata,
 } from './services/AgentService/infrastructure/modelMetadata';
 import { builtInToolService } from './services/BuiltInToolService/service';
 import { useSettingsStore } from './stores/settings';
@@ -25,6 +25,9 @@ import { initializeFontLoader } from './utils/font';
 
 const AUXILIARY_WINDOW_LABELS = new Set(['tray-menu']);
 const AUXILIARY_ROUTE_PREFIXES = ['#/popup', '#/tray-menu'];
+
+/** 定时检查远端目录的间隔；是否真正请求由刷新入口按上次检查时间决定。 */
+const MODEL_METADATA_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 function getCurrentWindowLabel(): string | null {
     try {
@@ -125,12 +128,15 @@ function scheduleAppUpdateChecks(): void {
     window.setInterval(runAutomaticCheck, 60 * 60 * 1000);
 }
 
+/**
+ * 落一份本地元数据，供界面启动后立即使用。
+ *
+ * 旧版本的缓存没有别名表，需要重新拉一次远端目录才能用上新匹配。
+ */
 async function initializeModelMetadata(): Promise<void> {
     try {
-        // 旧版本的缓存没有别名表，需要重新拉一次远端目录才能用上新匹配。
         if ((await isLlmMetadataEmpty()) || (await isLlmMetadataAliasEmpty())) {
             await seedBundledModelMetadata();
-            await updateModelMetadata();
             return;
         }
 
@@ -138,6 +144,22 @@ async function initializeModelMetadata(): Promise<void> {
     } catch (error) {
         console.warn('[Bootstrap] Failed to initialize model metadata:', error);
     }
+}
+
+/**
+ * 启动后异步检查远端目录是否更新。
+ *
+ * 不阻塞挂载：检查走条件请求，上游没变时只推进检查时间。
+ */
+function scheduleModelMetadataRefresh(): void {
+    const runRefresh = () => {
+        refreshModelMetadataIfStale().catch((error) => {
+            console.warn('[Bootstrap] Failed to refresh model metadata:', error);
+        });
+    };
+
+    runRefresh();
+    window.setInterval(runRefresh, MODEL_METADATA_REFRESH_INTERVAL_MS);
 }
 
 /**
@@ -196,4 +218,5 @@ export async function initializeApp() {
     }
 
     scheduleAppUpdateChecks();
+    scheduleModelMetadataRefresh();
 }

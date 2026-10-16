@@ -525,6 +525,7 @@ const zhCNMessages = {
     'settings.dataManagement.clearSessionTurnsSuccess': '已成功删除所有对话记录',
     'settings.dataManagement.clearSessionTurnsFailed': '清除对话记录失败',
     'settings.dataManagement.modelDatabaseUpdated': '大模型数据库已更新',
+    'settings.dataManagement.modelDatabaseAlreadyUpToDate': '大模型数据库已是最新',
     'settings.dataManagement.updateModelDatabaseFailed': '更新大模型数据库失败',
     'settings.dataManagement.importMode.title': '选择导入模式',
     'settings.dataManagement.importMode.description':
@@ -1541,6 +1542,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.dataManagement.clearSessionTurnsSuccess': 'All conversation records deleted',
     'settings.dataManagement.clearSessionTurnsFailed': 'Failed to clear conversation records',
     'settings.dataManagement.modelDatabaseUpdated': 'Model database updated',
+    'settings.dataManagement.modelDatabaseAlreadyUpToDate': 'Model database is already up to date',
     'settings.dataManagement.updateModelDatabaseFailed': 'Failed to update model database',
     'settings.dataManagement.importMode.title': 'Choose import mode',
     'settings.dataManagement.importMode.description':

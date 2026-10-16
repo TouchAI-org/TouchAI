@@ -32,7 +32,7 @@
 
     import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
-    import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
+    import { refreshModelMetadataIfStale } from '@/services/AgentService/infrastructure/modelMetadata';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     defineOptions({
@@ -665,13 +665,15 @@
     };
 
     onMounted(async () => {
-        // 检查 llm-metadata 是否为空，如果为空则自动获取
+        // 启动流程已经落过本地元数据，这里只做兜底检查与按需刷新。
         try {
             const isEmpty = (await isLlmMetadataEmpty()) || (await isLlmMetadataAliasEmpty());
-            if (isEmpty) {
-                console.log('[AiServicesView] llm-metadata is empty, fetching...');
-                await updateModelMetadata();
-                console.log('[AiServicesView] llm-metadata fetched successfully');
+            const result = await refreshModelMetadataIfStale();
+
+            if (result.status === 'updated') {
+                console.log('[AiServicesView] llm-metadata updated from remote');
+            } else if (isEmpty) {
+                console.warn('[AiServicesView] llm-metadata is still empty');
             }
         } catch (error) {
             console.error('[AiServicesView] Failed to check or update llm-metadata:', error);

@@ -308,9 +308,13 @@
         try {
             isLoading.value = true;
 
-            await updateModelMetadata();
+            const result = await updateModelMetadata();
             await loadMetadataUpdatedAt();
-            alert.success(t('settings.dataManagement.modelDatabaseUpdated'));
+            alert.success(
+                result.status === 'unchanged'
+                    ? t('settings.dataManagement.modelDatabaseAlreadyUpToDate')
+                    : t('settings.dataManagement.modelDatabaseUpdated')
+            );
         } catch (error) {
             console.error('Failed to update model metadata:', error);
             alert.error(t('settings.dataManagement.updateModelDatabaseFailed'));

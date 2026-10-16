@@ -24,6 +24,8 @@ export type ToolLogKind = 'mcp' | 'builtin';
  */
 export enum StatisticKey {
     MODEL_METADATA_LAST_UPDATED_AT = 'model_metadata_last_updated_at',
+    MODEL_METADATA_LAST_CHECKED_AT = 'model_metadata_last_checked_at',
+    MODEL_METADATA_SOURCE_ETAG = 'model_metadata_source_etag',
 }
 
 /**
