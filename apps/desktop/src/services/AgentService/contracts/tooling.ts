@@ -14,6 +14,17 @@ export interface AiToolDefinition {
         required?: string[];
         [key: string]: unknown;
     };
+    /**
+     * 模型可通过 `_meta.timeoutMs` 建议超时时，本工具实际生效的上限（毫秒）。
+     *
+     * 未设置表示该工具不接受模型建议的超时，工具目录不会给它注入 `_meta`
+     * 参数。这是执行层真正的封顶值：必须与工具执行路径（含 Rust 侧硬上限）
+     * 一致，否则模型会以为生效、实际被静默截断。
+     *
+     * 只在本地的工具目录装配阶段消费；该字段本身不会进入发给 provider 的
+     * 工具 schema。
+     */
+    adaptiveTimeoutCeilingMs?: number;
 }
 
 /**

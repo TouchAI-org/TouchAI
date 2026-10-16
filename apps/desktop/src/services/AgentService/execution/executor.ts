@@ -10,6 +10,7 @@ import {
     type BuiltInToolId,
     builtInToolService,
 } from '@/services/BuiltInToolService';
+import { parseRequestedTimeoutMs } from '@/utils/timeouts';
 import { z } from '@/utils/zod';
 
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
@@ -55,7 +56,6 @@ const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
 const MAX_REQUEST_MODEL_SWITCHES = 4;
 const MODEL_SWITCH_EXCLUDED_TOOL_NAMES = [BUILT_IN_UPGRADE_TOOL_NAME];
 const toolArgumentsSchema = z.record(z.string(), z.unknown());
-const TOOL_TIMEOUT_META_KEY = '_meta';
 /**
  * 这些文本会进入工具结果和会话历史，属于用户可见内容，因此统一使用中文。
  * console 日志仍保留英文，便于对齐 SDK、provider 和协议层排障信息。
@@ -360,41 +360,6 @@ function parseToolCallArguments(toolCall: AiToolCall):
     return {
         ok: true,
         toolArgs: result.data,
-    };
-}
-
-function parseRequestedTimeoutMs(toolArgs: Record<string, unknown>): {
-    requestedTimeoutMs?: number;
-    sanitizedToolArgs: Record<string, unknown>;
-} {
-    const meta = toolArgs[TOOL_TIMEOUT_META_KEY];
-    const sanitizedToolArgs = TOOL_TIMEOUT_META_KEY in toolArgs ? { ...toolArgs } : toolArgs;
-    if (TOOL_TIMEOUT_META_KEY in sanitizedToolArgs) {
-        delete sanitizedToolArgs[TOOL_TIMEOUT_META_KEY];
-    }
-
-    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
-        return {
-            requestedTimeoutMs: undefined,
-            sanitizedToolArgs,
-        };
-    }
-
-    const timeoutMs = (meta as Record<string, unknown>).timeoutMs;
-    if (
-        typeof timeoutMs !== 'number' ||
-        !Number.isFinite(timeoutMs) ||
-        !Number.isInteger(timeoutMs)
-    ) {
-        return {
-            requestedTimeoutMs: undefined,
-            sanitizedToolArgs,
-        };
-    }
-
-    return {
-        requestedTimeoutMs: timeoutMs,
-        sanitizedToolArgs,
     };
 }
 

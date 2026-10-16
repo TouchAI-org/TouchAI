@@ -3,6 +3,7 @@
 import type { ModelWithProvider } from '@database/queries/models';
 
 import { builtInToolService } from '@/services/BuiltInToolService';
+import { TOOL_TIMEOUT_MAX_MS, TOOL_TIMEOUT_MIN_MS } from '@/utils/timeouts';
 
 import type { AiToolDefinition } from '../contracts/tooling';
 import { mcpManager } from '../infrastructure/mcp';
@@ -11,28 +12,42 @@ export interface ResolveToolDefinitionsOptions {
     excludedToolNames?: string[];
 }
 
-const TOOL_TIMEOUT_META_PROPERTY = {
-    type: 'object',
-    description: 'Optional execution metadata for this tool call.',
-    properties: {
-        timeoutMs: {
-            type: 'integer',
-            description:
-                'Optional timeout in milliseconds. Use only when a task is expected to take longer or shorter than the default. Minimum: 1000 (1 second). Maximum: 600000 (10 minutes).',
-            minimum: 1000,
-            maximum: 600000,
+/**
+ * 构造模型建议单次工具调用超时用的 `_meta` 参数 schema。
+ *
+ * 只在工具确实消费该建议（声明了 `adaptiveTimeoutCeilingMs`）时才注入，
+ * 且上限取该工具自己的封顶值，避免向模型承诺一个执行层并不生效的范围。
+ */
+function buildAdaptiveTimeoutMetaProperty(ceilingMs: number): Record<string, unknown> {
+    return {
+        type: 'object',
+        description: 'Optional execution metadata for this tool call.',
+        properties: {
+            timeoutMs: {
+                type: 'integer',
+                description: `Optional timeout in milliseconds. Use only when a task is expected to take longer or shorter than the default. Minimum: ${TOOL_TIMEOUT_MIN_MS} (1 second). Maximum: ${ceilingMs} milliseconds.`,
+                minimum: TOOL_TIMEOUT_MIN_MS,
+                maximum: ceilingMs,
+            },
         },
-    },
-} as const;
+    };
+}
 
 function withAdaptiveTimeoutSchema(tool: AiToolDefinition): AiToolDefinition {
+    const { adaptiveTimeoutCeilingMs, ...definition } = tool;
+    if (adaptiveTimeoutCeilingMs === undefined) {
+        return definition;
+    }
+
     return {
-        ...tool,
+        ...definition,
         input_schema: {
-            ...tool.input_schema,
+            ...definition.input_schema,
             properties: {
-                ...tool.input_schema.properties,
-                _meta: TOOL_TIMEOUT_META_PROPERTY,
+                ...definition.input_schema.properties,
+                _meta: buildAdaptiveTimeoutMetaProperty(
+                    Math.min(adaptiveTimeoutCeilingMs, TOOL_TIMEOUT_MAX_MS)
+                ),
             },
         },
     };
@@ -54,11 +69,11 @@ export async function resolveToolDefinitions(
         builtInToolService.getEnabledToolDefinitions(),
     ]);
     const allTools = [...mcpTools, ...builtInTools];
-    let filteredTools = allTools;
-    if (options.excludedToolNames?.length) {
-        const excludedToolNames = new Set(options.excludedToolNames);
-        filteredTools = allTools.filter((tool) => !excludedToolNames.has(tool.name));
-    }
+    const excludedToolNames = options.excludedToolNames?.length
+        ? new Set(options.excludedToolNames)
+        : undefined;
 
-    return filteredTools.map(withAdaptiveTimeoutSchema);
+    return allTools
+        .filter((tool) => !excludedToolNames?.has(tool.name))
+        .map(withAdaptiveTimeoutSchema);
 }

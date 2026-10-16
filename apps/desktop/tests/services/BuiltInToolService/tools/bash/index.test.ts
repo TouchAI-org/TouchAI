@@ -2,7 +2,10 @@ import type { BuiltInBashExecutionResponse } from '@services/NativeService';
 import { getLastTauriInvokeCall, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
+import {
+    BASH_TOOL_TIMEOUT_MAX_MS,
+    DEFAULT_BASH_TOOL_CONFIG,
+} from '@/services/BuiltInToolService/tools/bash/constants';
 import { executeBashTool } from '@/services/BuiltInToolService/tools/bash/index';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
 
@@ -28,12 +31,15 @@ function mockBashExecute() {
     mockTauriCommand('built_in_tools_execute_bash', MOCK_RESPONSE);
 }
 
-function fakeContext(): BaseBuiltInToolExecutionContext {
+function fakeContext(
+    overrides: Partial<BaseBuiltInToolExecutionContext> = {}
+): BaseBuiltInToolExecutionContext {
     return {
         callId: 'call-1',
         signal: undefined,
         iteration: 0,
         hasExecutedBuiltInTool: () => false,
+        ...overrides,
     };
 }
 
@@ -121,6 +127,56 @@ describe('executeBashTool request construction', () => {
         const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
         expect(call?.payload).toEqual({
             request: expect.objectContaining({ timeoutMs: 30000 }),
+        });
+    });
+
+    it('lets the model shorten the timeout within the configured ceiling', async () => {
+        const config = {
+            ...DEFAULT_BASH_TOOL_CONFIG,
+            defaultWorkingDirectory: 'D:/project',
+            timeoutMs: 30000,
+        };
+        await executeBashTool(
+            { command: 'dir' },
+            config,
+            fakeContext({ requestedTimeoutMs: 5000 })
+        );
+
+        const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
+        expect(call?.payload).toEqual({
+            request: expect.objectContaining({ timeoutMs: 5000 }),
+        });
+    });
+
+    it('caps a model request at the Rust executor hard limit instead of silently truncating', async () => {
+        const config = {
+            ...DEFAULT_BASH_TOOL_CONFIG,
+            defaultWorkingDirectory: 'D:/project',
+            timeoutMs: 15000,
+        };
+        await executeBashTool(
+            { command: 'dir' },
+            config,
+            fakeContext({ requestedTimeoutMs: 600000 })
+        );
+
+        const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
+        expect(call?.payload).toEqual({
+            request: expect.objectContaining({ timeoutMs: BASH_TOOL_TIMEOUT_MAX_MS }),
+        });
+    });
+
+    it('falls back to the configured timeout when no model request is present', async () => {
+        const config = {
+            ...DEFAULT_BASH_TOOL_CONFIG,
+            defaultWorkingDirectory: 'D:/project',
+            timeoutMs: 22000,
+        };
+        await executeBashTool({ command: 'dir' }, config, fakeContext());
+
+        const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
+        expect(call?.payload).toEqual({
+            request: expect.objectContaining({ timeoutMs: 22000 }),
         });
     });
 

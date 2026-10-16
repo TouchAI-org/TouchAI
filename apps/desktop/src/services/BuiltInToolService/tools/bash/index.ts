@@ -20,6 +20,7 @@ import {
     BASH_TOOL_DESCRIPTION,
     BASH_TOOL_INPUT_SCHEMA,
     BASH_TOOL_NAME,
+    BASH_TOOL_TIMEOUT_MAX_MS,
     type BashApprovalMode,
     bashApprovalPayloadSchema,
     type BashCommandContext,
@@ -155,12 +156,12 @@ export async function executeBashTool(
 ): Promise<BuiltInToolExecutionResult> {
     const commandContext = await resolveCommandContext(args, config);
 
-    // Apply requested timeout bounded between 1s and 10 mins, default to tool config
+    // 模型建议的超时收敛到 Bash 的硬上限内；未建议时沿用用户配置。
     const effectiveTimeout = clampTimeoutMs(
         context.requestedTimeoutMs,
         config.timeoutMs,
-        1000,
-        600000
+        undefined,
+        BASH_TOOL_TIMEOUT_MAX_MS
     );
 
     const response = await executeCancelableBash(
@@ -214,6 +215,7 @@ class BashTool extends BuiltInTool<BashToolConfig> {
     readonly description = BASH_TOOL_DESCRIPTION;
     readonly inputSchema = BASH_TOOL_INPUT_SCHEMA;
     readonly defaultConfig = DEFAULT_BASH_TOOL_CONFIG;
+    readonly adaptiveTimeoutCeilingMs = BASH_TOOL_TIMEOUT_MAX_MS;
 
     override parseConfig(configJson: string | null): BashToolConfig {
         return parseBashToolConfig(configJson);

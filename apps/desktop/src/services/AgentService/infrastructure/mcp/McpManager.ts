@@ -28,7 +28,7 @@ import { eq } from 'drizzle-orm';
 
 import { t } from '@/i18n';
 import { parseMcpToolSchemaJson } from '@/utils/mcpSchemas';
-import { clampTimeoutMs } from '@/utils/timeouts';
+import { clampTimeoutMs, TOOL_TIMEOUT_MAX_MS } from '@/utils/timeouts';
 
 import type { AiToolDefinition } from '../../contracts/tooling';
 import {
@@ -351,6 +351,7 @@ export class McpManager {
                                 tool.description ||
                                 t('agent.mcp.toolDescriptionFallback', { toolName: tool.name }),
                             input_schema: inputSchema as AiToolDefinition['input_schema'],
+                            adaptiveTimeoutCeilingMs: TOOL_TIMEOUT_MAX_MS,
                         };
                     });
                     allTools.push(...toolsWithNamespace);
@@ -457,13 +458,8 @@ export class McpManager {
             throw new Error(t('agent.mcp.toolNotFound', { toolName }));
         }
 
-        // Apply requested timeout bounded between 1s and 10 mins, default to tool config
-        const effectiveTimeout = clampTimeoutMs(
-            options?.requestedTimeoutMs,
-            resolved.toolTimeout,
-            1000,
-            600000
-        );
+        // 模型建议的超时收敛到允许区间；未建议时沿用服务器配置。
+        const effectiveTimeout = clampTimeoutMs(options?.requestedTimeoutMs, resolved.toolTimeout);
 
         // 将工具调用与超时和中止信号进行竞争
         const callPromise = this.callTool(resolved.serverId, resolved.originalName, args);

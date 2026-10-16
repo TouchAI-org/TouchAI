@@ -108,6 +108,15 @@ export abstract class BuiltInTool<
     abstract readonly inputSchema: AiToolDefinition['input_schema'];
     abstract readonly defaultConfig: TConfig;
 
+    /**
+     * 该工具消费模型通过 `_meta.timeoutMs` 建议的超时时，实际生效的上限
+     * （毫秒）；`undefined` 表示不支持，工具目录不会给它注入 `_meta`。
+     *
+     * 只有真正把 `context.requestedTimeoutMs` 落到执行的工具才覆写，
+     * 且必须与执行路径的硬上限（含 Rust 侧）保持一致。
+     */
+    readonly adaptiveTimeoutCeilingMs?: number;
+
     buildToolDefinition(
         namespacedName: string,
         config: TConfig
@@ -117,6 +126,7 @@ export abstract class BuiltInTool<
             name: namespacedName,
             description: this.description,
             input_schema: this.inputSchema,
+            adaptiveTimeoutCeilingMs: this.adaptiveTimeoutCeilingMs,
         };
     }
 

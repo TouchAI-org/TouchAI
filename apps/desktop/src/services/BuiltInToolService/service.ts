@@ -188,6 +188,7 @@ class BuiltInToolService {
                         name: `${BUILT_IN_TOOL_PREFIX}${tool.tool_id}`,
                         description: descriptor.description,
                         input_schema: descriptor.inputSchema,
+                        adaptiveTimeoutCeilingMs: descriptor.adaptiveTimeoutCeilingMs,
                     });
                 }
             } catch (error) {
