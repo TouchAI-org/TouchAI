@@ -463,6 +463,15 @@ export class McpManager {
             throw new Error(t('agent.mcp.toolNotFound', { toolName }));
         }
 
+        // 服务器配置来自数据库，是无约束输入。正数必须是安全整数才能跨 Tauri 的
+        // u64 边界，也无法用本地计时器兜底；这类值只能报配置错误，不能静默变成
+        // “不设超时”，否则用户以为设了上限，实际调用完全不受限。
+        if (resolved.toolTimeout > 0 && !Number.isSafeInteger(resolved.toolTimeout)) {
+            throw new Error(
+                t('agent.mcp.invalidToolTimeout', { timeoutMs: String(resolved.toolTimeout) })
+            );
+        }
+
         // 服务器配置的超时既是本次调用的默认值，也是硬上限：模型只能收紧。
         // 配置非正数表示不设超时，此时保持用户的“不限制”语义，不接受模型建议。
         const effectiveTimeout =
@@ -474,9 +483,7 @@ export class McpManager {
                   )
                 : resolved.toolTimeout;
 
-        // 服务器配置来自数据库，可能是旧数据或无约束输入。非正数沿用既有语义
-        // （不设超时）；超出安全整数的值无法跨 Tauri 的 u64 边界，此时只保留
-        // 本地守卫，避免把一个必然失败的参数发给原生层。
+        // 非正数沿用既有语义（不设超时），此时不向原生层传递超时参数。
         const nativeTimeoutMs =
             Number.isSafeInteger(effectiveTimeout) && effectiveTimeout > 0
                 ? effectiveTimeout

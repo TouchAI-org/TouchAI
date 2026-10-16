@@ -896,6 +896,8 @@ const zhCNMessages = {
     'builtInTools.logs.approvalState.rejected': '已拒绝',
     'agent.mcp.requestCancelled': '请求已取消',
     'agent.mcp.toolTimeout': '工具执行超时（{timeoutMs}ms）',
+    'agent.mcp.invalidToolTimeout':
+        '服务器工具超时配置无效（{timeoutMs}ms），请在服务器设置中修改后重试。',
     'agent.mcp.toolNotFound': '未找到工具：{toolName}',
     'agent.mcp.disconnectTimeout': '断开超时',
     'agent.mcp.imageResult': '[图片：{mimeType}]',
@@ -1934,6 +1936,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'builtInTools.logs.approvalState.rejected': 'Rejected',
     'agent.mcp.requestCancelled': 'Request cancelled',
     'agent.mcp.toolTimeout': 'Tool execution timed out ({timeoutMs}ms)',
+    'agent.mcp.invalidToolTimeout':
+        'Invalid tool timeout configured on the server ({timeoutMs}ms). Update it in the server settings and retry.',
     'agent.mcp.toolNotFound': 'Tool not found: {toolName}',
     'agent.mcp.disconnectTimeout': 'Disconnect timeout',
     'agent.mcp.imageResult': '[Image: {mimeType}]',

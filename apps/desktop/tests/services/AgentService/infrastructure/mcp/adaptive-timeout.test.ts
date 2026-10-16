@@ -249,19 +249,21 @@ describe('McpManager.executeTool adaptive timeout', () => {
         ).rejects.toThrow('工具执行超时（5000ms）');
     });
 
-    it('keeps a value above the safe integer range out of the native u64 boundary', async () => {
+    it('reports a positive timeout above the safe integer range as a config error', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();
 
-        await mcpManager.executeTool(
-            'mcp__1__search',
-            {},
-            {
-                resolved: { ...RESOLVED, toolTimeout: 1e20 },
-            }
-        );
+        await expect(
+            mcpManager.executeTool(
+                'mcp__1__search',
+                {},
+                {
+                    resolved: { ...RESOLVED, toolTimeout: 1e20 },
+                }
+            )
+        ).rejects.toThrow('服务器工具超时配置无效');
 
-        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
+        expect(callToolMock).not.toHaveBeenCalled();
     });
 
     it('does not fire the local guard early for a timeout beyond the timer range', async () => {
