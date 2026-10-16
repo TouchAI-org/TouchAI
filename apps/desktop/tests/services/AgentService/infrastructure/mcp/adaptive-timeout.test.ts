@@ -248,6 +248,40 @@ describe('McpManager.executeTool adaptive timeout', () => {
             )
         ).rejects.toThrow('工具执行超时（5000ms）');
     });
+
+    it('keeps a value above the safe integer range out of the native u64 boundary', async () => {
+        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
+        const mcpManager = await manager();
+
+        await mcpManager.executeTool(
+            'mcp__1__search',
+            {},
+            {
+                resolved: { ...RESOLVED, toolTimeout: 1e20 },
+            }
+        );
+
+        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
+    });
+
+    it('does not fire the local guard early for a timeout beyond the timer range', async () => {
+        // 2^31 ms overflows setTimeout: a naive timer would reject almost immediately.
+        callToolMock.mockReturnValue(never());
+        const mcpManager = await manager();
+
+        const pending = mcpManager.executeTool(
+            'mcp__1__search',
+            {},
+            {
+                resolved: { ...RESOLVED, toolTimeout: 2_147_483_648 },
+            }
+        );
+        const settled = vi.fn();
+        void pending.then(settled, settled);
+
+        await vi.advanceTimersByTimeAsync(2_147_483_647);
+        expect(settled).not.toHaveBeenCalled();
+    });
 });
 
 describe('McpManager.getEnabledToolDefinitions adaptive timeout ceiling', () => {

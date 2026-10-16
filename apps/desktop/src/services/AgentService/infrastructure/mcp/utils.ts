@@ -217,6 +217,14 @@ export async function extractMcpToolAttachments(
 export const MCP_TIMEOUT_GUARD_GRACE_MS = 1000;
 
 /**
+ * `setTimeout` 能表达的最大延迟（毫秒，2^31 - 1）。
+ *
+ * 超出该范围的延迟会溢出并几乎立刻触发，把一个“很久以后才超时”的配置
+ * 变成“马上超时”。这类配置只能交给原生超时与取消信号处理。
+ */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/**
  * 让 promise 与超时和可选的 AbortSignal 竞争
  *
  * `timeoutMs` 是本地守卫的截止点；`reportedTimeoutMs` 是超时错误里展示的值，
@@ -264,8 +272,9 @@ export function raceWithTimeoutAndSignal<T>(
             (error) => settle(reject, error)
         );
 
-        // 超时竞争者：如果工具执行时间过长则拒绝
-        if (timeoutMs > 0) {
+        // 超时竞争者：如果工具执行时间过长则拒绝。
+        // 超出 setTimeout 表达范围的截止点不设计时器，否则会立刻触发。
+        if (timeoutMs > 0 && timeoutMs <= MAX_TIMER_MS) {
             timer = setTimeout(
                 () =>
                     settle(

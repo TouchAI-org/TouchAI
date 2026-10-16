@@ -475,9 +475,10 @@ export class McpManager {
                 : resolved.toolTimeout;
 
         // 服务器配置来自数据库，可能是旧数据或无约束输入。非正数沿用既有语义
-        // （不设超时）；非整数无法跨 Tauri 的 u64 边界，此时只保留本地守卫。
+        // （不设超时）；超出安全整数的值无法跨 Tauri 的 u64 边界，此时只保留
+        // 本地守卫，避免把一个必然失败的参数发给原生层。
         const nativeTimeoutMs =
-            Number.isInteger(effectiveTimeout) && effectiveTimeout > 0
+            Number.isSafeInteger(effectiveTimeout) && effectiveTimeout > 0
                 ? effectiveTimeout
                 : undefined;
 

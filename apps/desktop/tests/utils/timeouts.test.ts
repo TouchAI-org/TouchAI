@@ -97,4 +97,11 @@ describe('resolveAdaptiveTimeoutCeilingMs', () => {
     it('returns undefined when the configured timeout leaves no valid range', () => {
         expect(resolveAdaptiveTimeoutCeilingMs(TOOL_TIMEOUT_MIN_MS - 1)).toBeUndefined();
     });
+
+    it('returns undefined for values that are not safe integers', () => {
+        expect(resolveAdaptiveTimeoutCeilingMs(1500.5)).toBeUndefined();
+        expect(resolveAdaptiveTimeoutCeilingMs(Number.MAX_SAFE_INTEGER + 1)).toBeUndefined();
+        expect(resolveAdaptiveTimeoutCeilingMs(1e20)).toBeUndefined();
+        expect(resolveAdaptiveTimeoutCeilingMs(Number.POSITIVE_INFINITY)).toBeUndefined();
+    });
 });

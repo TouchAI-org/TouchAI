@@ -82,8 +82,14 @@ export function clampTimeoutMs(
  * 返回 `undefined` 的情况有两种，含义都是“不提供 `_meta` 超时信封”：
  * - 非正数：用户明确关闭了超时，此时不应让模型再引入一个超时；
  * - 小于 {@link TOOL_TIMEOUT_MIN_MS}：`[1 秒, 配置值]` 区间为空，
- *   无法给出合法的 schema，但配置值本身仍然生效。
+ *   无法给出合法的 schema，但配置值本身仍然生效；
+ * - 不是安全整数：数据库里的脏数据（例如超出 u64 表达范围的浮点数）
+ *   连原生调用都无法承载，同样不向模型暴露。
  */
 export function resolveAdaptiveTimeoutCeilingMs(configuredTimeoutMs: number): number | undefined {
+    if (!Number.isSafeInteger(configuredTimeoutMs)) {
+        return undefined;
+    }
+
     return configuredTimeoutMs >= TOOL_TIMEOUT_MIN_MS ? configuredTimeoutMs : undefined;
 }
