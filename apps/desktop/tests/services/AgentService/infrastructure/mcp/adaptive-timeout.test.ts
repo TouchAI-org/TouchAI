@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { setLocale } from '@/i18n';
+import { MCP_TIMEOUT_GUARD_GRACE_MS } from '@/services/AgentService/infrastructure/mcp/utils';
 import { TOOL_TIMEOUT_MAX_MS } from '@/utils/timeouts';
 
 const { callToolMock } = vi.hoisted(() => ({ callToolMock: vi.fn() }));
@@ -44,6 +46,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
+        setLocale('zh-CN');
     });
 
     afterEach(() => {
@@ -64,8 +67,9 @@ describe('McpManager.executeTool adaptive timeout', () => {
         const settled = vi.fn();
         void pending.then(settled, settled);
 
-        // Still waiting just before the configured deadline.
-        await vi.advanceTimersByTimeAsync(RESOLVED.toolTimeout - 1);
+        // The local guard fires one grace window after the effective deadline.
+        const guardDeadline = RESOLVED.toolTimeout + MCP_TIMEOUT_GUARD_GRACE_MS;
+        await vi.advanceTimersByTimeAsync(guardDeadline - 1);
         expect(settled).not.toHaveBeenCalled();
 
         const assertion = expect(pending).rejects.toThrow(`${RESOLVED.toolTimeout}ms`);
@@ -88,7 +92,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         const settled = vi.fn();
         void pending.then(settled, settled);
 
-        await vi.advanceTimersByTimeAsync(4999);
+        await vi.advanceTimersByTimeAsync(5000 + MCP_TIMEOUT_GUARD_GRACE_MS - 1);
         expect(settled).not.toHaveBeenCalled();
 
         const assertion = expect(pending).rejects.toThrow('5000ms');
@@ -111,7 +115,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         const settled = vi.fn();
         void pending.then(settled, settled);
 
-        await vi.advanceTimersByTimeAsync(TOOL_TIMEOUT_MAX_MS - 1);
+        await vi.advanceTimersByTimeAsync(TOOL_TIMEOUT_MAX_MS + MCP_TIMEOUT_GUARD_GRACE_MS - 1);
         expect(settled).not.toHaveBeenCalled();
 
         const assertion = expect(pending).rejects.toThrow(`${TOOL_TIMEOUT_MAX_MS}ms`);
@@ -134,7 +138,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         const settled = vi.fn();
         void pending.then(settled, settled);
 
-        await vi.advanceTimersByTimeAsync(999);
+        await vi.advanceTimersByTimeAsync(1000 + MCP_TIMEOUT_GUARD_GRACE_MS - 1);
         expect(settled).not.toHaveBeenCalled();
 
         const assertion = expect(pending).rejects.toThrow('1000ms');
@@ -181,5 +185,38 @@ describe('McpManager.executeTool adaptive timeout', () => {
                 }
             )
         ).resolves.toMatchObject({ isError: false });
+    });
+
+    it('keeps a negative configured timeout out of the native u64 boundary', async () => {
+        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
+        const mcpManager = await manager();
+
+        await expect(
+            mcpManager.executeTool(
+                'mcp__1__search',
+                {},
+                {
+                    resolved: { ...RESOLVED, toolTimeout: -1 },
+                }
+            )
+        ).resolves.toMatchObject({ isError: false });
+
+        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
+    });
+
+    it('localizes the native timeout error before it reaches the caller', async () => {
+        callToolMock.mockRejectedValue(new Error('Tool execution timed out (5000ms)'));
+        const mcpManager = await manager();
+
+        await expect(
+            mcpManager.executeTool(
+                'mcp__1__search',
+                {},
+                {
+                    resolved: RESOLVED,
+                    requestedTimeoutMs: 5000,
+                }
+            )
+        ).rejects.toThrow('工具执行超时（5000ms）');
     });
 });

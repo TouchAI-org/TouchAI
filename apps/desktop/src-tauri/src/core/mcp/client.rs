@@ -483,7 +483,7 @@ impl McpClient {
     /// 按是否给出超时选择调用路径。
     ///
     /// 有超时时走 rmcp 的请求级超时（到点会向服务器发送取消通知）；否则沿用默认的
-    /// `call_tool`，保留 MRTR 多轮交互语义。
+    /// `call_tool`。两条路径都只发送单轮 `tools/call` 请求，与改动前一致。
     async fn dispatch_call(
         service: &McpService,
         params: CallToolRequestParams,

@@ -207,12 +207,27 @@ export async function extractMcpToolAttachments(
 }
 
 /**
+ * 原生超时到期与本地守卫之间的宽限窗口（毫秒）。
+ *
+ * 有效超时会同时下发给原生层和本地竞争：原生层负责在到点时向远端发送取消通知，
+ * 本地竞争只是兜底守卫。Tauri IPC 与原生调度会让两侧的到期时刻相差几毫秒，
+ * 若两侧使用同一个截止点，本地守卫会先于原生取消触发，使调用方在远端尚未收到
+ * 取消时就看到超时。这里给本地守卫留出宽限窗口，让原生层先到期。
+ */
+export const MCP_TIMEOUT_GUARD_GRACE_MS = 1000;
+
+/**
  * 让 promise 与超时和可选的 AbortSignal 竞争
+ *
+ * `timeoutMs` 是本地守卫的截止点；`reportedTimeoutMs` 是超时错误里展示的值，
+ * 默认与截止点一致。MCP 调用会在守卫截止点上叠加宽限窗口，此时仍应展示
+ * 真正下发给原生的有效超时。
  */
 export function raceWithTimeoutAndSignal<T>(
     promise: Promise<T>,
     timeoutMs: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    reportedTimeoutMs: number = timeoutMs
 ): Promise<T> {
     if (signal?.aborted) {
         return Promise.reject(new Error(t('agent.mcp.requestCancelled')));
@@ -252,7 +267,11 @@ export function raceWithTimeoutAndSignal<T>(
         // 超时竞争者：如果工具执行时间过长则拒绝
         if (timeoutMs > 0) {
             timer = setTimeout(
-                () => settle(reject, new Error(t('agent.mcp.toolTimeout', { timeoutMs }))),
+                () =>
+                    settle(
+                        reject,
+                        new Error(t('agent.mcp.toolTimeout', { timeoutMs: reportedTimeoutMs }))
+                    ),
                 timeoutMs
             );
         }
@@ -264,4 +283,19 @@ export function raceWithTimeoutAndSignal<T>(
             settle(reject, new Error(t('agent.mcp.requestCancelled')));
         }
     });
+}
+
+/**
+ * Rust 侧 MCP 超时的稳定文案，见 `core::mcp::client::format_call_error`。
+ * 原生层已经发过取消通知，这里只负责把它翻译成用户可见的本地化文案。
+ */
+const NATIVE_MCP_TIMEOUT_PATTERN = /^Tool execution timed out \((\d+)ms\)$/;
+
+export function localizeNativeMcpTimeoutError(error: unknown, timeoutMs: number): Error {
+    const message = normalizeErrorMessage(error);
+    if (NATIVE_MCP_TIMEOUT_PATTERN.test(message)) {
+        return new Error(t('agent.mcp.toolTimeout', { timeoutMs }));
+    }
+
+    return error instanceof Error ? error : new Error(message);
 }

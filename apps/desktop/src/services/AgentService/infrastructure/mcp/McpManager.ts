@@ -34,6 +34,8 @@ import type { AiToolDefinition } from '../../contracts/tooling';
 import {
     extractMcpToolAttachments,
     formatMcpToolResponse,
+    localizeNativeMcpTimeoutError,
+    MCP_TIMEOUT_GUARD_GRACE_MS,
     normalizeErrorMessage,
     raceWithTimeoutAndSignal,
     readOptionalMcpArgs,
@@ -462,19 +464,38 @@ export class McpManager {
         // 模型建议的超时收敛到允许区间；未建议时沿用服务器配置。
         const effectiveTimeout = clampTimeoutMs(options?.requestedTimeoutMs, resolved.toolTimeout);
 
+        // 服务器配置来自数据库，可能是旧数据或无约束输入。非正数沿用既有语义
+        // （不设超时）；非整数无法跨 Tauri 的 u64 边界，此时只保留本地守卫。
+        const nativeTimeoutMs =
+            Number.isInteger(effectiveTimeout) && effectiveTimeout > 0
+                ? effectiveTimeout
+                : undefined;
+
         // 超时同时下发给 Rust：rmcp 会在到点时向服务器发送取消通知，避免本地已
-        // 判定超时、远端却仍在执行造成副作用重复。这里的竞争负责本地等待与中止信号。
+        // 判定超时、远端却仍在执行造成副作用重复。本地竞争只作兜底守卫，并多留
+        // 一个宽限窗口，让原生取消先于本地超时报告触发。
         const callPromise = this.callTool(
             resolved.serverId,
             resolved.originalName,
             args,
-            effectiveTimeout
+            nativeTimeoutMs
         );
-        const response = await raceWithTimeoutAndSignal(
-            callPromise,
-            effectiveTimeout,
-            options?.signal
-        );
+        const guardTimeoutMs =
+            nativeTimeoutMs === undefined
+                ? effectiveTimeout
+                : nativeTimeoutMs + MCP_TIMEOUT_GUARD_GRACE_MS;
+        let response: McpToolCallResponse;
+        try {
+            response = await raceWithTimeoutAndSignal(
+                callPromise,
+                guardTimeoutMs,
+                options?.signal,
+                effectiveTimeout
+            );
+        } catch (error) {
+            // 原生超时通常先于本地守卫返回，统一翻译成既有超时文案。
+            throw localizeNativeMcpTimeoutError(error, effectiveTimeout);
+        }
 
         const result = formatMcpToolResponse(response);
         let attachments: Awaited<ReturnType<typeof extractMcpToolAttachments>> | undefined;
