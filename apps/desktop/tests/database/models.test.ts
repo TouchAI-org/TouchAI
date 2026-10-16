@@ -1,4 +1,8 @@
-import { setDefaultModel, syncAllModelsMetadata } from '@database/queries/models';
+import {
+    applyUpstreamModelMetadata,
+    setDefaultModel,
+    syncAllModelsMetadata,
+} from '@database/queries/models';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it } from 'vitest';
@@ -82,6 +86,100 @@ describe('model database queries', () => {
         );
         expect(normalizedSql).toContain('match_depth ASC');
         expect(normalizedSql).not.toContain('LIKE');
+    });
+
+    it('strips gateway namespaces and auto/any prefixes before alias matching', async () => {
+        interceptTauriInvoke((call) => {
+            if (call.cmd === 'database_query') {
+                return { rows: [], rowsAffected: 1, lastInsertId: null };
+            }
+
+            return undefined;
+        });
+
+        await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
+
+        const request = getTauriInvokeCalls('database_query')
+            .map((call) => getRequest(call.payload))
+            .find((candidate) => candidate?.method === 'run');
+        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
+
+        // 命名空间与前缀裁剪必须是独立的递归分支：CASE 每层只能裁一次，
+        // 否则 `workbuddy-ai/step-5-preview` 这类 id 永远走不到命名空间裁剪。
+        expect(normalizedSql).toContain(
+            "substr(candidate_model_ids.candidate, instr(candidate_model_ids.candidate, '/') + 1)"
+        );
+        expect(normalizedSql).toContain(
+            "FROM candidate_model_ids WHERE candidate_model_ids.depth < 6 AND instr(candidate_model_ids.candidate, '/') > 1"
+        );
+        expect(normalizedSql).toContain(
+            "substr(candidate_model_ids.candidate, 6), candidate_model_ids.depth + 1 FROM candidate_model_ids WHERE candidate_model_ids.depth < 6 AND candidate_model_ids.candidate GLOB 'auto-?*'"
+        );
+        expect(normalizedSql).toContain(
+            "substr(candidate_model_ids.candidate, 5), candidate_model_ids.depth + 1 FROM candidate_model_ids WHERE candidate_model_ids.depth < 6 AND candidate_model_ids.candidate GLOB 'any-?*'"
+        );
+        expect(normalizedSql).toContain('candidate_model_ids.depth < 6');
+        expect(normalizedSql).toContain(
+            "candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'"
+        );
+    });
+
+    it('overlays upstream metadata only onto non-custom rows of the refreshed provider', async () => {
+        interceptTauriInvoke((call) => {
+            if (call.cmd === 'database_query') {
+                return { rows: [], rowsAffected: 1, lastInsertId: null };
+            }
+
+            return undefined;
+        });
+
+        await expect(
+            applyUpstreamModelMetadata({
+                providerId: 7,
+                entries: [
+                    {
+                        model_id: 'group/auto-gpt-5-6-sol',
+                        metadata: { context_limit: 400_000, reasoning: 1 },
+                    },
+                ],
+            })
+        ).resolves.toBeUndefined();
+
+        const request = getTauriInvokeCalls('database_query')
+            .map((call) => getRequest(call.payload))
+            .find((candidate) => candidate?.method === 'run');
+        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
+
+        expect(normalizedSql).toContain('FROM json_each(?) AS entry');
+        expect(normalizedSql).toContain(
+            'context_limit = COALESCE(( SELECT upstream_model_metadata.context_limit FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ), context_limit)'
+        );
+        expect(normalizedSql).toContain('AND is_custom_metadata = 0');
+        expect(request?.params).toEqual([
+            JSON.stringify([
+                {
+                    model_id: 'group/auto-gpt-5-6-sol',
+                    metadata: { context_limit: 400_000, reasoning: 1 },
+                },
+            ]),
+            7,
+        ]);
+    });
+
+    it('skips the upstream overlay when there is nothing to write', async () => {
+        interceptTauriInvoke((call) => {
+            if (call.cmd === 'database_query') {
+                return { rows: [], rowsAffected: 1, lastInsertId: null };
+            }
+
+            return undefined;
+        });
+
+        await expect(
+            applyUpstreamModelMetadata({ providerId: 7, entries: [] })
+        ).resolves.toBeUndefined();
+
+        expect(getTauriInvokeCalls('database_query')).toHaveLength(0);
     });
 
     it('uses only sqlite-safe model metadata matching SQL', async () => {

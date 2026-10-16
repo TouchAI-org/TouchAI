@@ -1,17 +1,21 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { ProviderDriver } from '@database/schema';
+import type { UpstreamModelMetadataPatch } from '@database/types';
 
 import type { AiError } from '../../contracts/errors';
 import type { AiRequestOptions, AiResponse, AiStreamChunk } from '../../contracts/protocol';
 import type { AttachmentTransportMode } from '../../contracts/protocol';
-import type { ReasoningMode, ReasoningOption, ReasoningProtocol } from '../../contracts/reasoning';
+import type { ReasoningMode, ReasoningProtocol } from '../../contracts/reasoning';
 
 export interface ModelInfo {
     id: string;
     name: string;
-    /** 上游 /models 返回的 reasoning 能力（如有）。 */
-    reasoningOptions?: ReasoningOption[];
+    /**
+     * 上游 /models 自己声明的上下文、模态、思考档位等能力（如有）。
+     * 刷新模型时用于覆盖 models.dev 兜底值。
+     */
+    metadata?: UpstreamModelMetadataPatch;
 }
 
 export interface ProviderReasoningConfig {

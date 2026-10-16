@@ -4,18 +4,20 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import type { ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { toModelInfo } from '../modelList';
 import type { ProviderApiTargets } from '../types';
 
 const anthropicCompatibleModelsSchema = z.object({
     data: z.array(
-        z.object({
-            id: z.string(),
-            display_name: z.string().optional(),
-            displayName: z.string().optional(),
-            reasoning_options: z.unknown().optional(),
-        })
+        z
+            .object({
+                id: z.string(),
+                display_name: z.string().optional(),
+                displayName: z.string().optional(),
+            })
+            .loose()
     ),
 });
 
@@ -53,14 +55,9 @@ export class AnthropicCompatibleProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = anthropicCompatibleModelsSchema.parse(payload);
-        return parsed.data.map((model) => {
-            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
-            return {
-                id: model.id,
-                name: model.display_name || model.displayName || model.id,
-                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
-            };
-        });
+        return parsed.data.map((model) =>
+            toModelInfo(model, { id: model.id, name: model.display_name || model.displayName })
+        );
     }
 
     protected override getReasoningProtocol(): ReasoningProtocol {

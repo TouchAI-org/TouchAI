@@ -4,6 +4,7 @@ import { beforeEach, vi } from 'vitest';
 import AiServicesSection from '@/views/SettingsView/components/AiServices/index.vue';
 
 const queries = vi.hoisted(() => ({
+    applyUpstreamModelMetadata: vi.fn(),
     createModel: vi.fn(),
     createModels: vi.fn(),
     createProvider: vi.fn(),
@@ -349,6 +350,121 @@ describe('SettingsAiServicesSection', () => {
         expect(queries.createProvider).toHaveBeenCalled();
         expect(listModels).toHaveBeenCalled();
         expect(alertMock.success).not.toHaveBeenCalled();
+    });
+
+    it('keeps upstream model metadata and overlays it after the models.dev fallback', async () => {
+        const upstreamMetadata = {
+            context_limit: 400_000,
+            output_limit: 128_000,
+            reasoning: 1,
+            reasoning_options: JSON.stringify([{ type: 'effort', values: ['low', 'max'] }]),
+        };
+        const createdProvider = {
+            id: 9,
+            name: 'New Gateway',
+            driver: 'openai',
+            api_endpoint: 'https://new.example.com',
+            api_key: 'sk-new',
+            config_json: null,
+            logo: 'openai.png',
+            enabled: 1,
+            is_builtin: 0,
+            created_at: '',
+            updated_at: '',
+        };
+        const listModels = vi.fn().mockResolvedValue([
+            {
+                id: 'group/auto-gpt-5-6-sol',
+                name: 'group/auto-gpt-5-6-sol',
+                metadata: upstreamMetadata,
+            },
+            { id: 'qianai/plain-model', name: 'qianai/plain-model' },
+        ]);
+        queries.findAllProvidersSorted.mockResolvedValue([]);
+        queries.createProvider.mockResolvedValue(createdProvider);
+        queries.findProviderById.mockResolvedValue(createdProvider);
+        queries.findModelsWithProvider.mockResolvedValue([]);
+        agentServiceMock.createProviderInstance.mockReturnValue({
+            listModels,
+            getApiTargets: () => ({ generationTarget: '' }),
+        });
+
+        const wrapper = mount(AiServicesSection, {
+            global: {
+                stubs: {
+                    ProviderList: {
+                        emits: ['add-custom'],
+                        template:
+                            '<button data-testid="settings-add-custom-provider-button" @click="$emit(\'add-custom\')">add</button>',
+                    },
+                    ProviderConfig: true,
+                    ModelList: true,
+                    AddProviderDialog: {
+                        emits: ['create', 'cancel'],
+                        template: `
+                            <button
+                                data-testid="create-provider"
+                                @click="$emit('create', {
+                                    name: 'New Gateway',
+                                    driver: 'openai',
+                                    api_endpoint: 'https://new.example.com',
+                                    api_key: 'sk-new',
+                                    config_json: null,
+                                    logo: 'openai.png',
+                                    enabled: 1,
+                                    is_builtin: 0
+                                })"
+                            >
+                                create
+                            </button>
+                        `,
+                    },
+                    EditProviderDialog: true,
+                    BadgedLogo: {
+                        props: ['logo', 'name'],
+                        template: '<div data-testid="badged-logo-stub" />',
+                    },
+                },
+            },
+        });
+
+        await flushPromises();
+
+        await wrapper.get('[data-testid="settings-add-custom-provider-button"]').trigger('click');
+        await flushPromises();
+        await wrapper.get('[data-testid="create-provider"]').trigger('click');
+        await flushPromises();
+
+        expect(queries.createModels).toHaveBeenCalledWith(
+            [
+                {
+                    provider_id: 9,
+                    name: 'group/auto-gpt-5-6-sol',
+                    model_id: 'group/auto-gpt-5-6-sol',
+                    is_default: 0,
+                    ...upstreamMetadata,
+                },
+                {
+                    provider_id: 9,
+                    name: 'qianai/plain-model',
+                    model_id: 'qianai/plain-model',
+                    is_default: 0,
+                },
+            ],
+            expect.anything()
+        );
+        expect(queries.applyUpstreamModelMetadata).toHaveBeenCalledWith(
+            {
+                providerId: 9,
+                entries: [{ model_id: 'group/auto-gpt-5-6-sol', metadata: upstreamMetadata }],
+            },
+            expect.anything()
+        );
+
+        // models.dev 兜底会覆盖已有值，上游声明必须在其之后叠加。
+        expect(queries.syncAllModelsMetadata.mock.invocationCallOrder[0]).toBeLessThan(
+            queries.applyUpstreamModelMetadata.mock.invocationCallOrder[0]!
+        );
     });
 
     it('patches the default model locally without provider list reload', async () => {

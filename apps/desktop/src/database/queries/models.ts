@@ -7,6 +7,7 @@ import { tt } from '@/i18n';
 import { type DatabaseExecutor, db } from '../index';
 import { models, providers } from '../schema';
 import type {
+    ApplyUpstreamModelMetadataPayload,
     FindModelsWithProviderPayload,
     ModelCreateData,
     ModelEntity,
@@ -203,8 +204,9 @@ export const findModelByProviderAndModelId = async ({
         .get()) as ModelWithProvider | undefined;
 
 /**
- * 中转站等上游会改写模型 id：加日期、加 `-latest` 等。这里把运行时 id
- * 逐层裁掉可识别的版本/发布后缀，再与别名表做精确匹配；裁剪越少越可信。
+ * 中转站等上游会改写模型 id：加日期、加 `-latest`、加网关命名空间前缀
+ * （`any/`、`group/auto-` 等）。这里把运行时 id 逐层裁掉可识别的命名空间前缀、
+ * 网关前缀与版本/发布后缀，再与别名表做精确匹配；裁剪越少越可信。
  */
 const candidateModelIds = `
             candidate_model_ids(model_row_id, candidate, depth) AS (
@@ -237,13 +239,48 @@ const candidateModelIds = `
                     END,
                     candidate_model_ids.depth + 1
                 FROM candidate_model_ids
-                WHERE candidate_model_ids.depth < 4
+                WHERE candidate_model_ids.depth < 6
                   AND (
-                      candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9]'
+                      candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+                      OR candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+                      OR candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9][0-9][0-9]'
+                      OR candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9]'
                       OR candidate_model_ids.candidate GLOB '*-latest'
                       OR candidate_model_ids.candidate GLOB '*-preview'
                       OR candidate_model_ids.candidate GLOB '*-exp'
                   )
+
+                UNION ALL
+
+                -- 网关命名空间：any/claude-3-5-haiku -> claude-3-5-haiku
+                SELECT
+                    candidate_model_ids.model_row_id,
+                    substr(candidate_model_ids.candidate, instr(candidate_model_ids.candidate, '/') + 1),
+                    candidate_model_ids.depth + 1
+                FROM candidate_model_ids
+                WHERE candidate_model_ids.depth < 6
+                  AND instr(candidate_model_ids.candidate, '/') > 1
+
+                UNION ALL
+
+                -- 网关前缀：group 里的 auto- / any- 等路由前缀
+                SELECT
+                    candidate_model_ids.model_row_id,
+                    substr(candidate_model_ids.candidate, 6),
+                    candidate_model_ids.depth + 1
+                FROM candidate_model_ids
+                WHERE candidate_model_ids.depth < 6
+                  AND candidate_model_ids.candidate GLOB 'auto-?*'
+
+                UNION ALL
+
+                SELECT
+                    candidate_model_ids.model_row_id,
+                    substr(candidate_model_ids.candidate, 5),
+                    candidate_model_ids.depth + 1
+                FROM candidate_model_ids
+                WHERE candidate_model_ids.depth < 6
+                  AND candidate_model_ids.candidate GLOB 'any-?*'
             )
 `;
 
@@ -374,6 +411,85 @@ ${metadataMatchSources}
               AND ranked_metadata.rn = 1
         )
     `);
+
+    await database.run(updateSql);
+};
+
+/**
+ * 用上游 `/v1/models` 自己声明的能力覆盖 models.dev 兜底值。
+ *
+ * 只写 `is_custom_metadata = 0` 的行，且只覆盖上游声明过的字段。因为
+ * `syncAllModelsMetadata` 会用 models.dev 的值覆盖已有非空值，调用顺序必须是
+ * 先 sync 再 overlay，否则兜底值会反过来盖掉上游声明。
+ */
+export const applyUpstreamModelMetadata = async (
+    { providerId, entries }: ApplyUpstreamModelMetadataPayload,
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    if (entries.length === 0) {
+        return;
+    }
+
+    const payload = JSON.stringify(entries);
+    const updateSql = sql`
+        WITH upstream_model_metadata AS (
+            SELECT
+                json_extract(entry.value, '$.model_id') AS model_id,
+                json_extract(entry.value, '$.metadata.context_limit') AS context_limit,
+                json_extract(entry.value, '$.metadata.output_limit') AS output_limit,
+                json_extract(entry.value, '$.metadata.modalities') AS modalities,
+                json_extract(entry.value, '$.metadata.attachment') AS attachment,
+                json_extract(entry.value, '$.metadata.reasoning') AS reasoning,
+                json_extract(entry.value, '$.metadata.reasoning_options') AS reasoning_options,
+                json_extract(entry.value, '$.metadata.tool_call') AS tool_call
+            FROM json_each(${payload}) AS entry
+        )
+        UPDATE models
+        SET
+            context_limit = COALESCE((
+                SELECT upstream_model_metadata.context_limit
+                FROM upstream_model_metadata
+                WHERE upstream_model_metadata.model_id = models.model_id
+            ), context_limit),
+            output_limit = COALESCE((
+                SELECT upstream_model_metadata.output_limit
+                FROM upstream_model_metadata
+                WHERE upstream_model_metadata.model_id = models.model_id
+            ), output_limit),
+            modalities = COALESCE((
+                SELECT upstream_model_metadata.modalities
+                FROM upstream_model_metadata
+                WHERE upstream_model_metadata.model_id = models.model_id
+            ), modalities),
+            attachment = COALESCE((
+                SELECT upstream_model_metadata.attachment
+                FROM upstream_model_metadata
+                WHERE upstream_model_metadata.model_id = models.model_id
+            ), attachment),
+            reasoning = COALESCE((
+                SELECT upstream_model_metadata.reasoning
+                FROM upstream_model_metadata
+                WHERE upstream_model_metadata.model_id = models.model_id
+            ), reasoning),
+            reasoning_options = COALESCE((
+                SELECT upstream_model_metadata.reasoning_options
+                FROM upstream_model_metadata
+                WHERE upstream_model_metadata.model_id = models.model_id
+            ), reasoning_options),
+            tool_call = COALESCE((
+                SELECT upstream_model_metadata.tool_call
+                FROM upstream_model_metadata
+                WHERE upstream_model_metadata.model_id = models.model_id
+            ), tool_call),
+            updated_at = datetime('now')
+        WHERE provider_id = ${providerId}
+          AND is_custom_metadata = 0
+          AND EXISTS (
+            SELECT 1
+            FROM upstream_model_metadata
+            WHERE upstream_model_metadata.model_id = models.model_id
+          )
+    `;
 
     await database.run(updateSql);
 };

@@ -4,16 +4,18 @@ import { createMoonshotAI } from '@ai-sdk/moonshotai';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import type { ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { toModelInfo } from '../modelList';
 import type { ProviderApiTargets } from '../types';
 
 const moonshotModelsSchema = z.object({
     data: z.array(
-        z.object({
-            id: z.string(),
-            reasoning_options: z.unknown().optional(),
-        })
+        z
+            .object({
+                id: z.string(),
+            })
+            .loose()
     ),
 });
 
@@ -61,14 +63,7 @@ export class MoonshotProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = moonshotModelsSchema.parse(payload);
-        return parsed.data.map((model) => {
-            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
-            return {
-                id: model.id,
-                name: model.id,
-                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
-            };
-        });
+        return parsed.data.map((model) => toModelInfo(model, { id: model.id }));
     }
 
     protected override getReasoningProtocol(): ReasoningProtocol {

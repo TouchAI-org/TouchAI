@@ -5,18 +5,20 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from '@/utils/zod';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import type { ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { toModelInfo } from '../modelList';
 import type { ProviderApiTargets } from '../types';
 
 const googleModelsSchema = z.object({
     models: z.array(
-        z.object({
-            name: z.string(),
-            displayName: z.string().nullable().optional(),
-            supportedGenerationMethods: z.array(z.string()).nullable().optional(),
-            reasoning_options: z.unknown().optional(),
-        })
+        z
+            .object({
+                name: z.string(),
+                displayName: z.string().nullable().optional(),
+                supportedGenerationMethods: z.array(z.string()).nullable().optional(),
+            })
+            .loose()
     ),
 });
 
@@ -66,12 +68,7 @@ export class GoogleProviderAdapter extends AiSdkProviderBase {
             })
             .map((model) => {
                 const normalizedId = model.name.replace(/^models\//, '');
-                const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
-                return {
-                    id: normalizedId,
-                    name: model.displayName || normalizedId,
-                    ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
-                };
+                return toModelInfo(model, { id: normalizedId, name: model.displayName });
             });
     }
 

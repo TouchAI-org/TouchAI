@@ -4,17 +4,19 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
 import { z } from '@/utils/zod';
 
-import { normalizeReasoningOptions, type ReasoningProtocol } from '../../../contracts/reasoning';
+import type { ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { toModelInfo } from '../modelList';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
 const openAiCompatibleModelsSchema = z.object({
     data: z.array(
-        z.object({
-            id: z.string(),
-            reasoning_options: z.unknown().optional(),
-        })
+        z
+            .object({
+                id: z.string(),
+            })
+            .loose()
     ),
 });
 
@@ -48,14 +50,7 @@ export class MiMoProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = openAiCompatibleModelsSchema.parse(payload);
-        return parsed.data.map((model) => {
-            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
-            return {
-                id: model.id,
-                name: model.id,
-                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
-            };
-        });
+        return parsed.data.map((model) => toModelInfo(model, { id: model.id }));
     }
 
     /**

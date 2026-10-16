@@ -10,6 +10,7 @@
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { db } from '@database';
     import {
+        applyUpstreamModelMetadata,
         createModel,
         createModels,
         createProvider,
@@ -619,10 +620,15 @@
                     name: fetchedModel.name,
                     model_id: fetchedModel.id,
                     is_default: 0,
-                    reasoning_options: fetchedModel.reasoningOptions?.length
-                        ? JSON.stringify(fetchedModel.reasoningOptions)
-                        : null,
+                    ...fetchedModel.metadata,
                 }));
+
+            // 上游自己声明了能力的模型：落库后覆盖 models.dev 兜底值
+            const upstreamMetadata = fetchedModels.flatMap((fetchedModel) =>
+                fetchedModel.metadata
+                    ? [{ model_id: fetchedModel.id, metadata: fetchedModel.metadata }]
+                    : []
+            );
 
             // 避免展示错误
             if (refreshingProviderId.value !== currentProviderId) {
@@ -634,7 +640,12 @@
                     await createModels(newModels, tx);
                 }
 
+                // syncAllModelsMetadata 会用 models.dev 覆盖已有值，必须先跑兜底再叠加上游声明
                 await syncAllModelsMetadata(tx);
+                await applyUpstreamModelMetadata(
+                    { providerId: provider.id, entries: upstreamMetadata },
+                    tx
+                );
             });
 
             // 避免展示错误

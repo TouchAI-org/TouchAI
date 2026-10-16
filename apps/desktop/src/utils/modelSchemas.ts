@@ -23,7 +23,7 @@ export type ModelModalities = z.infer<typeof modelModalitiesSchema>;
  * 上游元数据里的 limit 字段偶尔会出现 0、负数或脏字符串。
  * 这里把非法值统一降级为 `undefined`，避免整批模型导入因为单个脏字段失败。
  */
-function normalizePositiveLimitValue(value: unknown): number | undefined {
+export function normalizePositiveLimitValue(value: unknown): number | undefined {
     if (value === undefined || value === null || value === '') {
         return undefined;
     }

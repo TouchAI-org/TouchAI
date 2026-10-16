@@ -44,6 +44,7 @@ vi.mock('@database', () => ({
 }));
 
 vi.mock('@database/queries', () => ({
+    applyUpstreamModelMetadata: vi.fn(),
     createModel: vi.fn(),
     createModels: vi.fn(),
     createProvider: vi.fn(),
