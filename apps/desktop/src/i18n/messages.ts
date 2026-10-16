@@ -651,6 +651,7 @@ const zhCNMessages = {
     'settings.builtInTools.bash.removeDirectory': '移除目录',
     'settings.builtInTools.bash.allowAllDirectoriesWhenEmpty': '未设置时运行时允许全部路径',
     'settings.builtInTools.bash.timeoutMs': '超时上限（毫秒）',
+    'settings.builtInTools.bash.timeoutMsHint': '超过该时长的命令会被终止；填 0 表示不限制。',
     'settings.builtInTools.bash.outputLimitChars': '输出上限（字符）',
     'settings.builtInTools.bash.compactOutput': '压缩命令输出',
     'settings.builtInTools.bash.compactOutputDescription':
@@ -1674,6 +1675,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.builtInTools.bash.allowAllDirectoriesWhenEmpty':
         'Allows all paths at runtime when unset',
     'settings.builtInTools.bash.timeoutMs': 'Timeout limit (ms)',
+    'settings.builtInTools.bash.timeoutMsHint':
+        'Commands running longer than this are terminated; set 0 to disable the limit.',
     'settings.builtInTools.bash.outputLimitChars': 'Output limit (characters)',
     'settings.builtInTools.bash.compactOutput': 'Compact command output',
     'settings.builtInTools.bash.compactOutputDescription':

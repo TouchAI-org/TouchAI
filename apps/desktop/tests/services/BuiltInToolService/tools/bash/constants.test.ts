@@ -45,7 +45,8 @@ describe('DEFAULT_BASH_TOOL_CONFIG', () => {
             approvalMode: 'high_risk',
             defaultWorkingDirectory: '',
             allowedWorkingDirectories: [],
-            timeoutMs: 15000,
+            // 与参考实现一致：前台命令默认 2 分钟上限。
+            timeoutMs: 120000,
             maxOutputChars: 12000,
             compactOutput: false,
         });
@@ -115,6 +116,22 @@ describe('bashToolConfigSchema', () => {
             expect(result.data.compactOutput).toBe(true);
             expect(result.data.approvalMode).toBe('always');
             expect(result.data.timeoutMs).toBe(30000);
+        }
+    });
+
+    it('accepts 0 as the "no timeout" sentinel', () => {
+        const result = bashToolConfigSchema.safeParse({ timeoutMs: 0 });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.timeoutMs).toBe(0);
+        }
+    });
+
+    it('falls back to the default for a timeout above the executor ceiling', () => {
+        const result = bashToolConfigSchema.safeParse({ timeoutMs: 120001 });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.timeoutMs).toBe(DEFAULT_BASH_TOOL_CONFIG.timeoutMs);
         }
     });
 });

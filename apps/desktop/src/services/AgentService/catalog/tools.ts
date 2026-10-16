@@ -3,7 +3,7 @@
 import type { ModelWithProvider } from '@database/queries/models';
 
 import { builtInToolService } from '@/services/BuiltInToolService';
-import { TOOL_TIMEOUT_MAX_MS, TOOL_TIMEOUT_META_KEY, TOOL_TIMEOUT_MIN_MS } from '@/utils/timeouts';
+import { TOOL_TIMEOUT_META_KEY, TOOL_TIMEOUT_MIN_MS } from '@/utils/timeouts';
 
 import type { AiToolDefinition } from '../contracts/tooling';
 import { mcpManager } from '../infrastructure/mcp';
@@ -16,7 +16,8 @@ export interface ResolveToolDefinitionsOptions {
  * 构造模型建议单次工具调用超时用的 `_meta` 参数 schema。
  *
  * 只在工具确实消费该建议（声明了 `adaptiveTimeoutCeilingMs`）时才注入，
- * 且上限取该工具自己的封顶值，避免向模型承诺一个执行层并不生效的范围。
+ * 且上限取该工具自己的封顶值（内置工具的执行器上限、MCP 服务器的配置值），
+ * 避免向模型承诺一个执行层并不生效的范围。
  */
 function buildAdaptiveTimeoutMetaProperty(ceilingMs: number): Record<string, unknown> {
     return {
@@ -51,14 +52,12 @@ function withAdaptiveTimeoutSchema(tool: AiToolDefinition): AiToolDefinition {
 
     return {
         ...definition,
-        adaptiveTimeoutCeilingMs: Math.min(adaptiveTimeoutCeilingMs, TOOL_TIMEOUT_MAX_MS),
+        adaptiveTimeoutCeilingMs,
         input_schema: {
             ...definition.input_schema,
             properties: {
                 ...properties,
-                [TOOL_TIMEOUT_META_KEY]: buildAdaptiveTimeoutMetaProperty(
-                    Math.min(adaptiveTimeoutCeilingMs, TOOL_TIMEOUT_MAX_MS)
-                ),
+                [TOOL_TIMEOUT_META_KEY]: buildAdaptiveTimeoutMetaProperty(adaptiveTimeoutCeilingMs),
             },
         },
     };

@@ -24,8 +24,9 @@ use crate::core::system::bundled::get_bundled_rtk_directory;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+/// 前台命令的默认超时（2 分钟），与 TS 侧 `DEFAULT_BASH_TOOL_CONFIG.timeoutMs` 一致。
 #[cfg(target_os = "windows")]
-const DEFAULT_TIMEOUT_MS: u64 = 15_000;
+const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 #[cfg(target_os = "windows")]
 const MAX_TIMEOUT_MS: u64 = 120_000;
 #[cfg(target_os = "windows")]
@@ -170,7 +171,14 @@ async fn execute_bash_windows(
     // 这样可以避免大输出量时，子进程因为管道缓冲区写满而卡死在 wait 前。
     let stdout_task = tokio::spawn(read_stream(stdout));
     let stderr_task = tokio::spawn(read_stream(stderr));
-    let timeout = time::sleep(Duration::from_millis(timeout_ms));
+    // `None` 表示用户显式关闭超时（配置为 0）：只保留取消分支，
+    // 命令要么自己结束，要么由用户取消。
+    let timeout = async {
+        match timeout_ms {
+            Some(ms) => time::sleep(Duration::from_millis(ms)).await,
+            None => std::future::pending::<()>().await,
+        }
+    };
     tokio::pin!(timeout);
     let cancel_signal = async {
         let _ = (&mut cancel_receiver).await;

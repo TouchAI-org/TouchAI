@@ -4,12 +4,18 @@ import { setLocale } from '@/i18n';
 import { MCP_TIMEOUT_GUARD_GRACE_MS } from '@/services/AgentService/infrastructure/mcp/utils';
 import { TOOL_TIMEOUT_MAX_MS } from '@/utils/timeouts';
 
-const { callToolMock } = vi.hoisted(() => ({ callToolMock: vi.fn() }));
+const { callToolMock, findEnabledMcpServersMock, findEnabledMcpToolsByServerIdMock } = vi.hoisted(
+    () => ({
+        callToolMock: vi.fn(),
+        findEnabledMcpServersMock: vi.fn(async (): Promise<unknown[]> => []),
+        findEnabledMcpToolsByServerIdMock: vi.fn(async (): Promise<unknown[]> => []),
+    })
+);
 
 vi.mock('@database', () => ({ db: {} }));
 vi.mock('@database/queries', () => ({
-    findEnabledMcpServers: vi.fn(async () => []),
-    findEnabledMcpToolsByServerId: vi.fn(async () => []),
+    findEnabledMcpServers: findEnabledMcpServersMock,
+    findEnabledMcpToolsByServerId: findEnabledMcpToolsByServerIdMock,
     findMcpServerById: vi.fn(),
     findMcpToolByServerIdAndName: vi.fn(),
     findMcpToolsByServerId: vi.fn(async () => []),
@@ -100,7 +106,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         await assertion;
     });
 
-    it('caps a model-requested timeout at the shared maximum', async () => {
+    it('caps a model-requested timeout at the server-configured ceiling', async () => {
         callToolMock.mockReturnValue(never());
         const mcpManager = await manager();
 
@@ -115,12 +121,16 @@ describe('McpManager.executeTool adaptive timeout', () => {
         const settled = vi.fn();
         void pending.then(settled, settled);
 
-        await vi.advanceTimersByTimeAsync(TOOL_TIMEOUT_MAX_MS + MCP_TIMEOUT_GUARD_GRACE_MS - 1);
+        // The server configuration is a hard ceiling: the model may only tighten it.
+        const guardDeadline = RESOLVED.toolTimeout + MCP_TIMEOUT_GUARD_GRACE_MS;
+        await vi.advanceTimersByTimeAsync(guardDeadline - 1);
         expect(settled).not.toHaveBeenCalled();
 
-        const assertion = expect(pending).rejects.toThrow(`${TOOL_TIMEOUT_MAX_MS}ms`);
+        const assertion = expect(pending).rejects.toThrow(`${RESOLVED.toolTimeout}ms`);
         await vi.advanceTimersByTimeAsync(1);
         await assertion;
+
+        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
     });
 
     it('raises an out-of-range low request up to the 1s floor', async () => {
@@ -187,21 +197,40 @@ describe('McpManager.executeTool adaptive timeout', () => {
         ).resolves.toMatchObject({ isError: false });
     });
 
-    it('keeps a negative configured timeout out of the native u64 boundary', async () => {
+    it.each([0, -1])(
+        'treats a configured timeout of %i as disabled and keeps it out of the native u64 boundary',
+        async (toolTimeout) => {
+            callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
+            const mcpManager = await manager();
+
+            await expect(
+                mcpManager.executeTool(
+                    'mcp__1__search',
+                    {},
+                    {
+                        resolved: { ...RESOLVED, toolTimeout },
+                    }
+                )
+            ).resolves.toMatchObject({ isError: false });
+
+            expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
+        }
+    );
+
+    it('bounds a model-requested timeout by the shared maximum when the server disables it', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();
 
-        await expect(
-            mcpManager.executeTool(
-                'mcp__1__search',
-                {},
-                {
-                    resolved: { ...RESOLVED, toolTimeout: -1 },
-                }
-            )
-        ).resolves.toMatchObject({ isError: false });
+        await mcpManager.executeTool(
+            'mcp__1__search',
+            {},
+            {
+                resolved: { ...RESOLVED, toolTimeout: 0 },
+                requestedTimeoutMs: TOOL_TIMEOUT_MAX_MS * 10,
+            }
+        );
 
-        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
+        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, TOOL_TIMEOUT_MAX_MS);
     });
 
     it('localizes the native timeout error before it reaches the caller', async () => {
@@ -218,5 +247,64 @@ describe('McpManager.executeTool adaptive timeout', () => {
                 }
             )
         ).rejects.toThrow('工具执行超时（5000ms）');
+    });
+});
+
+describe('McpManager.getEnabledToolDefinitions adaptive timeout ceiling', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        findEnabledMcpToolsByServerIdMock.mockResolvedValue([
+            {
+                name: 'search',
+                description: 'search',
+                input_schema: JSON.stringify({ type: 'object', properties: {} }),
+            },
+        ]);
+    });
+
+    function serverEntity(toolTimeout: number) {
+        return {
+            id: 1,
+            name: 'srv',
+            transport_type: 'stdio',
+            command: null,
+            args: null,
+            env: null,
+            cwd: null,
+            url: null,
+            headers: null,
+            enabled: 1,
+            tool_timeout: toolTimeout,
+            version: null,
+            last_error: null,
+            last_connected_at: null,
+            created_at: '',
+            updated_at: '',
+        };
+    }
+
+    async function ceilingFor(toolTimeout: number): Promise<number | undefined> {
+        findEnabledMcpServersMock.mockResolvedValue([serverEntity(toolTimeout)]);
+
+        const { McpManager } =
+            await import('@/services/AgentService/infrastructure/mcp/McpManager');
+        const mcpManager = new McpManager();
+        mcpManager.setStatusFromEvent(1, 'connected');
+
+        const definitions = await mcpManager.getEnabledToolDefinitions();
+        return definitions[0]?.adaptiveTimeoutCeilingMs;
+    }
+
+    it('exposes the server-configured timeout as the ceiling', async () => {
+        await expect(ceilingFor(30000)).resolves.toBe(30000);
+    });
+
+    it('falls back to the shared maximum when the server disables its timeout', async () => {
+        await expect(ceilingFor(0)).resolves.toBe(TOOL_TIMEOUT_MAX_MS);
+    });
+
+    it('omits the _meta envelope when the configured timeout leaves no valid range', async () => {
+        // 500ms < 1s minimum: advertising [1s, 500ms] would be an invalid schema.
+        await expect(ceilingFor(500)).resolves.toBeUndefined();
     });
 });

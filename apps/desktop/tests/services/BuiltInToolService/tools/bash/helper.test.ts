@@ -20,7 +20,12 @@ describe('parseBashToolConfig', () => {
         const config = parseBashToolConfig(null);
         expect(config.compactOutput).toBe(false);
         expect(config.approvalMode).toBe('high_risk');
-        expect(config.timeoutMs).toBe(15000);
+        expect(config.timeoutMs).toBe(DEFAULT_BASH_TOOL_CONFIG.timeoutMs);
+    });
+
+    it('keeps the 0 sentinel instead of falling back to the default', () => {
+        const config = parseBashToolConfig(JSON.stringify({ timeoutMs: 0 }));
+        expect(config.timeoutMs).toBe(0);
     });
 
     it('parses compactOutput true from JSON string', () => {

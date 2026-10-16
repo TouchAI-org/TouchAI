@@ -180,6 +180,20 @@ describe('executeBashTool request construction', () => {
         });
     });
 
+    it('passes 0 through so the native layer disables the timeout', async () => {
+        const config = {
+            ...DEFAULT_BASH_TOOL_CONFIG,
+            defaultWorkingDirectory: 'D:/project',
+            timeoutMs: 0,
+        };
+        await executeBashTool({ command: 'dir' }, config, fakeContext());
+
+        const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
+        expect(call?.payload).toEqual({
+            request: expect.objectContaining({ timeoutMs: 0 }),
+        });
+    });
+
     it('sends the full request shape with both compactOutput and rawOutput', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,

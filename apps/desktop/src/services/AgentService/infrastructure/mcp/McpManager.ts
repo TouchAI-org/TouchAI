@@ -28,7 +28,7 @@ import { eq } from 'drizzle-orm';
 
 import { t } from '@/i18n';
 import { parseMcpToolSchemaJson } from '@/utils/mcpSchemas';
-import { clampTimeoutMs, TOOL_TIMEOUT_MAX_MS } from '@/utils/timeouts';
+import { clampTimeoutMs, TOOL_TIMEOUT_MAX_MS, TOOL_TIMEOUT_MIN_MS } from '@/utils/timeouts';
 
 import type { AiToolDefinition } from '../../contracts/tooling';
 import {
@@ -41,6 +41,23 @@ import {
     readOptionalMcpArgs,
     readOptionalMcpRecord,
 } from './utils';
+
+/**
+ * 把服务器配置的 `tool_timeout` 解析为模型侧的超时硬上限。
+ *
+ * 服务器配置即硬上限，模型只能在此基础上收紧单次调用：
+ * - 正数且不小于最小步长：直接作为上限；
+ * - 非正数：服务器不设超时，退回共享上限约束模型建议；
+ * - 正数但小于最小步长：允许区间为空（min > max），无法给出合法 schema，
+ *   返回 `undefined` 表示不提供 `_meta` 超时信封，服务器配置仍然生效。
+ */
+function resolveAdaptiveTimeoutCeilingMs(configuredTimeoutMs: number): number | undefined {
+    if (configuredTimeoutMs <= 0) {
+        return TOOL_TIMEOUT_MAX_MS;
+    }
+
+    return configuredTimeoutMs >= TOOL_TIMEOUT_MIN_MS ? configuredTimeoutMs : undefined;
+}
 
 /**
  * MCP 管理器类
@@ -354,7 +371,9 @@ export class McpManager {
                                 tool.description ||
                                 t('agent.mcp.toolDescriptionFallback', { toolName: tool.name }),
                             input_schema: inputSchema as AiToolDefinition['input_schema'],
-                            adaptiveTimeoutCeilingMs: TOOL_TIMEOUT_MAX_MS,
+                            adaptiveTimeoutCeilingMs: resolveAdaptiveTimeoutCeilingMs(
+                                server.tool_timeout
+                            ),
                         };
                     });
                     allTools.push(...toolsWithNamespace);
@@ -461,8 +480,15 @@ export class McpManager {
             throw new Error(t('agent.mcp.toolNotFound', { toolName }));
         }
 
-        // 模型建议的超时收敛到允许区间；未建议时沿用服务器配置。
-        const effectiveTimeout = clampTimeoutMs(options?.requestedTimeoutMs, resolved.toolTimeout);
+        // 服务器配置的超时即硬上限：模型只能收紧本次调用。未建议时沿用服务器配置，
+        // 配置非正数表示不设超时，此时用共享上限兜住模型建议值。
+        const timeoutCeiling =
+            resolved.toolTimeout > 0 ? resolved.toolTimeout : TOOL_TIMEOUT_MAX_MS;
+        const effectiveTimeout = clampTimeoutMs(
+            options?.requestedTimeoutMs,
+            resolved.toolTimeout,
+            timeoutCeiling
+        );
 
         // 服务器配置来自数据库，可能是旧数据或无约束输入。非正数沿用既有语义
         // （不设超时）；非整数无法跨 Tauri 的 u64 边界，此时只保留本地守卫。

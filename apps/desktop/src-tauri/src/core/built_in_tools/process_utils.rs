@@ -32,8 +32,16 @@ pub fn combine_output(stdout: &str, stderr: &str) -> String {
 }
 
 /// 解析超时毫秒数，限制在合理范围内。
-pub fn resolve_timeout_ms(timeout_ms: Option<u64>, default_ms: u64, max_ms: u64) -> u64 {
-    timeout_ms.unwrap_or(default_ms).clamp(1, max_ms)
+///
+/// - `Some(0)`：调用方明确要求关闭超时，返回 `None`；
+/// - `None`：调用方未指定，退回 `default_ms`；
+/// - 其余正数收敛到 `[1, max_ms]`，避免超出执行器能力造成静默截断。
+pub fn resolve_timeout_ms(timeout_ms: Option<u64>, default_ms: u64, max_ms: u64) -> Option<u64> {
+    match timeout_ms {
+        Some(0) => None,
+        Some(value) => Some(value.clamp(1, max_ms)),
+        None => Some(default_ms.clamp(1, max_ms)),
+    }
 }
 
 /// 终止子进程并等待回收。
@@ -149,21 +157,24 @@ mod tests {
 
     #[test]
     fn resolve_timeout_ms_uses_provided_value() {
-        assert_eq!(resolve_timeout_ms(Some(5000), 15000, 120000), 5000);
+        assert_eq!(resolve_timeout_ms(Some(5000), 120000, 120000), Some(5000));
     }
 
     #[test]
     fn resolve_timeout_ms_falls_back_to_default() {
-        assert_eq!(resolve_timeout_ms(None, 15000, 120000), 15000);
+        assert_eq!(resolve_timeout_ms(None, 120000, 120000), Some(120000));
     }
 
     #[test]
     fn resolve_timeout_ms_clamps_to_max() {
-        assert_eq!(resolve_timeout_ms(Some(200000), 15000, 120000), 120000);
+        assert_eq!(
+            resolve_timeout_ms(Some(200000), 120000, 120000),
+            Some(120000)
+        );
     }
 
     #[test]
-    fn resolve_timeout_ms_clamps_zero_to_one() {
-        assert_eq!(resolve_timeout_ms(Some(0), 15000, 120000), 1);
+    fn resolve_timeout_ms_treats_zero_as_disabled() {
+        assert_eq!(resolve_timeout_ms(Some(0), 120000, 120000), None);
     }
 }

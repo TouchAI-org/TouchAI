@@ -44,6 +44,21 @@
         });
     }
 
+    /**
+     * 写入超时上限。
+     *
+     * 输入框被清空时保持原值：0 在配置里表示“不设超时”，
+     * 不能因为删空输入框就意外关闭超时保护。
+     */
+    function updateTimeoutMs(event: Event) {
+        const raw = (event.target as HTMLInputElement).value;
+        if (raw === '') {
+            return;
+        }
+
+        patch({ timeoutMs: Number(raw) });
+    }
+
     async function pickDirectory(defaultPath?: string): Promise<string | null> {
         try {
             const picked = await open({
@@ -241,15 +256,14 @@
                         :value="modelValue.timeoutMs"
                         :disabled="disabled"
                         type="number"
-                        min="1000"
+                        min="0"
                         max="120000"
                         class="settings-input mt-1.5 w-full disabled:bg-neutral-50"
-                        @input="
-                            patch({
-                                timeoutMs: Number(($event.target as HTMLInputElement).value || 0),
-                            })
-                        "
+                        @input="updateTimeoutMs"
                     />
+                    <p class="mt-1 text-xs text-neutral-500">
+                        {{ t('settings.builtInTools.bash.timeoutMsHint') }}
+                    </p>
                 </div>
 
                 <div>

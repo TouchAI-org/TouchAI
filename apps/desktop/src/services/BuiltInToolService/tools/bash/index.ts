@@ -156,7 +156,8 @@ export async function executeBashTool(
 ): Promise<BuiltInToolExecutionResult> {
     const commandContext = await resolveCommandContext(args, config);
 
-    // 模型建议的超时收敛到 Bash 的硬上限内；未建议时沿用用户配置。
+    // 模型建议的超时收敛到 Bash 的硬上限内；未建议时沿用用户配置，
+    // 用户配置为 0 表示不设超时（透传给原生层关闭计时）。
     const effectiveTimeout = clampTimeoutMs(
         context.requestedTimeoutMs,
         config.timeoutMs,
