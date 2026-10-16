@@ -22,6 +22,7 @@ import type {
 } from '../types';
 import type { ProviderAttachmentRequestContext } from './attachments';
 import { buildModelMessages, buildToolSet } from './messages';
+import { normalizeResponsesReasoningStream } from './responsesStream';
 import { createAiSdkStreamProcessor } from './stream';
 import { createTauriFetch } from './tauriFetch';
 
@@ -343,6 +344,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
     protected createProviderFetch(): typeof fetch {
         const tauriFetch = createTauriFetch();
         const queryParams = this.config.queryParams ?? {};
+        const normalizeResponsesReasoning = this.shouldNormalizeResponsesReasoning();
 
         return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
             const rawUrl =
@@ -352,7 +354,10 @@ export abstract class AiSdkProviderBase implements AiProvider {
                       ? input.toString()
                       : input.url;
             const requestUrl = buildUrlWithQueryParams(rawUrl, queryParams);
-            return tauriFetch(requestUrl, init);
+            const response = await tauriFetch(requestUrl, init);
+            return normalizeResponsesReasoning
+                ? normalizeResponsesReasoningStream(response)
+                : response;
         }) as typeof fetch;
     }
 
@@ -488,6 +493,23 @@ export abstract class AiSdkProviderBase implements AiProvider {
      */
     protected shouldIncludeRawChunks(): boolean {
         return false;
+    }
+
+    /**
+     * 当前生效的 reasoning 编码格式：provider config 优先，其次 driver 默认。
+     */
+    protected getEffectiveReasoningFormat(): ReasoningProtocol | undefined {
+        return this.config.reasoning?.format ?? this.getReasoningProtocol();
+    }
+
+    /**
+     * 是否把 Responses 事件流里的非标准推理事件归一化。
+     *
+     * 走 Responses 协议时开启：官方 API 用 `summary` 暴露思考，部分中转站改用
+     * `reasoning_text`，SDK 只认前者，归一化后两者都能显示。
+     */
+    protected shouldNormalizeResponsesReasoning(): boolean {
+        return this.getEffectiveReasoningFormat() === 'openai-responses';
     }
 
     protected abstract createLanguageModel(modelId: string): LanguageModel;

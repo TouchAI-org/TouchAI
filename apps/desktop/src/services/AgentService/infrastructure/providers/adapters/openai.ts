@@ -98,7 +98,7 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
     }
 
     private getEffectiveFormat(): ReasoningProtocol {
-        return this.config.reasoning?.format ?? this.getReasoningProtocol() ?? 'openai-responses';
+        return this.getEffectiveReasoningFormat() ?? 'openai-responses';
     }
 
     getApiTargets(): ProviderApiTargets {

@@ -116,6 +116,7 @@ describe('OpenAI reasoning level map', () => {
         expect(probe.getStreamProviderOptions(baseOptions)).toEqual({
             openai: {
                 store: false,
+                forceReasoning: true,
                 reasoningEffort: 'max',
                 reasoningSummary: 'auto',
                 include: ['reasoning.encrypted_content'],
@@ -135,6 +136,7 @@ describe('OpenAI reasoning level map', () => {
         ).toEqual({
             openai: {
                 store: false,
+                forceReasoning: true,
                 reasoningEffort: 'max',
                 reasoningSummary: 'auto',
                 include: ['reasoning.encrypted_content'],
@@ -339,6 +341,7 @@ describe('reasoning format encoders', () => {
             providerOptions: {
                 openai: {
                     store: false,
+                    forceReasoning: true,
                     reasoningEffort: 'max',
                     reasoningSummary: 'auto',
                     include: ['reasoning.encrypted_content'],

@@ -91,13 +91,20 @@ function encodeOpenAi(res: ReasoningResolution, compat: ReasoningEncodingHints |
     return providerOptions('openai', options);
 }
 
-/** openai-responses：无状态 + 回传加密 reasoning，附带 reasoning.effort。 */
+/**
+ * openai-responses：无状态 + 回传加密 reasoning，附带 reasoning.effort。
+ *
+ * `forceReasoning` 是 SDK 为「自定义 baseURL 上的未识别推理模型」准备的开关：
+ * 模型名不在官方命名规则内时，SDK 会静默丢弃 reasoning 参数。中转站上的第三方
+ * 模型（如 deepseek-*）正属于这种情况，因此启用档位时显式开启。
+ */
 function encodeOpenAiResponses(
     res: ReasoningResolution,
     compat: ReasoningEncodingHints | undefined
 ) {
     const options: JsonObject = { store: false };
     if (isEnabled(res)) {
+        options.forceReasoning = true;
         options.reasoningEffort = effortValue(res);
         options.reasoningSummary = 'auto';
         options.include = ['reasoning.encrypted_content'];
