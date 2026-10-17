@@ -421,6 +421,9 @@ ${metadataMatchSources}
  * 只写 `is_custom_metadata = 0` 的行，且只覆盖上游声明过的字段。因为
  * `syncAllModelsMetadata` 会用 models.dev 的值覆盖已有非空值，调用顺序必须是
  * 先 sync 再 overlay，否则兜底值会反过来盖掉上游声明。
+ *
+ * 上游显式声明 `reasoning: false` 时，models.dev 或其他来源留下的旧档位会一并
+ * 清空，避免「能力位说关闭、档位说支持」的分裂状态。
  */
 export const applyUpstreamModelMetadata = async (
     { providerId, entries }: ApplyUpstreamModelMetadataPayload,
@@ -471,11 +474,18 @@ export const applyUpstreamModelMetadata = async (
                 FROM upstream_model_metadata
                 WHERE upstream_model_metadata.model_id = models.model_id
             ), reasoning),
-            reasoning_options = COALESCE((
-                SELECT upstream_model_metadata.reasoning_options
-                FROM upstream_model_metadata
-                WHERE upstream_model_metadata.model_id = models.model_id
-            ), reasoning_options),
+            reasoning_options = CASE
+                WHEN (
+                    SELECT upstream_model_metadata.reasoning
+                    FROM upstream_model_metadata
+                    WHERE upstream_model_metadata.model_id = models.model_id
+                ) = 0 THEN NULL
+                ELSE COALESCE((
+                    SELECT upstream_model_metadata.reasoning_options
+                    FROM upstream_model_metadata
+                    WHERE upstream_model_metadata.model_id = models.model_id
+                ), reasoning_options)
+            END,
             tool_call = COALESCE((
                 SELECT upstream_model_metadata.tool_call
                 FROM upstream_model_metadata

@@ -182,6 +182,41 @@ describe('model database queries', () => {
         expect(getTauriInvokeCalls('database_query')).toHaveLength(0);
     });
 
+    it('clears stale reasoning options when upstream declares no reasoning', async () => {
+        interceptTauriInvoke((call) => {
+            if (call.cmd === 'database_query') {
+                return { rows: [], rowsAffected: 1, lastInsertId: null };
+            }
+
+            return undefined;
+        });
+
+        await expect(
+            applyUpstreamModelMetadata({
+                providerId: 7,
+                entries: [
+                    {
+                        model_id: 'any/claude-fable-5-1-reversed',
+                        metadata: { reasoning: 0 },
+                    },
+                ],
+            })
+        ).resolves.toBeUndefined();
+
+        const request = getTauriInvokeCalls('database_query')
+            .map((call) => getRequest(call.payload))
+            .find((candidate) => candidate?.method === 'run');
+        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
+
+        // 显式 false 必须清掉 models.dev 兜底留下的旧档位，避免 flag 与档位打架。
+        expect(normalizedSql).toContain(
+            'reasoning_options = CASE WHEN ( SELECT upstream_model_metadata.reasoning FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ) = 0 THEN NULL'
+        );
+        expect(normalizedSql).toContain(
+            'ELSE COALESCE(( SELECT upstream_model_metadata.reasoning_options FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ), reasoning_options) END'
+        );
+    });
+
     it('uses only sqlite-safe model metadata matching SQL', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {

@@ -201,6 +201,56 @@ describe('OpenAI reasoning level map', () => {
             openai: { reasoningEffort: 'max' },
         });
     });
+
+    it('sends no reasoning when model metadata declares it unsupported', () => {
+        const adapter = new OpenAIProviderAdapter({
+            apiEndpoint: 'https://api.openai.com/v1',
+            config: { reasoning: { format: 'openai' } },
+        });
+        const probe = adapter as unknown as {
+            getStreamProviderOptions(options: AiRequestOptions): unknown;
+        };
+        const baseOptions: AiRequestOptions = {
+            model: 'gpt-6-sol',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoningLevel: 'max',
+        };
+
+        // 未声明能力时保留硬编码兜底表。
+        expect(probe.getStreamProviderOptions(baseOptions)).toEqual({
+            openai: { reasoningEffort: 'max' },
+        });
+        // 显式 false 优先于兜底表和残留档位。
+        expect(
+            probe.getStreamProviderOptions({ ...baseOptions, supportsReasoning: false })
+        ).toBeUndefined();
+        expect(
+            probe.getStreamProviderOptions({
+                ...baseOptions,
+                supportsReasoning: false,
+                reasoningOptions: [{ type: 'effort', values: ['low', 'high'] }],
+            })
+        ).toBeUndefined();
+    });
+
+    it('lets an explicit passthrough mode override the unsupported declaration', () => {
+        const adapter = new OpenAIProviderAdapter({
+            apiEndpoint: 'https://api.openai.com/v1',
+            config: { reasoning: { format: 'openai', mode: 'passthrough' } },
+        });
+        const probe = adapter as unknown as {
+            getStreamProviderOptions(options: AiRequestOptions): unknown;
+        };
+
+        expect(
+            probe.getStreamProviderOptions({
+                model: 'gpt-6-sol',
+                messages: [{ role: 'user', content: 'hello' }],
+                reasoningLevel: 'max',
+                supportsReasoning: false,
+            })
+        ).toEqual({ openai: { reasoningEffort: 'max' } });
+    });
 });
 
 describe('reasoning capability normalization', () => {
