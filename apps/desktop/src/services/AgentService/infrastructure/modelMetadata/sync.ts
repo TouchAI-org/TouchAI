@@ -9,10 +9,8 @@ import { eq, sql } from 'drizzle-orm';
 import { expandModelIdCandidates } from './modelIdCandidates';
 
 /**
- * 把运行时模型行与 models.dev 元数据对齐。
- *
- * 匹配规则（候选 id 生成、选优排序）是纯函数，跑在应用层、可以脱离数据库单测；
- * SQL 只承担两件事：批量读出候选命中的别名与元数据、用一次 UPDATE 落库。
+ * 把运行时模型行与 models.dev 元数据对齐：匹配规则是纯函数、可脱离数据库单测，
+ * SQL 只负责批量读出候选命中的别名与元数据，再用一次 UPDATE 落库。
  */
 
 export interface ModelMetadataTarget {
@@ -40,9 +38,7 @@ export interface ModelMetadataSelection {
     metadata: LlmMetadataRecord;
 }
 
-/**
- * 元数据丰富度：声明得越多的条目越可信（与旧 SQL 的排序键一致）。
- */
+/** 声明得越多的条目越可信。 */
 function metadataRichness(record: LlmMetadataRecord): number {
     return (
         record.attachment +
@@ -59,10 +55,7 @@ interface RankedMatch {
     metadata: LlmMetadataRecord;
 }
 
-/**
- * 选优规则：裁剪次数最少 > 元数据最丰富 > model_id 最长；全部并列时取字典序，
- * 让结果稳定可复现（旧 SQL 在完全并列时依赖扫描顺序）。
- */
+/** 选优：裁剪最少 > 元数据最全 > model_id 最长，全并列时取字典序保证稳定。 */
 function isBetterMatch(candidate: RankedMatch, current: RankedMatch): boolean {
     if (candidate.depth !== current.depth) {
         return candidate.depth < current.depth;
@@ -81,9 +74,7 @@ function isBetterMatch(candidate: RankedMatch, current: RankedMatch): boolean {
     return candidate.metadata.modelId < current.metadata.modelId;
 }
 
-/**
- * 为每个模型行选出最可信的元数据条目；没有任何候选命中别名表时跳过该行。
- */
+/** 为每个模型行选出最可信的元数据条目；没有候选命中别名表时跳过该行。 */
 export function selectModelMetadata(
     targets: readonly ModelMetadataTarget[],
     aliasTargets: ReadonlyMap<string, string>,
@@ -119,9 +110,7 @@ export function selectModelMetadata(
     return selections;
 }
 
-/**
- * `llm_metadata.limit` 是 JSON 字符串；缺字段或非数字都视为未声明。
- */
+/** `llm_metadata.limit` 是 JSON 字符串，缺字段或非数字都视为未声明。 */
 function parseModelLimit(limit: string | null): {
     contextLimit: number | null;
     outputLimit: number | null;
@@ -176,12 +165,7 @@ function toMetadataRecord(row: {
     };
 }
 
-/**
- * 同步所有非自定义模型的元数据。
- *
- * 读一次模型行、一次别名、一次元数据，匹配与选优在内存里完成，
- * 最后用单条 UPDATE（json_each 展开选中结果）保持集合写入与事务原子性。
- */
+/** 同步所有非自定义模型的元数据：三次读取 + 内存匹配 + 单条集合 UPDATE。 */
 export async function syncAllModelsMetadata(database: DatabaseExecutor = db): Promise<void> {
     const targets = await database
         .select({ id: models.id, modelId: models.model_id })

@@ -174,7 +174,7 @@ describe('syncAllModelsMetadata', () => {
             getRequest(call.payload)
         );
 
-        // 只同步非自定义行；候选与别名匹配在应用层完成后只剩这一条 UPDATE。
+        // 只同步非自定义行；匹配在应用层完成后只剩这一条 UPDATE。
         const modelSelect = requests.find(
             (request) =>
                 request?.method === 'all' &&

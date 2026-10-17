@@ -11,10 +11,7 @@ import type { ReasoningMode, ReasoningProtocol } from '../../contracts/reasoning
 export interface ModelInfo {
     id: string;
     name: string;
-    /**
-     * 上游 /models 自己声明的上下文、模态、思考档位等能力（如有）。
-     * 刷新模型时用于覆盖 models.dev 兜底值。
-     */
+    /** 上游 /models 自己声明的能力（如有），刷新模型时覆盖 models.dev 兜底值。 */
     metadata?: UpstreamModelMetadataPatch;
 }
 

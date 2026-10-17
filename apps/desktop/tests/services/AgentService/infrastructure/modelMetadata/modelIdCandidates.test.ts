@@ -40,8 +40,7 @@ describe('model id candidate expansion', () => {
         expect(depthOf(expandModelIdCandidates('auto-gpt-5-6-sol'), 'gpt-5-6-sol')).toBe(1);
         expect(depthOf(expandModelIdCandidates('any-gpt-5'), 'gpt-5')).toBe(1);
 
-        // group/auto-xxx 需要命名空间与路由前缀两刀，旧 CASE 每层只裁一次，
-        // 两枝必须独立存在才能走到 canonical id。
+        // group/auto-xxx 需要命名空间与路由前缀两刀，两枝必须独立存在。
         const grouped = expandModelIdCandidates('group/auto-gpt-5-6-sol');
         expect(depthOf(grouped, 'auto-gpt-5-6-sol')).toBe(1);
         expect(depthOf(grouped, 'gpt-5-6-sol')).toBe(2);

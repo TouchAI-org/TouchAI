@@ -206,12 +206,9 @@ export const findModelByProviderAndModelId = async ({
 /**
  * 用上游 `/v1/models` 自己声明的能力覆盖 models.dev 兜底值。
  *
- * 只写 `is_custom_metadata = 0` 的行，且只覆盖上游声明过的字段。因为
- * `syncAllModelsMetadata` 会用 models.dev 的值覆盖已有非空值，调用顺序必须是
- * 先 sync 再 overlay，否则兜底值会反过来盖掉上游声明。
- *
- * 上游显式声明 `reasoning: false` 时，models.dev 或其他来源留下的旧档位会一并
- * 清空，避免「能力位说关闭、档位说支持」的分裂状态。
+ * 只写 `is_custom_metadata = 0` 且属于该 provider 的行，只覆盖上游声明过的字段。
+ * `syncAllModelsMetadata` 会用 models.dev 值覆盖已有非空值，所以调用顺序必须是
+ * 先 sync 再 overlay。上游显式声明 `reasoning: false` 时，旧档位一并清空。
  */
 export const applyUpstreamModelMetadata = async (
     { providerId, entries }: ApplyUpstreamModelMetadataPayload,

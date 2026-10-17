@@ -625,7 +625,6 @@
                     ...fetchedModel.metadata,
                 }));
 
-            // 上游自己声明了能力的模型：落库后覆盖 models.dev 兜底值
             const upstreamMetadata = fetchedModels.flatMap((fetchedModel) =>
                 fetchedModel.metadata
                     ? [{ model_id: fetchedModel.id, metadata: fetchedModel.metadata }]
@@ -642,7 +641,7 @@
                     await createModels(newModels, tx);
                 }
 
-                // syncAllModelsMetadata 会用 models.dev 覆盖已有值，必须先跑兜底再叠加上游声明
+                // 先写 models.dev 兜底，再叠加上游声明
                 await syncAllModelsMetadata(tx);
                 await applyUpstreamModelMetadata(
                     { providerId: provider.id, entries: upstreamMetadata },

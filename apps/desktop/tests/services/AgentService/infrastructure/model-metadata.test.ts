@@ -30,7 +30,7 @@ interface MockSyncRows {
     metadata?: unknown[];
 }
 
-/** 供 syncAllModelsMetadata 的三次读取按表返回行；未声明的表返回空集。 */
+/** 按表返回 sync 读取的行；未声明的表返回空集。 */
 function resolveSyncRows(sql: string, syncRows: MockSyncRows) {
     if (sql.includes('"llm_metadata_aliases"')) {
         return syncRows.aliases ?? [];
@@ -275,7 +275,7 @@ describe('model metadata refresh', () => {
             getRequest(call.payload)
         );
 
-        // 候选 id 只用来做批量读取；匹配在应用层完成后只剩一条批量 UPDATE。
+        // 候选只用于批量读取；匹配在应用层完成后只剩一条 UPDATE。
         expect(
             requests.some(
                 (request) => request?.method === 'all' && request.sql.includes('json_each(')

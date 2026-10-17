@@ -15,18 +15,13 @@ import {
 } from '../../contracts/reasoning';
 
 /**
- * 上游 `/v1/models` 没有统一标准：OpenAI 只保证 `id`，而中转站 / 网关会各自追加
+ * 上游 `/v1/models` 没有统一标准：OpenAI 只保证 `id`，中转站 / 网关会各自追加
  * 上下文长度、模态、思考档位等字段。这里按常见命名嗅探并归一化成数据库列，
  * 缺失的字段交给 models.dev 兜底。
  *
- * 已确认的来源形态：
- * - Magpie 等网关：`context_window` / `context_length`、`max_input_tokens` /
- *   `max_output_tokens`、`modalities`、`reasoning`、`supported_reasoning_levels`
- *   （含网关独有的 `ultra` 档位，统一档位里已有对应项）。
- * - OpenRouter：`context_length`、`top_provider.max_completion_tokens`、
- *   `architecture.input_modalities`、`reasoning.supported_efforts`、
- *   `supported_parameters`。
- * - Vercel AI Gateway：`reasoning_options`（就是 TouchAI 存储的同款结构）。
+ * 已确认形态：Magpie 等网关的 `context_window` / `supported_reasoning_levels`、
+ * OpenRouter 的 `top_provider` / `architecture.*` / `supported_efforts`、
+ * Vercel AI Gateway 的 `reasoning_options`。
  */
 
 /** 上下文长度字段，按可信度排序。 */
@@ -69,10 +64,7 @@ function firstPositiveLimit(record: Record<string, unknown>, keys: string[]): nu
     return undefined;
 }
 
-/**
- * 归一化模态声明，兼容 `modalities` 与 OpenRouter 的 `architecture.*` 两种写法。
- * 完全没有模态字段时返回 `undefined`，避免用默认值覆盖兜底元数据。
- */
+/** 兼容 `modalities` 与 OpenRouter 的 `architecture.*`；未声明模态时返回 undefined。 */
 function normalizeUpstreamModalities(record: Record<string, unknown>): ModelModalities | undefined {
     const architecture = isRecord(record.architecture) ? record.architecture : {};
     const modalities = isRecord(record.modalities) ? record.modalities : {};
@@ -93,10 +85,7 @@ function normalizeUpstreamModalities(record: Record<string, unknown>): ModelModa
     return parsed.success ? parsed.data : undefined;
 }
 
-/**
- * 汇总上游声明的思考档位，兼容网关的 `supported_reasoning_levels`（`[{effort}]`）
- * 与 OpenRouter 的 `reasoning.supported_efforts`（字符串数组）。
- */
+/** 汇总 `supported_reasoning_levels`（`[{effort}]`）与 `reasoning.supported_efforts`。 */
 function collectReasoningEfforts(record: Record<string, unknown>): string[] {
     const rawEfforts: unknown[] = [];
 
@@ -163,12 +152,7 @@ function resolveToolCall(record: Record<string, unknown>): number | undefined {
     return undefined;
 }
 
-/**
- * 把上游 `/models` 返回的单个模型归一化成可写入数据库的能力字段。
- *
- * 只保留上游明确声明的字段；返回 `undefined` 表示该上游没有可用的能力元数据，
- * 应继续使用 models.dev 兜底值。
- */
+/** 只保留上游明确声明的字段；返回 undefined 表示该上游没有可用能力元数据。 */
 export function normalizeUpstreamModelMetadata(
     raw: unknown
 ): UpstreamModelMetadataPatch | undefined {

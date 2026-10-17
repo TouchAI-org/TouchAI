@@ -144,7 +144,7 @@ describe('model database queries', () => {
             .find((candidate) => candidate?.method === 'run');
         const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
 
-        // 显式 false 必须清掉 models.dev 兜底留下的旧档位，避免 flag 与档位打架。
+        // 显式 false 清掉兜底留下的旧档位，避免 flag 与档位冲突。
         expect(normalizedSql).toContain(
             'reasoning_options = CASE WHEN ( SELECT upstream_model_metadata.reasoning FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ) = 0 THEN NULL'
         );

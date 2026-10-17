@@ -242,19 +242,16 @@ export interface ModelCreateData {
 export type ModelUpdateData = Partial<ModelCreateData>;
 
 /**
- * 上游 `/v1/models` 自己声明的模型能力，已按数据库列格式化。
+ * 上游 `/v1/models` 声明的模型能力，已按数据库列格式化。
  *
- * 与 models.dev 兜底元数据的优先级为：用户自定义 > 上游声明 > models.dev。
- * 字段缺省表示上游没有声明该能力，应保留兜底值。
+ * 优先级：用户自定义 > 上游声明 > models.dev；字段缺省表示上游未声明，保留兜底值。
  */
 export interface UpstreamModelMetadataPatch {
     context_limit?: number;
     output_limit?: number;
-    /** JSON string: {input: [], output: []} */
     modalities?: string;
     attachment?: number;
     reasoning?: number;
-    /** JSON string: ReasoningOption[] */
     reasoning_options?: string;
     tool_call?: number;
 }

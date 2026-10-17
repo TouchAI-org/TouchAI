@@ -3,22 +3,17 @@
  */
 
 /**
- * 中转站等上游会改写模型 id：加日期、加 `-latest`、加网关命名空间前缀
- * （`any/`、`group/auto-` 等）。这里按「裁得越少越可信」的原则，把运行时 id
- * 逐层裁掉可识别的命名空间前缀、网关前缀与版本/发布后缀，产出候选 id。
- *
- * 规则是纯函数、跑在应用层而不是 SQL 里：每层只裁一刀的语义用循环表达更直观，
- * 也便于直接单测；行为与旧递归 CTE 保持一致。
+ * 中转站等上游会改写模型 id：加日期、加 `-latest`、加命名空间或路由前缀
+ * （`any/`、`group/auto-` 等）。这里按「裁得越少越可信」逐层裁剪候选 id，
+ * 供 `sync.ts` 与 models.dev 别名精确匹配。
  */
 
 export interface ModelIdCandidate {
-    /** 裁剪后的候选 id。 */
     candidate: string;
-    /** 裁剪层数；0 表示原始 id。 */
+    /** 裁剪层数，0 为原始 id。 */
     depth: number;
 }
 
-/** 与旧 SQL 递归 CTE 的深度上限保持一致。 */
 export const MAX_MODEL_ID_CANDIDATE_DEPTH = 6;
 
 interface StripRule {
@@ -46,15 +41,11 @@ const ROUTE_PREFIXES: readonly { prefix: string; stripLength: number }[] = [
     { prefix: 'any-', stripLength: 4 },
 ];
 
-/**
- * SQLite 的 lower() 只折叠 ASCII 字符；这里保持同样语义，
- * 避免同一份 id 在 SQL 与 JS 之间出现大小写处理差异。
- */
+/** 与别名表存储的形态一致：只折叠 ASCII 大小写。 */
 function asciiLower(value: string): string {
     return value.replace(/[A-Z]/g, (char) => char.toLowerCase());
 }
 
-/** 每层最多裁一刀：后缀、命名空间前缀、路由前缀各自独立成枝。 */
 function stripOneSuffix(candidate: string): string | undefined {
     for (const rule of SUFFIX_RULES) {
         if (rule.matches(candidate)) {
@@ -79,7 +70,7 @@ function nextCandidates(candidate: string): string[] {
     }
 
     for (const { prefix, stripLength } of ROUTE_PREFIXES) {
-        // 与旧 GLOB（'auto-?*' / 'any-?*'）一致：前缀后必须还有字符。
+        // 前缀后必须还有字符，否则裁剪结果为空。
         if (candidate.startsWith(prefix) && candidate.length > stripLength) {
             next.push(candidate.slice(stripLength));
         }
@@ -100,11 +91,7 @@ function compareCandidates(left: ModelIdCandidate, right: ModelIdCandidate): num
     return left.candidate < right.candidate ? -1 : 1;
 }
 
-/**
- * 广度优先展开模型 id 的候选集合。
- *
- * 同一候选保留最小 depth（重复路径不影响最终选优），结果按 depth 升序稳定排序。
- */
+/** 逐层展开候选 id：同一候选保留最小 depth，结果按 depth 升序排序。 */
 export function expandModelIdCandidates(
     modelId: string,
     maxDepth: number = MAX_MODEL_ID_CANDIDATE_DEPTH

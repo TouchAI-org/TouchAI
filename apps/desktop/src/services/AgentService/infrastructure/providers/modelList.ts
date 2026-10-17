@@ -3,12 +3,7 @@
 import type { ModelInfo } from './types';
 import { normalizeUpstreamModelMetadata } from './upstreamMetadata';
 
-/**
- * 把上游 `/models` 的单个条目转成 `ModelInfo`。
- *
- * 各 driver 的 schema 只负责各自确认存在的字段；能力字段统一交给
- * `normalizeUpstreamModelMetadata` 嗅探，避免 12 个适配器各写一份。
- */
+/** 把上游 `/models` 条目转成 `ModelInfo`；能力字段统一交给 `normalizeUpstreamModelMetadata`。 */
 export function toModelInfo(
     raw: unknown,
     { id, name }: { id: string; name?: string | null }
