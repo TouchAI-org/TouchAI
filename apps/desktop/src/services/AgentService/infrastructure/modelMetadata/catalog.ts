@@ -9,6 +9,15 @@ import { z } from '@/utils/zod';
 
 import { normalizeReasoningOptions, serializeReasoningOptions } from '../../contracts/reasoning';
 
+const rawCostSchema = z.object({
+    input: z.number().optional(),
+    output: z.number().optional(),
+    cache_read: z.number().optional(),
+    cache_write: z.number().optional(),
+    reasoning: z.number().optional(),
+    currency: z.string().optional(),
+});
+
 const rawModelSchema = z.object({
     id: z.string().min(1),
     name: z.string().min(1),
@@ -24,6 +33,8 @@ const rawModelSchema = z.object({
     limit: modelLimitSchema.optional(),
     reasoning_options: z.unknown().optional(),
     canonical_model_id: z.string().optional(),
+    /** 每百万 token 定价，来自 models.dev */
+    cost: rawCostSchema.optional(),
 });
 
 const rawProviderSchema = z.object({
@@ -294,6 +305,11 @@ function flattenCatalog(catalog: ModelCatalog): NewLlmMetadata[] {
             reasoning_options: serializeReasoningOptions(
                 normalizeReasoningOptions(model.reasoning_options)
             ),
+            input_cost_per_million: model.cost?.input?.toString() ?? null,
+            output_cost_per_million: model.cost?.output?.toString() ?? null,
+            cache_read_cost_per_million: model.cost?.cache_read?.toString() ?? null,
+            cache_write_cost_per_million: model.cost?.cache_write?.toString() ?? null,
+            cost_currency: model.cost?.currency ?? (model.cost ? 'USD' : null),
         });
     }
 

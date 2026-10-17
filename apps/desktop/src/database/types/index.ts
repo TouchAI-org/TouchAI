@@ -1,5 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import type { SQL } from 'drizzle-orm';
+
 import type {
     BuiltInToolApprovalState as DbBuiltInToolApprovalState,
     BuiltInToolLogStatus as DbBuiltInToolLogStatus,
@@ -323,6 +325,30 @@ export interface SessionTurnEntity {
     error_message: string | null;
     tokens_used: number | null;
     duration_ms: number | null;
+    // ===== 用量聚合 =====
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    reasoning_tokens: number;
+    /** 成本，微元（1e-6 货币单位） */
+    total_cost_micros: number;
+    /** 无定价的调用次数 */
+    unpriced_calls: number;
+    ttft_ms: number | null;
+    first_text_ms: number | null;
+    llm_call_count: number;
+    tool_call_count: number;
+    kind: string;
+    // ===== Agent 行为信号 =====
+    model_switch_count: number;
+    tool_argument_error_count: number;
+    empty_response_count: number;
+    hit_iteration_ceiling: number;
+    error_code: string | null;
+    retry_scope: string | null;
+    // ===== 上下文诊断 =====
+    prompt_breakdown_json: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -355,6 +381,16 @@ export interface SessionTurnAttemptEntity {
     delivery_manifest_json: string;
     error_message: string | null;
     duration_ms: number | null;
+    // ===== 用量聚合 =====
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    reasoning_tokens: number;
+    total_cost_micros: number;
+    unpriced_calls: number;
+    ttft_ms: number | null;
+    llm_call_count: number;
     started_at: string;
     finished_at: string | null;
     created_at: string;
@@ -377,6 +413,47 @@ export interface SessionTurnAttemptCreateData {
 }
 
 export type SessionTurnAttemptUpdateData = Partial<SessionTurnAttemptCreateData>;
+
+// ==================== 用量聚合补丁 ====================
+
+/**
+ * `session_turns` 的用量聚合补丁。
+ *
+ * 值可以是具体数字，也可以是 SQL 表达式（用于从 attempts 汇总或累加），
+ * 因此不能直接复用手写的 `SessionTurnUpdateData`。
+ */
+export type SessionTurnUsagePatch = Partial<{
+    input_tokens: number | SQL;
+    output_tokens: number | SQL;
+    cache_read_tokens: number | SQL;
+    cache_write_tokens: number | SQL;
+    reasoning_tokens: number | SQL;
+    total_cost_micros: number | SQL;
+    unpriced_calls: number | SQL;
+    ttft_ms: number | null | SQL;
+    first_text_ms: number | null | SQL;
+    llm_call_count: number | SQL;
+    tool_call_count: number | SQL;
+    tool_argument_error_count: number | SQL;
+    model_switch_count: number | SQL;
+    hit_iteration_ceiling: number | SQL;
+    error_code: string | null;
+    retry_scope: string | null;
+    prompt_breakdown_json: string | null;
+}>;
+
+/** `session_turn_attempts` 的用量聚合补丁 */
+export type SessionTurnAttemptUsagePatch = Partial<{
+    input_tokens: number | SQL;
+    output_tokens: number | SQL;
+    cache_read_tokens: number | SQL;
+    cache_write_tokens: number | SQL;
+    reasoning_tokens: number | SQL;
+    total_cost_micros: number | SQL;
+    unpriced_calls: number | SQL;
+    ttft_ms: number | null;
+    llm_call_count: number | SQL;
+}>;
 
 // ==================== LLM 元数据 ====================
 

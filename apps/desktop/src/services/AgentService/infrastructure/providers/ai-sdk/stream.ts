@@ -1,8 +1,12 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { FinishReason, TextStreamPart, ToolSet } from 'ai';
+import type { FinishReason, LanguageModelUsage, TextStreamPart, ToolSet } from 'ai';
 
-import type { AiStreamChunk, JsonObject } from '@/services/AgentService/contracts/protocol';
+import type {
+    AiStreamChunk,
+    AiUsage,
+    JsonObject,
+} from '@/services/AgentService/contracts/protocol';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 
 import { normalizeToolName, toJsonObjectRecord } from './utils';
@@ -373,7 +377,10 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
         return [];
     }
 
-    function buildFinishChunk(reason: FinishReason | undefined): AiStreamChunk {
+    function buildFinishChunk(
+        reason: FinishReason | undefined,
+        usage: LanguageModelUsage | undefined
+    ): AiStreamChunk {
         const toolCalls = buildToolCallsForFinish(state, reason);
 
         return {
@@ -381,6 +388,7 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
             done: true,
             finishReason: mapFinishReason(reason, toolCalls.length > 0),
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            usage: normalizeAiUsage(usage),
         };
     }
 
@@ -388,4 +396,52 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
         consumePart,
         buildFinishChunk,
     };
+}
+
+/**
+ * 把 AI SDK 的 usage 归一到「新鲜输入」语义。
+ *
+ * 优先级：
+ * 1. `inputTokenDetails.noCacheTokens`（SDK 已按 provider 归一）
+ * 2. `inputTokens - cacheRead - cacheWrite`（反推，钳到 0）
+ *
+ * 反推为负的原因：部分 openai-compatible 中转把 `prompt_tokens` 当新鲜输入报，
+ * 此时 `inputTokens` 已经不含缓存，再减就变负。
+ */
+export function normalizeAiUsage(usage: LanguageModelUsage | undefined): AiUsage | undefined {
+    if (!usage) {
+        return undefined;
+    }
+
+    const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+    const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+    const rawInput = usage.inputTokens ?? 0;
+
+    const inputTokens =
+        usage.inputTokenDetails?.noCacheTokens ??
+        Math.max(0, rawInput - cacheReadTokens - cacheWriteTokens);
+
+    return {
+        inputTokens,
+        outputTokens: usage.outputTokens ?? 0,
+        cacheReadTokens,
+        cacheWriteTokens,
+        reasoningTokens: usage.outputTokenDetails?.reasoningTokens ?? 0,
+        servedModel: extractServedModel(usage.raw),
+        raw: usage.raw as JsonObject | undefined,
+    };
+}
+
+/** 从供应商原始 usage 里尝试取「实际服务的模型名」。 */
+function extractServedModel(raw: JsonObject | undefined): string | undefined {
+    if (!raw) {
+        return undefined;
+    }
+    for (const key of ['model', 'model_name', 'modelId', 'model_id']) {
+        const value = raw[key];
+        if (typeof value === 'string' && value.length > 0) {
+            return value;
+        }
+    }
+    return undefined;
 }

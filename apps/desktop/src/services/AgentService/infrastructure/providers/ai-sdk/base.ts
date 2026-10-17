@@ -4,7 +4,12 @@ import type { ProviderDriver } from '@database/schema';
 import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
-import type { AiRequestOptions, AiResponse, JsonObject } from '../../../contracts/protocol';
+import type {
+    AiRequestOptions,
+    AiResponse,
+    AiUsage,
+    JsonObject,
+} from '../../../contracts/protocol';
 import {
     DEFAULT_REASONING_LEVEL,
     deriveReasoningLevelMap,
@@ -222,17 +227,20 @@ export abstract class AiSdkProviderBase implements AiProvider {
     async request(options: AiRequestOptions): Promise<AiResponse> {
         let content = '';
         let finishReason: string | undefined;
+        let usage: AiUsage | undefined;
 
         for await (const chunk of this.stream(options)) {
             content += chunk.content;
             if (chunk.done) {
                 finishReason = chunk.finishReason;
+                usage = chunk.usage;
             }
         }
 
         return {
             content,
             finishReason,
+            usage,
         };
     }
 
@@ -270,7 +278,10 @@ export abstract class AiSdkProviderBase implements AiProvider {
 
         for await (const part of result.fullStream) {
             if (part.type === 'finish') {
-                yield processor.buildFinishChunk(normalizeFinishReason(part.finishReason));
+                yield processor.buildFinishChunk(
+                    normalizeFinishReason(part.finishReason),
+                    part.totalUsage
+                );
                 return;
             }
 
@@ -279,7 +290,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
             }
         }
 
-        yield processor.buildFinishChunk('stop');
+        yield processor.buildFinishChunk('stop', undefined);
     }
 
     async listModels(): Promise<ModelInfo[]> {
