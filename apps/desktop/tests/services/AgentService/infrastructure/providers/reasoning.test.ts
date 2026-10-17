@@ -24,6 +24,7 @@ describe('reasoning level contract', () => {
         expect(isSelectableReasoningLevel('off')).toBe(true);
         expect(isSelectableReasoningLevel('high')).toBe(true);
         expect(isSelectableReasoningLevel('max')).toBe(true);
+        expect(isSelectableReasoningLevel('ultra')).toBe(true);
         expect(isSelectableReasoningLevel('none')).toBe(false);
         expect(isSelectableReasoningLevel('bogus')).toBe(false);
         expect(isSelectableReasoningLevel(undefined)).toBe(false);
@@ -52,7 +53,22 @@ describe('reasoning level map', () => {
         expect(map.off).toBe('none');
         expect(map.xhigh).toBe('xhigh');
         expect(map.max).toBeNull();
+        expect(map.ultra).toBeNull();
         expect(clampReasoningLevel(map, 'max')).toBe('xhigh');
+    });
+
+    it('passes the gateway-only ultra level through when the model declares it', () => {
+        const map = deriveReasoningLevelMap([
+            { type: 'effort', values: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+        ]);
+        expect(map.ultra).toBe('ultra');
+        expect(clampReasoningLevel(map, 'ultra')).toBe('ultra');
+
+        const withoutUltra = deriveReasoningLevelMap([
+            { type: 'effort', values: ['low', 'medium', 'high'] },
+        ]);
+        expect(withoutUltra.ultra).toBeNull();
+        expect(clampReasoningLevel(withoutUltra, 'ultra')).toBe('high');
     });
 });
 

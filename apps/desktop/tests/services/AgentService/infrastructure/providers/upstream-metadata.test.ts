@@ -38,7 +38,7 @@ describe('upstream model metadata', () => {
         });
     });
 
-    it('clamps the gateway-only ultra effort onto max', () => {
+    it('keeps the gateway-only ultra effort as its own level', () => {
         const metadata = normalizeUpstreamModelMetadata(
             magpieModel({
                 reasoning: true,
@@ -58,7 +58,7 @@ describe('upstream model metadata', () => {
             JSON.stringify([
                 {
                     type: 'effort',
-                    values: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+                    values: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
                 },
             ])
         );

@@ -21,7 +21,8 @@ import {
  *
  * 已确认的来源形态：
  * - Magpie 等网关：`context_window` / `context_length`、`max_input_tokens` /
- *   `max_output_tokens`、`modalities`、`reasoning`、`supported_reasoning_levels`。
+ *   `max_output_tokens`、`modalities`、`reasoning`、`supported_reasoning_levels`
+ *   （含网关独有的 `ultra` 档位，统一档位里已有对应项）。
  * - OpenRouter：`context_length`、`top_provider.max_completion_tokens`、
  *   `architecture.input_modalities`、`reasoning.supported_efforts`、
  *   `supported_parameters`。
@@ -44,15 +45,6 @@ const TOP_PROVIDER_OUTPUT_KEYS = ['max_completion_tokens', 'max_output_tokens'];
 
 /** 上游声明了文件类输入模态时，视为支持附件。 */
 const FILE_INPUT_MODALITIES = new Set(['file', 'pdf', 'document']);
-
-/**
- * TouchAI 档位之外的别名。
- *
- * `ultra` 目前没有对应档位，按最高档 `max` 处理；想透传原生字符串需要先扩展统一档位。
- */
-const REASONING_EFFORT_ALIASES: Record<string, string> = {
-    ultra: 'max',
-};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -133,7 +125,7 @@ function collectReasoningEfforts(record: Record<string, unknown>): string[] {
             continue;
         }
 
-        values.add(REASONING_EFFORT_ALIASES[normalized] ?? normalized);
+        values.add(normalized);
     }
 
     return Array.from(values);
