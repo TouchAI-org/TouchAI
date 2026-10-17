@@ -56,21 +56,27 @@ export function parseRequestedTimeoutMs(toolArgs: Record<string, unknown>): {
 }
 
 /**
- * 把模型建议的超时收敛到 `[TOOL_TIMEOUT_MIN_MS, max]`；缺省或非法时回退到 `fallback`。
+ * 把模型建议的超时收敛到 `[TOOL_TIMEOUT_MIN_MS, max]`，缺省或非法时回退到 `fallback`。
  *
- * 入参应为有限整数（{@link parseRequestedTimeoutMs} 已保证），这里只做区间收敛。
- * `max` 允许调用方传入工具自己的封顶值（默认取共享上限）。
+ * 低于 `TOOL_TIMEOUT_MIN_MS` 的整数同样视为“非法建议”：schema 已经声明了最小值，
+ * 把 0 / 负数“抬到 1 秒”会让模型一句无意义的建议把长任务变成 1 秒被杀，
+ * 因此这里统一回退到用户配置的默认值。`max` 允许调用方传入工具自己的封顶值
+ * （默认取共享上限）。
  */
 export function clampTimeoutMs(
     requested: number | undefined | null,
     fallback: number,
     max: number = TOOL_TIMEOUT_MAX_MS
 ): number {
-    if (typeof requested !== 'number' || !Number.isInteger(requested)) {
+    if (
+        typeof requested !== 'number' ||
+        !Number.isInteger(requested) ||
+        requested < TOOL_TIMEOUT_MIN_MS
+    ) {
         return fallback;
     }
 
-    return Math.min(Math.max(requested, TOOL_TIMEOUT_MIN_MS), max);
+    return Math.min(requested, max);
 }
 
 /**

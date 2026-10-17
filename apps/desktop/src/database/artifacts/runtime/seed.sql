@@ -117,8 +117,17 @@ SELECT
     '执行终端命令',
     1,
     'high',
-    '{"approvalMode":"high_risk","timeoutMs":15000,"maxOutputChars":12000}'
+    '{"approvalMode":"high_risk","timeoutMs":120000,"maxOutputChars":12000}'
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'bash');
+
+-- 旧版本的 Bash 出厂默认超时是 15000ms；升级到本版本后，仍未改过这项配置
+-- 的安装应跟随新默认值（2 分钟 = 执行器上限）。JSON 完全等于旧默认值才会
+-- 被更新，用户手动改过（或额外字段）的配置保持不动。
+UPDATE built_in_tools
+SET config_json = '{"approvalMode":"high_risk","timeoutMs":120000,"maxOutputChars":12000}',
+    updated_at = CURRENT_TIMESTAMP
+WHERE tool_id = 'bash'
+  AND config_json = '{"approvalMode":"high_risk","timeoutMs":15000,"maxOutputChars":12000}';
 
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json

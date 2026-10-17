@@ -133,7 +133,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
     });
 
-    it('raises an out-of-range low request up to the 1s floor', async () => {
+    it('ignores a below-floor request and keeps the configured timeout', async () => {
         callToolMock.mockReturnValue(never());
         const mcpManager = await manager();
 
@@ -148,12 +148,17 @@ describe('McpManager.executeTool adaptive timeout', () => {
         const settled = vi.fn();
         void pending.then(settled, settled);
 
-        await vi.advanceTimersByTimeAsync(1000 + MCP_TIMEOUT_GUARD_GRACE_MS - 1);
+        // A suggestion below the 1s floor must not shorten the call to 1s; the
+        // configured timeout (RESOLVED.toolTimeout) stays in effect.
+        const guardDeadline = RESOLVED.toolTimeout + MCP_TIMEOUT_GUARD_GRACE_MS;
+        await vi.advanceTimersByTimeAsync(guardDeadline - 1);
         expect(settled).not.toHaveBeenCalled();
 
-        const assertion = expect(pending).rejects.toThrow('1000ms');
+        const assertion = expect(pending).rejects.toThrow(`${RESOLVED.toolTimeout}ms`);
         await vi.advanceTimersByTimeAsync(1);
         await assertion;
+
+        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
     });
 
     it('forwards the effective timeout to the native call so the server can be cancelled', async () => {

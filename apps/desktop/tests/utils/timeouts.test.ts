@@ -24,9 +24,12 @@ describe('clampTimeoutMs', () => {
         expect(clampTimeoutMs(60000, 30000)).toBe(60000);
     });
 
-    it('raises values below the default minimum up to the minimum', () => {
-        expect(clampTimeoutMs(1, 30000)).toBe(TOOL_TIMEOUT_MIN_MS);
-        expect(clampTimeoutMs(-5000, 30000)).toBe(TOOL_TIMEOUT_MIN_MS);
+    it('falls back to the configured value for requests below the minimum', () => {
+        // 0 / 负数常被模型用来表达“不限时”，抬到 1 秒会把长任务直接杀掉。
+        expect(clampTimeoutMs(0, 30000)).toBe(30000);
+        expect(clampTimeoutMs(1, 30000)).toBe(30000);
+        expect(clampTimeoutMs(-5000, 30000)).toBe(30000);
+        expect(clampTimeoutMs(TOOL_TIMEOUT_MIN_MS - 1, 30000)).toBe(30000);
     });
 
     it('caps values above the default maximum', () => {

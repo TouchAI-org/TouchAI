@@ -166,6 +166,20 @@ describe('executeBashTool request construction', () => {
         });
     });
 
+    it('ignores a below-floor model request instead of killing the command after 1s', async () => {
+        const config = {
+            ...DEFAULT_BASH_TOOL_CONFIG,
+            defaultWorkingDirectory: 'D:/project',
+            timeoutMs: 30000,
+        };
+        await executeBashTool({ command: 'dir' }, config, fakeContext({ requestedTimeoutMs: 0 }));
+
+        const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
+        expect(call?.payload).toEqual({
+            request: expect.objectContaining({ timeoutMs: 30000 }),
+        });
+    });
+
     it('lets the model extend up to the executor limit when the config allows it', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
