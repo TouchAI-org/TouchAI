@@ -1,5 +1,27 @@
 # 更新日志
 
+## [1.3.0](https://github.com/TouchAI-org/TouchAI/compare/v1.2.2...v1.3.0) (2026-10-17)
+
+
+### Features
+
+* **agent-service:** translate unified reasoning level in providers ([#561](https://github.com/TouchAI-org/TouchAI/issues/561)) ([99d5406](https://github.com/TouchAI-org/TouchAI/commit/99d54063a32d6b94b07920bbfb9154e071b02c0a))
+* **agent:** stream tool call results through unified message parts ([#571](https://github.com/TouchAI-org/TouchAI/issues/571)) ([a4bcbdc](https://github.com/TouchAI-org/TouchAI/commit/a4bcbdc6107c53bd59840fab6526b2887bd8a2c3))
+* **desktop:** complete keybinding customization rollout ([#443](https://github.com/TouchAI-org/TouchAI/issues/443)) ([0f6f936](https://github.com/TouchAI-org/TouchAI/commit/0f6f936f5ac86c2eed2c2a7b65cd1040c5332f25))
+* **desktop:** preserve interleaved reasoning and output progress ([#556](https://github.com/TouchAI-org/TouchAI/issues/556)) ([16f6e8c](https://github.com/TouchAI-org/TouchAI/commit/16f6e8c135a1f8139ad1b23fb159fba47a18e8e2))
+* **desktop:** refine session status reminder summaries ([#446](https://github.com/TouchAI-org/TouchAI/issues/446)) ([18fa3df](https://github.com/TouchAI-org/TouchAI/commit/18fa3df65c3b886dc8b55ed1504ba414178dfd82))
+* **desktop:** support adaptive tool timeouts ([#409](https://github.com/TouchAI-org/TouchAI/issues/409)) ([76c3e3e](https://github.com/TouchAI-org/TouchAI/commit/76c3e3ed6f2dee97e5ca82b5a2910b584c7caa57))
+* **desktop:** unify restrained interaction motion ([#564](https://github.com/TouchAI-org/TouchAI/issues/564)) ([03d1119](https://github.com/TouchAI-org/TouchAI/commit/03d111920398d474e3845a85453c41c6112e0bb2))
+* **providers:** add Magpie gateway ([#558](https://github.com/TouchAI-org/TouchAI/issues/558)) ([51e2ea2](https://github.com/TouchAI-org/TouchAI/commit/51e2ea2728b524b02bb5d823044e39e9a1847892))
+
+
+### Bug Fixes
+
+* **agent-service:** match namespaced model ids and prefer upstream metadata ([#576](https://github.com/TouchAI-org/TouchAI/issues/576)) ([57dcce1](https://github.com/TouchAI-org/TouchAI/commit/57dcce15b9391a0f27b8095d5336c5639eb7791c))
+* **desktop:** ship 2-minute Bash default and ignore below-min timeout suggestions ([#574](https://github.com/TouchAI-org/TouchAI/issues/574)) ([41d45ef](https://github.com/TouchAI-org/TouchAI/commit/41d45efd1a17c7aea24c839052a0f21acd59c356))
+* **release:** bundle Linux RPM with an RPM-safe version ([#573](https://github.com/TouchAI-org/TouchAI/issues/573)) ([94442bf](https://github.com/TouchAI-org/TouchAI/commit/94442bf87d9b30a59b84310baaf981739f07b623))
+* **settings:** preserve drag and click interactions in settings window ([#562](https://github.com/TouchAI-org/TouchAI/issues/562)) ([d0c9ecd](https://github.com/TouchAI-org/TouchAI/commit/d0c9ecd272cfb53c78d9f658eed05cb06bd1a5c3))
+
 ## [1.2.2](https://github.com/TouchAI-org/TouchAI/compare/v1.2.1...v1.2.2) (2026-10-07)
 
 

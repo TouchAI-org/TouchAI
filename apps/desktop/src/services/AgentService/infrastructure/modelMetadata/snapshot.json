@@ -1076,12 +1076,13 @@
       },
       "reasoning_options": [
         {
-          "type": "toggle"
-        },
-        {
-          "type": "budget_tokens",
-          "min": 1,
-          "max": 38912
+          "type": "effort",
+          "values": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ]
         }
       ]
     },
@@ -2743,7 +2744,7 @@
       ]
     },
     "alibaba/qwen3.8-max-0902": {
-      "id": "qwen/qwen3.8-max-0902",
+      "id": "Qwen/Qwen3.8-Max-0902",
       "name": "Qwen3.8 Max 0902",
       "family": "qwen",
       "attachment": true,
@@ -2764,19 +2765,16 @@
       "temperature": true,
       "tool_call": true,
       "limit": {
-        "context": 991808,
-        "input": 991808,
+        "context": 1000000,
         "output": 131072
       },
       "reasoning_options": [
         {
           "type": "effort",
           "values": [
-            "none",
             "low",
             "medium",
-            "high",
-            "max"
+            "xhigh"
           ]
         }
       ]
@@ -4680,8 +4678,7 @@
       },
       "reasoning_options": [
         {
-          "type": "budget_tokens",
-          "min": 1024
+          "type": "budget_tokens"
         }
       ]
     },
@@ -5538,8 +5535,8 @@
       ]
     },
     "anthropic/claude-sonnet-4-0": {
-      "id": "claude-sonnet-4",
-      "name": "Claude Sonnet 4 (latest)",
+      "id": "claude-sonnet-4@eu",
+      "name": "Claude Sonnet 4 (latest) (EU)",
       "family": "claude-sonnet",
       "attachment": true,
       "modalities": {
@@ -5559,21 +5556,19 @@
       "tool_call": true,
       "knowledge": "2025-03-31",
       "limit": {
-        "context": 200000,
-        "output": 65000
+        "context": 1000000,
+        "output": 64000
       },
       "reasoning_options": [
         {
           "type": "effort",
           "values": [
+            "none",
             "low",
             "medium",
-            "high"
+            "high",
+            "max"
           ]
-        },
-        {
-          "type": "budget_tokens",
-          "min": 1024
         }
       ]
     },
@@ -14285,6 +14280,76 @@
         }
       ]
     },
+    "deepseek/deepseek-v4.1-flash-1017": {
+      "id": "deepseek/deepseek-v4.1-flash-1017",
+      "name": "DeepSeek: DeepSeek V4.1 Flash 1017",
+      "family": "deepseek",
+      "attachment": true,
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": false,
+      "reasoning": true,
+      "release_date": "2026-10-17",
+      "temperature": true,
+      "tool_call": true,
+      "limit": {
+        "context": 1048576,
+        "output": 393216
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "none",
+            "low",
+            "high",
+            "max"
+          ]
+        }
+      ]
+    },
+    "deepseek/deepseek-v4.1-flash-1017:thinking": {
+      "id": "deepseek/deepseek-v4.1-flash-1017:thinking",
+      "name": "DeepSeek V4.1 Flash 1017 Thinking",
+      "family": "deepseek",
+      "attachment": true,
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": true,
+      "reasoning": true,
+      "release_date": "2026-10-17",
+      "tool_call": true,
+      "limit": {
+        "context": 1048576,
+        "input": 1048576,
+        "output": 393216
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "none",
+            "low",
+            "high",
+            "max"
+          ]
+        }
+      ]
+    },
     "devstral-2512": {
       "id": "devstral-2512",
       "name": "Devstral 2",
@@ -15712,6 +15777,39 @@
         "context": 128000,
         "output": 0
       }
+    },
+    "elorian/glimpse": {
+      "id": "elorian/glimpse",
+      "name": "Elorian: Glimpse",
+      "attachment": true,
+      "modalities": {
+        "input": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": false,
+      "reasoning": true,
+      "release_date": "2026-10-17",
+      "temperature": true,
+      "tool_call": true,
+      "limit": {
+        "context": 262144,
+        "output": 256000
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "none",
+            "high"
+          ]
+        }
+      ]
     },
     "empiriolabs/deepseek-v4-flash-el": {
       "id": "empiriolabs/deepseek-v4-flash-el",
@@ -26095,6 +26193,39 @@
         }
       ]
     },
+    "heabsy/qwen3.8-27b-uncensored-fast": {
+      "id": "heabsy/qwen3.8-27b-uncensored-fast",
+      "name": "Qwen 3.8 27B Uncensored Fast by Heabsy",
+      "family": "qwen",
+      "attachment": true,
+      "modalities": {
+        "input": [
+          "text",
+          "image"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": false,
+      "reasoning": true,
+      "release_date": "2026-10-16",
+      "tool_call": true,
+      "limit": {
+        "context": 524288,
+        "input": 524288,
+        "output": 235929
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "none",
+            "high"
+          ]
+        }
+      ]
+    },
     "hermes-2-pro-llama-3-8b": {
       "id": "hermes-2-pro-llama-3-8b",
       "name": "Hermes 2 Pro Llama 3 8B",
@@ -30389,7 +30520,7 @@
       "knowledge": "2024-08-31",
       "limit": {
         "context": 1310720,
-        "output": 117964
+        "output": 16384
       }
     },
     "meta-llama/llama-4-scout-17b-16e-instruct": {
@@ -30649,8 +30780,8 @@
       }
     },
     "meta/llama-3.1-8b-instruct": {
-      "id": "llama-3.1-8b-instruct",
-      "name": "Llama-3.1-8B-Instruct",
+      "id": "meta/llama-3.1-8b-instruct",
+      "name": "Llama 3.1 8B Instruct",
       "family": "llama",
       "attachment": false,
       "modalities": {
@@ -30662,16 +30793,15 @@
         ]
       },
       "open_weights": true,
-      "reasoning": true,
-      "release_date": "2024-07-23",
-      "temperature": false,
+      "reasoning": false,
+      "release_date": "2025-01-01",
+      "temperature": true,
       "tool_call": true,
       "knowledge": "2023-12",
       "limit": {
-        "context": 128000,
-        "output": 128000
-      },
-      "reasoning_options": []
+        "context": 16000,
+        "output": 4096
+      }
     },
     "meta/llama-3.2-11b-vision-instruct": {
       "id": "meta/llama-3.2-11b-vision-instruct",
@@ -42766,7 +42896,6 @@
         {
           "type": "effort",
           "values": [
-            "none",
             "low",
             "medium",
             "high",
@@ -42844,15 +42973,13 @@
       "tool_call": true,
       "knowledge": "2025-08-31",
       "limit": {
-        "context": 1050000,
-        "input": 922000,
+        "context": 400000,
         "output": 128000
       },
       "reasoning_options": [
         {
           "type": "effort",
           "values": [
-            "none",
             "low",
             "medium",
             "high",
@@ -42901,14 +43028,13 @@
     },
     "openai/gpt-5.4-mini": {
       "id": "gpt-5.4-mini",
-      "name": "GPT-5.4 Mini",
+      "name": "GPT-5.4 mini",
       "family": "gpt-mini",
       "attachment": true,
       "modalities": {
         "input": [
           "text",
-          "image",
-          "pdf"
+          "image"
         ],
         "output": [
           "text"
@@ -42929,7 +43055,6 @@
         {
           "type": "effort",
           "values": [
-            "none",
             "low",
             "medium",
             "high",
@@ -43035,15 +43160,13 @@
       "tool_call": true,
       "knowledge": "2025-12-01",
       "limit": {
-        "context": 1050000,
-        "input": 922000,
+        "context": 400000,
         "output": 128000
       },
       "reasoning_options": [
         {
           "type": "effort",
           "values": [
-            "none",
             "low",
             "medium",
             "high",
@@ -46595,28 +46718,6 @@
         "output": 131072
       },
       "reasoning_options": []
-    },
-    "quiverai/arrow-1.1": {
-      "id": "quiverai/arrow-1.1",
-      "name": "Arrow 1.1",
-      "attachment": false,
-      "modalities": {
-        "input": [
-          "text"
-        ],
-        "output": [
-          "image"
-        ]
-      },
-      "open_weights": false,
-      "reasoning": false,
-      "release_date": "2026-04-16",
-      "temperature": true,
-      "tool_call": false,
-      "limit": {
-        "context": 131072,
-        "output": 131072
-      }
     },
     "quiverai/arrow-2": {
       "id": "quiverai/arrow-2",
@@ -52476,6 +52577,146 @@
         "output": 0
       }
     },
+    "reflection/beam": {
+      "id": "reflection/beam",
+      "name": "Beam 1.0",
+      "family": "beam",
+      "attachment": false,
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": false,
+      "reasoning": true,
+      "release_date": "2026-10-16",
+      "tool_call": true,
+      "limit": {
+        "context": 1048576,
+        "output": 131072
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      ]
+    },
+    "reflection/beam-1.0": {
+      "id": "reflection/beam-1.0",
+      "name": "Beam 1.0 501B A23B",
+      "family": "beam",
+      "attachment": false,
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": true,
+      "reasoning": true,
+      "release_date": "2026-10-16",
+      "tool_call": true,
+      "limit": {
+        "context": 1048576,
+        "input": 1048576,
+        "output": 131072
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      ]
+    },
+    "reflection/beam-1.0-501b-a23b": {
+      "id": "Beam-1.0-501B-A23B",
+      "name": "Beam 1.0 501B A23B",
+      "family": "beam",
+      "attachment": false,
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": true,
+      "reasoning": true,
+      "release_date": "2026-10-05",
+      "temperature": true,
+      "tool_call": true,
+      "knowledge": "2026-06-30",
+      "limit": {
+        "context": 1048576,
+        "output": 131072
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      ]
+    },
+    "reflection/beam-free": {
+      "id": "reflection/beam-free",
+      "name": "Reflection: Beam 1.0 (free)",
+      "family": "beam",
+      "attachment": false,
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": false,
+      "reasoning": true,
+      "release_date": "2025-08-26",
+      "temperature": true,
+      "tool_call": true,
+      "limit": {
+        "context": 1048576,
+        "output": 131072
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      ]
+    },
     "reka-ai/reka-edge-2603": {
       "id": "reka-ai/reka-edge-2603",
       "name": "Reka Edge 2603 (reka-ai)",
@@ -53059,9 +53300,12 @@
           "type": "effort",
           "values": [
             "none",
+            "minimal",
             "low",
             "medium",
-            "high"
+            "high",
+            "xhigh",
+            "max"
           ]
         }
       ]
@@ -56530,6 +56774,37 @@
         "input": 32768,
         "output": 32768
       }
+    },
+    "thedrummer/orion-26b-a4b-v1.1": {
+      "id": "TheDrummer/orion-26b-a4b-v1.1",
+      "name": "Orion 26B A4B v1.1",
+      "attachment": false,
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": true,
+      "reasoning": true,
+      "release_date": "2026-10-16",
+      "tool_call": false,
+      "limit": {
+        "context": 65536,
+        "input": 65536,
+        "output": 8192
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "none",
+            "high"
+          ]
+        }
+      ]
     },
     "thedrummer/rocinante-12b-v1.1": {
       "id": "TheDrummer/Rocinante-12B-v1.1",
@@ -60316,6 +60591,38 @@
       },
       "reasoning_options": []
     },
+    "xingchen-agi/xing4.0-29b-a4b:free": {
+      "id": "xingchen-agi/xing4.0-29b-a4b:free",
+      "name": "XingChen: Xing4.0 29B A4B (free)",
+      "family": "agi",
+      "attachment": false,
+      "modalities": {
+        "input": [
+          "text"
+        ],
+        "output": [
+          "text"
+        ]
+      },
+      "open_weights": false,
+      "reasoning": true,
+      "release_date": "2026-10-16",
+      "temperature": true,
+      "tool_call": true,
+      "limit": {
+        "context": 262144,
+        "output": 235929
+      },
+      "reasoning_options": [
+        {
+          "type": "effort",
+          "values": [
+            "none",
+            "high"
+          ]
+        }
+      ]
+    },
     "xpersona-frieren-coder": {
       "id": "xpersona-frieren-coder",
       "name": "Xpersona Frieren 1",
@@ -62129,8 +62436,8 @@
       "temperature": true,
       "tool_call": true,
       "limit": {
-        "context": 1048576,
-        "output": 943718
+        "context": 262144,
+        "output": 131072
       },
       "reasoning_options": [
         {
@@ -62164,7 +62471,7 @@
       "tool_call": true,
       "limit": {
         "context": 1048576,
-        "output": 943718
+        "output": 393216
       },
       "reasoning_options": [
         {
@@ -62596,7 +62903,7 @@
       "tool_call": true,
       "limit": {
         "context": 1048576,
-        "output": 131072
+        "output": 943718
       },
       "reasoning_options": [
         {
@@ -63018,7 +63325,6 @@
     "arcee-ai/trinity-mini": "arcee-ai/trinity-mini",
     "arcee-trinity-large-thinking": "arcee-ai/trinity-large-thinking",
     "arcee_ai/afm/models/trinity-mini": "arcee-ai/trinity-mini",
-    "arrow-1.1": "quiverai/arrow-1.1",
     "arrow-2": "quiverai/arrow-2",
     "arrow-2-telos": "quiverai/arrow-2-telos",
     "artemis-v1.1": "thedrummer/artemis-v1.1",
@@ -63183,6 +63489,10 @@
     "bailian/qwen3.8-max-0902": "alibaba/qwen3.8-max-0902",
     "balanced": "kilo-auto/balanced",
     "baseten/kimi-k2-instruct-fp4": "baseten/kimi-k2-instruct-fp4",
+    "beam": "reflection/beam",
+    "beam-1.0": "reflection/beam-1.0",
+    "beam-1.0-501b-a23b": "reflection/beam-1.0-501b-a23b",
+    "beam-free": "reflection/beam-1.0-501b-a23b",
     "bee-brood": "bee-brood",
     "bee-buzz": "bee-buzz",
     "bee-cell": "bee-cell",
@@ -63405,7 +63715,7 @@
     "claude-sonnet-3.5": "anthropic/claude-sonnet-3.5",
     "claude-sonnet-3.5-june": "anthropic/claude-sonnet-3.5-june",
     "claude-sonnet-3.7": "anthropic/claude-sonnet-3.7",
-    "claude-sonnet-4": "anthropic/claude-sonnet-4-0",
+    "claude-sonnet-4": "claude-sonnet-4",
     "claude-sonnet-4-0": "anthropic/claude-sonnet-4-0",
     "claude-sonnet-4-20250514": "claude-sonnet-4-20250514",
     "claude-sonnet-4-5": "anthropic/claude-sonnet-4-5",
@@ -63579,6 +63889,7 @@
     "databricks-gemini-2-5-pro": "google/gemini-2.5-pro",
     "databricks-gemini-3-1-flash-lite": "google/gemini-3.1-flash-lite-preview",
     "databricks-gemini-3-1-pro": "google/gemini-3.1-pro-preview-customtools",
+    "databricks-gemini-3-5-flash": "google/gemini-3.5-flash",
     "databricks-gemini-3-flash": "google/gemini-3-flash-preview",
     "databricks-gemini-3-pro": "google/gemini-3-pro-preview",
     "databricks-glm-5-2": "zhipuai/glm-5.2",
@@ -63771,6 +64082,8 @@
     "deepseek-v4-pro:free": "deepseek/deepseek-v4-pro",
     "deepseek-v4-pro@eu": "deepseek/deepseek-v4-pro",
     "deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+    "deepseek-v4.1-flash-1017": "deepseek/deepseek-v4.1-flash-1017",
+    "deepseek-v4.1-flash-1017:thinking": "deepseek/deepseek-v4.1-flash-1017:thinking",
     "deepseek-v4.1-flash-552b": "deepseek/deepseek-v4.1-flash",
     "deepseek-v4.1-flash-fast": "deepseek/deepseek-v4.1-flash",
     "deepseek-v4.1-flash-fast-fp4": "deepseek/deepseek-v4.1-flash",
@@ -63810,6 +64123,7 @@
     "deepseek/deepseek-v4-flash-0731": "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4-flash-0731-fast": "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4-flash-0731:thinking": "deepseek/deepseek-v4-flash-0731",
+    "deepseek/deepseek-v4-flash-fast": "deepseek/deepseek-v4-flash",
     "deepseek/deepseek-v4-flash-free": "deepseek/deepseek-v4-flash",
     "deepseek/deepseek-v4-flash-latest": "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4-flash-vision-exp": "deepseek/deepseek-v4-flash-vision-exp",
@@ -63820,6 +64134,8 @@
     "deepseek/deepseek-v4-pro-0813:thinking": "deepseek/deepseek-v4-pro-0813",
     "deepseek/deepseek-v4-pro:thinking": "deepseek/deepseek-v4-pro",
     "deepseek/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+    "deepseek/deepseek-v4.1-flash-1017": "deepseek/deepseek-v4.1-flash-1017",
+    "deepseek/deepseek-v4.1-flash-1017:thinking": "deepseek/deepseek-v4.1-flash-1017:thinking",
     "deepseek/deepseek-v4.1-flash-fast": "deepseek/deepseek-v4.1-flash",
     "deepseek/deepseek-v4.1-flash:thinking": "deepseek/deepseek-v4.1-flash",
     "deepseek/deepseek_v3": "deepseek/deepseek-v3",
@@ -63927,6 +64243,7 @@
     "elevenlabs/elevenlabs-v2.5-turbo": "elevenlabs/elevenlabs-v2.5-turbo",
     "elevenlabs/elevenlabs-v3": "elevenlabs/elevenlabs-v3",
     "elevenlabs/tts/multilingual-v2": "fal-ai/elevenlabs/tts/multilingual-v2",
+    "elorian/glimpse": "elorian/glimpse",
     "embed-v4.0": "cohere/embed-v4.0",
     "embed-v5.0-fast": "cohere/embed-v5.0-fast",
     "embed-v5.0-pro": "cohere/embed-v5.0-pro",
@@ -64252,6 +64569,7 @@
     "gemma4:31b": "gemma4:31b",
     "gliguard-llmguardrails-300m": "fastino/gliguard-llmguardrails-300m",
     "gliguard-pii-multi": "fastino/gliguard-pii-multi",
+    "glimpse": "elorian/glimpse",
     "gliner-2.5-decide": "fastino/gliner-2.5-decide",
     "gliner-pii": "nvidia/gliner-pii",
     "gliner2-base-v1": "fastino/gliner2-base-v1",
@@ -64401,10 +64719,8 @@
     "google-ai-studio/gemini-3-flash-preview": "google/gemini-3-flash-preview",
     "google-ai-studio/gemini-3.1-flash-lite": "google/gemini-3.1-flash-lite",
     "google-ai-studio/gemini-3.1-pro-preview": "google/gemini-3.1-pro-preview",
-    "google-ai-studio/gemini-3.5-flash": "google/gemini-3.5-flash",
     "google-ai-studio/gemini-3.5-flash-lite": "google/gemini-3.5-flash-lite",
     "google-ai-studio/gemini-3.6-flash": "google/gemini-3.6-flash",
-    "google-ai-studio/gemini-3.7-flash": "google/gemini-3.7-flash",
     "google-ai-studio/gemini-3.8-flash": "google/gemini-3.8-flash",
     "google-ai-studio/gemini-4-argon": "google/gemini-4-argon",
     "google-ai-studio/gemini-pro-latest": "google-ai-studio/gemini-pro-latest",
@@ -64798,6 +65114,7 @@
     "happyhorse-1.1-r2v": "happyhorse-1.1-r2v",
     "happyhorse-1.1-t2v": "happyhorse-1.1-t2v",
     "heabsy/cyberheabsy": "heabsy/cyberheabsy",
+    "heabsy/qwen3.8-27b-uncensored-fast": "heabsy/qwen3.8-27b-uncensored-fast",
     "hermes": "hermes-high",
     "hermes-2-pro-llama-3-8b": "hermes-2-pro-llama-3-8b",
     "hermes-3-llama-3.1-405b": "nousresearch/hermes-3-llama-3.1-405b",
@@ -64882,6 +65199,7 @@
     "inclusionai/ling-3.0-flash-vl": "inclusionai/ling-3.0-flash-vl",
     "inclusionai/ling-3.0-flash:thinking": "inclusionai/ling-3.0-flash",
     "inclusionai/ling-3.1-flash": "inclusionai/ling-3.1-flash",
+    "inclusionai/ling-3.1-flash:free": "inclusionai/ling-3.1-flash",
     "inclusionai/ling-flash-2.0": "inclusionai/ling-flash-2.0",
     "inclusionai/ring-1t": "inclusionai/ring-1t",
     "inclusionai/ring-2.6-1t": "inclusionai/ring-2.6-1t",
@@ -65073,7 +65391,7 @@
     "llama-3.1-8b": "meta/llama-3.1-8b",
     "llama-3.1-8b-cs": "cerebras/llama-3.1-8b-cs",
     "llama-3.1-8b-instant": "llama-3.1-8b-instant",
-    "llama-3.1-8b-instruct": "meta/llama-3.1-8b-instruct",
+    "llama-3.1-8b-instruct": "llama-3.1-8b-instruct",
     "llama-3.1-8b-instruct-turbo": "llama-3.1-8b-instruct-turbo",
     "llama-3.1-nemotron-70b-instruct": "nvidia/llama-3.1-nemotron-70b-instruct",
     "llama-3.1-nemotron-nano-8b-v1": "nvidia/llama-3.1-nemotron-nano-8b-v1",
@@ -65261,7 +65579,7 @@
     "meta/muse-spark-1.2": "meta/muse-spark-1.2",
     "meta/muse-spark-1.2-contributor": "meta/muse-spark-1.2",
     "meta/muse-spark-1.3": "meta/muse-spark-1.3",
-    "meta/muse-spark-1.3-contributor": "meta/muse-spark-1.3-contributor",
+    "meta/muse-spark-1.3-contributor": "meta/muse-spark-1.3",
     "meta/muse-spark-open": "meta/muse-spark-open",
     "meta/muse-wonder": "meta/muse-wonder",
     "meta/muse-wonder-1.0": "meta/muse-wonder-1.0",
@@ -65886,6 +66204,7 @@
     "nvidia/nvidia-nemotron-3.5-lightning-30b-a3b": "nvidia/nemotron-3.5-lightning",
     "nvidia/nvidia-nemotron-3.5-lightning-30b-a3b-bf16": "nvidia/nemotron-3.5-lightning",
     "nvidia/nvidia-nemotron-3.5-super-vl-120b-a12b": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "nvidia/nvidia-nemotron-3.5-super-vl-120b-a12b-nvfp4": "nvidia/nemotron-3.5-super-vl-120b-a12b",
     "nvidia/nvidia-nemotron-nano-9b-v2": "nvidia/nemotron-nano-9b-v2",
     "nvidia/qwen3.8-27b-nvfp4": "alibaba/qwen3.8-27b",
     "nvidia/rerank-qa-mistral-4b": "nvidia/rerank-qa-mistral-4b",
@@ -66149,6 +66468,7 @@
     "orcarouter/fusion": "orcarouter/fusion",
     "orcarouter/fusion-flash": "orcarouter/fusion-flash",
     "orcarouter/fusion-mini": "orcarouter/fusion-mini",
+    "orion-26b-a4b-v1.1": "thedrummer/orion-26b-a4b-v1.1",
     "ornith": "deepreinforce/ornith-1.0-35b",
     "ornith-1.0-35b": "deepreinforce/ornith-1.0-35b",
     "ornith-1.0-35b-fp8": "deepreinforce/ornith-1.0-35b",
@@ -66238,7 +66558,6 @@
     "publicai/apertus-70b-instruct": "swiss-ai/apertus-70b",
     "publicai/apertus-8b-instruct": "swiss-ai/apertus-8b",
     "quartz/gemini-3.1-pro-preview": "google/gemini-3.1-pro-preview",
-    "quiverai/arrow-1.1": "quiverai/arrow-1.1",
     "quiverai/arrow-2": "quiverai/arrow-2",
     "quiverai/arrow-2-telos": "quiverai/arrow-2-telos",
     "qvq": "qvq-max",
@@ -66619,6 +66938,7 @@
     "qwen3.8-27b-swift": "qwen/qwen3.8-27b-swift",
     "qwen3.8-27b-synthia": "qwen/qwen3.8-27b-synthia",
     "qwen3.8-27b-uncensored": "qwen/qwen3.8-27b-uncensored",
+    "qwen3.8-27b-uncensored-fast": "heabsy/qwen3.8-27b-uncensored-fast",
     "qwen3.8-27b-uncensored:thinking": "qwen/qwen3.8-27b-uncensored:thinking",
     "qwen3.8-flash": "alibaba/qwen3.8-flash",
     "qwen3.8-flash-next": "alibaba/qwen3.8-flash-next",
@@ -66664,6 +66984,11 @@
     "recraft/recraft-v4.1-pro": "recraft/recraft-v4.1-pro",
     "recraft/recraft-v4.1-utility": "recraft/recraft-v4.1-utility",
     "recraft/recraft-v4.1-utility-pro": "recraft/recraft-v4.1-utility-pro",
+    "reflection-ai/beam-1.0-501b-a23b": "reflection/beam-1.0-501b-a23b",
+    "reflection/beam": "reflection/beam",
+    "reflection/beam-1.0": "reflection/beam-1.0",
+    "reflection/beam-1.0-501b-a23b": "reflection/beam-1.0-501b-a23b",
+    "reflection/beam-free": "reflection/beam-free",
     "reka": "reka-ai/reka-edge-2603",
     "reka-ai/deepseek-v4-pro": "deepseek/deepseek-v4-pro",
     "reka-ai/glm-5.3": "zhipuai/glm-5.3",
@@ -66976,6 +67301,7 @@
     "tencent/hy-mt2-pro": "tencent/hy-mt2-pro",
     "tencent/hy3": "tencent/hy3",
     "tencent/hy3-free": "tencent/hy3",
+    "tencent/hy3-paid": "tencent/hy3",
     "tencent/hy3-preview": "tencent/hy3-preview",
     "tencent/hy4-preview": "tencent/hy4-preview",
     "tencent/kimi-k2.6": "moonshotai/kimi-k2.6",
@@ -67008,6 +67334,7 @@
     "thedrummer/cydonia-24b-v4.1": "thedrummer/cydonia-24b-v4.1",
     "thedrummer/cydonia-24b-v4.3": "thedrummer/cydonia-24b-v4.3",
     "thedrummer/magidonia-24b-v4.3": "thedrummer/magidonia-24b-v4.3",
+    "thedrummer/orion-26b-a4b-v1.1": "thedrummer/orion-26b-a4b-v1.1",
     "thedrummer/rocinante-12b-v1.1": "thedrummer/rocinante-12b-v1.1",
     "thedrummer/skyfall-36b-v2": "thedrummer/skyfall-36b-v2",
     "thedrummer/unslopnemo-12b": "thedrummer/unslopnemo-12b",
@@ -67389,6 +67716,8 @@
     "xiaomimimo/mimo-v2.5-pro": "xiaomi/mimo-v2.5-pro",
     "xiaomimimo/mimo-v2.6-flash": "xiaomi/mimo-v2.6-flash",
     "xiaomimimo/mimo-v2.6-pro": "xiaomi/mimo-v2.6-pro",
+    "xing4.0-29b-a4b:free": "xingchen-agi/xing4.0-29b-a4b:free",
+    "xingchen-agi/xing4.0-29b-a4b:free": "xingchen-agi/xing4.0-29b-a4b:free",
     "xpersona-frieren-coder": "xpersona-frieren-coder",
     "xpersona-gpt-5.5": "openai/gpt-5.5",
     "yi": "tongyi-intent-detect-v3",
