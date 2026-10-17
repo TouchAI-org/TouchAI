@@ -4,6 +4,7 @@
 
 import { type DatabaseExecutor, db } from '@database';
 import { llmMetadata, llmMetadataAliases, models } from '@database/schema';
+import type { UpstreamModelMetadataPatch } from '@database/types';
 import { eq, sql } from 'drizzle-orm';
 
 import { expandModelIdCandidates } from './modelIdCandidates';
@@ -11,11 +12,33 @@ import { expandModelIdCandidates } from './modelIdCandidates';
 /**
  * 把运行时模型行与 models.dev 元数据对齐：匹配规则是纯函数、可脱离数据库单测，
  * SQL 只负责批量读出候选命中的别名与元数据，再用一次 UPDATE 落库。
+ * 行上记录的上游声明（`upstream_metadata`）优先于 models.dev 兜底值。
  */
 
 export interface ModelMetadataTarget {
     id: number;
     modelId: string;
+}
+
+/** 运行时模型行，带上一次上游 `/v1/models` 记录的能力声明。 */
+export interface ModelMetadataTargetRow extends ModelMetadataTarget {
+    upstreamMetadata: string | null;
+}
+
+export interface ModelMetadataUpdateRow {
+    id: number;
+    attachment: number | null;
+    modalities: string | null;
+    open_weights: number | null;
+    reasoning: number | null;
+    reasoning_options: string | null;
+    release_date: string | null;
+    temperature: number | null;
+    tool_call: number | null;
+    knowledge: string | null;
+    context_limit: number | null;
+    output_limit: number | null;
+    clear_reasoning_options: number;
 }
 
 export interface LlmMetadataRecord {
@@ -165,10 +188,64 @@ function toMetadataRecord(row: {
     };
 }
 
+/** 列里存的是 JSON 字符串；损坏或非对象都当作没有上游声明。 */
+function parseUpstreamMetadata(value: string | null): UpstreamModelMetadataPatch | null {
+    if (!value) {
+        return null;
+    }
+
+    try {
+        const parsed: unknown = JSON.parse(value);
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+            ? (parsed as UpstreamModelMetadataPatch)
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 上游声明 > models.dev 兜底 > 行内已有值：`null` 交给 SQL 的 COALESCE 保留旧值。
+ * 上游显式声明不支持思考时，连同旧档位一起清空。
+ */
+export function resolveModelMetadataRow(
+    target: ModelMetadataTargetRow,
+    metadata: LlmMetadataRecord | undefined
+): ModelMetadataUpdateRow | null {
+    const upstream = parseUpstreamMetadata(target.upstreamMetadata);
+    if (!upstream && !metadata) {
+        return null;
+    }
+
+    const clearReasoningOptions = upstream?.reasoning === 0 ? 1 : 0;
+
+    return {
+        id: target.id,
+        attachment: upstream?.attachment ?? metadata?.attachment ?? null,
+        modalities: upstream?.modalities ?? metadata?.modalities ?? null,
+        open_weights: metadata?.openWeights ?? null,
+        reasoning: upstream?.reasoning ?? metadata?.reasoning ?? null,
+        reasoning_options: clearReasoningOptions
+            ? null
+            : (upstream?.reasoning_options ?? metadata?.reasoningOptions ?? null),
+        release_date: metadata?.releaseDate ?? null,
+        temperature: metadata?.temperature ?? null,
+        tool_call: upstream?.tool_call ?? metadata?.toolCall ?? null,
+        knowledge: metadata?.knowledge ?? null,
+        context_limit: upstream?.context_limit ?? metadata?.contextLimit ?? null,
+        output_limit: upstream?.output_limit ?? metadata?.outputLimit ?? null,
+        clear_reasoning_options: clearReasoningOptions,
+    };
+}
+
 /** 同步所有非自定义模型的元数据：三次读取 + 内存匹配 + 单条集合 UPDATE。 */
 export async function syncAllModelsMetadata(database: DatabaseExecutor = db): Promise<void> {
     const targets = await database
-        .select({ id: models.id, modelId: models.model_id })
+        .select({
+            id: models.id,
+            modelId: models.model_id,
+            upstreamMetadata: models.upstream_metadata,
+        })
         .from(models)
         .where(eq(models.is_custom_metadata, 0))
         .all();
@@ -222,26 +299,23 @@ export async function syncAllModelsMetadata(database: DatabaseExecutor = db): Pr
     );
 
     const selections = selectModelMetadata(targets, aliasTargets, metadataByModelId);
-    if (selections.length === 0) {
+    const selectedByRowId = new Map(
+        selections.map((selection) => [selection.modelRowId, selection.metadata] as const)
+    );
+
+    const rows: ModelMetadataUpdateRow[] = [];
+    for (const target of targets) {
+        const row = resolveModelMetadataRow(target, selectedByRowId.get(target.id));
+        if (row) {
+            rows.push(row);
+        }
+    }
+
+    if (rows.length === 0) {
         return;
     }
 
-    const payload = JSON.stringify(
-        selections.map((selection) => ({
-            id: selection.modelRowId,
-            attachment: selection.metadata.attachment,
-            modalities: selection.metadata.modalities,
-            open_weights: selection.metadata.openWeights,
-            reasoning: selection.metadata.reasoning,
-            reasoning_options: selection.metadata.reasoningOptions,
-            release_date: selection.metadata.releaseDate,
-            temperature: selection.metadata.temperature,
-            tool_call: selection.metadata.toolCall,
-            knowledge: selection.metadata.knowledge,
-            context_limit: selection.metadata.contextLimit,
-            output_limit: selection.metadata.outputLimit,
-        }))
-    );
+    const payload = JSON.stringify(rows);
 
     await database.run(sql`
         WITH selected_model_metadata AS (
@@ -257,7 +331,8 @@ export async function syncAllModelsMetadata(database: DatabaseExecutor = db): Pr
                 json_extract(entry.value, '$.tool_call') AS tool_call,
                 json_extract(entry.value, '$.knowledge') AS knowledge,
                 json_extract(entry.value, '$.context_limit') AS context_limit,
-                json_extract(entry.value, '$.output_limit') AS output_limit
+                json_extract(entry.value, '$.output_limit') AS output_limit,
+                json_extract(entry.value, '$.clear_reasoning_options') AS clear_reasoning_options
             FROM json_each(${payload}) AS entry
         )
         UPDATE models
@@ -282,11 +357,18 @@ export async function syncAllModelsMetadata(database: DatabaseExecutor = db): Pr
                 FROM selected_model_metadata
                 WHERE selected_model_metadata.model_row_id = models.id
             ), reasoning),
-            reasoning_options = COALESCE((
-                SELECT selected_model_metadata.reasoning_options
-                FROM selected_model_metadata
-                WHERE selected_model_metadata.model_row_id = models.id
-            ), reasoning_options),
+            reasoning_options = CASE
+                WHEN (
+                    SELECT selected_model_metadata.clear_reasoning_options
+                    FROM selected_model_metadata
+                    WHERE selected_model_metadata.model_row_id = models.id
+                ) = 1 THEN NULL
+                ELSE COALESCE((
+                    SELECT selected_model_metadata.reasoning_options
+                    FROM selected_model_metadata
+                    WHERE selected_model_metadata.model_row_id = models.id
+                ), reasoning_options)
+            END,
             release_date = COALESCE((
                 SELECT selected_model_metadata.release_date
                 FROM selected_model_metadata

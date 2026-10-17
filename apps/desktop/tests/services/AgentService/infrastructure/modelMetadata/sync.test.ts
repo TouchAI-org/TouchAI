@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
     type LlmMetadataRecord,
     type ModelMetadataTarget,
+    resolveModelMetadataRow,
     selectModelMetadata,
     syncAllModelsMetadata,
 } from '@/services/AgentService/infrastructure/modelMetadata/sync';
@@ -126,8 +127,59 @@ describe('model metadata matching', () => {
     });
 });
 
+describe('resolveModelMetadataRow', () => {
+    const fallback = metadata('openai/gpt-5-6-sol', {
+        attachment: 0,
+        reasoning: 1,
+        reasoningOptions: '[{"type":"effort","values":["low","high"]}]',
+        contextLimit: 128000,
+        outputLimit: 32000,
+    });
+
+    it('prefers recorded upstream declarations over the models.dev fallback', () => {
+        const row = resolveModelMetadataRow(
+            {
+                id: 1,
+                modelId: 'group/auto-gpt-5-6-sol',
+                upstreamMetadata: JSON.stringify({ context_limit: 400000, reasoning: 0 }),
+            },
+            fallback
+        );
+
+        // 上游显式不支持思考时，兜底档位一并清空；未声明的字段继续用兜底值。
+        expect(row).toMatchObject({
+            context_limit: 400000,
+            reasoning: 0,
+            reasoning_options: null,
+            clear_reasoning_options: 1,
+            output_limit: 32000,
+        });
+    });
+
+    it('falls back to models.dev and keeps existing values when nothing is declared', () => {
+        const row = resolveModelMetadataRow(
+            { id: 1, modelId: 'group/auto-gpt-5-6-sol', upstreamMetadata: null },
+            fallback
+        );
+
+        expect(row).toMatchObject({
+            context_limit: 128000,
+            reasoning: 1,
+            reasoning_options: '[{"type":"effort","values":["low","high"]}]',
+            clear_reasoning_options: 0,
+        });
+
+        expect(
+            resolveModelMetadataRow(
+                { id: 1, modelId: 'group/auto-gpt-5-6-sol', upstreamMetadata: '{not json' },
+                undefined
+            )
+        ).toBeNull();
+    });
+});
+
 describe('syncAllModelsMetadata', () => {
-    const MODEL_ROW = { id: 1, model_id: 'group/auto-gpt-5-6-sol' };
+    const MODEL_ROW = { id: 1, model_id: 'group/auto-gpt-5-6-sol', upstream_metadata: null };
     const METADATA_ROW = {
         model_id: 'openai/gpt-5-6-sol',
         attachment: 1,
@@ -203,6 +255,7 @@ describe('syncAllModelsMetadata', () => {
                 knowledge: null,
                 context_limit: 400000,
                 output_limit: 128000,
+                clear_reasoning_options: 0,
             },
         ]);
     });

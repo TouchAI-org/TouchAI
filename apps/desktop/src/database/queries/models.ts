@@ -39,6 +39,7 @@ export const modelWithProviderSelection = {
     context_limit: models.context_limit,
     output_limit: models.output_limit,
     is_custom_metadata: models.is_custom_metadata,
+    upstream_metadata: models.upstream_metadata,
     provider_name: sql<string>`${providers.name}`.as('provider_name'),
     provider_driver: sql<ModelWithProvider['provider_driver']>`${providers.driver}`.as(
         'provider_driver'
@@ -207,8 +208,9 @@ export const findModelByProviderAndModelId = async ({
  * 用上游 `/v1/models` 自己声明的能力覆盖 models.dev 兜底值。
  *
  * 只写 `is_custom_metadata = 0` 且属于该 provider 的行，只覆盖上游声明过的字段。
- * `syncAllModelsMetadata` 会用 models.dev 值覆盖已有非空值，所以调用顺序必须是
- * 先 sync 再 overlay。上游显式声明 `reasoning: false` 时，旧档位一并清空。
+ * 声明同时记入 `upstream_metadata`，让后续 `syncAllModelsMetadata` 在重启、刷新后
+ * 仍按「上游 > 兜底」优先级重建这些列，所以调用顺序必须是先 sync 再 overlay。
+ * 上游显式声明 `reasoning: false` 时，旧档位一并清空。
  */
 export const applyUpstreamModelMetadata = async (
     { providerId, entries }: ApplyUpstreamModelMetadataPayload,
@@ -223,6 +225,7 @@ export const applyUpstreamModelMetadata = async (
         WITH upstream_model_metadata AS (
             SELECT
                 json_extract(entry.value, '$.model_id') AS model_id,
+                json_extract(entry.value, '$.metadata') AS metadata,
                 json_extract(entry.value, '$.metadata.context_limit') AS context_limit,
                 json_extract(entry.value, '$.metadata.output_limit') AS output_limit,
                 json_extract(entry.value, '$.metadata.modalities') AS modalities,
@@ -234,6 +237,14 @@ export const applyUpstreamModelMetadata = async (
         )
         UPDATE models
         SET
+            upstream_metadata = json_patch(
+                COALESCE(upstream_metadata, '{}'),
+                COALESCE((
+                    SELECT upstream_model_metadata.metadata
+                    FROM upstream_model_metadata
+                    WHERE upstream_model_metadata.model_id = models.model_id
+                ), '{}')
+            ),
             context_limit = COALESCE((
                 SELECT upstream_model_metadata.context_limit
                 FROM upstream_model_metadata

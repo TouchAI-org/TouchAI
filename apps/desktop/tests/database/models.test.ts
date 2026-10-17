@@ -88,6 +88,9 @@ describe('model database queries', () => {
 
         expect(normalizedSql).toContain('FROM json_each(?) AS entry');
         expect(normalizedSql).toContain(
+            "upstream_metadata = json_patch( COALESCE(upstream_metadata, '{}'), COALESCE(("
+        );
+        expect(normalizedSql).toContain(
             'context_limit = COALESCE(( SELECT upstream_model_metadata.context_limit FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ), context_limit)'
         );
         expect(normalizedSql).toContain('AND is_custom_metadata = 0');

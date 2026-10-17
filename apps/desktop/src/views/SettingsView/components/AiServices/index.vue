@@ -622,7 +622,6 @@
                     name: fetchedModel.name,
                     model_id: fetchedModel.id,
                     is_default: 0,
-                    ...fetchedModel.metadata,
                 }));
 
             const upstreamMetadata = fetchedModels.flatMap((fetchedModel) =>
@@ -641,7 +640,7 @@
                     await createModels(newModels, tx);
                 }
 
-                // 先写 models.dev 兜底，再叠加上游声明
+                // 先写 models.dev 兜底，再叠加上游声明（同时记入 upstream_metadata）
                 await syncAllModelsMetadata(tx);
                 await applyUpstreamModelMetadata(
                     { providerId: provider.id, entries: upstreamMetadata },

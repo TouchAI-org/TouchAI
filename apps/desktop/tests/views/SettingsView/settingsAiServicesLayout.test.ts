@@ -442,7 +442,6 @@ describe('SettingsAiServicesSection', () => {
                     name: 'group/auto-gpt-5-6-sol',
                     model_id: 'group/auto-gpt-5-6-sol',
                     is_default: 0,
-                    ...upstreamMetadata,
                 },
                 {
                     provider_id: 9,
