@@ -371,6 +371,8 @@ DROP TABLE `_legacy_tool_result_attachments`;
 
 -- Unmatched results have no tool call to attach to. Preserve their text as
 -- assistant content instead of silently dropping the only copy of the output.
+-- Rows without any renderable part would become empty assistant messages that
+-- strict providers reject, so they fall through to the safety-net delete below.
 UPDATE messages
 SET role = 'assistant',
     updated_at = datetime('now')
@@ -378,6 +380,15 @@ WHERE id IN (
     SELECT result_message_id
     FROM _legacy_tool_result_resolved
     WHERE call_part_id IS NULL
+      AND (
+          trim(result_content) <> ''
+          OR EXISTS (
+              SELECT 1
+              FROM message_parts
+              WHERE message_parts.message_id = _legacy_tool_result_resolved.result_message_id
+                AND message_parts.type <> 'text'
+          )
+      )
 );
 --> statement-breakpoint
 

@@ -243,7 +243,12 @@ describe('complete parts migration', () => {
             INSERT INTO messages (id, session_id, role, content, tool_log_id, tool_log_kind) VALUES
                 (1, 1, 'tool_call', '', 1, 'builtin'), (2, 1, 'tool_call', '', 1, 'mcp'),
                 (3, 1, 'tool_result', '', 1, 'builtin'), (4, 1, 'tool_result', '', 1, 'mcp'),
-                (5, 1, 'tool_result', 'Ambiguous result', 1, NULL), (6, 1, 'tool_result', 'Unmatched result', 99, 'builtin');
+                (5, 1, 'tool_result', 'Ambiguous result', 1, NULL), (6, 1, 'tool_result', 'Unmatched result', 99, 'builtin'),
+                (7, 1, 'tool_result', '', 99, 'builtin'), (8, 1, 'tool_result', '', 99, 'builtin');
+            INSERT INTO attachments (id, hash, type, original_name, origin_path)
+            VALUES (8, 'hash-8', 'file', 'result.txt', 'C:/result.txt');
+            INSERT INTO message_attachments (message_id, attachment_id, sort_order, origin_path)
+            VALUES (8, 8, 0, 'C:/result.txt');
             INSERT INTO built_in_tool_logs (id, tool_id, tool_call_id, message_id, iteration, input, status)
             VALUES (1, 'shell', 'builtin-call', 1, 1, '{}', 'completed');
             INSERT INTO mcp_tool_logs (id, server_id, tool_name, tool_call_id, message_id, iteration, input, status)
@@ -252,12 +257,24 @@ describe('complete parts migration', () => {
         applyMigrations(db, PARTS_MIGRATION_INDEX);
         try {
             // Ambiguous and unmatched results keep their text as assistant content.
+            // The empty unmatched result is dropped instead of becoming an
+            // assistant message without any parts.
             expect(db.prepare('SELECT id, role FROM messages ORDER BY id').all()).toEqual([
                 { id: 1, role: 'tool_call' },
                 { id: 2, role: 'tool_call' },
                 { id: 5, role: 'assistant' },
                 { id: 6, role: 'assistant' },
+                { id: 8, role: 'assistant' },
             ]);
+            // An unmatched result without text but with an attachment keeps both
+            // the message and the attachment part instead of being deleted.
+            expect(
+                db
+                    .prepare(
+                        "SELECT message_id FROM message_parts WHERE type = 'attachment' ORDER BY message_id"
+                    )
+                    .all()
+            ).toEqual([{ message_id: 8 }]);
             expect(
                 db
                     .prepare(
