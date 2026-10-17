@@ -310,13 +310,15 @@ fn emit_bash_stream_chunk(
     chunk: &str,
 ) -> Result<(), String> {
     if let Some(channel) = output_channel {
-        channel
-            .send(BuiltInBashStreamChunk {
-                execution_id: execution_id.to_string(),
-                stream,
-                chunk: chunk.to_string(),
-            })
-            .map_err(|error| format!("Failed to send bash stream chunk: {error}"))?;
+        // 转发失败（例如 webview 已重载）不能中断读流：否则剩余输出会被丢弃，
+        // 最终结果也会变成 "Failed to send bash stream chunk"。
+        if let Err(error) = channel.send(BuiltInBashStreamChunk {
+            execution_id: execution_id.to_string(),
+            stream,
+            chunk: chunk.to_string(),
+        }) {
+            log::warn!("Failed to send bash stream chunk: {error}");
+        }
     }
 
     Ok(())
@@ -406,5 +408,29 @@ mod tests {
         assert_eq!(response.stdout, "alpha");
         assert_eq!(response.stderr, "");
         assert_eq!(response.combined_output, "alpha");
+    }
+
+    #[tokio::test]
+    async fn keeps_collecting_output_when_the_stream_channel_fails() {
+        let registry = BashExecutionRegistry::new();
+        let request = BuiltInBashExecutionRequest {
+            execution_id: "exec-failing-stream".to_string(),
+            command: "Write-Output 'still-complete'".to_string(),
+            working_directory: None,
+            timeout_ms: Some(5_000),
+            compact_output: false,
+            raw_output: false,
+        };
+        let failing_channel =
+            Channel::new(|_body: InvokeResponseBody| Err(tauri::Error::FailedToReceiveMessage));
+
+        let response = execute_bash(request, &registry, Some(failing_channel))
+            .await
+            .expect("a failing stream channel must not fail the execution");
+
+        assert!(response.success);
+        assert_eq!(response.stdout, "still-complete");
+        assert_eq!(response.stderr, "");
+        assert_eq!(response.combined_output, "still-complete");
     }
 }
