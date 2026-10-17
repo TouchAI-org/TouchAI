@@ -7,6 +7,7 @@ export type NavigationSection =
     | 'general'
     | 'shortcuts'
     | 'ai-services'
+    | 'usage'
     | 'built-in-tools'
     | 'search'
     | 'browser'
@@ -74,6 +75,12 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 icon: 'llm',
                 labelKey: 'settings.nav.aiServices.label',
                 descriptionKey: 'settings.nav.aiServices.description',
+            },
+            {
+                id: 'usage',
+                icon: 'chart',
+                labelKey: 'settings.nav.usage.label',
+                descriptionKey: 'settings.nav.usage.description',
             },
             {
                 id: 'built-in-tools',

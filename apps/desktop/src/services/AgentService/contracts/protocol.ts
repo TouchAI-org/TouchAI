@@ -175,6 +175,102 @@ export interface AiStreamChunk {
     toolCalls?: AiToolCall[];
     toolCallDeltas?: AiToolCallDelta[];
     toolEvent?: ToolEvent;
+    /** 仅 done=true 的 chunk 携带：本次调用的用量。 */
+    usage?: AiUsage;
+}
+
+// ============================================================================
+// 用量与耗时
+// ============================================================================
+
+/**
+ * 一次 LLM 调用的用量，已归一到「新鲜输入」语义。
+ *
+ * 归一规则：
+ * - OpenAI 的 `prompt_tokens` **含**缓存命中，需减去 cacheRead + cacheWrite
+ * - Anthropic 的 `input_tokens` **不含**缓存，直接用
+ * - AI SDK v6 已通过 `inputTokenDetails.noCacheTokens` 统一，优先用它
+ *
+ * `reasoningTokens` 是 `outputTokens` 的子集（输出已包含推理），单独记录
+ * 是为了在 UI 上显示「其中推理 N」，**不可重复累加**。
+ */
+export interface AiUsage {
+    /** 新鲜输入（不含缓存读写） */
+    inputTokens: number;
+    /** 输出（含推理） */
+    outputTokens: number;
+    /** 从缓存读取的 prompt token */
+    cacheReadTokens: number;
+    /** 写入缓存的 prompt token（Anthropic 的 cache_creation_input_tokens） */
+    cacheWriteTokens: number;
+    /** 推理 token，是 outputTokens 的子集 */
+    reasoningTokens: number;
+    /** 供应商回复自称的模型 id（raw 里有才记，用于账单对账） */
+    servedModel?: string;
+    /** 供应商原始 usage，仅用于排查，不落统计表 */
+    raw?: JsonObject;
+}
+
+/**
+ * 一次调用的耗时分解，单位毫秒。
+ *
+ * `flowMs` 是「10% 内容 → 90% 内容」的窗口，用于计算可信的解码速度。
+ * 供应商把回复憋住一次性吐出时 `flowMs ≈ 0`，此时不显示速度而非给假数字。
+ */
+export interface AiTiming {
+    /** 请求发出 → 第一个内容块（文本/推理/工具调用） */
+    ttftMs?: number;
+    /** 请求发出 → 第一个正文块（排除推理） */
+    firstTextMs?: number;
+    /** 10% → 90% 内容窗口 */
+    flowMs?: number;
+    /** 整次调用耗时 */
+    durationMs: number;
+}
+
+/** 一次 LLM 调用的完整记录（用量 + 耗时 + 归属）。 */
+export interface AiCallRecord {
+    /** 该 attempt 内的第几轮工具循环（从 0 开始） */
+    iteration: number;
+    /** 调用时的模型 */
+    modelId: number;
+    modelName: string;
+    providerId: number | null;
+    providerName: string;
+    usage: AiUsage;
+    timing: AiTiming;
+    /** 结束原因：stop / tool_calls / length / error / aborted */
+    finishReason?: string;
+    /** 非正常结束时的错误信息 */
+    errorMessage?: string;
+    /** 本轮发起的工具调用数 */
+    toolCallsInStep: number;
+    /** 本轮参数解析失败的次数 */
+    toolArgumentErrors: number;
+}
+
+/** 零值，用作累加初值 */
+export function emptyAiUsage(): AiUsage {
+    return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+    };
+}
+
+/** 累加两次调用的用量（用于 attempt / turn 级汇总）。 */
+export function addAiUsage(left: AiUsage, right: AiUsage): AiUsage {
+    return {
+        inputTokens: left.inputTokens + right.inputTokens,
+        outputTokens: left.outputTokens + right.outputTokens,
+        cacheReadTokens: left.cacheReadTokens + right.cacheReadTokens,
+        cacheWriteTokens: left.cacheWriteTokens + right.cacheWriteTokens,
+        reasoningTokens: left.reasoningTokens + right.reasoningTokens,
+        servedModel: right.servedModel ?? left.servedModel,
+        raw: left.raw ?? right.raw,
+    };
 }
 
 /**
@@ -182,7 +278,9 @@ export interface AiStreamChunk {
  */
 export interface AiResponse {
     content: string;
+    /** @deprecated 用 usage 代替 */
     tokensUsed?: number;
+    usage?: AiUsage;
     finishReason?: string;
 }
 

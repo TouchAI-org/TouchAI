@@ -8,6 +8,7 @@ import type {
     SessionTurnAttemptCreateData,
     SessionTurnAttemptEntity,
     SessionTurnAttemptUpdateData,
+    SessionTurnAttemptUsagePatch,
 } from '../types';
 
 export interface SessionTurnAttemptHistoryRow {
@@ -75,6 +76,31 @@ export const updateSessionTurnAttempt = async ({
     await database
         .update(sessionTurnAttempts)
         .set(attemptPatch)
+        .where(eq(sessionTurnAttempts.id, id))
+        .run();
+};
+
+/**
+ * 写回一次尝试的用量聚合列。
+ *
+ * 与 `updateSessionTurnAttempt` 分开是因为用量补丁允许 SQL 表达式。
+ */
+export const updateSessionTurnAttemptUsage = async ({
+    id,
+    usagePatch,
+    database = db,
+}: {
+    id: number;
+    usagePatch: SessionTurnAttemptUsagePatch;
+    database?: DatabaseExecutor;
+}): Promise<void> => {
+    if (Object.keys(usagePatch).length === 0) {
+        return;
+    }
+    await database
+        .update(sessionTurnAttempts)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .set(usagePatch as any)
         .where(eq(sessionTurnAttempts.id, id))
         .run();
 };

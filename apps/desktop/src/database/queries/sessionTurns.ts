@@ -4,7 +4,12 @@ import { asc, count, desc, eq } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { models, providers, sessionTurns } from '../schema';
-import type { SessionTurnCreateData, SessionTurnEntity, SessionTurnUpdateData } from '../types';
+import type {
+    SessionTurnCreateData,
+    SessionTurnEntity,
+    SessionTurnUpdateData,
+    SessionTurnUsagePatch,
+} from '../types';
 import { type ModelWithProvider, modelWithProviderSelection } from './models';
 
 export interface SessionTurnHistoryRow {
@@ -50,6 +55,32 @@ export const updateSessionTurn = async ({
     database?: DatabaseExecutor;
 }): Promise<void> => {
     await database.update(sessionTurns).set(turnPatch).where(eq(sessionTurns.id, id)).run();
+};
+
+/**
+ * 写回轮次的用量与行为信号聚合列。
+ *
+ * 与 `updateSessionTurn` 分开是因为这里的值可以是 SQL 表达式
+ * （从 attempts 汇总），不能套用手写的 `SessionTurnUpdateData`。
+ */
+export const updateSessionTurnUsage = async ({
+    id,
+    usagePatch,
+    database = db,
+}: {
+    id: number;
+    usagePatch: SessionTurnUsagePatch;
+    database?: DatabaseExecutor;
+}): Promise<void> => {
+    if (Object.keys(usagePatch).length === 0) {
+        return;
+    }
+    await database
+        .update(sessionTurns)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .set(usagePatch as any)
+        .where(eq(sessionTurns.id, id))
+        .run();
 };
 
 /**

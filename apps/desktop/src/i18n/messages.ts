@@ -1,6 +1,8 @@
 import type { AppLocale } from './locales';
+import { usageMessagesEnUS, usageMessagesZhCN } from './usageMessages';
 
 const zhCNMessages = {
+    ...usageMessagesZhCN,
     'common.settings': '设置',
     'common.saved': '保存成功',
     'common.count': '{count} 项',
@@ -959,6 +961,7 @@ const zhCNMessages = {
 } as const;
 
 const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
+    ...usageMessagesEnUS,
     'common.settings': 'Settings',
     'common.saved': 'Saved',
     'common.count': '{count} items',
