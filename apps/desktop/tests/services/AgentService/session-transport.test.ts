@@ -256,6 +256,31 @@ describe('AgentService session transport', () => {
         ]);
     });
 
+    it('skips assistant rows that have no renderable transport content', async () => {
+        mocks.findMessagesBySessionId.mockResolvedValue([
+            createMessageRow({ id: 10, content: 'Question' }),
+            createMessageRow({
+                id: 11,
+                role: 'assistant',
+                parts: [
+                    createMessagePart({
+                        id: 1,
+                        message_id: 11,
+                        type: 'attachment',
+                        data: '{"attachmentId":1}',
+                        sort_order: 0,
+                    }),
+                ],
+            }),
+            createMessageRow({ id: 12, role: 'assistant', content: 'Answer' }),
+        ]);
+
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+            { role: 'user', content: 'Question' },
+            { role: 'assistant', content: [{ type: 'text', text: 'Answer' }] },
+        ]);
+    });
+
     it('returns no history without querying when there is no session', async () => {
         expect(await loadSessionTransportMessages({})).toEqual([]);
         expect(mocks.findMessagesBySessionId).not.toHaveBeenCalled();

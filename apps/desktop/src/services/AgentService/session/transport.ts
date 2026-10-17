@@ -181,12 +181,19 @@ export async function loadSessionTransportMessages(options: {
             continue;
         }
 
+        const content =
+            row.role === 'assistant'
+                ? buildAssistantTransportContent(row)
+                : getMessageText(row.parts);
+        // 没有可发送内容的 assistant 行（例如迁移后仅剩附件的旧 tool_result）
+        // 会被严格 provider 拒绝，因此保留存储但跳过本次传输。
+        if (row.role === 'assistant' && content.length === 0) {
+            continue;
+        }
+
         messages.push({
             role: row.role as 'user' | 'assistant' | 'system',
-            content:
-                row.role === 'assistant'
-                    ? buildAssistantTransportContent(row)
-                    : getMessageText(row.parts),
+            content,
         });
     }
 
