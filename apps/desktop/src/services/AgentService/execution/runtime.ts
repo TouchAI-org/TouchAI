@@ -364,6 +364,17 @@ export class AiConversationRuntime {
             await context.persister.markCompleted({
                 durationMs: Date.now() - this.startedAt,
                 outputParts: result.finalStepOutputParts,
+                calls: result.calls,
+                ttftMs: result.firstTtftMs,
+                firstTextMs: result.firstTextMs,
+                toolArgumentErrors: result.toolArgumentErrors,
+                modelSwitchCount: result.modelSwitchCount,
+                hitModelSwitchCeiling: result.hitModelSwitchCeiling,
+                tokensUsed:
+                    result.totalUsage.inputTokens +
+                    result.totalUsage.outputTokens +
+                    result.totalUsage.cacheReadTokens +
+                    result.totalUsage.cacheWriteTokens,
             });
         } catch (persistError) {
             console.error('[AiConversationRuntime] Failed to persist completion:', persistError);
@@ -429,7 +440,15 @@ export class AiConversationRuntime {
 
                 if (attemptResult.error.is(AiErrorCode.REQUEST_CANCELLED)) {
                     try {
-                        await context.persister.markCancelled(attemptResult.partialOutputParts);
+                        await context.persister.markCancelled(attemptResult.partialOutputParts, {
+                            calls: attemptResult.calls,
+                            ttftMs: attemptResult.firstTtftMs,
+                            firstTextMs: attemptResult.firstTextMs,
+                            toolArgumentErrors: attemptResult.toolArgumentErrors,
+                            modelSwitchCount: attemptResult.modelSwitchCount,
+                            hitModelSwitchCeiling: attemptResult.hitModelSwitchCeiling,
+                            errorCode: attemptResult.error.code,
+                        });
                     } catch (persistError) {
                         console.error(
                             '[AiConversationRuntime] Failed to persist cancellation:',
@@ -459,7 +478,15 @@ export class AiConversationRuntime {
                     try {
                         await context.persister.beginNextAttempt(
                             attemptResult.error.message,
-                            resumeCheckpoint
+                            resumeCheckpoint,
+                            {
+                                calls: attemptResult.calls,
+                                ttftMs: attemptResult.firstTtftMs,
+                                firstTextMs: attemptResult.firstTextMs,
+                                toolArgumentErrors: attemptResult.toolArgumentErrors,
+                                modelSwitchCount: attemptResult.modelSwitchCount,
+                                hitModelSwitchCeiling: attemptResult.hitModelSwitchCeiling,
+                            }
                         );
                     } catch (persistError) {
                         console.error(
@@ -495,7 +522,17 @@ export class AiConversationRuntime {
                 try {
                     await context.persister.markFailed(
                         attemptResult.error.message,
-                        attemptResult.partialOutputParts
+                        attemptResult.partialOutputParts,
+                        {
+                            calls: attemptResult.calls,
+                            ttftMs: attemptResult.firstTtftMs,
+                            firstTextMs: attemptResult.firstTextMs,
+                            toolArgumentErrors: attemptResult.toolArgumentErrors,
+                            modelSwitchCount: attemptResult.modelSwitchCount,
+                            hitModelSwitchCeiling: attemptResult.hitModelSwitchCeiling,
+                            errorCode: attemptResult.error.code,
+                            retryScope: resumeCheckpoint.iteration > 0 ? 'checkpoint' : 'restart',
+                        }
                     );
                 } catch (persistError) {
                     console.error(

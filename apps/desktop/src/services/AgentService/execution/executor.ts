@@ -1,4 +1,4 @@
-// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
@@ -16,8 +16,12 @@ import { z } from '@/utils/zod';
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
 import { AiError, AiErrorCode } from '../contracts/errors';
 import {
+    addAiUsage,
+    type AiCallRecord,
     type AiMessage,
     type AiStreamChunk,
+    type AiUsage,
+    emptyAiUsage,
     type JsonObject,
     normalizeOutputParts,
     type PersistedOutputPart,
@@ -134,6 +138,18 @@ interface AttemptRuntime {
     outputParts: PersistedOutputPart[];
     currentStepOutputParts: PersistedOutputPart[];
     currentStepReasoningStartedAt: number | null;
+    /** 本 attempt 内所有 LLM 调用记录，按 iteration 顺序 */
+    calls: AiCallRecord[];
+    /** 累加的总用量 */
+    totalUsage: AiUsage;
+    /** 首字延迟取第一次调用（后续轮次的首字对用户体验无意义） */
+    firstTtftMs: number | null;
+    firstTextMs: number | null;
+    /** 工具参数解析失败次数（量化结构化输出能力） */
+    toolArgumentErrors: number;
+    /** 工具调用被用户拒绝次数 */
+    /** 是否触达模型切换上限 */
+    hitModelSwitchCeiling: boolean;
 }
 
 interface ToolExecutionResult {
@@ -150,11 +166,13 @@ type AttemptStepResult =
     | {
           type: 'done';
           outputParts: PersistedOutputPart[];
+          call: AiCallRecord;
       }
     | {
           type: 'tool_calls';
           outputParts: PersistedOutputPart[];
           toolCalls: AiToolCall[];
+          call: AiCallRecord;
       };
 
 export type AttemptExecutionResult =
@@ -164,6 +182,13 @@ export type AttemptExecutionResult =
           response: string;
           reasoning: string;
           finalStepOutputParts: PersistedOutputPart[];
+          calls: AiCallRecord[];
+          totalUsage: AiUsage;
+          firstTtftMs: number | null;
+          firstTextMs: number | null;
+          toolArgumentErrors: number;
+          modelSwitchCount: number;
+          hitModelSwitchCeiling: boolean;
       }
     | {
           type: 'failed';
@@ -175,6 +200,13 @@ export type AttemptExecutionResult =
           hasVisibleOutputSinceCheckpoint: boolean;
           hasToolActivitySinceCheckpoint: boolean;
           providerErrorDetails: ProviderErrorDetails | null;
+          calls: AiCallRecord[];
+          totalUsage: AiUsage;
+          firstTtftMs: number | null;
+          firstTextMs: number | null;
+          toolArgumentErrors: number;
+          modelSwitchCount: number;
+          hitModelSwitchCeiling: boolean;
       };
 
 export type AttemptFailureResult = Extract<AttemptExecutionResult, { type: 'failed' }>;
@@ -634,6 +666,12 @@ export class AiRequestExecutor {
             outputParts: normalizeOutputParts(startCheckpoint.outputParts),
             currentStepOutputParts: [],
             currentStepReasoningStartedAt: null,
+            calls: [],
+            totalUsage: emptyAiUsage(),
+            firstTtftMs: null,
+            firstTextMs: null,
+            toolArgumentErrors: 0,
+            hitModelSwitchCeiling: false,
         };
     }
 
@@ -687,11 +725,27 @@ export class AiRequestExecutor {
         );
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
+        let finalUsage: AiUsage | undefined;
         // Each model/tool-loop round is an independent persisted message part.
         // Keep the aggregate on `runtime.outputParts`, but never leak the
         // previous round into this round's final-step result.
         runtime.currentStepOutputParts = [];
         runtime.currentStepReasoningStartedAt = null;
+
+        // ===== 首字计时与用量采集 =====
+        const callStartedAt = Date.now();
+        let firstContentAt: number | null = null;
+        let firstTextAt: number | null = null;
+        const stepToolArgumentErrors = 0;
+        /** 记录内容块到达时刻与字符数，用于算 flowMs（10%→90% 窗口） */
+        const contentArrivals: Array<{ at: number; chars: number }> = [];
+
+        const markContent = (chars: number, isText: boolean) => {
+            const now = Date.now();
+            if (firstContentAt === null) firstContentAt = now;
+            if (isText && firstTextAt === null) firstTextAt = now;
+            if (chars > 0) contentArrivals.push({ at: now, chars });
+        };
 
         let progressWrites = Promise.resolve();
         let lastSavedSnapshot = '';
@@ -782,12 +836,14 @@ export class AiRequestExecutor {
                     reasoningPart.content += chunk.reasoning;
                     runtime.reasoning += chunk.reasoning;
                     runtime.hasVisibleOutputSinceCheckpoint = true;
+                    markContent(chunk.reasoning.length, false);
                 }
                 if (chunk.content) {
                     finishReasoningSegment();
                     appendText(chunk.content);
                     runtime.response += chunk.content;
                     runtime.hasVisibleOutputSinceCheckpoint = true;
+                    markContent(chunk.content.length, true);
                 }
                 if (
                     chunk.toolEvent ||
@@ -797,6 +853,7 @@ export class AiRequestExecutor {
                     runtime.hasToolActivitySinceCheckpoint = true;
                     finishReasoningSegment();
                     finishTextSegment();
+                    if (firstContentAt === null) firstContentAt = Date.now();
                 }
                 if (chunk.reasoningState === 'end' || chunk.done) {
                     finishReasoningSegment();
@@ -808,6 +865,7 @@ export class AiRequestExecutor {
                 if (chunk.done) {
                     finishReason = chunk.finishReason;
                     toolCalls = chunk.toolCalls;
+                    finalUsage = chunk.usage;
                     break;
                 }
             }
@@ -819,15 +877,47 @@ export class AiRequestExecutor {
 
         const outputParts = normalizeOutputParts(runtime.currentStepOutputParts);
         const isToolRelated = finishReason === 'tool_calls' || finishReason === 'tool_use';
-        if (!isToolRelated || !toolCalls || toolCalls.length === 0) {
-            return { type: 'done', outputParts };
+        const hasToolCalls = Boolean(toolCalls && toolCalls.length > 0);
+
+        // ===== 组装本次调用的用量与耗时记录 =====
+        const callEndedAt = Date.now();
+        const usage = finalUsage ?? emptyAiUsage();
+        const call: AiCallRecord = {
+            iteration: runtime.iteration,
+            modelId: runtime.activeModel.id,
+            modelName: runtime.activeModel.model_id,
+            providerId: runtime.activeModel.provider_id,
+            providerName: runtime.activeModel.provider_name,
+            usage,
+            timing: {
+                ttftMs: firstContentAt === null ? undefined : firstContentAt - callStartedAt,
+                firstTextMs: firstTextAt === null ? undefined : firstTextAt - callStartedAt,
+                flowMs: computeFlowWindow(contentArrivals),
+                durationMs: callEndedAt - callStartedAt,
+            },
+            finishReason,
+            toolCallsInStep: isToolRelated && hasToolCalls ? toolCalls!.length : 0,
+            toolArgumentErrors: stepToolArgumentErrors,
+        };
+
+        runtime.calls.push(call);
+        runtime.totalUsage = addAiUsage(runtime.totalUsage, usage);
+        runtime.toolArgumentErrors += stepToolArgumentErrors;
+        if (runtime.firstTtftMs === null && call.timing.ttftMs !== undefined) {
+            runtime.firstTtftMs = call.timing.ttftMs;
+            runtime.firstTextMs = call.timing.firstTextMs ?? null;
+        }
+
+        if (!isToolRelated || !hasToolCalls) {
+            return { type: 'done', outputParts, call };
         }
 
         runtime.hasToolActivitySinceCheckpoint = true;
         return {
             type: 'tool_calls',
             outputParts,
-            toolCalls,
+            toolCalls: toolCalls!,
+            call,
         };
     }
 
@@ -860,6 +950,8 @@ export class AiRequestExecutor {
 
         const parsedToolArguments = parseToolCallArguments(options.toolCall);
         if (!parsedToolArguments.ok) {
+            // 参数解析失败是「结构化输出能力」的直接信号，计入 attempt 级计数。
+            runtime.toolArgumentErrors += 1;
             this.emitToolEvent(options.onChunk, {
                 type: 'call_end',
                 callId: options.toolCall.id,
@@ -1001,6 +1093,9 @@ export class AiRequestExecutor {
             const previousModel = runtime.activeModel;
             runtime.activeModel = requestedModelSwitch.targetModel;
             runtime.modelSwitchCount += 1;
+            if (runtime.modelSwitchCount >= MAX_REQUEST_MODEL_SWITCHES) {
+                runtime.hitModelSwitchCeiling = true;
+            }
             runtime.provider = this.createProviderForModel(runtime.activeModel);
             runtime.tools = await resolveToolDefinitions(runtime.activeModel, {
                 excludedToolNames:
@@ -1090,6 +1185,13 @@ export class AiRequestExecutor {
                 response: runtime.response,
                 reasoning: runtime.reasoning,
                 finalStepOutputParts: normalizeOutputParts(runtime.currentStepOutputParts),
+                calls: runtime.calls,
+                totalUsage: runtime.totalUsage,
+                firstTtftMs: runtime.firstTtftMs,
+                firstTextMs: runtime.firstTextMs,
+                toolArgumentErrors: runtime.toolArgumentErrors,
+                modelSwitchCount: runtime.modelSwitchCount,
+                hitModelSwitchCeiling: runtime.hitModelSwitchCeiling,
             };
         } catch (error) {
             // AI SDK RetryError 包装了真正的错误——解包后传递给分类器
@@ -1124,9 +1226,59 @@ export class AiRequestExecutor {
                 hasVisibleOutputSinceCheckpoint: runtime.hasVisibleOutputSinceCheckpoint,
                 hasToolActivitySinceCheckpoint: runtime.hasToolActivitySinceCheckpoint,
                 providerErrorDetails,
+                calls: runtime.calls,
+                totalUsage: runtime.totalUsage,
+                firstTtftMs: runtime.firstTtftMs,
+                firstTextMs: runtime.firstTextMs,
+                toolArgumentErrors: runtime.toolArgumentErrors,
+                modelSwitchCount: runtime.modelSwitchCount,
+                hitModelSwitchCeiling: runtime.hitModelSwitchCeiling,
             };
         }
     }
+}
+
+/**
+ * 计算「10% 内容 → 90% 内容」的耗时窗口。
+ *
+ * 目的：供应商把回复憋住一次性吐出时，`duration - ttft` 会算出荒谬的速度
+ * （magpie 遇到过 1367 tok/s 的假值）。用 10%→90% 窗口能识别这种情形：
+ * 一次性吐出的回复该窗口接近 0，此时应判定为「测不出速度」而非给假数字。
+ *
+ * 返回 undefined 表示窗口不可用（内容块太少或时间跨度为 0）。
+ */
+function computeFlowWindow(
+    arrivals: ReadonlyArray<{ at: number; chars: number }>
+): number | undefined {
+    if (arrivals.length < 2) {
+        return undefined;
+    }
+
+    const total = arrivals.reduce((sum, item) => sum + item.chars, 0);
+    if (total <= 0) {
+        return undefined;
+    }
+
+    let cumulative = 0;
+    let at10: number | undefined;
+    let at90: number | undefined;
+    for (const arrival of arrivals) {
+        cumulative += arrival.chars;
+        const ratio = cumulative / total;
+        if (at10 === undefined && ratio >= 0.1) {
+            at10 = arrival.at;
+        }
+        if (at90 === undefined && ratio >= 0.9) {
+            at90 = arrival.at;
+            break;
+        }
+    }
+
+    if (at10 === undefined || at90 === undefined || at90 <= at10) {
+        return undefined;
+    }
+
+    return at90 - at10;
 }
 
 export type { ModelWithProvider };

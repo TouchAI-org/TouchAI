@@ -9,6 +9,8 @@ import {
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
+    findAllBuiltInTools,
+    findAllMcpTools,
     mergeMessagePartData,
     refreshSessionMetadata,
     syncOutputParts,
@@ -16,14 +18,19 @@ import {
     updateSession,
     updateSessionTurn,
     updateSessionTurnAttempt,
+    updateSessionTurnAttemptUsage,
+    updateSessionTurnUsage,
 } from '@database/queries';
 import type { MessageRole, TurnStatus } from '@database/schema';
+import { sessionTurnAttempts } from '@database/schema';
 import type { AttachmentEntity } from '@database/types';
 import type {
     SessionTurnAttemptEntity,
     SessionTurnEntity,
     SessionTurnUpdateData,
+    SessionTurnUsagePatch,
 } from '@database/types';
+import { type AnyColumn, type SQL, sql } from 'drizzle-orm';
 
 import {
     type AttachmentIndex,
@@ -32,9 +39,21 @@ import {
     serializeAttachmentDeliveryManifest,
     upsertAttachmentDeliveryManifestRequest,
 } from '@/services/AgentService/infrastructure/attachments';
+import {
+    countUnpriced,
+    insertLlmCallParts,
+    resolveCalls,
+    sumCost,
+    sumUsage,
+} from '@/services/UsageService';
+import {
+    buildPromptBreakdown,
+    type PromptBreakdownJson,
+} from '@/services/UsageService/contextBreakdown';
 import { toDbTimestamp } from '@/utils/date';
 
 import {
+    type AiCallRecord,
     type AttachmentDeliveryManifest,
     type AttachmentDeliveryManifestRequest,
     normalizeOutputParts,
@@ -81,6 +100,25 @@ interface CompleteTurnOptions {
     durationMs: number;
     tokensUsed?: number | null;
     outputParts: PersistedOutputPart[];
+    /** 本回合全部 LLM 调用记录（含每次调用的用量与耗时） */
+    calls?: AiCallRecord[];
+    ttftMs?: number | null;
+    firstTextMs?: number | null;
+    toolArgumentErrors?: number;
+    modelSwitchCount?: number;
+    hitModelSwitchCeiling?: boolean;
+}
+
+/** 失败/取消时的用量写入参数 */
+interface TerminalUsageOptions {
+    calls?: AiCallRecord[];
+    ttftMs?: number | null;
+    firstTextMs?: number | null;
+    toolArgumentErrors?: number;
+    modelSwitchCount?: number;
+    hitModelSwitchCeiling?: boolean;
+    errorCode?: string | null;
+    retryScope?: string | null;
 }
 
 /**
@@ -181,6 +219,17 @@ export class PersistenceProjector {
             const turn = await this.ensureTurnRecord(tx, sessionId, userMessageId);
             const attemptState = await this.ensureAttemptRecord(1, initialCheckpoint, tx, turn.id);
 
+            // prompt 分片统计：只算字符数，成本可忽略，但让 Context 页
+            // 不必在查询时重解析 8 段文本。
+            const breakdown = await this.buildPromptBreakdownSnapshot();
+            if (breakdown) {
+                await updateSessionTurnUsage({
+                    id: turn.id,
+                    usagePatch: { prompt_breakdown_json: JSON.stringify(breakdown) },
+                    database: tx,
+                });
+            }
+
             return { sessionId, userMessageId, turn, attemptState };
         });
 
@@ -188,6 +237,26 @@ export class PersistenceProjector {
         this.userMessageId = result.userMessageId;
         this.turn = result.turn;
         this.attemptState = result.attemptState;
+    }
+
+    /**
+     * 计算本次回合的 prompt 分片统计。
+     *
+     * 工具定义从库里的 schema 算（而非从发出去的请求体），
+     * 因为请求体可能因模型能力而裁剪，而这里统计的是「工具箱本身有多大」。
+     * 失败不影响对话主流程，只跳过本次统计。
+     */
+    private async buildPromptBreakdownSnapshot(): Promise<PromptBreakdownJson | null> {
+        try {
+            const [mcpTools, builtInTools] = await Promise.all([
+                findAllMcpTools(),
+                findAllBuiltInTools(),
+            ]);
+            return buildPromptBreakdown(this.promptSnapshot, mcpTools, builtInTools);
+        } catch (error) {
+            console.warn('[PersistenceProjector] Failed to build prompt breakdown:', error);
+            return null;
+        }
     }
 
     /**
@@ -206,6 +275,18 @@ export class PersistenceProjector {
                           })
                         : (this.assistantMessageId ?? this.pendingOutputMessageId);
 
+                // 用量先落库：消息可能不存在（无可见输出），此时只写聚合列。
+                const usagePatch = await this.persistUsage({
+                    messageId: assistantMessageId,
+                    calls: options.calls,
+                    ttftMs: options.ttftMs,
+                    firstTextMs: options.firstTextMs,
+                    toolArgumentErrors: options.toolArgumentErrors,
+                    modelSwitchCount: options.modelSwitchCount,
+                    hitModelSwitchCeiling: options.hitModelSwitchCeiling,
+                    database: tx,
+                });
+
                 const attemptState = await this.finishCurrentAttempt('completed', null, tx);
                 const turn = await this.patchTurn(
                     {
@@ -217,6 +298,10 @@ export class PersistenceProjector {
                     },
                     tx
                 );
+
+                if (turn) {
+                    await updateSessionTurnUsage({ id: turn.id, usagePatch, database: tx });
+                }
 
                 return { assistantMessageId, attemptState, turn };
             });
@@ -233,7 +318,11 @@ export class PersistenceProjector {
     /**
      * 当前轮次失败阶段：更新最终失败状态和错误信息。
      */
-    async markFailed(errorMessage: string, outputParts?: PersistedOutputPart[]): Promise<void> {
+    async markFailed(
+        errorMessage: string,
+        outputParts?: PersistedOutputPart[],
+        usage?: TerminalUsageOptions
+    ): Promise<void> {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
@@ -247,6 +336,19 @@ export class PersistenceProjector {
                           })
                         : (this.assistantMessageId ?? this.pendingOutputMessageId);
 
+                const usagePatch = await this.persistUsage({
+                    messageId: assistantMessageId,
+                    calls: usage?.calls,
+                    ttftMs: usage?.ttftMs,
+                    firstTextMs: usage?.firstTextMs,
+                    toolArgumentErrors: usage?.toolArgumentErrors,
+                    modelSwitchCount: usage?.modelSwitchCount,
+                    hitModelSwitchCeiling: usage?.hitModelSwitchCeiling,
+                    errorCode: usage?.errorCode,
+                    retryScope: usage?.retryScope,
+                    database: tx,
+                });
+
                 const attemptState = await this.finishCurrentAttempt('failed', errorMessage, tx);
                 const turn = await this.patchTurn(
                     {
@@ -257,6 +359,10 @@ export class PersistenceProjector {
                     },
                     tx
                 );
+
+                if (turn) {
+                    await updateSessionTurnUsage({ id: turn.id, usagePatch, database: tx });
+                }
 
                 return { assistantMessageId, attemptState, turn };
             });
@@ -273,7 +379,10 @@ export class PersistenceProjector {
     /**
      * 当前轮次取消阶段：更新取消状态。
      */
-    async markCancelled(outputParts?: PersistedOutputPart[]): Promise<void> {
+    async markCancelled(
+        outputParts?: PersistedOutputPart[],
+        usage?: TerminalUsageOptions
+    ): Promise<void> {
         try {
             const result = await db.transaction(async (tx) => {
                 const assistantMessageId =
@@ -286,6 +395,19 @@ export class PersistenceProjector {
                               database: tx,
                           })
                         : (this.assistantMessageId ?? this.pendingOutputMessageId);
+
+                const usagePatch = await this.persistUsage({
+                    messageId: assistantMessageId,
+                    calls: usage?.calls,
+                    ttftMs: usage?.ttftMs,
+                    firstTextMs: usage?.firstTextMs,
+                    toolArgumentErrors: usage?.toolArgumentErrors,
+                    modelSwitchCount: usage?.modelSwitchCount,
+                    hitModelSwitchCeiling: usage?.hitModelSwitchCeiling,
+                    errorCode: usage?.errorCode,
+                    retryScope: usage?.retryScope,
+                    database: tx,
+                });
 
                 const attemptState = await this.finishCurrentAttempt(
                     'cancelled',
@@ -302,6 +424,10 @@ export class PersistenceProjector {
                     tx
                 );
 
+                if (turn) {
+                    await updateSessionTurnUsage({ id: turn.id, usagePatch, database: tx });
+                }
+
                 return { assistantMessageId, attemptState, turn };
             });
 
@@ -316,11 +442,48 @@ export class PersistenceProjector {
 
     /**
      * 当前尝试可重试时，先标记失败，再创建下一次尝试。
+     *
+     * 失败尝试已经消耗的 token 与成本必须落库（否则重试开销全部丢失），
+     * 因此 `usage` 参数把本次失败的调用记录写进对应 attempt。
      */
-    async beginNextAttempt(errorMessage: string, checkpoint: AttemptCheckpoint): Promise<void> {
+    async beginNextAttempt(
+        errorMessage: string,
+        checkpoint: AttemptCheckpoint,
+        usage?: Pick<
+            TerminalUsageOptions,
+            | 'calls'
+            | 'ttftMs'
+            | 'firstTextMs'
+            | 'toolArgumentErrors'
+            | 'modelSwitchCount'
+            | 'hitModelSwitchCeiling'
+        >
+    ): Promise<void> {
         try {
             const emptyDeliveryManifest = createEmptyAttachmentDeliveryManifest();
             const result = await db.transaction(async (tx) => {
+                // 先把失败尝试的用量写入当前 attempt（此时 attemptState 仍是旧的）
+                if (usage?.calls?.length) {
+                    const resolved = await resolveCalls(usage.calls);
+                    const failedUsage = sumUsage(resolved);
+                    const failedCost = sumCost(resolved);
+                    await updateSessionTurnAttemptUsage({
+                        id: this.attemptState!.entity.id,
+                        usagePatch: {
+                            input_tokens: failedUsage.inputTokens,
+                            output_tokens: failedUsage.outputTokens,
+                            cache_read_tokens: failedUsage.cacheReadTokens,
+                            cache_write_tokens: failedUsage.cacheWriteTokens,
+                            reasoning_tokens: failedUsage.reasoningTokens,
+                            total_cost_micros: failedCost.totalCostMicros,
+                            unpriced_calls: countUnpriced(resolved),
+                            ttft_ms: usage.ttftMs ?? null,
+                            llm_call_count: resolved.length,
+                        },
+                        database: tx,
+                    });
+                }
+
                 await this.finishCurrentAttempt('failed', errorMessage, tx);
 
                 const nextAttemptIndex = (this.attemptState?.entity.attempt_index ?? 0) + 1;
@@ -354,6 +517,20 @@ export class PersistenceProjector {
                     );
                 }
 
+                // 重试后 turn 级用量同步刷新（包含刚写入的失败尝试）
+                if (turn) {
+                    await updateSessionTurnUsage({
+                        id: turn.id,
+                        usagePatch: {
+                            ...this.buildTurnUsageSumPatch(turn.id),
+                            model_switch_count: usage?.modelSwitchCount ?? 0,
+                            tool_argument_error_count: usage?.toolArgumentErrors ?? 0,
+                            hit_iteration_ceiling: usage?.hitModelSwitchCeiling ? 1 : 0,
+                        },
+                        database: tx,
+                    });
+                }
+
                 return { attemptState, turn };
             });
 
@@ -364,6 +541,106 @@ export class PersistenceProjector {
             console.error('[PersistenceProjector] Failed to begin next attempt:', error);
             throw error;
         }
+    }
+
+    /**
+     * turn 级用量聚合补丁：从 attempts 汇总，避免多处写入产生偏差。
+     * 与 `refreshSessionMetadata` 同模式（单条带子查询的 UPDATE）。
+     */
+    private buildTurnUsageSumPatch(turnId: number): SessionTurnUsagePatch {
+        const sumAttempts = (column: AnyColumn | SQL) =>
+            sql`(SELECT coalesce(sum(${column}), 0) FROM ${sessionTurnAttempts} WHERE ${sessionTurnAttempts.turn_id} = ${turnId})`;
+
+        return {
+            input_tokens: sumAttempts(sessionTurnAttempts.input_tokens),
+            output_tokens: sumAttempts(sessionTurnAttempts.output_tokens),
+            cache_read_tokens: sumAttempts(sessionTurnAttempts.cache_read_tokens),
+            cache_write_tokens: sumAttempts(sessionTurnAttempts.cache_write_tokens),
+            reasoning_tokens: sumAttempts(sessionTurnAttempts.reasoning_tokens),
+            total_cost_micros: sumAttempts(sessionTurnAttempts.total_cost_micros),
+            unpriced_calls: sumAttempts(sessionTurnAttempts.unpriced_calls),
+            llm_call_count: sumAttempts(sessionTurnAttempts.llm_call_count),
+            // 首字取第一次有值的尝试（attempt_index 最小）
+            ttft_ms: sql`(SELECT ${sessionTurnAttempts.ttft_ms} FROM ${sessionTurnAttempts} WHERE ${sessionTurnAttempts.turn_id} = ${turnId} AND ${sessionTurnAttempts.ttft_ms} IS NOT NULL ORDER BY ${sessionTurnAttempts.attempt_index} LIMIT 1)`,
+        };
+    }
+
+    /**
+     * 写入一次 attempt 的用量。
+     *
+     * 职责：
+     * 1. 为每次 LLM 调用插入一个 `type='llm_call'` 的片段（挂到该回合的响应消息）
+     * 2. 把汇总写入 `session_turn_attempts` 的聚合列
+     *
+     * `messageId` 为 null 时（无可见输出）只写聚合列，不丢数据。
+     * 返回 turn 级聚合列的 SQL 补丁。
+     */
+    private async persistUsage({
+        messageId,
+        calls,
+        ttftMs,
+        firstTextMs,
+        toolArgumentErrors,
+        modelSwitchCount,
+        hitModelSwitchCeiling,
+        errorCode,
+        retryScope,
+        database,
+    }: {
+        messageId: number | null;
+        calls?: AiCallRecord[];
+        ttftMs?: number | null;
+        firstTextMs?: number | null;
+        toolArgumentErrors?: number;
+        modelSwitchCount?: number;
+        hitModelSwitchCeiling?: boolean;
+        errorCode?: string | null;
+        retryScope?: string | null;
+        database: DatabaseExecutor;
+    }): Promise<SessionTurnUsagePatch> {
+        const resolved = calls?.length ? await resolveCalls(calls) : [];
+        const usage = sumUsage(resolved);
+        const cost = sumCost(resolved);
+        const unpriced = countUnpriced(resolved);
+        const toolCallCount = (calls ?? []).reduce((sum, call) => sum + call.toolCallsInStep, 0);
+
+        // 1. 明细片段
+        if (messageId !== null && resolved.length > 0) {
+            await insertLlmCallParts(messageId, resolved, database);
+        }
+
+        const turnId = this.turn?.id ?? 0;
+
+        // 2. attempt 级聚合
+        if (this.attemptState) {
+            await updateSessionTurnAttemptUsage({
+                id: this.attemptState.entity.id,
+                usagePatch: {
+                    input_tokens: usage.inputTokens,
+                    output_tokens: usage.outputTokens,
+                    cache_read_tokens: usage.cacheReadTokens,
+                    cache_write_tokens: usage.cacheWriteTokens,
+                    reasoning_tokens: usage.reasoningTokens,
+                    total_cost_micros: cost.totalCostMicros,
+                    unpriced_calls: unpriced,
+                    ttft_ms: ttftMs ?? null,
+                    llm_call_count: resolved.length,
+                },
+                database,
+            });
+        }
+
+        // 3. turn 级聚合列 + 行为信号
+        return {
+            ...this.buildTurnUsageSumPatch(turnId),
+            first_text_ms: firstTextMs ?? null,
+            tool_call_count: toolCallCount,
+            tool_argument_error_count: toolArgumentErrors ?? 0,
+            model_switch_count: modelSwitchCount ?? 0,
+            hit_iteration_ceiling: hitModelSwitchCeiling ? 1 : 0,
+            error_code: errorCode ?? null,
+            retry_scope: retryScope ?? null,
+        };
     }
 
     /**

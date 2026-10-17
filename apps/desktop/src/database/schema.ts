@@ -1,7 +1,15 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { sql } from 'drizzle-orm';
-import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+    check,
+    index,
+    integer,
+    primaryKey,
+    sqliteTable,
+    text,
+    uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 // ==================== Tauri 相关类型 ====================
 
@@ -104,7 +112,7 @@ export const messageParts = sqliteTable(
             .notNull()
             .references(() => messages.id, { onDelete: 'cascade' }),
         type: text('type', {
-            enum: ['text', 'reasoning', 'tool_call', 'attachment'],
+            enum: ['text', 'reasoning', 'tool_call', 'attachment', 'llm_call'],
         }).notNull(),
         content: text('content').notNull(),
         data: text('data').notNull().default('{}'),
@@ -136,6 +144,7 @@ export const messageParts = sqliteTable(
     (table) => [
         index('message_parts_tool_call_idx').on(table.tool_kind, table.tool_call_id),
         index('message_parts_attachment_idx').on(table.attachment_id),
+        index('message_parts_llm_call_idx').on(table.type, table.started_at),
         check(
             'message_parts_data_object_check',
             sql`json_valid(${table.data}) AND json_type(${table.data}) = 'object'`
@@ -352,6 +361,48 @@ export const sessionTurns = sqliteTable(
         error_message: text('error_message'),
         tokens_used: integer('tokens_used'),
         duration_ms: integer('duration_ms'),
+
+        // ===== 用量聚合 =====
+        /** 新鲜输入（不含缓存） */
+        input_tokens: integer('input_tokens').notNull().default(0),
+        output_tokens: integer('output_tokens').notNull().default(0),
+        cache_read_tokens: integer('cache_read_tokens').notNull().default(0),
+        cache_write_tokens: integer('cache_write_tokens').notNull().default(0),
+        /** 推理 token，是 output_tokens 的子集，不可重复累加 */
+        reasoning_tokens: integer('reasoning_tokens').notNull().default(0),
+        /** 成本，微元（1e-6 货币单位），整数避免浮点漂移 */
+        total_cost_micros: integer('total_cost_micros').notNull().default(0),
+        /** 无定价的调用次数，不计入 total_cost_micros */
+        unpriced_calls: integer('unpriced_calls').notNull().default(0),
+        /** 首字延迟（取本回合第一次调用） */
+        ttft_ms: integer('ttft_ms'),
+        /** 到第一个正文（排除推理） */
+        first_text_ms: integer('first_text_ms'),
+        /** LLM 调用次数（= 工具循环轮数） */
+        llm_call_count: integer('llm_call_count').notNull().default(0),
+        /** 工具调用次数 */
+        tool_call_count: integer('tool_call_count').notNull().default(0),
+        /** 调用类型：chat | title | classify | ... 为未来非对话调用预留 */
+        kind: text('kind').notNull().default('chat'),
+
+        // ===== Agent 行为信号 =====
+        /** 模型切换次数。频繁换模型 = 当前模型能力不足 */
+        model_switch_count: integer('model_switch_count').notNull().default(0),
+        /** 工具参数解析失败次数（量化结构化输出能力） */
+        tool_argument_error_count: integer('tool_argument_error_count').notNull().default(0),
+        /** 空回复次数（EMPTY_RESPONSE）。明确的模型缺陷信号 */
+        empty_response_count: integer('empty_response_count').notNull().default(0),
+        /** 是否触达模型切换上限（任务失控信号） */
+        hit_iteration_ceiling: integer('hit_iteration_ceiling').notNull().default(0),
+        /** 错误码（AiErrorCode 枚举），按错误类型分布分析 */
+        error_code: text('error_code'),
+        /** 重试范围：restart（重头来）/ checkpoint（从检查点续） */
+        retry_scope: text('retry_scope'),
+
+        // ===== 上下文诊断 =====
+        /** 各分片字符数快照（JSON），避免查询时重解析 8 段文本 */
+        prompt_breakdown_json: text('prompt_breakdown_json'),
+
         created_at: text('created_at')
             .notNull()
             .default(sql`(datetime('now'))`),
@@ -359,7 +410,12 @@ export const sessionTurns = sqliteTable(
             .notNull()
             .default(sql`(datetime('now'))`),
     },
-    (table) => [index('session_turns_session_id_idx').on(table.session_id)]
+    (table) => [
+        index('session_turns_session_id_idx').on(table.session_id),
+        index('session_turns_created_at_idx').on(table.created_at),
+        index('session_turns_model_created_idx').on(table.model_id, table.created_at),
+        index('session_turns_status_created_idx').on(table.status, table.created_at),
+    ]
 );
 
 /**
@@ -383,6 +439,18 @@ export const sessionTurnAttempts = sqliteTable(
         delivery_manifest_json: text('delivery_manifest_json').notNull(),
         error_message: text('error_message'),
         duration_ms: integer('duration_ms'),
+
+        // ===== 用量聚合（attempt 级）=====
+        input_tokens: integer('input_tokens').notNull().default(0),
+        output_tokens: integer('output_tokens').notNull().default(0),
+        cache_read_tokens: integer('cache_read_tokens').notNull().default(0),
+        cache_write_tokens: integer('cache_write_tokens').notNull().default(0),
+        reasoning_tokens: integer('reasoning_tokens').notNull().default(0),
+        total_cost_micros: integer('total_cost_micros').notNull().default(0),
+        unpriced_calls: integer('unpriced_calls').notNull().default(0),
+        ttft_ms: integer('ttft_ms'),
+        llm_call_count: integer('llm_call_count').notNull().default(0),
+
         started_at: text('started_at')
             .notNull()
             .default(sql`(datetime('now'))`),
@@ -400,6 +468,38 @@ export const sessionTurnAttempts = sqliteTable(
             table.turn_id,
             table.attempt_index
         ),
+        index('session_turn_attempts_started_at_idx').on(table.started_at),
+    ]
+);
+
+/**
+ * 用量日聚合表，永久保留（明细按保留策略裁剪）。
+ *
+ * 用 sum + count 而非 avg：聚合可以再聚合（sum(sum)/sum(count)），
+ * 但 avg(avg) 是错的。
+ */
+export const usageDailyRollups = sqliteTable(
+    'usage_daily_rollups',
+    {
+        day: text('day').notNull(),
+        model_name: text('model_name').notNull(),
+        provider_name: text('provider_name').notNull(),
+        request_count: integer('request_count').notNull().default(0),
+        success_count: integer('success_count').notNull().default(0),
+        input_tokens: integer('input_tokens').notNull().default(0),
+        output_tokens: integer('output_tokens').notNull().default(0),
+        cache_read_tokens: integer('cache_read_tokens').notNull().default(0),
+        cache_write_tokens: integer('cache_write_tokens').notNull().default(0),
+        reasoning_tokens: integer('reasoning_tokens').notNull().default(0),
+        total_cost_micros: integer('total_cost_micros').notNull().default(0),
+        unpriced_count: integer('unpriced_count').notNull().default(0),
+        sum_ttft_ms: integer('sum_ttft_ms').notNull().default(0),
+        sum_duration_ms: integer('sum_duration_ms').notNull().default(0),
+        ttft_sample_count: integer('ttft_sample_count').notNull().default(0),
+    },
+    (table) => [
+        primaryKey({ columns: [table.day, table.model_name, table.provider_name] }),
+        index('usage_daily_rollups_day_idx').on(table.day),
     ]
 );
 
@@ -420,6 +520,14 @@ export const llmMetadata = sqliteTable('llm_metadata', {
     tool_call: integer('tool_call').notNull().default(0),
     knowledge: text('knowledge'), // JSON string
     limit: text('limit'), // JSON string
+
+    // ===== 定价（来自 models.dev，每百万 token）=====
+    input_cost_per_million: text('input_cost_per_million'),
+    output_cost_per_million: text('output_cost_per_million'),
+    cache_read_cost_per_million: text('cache_read_cost_per_million'),
+    cache_write_cost_per_million: text('cache_write_cost_per_million'),
+    cost_currency: text('cost_currency'),
+
     created_at: text('created_at')
         .notNull()
         .default(sql`(datetime('now'))`),
@@ -585,6 +693,9 @@ export type SessionTurnUpdate = Partial<NewSessionTurn>;
 export type SessionTurnAttempt = typeof sessionTurnAttempts.$inferSelect;
 export type NewSessionTurnAttempt = typeof sessionTurnAttempts.$inferInsert;
 export type SessionTurnAttemptUpdate = Partial<NewSessionTurnAttempt>;
+
+export type UsageDailyRollup = typeof usageDailyRollups.$inferSelect;
+export type NewUsageDailyRollup = typeof usageDailyRollups.$inferInsert;
 
 export type LlmMetadata = typeof llmMetadata.$inferSelect;
 export type NewLlmMetadata = typeof llmMetadata.$inferInsert;

@@ -36,6 +36,13 @@
       "when": 1791882436194,
       "tag": "0004_ordinary_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792267644978,
+      "tag": "0005_striped_echo",
+      "breakpoints": true
     }
   ]
 }
