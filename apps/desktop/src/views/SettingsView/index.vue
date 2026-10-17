@@ -42,6 +42,7 @@
 
     const ShortcutsView = defineSectionView(() => import('./components/Shortcuts/index.vue'));
     const AiServicesView = defineSectionView(() => import('./components/AiServices/index.vue'));
+    const UsageView = defineSectionView(() => import('./components/Usage/index.vue'));
     const BuiltInToolsView = defineSectionView(() => import('./components/BuiltInTools/index.vue'));
     const SearchView = defineSectionView(() => import('./components/Search/index.vue'));
     const BrowserView = defineSectionView(() => import('./components/Browser/index.vue'));
@@ -71,6 +72,11 @@
         },
         'ai-services': {
             component: AiServicesView,
+        },
+        usage: {
+            component: UsageView,
+            loadingKey: 'settings.loading.usage',
+            scrollable: true,
         },
         'built-in-tools': {
             component: BuiltInToolsView,

@@ -19,3 +19,4 @@ export * from './sessionTurns';
 export * from './settings';
 export * from './statistics';
 export * from './touchaiMeta';
+export * from './usageStats';

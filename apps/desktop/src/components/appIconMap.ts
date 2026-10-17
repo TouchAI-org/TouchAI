@@ -7,6 +7,7 @@ import IconBlocks from '~icons/lucide/blocks';
 import IconBoxes from '~icons/lucide/boxes';
 import IconBriefcase from '~icons/lucide/briefcase';
 import IconBug from '~icons/lucide/bug';
+import IconChartColumn from '~icons/lucide/chart-column';
 import IconChevronDown from '~icons/lucide/chevron-down';
 import IconChevronRight from '~icons/lucide/chevron-right';
 import IconChevronUp from '~icons/lucide/chevron-up';
@@ -53,6 +54,7 @@ export const appIconMap = {
     'arrow-left': IconArrowLeft,
     'arrow-right': IconArrowRight,
     'check-circle': IconCheckCircle,
+    chart: IconChartColumn,
     'chevron-down': IconChevronDown,
     'chevron-right': IconChevronRight,
     'chevron-up': IconChevronUp,
