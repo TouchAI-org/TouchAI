@@ -1,1 +1,0 @@
-ALTER TABLE `models` ADD `upstream_metadata` text;

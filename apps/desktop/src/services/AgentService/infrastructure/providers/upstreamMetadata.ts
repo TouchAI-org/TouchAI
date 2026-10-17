@@ -1,22 +1,17 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { UpstreamModelMetadataPatch } from '@database/types';
-
 import {
     type ModelModalities,
     modelModalitiesSchema,
     normalizePositiveLimitValue,
 } from '@/utils/modelSchemas';
 
-import {
-    normalizeReasoningOptions,
-    type ReasoningOption,
-    serializeReasoningOptions,
-} from '../../contracts/reasoning';
+import { normalizeReasoningOptions, type ReasoningOption } from '../../contracts/reasoning';
+import type { ModelCapabilities } from './types';
 
 /**
  * 上游 `/v1/models` 没有统一标准：OpenAI 只保证 `id`，中转站 / 网关会各自追加
- * 上下文长度、模态、思考档位等字段。这里按常见命名嗅探并归一化成数据库列，
+ * 上下文长度、模态、思考档位等字段。这里按常见命名嗅探并归一化成领域能力，
  * 缺失的字段交给 models.dev 兜底。
  *
  * 已确认形态：Magpie 等网关的 `context_window` / `supported_reasoning_levels`、
@@ -47,10 +42,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toBoolean(value: unknown): boolean | undefined {
     return typeof value === 'boolean' ? value : undefined;
-}
-
-function toBit(value: boolean): number {
-    return value ? 1 : 0;
 }
 
 function firstPositiveLimit(record: Record<string, unknown>, keys: string[]): number | undefined {
@@ -130,13 +121,13 @@ function resolveReasoningOptions(record: Record<string, unknown>): ReasoningOpti
     return efforts.length > 0 ? [{ type: 'effort', values: efforts }] : [];
 }
 
-function resolveToolCall(record: Record<string, unknown>): number | undefined {
+function resolveToolCall(record: Record<string, unknown>): boolean | undefined {
     const declared =
         toBoolean(record.tool_call) ??
         toBoolean(record.toolCall) ??
         toBoolean(record.supports_tools);
     if (declared !== undefined) {
-        return toBit(declared);
+        return declared;
     }
 
     const supportedParameters = record.supported_parameters;
@@ -146,25 +137,23 @@ function resolveToolCall(record: Record<string, unknown>): number | undefined {
             (parameter) => parameter === 'tools' || parameter === 'tool_choice'
         )
     ) {
-        return 1;
+        return true;
     }
 
     return undefined;
 }
 
 /** 只保留上游明确声明的字段；返回 undefined 表示该上游没有可用能力元数据。 */
-export function normalizeUpstreamModelMetadata(
-    raw: unknown
-): UpstreamModelMetadataPatch | undefined {
+export function normalizeUpstreamModelCapabilities(raw: unknown): ModelCapabilities | undefined {
     if (!isRecord(raw)) {
         return undefined;
     }
 
-    const patch: UpstreamModelMetadataPatch = {};
+    const capabilities: ModelCapabilities = {};
 
     const contextLimit = firstPositiveLimit(raw, CONTEXT_LIMIT_KEYS);
     if (contextLimit !== undefined) {
-        patch.context_limit = contextLimit;
+        capabilities.contextLimit = contextLimit;
     }
 
     const topProvider = isRecord(raw.top_provider) ? raw.top_provider : {};
@@ -172,37 +161,36 @@ export function normalizeUpstreamModelMetadata(
         firstPositiveLimit(raw, OUTPUT_LIMIT_KEYS) ??
         firstPositiveLimit(topProvider, TOP_PROVIDER_OUTPUT_KEYS);
     if (outputLimit !== undefined) {
-        patch.output_limit = outputLimit;
+        capabilities.outputLimit = outputLimit;
     }
 
     const modalities = normalizeUpstreamModalities(raw);
     if (modalities) {
-        patch.modalities = JSON.stringify(modalities);
+        capabilities.modalities = modalities;
     }
 
     const declaredAttachment = toBoolean(raw.attachment);
     if (declaredAttachment !== undefined) {
-        patch.attachment = toBit(declaredAttachment);
+        capabilities.attachment = declaredAttachment;
     } else if (modalities?.input.some((modality) => FILE_INPUT_MODALITIES.has(modality))) {
-        patch.attachment = 1;
+        capabilities.attachment = true;
     }
 
     const toolCall = resolveToolCall(raw);
     if (toolCall !== undefined) {
-        patch.tool_call = toolCall;
+        capabilities.toolCall = toolCall;
     }
 
     const reasoningOptions = resolveReasoningOptions(raw);
-    const serializedReasoningOptions = serializeReasoningOptions(reasoningOptions);
-    if (serializedReasoningOptions) {
-        patch.reasoning_options = serializedReasoningOptions;
-        patch.reasoning = 1;
+    if (reasoningOptions.length > 0) {
+        capabilities.reasoningOptions = reasoningOptions;
+        capabilities.reasoning = true;
     } else {
         const declaredReasoning = toBoolean(raw.reasoning) ?? toBoolean(raw.supports_reasoning);
         if (declaredReasoning !== undefined) {
-            patch.reasoning = toBit(declaredReasoning);
+            capabilities.reasoning = declaredReasoning;
         }
     }
 
-    return Object.keys(patch).length > 0 ? patch : undefined;
+    return Object.keys(capabilities).length > 0 ? capabilities : undefined;
 }

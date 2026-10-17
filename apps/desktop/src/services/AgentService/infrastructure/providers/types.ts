@@ -1,24 +1,42 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { ProviderDriver } from '@database/schema';
-import type { UpstreamModelMetadataPatch } from '@database/types';
+
+import type { ModelModalities } from '@/utils/modelSchemas';
 
 import type { AiError } from '../../contracts/errors';
 import type { AiRequestOptions, AiResponse, AiStreamChunk } from '../../contracts/protocol';
 import type { AttachmentTransportMode } from '../../contracts/protocol';
-import type { ReasoningMode, ReasoningProtocol } from '../../contracts/reasoning';
+import type { ReasoningMode, ReasoningOption, ReasoningProtocol } from '../../contracts/reasoning';
+
+/**
+ * 上游 `/models` 自己声明的模型能力，领域形状。
+ *
+ * 列名与 JSON 序列化只发生在持久化边界（`infrastructure/modelMetadata`），
+ * provider 与 adapter 不感知模型表结构。
+ */
+export interface ModelCapabilities {
+    contextLimit?: number;
+    outputLimit?: number;
+    modalities?: ModelModalities;
+    /** 上游声明支持附件；声明了文件类输入模态时同样算支持。 */
+    attachment?: boolean;
+    reasoning?: boolean;
+    reasoningOptions?: ReasoningOption[];
+    toolCall?: boolean;
+}
 
 export interface ModelInfo {
     id: string;
     name: string;
-    /** 上游 /models 自己声明的能力（如有），刷新模型时覆盖 models.dev 兜底值。 */
-    metadata?: UpstreamModelMetadataPatch;
+    /** 上游 /models 声明的能力（如有），刷新模型时优先于 models.dev 兜底值。 */
+    capabilities?: ModelCapabilities;
 }
 
 export interface ProviderReasoningConfig {
     /** 显式指定编码格式；缺省时由 driver 推断。 */
     format?: ReasoningProtocol;
-    /** 无 metadata 时的 fallback 行为，默认 auto。 */
+    /** 模型未声明 reasoning 能力时的 fallback 行为，默认 auto。 */
     mode?: ReasoningMode;
 }
 

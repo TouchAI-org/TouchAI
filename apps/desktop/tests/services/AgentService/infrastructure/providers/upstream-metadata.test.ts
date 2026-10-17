@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ModelInfo } from '@/services/AgentService/infrastructure/providers';
 import { OpenAICompatibleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai-compatible';
-import { normalizeUpstreamModelMetadata } from '@/services/AgentService/infrastructure/providers/upstreamMetadata';
+import { normalizeUpstreamModelCapabilities } from '@/services/AgentService/infrastructure/providers/upstreamMetadata';
 
 /** 取自 Magpie 网关 `/v1/models` 的真实形态。 */
 function magpieModel(overrides: Record<string, unknown> = {}) {
@@ -27,19 +27,19 @@ function magpieModel(overrides: Record<string, unknown> = {}) {
     };
 }
 
-describe('upstream model metadata', () => {
-    it('maps gateway fields onto the model capability columns', () => {
-        expect(normalizeUpstreamModelMetadata(magpieModel())).toEqual({
-            context_limit: 200_000,
-            output_limit: 200_000,
-            modalities: JSON.stringify({ input: ['text', 'image'], output: ['text'] }),
-            reasoning: 1,
-            reasoning_options: JSON.stringify([{ type: 'effort', values: ['low', 'high', 'max'] }]),
+describe('upstream model capabilities', () => {
+    it('maps gateway fields onto the model capability shape', () => {
+        expect(normalizeUpstreamModelCapabilities(magpieModel())).toEqual({
+            contextLimit: 200_000,
+            outputLimit: 200_000,
+            modalities: { input: ['text', 'image'], output: ['text'] },
+            reasoning: true,
+            reasoningOptions: [{ type: 'effort', values: ['low', 'high', 'max'] }],
         });
     });
 
     it('keeps the gateway-only ultra effort as its own level', () => {
-        const metadata = normalizeUpstreamModelMetadata(
+        const capabilities = normalizeUpstreamModelCapabilities(
             magpieModel({
                 reasoning: true,
                 supported_reasoning_levels: [
@@ -54,19 +54,17 @@ describe('upstream model metadata', () => {
             })
         );
 
-        expect(metadata?.reasoning_options).toBe(
-            JSON.stringify([
-                {
-                    type: 'effort',
-                    values: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-                },
-            ])
-        );
+        expect(capabilities?.reasoningOptions).toEqual([
+            {
+                type: 'effort',
+                values: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+            },
+        ]);
     });
 
     it('reads OpenRouter style architecture, limits and tool support', () => {
         expect(
-            normalizeUpstreamModelMetadata({
+            normalizeUpstreamModelCapabilities({
                 id: 'anthropic/claude-3-5-haiku',
                 name: 'Claude 3.5 Haiku',
                 context_length: 200_000,
@@ -79,47 +77,45 @@ describe('upstream model metadata', () => {
                 reasoning: { supported_efforts: ['low', 'medium', 'high'] },
             })
         ).toEqual({
-            context_limit: 200_000,
-            output_limit: 8192,
-            modalities: JSON.stringify({
+            contextLimit: 200_000,
+            outputLimit: 8192,
+            modalities: {
                 input: ['text', 'image', 'file'],
                 output: ['text'],
-            }),
-            attachment: 1,
-            reasoning: 1,
-            reasoning_options: JSON.stringify([
-                { type: 'effort', values: ['low', 'medium', 'high'] },
-            ]),
-            tool_call: 1,
+            },
+            attachment: true,
+            reasoning: true,
+            reasoningOptions: [{ type: 'effort', values: ['low', 'medium', 'high'] }],
+            toolCall: true,
         });
     });
 
     it('keeps TouchAI native reasoning_options from AI gateways', () => {
         expect(
-            normalizeUpstreamModelMetadata({
+            normalizeUpstreamModelCapabilities({
                 id: 'openai/gpt-5-mini',
                 reasoning_options: [{ type: 'toggle' }],
             })
         ).toEqual({
-            reasoning: 1,
-            reasoning_options: JSON.stringify([{ type: 'toggle' }]),
+            reasoning: true,
+            reasoningOptions: [{ type: 'toggle' }],
         });
     });
 
     it('reports models without capability fields as unknown', () => {
         expect(
-            normalizeUpstreamModelMetadata({ id: 'plain-model', object: 'model' })
+            normalizeUpstreamModelCapabilities({ id: 'plain-model', object: 'model' })
         ).toBeUndefined();
-        expect(normalizeUpstreamModelMetadata('plain-model')).toBeUndefined();
+        expect(normalizeUpstreamModelCapabilities('plain-model')).toBeUndefined();
     });
 
     it('honours an explicit reasoning=false declaration', () => {
         expect(
-            normalizeUpstreamModelMetadata({
+            normalizeUpstreamModelCapabilities({
                 id: 'any/claude-3-5-haiku-20241022',
                 reasoning: false,
             })
-        ).toEqual({ reasoning: 0 });
+        ).toEqual({ reasoning: false });
     });
 });
 
@@ -142,14 +138,12 @@ describe('openai-compatible model list parsing', () => {
         expect(models[0]).toEqual({
             id: 'group/auto-deepseek-v4-1-flash',
             name: 'group/auto-deepseek-v4-1-flash',
-            metadata: {
-                context_limit: 200_000,
-                output_limit: 200_000,
-                modalities: JSON.stringify({ input: ['text', 'image'], output: ['text'] }),
-                reasoning: 1,
-                reasoning_options: JSON.stringify([
-                    { type: 'effort', values: ['low', 'high', 'max'] },
-                ]),
+            capabilities: {
+                contextLimit: 200_000,
+                outputLimit: 200_000,
+                modalities: { input: ['text', 'image'], output: ['text'] },
+                reasoning: true,
+                reasoningOptions: [{ type: 'effort', values: ['low', 'high', 'max'] }],
             },
         });
         expect(models[1]).toEqual({

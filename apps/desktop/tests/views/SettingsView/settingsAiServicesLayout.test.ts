@@ -352,12 +352,12 @@ describe('SettingsAiServicesSection', () => {
         expect(alertMock.success).not.toHaveBeenCalled();
     });
 
-    it('keeps upstream model metadata and overlays it after the models.dev fallback', async () => {
-        const upstreamMetadata = {
-            context_limit: 400_000,
-            output_limit: 128_000,
-            reasoning: 1,
-            reasoning_options: JSON.stringify([{ type: 'effort', values: ['low', 'max'] }]),
+    it('keeps upstream model capabilities and overlays them after the models.dev fallback', async () => {
+        const upstreamCapabilities = {
+            contextLimit: 400_000,
+            outputLimit: 128_000,
+            reasoning: true,
+            reasoningOptions: [{ type: 'effort', values: ['low', 'max'] }],
         };
         const createdProvider = {
             id: 9,
@@ -376,7 +376,7 @@ describe('SettingsAiServicesSection', () => {
             {
                 id: 'group/auto-gpt-5-6-sol',
                 name: 'group/auto-gpt-5-6-sol',
-                metadata: upstreamMetadata,
+                capabilities: upstreamCapabilities,
             },
             { id: 'qianai/plain-model', name: 'qianai/plain-model' },
         ]);
@@ -455,7 +455,20 @@ describe('SettingsAiServicesSection', () => {
         expect(queries.applyUpstreamModelMetadata).toHaveBeenCalledWith(
             {
                 providerId: 9,
-                entries: [{ model_id: 'group/auto-gpt-5-6-sol', metadata: upstreamMetadata }],
+                // provider 侧只报领域能力，列名与 JSON 序列化由持久化边界完成。
+                entries: [
+                    {
+                        model_id: 'group/auto-gpt-5-6-sol',
+                        metadata: {
+                            context_limit: 400_000,
+                            output_limit: 128_000,
+                            reasoning: 1,
+                            reasoning_options: JSON.stringify([
+                                { type: 'effort', values: ['low', 'max'] },
+                            ]),
+                        },
+                    },
+                ],
             },
             expect.anything()
         );

@@ -246,6 +246,7 @@ export type ModelUpdateData = Partial<ModelCreateData>;
 /**
  * 上游 `/v1/models` 声明的模型能力，已按数据库列格式化。
  *
+ * 由 `AgentService/infrastructure/modelMetadata/upstreamEntries` 从 provider 的领域能力映射而来。
  * 优先级：用户自定义 > 上游声明 > models.dev；字段缺省表示上游未声明，保留兜底值。
  */
 export interface UpstreamModelMetadataPatch {

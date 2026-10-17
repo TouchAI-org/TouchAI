@@ -36,6 +36,7 @@
         refreshModelMetadataIfStale,
         syncAllModelsMetadata,
     } from '@/services/AgentService/infrastructure/modelMetadata';
+    import { toUpstreamModelMetadataEntries } from '@/services/AgentService/infrastructure/modelMetadata/upstreamEntries';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     defineOptions({
@@ -624,11 +625,7 @@
                     is_default: 0,
                 }));
 
-            const upstreamMetadata = fetchedModels.flatMap((fetchedModel) =>
-                fetchedModel.metadata
-                    ? [{ model_id: fetchedModel.id, metadata: fetchedModel.metadata }]
-                    : []
-            );
+            const upstreamMetadata = toUpstreamModelMetadataEntries(fetchedModels);
 
             // 避免展示错误
             if (refreshingProviderId.value !== currentProviderId) {

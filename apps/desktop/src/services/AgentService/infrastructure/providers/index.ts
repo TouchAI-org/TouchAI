@@ -16,6 +16,7 @@ export {
 export type {
     AiProvider,
     AiProviderConfig,
+    ModelCapabilities,
     ModelInfo,
     ProviderApiTargets,
     ProviderAttachmentCapabilities,
