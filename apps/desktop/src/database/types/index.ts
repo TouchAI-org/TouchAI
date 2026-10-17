@@ -264,7 +264,7 @@ export interface UpstreamModelMetadataEntry {
     metadata: UpstreamModelMetadataPatch;
 }
 
-export interface ApplyUpstreamModelMetadataPayload {
+export interface RecordUpstreamModelMetadataPayload {
     providerId: number;
     entries: UpstreamModelMetadataEntry[];
 }

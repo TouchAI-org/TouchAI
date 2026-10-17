@@ -3,11 +3,12 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
 
-import { applyUpstreamModelMetadata } from '@database/queries/models';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { persistRefreshedModels } from '@/services/AgentService/infrastructure/modelMetadata';
 import { syncAllModelsMetadata } from '@/services/AgentService/infrastructure/modelMetadata/sync';
+import type { ModelInfo } from '@/services/AgentService/infrastructure/providers';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
     'node:sqlite'
@@ -60,15 +61,12 @@ function routeQueriesTo(database: SqliteDatabase) {
 }
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
-/** 网关模型 + 一条 models.dev 兜底：别名命中 `gpt-5-6-sol`。 */
+/** 网关 + models.dev 兜底：别名命中 `gpt-5-6-sol`，只有第一个模型能匹配上。 */
 function seedGateway(database: SqliteDatabase) {
     database.exec(`
         INSERT INTO providers (id, name, driver, api_endpoint, logo)
-        VALUES (7, 'Magpie', 'openai', 'http://127.0.0.1:3425/v1', 'openai.png');
-
-        INSERT INTO models (id, provider_id, name, model_id) VALUES
-            (1, 7, 'auto-gpt-5-6-sol', 'group/auto-gpt-5-6-sol'),
-            (2, 7, 'private-model', 'magpie/private-model');
+        VALUES (7, 'Magpie', 'openai', 'http://127.0.0.1:3425/v1', 'openai.png'),
+               (8, 'Other', 'openai', 'https://other.example.com/v1', 'openai.png');
 
         INSERT INTO llm_metadata_aliases (alias, model_id)
         VALUES ('gpt-5-6-sol', 'openai/gpt-5-6-sol');
@@ -85,129 +83,128 @@ function seedGateway(database: SqliteDatabase) {
     `);
 }
 
-function modelRow(database: SqliteDatabase, id: number) {
+function modelRow(database: SqliteDatabase, modelId: string) {
     return database
         .prepare(
-            `SELECT context_limit, output_limit, modalities, attachment, reasoning,
+            `SELECT id, context_limit, output_limit, modalities, attachment, reasoning,
                     reasoning_options, tool_call, upstream_metadata
-             FROM models WHERE id = ?`
+             FROM models WHERE model_id = ? ORDER BY id`
         )
-        .get(id) as Record<string, unknown>;
+        .get(modelId) as Record<string, unknown>;
 }
 
-describe('upstream model metadata persistence', () => {
-    it('keeps upstream declarations when the models.dev sync runs again', async () => {
+function countModels(database: SqliteDatabase, providerId: number) {
+    return Number(
+        database
+            .prepare('SELECT count(*) AS total FROM models WHERE provider_id = ?')
+            .get(providerId)?.total
+    );
+}
+
+const magpieModels: ModelInfo[] = [
+    {
+        id: 'group/auto-gpt-5-6-sol',
+        name: 'group/auto-gpt-5-6-sol',
+        capabilities: {
+            contextLimit: 400_000,
+            modalities: { input: ['text', 'image'], output: ['text'] },
+            attachment: true,
+            reasoning: false,
+        },
+    },
+    {
+        id: 'magpie/private-model',
+        name: 'magpie/private-model',
+        capabilities: {
+            contextLimit: 200_000,
+            reasoning: true,
+            reasoningOptions: [{ type: 'effort', values: ['low', 'high', 'ultra'] }],
+        },
+    },
+];
+
+describe('persistRefreshedModels', () => {
+    it('creates missing rows and keeps upstream declarations across syncs', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedGateway(database);
 
-        await syncAllModelsMetadata();
-        expect(modelRow(database, 1)).toMatchObject({
-            context_limit: 128000,
-            reasoning: 1,
-            reasoning_options: '[{"type":"effort","values":["low","high"]}]',
-            upstream_metadata: null,
-        });
+        await expect(
+            persistRefreshedModels({ providerId: 7, models: magpieModels })
+        ).resolves.toEqual({ addedCount: 2 });
 
-        await applyUpstreamModelMetadata({
-            providerId: 7,
-            entries: [
-                {
-                    model_id: 'group/auto-gpt-5-6-sol',
-                    metadata: {
-                        context_limit: 400000,
-                        modalities: '{"input":["text","image"],"output":["text"]}',
-                        attachment: 1,
-                        reasoning: 0,
-                    },
-                },
-            ],
-        });
-
-        const overlaid = modelRow(database, 1);
-        expect(overlaid).toMatchObject({
-            context_limit: 400000,
+        // 上游声明优先于 models.dev 兜底，显式 reasoning=false 连同档位一起清空。
+        expect(modelRow(database, 'group/auto-gpt-5-6-sol')).toMatchObject({
+            context_limit: 400_000,
             modalities: '{"input":["text","image"],"output":["text"]}',
             attachment: 1,
             reasoning: 0,
             reasoning_options: null,
+            // 上游没声明的字段继续用 models.dev 兜底值。
+            output_limit: 32_000,
         });
-        expect(JSON.parse(String(overlaid.upstream_metadata))).toEqual({
-            context_limit: 400000,
+        expect(
+            JSON.parse(String(modelRow(database, 'group/auto-gpt-5-6-sol').upstream_metadata))
+        ).toEqual({
+            context_limit: 400_000,
             modalities: '{"input":["text","image"],"output":["text"]}',
             attachment: 1,
             reasoning: 0,
+        });
+
+        // 没有 models.dev 命中的行同样按上游声明落列。
+        expect(modelRow(database, 'magpie/private-model')).toMatchObject({
+            context_limit: 200_000,
+            reasoning: 1,
+            reasoning_options: '[{"type":"effort","values":["low","high","ultra"]}]',
         });
 
         // 重启 / 定时刷新会重跑 models.dev 兜底，上游能力必须保留。
         await syncAllModelsMetadata();
-        expect(modelRow(database, 1)).toMatchObject({
-            context_limit: 400000,
-            modalities: '{"input":["text","image"],"output":["text"]}',
-            attachment: 1,
+        expect(modelRow(database, 'group/auto-gpt-5-6-sol')).toMatchObject({
+            context_limit: 400_000,
             reasoning: 0,
             reasoning_options: null,
         });
-    });
 
-    it('reapplies declared capabilities on rows without a models.dev match', async () => {
-        const database = openDatabase();
-        routeQueriesTo(database);
-        seedGateway(database);
-
-        const reasoningOptions = '[{"type":"effort","values":["low","high","ultra"]}]';
-        await applyUpstreamModelMetadata({
-            providerId: 7,
-            entries: [
-                {
-                    model_id: 'magpie/private-model',
-                    metadata: {
-                        context_limit: 200000,
-                        reasoning: 1,
-                        reasoning_options: reasoningOptions,
-                        tool_call: 1,
-                    },
-                },
-            ],
-        });
-
-        await syncAllModelsMetadata();
-        expect(modelRow(database, 2)).toMatchObject({
-            context_limit: 200000,
-            reasoning: 1,
-            reasoning_options: reasoningOptions,
+        // 再次刷新不会重复建行，声明保持合并且结果稳定。
+        await expect(
+            persistRefreshedModels({ providerId: 7, models: magpieModels })
+        ).resolves.toEqual({ addedCount: 0 });
+        expect(countModels(database, 7)).toBe(2);
+        expect(modelRow(database, 'magpie/private-model')).toMatchObject({
+            context_limit: 200_000,
+            reasoning_options: '[{"type":"effort","values":["low","high","ultra"]}]',
         });
     });
 
-    it('keeps earlier declarations when a later refresh only declares new fields', async () => {
+    it('leaves custom rows and other providers untouched', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedGateway(database);
+        database.exec(`
+            INSERT INTO models (id, provider_id, name, model_id, context_limit, is_custom_metadata)
+            VALUES (10, 7, 'custom', 'magpie/private-model', 5, 1),
+                   (11, 8, 'foreign', 'group/auto-gpt-5-6-sol', null, 0);
+        `);
 
-        await applyUpstreamModelMetadata({
-            providerId: 7,
-            entries: [
-                {
-                    model_id: 'group/auto-gpt-5-6-sol',
-                    metadata: { context_limit: 400000, tool_call: 1 },
-                },
-            ],
-        });
-        await applyUpstreamModelMetadata({
-            providerId: 7,
-            entries: [
-                {
-                    model_id: 'group/auto-gpt-5-6-sol',
-                    metadata: { output_limit: 200000 },
-                },
-            ],
-        });
+        await persistRefreshedModels({ providerId: 7, models: magpieModels });
 
-        await syncAllModelsMetadata();
-        expect(modelRow(database, 1)).toMatchObject({
-            context_limit: 400000,
-            output_limit: 200000,
-            tool_call: 1,
+        // 用户自定义元数据的行不记声明、不改列，也不会被当成新模型补行。
+        const customRow = database
+            .prepare('SELECT context_limit, reasoning, upstream_metadata FROM models WHERE id = 10')
+            .get() as Record<string, unknown>;
+        expect(customRow).toEqual({
+            context_limit: 5,
+            reasoning: 0,
+            upstream_metadata: null,
         });
+        expect(countModels(database, 7)).toBe(2);
+
+        // 其他服务商的同名模型行不会被记入这次上游声明，列仍由 models.dev 兜底重建。
+        const foreignRow = database
+            .prepare('SELECT context_limit, upstream_metadata FROM models WHERE id = 11')
+            .get() as Record<string, unknown>;
+        expect(foreignRow).toEqual({ context_limit: 128_000, upstream_metadata: null });
     });
 });

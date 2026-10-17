@@ -14,6 +14,7 @@ import {
 } from './store';
 
 export { buildMetadataList } from './catalog';
+export { persistRefreshedModels } from './refresh';
 export { readModelMetadataLastCheckedAt, readModelMetadataSourceEtag } from './store';
 export { syncAllModelsMetadata } from './sync';
 

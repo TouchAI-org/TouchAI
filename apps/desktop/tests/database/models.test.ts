@@ -1,4 +1,4 @@
-import { applyUpstreamModelMetadata, setDefaultModel } from '@database/queries/models';
+import { recordUpstreamModelMetadata, setDefaultModel } from '@database/queries/models';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it } from 'vitest';
@@ -60,7 +60,7 @@ describe('model database queries', () => {
         ]);
     });
 
-    it('overlays upstream metadata only onto non-custom rows of the refreshed provider', async () => {
+    it('records upstream declarations only onto non-custom rows of the refreshed provider', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {
                 return { rows: [], rowsAffected: 1, lastInsertId: null };
@@ -70,7 +70,7 @@ describe('model database queries', () => {
         });
 
         await expect(
-            applyUpstreamModelMetadata({
+            recordUpstreamModelMetadata({
                 providerId: 7,
                 entries: [
                     {
@@ -90,9 +90,8 @@ describe('model database queries', () => {
         expect(normalizedSql).toContain(
             "upstream_metadata = json_patch( COALESCE(upstream_metadata, '{}'), COALESCE(("
         );
-        expect(normalizedSql).toContain(
-            'context_limit = COALESCE(( SELECT upstream_model_metadata.context_limit FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ), context_limit)'
-        );
+        // 元数据列只由 syncAllModelsMetadata 重建，这里不重复写列。
+        expect(normalizedSql).not.toContain('context_limit =');
         expect(normalizedSql).toContain('AND is_custom_metadata = 0');
         expect(request?.params).toEqual([
             JSON.stringify([
@@ -105,7 +104,7 @@ describe('model database queries', () => {
         ]);
     });
 
-    it('skips the upstream overlay when there is nothing to write', async () => {
+    it('skips the upstream declaration when there is nothing to record', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {
                 return { rows: [], rowsAffected: 1, lastInsertId: null };
@@ -115,44 +114,9 @@ describe('model database queries', () => {
         });
 
         await expect(
-            applyUpstreamModelMetadata({ providerId: 7, entries: [] })
+            recordUpstreamModelMetadata({ providerId: 7, entries: [] })
         ).resolves.toBeUndefined();
 
         expect(getTauriInvokeCalls('database_query')).toHaveLength(0);
-    });
-
-    it('clears stale reasoning options when upstream declares no reasoning', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
-
-            return undefined;
-        });
-
-        await expect(
-            applyUpstreamModelMetadata({
-                providerId: 7,
-                entries: [
-                    {
-                        model_id: 'any/claude-fable-5-1-reversed',
-                        metadata: { reasoning: 0 },
-                    },
-                ],
-            })
-        ).resolves.toBeUndefined();
-
-        const request = getTauriInvokeCalls('database_query')
-            .map((call) => getRequest(call.payload))
-            .find((candidate) => candidate?.method === 'run');
-        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
-
-        // 显式 false 清掉兜底留下的旧档位，避免 flag 与档位冲突。
-        expect(normalizedSql).toContain(
-            'reasoning_options = CASE WHEN ( SELECT upstream_model_metadata.reasoning FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ) = 0 THEN NULL'
-        );
-        expect(normalizedSql).toContain(
-            'ELSE COALESCE(( SELECT upstream_model_metadata.reasoning_options FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ), reasoning_options) END'
-        );
     });
 });

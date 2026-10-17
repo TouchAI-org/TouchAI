@@ -7,13 +7,13 @@ import { tt } from '@/i18n';
 import { type DatabaseExecutor, db } from '../index';
 import { models, providers } from '../schema';
 import type {
-    ApplyUpstreamModelMetadataPayload,
     FindModelsWithProviderPayload,
     ModelCreateData,
     ModelEntity,
     ModelUpdateData,
     ModelWithProvider,
     ProviderModelLookupPayload,
+    RecordUpstreamModelMetadataPayload,
 } from '../types';
 
 export type { ModelWithProvider } from '../types';
@@ -205,15 +205,14 @@ export const findModelByProviderAndModelId = async ({
         .get()) as ModelWithProvider | undefined;
 
 /**
- * 用上游 `/v1/models` 自己声明的能力覆盖 models.dev 兜底值。
+ * 记下上游 `/v1/models` 声明的能力，交给 `syncAllModelsMetadata` 按
+ * 「上游 > models.dev > 已有值」统一重建模型列。
  *
- * 只写 `is_custom_metadata = 0` 且属于该 provider 的行，只覆盖上游声明过的字段。
- * 声明同时记入 `upstream_metadata`，让后续 `syncAllModelsMetadata` 在重启、刷新后
- * 仍按「上游 > 兜底」优先级重建这些列，所以调用顺序必须是先 sync 再 overlay。
- * 上游显式声明 `reasoning: false` 时，旧档位一并清空。
+ * 只写 `is_custom_metadata = 0` 且属于该 provider 的行；重复刷新按字段合并，
+ * 同名字段以最后一次声明为准。
  */
-export const applyUpstreamModelMetadata = async (
-    { providerId, entries }: ApplyUpstreamModelMetadataPayload,
+export const recordUpstreamModelMetadata = async (
+    { providerId, entries }: RecordUpstreamModelMetadataPayload,
     database: DatabaseExecutor = db
 ): Promise<void> => {
     if (entries.length === 0) {
@@ -221,18 +220,12 @@ export const applyUpstreamModelMetadata = async (
     }
 
     const payload = JSON.stringify(entries);
-    const updateSql = sql`
+
+    await database.run(sql`
         WITH upstream_model_metadata AS (
             SELECT
                 json_extract(entry.value, '$.model_id') AS model_id,
-                json_extract(entry.value, '$.metadata') AS metadata,
-                json_extract(entry.value, '$.metadata.context_limit') AS context_limit,
-                json_extract(entry.value, '$.metadata.output_limit') AS output_limit,
-                json_extract(entry.value, '$.metadata.modalities') AS modalities,
-                json_extract(entry.value, '$.metadata.attachment') AS attachment,
-                json_extract(entry.value, '$.metadata.reasoning') AS reasoning,
-                json_extract(entry.value, '$.metadata.reasoning_options') AS reasoning_options,
-                json_extract(entry.value, '$.metadata.tool_call') AS tool_call
+                json_extract(entry.value, '$.metadata') AS metadata
             FROM json_each(${payload}) AS entry
         )
         UPDATE models
@@ -245,48 +238,6 @@ export const applyUpstreamModelMetadata = async (
                     WHERE upstream_model_metadata.model_id = models.model_id
                 ), '{}')
             ),
-            context_limit = COALESCE((
-                SELECT upstream_model_metadata.context_limit
-                FROM upstream_model_metadata
-                WHERE upstream_model_metadata.model_id = models.model_id
-            ), context_limit),
-            output_limit = COALESCE((
-                SELECT upstream_model_metadata.output_limit
-                FROM upstream_model_metadata
-                WHERE upstream_model_metadata.model_id = models.model_id
-            ), output_limit),
-            modalities = COALESCE((
-                SELECT upstream_model_metadata.modalities
-                FROM upstream_model_metadata
-                WHERE upstream_model_metadata.model_id = models.model_id
-            ), modalities),
-            attachment = COALESCE((
-                SELECT upstream_model_metadata.attachment
-                FROM upstream_model_metadata
-                WHERE upstream_model_metadata.model_id = models.model_id
-            ), attachment),
-            reasoning = COALESCE((
-                SELECT upstream_model_metadata.reasoning
-                FROM upstream_model_metadata
-                WHERE upstream_model_metadata.model_id = models.model_id
-            ), reasoning),
-            reasoning_options = CASE
-                WHEN (
-                    SELECT upstream_model_metadata.reasoning
-                    FROM upstream_model_metadata
-                    WHERE upstream_model_metadata.model_id = models.model_id
-                ) = 0 THEN NULL
-                ELSE COALESCE((
-                    SELECT upstream_model_metadata.reasoning_options
-                    FROM upstream_model_metadata
-                    WHERE upstream_model_metadata.model_id = models.model_id
-                ), reasoning_options)
-            END,
-            tool_call = COALESCE((
-                SELECT upstream_model_metadata.tool_call
-                FROM upstream_model_metadata
-                WHERE upstream_model_metadata.model_id = models.model_id
-            ), tool_call),
             updated_at = datetime('now')
         WHERE provider_id = ${providerId}
           AND is_custom_metadata = 0
@@ -295,7 +246,5 @@ export const applyUpstreamModelMetadata = async (
             FROM upstream_model_metadata
             WHERE upstream_model_metadata.model_id = models.model_id
           )
-    `;
-
-    await database.run(updateSql);
+    `);
 };

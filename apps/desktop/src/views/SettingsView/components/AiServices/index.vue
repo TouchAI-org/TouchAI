@@ -8,11 +8,8 @@
     import { useAlert } from '@composables/useAlert.ts';
     import { useContextMenu } from '@composables/useContextMenu.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
-    import { db } from '@database';
     import {
-        applyUpstreamModelMetadata,
         createModel,
-        createModels,
         createProvider,
         deleteModel,
         deleteProvider,
@@ -33,10 +30,9 @@
     import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import {
+        persistRefreshedModels,
         refreshModelMetadataIfStale,
-        syncAllModelsMetadata,
     } from '@/services/AgentService/infrastructure/modelMetadata';
-    import { toUpstreamModelMetadataEntries } from '@/services/AgentService/infrastructure/modelMetadata/upstreamEntries';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     defineOptions({
@@ -611,38 +607,14 @@
                 return;
             }
 
-            const existingModels = await findModelsWithProvider({
-                providerId: provider.id,
-            });
-            const existingModelIds = new Set(existingModels.map((m) => m.model_id));
-
-            const newModels = fetchedModels
-                .filter((fetchedModel) => !existingModelIds.has(fetchedModel.id))
-                .map((fetchedModel) => ({
-                    provider_id: provider.id,
-                    name: fetchedModel.name,
-                    model_id: fetchedModel.id,
-                    is_default: 0,
-                }));
-
-            const upstreamMetadata = toUpstreamModelMetadataEntries(fetchedModels);
-
             // 避免展示错误
             if (refreshingProviderId.value !== currentProviderId) {
                 return;
             }
 
-            await db.transaction(async (tx) => {
-                if (newModels.length > 0) {
-                    await createModels(newModels, tx);
-                }
-
-                // 先写 models.dev 兜底，再叠加上游声明（同时记入 upstream_metadata）
-                await syncAllModelsMetadata(tx);
-                await applyUpstreamModelMetadata(
-                    { providerId: provider.id, entries: upstreamMetadata },
-                    tx
-                );
+            const { addedCount } = await persistRefreshedModels({
+                providerId: provider.id,
+                models: fetchedModels,
             });
 
             // 避免展示错误
@@ -653,7 +625,7 @@
             await loadModelsForProvider(currentProviderId, true); // 强制刷新缓存
             await broadcastModelsUpdated();
             if (notifications.success) {
-                alert.success(t('settings.ai.refreshModelsSucceeded', { count: newModels.length }));
+                alert.success(t('settings.ai.refreshModelsSucceeded', { count: addedCount }));
             }
         } catch (err) {
             if (refreshingProviderId.value !== currentProviderId) {

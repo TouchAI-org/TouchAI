@@ -4,9 +4,7 @@ import { beforeEach, vi } from 'vitest';
 import AiServicesSection from '@/views/SettingsView/components/AiServices/index.vue';
 
 const queries = vi.hoisted(() => ({
-    applyUpstreamModelMetadata: vi.fn(),
     createModel: vi.fn(),
-    createModels: vi.fn(),
     createProvider: vi.fn(),
     deleteModel: vi.fn(),
     deleteProvider: vi.fn(),
@@ -37,6 +35,8 @@ const llmMetadataMock = vi.hoisted(() => ({
 }));
 
 const modelMetadataMock = vi.hoisted(() => ({
+    persistRefreshedModels: vi.fn().mockResolvedValue({ addedCount: 1 }),
+    refreshModelMetadataIfStale: vi.fn().mockResolvedValue({ status: 'skipped' }),
     syncAllModelsMetadata: vi.fn().mockResolvedValue(undefined),
     updateModelMetadata: vi.fn().mockResolvedValue(undefined),
 }));
@@ -352,7 +352,7 @@ describe('SettingsAiServicesSection', () => {
         expect(alertMock.success).not.toHaveBeenCalled();
     });
 
-    it('keeps upstream model capabilities and overlays them after the models.dev fallback', async () => {
+    it('hands the refreshed model list to the persistence use case', async () => {
         const upstreamCapabilities = {
             contextLimit: 400_000,
             outputLimit: 128_000,
@@ -435,48 +435,20 @@ describe('SettingsAiServicesSection', () => {
         await wrapper.get('[data-testid="create-provider"]').trigger('click');
         await flushPromises();
 
-        expect(queries.createModels).toHaveBeenCalledWith(
-            [
+        // 视图只把抓到的模型（领域形状）交给用例，落库顺序与列形状都在服务层。
+        expect(modelMetadataMock.persistRefreshedModels).toHaveBeenCalledWith({
+            providerId: 9,
+            models: [
                 {
-                    provider_id: 9,
+                    id: 'group/auto-gpt-5-6-sol',
                     name: 'group/auto-gpt-5-6-sol',
-                    model_id: 'group/auto-gpt-5-6-sol',
-                    is_default: 0,
+                    capabilities: upstreamCapabilities,
                 },
-                {
-                    provider_id: 9,
-                    name: 'qianai/plain-model',
-                    model_id: 'qianai/plain-model',
-                    is_default: 0,
-                },
+                { id: 'qianai/plain-model', name: 'qianai/plain-model' },
             ],
-            expect.anything()
-        );
-        expect(queries.applyUpstreamModelMetadata).toHaveBeenCalledWith(
-            {
-                providerId: 9,
-                // provider 侧只报领域能力，列名与 JSON 序列化由持久化边界完成。
-                entries: [
-                    {
-                        model_id: 'group/auto-gpt-5-6-sol',
-                        metadata: {
-                            context_limit: 400_000,
-                            output_limit: 128_000,
-                            reasoning: 1,
-                            reasoning_options: JSON.stringify([
-                                { type: 'effort', values: ['low', 'max'] },
-                            ]),
-                        },
-                    },
-                ],
-            },
-            expect.anything()
-        );
-
-        // models.dev 兜底会覆盖已有值，上游声明必须在其之后叠加。
-        expect(modelMetadataMock.syncAllModelsMetadata.mock.invocationCallOrder[0]).toBeLessThan(
-            queries.applyUpstreamModelMetadata.mock.invocationCallOrder[0]!
-        );
+        });
+        // 创建服务商后的自动刷新保持静默，成功提示留给手动刷新。
+        expect(alertMock.success).not.toHaveBeenCalled();
     });
 
     it('patches the default model locally without provider list reload', async () => {

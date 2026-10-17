@@ -44,7 +44,6 @@ vi.mock('@database', () => ({
 }));
 
 vi.mock('@database/queries', () => ({
-    applyUpstreamModelMetadata: vi.fn(),
     createModel: vi.fn(),
     createModels: vi.fn(),
     createProvider: vi.fn(),
@@ -53,6 +52,7 @@ vi.mock('@database/queries', () => ({
     findAllProvidersSorted: vi.fn(async () => []),
     findDefaultModel: vi.fn(async () => null),
     findModelsWithProvider: vi.fn(async () => []),
+    recordUpstreamModelMetadata: vi.fn(),
     setDefaultModel: vi.fn(),
     updateModel: vi.fn(),
     updateProvider: vi.fn(),
@@ -85,6 +85,8 @@ vi.mock('@/services/AgentService', () => ({
 }));
 
 vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
+    persistRefreshedModels: vi.fn(async () => ({ addedCount: 0 })),
+    refreshModelMetadataIfStale: vi.fn(async () => ({ status: 'skipped' })),
     syncAllModelsMetadata: vi.fn(),
     updateModelMetadata: vi.fn(),
 }));
