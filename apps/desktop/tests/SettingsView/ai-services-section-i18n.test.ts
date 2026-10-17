@@ -54,7 +54,6 @@ vi.mock('@database/queries', () => ({
     findDefaultModel: vi.fn(async () => null),
     findModelsWithProvider: vi.fn(async () => []),
     setDefaultModel: vi.fn(),
-    syncAllModelsMetadata: vi.fn(),
     updateModel: vi.fn(),
     updateProvider: vi.fn(),
 }));
@@ -86,6 +85,7 @@ vi.mock('@/services/AgentService', () => ({
 }));
 
 vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
+    syncAllModelsMetadata: vi.fn(),
     updateModelMetadata: vi.fn(),
 }));
 

@@ -1,8 +1,4 @@
-import {
-    applyUpstreamModelMetadata,
-    setDefaultModel,
-    syncAllModelsMetadata,
-} from '@database/queries/models';
+import { applyUpstreamModelMetadata, setDefaultModel } from '@database/queries/models';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it } from 'vitest';
@@ -62,66 +58,6 @@ describe('model database queries', () => {
             [0, 1],
             [1, 211],
         ]);
-    });
-
-    it('matches runtime model ids through the alias table instead of prefix LIKE scans', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
-
-            return undefined;
-        });
-
-        await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
-
-        const request = getTauriInvokeCalls('database_query')
-            .map((call) => getRequest(call.payload))
-            .find((candidate) => candidate?.method === 'run');
-        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
-
-        expect(normalizedSql).toContain('WITH RECURSIVE candidate_model_ids');
-        expect(normalizedSql).toContain(
-            'JOIN llm_metadata_aliases AS alias_map ON alias_map.alias = candidate_model_ids.candidate'
-        );
-        expect(normalizedSql).toContain('match_depth ASC');
-        expect(normalizedSql).not.toContain('LIKE');
-    });
-
-    it('strips gateway namespaces and auto/any prefixes before alias matching', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
-
-            return undefined;
-        });
-
-        await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
-
-        const request = getTauriInvokeCalls('database_query')
-            .map((call) => getRequest(call.payload))
-            .find((candidate) => candidate?.method === 'run');
-        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
-
-        // 命名空间与前缀裁剪必须是独立的递归分支：CASE 每层只能裁一次，
-        // 否则 `workbuddy-ai/step-5-preview` 这类 id 永远走不到命名空间裁剪。
-        expect(normalizedSql).toContain(
-            "substr(candidate_model_ids.candidate, instr(candidate_model_ids.candidate, '/') + 1)"
-        );
-        expect(normalizedSql).toContain(
-            "FROM candidate_model_ids WHERE candidate_model_ids.depth < 6 AND instr(candidate_model_ids.candidate, '/') > 1"
-        );
-        expect(normalizedSql).toContain(
-            "substr(candidate_model_ids.candidate, 6), candidate_model_ids.depth + 1 FROM candidate_model_ids WHERE candidate_model_ids.depth < 6 AND candidate_model_ids.candidate GLOB 'auto-?*'"
-        );
-        expect(normalizedSql).toContain(
-            "substr(candidate_model_ids.candidate, 5), candidate_model_ids.depth + 1 FROM candidate_model_ids WHERE candidate_model_ids.depth < 6 AND candidate_model_ids.candidate GLOB 'any-?*'"
-        );
-        expect(normalizedSql).toContain('candidate_model_ids.depth < 6');
-        expect(normalizedSql).toContain(
-            "candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'"
-        );
     });
 
     it('overlays upstream metadata only onto non-custom rows of the refreshed provider', async () => {
@@ -214,29 +150,6 @@ describe('model database queries', () => {
         );
         expect(normalizedSql).toContain(
             'ELSE COALESCE(( SELECT upstream_model_metadata.reasoning_options FROM upstream_model_metadata WHERE upstream_model_metadata.model_id = models.model_id ), reasoning_options) END'
-        );
-    });
-
-    it('uses only sqlite-safe model metadata matching SQL', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
-
-            return undefined;
-        });
-
-        await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
-
-        const request = getTauriInvokeCalls('database_query')
-            .map((call) => getRequest(call.payload))
-            .find((candidate) => candidate?.method === 'run');
-        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
-
-        expect(normalizedSql).not.toContain('lower(models.model_id)');
-        expect(normalizedSql).not.toContain('length(models.model_id)');
-        expect(normalizedSql).toContain(
-            'substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate)'
         );
     });
 });

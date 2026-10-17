@@ -61,12 +61,12 @@ vi.mock('@services/AppUpdateService', () => ({
 vi.mock('@database/queries', () => ({
     isLlmMetadataAliasEmpty: isLlmMetadataAliasEmptyMock,
     isLlmMetadataEmpty: isLlmMetadataEmptyMock,
-    syncAllModelsMetadata: syncAllModelsMetadataMock,
 }));
 
 vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
     refreshModelMetadataIfStale: refreshModelMetadataIfStaleMock,
     seedModelMetadataFromSnapshot: seedModelMetadataFromSnapshotMock,
+    syncAllModelsMetadata: syncAllModelsMetadataMock,
 }));
 
 vi.mock('@/services/BuiltInToolService/service', () => ({

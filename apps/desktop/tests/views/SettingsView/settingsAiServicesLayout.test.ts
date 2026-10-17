@@ -15,7 +15,6 @@ const queries = vi.hoisted(() => ({
     findModelsWithProvider: vi.fn(),
     findProviderById: vi.fn(),
     setDefaultModel: vi.fn(),
-    syncAllModelsMetadata: vi.fn(),
     updateModel: vi.fn(),
     updateProvider: vi.fn(),
 }));
@@ -38,6 +37,7 @@ const llmMetadataMock = vi.hoisted(() => ({
 }));
 
 const modelMetadataMock = vi.hoisted(() => ({
+    syncAllModelsMetadata: vi.fn().mockResolvedValue(undefined),
     updateModelMetadata: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -462,7 +462,7 @@ describe('SettingsAiServicesSection', () => {
         );
 
         // models.dev 兜底会覆盖已有值，上游声明必须在其之后叠加。
-        expect(queries.syncAllModelsMetadata.mock.invocationCallOrder[0]).toBeLessThan(
+        expect(modelMetadataMock.syncAllModelsMetadata.mock.invocationCallOrder[0]).toBeLessThan(
             queries.applyUpstreamModelMetadata.mock.invocationCallOrder[0]!
         );
     });

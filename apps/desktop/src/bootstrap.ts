@@ -1,10 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-import {
-    isLlmMetadataAliasEmpty,
-    isLlmMetadataEmpty,
-    syncAllModelsMetadata,
-} from '@database/queries';
+import { isLlmMetadataAliasEmpty, isLlmMetadataEmpty } from '@database/queries';
 import { appUpdateService } from '@services/AppUpdateService';
 import { initializeLogger } from '@services/LoggerService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -18,6 +14,7 @@ import router from './router';
 import {
     refreshModelMetadataIfStale,
     seedModelMetadataFromSnapshot,
+    syncAllModelsMetadata,
 } from './services/AgentService/infrastructure/modelMetadata';
 import { builtInToolService } from './services/BuiltInToolService/service';
 import { prewarmBashToolRuntime } from './services/BuiltInToolService/tools/bash/helper';

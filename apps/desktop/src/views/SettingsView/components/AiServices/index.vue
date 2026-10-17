@@ -21,7 +21,6 @@
         findModelsWithProvider,
         findProviderById,
         setDefaultModel,
-        syncAllModelsMetadata,
         updateModel,
         updateProvider,
     } from '@database/queries';
@@ -33,7 +32,10 @@
 
     import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
-    import { refreshModelMetadataIfStale } from '@/services/AgentService/infrastructure/modelMetadata';
+    import {
+        refreshModelMetadataIfStale,
+        syncAllModelsMetadata,
+    } from '@/services/AgentService/infrastructure/modelMetadata';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     defineOptions({

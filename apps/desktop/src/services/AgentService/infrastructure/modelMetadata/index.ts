@@ -15,6 +15,7 @@ import {
 
 export { buildMetadataList } from './catalog';
 export { readModelMetadataLastCheckedAt, readModelMetadataSourceEtag } from './store';
+export { syncAllModelsMetadata } from './sync';
 
 const MODEL_METADATA_SOURCE_URL = 'https://models.dev/api.json';
 
