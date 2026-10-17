@@ -171,6 +171,12 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     app.manage(clipboard_runtime);
     info!("Clipboard runtime initialized.");
 
+    if crate::core::built_in_tools::prewarm_bash_runtime() {
+        info!("Built-in bash runtime prewarm completed.");
+    } else {
+        warn!("Built-in bash runtime prewarm skipped or failed.");
+    }
+
     let app_handle = app.handle().clone();
     if crate::core::system::runtime::is_e2e_test_mode() {
         info!("Skipping font initialization in E2E test mode.");

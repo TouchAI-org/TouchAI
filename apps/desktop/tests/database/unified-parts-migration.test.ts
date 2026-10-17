@@ -161,7 +161,7 @@ describe('complete parts migration', () => {
     it('rolls back the consolidated schema and backfill together on failure', () => {
         const db = new DatabaseSync(':memory:');
         db.exec('PRAGMA foreign_keys=ON');
-        applyMigrations(db, 0, 4);
+        applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
         db.exec(`
             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'rollback', 'Test', 'test');
             INSERT INTO messages (id, session_id, role, content, reasoning)
@@ -233,7 +233,7 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('preserves empty results and does not guess ambiguous legacy tool kinds', () => {
+    it('does not guess ambiguous legacy result identities', () => {
         const db = new DatabaseSync(':memory:');
         db.exec('PRAGMA foreign_keys=ON');
         applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
@@ -251,18 +251,106 @@ describe('complete parts migration', () => {
         `);
         applyMigrations(db, PARTS_MIGRATION_INDEX);
         try {
+            // Ambiguous and unmatched results keep their text as assistant content.
+            expect(db.prepare('SELECT id, role FROM messages ORDER BY id').all()).toEqual([
+                { id: 1, role: 'tool_call' },
+                { id: 2, role: 'tool_call' },
+                { id: 5, role: 'assistant' },
+                { id: 6, role: 'assistant' },
+            ]);
             expect(
                 db
                     .prepare(
-                        "SELECT message_id, content, tool_call_id, tool_kind FROM message_parts WHERE type = 'tool_result' ORDER BY message_id"
+                        "SELECT message_id, content FROM message_parts WHERE type = 'text' ORDER BY message_id"
                     )
                     .all()
             ).toEqual([
-                { message_id: 3, content: '', tool_call_id: 'builtin-call', tool_kind: 'builtin' },
-                { message_id: 4, content: '', tool_call_id: 'mcp-call', tool_kind: 'mcp' },
-                { message_id: 5, content: 'Ambiguous result', tool_call_id: null, tool_kind: null },
-                { message_id: 6, content: 'Unmatched result', tool_call_id: null, tool_kind: null },
+                { message_id: 5, content: 'Ambiguous result' },
+                { message_id: 6, content: 'Unmatched result' },
             ]);
+            // The resolved calls keep their own identity and never absorb the
+            // ambiguous row's text.
+            expect(
+                db
+                    .prepare(
+                        "SELECT tool_call_id, coalesce(json_extract(data, '$.output'), '') AS output FROM message_parts WHERE type = 'tool_call' ORDER BY id"
+                    )
+                    .all()
+            ).toEqual([
+                { tool_call_id: 'builtin-call', output: '' },
+                { tool_call_id: 'mcp-call', output: '' },
+            ]);
+            expect(
+                db
+                    .prepare(
+                        "SELECT count(*) AS count FROM message_parts WHERE type NOT IN ('text', 'tool_call', 'attachment')"
+                    )
+                    .get()?.count
+            ).toBe(0);
+            expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+        } finally {
+            db.close();
+        }
+    });
+
+    it('moves result attachments and text onto the owning tool call', () => {
+        const db = new DatabaseSync(':memory:');
+        db.exec('PRAGMA foreign_keys=ON');
+        applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
+        db.exec(`
+            INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'collapse', 'Test', 'test');
+            INSERT INTO messages (id, session_id, role, content, tool_log_id, tool_log_kind, created_at) VALUES
+                (1, 1, 'tool_call', '', 1, 'builtin', '2026-01-01 00:00:00'),
+                (2, 1, 'tool_result', 'result text', 1, 'builtin', '2026-01-01 00:00:01'),
+                (3, 1, 'tool_call', '', 2, 'builtin', '2026-01-01 00:00:02'),
+                (4, 1, 'tool_result', 'stale duplicate', 2, 'builtin', '2026-01-01 00:00:03');
+            INSERT INTO attachments (id, hash, type, original_name, origin_path)
+            VALUES (1, 'hash-1', 'file', 'one.txt', 'C:/one.txt');
+            INSERT INTO message_attachments (message_id, attachment_id, sort_order, origin_path)
+            VALUES (2, 1, 4, 'C:/one.txt');
+            INSERT INTO built_in_tool_logs
+                (id, tool_id, tool_call_id, message_id, iteration, input, output, status, approval_state, duration_ms)
+            VALUES
+                (1, 'shell', 'call-1', 1, 1, '{"command":"echo hi"}', NULL, 'success', 'approved', 12),
+                (2, 'shell', 'call-2', 3, 2, '{"command":"echo again"}', 'already stored', 'success', 'approved', 20);
+        `);
+        applyMigrations(db, PARTS_MIGRATION_INDEX);
+        try {
+            const callData = (messageId: number) =>
+                JSON.parse(
+                    String(
+                        db
+                            .prepare(
+                                "SELECT data FROM message_parts WHERE message_id = ? AND type = 'tool_call'"
+                            )
+                            .get(messageId)?.data
+                    )
+                ) as { output?: string };
+            // The unmatched result text fills the missing output...
+            expect(callData(1).output).toBe('result text');
+            // ...but a stored output is never overwritten by the duplicate row.
+            expect(callData(3).output).toBe('already stored');
+
+            expect(
+                db
+                    .prepare(
+                        "SELECT message_id, json_extract(data, '$.toolCallId') AS tool_call_id, json_extract(data, '$.toolKind') AS tool_kind, sort_order FROM message_parts WHERE type = 'attachment'"
+                    )
+                    .all()
+            ).toEqual([
+                { message_id: 1, tool_call_id: 'call-1', tool_kind: 'builtin', sort_order: 1 },
+            ]);
+            expect(db.prepare('SELECT id, role FROM messages ORDER BY id').all()).toEqual([
+                { id: 1, role: 'tool_call' },
+                { id: 3, role: 'tool_call' },
+            ]);
+            expect(
+                db
+                    .prepare(
+                        `SELECT rowid FROM message_search_fts WHERE message_search_fts MATCH '"res"' ORDER BY rowid`
+                    )
+                    .all()
+            ).toEqual([{ rowid: 1 }]);
             expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
         } finally {
             db.close();
@@ -344,20 +432,17 @@ describe('complete parts migration', () => {
                     }),
                 ])
             );
+            // The legacy result row is gone; only the resolved call remains.
+            expect(
+                db.prepare('SELECT count(*) AS count FROM messages WHERE id = 2').get()?.count
+            ).toBe(0);
             expect(
                 db
                     .prepare(
-                        'SELECT type, content, tool_call_id, tool_kind FROM message_parts WHERE message_id = 2'
+                        "SELECT count(*) AS count FROM message_parts WHERE type NOT IN ('text', 'reasoning', 'tool_call', 'attachment')"
                     )
-                    .all()
-            ).toEqual([
-                {
-                    type: 'tool_result',
-                    content: 'hi result',
-                    tool_call_id: 'call-1',
-                    tool_kind: 'builtin',
-                },
-            ]);
+                    .get()?.count
+            ).toBe(0);
             const toolData = db
                 .prepare(
                     "SELECT data FROM message_parts WHERE type = 'tool_call' AND tool_call_id = 'call-1'"
@@ -379,10 +464,11 @@ describe('complete parts migration', () => {
                     )
                     .get()?.count
             ).toBe(1);
+            // tool call + orphan-synthesized tool call; the result row was collapsed.
             expect(
                 db.prepare('SELECT count(*) AS count FROM messages WHERE session_id = 1').get()
                     ?.count
-            ).toBe(3);
+            ).toBe(2);
             expect(
                 db
                     .prepare(

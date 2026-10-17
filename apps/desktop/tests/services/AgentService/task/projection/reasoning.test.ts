@@ -161,7 +161,7 @@ describe('SessionTaskProjection interleaved reasoning', () => {
         expect(snapshot.sessionHistory[1]!.parts).toMatchObject([
             { type: 'reasoning', content: 'Plan', isStreaming: false },
             { type: 'text', content: 'Checking' },
-            { type: 'tool_call', callId: 'call-1' },
+            { type: 'tool_call', toolCall: expect.objectContaining({ id: 'call-1' }) },
             { type: 'reasoning', content: 'Review', isStreaming: false },
             { type: 'text', content: 'Answer' },
         ]);

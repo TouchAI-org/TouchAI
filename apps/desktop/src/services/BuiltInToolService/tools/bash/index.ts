@@ -1,6 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { native } from '@services/NativeService';
+import {
+    type BuiltInBashExecutionResponse,
+    type BuiltInBashOutputDelta,
+    native,
+} from '@services/NativeService';
 
 import { t, tt } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
@@ -46,6 +50,86 @@ function buildBashConversationSemantic(
     };
 }
 
+/**
+ * 流式输出合并窗口。
+ *
+ * 原生读取循环按很小的粒度推送 chunk，逐行输出的命令每秒可以产生几百个 chunk。
+ * 如果每个 chunk 都直接生成一次 `result_delta`，会话快照发布会持续克隆整段历史，
+ * 并让整棵会话树按 chunk 频率重渲染，渲染进程被占满后窗口尺寸同步等交互都会卡住。
+ * 这里以固定窗口合并 UI 可见的输出快照：先到的那次立即展示，窗口内后续 chunk 合并成一次补发。
+ */
+const STREAM_RESULT_DELTA_INTERVAL_MS = 100;
+
+interface StreamResultDeltaEmitter<TDelta> {
+    push(delta: TDelta): void;
+    flush(): void;
+    cancel(): void;
+}
+
+function createStreamResultDeltaEmitter<TDelta>(
+    emit: (delta: TDelta) => void,
+    intervalMs = STREAM_RESULT_DELTA_INTERVAL_MS
+): StreamResultDeltaEmitter<TDelta> {
+    // 使用负无穷确保首个 chunk 一定走前导发送，不受运行时钟起点影响。
+    let lastEmitAt = Number.NEGATIVE_INFINITY;
+    let pendingDelta: TDelta | null = null;
+    let trailingTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function clearTrailingTimer() {
+        if (trailingTimer === null) {
+            return;
+        }
+
+        clearTimeout(trailingTimer);
+        trailingTimer = null;
+    }
+
+    function emitPendingDelta() {
+        const delta = pendingDelta;
+        pendingDelta = null;
+        if (delta === null) {
+            return;
+        }
+
+        lastEmitAt = Date.now();
+        emit(delta);
+    }
+
+    function push(delta: TDelta) {
+        const now = Date.now();
+        if (trailingTimer === null && now - lastEmitAt >= intervalMs) {
+            lastEmitAt = now;
+            emit(delta);
+            return;
+        }
+
+        pendingDelta = delta;
+        if (trailingTimer !== null) {
+            return;
+        }
+
+        trailingTimer = setTimeout(
+            () => {
+                trailingTimer = null;
+                emitPendingDelta();
+            },
+            Math.max(0, intervalMs - (now - lastEmitAt))
+        );
+    }
+
+    return {
+        push,
+        flush: () => {
+            clearTrailingTimer();
+            emitPendingDelta();
+        },
+        cancel: () => {
+            clearTrailingTimer();
+            pendingDelta = null;
+        },
+    };
+}
+
 function throwIfCancelled(signal?: AbortSignal): void {
     if (signal?.aborted) {
         throw new AiError(AiErrorCode.REQUEST_CANCELLED);
@@ -61,7 +145,8 @@ async function executeCancelableBash(
         compactOutput?: boolean;
         rawOutput?: boolean;
     },
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onOutputDelta?: (event: BuiltInBashOutputDelta) => void
 ) {
     throwIfCancelled(signal);
 
@@ -78,7 +163,9 @@ async function executeCancelableBash(
     }
 
     try {
-        const response = await native.builtInTools.executeBash(request);
+        const response = await native.builtInTools.executeBash(request, {
+            onOutputDelta,
+        });
         if (cancelIssued || response.cancelled) {
             throw new AiError(AiErrorCode.REQUEST_CANCELLED);
         }
@@ -94,6 +181,26 @@ async function executeCancelableBash(
     } finally {
         signal?.removeEventListener('abort', handleAbort);
     }
+}
+
+function createStreamingBashResponseSnapshot(
+    commandContext: BashCommandContext,
+    outputDelta: BuiltInBashOutputDelta,
+    startedAt: number
+): BuiltInBashExecutionResponse {
+    return {
+        command: commandContext.command,
+        shell: 'powershell',
+        workingDirectory: commandContext.workingDirectory,
+        exitCode: null,
+        success: false,
+        timedOut: false,
+        cancelled: false,
+        durationMs: Date.now() - startedAt,
+        stdout: outputDelta.stdout,
+        stderr: outputDelta.stderr,
+        combinedOutput: outputDelta.combinedOutput,
+    };
 }
 
 /**
@@ -166,17 +273,48 @@ export async function executeBashTool(
             ? clampTimeoutMs(context.requestedTimeoutMs, config.timeoutMs, config.timeoutMs)
             : BASH_TOOL_TIMEOUT_DISABLED;
 
-    const response = await executeCancelableBash(
-        {
-            executionId: context.callId,
-            command: commandContext.command,
-            workingDirectory: commandContext.workingDirectory,
-            timeoutMs: effectiveTimeout,
-            compactOutput: config.compactOutput,
-            rawOutput: commandContext.rawOutput,
-        },
-        context.signal
-    );
+    const startedAt = Date.now();
+    const streamEmitter = createStreamResultDeltaEmitter<BuiltInBashOutputDelta>((outputDelta) => {
+        const snapshot = createStreamingBashResponseSnapshot(
+            commandContext,
+            outputDelta,
+            startedAt
+        );
+        context.emitToolEvent?.({
+            type: 'result_delta',
+            callId: context.callId,
+            result: formatBashToolResult(snapshot, commandContext, config.maxOutputChars),
+        });
+    });
+
+    // 只有调用方需要工具事件时才走流式 IPC；否则保留普通的一元调用，
+    // 避免无监听方时额外创建 channel 和 watchdog。
+    const onOutputDelta = context.emitToolEvent
+        ? (outputDelta: BuiltInBashOutputDelta) => {
+              streamEmitter.push(outputDelta);
+          }
+        : undefined;
+
+    let response: BuiltInBashExecutionResponse;
+    try {
+        response = await executeCancelableBash(
+            {
+                executionId: context.callId,
+                command: commandContext.command,
+                workingDirectory: commandContext.workingDirectory,
+                timeoutMs: effectiveTimeout,
+                compactOutput: config.compactOutput,
+                rawOutput: commandContext.rawOutput,
+            },
+            context.signal,
+            onOutputDelta
+        );
+    } catch (error) {
+        // 失败或取消时不再补发半成品输出，最终状态由调用方统一收尾。
+        streamEmitter.cancel();
+        throw error;
+    }
+    streamEmitter.flush();
 
     const output = response.combinedOutput.trim();
     const result = formatBashToolResult(response, commandContext, config.maxOutputChars);

@@ -4,8 +4,8 @@ CREATE TABLE `message_parts` (
 	`type` text NOT NULL,
 	`content` text NOT NULL,
 	`data` text DEFAULT '{}' NOT NULL,
-	`tool_call_id` text GENERATED ALWAYS AS (CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolCallId') END) VIRTUAL,
-	`tool_kind` text GENERATED ALWAYS AS (CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolKind') END) VIRTUAL,
+	`tool_call_id` text GENERATED ALWAYS AS (CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$.toolCallId') END) VIRTUAL,
+	`tool_kind` text GENERATED ALWAYS AS (CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$.toolKind') END) VIRTUAL,
 	`attachment_id` integer GENERATED ALWAYS AS (CASE WHEN "type" = 'attachment' THEN json_extract("data", '$.attachmentId') END) VIRTUAL,
 	`started_at` integer,
 	`ended_at` integer,
@@ -96,38 +96,6 @@ SELECT
 FROM built_in_tool_logs AS logs;
 --> statement-breakpoint
 
--- Result bodies were migrated as text by the previous migration. Preserve their
--- identity before deleting the old message references. Missing kinds are only
--- resolved when the legacy numeric ID identifies exactly one source.
-CREATE TEMP TABLE `_legacy_tool_results` AS
-SELECT messages.id AS message_id,
-       CASE WHEN COUNT(sources.legacy_id) = 1 THEN MAX(sources.tool_call_id) END AS tool_call_id,
-       CASE WHEN COUNT(sources.legacy_id) = 1 THEN MAX(sources.tool_kind) END AS tool_kind
-FROM messages
-LEFT JOIN _legacy_tool_sources AS sources
-  ON sources.legacy_id = messages.tool_log_id
- AND (sources.tool_kind = messages.tool_log_kind OR messages.tool_log_kind IS NULL)
-WHERE messages.role = 'tool_result'
-GROUP BY messages.id;
---> statement-breakpoint
-UPDATE message_parts
-SET type = 'tool_result',
-    data = json_set(data,
-        '$.toolCallId', (SELECT tool_call_id FROM _legacy_tool_results WHERE message_id = message_parts.message_id),
-        '$.toolKind', (SELECT tool_kind FROM _legacy_tool_results WHERE message_id = message_parts.message_id))
-WHERE type = 'text' AND message_id IN (SELECT message_id FROM _legacy_tool_results);
---> statement-breakpoint
-INSERT INTO message_parts (message_id, type, content, data, sort_order, created_at, updated_at)
-SELECT results.message_id, 'tool_result', '', json_object('toolCallId', results.tool_call_id, 'toolKind', results.tool_kind),
-       COALESCE((SELECT MAX(sort_order) + 1 FROM message_parts WHERE message_id = results.message_id), 0),
-       messages.created_at, messages.updated_at
-FROM _legacy_tool_results AS results
-JOIN messages ON messages.id = results.message_id
-WHERE NOT EXISTS (SELECT 1 FROM message_parts WHERE message_id = results.message_id AND type = 'tool_result');
---> statement-breakpoint
-DROP TABLE _legacy_tool_results;
---> statement-breakpoint
-
 INSERT OR IGNORE INTO sessions (
     session_id, title, model, archived_at, created_at, updated_at
 )
@@ -216,8 +184,6 @@ DROP TABLE temp._legacy_tool_sources_resolved;
 --> statement-breakpoint
 DROP TABLE temp._legacy_orphan_tool_messages;
 --> statement-breakpoint
-DROP TABLE temp._legacy_tool_sources;
---> statement-breakpoint
 
 CREATE TEMP TABLE `_legacy_attachment_sources` AS
 SELECT
@@ -255,6 +221,186 @@ FROM _legacy_attachment_sources AS source;
 --> statement-breakpoint
 DROP TABLE temp._legacy_attachment_sources;
 --> statement-breakpoint
+
+-- Collapse legacy tool_result messages into the tool call that produced them.
+--
+-- A tool_call part already carries the full execution state in `data`
+-- (input/output/status/duration/error), so the separate tool_result message was
+-- a duplicate. Result text and attachments move onto the owning call; results
+-- that cannot be matched keep their text as assistant content instead of being
+-- silently dropped, and the leftover rows are deleted.
+--
+-- Identity comes from the legacy numeric log reference, and only resolves when
+-- the referenced log identifies exactly one tool source. Ambiguous results stay
+-- unresolved rather than being guessed from execution order.
+CREATE TEMP TABLE `_legacy_tool_result_targets` AS
+SELECT
+    messages.id AS result_message_id,
+    (
+        SELECT CASE WHEN COUNT(sources.legacy_id) = 1 THEN MAX(sources.tool_call_id) END
+        FROM _legacy_tool_sources AS sources
+        WHERE sources.legacy_id = messages.tool_log_id
+          AND (sources.tool_kind = messages.tool_log_kind OR messages.tool_log_kind IS NULL)
+    ) AS tool_call_id,
+    (
+        SELECT CASE WHEN COUNT(sources.legacy_id) = 1 THEN MAX(sources.tool_kind) END
+        FROM _legacy_tool_sources AS sources
+        WHERE sources.legacy_id = messages.tool_log_id
+          AND (sources.tool_kind = messages.tool_log_kind OR messages.tool_log_kind IS NULL)
+    ) AS tool_kind,
+    coalesce(
+        (
+            SELECT group_concat(content, '') FROM (
+                SELECT content FROM message_parts
+                WHERE message_id = messages.id AND type = 'text'
+                ORDER BY sort_order, id
+            )
+        ),
+        ''
+    ) AS result_content
+FROM messages
+WHERE messages.role = 'tool_result';
+--> statement-breakpoint
+
+CREATE TEMP TABLE `_legacy_tool_result_resolved` AS
+SELECT
+    target.result_message_id,
+    target.result_content,
+    target.tool_call_id,
+    target.tool_kind,
+    (
+        SELECT call_part.id
+        FROM message_parts AS call_part
+        INNER JOIN messages AS call_message ON call_message.id = call_part.message_id
+        WHERE call_part.type = 'tool_call'
+          AND call_part.tool_call_id = target.tool_call_id
+          AND call_part.tool_kind = target.tool_kind
+          AND call_message.session_id = result_message.session_id
+          AND call_message.id <= target.result_message_id
+        ORDER BY call_message.id DESC, call_part.sort_order DESC, call_part.id DESC
+        LIMIT 1
+    ) AS call_part_id
+FROM _legacy_tool_result_targets AS target
+INNER JOIN messages AS result_message ON result_message.id = target.result_message_id;
+--> statement-breakpoint
+
+-- Result text becomes the tool call output when the log update never landed.
+UPDATE message_parts
+SET data = json_set(data, '$.output', (
+        SELECT resolved.result_content
+        FROM _legacy_tool_result_resolved AS resolved
+        WHERE resolved.call_part_id = message_parts.id
+    )),
+    updated_at = datetime('now')
+WHERE id IN (SELECT call_part_id FROM _legacy_tool_result_resolved WHERE call_part_id IS NOT NULL)
+  AND coalesce(json_extract(data, '$.output'), '') = '';
+--> statement-breakpoint
+
+-- Attachments belong to the tool call that produced them. Keep the part row
+-- (and its attachment_id foreign key) but move it under the tool call message
+-- and tag it with the owning call identity.
+CREATE TEMP TABLE `_legacy_tool_result_attachments` AS
+SELECT
+    attachment_part.id AS part_id,
+    call_part.message_id AS target_message_id,
+    resolved.tool_call_id AS tool_call_id,
+    resolved.tool_kind AS tool_kind,
+    ROW_NUMBER() OVER (
+        PARTITION BY call_part.message_id
+        ORDER BY resolved.result_message_id, attachment_part.sort_order, attachment_part.id
+    ) AS attachment_index
+FROM message_parts AS attachment_part
+INNER JOIN _legacy_tool_result_resolved AS resolved
+    ON resolved.result_message_id = attachment_part.message_id
+   AND resolved.call_part_id IS NOT NULL
+INNER JOIN message_parts AS call_part ON call_part.id = resolved.call_part_id
+WHERE attachment_part.type = 'attachment';
+--> statement-breakpoint
+
+CREATE TEMP TABLE `_legacy_tool_result_attachment_orders` AS
+SELECT
+    moved.part_id,
+    moved.target_message_id,
+    moved.tool_call_id,
+    moved.tool_kind,
+    coalesce(
+        (
+            SELECT max(existing.sort_order)
+            FROM message_parts AS existing
+            WHERE existing.message_id = moved.target_message_id
+        ),
+        -1
+    ) + moved.attachment_index AS new_sort_order
+FROM _legacy_tool_result_attachments AS moved;
+--> statement-breakpoint
+
+UPDATE message_parts
+SET message_id = (
+        SELECT orders.target_message_id
+        FROM _legacy_tool_result_attachment_orders AS orders
+        WHERE orders.part_id = message_parts.id
+    ),
+    sort_order = (
+        SELECT orders.new_sort_order
+        FROM _legacy_tool_result_attachment_orders AS orders
+        WHERE orders.part_id = message_parts.id
+    ),
+    data = json_set(
+        data,
+        '$.toolCallId',
+        (
+            SELECT orders.tool_call_id
+            FROM _legacy_tool_result_attachment_orders AS orders
+            WHERE orders.part_id = message_parts.id
+        ),
+        '$.toolKind',
+        (
+            SELECT orders.tool_kind
+            FROM _legacy_tool_result_attachment_orders AS orders
+            WHERE orders.part_id = message_parts.id
+        )
+    ),
+    updated_at = datetime('now')
+WHERE id IN (SELECT part_id FROM _legacy_tool_result_attachment_orders);
+--> statement-breakpoint
+
+DROP TABLE `_legacy_tool_result_attachment_orders`;
+--> statement-breakpoint
+DROP TABLE `_legacy_tool_result_attachments`;
+--> statement-breakpoint
+
+-- Unmatched results have no tool call to attach to. Preserve their text as
+-- assistant content instead of silently dropping the only copy of the output.
+UPDATE messages
+SET role = 'assistant',
+    updated_at = datetime('now')
+WHERE id IN (
+    SELECT result_message_id
+    FROM _legacy_tool_result_resolved
+    WHERE call_part_id IS NULL
+);
+--> statement-breakpoint
+
+-- Matched results are now fully represented by the tool call part.
+DELETE FROM messages
+WHERE id IN (
+    SELECT result_message_id
+    FROM _legacy_tool_result_resolved
+    WHERE call_part_id IS NOT NULL
+);
+--> statement-breakpoint
+
+-- Safety net for legacy rows that never carried a result body.
+DELETE FROM messages WHERE role = 'tool_result';
+--> statement-breakpoint
+
+DROP TABLE `_legacy_tool_result_resolved`;
+--> statement-breakpoint
+DROP TABLE `_legacy_tool_result_targets`;
+--> statement-breakpoint
+DROP TABLE temp._legacy_tool_sources;
+--> statement-breakpoint
+
 DROP TABLE `built_in_tool_logs`;
 --> statement-breakpoint
 DROP TABLE `mcp_tool_logs`;
@@ -282,70 +428,94 @@ BEGIN
     DELETE FROM message_search_fts WHERE rowid = OLD.id;
 END;
 --> statement-breakpoint
+--> statement-breakpoint
 CREATE TRIGGER trg_message_parts_search_insert
 AFTER INSERT ON message_parts
-WHEN NEW.type IN ('text', 'tool_result')
+WHEN NEW.type IN ('text', 'tool_call')
 BEGIN
     INSERT OR REPLACE INTO message_search_fts(rowid, content)
     SELECT messages.id, (
         SELECT group_concat(content, '') FROM (
-            SELECT content FROM message_parts
-            WHERE message_id = messages.id AND type IN ('text', 'tool_result')
+            SELECT CASE
+                       WHEN type = 'text' THEN content
+                       ELSE coalesce(json_extract(data, '$.output'), '')
+                   END AS content
+            FROM message_parts
+            WHERE message_id = messages.id AND type IN ('text', 'tool_call')
             ORDER BY sort_order, id
         )
     )
     FROM messages
     WHERE messages.id IN (NEW.message_id)
-      AND EXISTS (SELECT 1 FROM message_parts WHERE message_id = messages.id AND type IN ('text', 'tool_result'));
+      AND EXISTS (SELECT 1 FROM message_parts WHERE message_id = messages.id AND type IN ('text', 'tool_call'));
 END;
 --> statement-breakpoint
+
 CREATE TRIGGER trg_message_parts_search_delete
 AFTER DELETE ON message_parts
-WHEN OLD.type IN ('text', 'tool_result')
+WHEN OLD.type IN ('text', 'tool_call')
 BEGIN
     DELETE FROM message_search_fts WHERE rowid = OLD.message_id;
     INSERT OR REPLACE INTO message_search_fts(rowid, content)
     SELECT messages.id, (
         SELECT group_concat(content, '') FROM (
-            SELECT content FROM message_parts
-            WHERE message_id = messages.id AND type IN ('text', 'tool_result')
+            SELECT CASE
+                       WHEN type = 'text' THEN content
+                       ELSE coalesce(json_extract(data, '$.output'), '')
+                   END AS content
+            FROM message_parts
+            WHERE message_id = messages.id AND type IN ('text', 'tool_call')
             ORDER BY sort_order, id
         )
     )
     FROM messages
     WHERE messages.id IN (OLD.message_id)
-      AND EXISTS (SELECT 1 FROM message_parts WHERE message_id = messages.id AND type IN ('text', 'tool_result'));
+      AND EXISTS (SELECT 1 FROM message_parts WHERE message_id = messages.id AND type IN ('text', 'tool_call'));
 END;
 --> statement-breakpoint
+
 CREATE TRIGGER trg_message_parts_search_update
-AFTER UPDATE OF message_id, type, content, sort_order ON message_parts
-WHEN (OLD.type IN ('text', 'tool_result') OR NEW.type IN ('text', 'tool_result'))
+AFTER UPDATE OF message_id, type, content, data, sort_order ON message_parts
+WHEN (OLD.type IN ('text', 'tool_call') OR NEW.type IN ('text', 'tool_call'))
  AND (OLD.message_id <> NEW.message_id OR OLD.type <> NEW.type
-      OR OLD.content <> NEW.content OR OLD.sort_order <> NEW.sort_order)
+      OR OLD.content <> NEW.content OR OLD.data <> NEW.data OR OLD.sort_order <> NEW.sort_order)
 BEGIN
     DELETE FROM message_search_fts WHERE rowid IN (OLD.message_id, NEW.message_id);
     INSERT OR REPLACE INTO message_search_fts(rowid, content)
     SELECT messages.id, (
         SELECT group_concat(content, '') FROM (
-            SELECT content FROM message_parts
-            WHERE message_id = messages.id AND type IN ('text', 'tool_result')
+            SELECT CASE
+                       WHEN type = 'text' THEN content
+                       ELSE coalesce(json_extract(data, '$.output'), '')
+                   END AS content
+            FROM message_parts
+            WHERE message_id = messages.id AND type IN ('text', 'tool_call')
             ORDER BY sort_order, id
         )
     )
     FROM messages
     WHERE messages.id IN (OLD.message_id, NEW.message_id)
-      AND EXISTS (SELECT 1 FROM message_parts WHERE message_id = messages.id AND type IN ('text', 'tool_result'));
+      AND EXISTS (SELECT 1 FROM message_parts WHERE message_id = messages.id AND type IN ('text', 'tool_call'));
 END;
+--> statement-breakpoint
+
+DELETE FROM message_search_fts;
 --> statement-breakpoint
 INSERT INTO message_search_fts(rowid, content)
 SELECT message_id, group_concat(content, '')
 FROM (
-    SELECT message_id, content FROM message_parts
-    WHERE type IN ('text', 'tool_result')
+    SELECT
+        message_id,
+        CASE
+            WHEN type = 'text' THEN content
+            ELSE coalesce(json_extract(data, '$.output'), '')
+        END AS content
+    FROM message_parts
+    WHERE type IN ('text', 'tool_call')
     ORDER BY message_id, sort_order, id
 )
 GROUP BY message_id;
---> statement-breakpoint
+
 -- Keep execution controls and output boundaries, not another copy of the transcript.
 UPDATE session_turn_attempts
 SET checkpoint_json = CASE WHEN json_valid(checkpoint_json) AND (

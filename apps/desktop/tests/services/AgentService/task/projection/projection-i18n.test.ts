@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '@/i18n';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
 import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
+import { selectToolCalls } from '@/utils/session';
 
 function createSnapshot(): SessionTaskSnapshot {
     return {
@@ -188,7 +189,8 @@ describe('SessionTaskProjection i18n statuses', () => {
             },
         });
 
-        expect(snapshot.sessionHistory[1]?.toolCalls?.[0]).toMatchObject({
+        const projectedMessage = snapshot.sessionHistory[1];
+        expect(projectedMessage ? selectToolCalls(projectedMessage)[0] : undefined).toMatchObject({
             status: 'completed',
             builtinConversationSemantic: {
                 action: 'search',

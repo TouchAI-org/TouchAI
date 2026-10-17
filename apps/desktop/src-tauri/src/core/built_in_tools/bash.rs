@@ -10,15 +10,21 @@ use std::process::{ExitStatus, Stdio};
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 
+use tauri::ipc::Channel;
 #[cfg(target_os = "windows")]
 use tokio::process::Command;
 #[cfg(target_os = "windows")]
 use tokio::time;
 
 #[cfg(target_os = "windows")]
-use super::process_utils::{combine_output, read_stream, resolve_timeout_ms, terminate_child};
+use super::process_utils::{
+    combine_output, read_stream_with_progress, resolve_timeout_ms, terminate_child,
+};
 use super::registry::BashExecutionRegistry;
-use super::types::{BuiltInBashExecutionRequest, BuiltInBashExecutionResponse};
+use super::types::{
+    BuiltInBashExecutionRequest, BuiltInBashExecutionResponse, BuiltInBashStreamChannel,
+    BuiltInBashStreamChunk,
+};
 #[cfg(target_os = "windows")]
 use crate::core::system::bundled::get_bundled_rtk_directory;
 
@@ -40,15 +46,16 @@ const UTF8_POWERSHELL_PRELUDE: &str =
 pub async fn execute_bash(
     request: BuiltInBashExecutionRequest,
     registry: &BashExecutionRegistry,
+    stream: Option<Channel<BuiltInBashStreamChunk>>,
 ) -> Result<BuiltInBashExecutionResponse, String> {
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (request, registry);
+        let _ = (request, registry, stream);
         return Err("Built-in Bash tool is only available on Windows".to_string());
     }
 
     #[cfg(target_os = "windows")]
-    execute_bash_windows(request, registry).await
+    execute_bash_windows(request, registry, stream).await
 }
 
 /// 构建 PATH 前缀脚本：如果 bundled rtk 可用，将其目录追加到 PATH 最前面。
@@ -101,6 +108,7 @@ async fn try_rtk_rewrite(command: &str) -> Option<String> {
 async fn execute_bash_windows(
     request: BuiltInBashExecutionRequest,
     registry: &BashExecutionRegistry,
+    stream: Option<Channel<BuiltInBashStreamChunk>>,
 ) -> Result<BuiltInBashExecutionResponse, String> {
     let trimmed_command = request.command.trim();
     if trimmed_command.is_empty() {
@@ -169,8 +177,36 @@ async fn execute_bash_windows(
 
     // 先把 stdout/stderr 读取任务接管出去，再等待子进程结束。
     // 这样可以避免大输出量时，子进程因为管道缓冲区写满而卡死在 wait 前。
-    let stdout_task = tokio::spawn(read_stream(stdout));
-    let stderr_task = tokio::spawn(read_stream(stderr));
+    let stdout_task = {
+        let execution_id = execution_id.clone();
+        let stream = stream.clone();
+        tokio::spawn(async move {
+            read_stream_with_progress(stdout, |chunk| {
+                emit_bash_stream_chunk(
+                    stream.as_ref(),
+                    &execution_id,
+                    BuiltInBashStreamChannel::Stdout,
+                    chunk,
+                )
+            })
+            .await
+        })
+    };
+    let stderr_task = {
+        let execution_id = execution_id.clone();
+        let stream = stream.clone();
+        tokio::spawn(async move {
+            read_stream_with_progress(stderr, |chunk| {
+                emit_bash_stream_chunk(
+                    stream.as_ref(),
+                    &execution_id,
+                    BuiltInBashStreamChannel::Stderr,
+                    chunk,
+                )
+            })
+            .await
+        })
+    };
     // `None` 表示用户显式关闭超时（配置为 0）：只保留取消分支，
     // 命令要么自己结束，要么由用户取消。
     let timeout = async {
@@ -263,5 +299,112 @@ fn build_powershell_command_script(command: &str) -> String {
         format!("{}\n{}", UTF8_POWERSHELL_PRELUDE, command)
     } else {
         format!("{}\n{}\n{}", UTF8_POWERSHELL_PRELUDE, path_prelude, command)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn emit_bash_stream_chunk(
+    output_channel: Option<&Channel<BuiltInBashStreamChunk>>,
+    execution_id: &str,
+    stream: BuiltInBashStreamChannel,
+    chunk: &str,
+) -> Result<(), String> {
+    if let Some(channel) = output_channel {
+        channel
+            .send(BuiltInBashStreamChunk {
+                execution_id: execution_id.to_string(),
+                stream,
+                chunk: chunk.to_string(),
+            })
+            .map_err(|error| format!("Failed to send bash stream chunk: {error}"))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use tauri::ipc::{Channel, InvokeResponseBody};
+
+    fn capture_stream_chunks(
+        captured_chunks: Arc<Mutex<Vec<BuiltInBashStreamChunk>>>,
+    ) -> Channel<BuiltInBashStreamChunk> {
+        Channel::new(move |body: InvokeResponseBody| {
+            let chunk = body.deserialize::<BuiltInBashStreamChunk>()?;
+            captured_chunks
+                .lock()
+                .expect("captured_chunks mutex poisoned")
+                .push(chunk);
+            Ok(())
+        })
+    }
+
+    #[tokio::test]
+    async fn streams_stdout_and_stderr_chunks_through_ipc_channel() {
+        let registry = BashExecutionRegistry::new();
+        let captured_chunks = Arc::new(Mutex::new(Vec::new()));
+        let request = BuiltInBashExecutionRequest {
+            execution_id: "exec-stream-rust".to_string(),
+            command: "Write-Output 'alpha'; [Console]::Error.WriteLine('beta')".to_string(),
+            working_directory: None,
+            timeout_ms: Some(5_000),
+            compact_output: false,
+            raw_output: false,
+        };
+
+        let response = execute_bash(
+            request,
+            &registry,
+            Some(capture_stream_chunks(Arc::clone(&captured_chunks))),
+        )
+        .await
+        .expect("bash execution should succeed");
+
+        let chunks = captured_chunks
+            .lock()
+            .expect("captured_chunks mutex poisoned")
+            .clone();
+        let stdout_chunks: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| matches!(chunk.stream, BuiltInBashStreamChannel::Stdout))
+            .map(|chunk| chunk.chunk.clone())
+            .collect();
+        let stderr_chunks: Vec<_> = chunks
+            .iter()
+            .filter(|chunk| matches!(chunk.stream, BuiltInBashStreamChannel::Stderr))
+            .map(|chunk| chunk.chunk.clone())
+            .collect();
+
+        assert!(response.success);
+        assert_eq!(response.combined_output, "STDOUT:\nalpha\n\nSTDERR:\nbeta");
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.execution_id == "exec-stream-rust"));
+        assert_eq!(stdout_chunks.concat().trim(), "alpha");
+        assert_eq!(stderr_chunks.concat().trim(), "beta");
+    }
+
+    #[tokio::test]
+    async fn executes_successfully_without_a_stream_channel() {
+        let registry = BashExecutionRegistry::new();
+        let request = BuiltInBashExecutionRequest {
+            execution_id: "exec-no-stream".to_string(),
+            command: "Write-Output 'alpha'".to_string(),
+            working_directory: None,
+            timeout_ms: Some(5_000),
+            compact_output: false,
+            raw_output: false,
+        };
+
+        let response = execute_bash(request, &registry, None)
+            .await
+            .expect("bash execution without a stream channel should succeed");
+
+        assert!(response.success);
+        assert_eq!(response.stdout, "alpha");
+        assert_eq!(response.stderr, "");
+        assert_eq!(response.combined_output, "alpha");
     }
 }

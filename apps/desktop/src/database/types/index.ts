@@ -114,6 +114,9 @@ export interface MessageAttachmentCreateData {
     message_id: number;
     attachment_id: number;
     origin_path: string;
+    /** 工具结果附件的归属工具调用；用户附件留空。 */
+    tool_call_id?: string | null;
+    tool_kind?: string | null;
     created_at?: string;
 }
 

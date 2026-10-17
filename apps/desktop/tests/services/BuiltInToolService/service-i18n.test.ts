@@ -20,6 +20,10 @@ const {
         description: 'Setting tool',
         inputSchema: { type: 'object', properties: {} },
         parseConfig: vi.fn(() => ({})),
+        buildConversationSemantic: vi.fn(() => ({
+            action: 'process',
+            target: 'Setting',
+        })),
         buildConversationSemanticWithContext: vi.fn(() => ({
             action: 'process',
             target: 'Setting',

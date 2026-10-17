@@ -1,4 +1,5 @@
 import type { SessionMessage } from '@/types/session';
+import { selectToolCalls } from '@/utils/session';
 
 interface LatestCompletedMessageMarkerParts {
     sessionId: number;
@@ -24,10 +25,8 @@ export interface SearchAutoShrinkEligibilityInput {
 }
 
 function hasPendingToolCalls(message: SessionMessage): boolean {
-    return (
-        message.toolCalls?.some(
-            (toolCall) => toolCall.status === 'executing' || toolCall.status === 'awaiting_approval'
-        ) ?? false
+    return selectToolCalls(message).some(
+        (toolCall) => toolCall.status === 'executing' || toolCall.status === 'awaiting_approval'
     );
 }
 
@@ -89,7 +88,7 @@ function buildLatestCompletedMessageMarkerParts(
         parts: message.parts.map((part) => {
             switch (part.type) {
                 case 'tool_call':
-                    return `${part.type}:${part.id}:${part.callId}`;
+                    return `${part.type}:${part.id}:${part.toolCall.id}`;
                 case 'approval':
                     return `${part.type}:${part.id}:${part.callId}`;
                 case 'widget':
@@ -98,10 +97,9 @@ function buildLatestCompletedMessageMarkerParts(
                     return `${part.type}:${part.id}:${part.content}`;
             }
         }),
-        toolCalls:
-            message.toolCalls?.map(
-                (toolCall) => `${toolCall.id}:${toolCall.status}:${toolCall.result}`
-            ) ?? [],
+        toolCalls: selectToolCalls(message).map(
+            (toolCall) => `${toolCall.id}:${toolCall.status}:${toolCall.result}`
+        ),
         approvals: message.approvals?.map((approval) => `${approval.id}:${approval.status}`) ?? [],
         widgets: message.widgets?.map((widget) => `${widget.id}:${widget.updatedAt}`) ?? [],
     };

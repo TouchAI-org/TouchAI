@@ -5,11 +5,7 @@ import { getMessageText } from '@database/queries/messageParts';
 import type { MessageRow } from '@database/queries/messages';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
-import {
-    getToolCallName,
-    readToolCallData,
-    type ToolCallPartData,
-} from '@database/queries/toolParts';
+import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type { PersistedToolLogStatus } from '@database/schema';
 import type { MessagePartEntity } from '@database/types';
 
@@ -31,7 +27,12 @@ import {
     type WidgetInfo,
 } from '@/types/session';
 import { parseDbDateTimestamp } from '@/utils/date';
-import { createReasoningPart, createTextPart } from '@/utils/session';
+import {
+    createReasoningPart,
+    createTextPart,
+    createToolCallPart,
+    selectToolCalls,
+} from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
 import { AiError } from '../contracts/errors';
@@ -243,6 +244,8 @@ async function buildPersistedEntries(
                         const serverId = data.toolKind === 'mcp' ? data.server_id : null;
                         const serverName =
                             serverId === null ? undefined : resolveServerName(serverId);
+                        const resultText =
+                            typeof data.output === 'string' ? data.output : undefined;
                         const call: ToolCallInfo = {
                             id: data.toolCallId,
                             name: normalizeDisplayName(namespacedName),
@@ -259,7 +262,17 @@ async function buildPersistedEntries(
                                           data.conversation_semantic_json
                                       )
                                     : undefined,
-                            status: 'executing',
+                            status: mapPersistedToolResultStatus(
+                                data.status ?? null,
+                                resultText ?? ''
+                            ),
+                            result: resultText,
+                            isError: isPersistedToolResultErrorStatus(
+                                data.status ?? null,
+                                resultText ?? ''
+                            ),
+                            durationMs: data.duration_ms ?? undefined,
+                            startedAt: parseDbDateTimestamp(part.created_at ?? row.created_at),
                         };
                         syncBuiltInToolCallPresentation(call);
                         return call;
@@ -276,8 +289,8 @@ async function buildPersistedEntries(
  * 规则：
  * - `user` 行始终单独保留；
  * - 同一个 `user` 之后直到下一个 `user` 之前的非 user 行，合并成一个 assistant message；
- * - `tool_call` 的文本与最终 assistant 文本都按原始顺序放回 parts；
- * - `tool_result` 不额外渲染，而是回写到对应 toolCall 的执行结果里。
+ * - `tool_call` 行里的文本、推理和工具调用都按原始顺序放回 parts；
+ * - 工具结果直接来自 tool_call 片段自身的 data.output，不再有独立结果行。
  *
  * @param entries 已聚合的持久化历史记录。
  * @returns UI 可直接消费的对话历史。
@@ -314,9 +327,6 @@ function convertEntriesToSessionHistory(
     const historyIndexByPersistedMessageId = new Map<number, number>();
     let activeAssistantMessage: SessionMessage | null = null;
     let activeAssistantEntryIds: number[] = [];
-    let toolCallMap = new Map<string, ToolCallInfo>();
-    let toolCallDataMap = new Map<string, ToolCallPartData>();
-    let pendingToolResultFallbacks: string[] = [];
     const widgetsByCallId = new Map<string, WidgetTarget>();
     const widgetsByWidgetId = new Map<string, WidgetTarget>();
     const widgetLookups: WidgetTargetLookups = {
@@ -347,15 +357,6 @@ function convertEntriesToSessionHistory(
             return;
         }
 
-        // 历史库里存在一类残缺记录：只落了 tool_result，或 tool_call/tool_result 落库了，
-        // 但最终 assistant 文本没有成功持久化。此时如果不把 tool_result 回退成文本，
-        // 历史恢复后就只剩首条 prompt，因此只要 assistant 正文为空就把可见结果补回去。
-        if (!activeAssistantMessage.content.trim() && pendingToolResultFallbacks.length > 0) {
-            const fallbackText = pendingToolResultFallbacks.join('\n\n');
-            activeAssistantMessage.content = fallbackText;
-            activeAssistantMessage.parts.push(createTextPart(fallbackText));
-        }
-
         const historyIndex = history.length;
         history.push(activeAssistantMessage);
         for (const entryId of activeAssistantEntryIds) {
@@ -363,9 +364,6 @@ function convertEntriesToSessionHistory(
         }
         activeAssistantMessage = null;
         activeAssistantEntryIds = [];
-        toolCallMap = new Map<string, ToolCallInfo>();
-        toolCallDataMap = new Map<string, ToolCallPartData>();
-        pendingToolResultFallbacks = [];
     };
 
     const ensureAssistantMessage = (entry: PersistedHistoryEntry): SessionMessage => {
@@ -506,50 +504,11 @@ function convertEntriesToSessionHistory(
         }
 
         if (entry.role === 'tool_call' && entry.toolCalls?.length) {
-            assistantMessage.toolCalls = assistantMessage.toolCalls ?? [];
-
             for (const toolCall of entry.toolCalls) {
-                assistantMessage.toolCalls.push(toolCall);
                 if (toolCall.namespacedName !== SHOW_WIDGET_TOOL_NAME) {
-                    assistantMessage.parts.push({
-                        id: crypto.randomUUID(),
-                        type: 'tool_call',
-                        callId: toolCall.id,
-                    });
+                    assistantMessage.parts.push(createToolCallPart(toolCall));
                 }
-                const key = `${toolCall.source}:${toolCall.id}`;
-                toolCallMap.set(key, toolCall);
-                const callPart = entry.parts.find(
-                    (part) =>
-                        part.type === 'tool_call' &&
-                        part.tool_kind === toolCall.source &&
-                        part.tool_call_id === toolCall.id
-                );
-                if (callPart?.type === 'tool_call') {
-                    toolCallDataMap.set(key, readToolCallData(callPart));
-                }
-            }
-        }
 
-        if (entry.role === 'tool_result') {
-            const resultPart = entry.parts.find((part) => part.type === 'tool_result');
-            const resultText = getMessageText(entry.parts);
-            const resultKey =
-                resultPart?.tool_kind && resultPart.tool_call_id
-                    ? `${resultPart.tool_kind}:${resultPart.tool_call_id}`
-                    : null;
-            const toolCall = resultKey ? toolCallMap.get(resultKey) : undefined;
-            const callData = resultKey ? toolCallDataMap.get(resultKey) : undefined;
-            if (toolCall) {
-                const status = mapPersistedToolResultStatus(callData?.status ?? null, resultText);
-                toolCall.result = resultText;
-                toolCall.status = status;
-                toolCall.isError = isPersistedToolResultErrorStatus(
-                    callData?.status ?? null,
-                    resultText
-                );
-                toolCall.durationMs = callData?.duration_ms ?? undefined;
-                syncBuiltInToolCallPresentation(toolCall);
                 if (toolCall.namespacedName === SHOW_WIDGET_TOOL_NAME) {
                     const payload = buildPersistedShowWidgetPayload(toolCall);
                     if (toolCall.isError) {
@@ -564,8 +523,6 @@ function convertEntriesToSessionHistory(
                         );
                     }
                 }
-            } else if (resultText.trim()) {
-                pendingToolResultFallbacks.push(resultText);
             }
         }
     }
@@ -636,11 +593,11 @@ function markToolCallsCancelled(
     message: SessionMessage,
     cancellationText = tt('请求已取消')
 ): void {
-    if (message.role !== 'assistant' || !message.toolCalls?.length) {
+    if (message.role !== 'assistant') {
         return;
     }
 
-    for (const toolCall of message.toolCalls) {
+    for (const toolCall of selectToolCalls(message)) {
         if (toolCall.status !== 'executing' && toolCall.status !== 'awaiting_approval') {
             continue;
         }

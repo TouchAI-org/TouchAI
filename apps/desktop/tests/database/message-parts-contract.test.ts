@@ -196,18 +196,19 @@ describe('normalized message parts database contract', () => {
         ]);
     });
 
-    it('searches canonical tool results and keeps their FTS row in sync', async () => {
+    it('searches canonical tool outputs and keeps their FTS row in sync', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
         database.exec(
-            "UPDATE messages SET role = 'tool_result' WHERE id = 2; INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (2, 'tool_result', 'Tool output needle', 0)"
+            "UPDATE messages SET role = 'tool_call' WHERE id = 2;" +
+                'INSERT INTO message_parts (message_id, type, content, data, sort_order) VALUES (2, \'tool_call\', \'\', \'{"toolCallId":"call-1","toolKind":"builtin","output":"Tool output needle"}\', 0)'
         );
         expect(await listSessions({ query: 'output needle' })).toHaveLength(1);
         expect(await listSessions({ query: 'needle' })).toHaveLength(1);
         expect(await listSessions({ query: 'To' })).toHaveLength(1);
         database.exec(
-            "UPDATE message_parts SET content = 'Replacement result' WHERE message_id = 2"
+            "UPDATE message_parts SET data = json_set(data, '$.output', 'Replacement result') WHERE message_id = 2"
         );
         expect(await listSessions({ query: 'needle' })).toHaveLength(0);
         expect(await listSessions({ query: 'Replacement' })).toHaveLength(1);
@@ -464,10 +465,9 @@ describe('normalized message parts database contract', () => {
         database.exec(`
             INSERT INTO mcp_servers (id, name, transport_type) VALUES (1, 'Unrelated local server', 'stdio');
             INSERT INTO imported.sessions (id, session_id, title, model) VALUES (1, 'orphan-tool', 'History', 'test');
-            INSERT INTO imported.messages (id, session_id, role) VALUES (1, 1, 'tool_call'), (2, 1, 'tool_result');
+            INSERT INTO imported.messages (id, session_id, role) VALUES (1, 1, 'tool_call');
             INSERT INTO imported.message_parts (message_id, type, content, data, sort_order)
-            VALUES (1, 'tool_call', '', '{"toolKind":"mcp","toolCallId":"historical-call","server_id":1,"tool_name":"lookup","input":"{}","output":"Historical result","status":"success"}', 0),
-                (2, 'tool_result', 'Historical result', '{"toolKind":"mcp","toolCallId":"historical-call"}', 0);
+            VALUES (1, 'tool_call', '', '{"toolKind":"mcp","toolCallId":"historical-call","server_id":1,"tool_name":"lookup","input":"{}","output":"Historical result","status":"success"}', 0);
         `);
         const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
         database.exec(merge);
@@ -483,19 +483,10 @@ describe('normalized message parts database contract', () => {
             tool_name: 'lookup',
             output: 'Historical result',
         });
-        expect(database.prepare('SELECT count(*) AS count FROM messages').get()?.count).toBe(2);
-        expect(
-            JSON.parse(
-                String(
-                    database
-                        .prepare("SELECT data FROM message_parts WHERE type='tool_result'")
-                        .get()?.data
-                )
-            )
-        ).toEqual({
-            toolKind: 'mcp',
-            toolCallId: 'historical-call',
-        });
+        expect(database.prepare('SELECT count(*) AS count FROM messages').get()?.count).toBe(1);
+        expect(database.prepare('SELECT count(*) AS count FROM message_parts').get()?.count).toBe(
+            1
+        );
         expect(database.prepare('SELECT count(*) AS count FROM mcp_servers').get()?.count).toBe(1);
         expect(
             JSON.parse(
@@ -917,16 +908,16 @@ describe('contentless-delete message search index', () => {
         ).toEqual([3, 2]);
     });
 
-    it('keeps title matches, archived sessions and searchable roles unchanged', async () => {
+    it('keeps title matches, archived sessions and searchable roles intact', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
         database.exec(
-            "UPDATE sessions SET title = 'Only title'; UPDATE messages SET role = 'tool_call';"
+            "UPDATE sessions SET title = 'Only title'; UPDATE messages SET role = 'system';"
         );
         expect(await listSessions({ query: 'Only title' })).toHaveLength(1);
         expect(await listSessions({ query: 'First' })).toHaveLength(0);
-        database.exec("UPDATE messages SET role = 'tool_result' WHERE id = 1");
+        database.exec("UPDATE messages SET role = 'tool_call' WHERE id = 1");
         expect(await listSessions({ query: 'First' })).toHaveLength(1);
         database.exec("UPDATE sessions SET archived_at = datetime('now')");
         expect(await listSessions({ query: 'First' })).toHaveLength(1);

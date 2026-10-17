@@ -12,31 +12,15 @@ import {
     resolveBuiltInToolConversationSemantic,
 } from '@/services/BuiltInToolService/presentation';
 import type { SessionMessage, ToolCallInfo } from '@/types/session';
+import { createToolCallPart, findToolCallPart, selectToolCalls } from '@/utils/session';
 
 import type { ToolEvent } from '../../contracts/tooling';
 
 // ────────────────────── 消息结构工具函数 ──────────────────────
 
-export function ensureAssistantToolCalls(message: SessionMessage): ToolCallInfo[] {
-    if (!message.toolCalls) {
-        message.toolCalls = [];
-    }
-
-    return message.toolCalls;
-}
-
-export function ensureToolCallPart(message: SessionMessage, callId: string): void {
-    const hasPart = message.parts.some(
-        (part) => part.type === 'tool_call' && part.callId === callId
-    );
-
-    if (!hasPart) {
-        message.parts.push({
-            id: crypto.randomUUID(),
-            type: 'tool_call',
-            callId,
-        });
-    }
+/** 返回消息内全部工具调用，顺序与片段顺序一致。 */
+export function listToolCalls(message: SessionMessage): ToolCallInfo[] {
+    return selectToolCalls(message);
 }
 
 // ────────────────────── 展示信息解析 ──────────────────────
@@ -94,24 +78,25 @@ export function upsertToolCall(
     message: SessionMessage,
     toolEvent: Extract<ToolEvent, { type: 'call_start' }>
 ): ToolCallInfo {
-    const toolCalls = ensureAssistantToolCalls(message);
-    const existingToolCall = toolCalls.find((toolCall) => toolCall.id === toolEvent.callId);
     const display = resolveToolDisplayInfo(toolEvent);
+    const existingPart = findToolCallPart(message, toolEvent.callId);
 
-    if (existingToolCall) {
-        existingToolCall.name = display.displayName;
-        existingToolCall.namespacedName = toolEvent.namespacedName;
-        existingToolCall.source = display.source;
-        existingToolCall.sourceLabel = display.sourceLabel;
-        existingToolCall.serverName = display.serverName;
-        existingToolCall.serverId = display.serverId;
-        existingToolCall.arguments = toolEvent.arguments;
-        existingToolCall.builtinConversationSemantic = toolEvent.builtinConversationSemantic;
-        if (existingToolCall.status !== 'awaiting_approval') {
-            existingToolCall.status = 'executing';
+    if (existingPart) {
+        const toolCall = existingPart.toolCall;
+        toolCall.name = display.displayName;
+        toolCall.namespacedName = toolEvent.namespacedName;
+        toolCall.source = display.source;
+        toolCall.sourceLabel = display.sourceLabel;
+        toolCall.serverName = display.serverName;
+        toolCall.serverId = display.serverId;
+        toolCall.arguments = toolEvent.arguments;
+        toolCall.startedAt = toolEvent.startedAt ?? toolCall.startedAt ?? Date.now();
+        toolCall.builtinConversationSemantic = toolEvent.builtinConversationSemantic;
+        if (toolCall.status !== 'awaiting_approval') {
+            toolCall.status = 'executing';
         }
-        syncBuiltInToolCallPresentation(existingToolCall);
-        return existingToolCall;
+        syncBuiltInToolCallPresentation(toolCall);
+        return toolCall;
     }
 
     const toolCall: ToolCallInfo = {
@@ -125,9 +110,10 @@ export function upsertToolCall(
         arguments: toolEvent.arguments,
         builtinConversationSemantic: toolEvent.builtinConversationSemantic,
         status: 'executing',
+        startedAt: toolEvent.startedAt ?? Date.now(),
     };
     syncBuiltInToolCallPresentation(toolCall);
-    toolCalls.push(toolCall);
+    message.parts.push(createToolCallPart(toolCall));
     return toolCall;
 }
 
@@ -138,7 +124,7 @@ export function updateToolCallStatus(
     updater: (toolCall: ToolCallInfo) => void
 ): void {
     const message = history.find((item) => item.id === messageId && item.role === 'assistant');
-    const toolCall = message?.toolCalls?.find((item) => item.id === callId);
+    const toolCall = message ? findToolCallPart(message, callId)?.toolCall : undefined;
 
     if (toolCall) {
         updater(toolCall);

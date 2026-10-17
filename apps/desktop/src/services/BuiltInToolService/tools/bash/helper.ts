@@ -15,6 +15,8 @@ import {
     DEFAULT_BASH_TOOL_CONFIG,
 } from './constants';
 
+let cachedDesktopDirectoryPromise: Promise<string> | null = null;
+
 function normalizeDirectoryPath(path: string): string {
     return path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
 }
@@ -44,17 +46,38 @@ export function parseBashToolConfig(configJson: string | null): BashToolConfig {
     return parseToolConfigJson(bashToolConfigSchema, configJson, DEFAULT_BASH_TOOL_CONFIG);
 }
 
+async function loadDesktopWorkingDirectory(): Promise<string> {
+    try {
+        const desktopPath = (await desktopDir()).trim().replace(/[\\/]+$/, '');
+        if (!desktopPath) {
+            throw new Error('Bash tool requires a default working directory.');
+        }
+
+        return desktopPath;
+    } catch (error) {
+        cachedDesktopDirectoryPromise = null;
+        throw error;
+    }
+}
+
+async function resolveDesktopWorkingDirectory(): Promise<string> {
+    if (!cachedDesktopDirectoryPromise) {
+        cachedDesktopDirectoryPromise = loadDesktopWorkingDirectory();
+    }
+
+    return cachedDesktopDirectoryPromise;
+}
+
+export async function prewarmBashToolRuntime(): Promise<string> {
+    return resolveDesktopWorkingDirectory();
+}
+
 async function resolveDefaultWorkingDirectory(config: BashToolConfig): Promise<string> {
     if (config.defaultWorkingDirectory.trim()) {
         return config.defaultWorkingDirectory;
     }
 
-    const desktopPath = (await desktopDir()).trim().replace(/[\\/]+$/, '');
-    if (!desktopPath) {
-        throw new Error(t('builtInTools.bash.error.defaultWorkingDirectoryRequired'));
-    }
-
-    return desktopPath;
+    return resolveDesktopWorkingDirectory();
 }
 
 /**

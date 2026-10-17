@@ -1,5 +1,11 @@
 import { tt } from '@/i18n';
-import type { ReasoningMessagePart, TextMessagePart } from '@/types/session';
+import type {
+    ReasoningMessagePart,
+    SessionMessage,
+    TextMessagePart,
+    ToolCallInfo,
+    ToolCallMessagePart,
+} from '@/types/session';
 
 export type SessionStatusReminderKind = 'completed' | 'failed' | 'waiting_approval';
 
@@ -12,6 +18,33 @@ export function createTextPart(content: string): TextMessagePart {
         type: 'text',
         content,
     };
+}
+
+/** 创建自包含的工具调用片段；工具数据随片段一起存储，不再维护影子数组。 */
+export function createToolCallPart(toolCall: ToolCallInfo): ToolCallMessagePart {
+    return {
+        id: crypto.randomUUID(),
+        type: 'tool_call',
+        toolCall,
+    };
+}
+
+/** 从消息片段中按顺序派生全部工具调用。`parts` 是唯一真相源。 */
+export function selectToolCalls(message: SessionMessage): ToolCallInfo[] {
+    return message.parts
+        .filter((part): part is ToolCallMessagePart => part.type === 'tool_call')
+        .map((part) => part.toolCall);
+}
+
+/** 按调用 ID 查找工具调用片段。 */
+export function findToolCallPart(
+    message: SessionMessage,
+    callId: string
+): ToolCallMessagePart | undefined {
+    return message.parts.find(
+        (part): part is ToolCallMessagePart =>
+            part.type === 'tool_call' && part.toolCall.id === callId
+    );
 }
 
 /** 创建保留到达顺序、独立流式状态与耗时信息的思考片段。 */

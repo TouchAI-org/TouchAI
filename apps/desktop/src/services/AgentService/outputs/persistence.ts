@@ -2,13 +2,14 @@
 
 import { type DatabaseExecutor, db } from '@database';
 import {
+    appendMessagePart,
     createMessage,
     createMessageAttachment,
     createMessageParts,
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
-    findMessagePartById,
+    mergeMessagePartData,
     refreshSessionMetadata,
     syncOutputParts,
     updateMessage,
@@ -420,21 +421,61 @@ export class PersistenceProjector {
         return messageId;
     }
 
-    /** 持久化工具结果，toolCallPartId 是对应 tool_call 片段编号。 */
-    async persistToolResultMessage(
-        result: string,
-        toolCallPartId: number | null,
-        attachments: AttachmentIndex[] = []
-    ): Promise<number> {
-        return db.transaction((tx) =>
-            this.persistMessage({
-                role: 'tool_result',
-                content: result,
-                toolCallPartId,
-                attachments,
-                database: tx,
-            })
-        );
+    /**
+     * 把工具结果写回对应的 tool_call 片段。
+     *
+     * 工具执行服务已写入 output/status/duration；这里负责兜底补齐结果文本，
+     * 并把结果附件挂到工具调用所在消息上（附件 data 记录 toolCallId 归属）。
+     * 找不到工具片段时（参数协议错误等）退化为在工具步骤消息末尾追加文本。
+     */
+    async persistToolResult(options: {
+        result: string;
+        toolCallPartId: number | null;
+        toolCallMessageId: number | null;
+        attachments?: AttachmentIndex[];
+    }): Promise<void> {
+        const { result, toolCallPartId, toolCallMessageId, attachments = [] } = options;
+        if (toolCallPartId === null) {
+            if (toolCallMessageId !== null && result) {
+                await db.transaction(async (tx) => {
+                    await appendMessagePart(
+                        toolCallMessageId,
+                        { type: 'text', content: result, data: '{}' },
+                        tx
+                    );
+                    await refreshSessionMetadata(await this.ensureSessionId(tx), tx);
+                });
+            }
+            return;
+        }
+
+        await db.transaction(async (tx) => {
+            const part = await mergeMessagePartData(toolCallPartId, { output: result }, tx);
+            if (!part) {
+                return;
+            }
+
+            if (attachments.length > 0) {
+                const persisted = await Promise.all(
+                    attachments.map((attachment) => ensurePersistedAttachmentIndex(attachment, tx))
+                );
+                for (const [index, entity] of persisted.entries()) {
+                    const source = attachments[index]!;
+                    await createMessageAttachment(
+                        {
+                            message_id: part.message_id,
+                            attachment_id: entity.id,
+                            origin_path: source.originPath,
+                            tool_call_id: part.tool_call_id,
+                            tool_kind: part.tool_kind,
+                        },
+                        tx
+                    );
+                }
+            }
+
+            await refreshSessionMetadata(await this.ensureSessionId(tx), tx);
+        });
     }
 
     /** 片段边界写入正式 parts（推理开始/结束、正文结束）；没有定时快照。 */
@@ -542,7 +583,6 @@ export class PersistenceProjector {
         role,
         content = '',
         outputParts = [],
-        toolCallPartId,
         attachments = [],
         database = db,
         sessionId,
@@ -550,7 +590,6 @@ export class PersistenceProjector {
         role: MessageRole;
         content?: string;
         outputParts?: PersistedOutputPart[];
-        toolCallPartId?: number | null;
         attachments?: Array<AttachmentIndex | AttachmentEntity>;
         database?: DatabaseExecutor;
         sessionId?: number;
@@ -591,26 +630,6 @@ export class PersistenceProjector {
                 })),
                 database
             );
-        } else if (role === 'tool_result') {
-            const call =
-                toolCallPartId !== null && toolCallPartId !== undefined
-                    ? await findMessagePartById(toolCallPartId, database)
-                    : undefined;
-            await createMessageParts(
-                [
-                    {
-                        message_id: messageId,
-                        type: 'tool_result',
-                        content,
-                        sort_order: 0,
-                        data: JSON.stringify({
-                            toolCallId: call?.tool_call_id ?? null,
-                            toolKind: call?.tool_kind ?? null,
-                        }),
-                    },
-                ],
-                database
-            );
         } else if (content) {
             await createMessageParts(
                 [{ message_id: messageId, type: 'text', content, sort_order: 0 }],
@@ -620,7 +639,7 @@ export class PersistenceProjector {
 
         await refreshSessionMetadata(resolvedSessionId, database);
 
-        if ((role === 'user' || role === 'tool_result') && attachments.length > 0) {
+        if (role === 'user' && attachments.length > 0) {
             const persisted = await Promise.all(
                 attachments.map((attachment) =>
                     'attachmentId' in attachment || !('original_name' in attachment)

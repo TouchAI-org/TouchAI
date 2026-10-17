@@ -221,9 +221,6 @@
         return !!(props.message.isCancelled || props.message.isRetrying || props.message.isError);
     });
     const renderedParts = computed<RenderedPart[]>(() => {
-        const toolCallMap = new Map(
-            (props.message.toolCalls ?? []).map((toolCall) => [toolCall.id, toolCall])
-        );
         const approvalMap = new Map(
             (props.message.approvals ?? []).map((approval) => [approval.callId, approval])
         );
@@ -255,11 +252,11 @@
             }
 
             if (part.type === 'tool_call') {
-                const toolCall = toolCallMap.get(part.callId);
+                const toolCall = part.toolCall;
                 const shouldHideToolCall =
-                    toolCall?.namespacedName === SHOW_WIDGET_TOOL_NAME ||
-                    widgetBackedToolCallIds.has(part.callId);
-                if (toolCall && !shouldHideToolCall) {
+                    toolCall.namespacedName === SHOW_WIDGET_TOOL_NAME ||
+                    widgetBackedToolCallIds.has(toolCall.id);
+                if (!shouldHideToolCall) {
                     parts.push({
                         id: part.id,
                         type: 'tool_call',

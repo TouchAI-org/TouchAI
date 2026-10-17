@@ -1,3 +1,4 @@
+import type { MessageAttachmentRow } from '@database/queries/attachments';
 import type { MessageRow } from '@database/queries/messages';
 import type { ModelWithProvider } from '@database/queries/models';
 import { createMessageRow } from '@tests/utils/messages';
@@ -39,7 +40,10 @@ function createAttachment(overrides: Partial<AttachmentIndex> = {}): AttachmentI
     };
 }
 
-function createMessageAttachment(type: 'image' | 'file') {
+function createMessageAttachment(
+    type: 'image' | 'file',
+    overrides: Partial<MessageAttachmentRow> = {}
+) {
     return {
         message_id: type === 'image' ? 10 : 11,
         sort_order: 0,
@@ -51,6 +55,9 @@ function createMessageAttachment(type: 'image' | 'file') {
         mime_type: type === 'image' ? 'image/png' : 'application/pdf',
         size: 10,
         created_at: BASE_TIME,
+        tool_call_id: null,
+        tool_kind: null,
+        ...overrides,
     };
 }
 
@@ -127,9 +134,15 @@ describe('AgentService attachment capability preflight', () => {
             }),
             createMessageRow({
                 id: 11,
-                role: 'tool_result',
+                role: 'tool_call',
                 content: 'file returned by tool',
-                attachments: [createMessageAttachment('file')],
+                attachments: [
+                    createMessageAttachment('file', {
+                        message_id: 11,
+                        tool_call_id: 'call-1',
+                        tool_kind: 'builtin',
+                    }),
+                ],
             }),
             createMessageRow({
                 id: 12,

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
 
@@ -9,8 +10,35 @@ const providerMock = vi.hoisted(() => ({
     classifyError: vi.fn(),
 }));
 
+const { createMcpToolLogMock, updateMcpToolLogByCallIdMock, resolveToolCallMock, executeToolMock } =
+    vi.hoisted(() => ({
+        createMcpToolLogMock: vi.fn(),
+        updateMcpToolLogByCallIdMock: vi.fn(),
+        resolveToolCallMock: vi.fn(),
+        executeToolMock: vi.fn(),
+    }));
+
+vi.mock('@database/queries', () => ({
+    createMcpToolLog: createMcpToolLogMock,
+    updateMcpToolLogByCallId: updateMcpToolLogByCallIdMock,
+}));
+
+vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
+    mcpManager: {
+        resolveToolCall: resolveToolCallMock,
+        executeTool: executeToolMock,
+    },
+}));
+
+vi.mock('@/services/BuiltInToolService', () => ({
+    builtInToolService: {
+        executeTool: vi.fn(async () => null),
+    },
+}));
+
 vi.mock('@/services/AgentService/catalog', () => ({
     createProviderForModel: vi.fn(() => providerMock),
+    createProviderInstance: vi.fn(),
 
     resolveToolDefinitions: vi.fn(() => Promise.resolve([])),
 
@@ -254,7 +282,7 @@ describe('AiRequestExecutor', () => {
             persister: {
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
                 persistToolCallMessage: vi.fn().mockResolvedValue(1),
-                persistToolResultMessage: vi.fn().mockResolvedValue(undefined),
+                persistToolResult: vi.fn().mockResolvedValue(undefined),
                 persistCheckpoint: vi.fn().mockResolvedValue(undefined),
             } as never,
         });
@@ -298,4 +326,84 @@ describe('AiRequestExecutor', () => {
         expect(result.error.cause).toBe(requestError);
         expect(result.error.details).toBe(requestError);
     });
+});
+
+type TestExecutor = {
+    executeMcpToolCall(options: {
+        toolCall: AiToolCall;
+        toolArgs: Record<string, unknown>;
+        iteration: number;
+        sessionId: number | null;
+        toolCallMessageId: number | null;
+        onChunk?: (chunk: unknown) => void;
+    }): Promise<{
+        result: string;
+        isError: boolean;
+        toolLogKind: string | null;
+    }>;
+};
+
+function createToolCall(): AiToolCall {
+    return {
+        id: 'call-mcp-1',
+        name: 'mcp__1__search',
+        arguments: '{}',
+    };
+}
+
+describe('AiRequestExecutor.executeMcpToolCall', () => {
+    it('emits call_start with startedAt before running the MCP tool', async () => {
+        createMcpToolLogMock.mockResolvedValue({ id: 23 });
+        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        resolveToolCallMock.mockResolvedValue({
+            serverId: 1,
+            originalName: 'search',
+            toolTimeout: 30000,
+        });
+        executeToolMock.mockResolvedValue({
+            result: 'done',
+            isError: false,
+        });
+
+        const executor = new AiRequestExecutor();
+        const chunks: unknown[] = [];
+
+        const result = await (executor as unknown as TestExecutor).executeMcpToolCall({
+            toolCall: createToolCall(),
+            toolArgs: {
+                query: 'alpha',
+            },
+            iteration: 0,
+            sessionId: null,
+            toolCallMessageId: null,
+            onChunk: (chunk: unknown) => chunks.push(chunk),
+        });
+
+        expect(result).toMatchObject({
+            isError: false,
+            result: 'done',
+        });
+
+        const callStartChunk = chunks.find((chunk) => {
+            return (
+                typeof chunk === 'object' &&
+                chunk !== null &&
+                'toolEvent' in chunk &&
+                (chunk as { toolEvent?: { type?: string } }).toolEvent?.type === 'call_start'
+            );
+        }) as { toolEvent: Record<string, unknown> } | undefined;
+
+        expect(callStartChunk?.toolEvent).toMatchObject({
+            type: 'call_start',
+            callId: 'call-mcp-1',
+            toolName: 'search',
+            namespacedName: 'mcp__1__search',
+            source: 'mcp',
+            serverId: 1,
+            arguments: {
+                query: 'alpha',
+            },
+            startedAt: expect.any(Number),
+        });
+    }, 30_000);
 });

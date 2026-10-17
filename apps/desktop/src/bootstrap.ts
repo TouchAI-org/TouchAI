@@ -20,6 +20,7 @@ import {
     seedModelMetadataFromSnapshot,
 } from './services/AgentService/infrastructure/modelMetadata';
 import { builtInToolService } from './services/BuiltInToolService/service';
+import { prewarmBashToolRuntime } from './services/BuiltInToolService/tools/bash/helper';
 import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
 
@@ -181,6 +182,14 @@ async function syncBuiltInTools(): Promise<void> {
     }
 }
 
+async function prewarmBuiltInBash(): Promise<void> {
+    try {
+        await prewarmBashToolRuntime();
+    } catch (error) {
+        console.warn('[Bootstrap] Failed to prewarm built-in Bash runtime:', error);
+    }
+}
+
 export async function initializeApp() {
     initializeLogger();
     setupLinkInterceptor();
@@ -198,7 +207,7 @@ export async function initializeApp() {
     }
 
     initializeFontLoader();
-    await syncBuiltInTools();
+    await Promise.all([syncBuiltInTools(), prewarmBuiltInBash()]);
     await initializeModelMetadata();
 
     let settingsInitializeError: unknown;

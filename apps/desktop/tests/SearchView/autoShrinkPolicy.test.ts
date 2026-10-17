@@ -92,14 +92,18 @@ describe('autoShrinkPolicy', () => {
             ],
         });
         const executingToolMessage = createAssistantMessage({
-            toolCalls: [
+            parts: [
                 {
-                    id: 'call-1',
-                    name: 'bash',
-                    namespacedName: 'builtin__bash',
-                    source: 'builtin',
-                    arguments: {},
-                    status: 'executing',
+                    id: 'part-tool-1',
+                    type: 'tool_call',
+                    toolCall: {
+                        id: 'call-1',
+                        name: 'bash',
+                        namespacedName: 'builtin__bash',
+                        source: 'builtin',
+                        arguments: {},
+                        status: 'executing',
+                    },
                 },
             ],
         });
@@ -118,14 +122,18 @@ describe('autoShrinkPolicy', () => {
         const unsettledMessage = createAssistantMessage({
             id: 'assistant-2',
             timestamp: 2,
-            toolCalls: [
+            parts: [
                 {
-                    id: 'call-2',
-                    name: 'bash',
-                    namespacedName: 'builtin__bash',
-                    source: 'builtin',
-                    arguments: {},
-                    status: 'awaiting_approval',
+                    id: 'part-tool-2',
+                    type: 'tool_call',
+                    toolCall: {
+                        id: 'call-2',
+                        name: 'bash',
+                        namespacedName: 'builtin__bash',
+                        source: 'builtin',
+                        arguments: {},
+                        status: 'awaiting_approval',
+                    },
                 },
             ],
         });

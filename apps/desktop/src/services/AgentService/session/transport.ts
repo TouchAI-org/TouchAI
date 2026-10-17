@@ -60,7 +60,7 @@ export async function findUnsupportedSessionAttachmentTypes(options: {
 
     const rows = await findMessagesBySessionId(options.sessionId);
     const transportAttachmentRows = rows
-        .filter((row) => row.role === 'user' || row.role === 'tool_result')
+        .filter((row) => row.role === 'user' || row.role === 'tool_call')
         .flatMap((row) => row.attachments);
 
     return getUnsupportedAttachmentTypes(transportAttachmentRows, options.capabilities);
@@ -101,87 +101,62 @@ export async function loadSessionTransportMessages(options: {
     const rows = options.sessionId ? await findMessagesBySessionId(options.sessionId) : [];
     const attachmentCapabilities = resolveTransportAttachmentCapabilities(options);
     const messages: AiMessage[] = [];
-    const pendingResultToolCalls: AiToolCall[] = [];
-
-    const takePendingResultToolCall = (part?: MessagePartEntity): AiToolCall | undefined => {
-        if (!part?.tool_call_id || !part.tool_kind) return undefined;
-        const index = pendingResultToolCalls.findIndex(
-            (call) => call.id === part.tool_call_id && call.name.startsWith(`${part.tool_kind}__`)
-        );
-        return index < 0 ? undefined : pendingResultToolCalls.splice(index, 1)[0];
-    };
-
-    const flushMissingToolResults = (): void => {
-        while (pendingResultToolCalls.length > 0) {
-            const toolCall = pendingResultToolCalls.shift()!;
-            messages.push({
-                role: 'tool',
-                content: MISSING_TOOL_RESULT_PLACEHOLDER,
-                tool_call_id: toolCall.id,
-                name: toolCall.name,
-            });
-        }
-    };
 
     for (const row of rows) {
         if (row.role === 'tool_call') {
-            flushMissingToolResults();
-            const calls: AiToolCall[] = row.parts
-                .filter((part) => part.type === 'tool_call')
-                .map((part) => {
-                    const data = readToolCallData(part);
-                    return {
-                        id: data.toolCallId,
-                        name: getToolCallName(data),
-                        arguments: data.input,
-                    };
-                });
+            const callParts = row.parts.filter((part) => part.type === 'tool_call');
+            const calls: AiToolCall[] = callParts.map((part) => {
+                const data = readToolCallData(part);
+                return {
+                    id: data.toolCallId,
+                    name: getToolCallName(data),
+                    arguments: data.input,
+                };
+            });
             messages.push({
                 role: 'assistant',
                 content: buildAssistantTransportContent(row),
                 tool_calls: calls,
             });
-            pendingResultToolCalls.push(...calls);
-            continue;
-        }
-        if (row.role === 'tool_result') {
-            const part = row.parts.find((part) => part.type === 'tool_result');
-            const call = takePendingResultToolCall(part);
-            if (!call) {
-                console.warn(
-                    '[SessionTransport] Cannot resolve tool_result, skipping message:',
-                    row.id
+
+            // Tool state lives inside the call part, so results are emitted
+            // immediately after their assistant tool-call message.
+            for (const [index, part] of callParts.entries()) {
+                const data = readToolCallData(part);
+                const call = calls[index]!;
+                const scopedAttachments = row.attachments.filter(
+                    (attachment) =>
+                        attachment.tool_call_id === data.toolCallId &&
+                        attachment.tool_kind === data.toolKind
                 );
-                continue;
+                const supported = filterSupportedAttachmentRows(
+                    scopedAttachments,
+                    attachmentCapabilities
+                );
+                const attachments = supported.length
+                    ? await hydratePersistedAttachments(supported)
+                    : [];
+                const attachmentParts = attachments.length
+                    ? await buildAttachmentParts(attachments, { includeAnchorText: false })
+                    : [];
+                const content =
+                    typeof data.output === 'string' ? data.output : MISSING_TOOL_RESULT_PLACEHOLDER;
+                messages.push({
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    name: call.name,
+                    content: attachmentParts.length
+                        ? [
+                              ...(content ? [{ type: 'text' as const, text: content }] : []),
+                              ...attachmentParts,
+                          ]
+                        : content,
+                });
             }
-            const supported = filterSupportedAttachmentRows(
-                row.attachments,
-                attachmentCapabilities
-            );
-            const attachments = supported.length
-                ? await hydratePersistedAttachments(supported)
-                : [];
-            const attachmentParts = attachments.length
-                ? await buildAttachmentParts(attachments, { includeAnchorText: false })
-                : [];
-            const content = getMessageText(row.parts);
-            messages.push({
-                role: 'tool',
-                tool_call_id: call.id,
-                name: call.name,
-                content: attachmentParts.length
-                    ? [
-                          ...(content ? [{ type: 'text' as const, text: content }] : []),
-                          ...attachmentParts,
-                      ]
-                    : content,
-            });
             continue;
         }
 
         if (row.role === 'user') {
-            flushMissingToolResults();
-
             const supportedAttachmentRows = filterSupportedAttachmentRows(
                 row.attachments,
                 attachmentCapabilities
@@ -206,8 +181,6 @@ export async function loadSessionTransportMessages(options: {
             continue;
         }
 
-        flushMissingToolResults();
-
         messages.push({
             role: row.role as 'user' | 'assistant' | 'system',
             content:
@@ -216,8 +189,6 @@ export async function loadSessionTransportMessages(options: {
                     : getMessageText(row.parts),
         });
     }
-
-    flushMissingToolResults();
 
     return messages;
 }

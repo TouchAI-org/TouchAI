@@ -9,6 +9,9 @@ import type { AttachmentCreateData, AttachmentEntity, MessageAttachmentCreateDat
 export interface MessageAttachmentRow extends AttachmentEntity {
     message_id: number;
     sort_order: number;
+    /** 工具结果附件会带上所属工具调用；用户附件为 null。 */
+    tool_call_id: string | null;
+    tool_kind: string | null;
 }
 
 /**
@@ -69,6 +72,8 @@ export async function createMessageAttachment(
             data: JSON.stringify({
                 attachmentId: data.attachment_id,
                 originPath: data.origin_path,
+                ...(data.tool_call_id ? { toolCallId: data.tool_call_id } : {}),
+                ...(data.tool_kind ? { toolKind: data.tool_kind } : {}),
             }),
             sort_order: (maximum?.value ?? -1) + 1,
             ...(data.created_at ? { created_at: data.created_at } : {}),
@@ -99,6 +104,12 @@ export async function findAttachmentsByMessageIds(
             original_name: attachments.original_name,
             origin_path: sql<string>`json_extract(${messageParts.data}, '$.originPath')`.as(
                 'origin_path'
+            ),
+            tool_call_id: sql<string | null>`json_extract(${messageParts.data}, '$.toolCallId')`.as(
+                'tool_call_id'
+            ),
+            tool_kind: sql<string | null>`json_extract(${messageParts.data}, '$.toolKind')`.as(
+                'tool_kind'
             ),
             mime_type: attachments.mime_type,
             size: attachments.size,

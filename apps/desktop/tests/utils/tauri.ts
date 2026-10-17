@@ -191,3 +191,39 @@ export function getLastTauriInvokeCall(cmd: string): TauriInvokeCall | undefined
     const calls = getTauriInvokeCalls(cmd);
     return calls[calls.length - 1];
 }
+
+function parseChannelId(channel: unknown): number {
+    if (typeof channel === 'string') {
+        const match = channel.match(/^__CHANNEL__:(\d+)$/);
+        if (!match) {
+            throw new Error(`Invalid Tauri channel payload: ${channel}`);
+        }
+
+        return Number(match[1]);
+    }
+
+    if (
+        channel &&
+        typeof channel === 'object' &&
+        'id' in channel &&
+        typeof channel.id === 'number'
+    ) {
+        return channel.id;
+    }
+
+    throw new Error(`Unsupported Tauri channel payload: ${String(channel)}`);
+}
+
+export function emitTauriChannelMessage(channel: unknown, payload: unknown, index = 0): void {
+    getTauriInternals().runCallback(parseChannelId(channel), {
+        message: payload,
+        index,
+    });
+}
+
+export function closeTauriChannel(channel: unknown, index = 0): void {
+    getTauriInternals().runCallback(parseChannelId(channel), {
+        end: true,
+        index,
+    });
+}

@@ -3,7 +3,7 @@
 //! 内置 Bash 执行取消注册表。
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::oneshot;
@@ -21,9 +21,9 @@ struct BuiltInProcessRegistryState {
 /// 前端通过 execution_id 发起取消命令时，
 /// 原生层不直接持有子进程句柄，而是向正在等待中的执行任务发送一个取消信号，
 /// 由执行任务自己负责终止并回收子进程。
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct BuiltInProcessExecutionRegistry {
-    state: Mutex<BuiltInProcessRegistryState>,
+    state: Arc<Mutex<BuiltInProcessRegistryState>>,
 }
 
 pub type BashExecutionRegistry = BuiltInProcessExecutionRegistry;
@@ -31,7 +31,7 @@ pub type BashExecutionRegistry = BuiltInProcessExecutionRegistry;
 impl BuiltInProcessExecutionRegistry {
     pub fn new() -> Self {
         Self {
-            state: Mutex::new(BuiltInProcessRegistryState::default()),
+            state: Arc::new(Mutex::new(BuiltInProcessRegistryState::default())),
         }
     }
 

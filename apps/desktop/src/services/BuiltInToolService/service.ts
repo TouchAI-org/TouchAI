@@ -81,6 +81,13 @@ interface BuiltInToolExecutionResponse {
     controlSignal?: BuiltInToolControlSignal;
 }
 
+function areConversationSemanticsEqual(
+    left: BuiltInToolConversationSemantic | undefined,
+    right: BuiltInToolConversationSemantic | undefined
+): boolean {
+    return left?.action === right?.action && left?.target === right?.target;
+}
+
 function throwIfCancelled(signal?: AbortSignal): void {
     if (signal?.aborted) {
         throw new AiError(AiErrorCode.REQUEST_CANCELLED);
@@ -319,10 +326,8 @@ class BuiltInToolService {
         };
 
         const callStartTime = Date.now();
-        const conversationSemantic = await this.buildConversationSemantic(
-            resolved,
-            options.toolArgs,
-            executionContext
+        const fallbackConversationSemantic = resolved.tool.buildConversationSemantic(
+            options.toolArgs
         );
         // `call_start` 要尽早发给 UI，前端可展示工具调用开始了
         options.emitToolEvent({
@@ -331,10 +336,29 @@ class BuiltInToolService {
             toolName: resolved.tool.displayName,
             namespacedName: options.toolCall.name,
             source: 'builtin',
+            startedAt: callStartTime,
             sourceLabel: '内置工具',
             arguments: options.toolArgs,
-            builtinConversationSemantic: conversationSemantic,
+            builtinConversationSemantic: fallbackConversationSemantic,
         });
+        const conversationSemantic = await this.buildConversationSemantic(
+            resolved,
+            options.toolArgs,
+            executionContext
+        );
+        if (!areConversationSemanticsEqual(conversationSemantic, fallbackConversationSemantic)) {
+            options.emitToolEvent({
+                type: 'call_start',
+                callId: options.toolCall.id,
+                toolName: resolved.tool.displayName,
+                namespacedName: options.toolCall.name,
+                source: 'builtin',
+                startedAt: callStartTime,
+                sourceLabel: '内置工具',
+                arguments: options.toolArgs,
+                builtinConversationSemantic: conversationSemantic,
+            });
+        }
 
         let toolLogId: number | null = null;
         try {

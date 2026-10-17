@@ -139,7 +139,7 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
                         or(
                             eq(searchableMessages.role, 'user'),
                             eq(searchableMessages.role, 'assistant'),
-                            eq(searchableMessages.role, 'tool_result')
+                            eq(searchableMessages.role, 'tool_call')
                         ),
                         indexedCandidates,
                         sql`lower(${messageText(searchableMessages.id)}) LIKE ${pattern} ESCAPE '\\'`
@@ -225,9 +225,9 @@ export const updateSession = async ({
  * 根据消息与请求记录刷新会话元数据。
  *
  * 会话列表需要频繁按“最近回复时间 / 摘要 / 计数”读取，因此把这组字段收敛到写入时回算：
- * - `tool_call` 默认不参与摘要优先级，避免把工具入参刷成会话预览；
- * - 若 assistant 尚未落库，则退回到非空 `tool_result`，再退到用户消息；
- * - 只有异常链路完全没有可读消息时，才回退到非空 `tool_call`，尽量保证列表可见；
+ * - assistant 正文优先；
+ * - 若 assistant 尚未落库，则退回到工具输出（tool_call 片段 data.output）；
+ * - 再退到用户消息，保证列表始终可见；
  * - 读路径只读 sessions 表，避免列表查询为每条会话重复扫描 messages。
  */
 export const refreshSessionMetadata = async (
@@ -236,7 +236,6 @@ export const refreshSessionMetadata = async (
 ): Promise<void> => {
     const drizzle = database;
     const assistantMessages = aliasedTable(messages, 'assistant_messages');
-    const toolResultMessages = aliasedTable(messages, 'tool_result_messages');
     const userMessages = aliasedTable(messages, 'user_messages');
     const toolCallMessages = aliasedTable(messages, 'tool_call_messages');
     const latestTurns = aliasedTable(sessionTurns, 'latest_turns');
@@ -253,19 +252,6 @@ export const refreshSessionMetadata = async (
             )
         )
         .orderBy(desc(assistantMessages.created_at), desc(assistantMessages.id))
-        .limit(1);
-
-    const toolResultTimestampQuery = drizzle
-        .select({ value: toolResultMessages.created_at })
-        .from(toolResultMessages)
-        .where(
-            and(
-                eq(toolResultMessages.session_id, sessionId),
-                eq(toolResultMessages.role, 'tool_result'),
-                sql`trim(${messageText(toolResultMessages.id)}) <> ''`
-            )
-        )
-        .orderBy(desc(toolResultMessages.created_at), desc(toolResultMessages.id))
         .limit(1);
 
     const userTimestampQuery = drizzle
@@ -307,27 +293,6 @@ export const refreshSessionMetadata = async (
             )
         )
         .orderBy(desc(assistantMessages.created_at), desc(assistantMessages.id))
-        .limit(1);
-
-    const toolResultPreviewQuery = drizzle
-        .select({
-            value: sql<string>`
-                CASE
-                    WHEN length(${messageText(toolResultMessages.id)}) > 160
-                        THEN substr(${messageText(toolResultMessages.id)}, 1, 160) || '...'
-                    ELSE ${messageText(toolResultMessages.id)}
-                END
-            `,
-        })
-        .from(toolResultMessages)
-        .where(
-            and(
-                eq(toolResultMessages.session_id, sessionId),
-                eq(toolResultMessages.role, 'tool_result'),
-                sql`trim(${messageText(toolResultMessages.id)}) <> ''`
-            )
-        )
-        .orderBy(desc(toolResultMessages.created_at), desc(toolResultMessages.id))
         .limit(1);
 
     const userPreviewQuery = drizzle
@@ -391,17 +356,15 @@ export const refreshSessionMetadata = async (
             last_message_at: sql<string | null>`
                 coalesce(
                     (${assistantTimestampQuery}),
-                    (${toolResultTimestampQuery}),
-                    (${userTimestampQuery}),
-                    (${toolCallTimestampQuery})
+                    (${toolCallTimestampQuery}),
+                    (${userTimestampQuery})
                 )
             `,
             last_message_preview: sql<string | null>`
                 coalesce(
                     (${assistantPreviewQuery}),
-                    (${toolResultPreviewQuery}),
-                    (${userPreviewQuery}),
-                    (${toolCallPreviewQuery})
+                    (${toolCallPreviewQuery}),
+                    (${userPreviewQuery})
                 )
             `,
             provider_id: sql<

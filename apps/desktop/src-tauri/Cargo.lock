@@ -6744,6 +6744,7 @@ dependencies = [
  "cc",
  "clipboard-rs",
  "dispatch2",
+ "encoding_rs",
  "flate2",
  "futures",
  "html5gum",

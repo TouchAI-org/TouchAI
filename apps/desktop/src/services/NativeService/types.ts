@@ -20,6 +20,47 @@ export interface BuiltInBashExecutionRequest {
     rawOutput?: boolean;
 }
 
+export type BuiltInBashStreamChannel = 'stdout' | 'stderr';
+
+export interface BuiltInBashStreamChunk {
+    executionId: string;
+    stream: BuiltInBashStreamChannel;
+    chunk: string;
+}
+
+export interface BuiltInBashEventChunk {
+    kind: 'chunk';
+    executionId: string;
+    stream: BuiltInBashStreamChannel;
+    chunk: string;
+}
+
+export interface BuiltInBashEventCompleted {
+    kind: 'completed';
+    executionId: string;
+    response: BuiltInBashExecutionResponse;
+}
+
+export interface BuiltInBashEventFailed {
+    kind: 'failed';
+    executionId: string;
+    error: string;
+}
+
+export type BuiltInBashEvent =
+    | BuiltInBashEventChunk
+    | BuiltInBashEventCompleted
+    | BuiltInBashEventFailed;
+
+export interface BuiltInBashOutputDelta {
+    executionId: string;
+    stream: BuiltInBashStreamChannel;
+    chunk: string;
+    stdout: string;
+    stderr: string;
+    combinedOutput: string;
+}
+
 export interface BuiltInBashExecutionResponse {
     command: string;
     shell: string;

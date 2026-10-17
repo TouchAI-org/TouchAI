@@ -48,6 +48,7 @@ export interface ToolCallInfo {
     result?: string;
     isError?: boolean;
     status: ToolCallStatus;
+    startedAt?: number;
     durationMs?: number;
 }
 
@@ -71,7 +72,8 @@ export interface ReasoningMessagePart {
 export interface ToolCallMessagePart {
     id: string;
     type: 'tool_call';
-    callId: string;
+    /** 工具数据直接内嵌在片段内，使 `parts` 成为唯一真相源。 */
+    toolCall: ToolCallInfo;
 }
 
 export interface ApprovalMessagePart {
@@ -245,7 +247,6 @@ export interface SessionMessage {
     statusText?: string;
     attachments?: Index[];
     inputSnapshot?: InputHistorySnapshot;
-    toolCalls?: ToolCallInfo[];
     approvals?: ToolApprovalInfo[];
     widgets?: WidgetInfo[];
     parts: SessionPart[];

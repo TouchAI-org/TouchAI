@@ -11,7 +11,7 @@ vi.mock('@database/queries/messages', () => ({
     findMessagesBySessionId: mocks.findMessagesBySessionId,
 }));
 
-function callPart(id: number, kind: 'builtin' | 'mcp', callId: string) {
+function callPart(id: number, kind: 'builtin' | 'mcp', callId: string, result?: string) {
     return createMessagePart({
         id,
         message_id: 11,
@@ -24,27 +24,8 @@ function callPart(id: number, kind: 'builtin' | 'mcp', callId: string) {
             input: '{}',
             status: 'success',
             duration_ms: 12,
+            ...(result === undefined ? {} : { output: result }),
         }),
-    });
-}
-function resultRow(
-    id: number,
-    kind: 'builtin' | 'mcp' | null,
-    callId: string | null,
-    content: string
-) {
-    return createMessageRow({
-        id,
-        role: 'tool_result',
-        parts: [
-            createMessagePart({
-                id,
-                message_id: id,
-                type: 'tool_result',
-                content,
-                data: JSON.stringify({ toolCallId: callId, toolKind: kind }),
-            }),
-        ],
     });
 }
 
@@ -53,16 +34,17 @@ describe('AgentService session transport', () => {
         mocks.findMessagesBySessionId.mockReset();
     });
 
-    it('reads multiple tool calls from one message and matches reversed results by part identity', async () => {
+    it('reads multiple tool calls from one message and emits each result after its call', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({ id: 10, content: 'run both' }),
             createMessageRow({
                 id: 11,
                 role: 'tool_call',
-                parts: [callPart(1, 'builtin', 'call_builtin'), callPart(2, 'mcp', 'call_mcp')],
+                parts: [
+                    callPart(1, 'builtin', 'call_builtin', 'builtin result'),
+                    callPart(2, 'mcp', 'call_mcp', 'mcp result'),
+                ],
             }),
-            resultRow(12, 'mcp', 'call_mcp', 'mcp result'),
-            resultRow(13, 'builtin', 'call_builtin', 'builtin result'),
         ]);
         const messages = await loadSessionTransportMessages({ sessionId: 1 });
         expect(messages[1]).toEqual({
@@ -76,15 +58,15 @@ describe('AgentService session transport', () => {
         expect(messages.slice(2)).toEqual([
             {
                 role: 'tool',
-                tool_call_id: 'call_mcp',
-                name: 'mcp__9__lookup',
-                content: 'mcp result',
-            },
-            {
-                role: 'tool',
                 tool_call_id: 'call_builtin',
                 name: 'builtin__bash',
                 content: 'builtin result',
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call_mcp',
+                name: 'mcp__9__lookup',
+                content: 'mcp result',
             },
         ]);
         expect(mocks.findMessagesBySessionId).toHaveBeenCalledExactlyOnceWith(1);
@@ -117,40 +99,47 @@ describe('AgentService session transport', () => {
         ]);
     });
 
-    it('does not guess a missing result identity from FIFO order', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    it('keeps reasoning and text on a tool-call message beside its call parts', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({
                 id: 11,
                 role: 'tool_call',
-                parts: [callPart(1, 'builtin', 'call_1')],
+                parts: [
+                    createMessagePart({
+                        id: 1,
+                        message_id: 11,
+                        type: 'reasoning',
+                        content: 'need a command',
+                        sort_order: 0,
+                    }),
+                    createMessagePart({
+                        id: 2,
+                        message_id: 11,
+                        type: 'text',
+                        content: 'Running it',
+                        sort_order: 1,
+                    }),
+                    callPart(3, 'builtin', 'call_1', 'builtin result'),
+                ],
             }),
-            resultRow(12, null, null, 'orphan result'),
         ]);
-        const messages = await loadSessionTransportMessages({ sessionId: 1 });
-        expect(messages[1]).toMatchObject({
-            tool_call_id: 'call_1',
-            content: 'Missing historical tool result.',
-        });
-        expect(warn).toHaveBeenCalledOnce();
-    });
 
-    it('does not attach a result to a call from a different tool kind', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        mocks.findMessagesBySessionId.mockResolvedValue([
-            createMessageRow({
-                id: 11,
-                role: 'tool_call',
-                parts: [callPart(1, 'builtin', 'call_1')],
-            }),
-            resultRow(12, 'mcp', 'call_1', 'wrong source result'),
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    { type: 'reasoning', text: 'need a command' },
+                    { type: 'text', text: 'Running it' },
+                ],
+                tool_calls: [{ id: 'call_1', name: 'builtin__bash', arguments: '{}' }],
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call_1',
+                name: 'builtin__bash',
+                content: 'builtin result',
+            },
         ]);
-        const messages = await loadSessionTransportMessages({ sessionId: 1 });
-        expect(messages[1]).toMatchObject({
-            tool_call_id: 'call_1',
-            content: 'Missing historical tool result.',
-        });
-        expect(warn).toHaveBeenCalledOnce();
     });
 
     it('preserves text and reasoning order directly from parts', async () => {

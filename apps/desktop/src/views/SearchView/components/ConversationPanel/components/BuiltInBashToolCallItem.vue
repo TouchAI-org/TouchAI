@@ -19,12 +19,12 @@
                     {{ ` ${summaryText}` }}
                 </span>
                 <span
-                    v-if="durationText"
+                    v-if="displayDurationText"
                     class="tool-call-log-duration"
                     data-no-i18n="true"
                     translate="no"
                 >
-                    {{ ` (${durationText})` }}
+                    {{ ` (${displayDurationText})` }}
                 </span>
             </span>
         </button>
@@ -52,12 +52,12 @@
                                 {{ bashStatusText }}
                             </span>
                             <span
-                                v-if="bashDurationText"
+                                v-if="displayDurationText"
                                 class="tool-call-bash-panel-header-duration"
                                 data-no-i18n="true"
                                 translate="no"
                             >
-                                {{ bashDurationText }}
+                                {{ displayDurationText }}
                             </span>
                         </div>
                     </div>
@@ -93,6 +93,7 @@
 
                     <div class="tool-call-bash-output-block">
                         <pre
+                            ref="bashOutputRef"
                             :class="
                                 hasBashOutput
                                     ? 'tool-call-bash-output custom-scrollbar-thin'
@@ -100,6 +101,7 @@
                             "
                             :data-no-i18n="hasBashOutput ? 'true' : undefined"
                             :translate="hasBashOutput ? 'no' : undefined"
+                            @scroll="handleOutputScroll"
                             v-text="bashOutputText"
                         ></pre>
                     </div>
@@ -112,7 +114,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
-    import { computed, ref } from 'vue';
+    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
     import {
@@ -120,6 +122,7 @@
         parseBashToolResult,
     } from '@/services/BuiltInToolService/tools/bash/helper';
     import type { ToolCallInfo } from '@/types/session';
+    import { formatCompactDuration, parseMillisecondDurationLabel } from '@/utils/duration';
 
     const ROOT_CLASS =
         'tool-call-bash-wrapper tool-call-log-wrapper paragraph-node touchai-markdown touchai-markdown--default';
@@ -151,6 +154,12 @@
 
     const isExpanded = ref(false);
     const isCommandExpanded = ref(false);
+    const manualOverride = ref(false);
+    const durationNow = ref(Date.now());
+    const bashOutputRef = ref<HTMLElement | null>(null);
+    const shouldFollowOutput = ref(true);
+    let durationTimer: ReturnType<typeof setInterval> | null = null;
+    let isSyncingOutputScroll = false;
     const statusType = computed<'running' | 'error' | 'completed' | 'rejected' | 'cancelled'>(
         () => {
             if (
@@ -187,18 +196,52 @@
     const isBashCommandPayload = computed(() => {
         return Boolean(normalizeInlineText(props.toolCall.arguments?.command) || props.summaryText);
     });
-    const bashDurationText = computed(
-        () => props.durationText || bashResultMeta.value.duration || null
-    );
     const bashShellText = computed(() => bashResultMeta.value.shell || 'PowerShell');
     const isBashShellPayload = computed(() => Boolean(bashResultMeta.value.shell));
+    const liveDurationMs = computed(() => {
+        if (
+            !isAutoExpandedStatus.value ||
+            typeof props.toolCall.startedAt !== 'number' ||
+            !Number.isFinite(props.toolCall.startedAt)
+        ) {
+            return null;
+        }
+
+        return Math.max(0, durationNow.value - props.toolCall.startedAt);
+    });
+    const displayDurationText = computed(
+        () =>
+            formatCompactDuration(liveDurationMs.value, {
+                minimumUnit: 'second',
+                rounding: 'floor',
+            }) ||
+            formatCompactDuration(props.toolCall.durationMs, {
+                minimumUnit: 'second',
+                clampToOneSecond: true,
+            }) ||
+            formatCompactDuration(parseMillisecondDurationLabel(props.durationText), {
+                minimumUnit: 'second',
+                clampToOneSecond: true,
+            }) ||
+            formatCompactDuration(parseMillisecondDurationLabel(bashResultMeta.value.duration), {
+                minimumUnit: 'second',
+                clampToOneSecond: true,
+            }) ||
+            props.durationText ||
+            bashResultMeta.value.duration ||
+            null
+    );
+    const bashOutputValue = computed(() => {
+        const output = bashResultMeta.value.output?.trim();
+        return isEmptyBashOutputText(output) ? null : output;
+    });
     const bashOutputText = computed(() => {
         if (props.toolCall.status === 'awaiting_approval') {
             return t('conversation.toolCall.waitingUserApproval');
         }
 
         if (props.toolCall.status === 'executing') {
-            return t('conversation.toolCall.commandRunning');
+            return bashOutputValue.value || t('conversation.toolCall.commandRunning');
         }
 
         if (props.toolCall.status === 'rejected') {
@@ -206,12 +249,11 @@
         }
 
         if (props.toolCall.status === 'cancelled') {
-            return t('conversation.toolCall.commandCancelled');
+            return bashOutputValue.value || t('conversation.toolCall.commandCancelled');
         }
 
-        const output = bashResultMeta.value.output?.trim();
-        if (!isEmptyBashOutputText(output)) {
-            return output;
+        if (bashOutputValue.value) {
+            return bashOutputValue.value;
         }
 
         if (props.toolCall.status === 'error') {
@@ -220,16 +262,71 @@
 
         return t('conversation.toolCall.noOutput');
     });
-    const hasBashOutput = computed(() => {
-        const output = bashResultMeta.value.output?.trim();
-        return !isEmptyBashOutputText(output);
-    });
+    const hasBashOutput = computed(() => Boolean(bashOutputValue.value));
     const bashCommandTokens = computed(() => tokenizeBashCommand(bashCommandText.value));
     const bashStatusClass = computed(() => {
         return getStatusClassName('tool-call-bash-status--', statusType.value);
     });
     const bashStatusText = computed(() => {
         return getToolStatusText(props.toolCall.status, statusType.value);
+    });
+    const isAutoExpandedStatus = computed(
+        () => props.toolCall.status === 'executing' || props.toolCall.status === 'awaiting_approval'
+    );
+
+    watch(
+        isAutoExpandedStatus,
+        (isExecuting) => {
+            if (manualOverride.value) {
+                return;
+            }
+
+            isExpanded.value = isExecuting;
+            if (!isExecuting) {
+                isCommandExpanded.value = false;
+            }
+        },
+        { immediate: true }
+    );
+
+    watch(
+        [isAutoExpandedStatus, () => props.toolCall.startedAt],
+        ([isLive]) => {
+            stopDurationTimer();
+            durationNow.value = Date.now();
+
+            if (!isLive || typeof props.toolCall.startedAt !== 'number') {
+                return;
+            }
+
+            durationTimer = setInterval(() => {
+                durationNow.value = Date.now();
+            }, 1000);
+        },
+        { immediate: true }
+    );
+
+    // 输出内容持续增长时，如果用户之前就在底部，则继续跟随最新内容；
+    // 用户主动向上翻阅时保留阅读位置，直到再次滚到底部。
+    watch(
+        () => bashOutputText.value,
+        () => {
+            void syncExpandedOutput();
+        }
+    );
+
+    watch(isExpanded, (expanded) => {
+        if (expanded) {
+            void syncExpandedOutput();
+        }
+    });
+
+    onMounted(() => {
+        void syncExpandedOutput();
+    });
+
+    onBeforeUnmount(() => {
+        stopDurationTimer();
     });
 
     function normalizeInlineText(value: unknown): string | null {
@@ -292,6 +389,7 @@
     }
 
     function toggleExpanded() {
+        manualOverride.value = true;
         isExpanded.value = !isExpanded.value;
         if (!isExpanded.value) {
             isCommandExpanded.value = false;
@@ -300,6 +398,63 @@
 
     function toggleCommandExpanded() {
         isCommandExpanded.value = !isCommandExpanded.value;
+    }
+
+    function stopDurationTimer() {
+        if (durationTimer !== null) {
+            clearInterval(durationTimer);
+            durationTimer = null;
+        }
+    }
+
+    function isOutputScrolledToBottom(element: HTMLElement): boolean {
+        return element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
+    }
+
+    function syncOutputToBottom() {
+        const element = bashOutputRef.value;
+        if (!element || !shouldFollowOutput.value) {
+            return;
+        }
+
+        const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+        if (element.scrollTop === maxScrollTop) {
+            return;
+        }
+
+        isSyncingOutputScroll = true;
+        element.scrollTop = maxScrollTop;
+        if (typeof window !== 'undefined' && 'requestAnimationFrame' in window) {
+            window.requestAnimationFrame(() => {
+                isSyncingOutputScroll = false;
+            });
+        } else {
+            isSyncingOutputScroll = false;
+        }
+    }
+
+    function handleOutputScroll() {
+        const element = bashOutputRef.value;
+        if (!element || !isExpanded.value) {
+            return;
+        }
+
+        // Ignore the scroll event generated by our own jump to the bottom, but
+        // still treat an upward user scroll in the same frame as manual input.
+        if (isSyncingOutputScroll && isOutputScrolledToBottom(element)) {
+            isSyncingOutputScroll = false;
+            return;
+        }
+
+        isSyncingOutputScroll = false;
+        shouldFollowOutput.value = isOutputScrolledToBottom(element);
+    }
+
+    async function syncExpandedOutput() {
+        await nextTick();
+        if (isExpanded.value) {
+            syncOutputToBottom();
+        }
     }
 
     function tokenizeBashCommand(command: string): BashCommandToken[] {

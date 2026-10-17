@@ -10,7 +10,7 @@ import type { MessagePartCreateData, MessagePartEntity } from '../types';
 /** Derive plain text only at consumers that need it; parts remain the source of truth. */
 export function getMessageText(parts: readonly MessagePartEntity[]): string {
     return parts
-        .filter((part) => part.type === 'text' || part.type === 'tool_result')
+        .filter((part) => part.type === 'text')
         .map((part) => part.content)
         .join('');
 }
@@ -56,12 +56,85 @@ export const createMessageParts = async (
     await database.insert(messageParts).values(parts).run();
 };
 
-/** 正文仅存于 parts；摘要等 SQL 读路径按原始顺序派生，不再保存第二份全文。 */
+/**
+ * 在消息末尾追加一条片段，sort_order 由当前最大序号推导。
+ *
+ * 工具结果等“后置写入”的片段用它避免与既有片段争抢顺序。
+ */
+export const appendMessagePart = async (
+    messageId: number,
+    part: Omit<MessagePartCreateData, 'message_id' | 'sort_order'>,
+    database: DatabaseExecutor = db
+): Promise<MessagePartEntity> => {
+    const maximum = await database
+        .select({
+            value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value'),
+        })
+        .from(messageParts)
+        .where(eq(messageParts.message_id, messageId))
+        .get();
+    const inserted = await database
+        .insert(messageParts)
+        .values({
+            ...part,
+            message_id: messageId,
+            sort_order: (maximum?.value ?? -1) + 1,
+        })
+        .returning()
+        .get();
+
+    if (!inserted) {
+        throw new Error('Failed to append message part');
+    }
+
+    return inserted;
+};
+
+/**
+ * 合并片段 data 的 JSON 字段；调用方负责事务边界。
+ */
+export const mergeMessagePartData = async (
+    partId: number,
+    patch: Record<string, unknown>,
+    database: DatabaseExecutor = db
+): Promise<MessagePartEntity | undefined> => {
+    const part = await database
+        .select()
+        .from(messageParts)
+        .where(eq(messageParts.id, partId))
+        .get();
+    if (!part) {
+        return undefined;
+    }
+
+    const data = JSON.stringify({
+        ...(JSON.parse(part.data) as Record<string, unknown>),
+        ...patch,
+    });
+    await database
+        .update(messageParts)
+        .set({ data, updated_at: sql`datetime('now')` })
+        .where(eq(messageParts.id, partId))
+        .run();
+
+    return { ...part, data };
+};
+
+/**
+ * 正文仅存于 parts；摘要等 SQL 读路径按原始顺序派生，不再保存第二份全文。
+ *
+ * tool_call 片段的正文即工具输出（保存在 data.output），因此这里同时读取
+ * text 片段与 tool_call 输出，保证会话搜索与预览仍能命中工具结果。
+ */
 export function messageText(messageId: AnySQLiteColumn) {
     return sql<string>`coalesce((
         SELECT group_concat(content, '') FROM (
-            SELECT content FROM message_parts
-            WHERE message_id = ${messageId} AND type IN ('text', 'tool_result')
+            SELECT CASE
+                       WHEN type = 'text' THEN content
+                       ELSE coalesce(json_extract(data, '$.output'), '')
+                   END AS content
+            FROM message_parts
+            WHERE message_id = ${messageId} AND type IN ('text', 'tool_call')
             ORDER BY sort_order, id
         )
     ), '')`;

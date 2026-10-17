@@ -6,7 +6,11 @@ import {
     BASH_TOOL_TIMEOUT_MAX_MS,
     DEFAULT_BASH_TOOL_CONFIG,
 } from '@/services/BuiltInToolService/tools/bash/constants';
-import { bashTool, executeBashTool } from '@/services/BuiltInToolService/tools/bash/index';
+import {
+    bashTool,
+    createBashApprovalRequest,
+    executeBashTool,
+} from '@/services/BuiltInToolService/tools/bash/index';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
 
 vi.mock('@tauri-apps/api/path', () => ({
@@ -306,5 +310,113 @@ describe('bashTool adaptive timeout ceiling', () => {
         });
 
         expect(definition.adaptiveTimeoutCeilingMs).toBeUndefined();
+    });
+});
+
+describe('createBashApprovalRequest', () => {
+    it('skips approval when approval mode is never', async () => {
+        await expect(
+            createBashApprovalRequest(
+                {
+                    command: 'Write-Output "alpha"',
+                    reason: 'Read a file',
+                    workingDirectory: 'D:/Project/TouchAI',
+                },
+                {
+                    ...DEFAULT_BASH_TOOL_CONFIG,
+                    approvalMode: 'never',
+                }
+            )
+        ).resolves.toBeNull();
+    });
+
+    it('requests approval for high-risk commands and always mode', async () => {
+        await expect(
+            createBashApprovalRequest(
+                {
+                    command: 'Remove-Item test.txt',
+                    reason: 'Need cleanup',
+                    workingDirectory: 'D:/Project/TouchAI',
+                },
+                DEFAULT_BASH_TOOL_CONFIG
+            )
+        ).resolves.toMatchObject({
+            title: '命令执行确认',
+            reason: '命令可能删除文件或目录。',
+            command: 'Remove-Item test.txt',
+        });
+
+        await expect(
+            createBashApprovalRequest(
+                {
+                    command: 'Write-Output "alpha"',
+                    reason: 'Need visibility',
+                    workingDirectory: 'D:/Project/TouchAI',
+                },
+                {
+                    ...DEFAULT_BASH_TOOL_CONFIG,
+                    approvalMode: 'always',
+                }
+            )
+        ).resolves.toMatchObject({
+            title: '命令执行确认',
+            reason: '当前配置要求所有 Bash 命令都必须先批准。',
+            command: 'Write-Output "alpha"',
+        });
+    });
+
+    it('does not request approval for a safe command in high-risk mode', async () => {
+        await expect(
+            createBashApprovalRequest(
+                {
+                    command: 'Write-Output "alpha"',
+                    reason: 'Need visibility',
+                    workingDirectory: 'D:/Project/TouchAI',
+                },
+                DEFAULT_BASH_TOOL_CONFIG
+            )
+        ).resolves.toBeNull();
+    });
+});
+
+describe('bashTool', () => {
+    it('delegates config parsing, semantic building, approval creation, and execution', async () => {
+        mockBashExecute();
+
+        expect(bashTool.parseConfig(null)).toEqual(DEFAULT_BASH_TOOL_CONFIG);
+        expect(
+            bashTool.buildConversationSemantic({
+                command: '  Write-Output   "alpha"  ',
+            })
+        ).toEqual({
+            action: 'run',
+            target: 'Write-Output "alpha"',
+        });
+        await expect(
+            bashTool.buildApprovalRequest(
+                {
+                    command: 'Remove-Item test.txt',
+                    reason: 'Need cleanup',
+                    workingDirectory: 'D:/Project/TouchAI',
+                },
+                DEFAULT_BASH_TOOL_CONFIG
+            )
+        ).resolves.toMatchObject({
+            reason: '命令可能删除文件或目录。',
+        });
+
+        await expect(
+            bashTool.execute(
+                {
+                    command: 'Write-Output "alpha"',
+                    workingDirectory: 'D:/Project/TouchAI',
+                },
+                DEFAULT_BASH_TOOL_CONFIG,
+                fakeContext({ callId: 'call-bash-tool' })
+            )
+        ).resolves.toMatchObject({
+            status: 'success',
+            isError: false,
+        });
     });
 });

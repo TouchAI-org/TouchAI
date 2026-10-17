@@ -1,5 +1,5 @@
 import type { BuiltInBashExecutionResponse } from '@services/NativeService';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
@@ -11,9 +11,25 @@ import {
     truncateOutput,
 } from '@/services/BuiltInToolService/tools/bash/helper';
 
+const desktopDirMock = vi.hoisted(() => vi.fn());
+
 vi.mock('@tauri-apps/api/path', () => ({
-    desktopDir: vi.fn().mockResolvedValue('C:\\Users\\test\\Desktop'),
+    desktopDir: desktopDirMock,
 }));
+
+async function loadBashHelper() {
+    vi.resetModules();
+    return await import('@/services/BuiltInToolService/tools/bash/helper');
+}
+
+async function loadBashConstants() {
+    return await import('@/services/BuiltInToolService/tools/bash/constants');
+}
+
+afterEach(() => {
+    vi.clearAllMocks();
+    setLocale('zh-CN');
+});
 
 describe('parseBashToolConfig', () => {
     it('returns default config when input is null', () => {
@@ -83,6 +99,7 @@ describe('resolveCommandContext', () => {
     });
 
     it('falls back to desktop directory when defaultWorkingDirectory is empty', async () => {
+        desktopDirMock.mockResolvedValue('C:\\Users\\test\\Desktop');
         const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: '' };
         const ctx = await resolveCommandContext({ command: 'dir' }, config);
         expect(ctx.workingDirectory).toBe('C:\\Users\\test\\Desktop');
@@ -113,6 +130,69 @@ describe('resolveCommandContext', () => {
 
     it('rejects empty command', async () => {
         await expect(resolveCommandContext({ command: '' }, baseConfig)).rejects.toThrow();
+    });
+});
+
+describe('bash helper working directory cache', () => {
+    it('caches desktop directory lookups when using the default working directory', async () => {
+        desktopDirMock.mockResolvedValue('C:\\Users\\Tester\\Desktop\\');
+        const { resolveCommandContext: resolveFreshContext } = await loadBashHelper();
+        const { DEFAULT_BASH_TOOL_CONFIG: freshConfig } = await loadBashConstants();
+
+        await resolveFreshContext({ command: 'Write-Output "alpha"' }, freshConfig);
+        await resolveFreshContext({ command: 'Write-Output "beta"' }, freshConfig);
+
+        expect(desktopDirMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries desktop directory lookup after a previous failure', async () => {
+        desktopDirMock
+            .mockRejectedValueOnce(new Error('desktop unavailable'))
+            .mockResolvedValueOnce('C:\\Users\\Tester\\Desktop');
+        const { resolveCommandContext: resolveFreshContext } = await loadBashHelper();
+        const { DEFAULT_BASH_TOOL_CONFIG: freshConfig } = await loadBashConstants();
+
+        await expect(
+            resolveFreshContext({ command: 'Write-Output "alpha"' }, freshConfig)
+        ).rejects.toThrow('desktop unavailable');
+        await expect(
+            resolveFreshContext({ command: 'Write-Output "beta"' }, freshConfig)
+        ).resolves.toMatchObject({
+            command: 'Write-Output "beta"',
+            workingDirectory: 'C:\\Users\\Tester\\Desktop',
+        });
+
+        expect(desktopDirMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('reuses an in-flight desktop directory prewarm for the first command resolution', async () => {
+        let resolveDesktopPath: ((value: string) => void) | null = null;
+        desktopDirMock.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveDesktopPath = resolve;
+                })
+        );
+        const { prewarmBashToolRuntime, resolveCommandContext: resolveFreshContext } =
+            await loadBashHelper();
+        const { DEFAULT_BASH_TOOL_CONFIG: freshConfig } = await loadBashConstants();
+
+        const prewarmPromise = prewarmBashToolRuntime();
+        const contextPromise = resolveFreshContext(
+            { command: 'Write-Output "alpha"' },
+            freshConfig
+        );
+
+        expect(desktopDirMock).toHaveBeenCalledTimes(1);
+        expect(resolveDesktopPath).not.toBeNull();
+        resolveDesktopPath!('C:\\Users\\Tester\\Desktop\\');
+
+        await expect(prewarmPromise).resolves.toBe('C:\\Users\\Tester\\Desktop');
+        await expect(contextPromise).resolves.toMatchObject({
+            command: 'Write-Output "alpha"',
+            workingDirectory: 'C:\\Users\\Tester\\Desktop',
+        });
+        expect(desktopDirMock).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -175,7 +255,7 @@ describe('formatBashToolResult', () => {
             },
             12000
         );
-        expect(result).toContain('[No command output]');
+        expect(result).toContain('[命令无输出]');
     });
 
     it('uses none when exitCode is null', () => {

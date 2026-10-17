@@ -714,7 +714,7 @@
           "notNull": false,
           "autoincrement": false,
           "generated": {
-            "as": "(CASE WHEN \"type\" IN ('tool_call', 'tool_result') THEN json_extract(\"data\", '$.toolCallId') END)",
+            "as": "(CASE WHEN \"type\" = 'tool_call' THEN json_extract(\"data\", '$.toolCallId') END)",
             "type": "virtual"
           }
         },
@@ -725,7 +725,7 @@
           "notNull": false,
           "autoincrement": false,
           "generated": {
-            "as": "(CASE WHEN \"type\" IN ('tool_call', 'tool_result') THEN json_extract(\"data\", '$.toolKind') END)",
+            "as": "(CASE WHEN \"type\" = 'tool_call' THEN json_extract(\"data\", '$.toolKind') END)",
             "type": "virtual"
           }
         },

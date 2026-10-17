@@ -514,6 +514,7 @@ export class AiRequestExecutor {
             toolName: mapping.originalName,
             namespacedName: options.toolCall.name,
             source: 'mcp',
+            startedAt: callStartTime,
             serverId: mapping.serverId,
             arguments: options.toolArgs,
         });
@@ -979,7 +980,12 @@ export class AiRequestExecutor {
                 isError,
             });
 
-            await options.persister.persistToolResultMessage(result, toolLogId, attachments);
+            await options.persister.persistToolResult({
+                result,
+                toolCallPartId: toolLogId,
+                toolCallMessageId,
+                attachments,
+            });
 
             if (builtInToolId && !isError) {
                 runtime.executedBuiltInTools.add(builtInToolId);

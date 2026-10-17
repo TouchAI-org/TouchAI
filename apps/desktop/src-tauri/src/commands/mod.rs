@@ -60,6 +60,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         paths::get_app_directory_path,
         paths::get_runtime_info,
         built_in_tools::built_in_tools_execute_bash,
+        built_in_tools::built_in_tools_start_bash,
         built_in_tools::built_in_tools_cancel_bash,
         mcp::mcp_connect_server,
         mcp::mcp_disconnect_server,

@@ -16,7 +16,7 @@ import {
     type SessionMessage,
     type ToolApprovalInfo,
 } from '@/types/session';
-import { createReasoningPart, createTextPart } from '@/utils/session';
+import { createReasoningPart, createTextPart, selectToolCalls } from '@/utils/session';
 
 import { AiError } from '../../contracts/errors';
 import type { AiStreamChunk } from '../../contracts/protocol';
@@ -37,12 +37,7 @@ import {
     isCancellationStatusText,
     isTerminalStatus,
 } from './helpers';
-import {
-    ensureToolCallPart,
-    syncBuiltInToolCallPresentation,
-    updateToolCallStatus,
-    upsertToolCall,
-} from './toolCalls';
+import { syncBuiltInToolCallPresentation, updateToolCallStatus, upsertToolCall } from './toolCalls';
 import {
     type ApprovalSettlementResult,
     ProjectionUserPrompts,
@@ -526,9 +521,6 @@ export class SessionTaskProjection {
             return true;
         }
 
-        const toolCallMap = new Map(
-            (message.toolCalls ?? []).map((toolCall) => [toolCall.id, toolCall])
-        );
         const approvalCallIds = new Set(
             (message.approvals ?? []).map((approval) => approval.callId)
         );
@@ -543,11 +535,9 @@ export class SessionTaskProjection {
             }
 
             if (part.type === 'tool_call') {
-                const toolCall = toolCallMap.get(part.callId);
                 return (
-                    !!toolCall &&
-                    !this.widgets.isHiddenBuiltinToolCall(toolCall.namespacedName) &&
-                    !widgetBackedToolCallIds.has(part.callId)
+                    !this.widgets.isHiddenBuiltinToolCall(part.toolCall.namespacedName) &&
+                    !widgetBackedToolCallIds.has(part.toolCall.id)
                 );
             }
 
@@ -702,11 +692,11 @@ export class SessionTaskProjection {
      */
     private markActiveToolCallsCancelled(cancellationText: string): void {
         for (const message of this.snapshot.sessionHistory) {
-            if (message.role !== 'assistant' || !message.toolCalls?.length) {
+            if (message.role !== 'assistant') {
                 continue;
             }
 
-            for (const toolCall of message.toolCalls) {
+            for (const toolCall of selectToolCalls(message)) {
                 const shouldMarkCancelled =
                     toolCall.status === 'executing' ||
                     toolCall.status === 'awaiting_approval' ||
@@ -772,9 +762,6 @@ export class SessionTaskProjection {
     private handleToolEvent(message: SessionMessage, toolEvent: ToolEvent): void {
         if (toolEvent.type === 'call_start') {
             upsertToolCall(message, toolEvent);
-            if (!this.widgets.isHiddenBuiltinToolCall(toolEvent.namespacedName)) {
-                ensureToolCallPart(message, toolEvent.callId);
-            }
             return;
         }
 
@@ -800,6 +787,18 @@ export class SessionTaskProjection {
             this.settleApproval(toolEvent.callId, toolEvent.approved, {
                 resolutionText: toolEvent.resolutionText,
             });
+            return;
+        }
+
+        if (toolEvent.type === 'result_delta') {
+            updateToolCallStatus(
+                this.snapshot.sessionHistory,
+                message.id,
+                toolEvent.callId,
+                (toolCall) => {
+                    toolCall.result = toolEvent.result;
+                }
+            );
             return;
         }
 

@@ -13,6 +13,7 @@ use crate::{
             types::{BrowserActRequest, BrowserDescriptor, BrowserDomRef},
             url_policy, BrowserRuntime,
         },
+        built_in_tools::BuiltInProcessExecutionRegistry,
         database::DatabaseRuntime,
         updater::AppUpdaterState,
         window::{
@@ -36,6 +37,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .manage(SessionStatusReminderNotificationRuntime::for_tests())
         .manage(TrayStatusRuntime::new())
         .manage(BrowserRuntime::new())
+        .manage(BuiltInProcessExecutionRegistry::new())
         .manage(AppUpdaterState::default())
 }
 

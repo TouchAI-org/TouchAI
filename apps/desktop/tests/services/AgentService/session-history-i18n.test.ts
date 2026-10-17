@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import { buildSessionHistory } from '@/services/AgentService/session/history';
+import { selectToolCalls } from '@/utils/session';
 
 const BASE_TIME = '2026-05-22T10:00:00.000Z';
 
@@ -194,21 +195,10 @@ describe('AgentService session history i18n', () => {
                                 toolKind: 'builtin',
                                 tool_id: 'bash',
                                 input: JSON.stringify({ command: 'Write-Output 设置' }),
+                                output: '[命令无输出]',
                                 status: 'success',
                                 duration_ms: 12,
                             }),
-                        }),
-                    ],
-                }),
-                createMessageRow({
-                    id: 12,
-                    role: 'tool_result',
-                    content: '[命令无输出]',
-                    parts: [
-                        createMessagePart({
-                            type: 'tool_result',
-                            content: '[命令无输出]',
-                            data: JSON.stringify({ toolCallId: 'call-1', toolKind: 'builtin' }),
                         }),
                     ],
                 }),
@@ -218,7 +208,8 @@ describe('AgentService session history i18n', () => {
             resolveServerName: () => '',
         });
 
-        const toolCall = history[1]?.toolCalls?.[0];
+        const restoredMessage = history[1];
+        const toolCall = restoredMessage ? selectToolCalls(restoredMessage)[0] : undefined;
         expect(toolCall?.builtinPresentation).toMatchObject({
             verb: 'Ran',
             content: 'Write-Output 设置',
@@ -326,7 +317,7 @@ describe('AgentService interleaved reasoning history', () => {
         expect(assistant.parts).toMatchObject([
             { type: 'reasoning', content: 'Plan', isStreaming: false },
             { type: 'text', content: 'Checking' },
-            { type: 'tool_call', callId: 'call-1' },
+            { type: 'tool_call', toolCall: expect.objectContaining({ id: 'call-1' }) },
             { type: 'reasoning', content: 'Review', isStreaming: false },
             { type: 'text', content: 'Answer' },
         ]);

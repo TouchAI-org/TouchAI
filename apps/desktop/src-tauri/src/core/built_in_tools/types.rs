@@ -24,6 +24,43 @@ pub struct BuiltInBashExecutionRequest {
     pub raw_output: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltInBashStreamChunk {
+    pub execution_id: String,
+    pub stream: BuiltInBashStreamChannel,
+    pub chunk: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum BuiltInBashEvent {
+    Chunk {
+        execution_id: String,
+        stream: BuiltInBashStreamChannel,
+        chunk: String,
+    },
+    Completed {
+        execution_id: String,
+        response: BuiltInBashExecutionResponse,
+    },
+    Failed {
+        execution_id: String,
+        error: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BuiltInBashStreamChannel {
+    Stdout,
+    Stderr,
+}
+
 /// 内置 Bash 工具的结构化执行结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,4 +90,29 @@ pub struct BuiltInBashExecutionResponse {
     /// 输出是否经过 rtk 压缩。
     #[serde(default)]
     pub compressed: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serializes_bash_chunk_events_with_camel_case_fields() {
+        let value = serde_json::to_value(BuiltInBashEvent::Chunk {
+            execution_id: "exec-1".to_string(),
+            stream: BuiltInBashStreamChannel::Stdout,
+            chunk: "alpha".to_string(),
+        })
+        .expect("event should serialize");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "kind": "chunk",
+                "executionId": "exec-1",
+                "stream": "stdout",
+                "chunk": "alpha",
+            })
+        );
+    }
 }

@@ -159,6 +159,7 @@ export type ToolEvent =
           toolName: string;
           namespacedName: string;
           source: ToolExecutionSource;
+          startedAt?: number;
           serverId?: number | null;
           sourceLabel?: string;
           arguments: Record<string, unknown>;
@@ -172,6 +173,11 @@ export type ToolEvent =
           durationMs: number;
           finalStatus?: 'completed' | 'error' | 'rejected';
           builtinConversationSemantic?: ToolEventBuiltInConversationSemantic;
+      }
+    | {
+          type: 'result_delta';
+          callId: string;
+          result: string;
       }
     | ({ type: 'approval_required'; callId: string } & ToolApprovalRequest)
     | {

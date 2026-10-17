@@ -22,6 +22,9 @@ const queries = vi.hoisted(() => ({
     updateSessionTurn: vi.fn(),
     updateSessionTurnAttempt: vi.fn(),
     refreshSessionMetadata: vi.fn(),
+    appendMessagePart: vi.fn(),
+    mergeMessagePartData: vi.fn(),
+    createMessageAttachment: vi.fn(),
 }));
 
 vi.mock('@database', async (importOriginal) => ({
@@ -352,6 +355,101 @@ describe('reasoning persistence', () => {
             expect.objectContaining({ role: 'tool_call' }),
             {}
         );
+    });
+
+    it('writes the tool result back into its tool-call part', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+        queries.mergeMessagePartData.mockResolvedValue({
+            id: 42,
+            message_id: 11,
+            tool_call_id: 'call-1',
+            tool_kind: 'builtin',
+        });
+
+        await projector.persistToolResult({
+            result: 'done',
+            toolCallPartId: 42,
+            toolCallMessageId: 11,
+        });
+
+        expect(queries.mergeMessagePartData).toHaveBeenCalledWith(
+            42,
+            { output: 'done' },
+            expect.anything()
+        );
+        expect(queries.refreshSessionMetadata).toHaveBeenLastCalledWith(1, expect.anything());
+    });
+
+    it('attaches tool-result attachments with their owning call identity', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+        queries.mergeMessagePartData.mockResolvedValue({
+            id: 42,
+            message_id: 11,
+            tool_call_id: 'call-1',
+            tool_kind: 'mcp',
+        });
+        queries.createMessageAttachment.mockResolvedValue({ id: 5 });
+
+        await projector.persistToolResult({
+            result: 'file ready',
+            toolCallPartId: 42,
+            toolCallMessageId: 11,
+            attachments: [
+                {
+                    id: 'attachment-1',
+                    attachmentId: 7,
+                    hash: 'hash-7',
+                    type: 'file',
+                    path: 'D:/cache/seven.txt',
+                    originPath: 'D:/origin/seven.txt',
+                    name: 'seven.txt',
+                },
+            ],
+        });
+
+        expect(queries.createMessageAttachment).toHaveBeenCalledWith(
+            {
+                message_id: 11,
+                attachment_id: 7,
+                origin_path: 'D:/origin/seven.txt',
+                tool_call_id: 'call-1',
+                tool_kind: 'mcp',
+            },
+            expect.anything()
+        );
+    });
+
+    it('appends an unmatched tool result as text on the tool step message', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+
+        await projector.persistToolResult({
+            result: 'unmatched output',
+            toolCallPartId: null,
+            toolCallMessageId: 11,
+        });
+
+        expect(queries.appendMessagePart).toHaveBeenCalledWith(
+            11,
+            { type: 'text', content: 'unmatched output', data: '{}' },
+            expect.anything()
+        );
+        expect(queries.mergeMessagePartData).not.toHaveBeenCalled();
+    });
+
+    it('ignores an unmatched empty tool result', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+
+        await projector.persistToolResult({
+            result: '',
+            toolCallPartId: null,
+            toolCallMessageId: 11,
+        });
+
+        expect(queries.appendMessagePart).not.toHaveBeenCalled();
     });
 
     it('updates only the checkpoint at a safe boundary', async () => {

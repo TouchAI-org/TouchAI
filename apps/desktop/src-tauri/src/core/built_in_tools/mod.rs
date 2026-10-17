@@ -10,4 +10,11 @@ mod types;
 
 pub use bash::execute_bash;
 pub use registry::{BashExecutionRegistry, BuiltInProcessExecutionRegistry};
-pub use types::{BuiltInBashExecutionRequest, BuiltInBashExecutionResponse};
+pub use types::{
+    BuiltInBashEvent, BuiltInBashExecutionRequest, BuiltInBashExecutionResponse,
+    BuiltInBashStreamChunk,
+};
+
+pub fn prewarm_bash_runtime() -> bool {
+    crate::core::system::bundled::get_bundled_rtk_directory().is_some()
+}

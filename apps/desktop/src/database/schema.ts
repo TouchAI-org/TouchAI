@@ -79,7 +79,7 @@ export const messages = sqliteTable('messages', {
         .notNull()
         .references(() => sessions.id, { onDelete: 'cascade' }),
     role: text('role', {
-        enum: ['user', 'assistant', 'system', 'tool_call', 'tool_result'],
+        enum: ['user', 'assistant', 'system', 'tool_call'],
     }).notNull(),
     created_at: text('created_at')
         .notNull()
@@ -92,8 +92,9 @@ export const messages = sqliteTable('messages', {
 /**
  * 消息输出片段表。
  *
- * text 与 reasoning 作为同级片段保存，sort_order 保留模型实际输出顺序；
- * reasoning 的墙钟起止时间直接归属于片段本身。
+ * text、reasoning 与 tool_call 作为同级片段保存，sort_order 保留模型实际输出顺序；
+ * reasoning 的墙钟起止时间直接归属于片段本身；
+ * tool_call 片段在 data 中保存调用参数与执行结果，是工具状态的唯一真相源。
  */
 export const messageParts = sqliteTable(
     'message_parts',
@@ -103,17 +104,17 @@ export const messageParts = sqliteTable(
             .notNull()
             .references(() => messages.id, { onDelete: 'cascade' }),
         type: text('type', {
-            enum: ['text', 'reasoning', 'tool_call', 'tool_result', 'attachment'],
+            enum: ['text', 'reasoning', 'tool_call', 'attachment'],
         }).notNull(),
         content: text('content').notNull(),
         data: text('data').notNull().default('{}'),
         // Read-only projections: data is the only writable source for typed metadata.
         tool_call_id: text('tool_call_id').generatedAlwaysAs(
-            sql`CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolCallId') END`,
+            sql`CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$.toolCallId') END`,
             { mode: 'virtual' }
         ),
         tool_kind: text('tool_kind', { enum: ['mcp', 'builtin'] }).generatedAlwaysAs(
-            sql`CASE WHEN "type" IN ('tool_call', 'tool_result') THEN json_extract("data", '$.toolKind') END`,
+            sql`CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$.toolKind') END`,
             { mode: 'virtual' }
         ),
         attachment_id: integer('attachment_id')
