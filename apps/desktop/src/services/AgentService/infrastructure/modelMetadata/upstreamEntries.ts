@@ -45,7 +45,7 @@ export function toUpstreamModelMetadataPatch(
     return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
-/** 把一次模型刷新拿到的上游声明转成 overlay 的写入载荷，未声明能力的模型直接跳过。 */
+/** 把一次模型刷新拿到的上游声明转成 `upstream_metadata` 的写入载荷，未声明能力的模型直接跳过。 */
 export function toUpstreamModelMetadataEntries(
     models: readonly ModelInfo[]
 ): UpstreamModelMetadataEntry[] {
