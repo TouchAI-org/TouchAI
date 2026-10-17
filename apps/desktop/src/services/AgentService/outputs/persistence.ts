@@ -1,4 +1,4 @@
-// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { type DatabaseExecutor, db } from '@database';
 import {
@@ -308,7 +308,7 @@ export class PersistenceProjector {
                     tx
                 );
 
-                if (turn) {
+                if (turn && Object.keys(usagePatch).length > 0) {
                     await updateSessionTurnUsage({ id: turn.id, usagePatch, database: tx });
                 }
 
@@ -369,7 +369,7 @@ export class PersistenceProjector {
                     tx
                 );
 
-                if (turn) {
+                if (turn && Object.keys(usagePatch).length > 0) {
                     await updateSessionTurnUsage({ id: turn.id, usagePatch, database: tx });
                 }
 
@@ -433,7 +433,7 @@ export class PersistenceProjector {
                     tx
                 );
 
-                if (turn) {
+                if (turn && Object.keys(usagePatch).length > 0) {
                     await updateSessionTurnUsage({ id: turn.id, usagePatch, database: tx });
                 }
 
@@ -607,7 +607,13 @@ export class PersistenceProjector {
         retryScope?: string | null;
         database: DatabaseExecutor;
     }): Promise<SessionTurnUsagePatch> {
-        const resolved = calls?.length ? await resolveCalls(calls) : [];
+        // 无调用记录时没有任何用量可写，直接返回空补丁。
+        // 这同时避免了无意义的数据库往返，也让不关心用量的调用路径保持原样。
+        if (!calls?.length) {
+            return {};
+        }
+
+        const resolved = await resolveCalls(calls);
         const usage = sumUsage(resolved);
         const cost = sumCost(resolved);
         const unpriced = countUnpriced(resolved);

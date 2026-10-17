@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+﻿import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -66,6 +66,7 @@ describe('Settings navigation sidebar i18n', () => {
             'General',
             'Shortcuts',
             'Providers and models',
+            'Usage',
             'Built-in tools',
             'Search',
             'Browser Control',
