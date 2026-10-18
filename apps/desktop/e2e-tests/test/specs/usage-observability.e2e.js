@@ -218,6 +218,14 @@ describe('TouchAI usage observability', () => {
             throw new Error('Usage export button is disabled.');
         }
 
+        // 保留策略选择器必须渲染且默认为「永久保留」
+        const retentionTrigger = await $("[data-testid='settings-usage-retention-trigger']");
+        await retentionTrigger.waitForDisplayed();
+        const retentionText = await retentionTrigger.getText();
+        if (!retentionText.includes('永久保留') && !retentionText.includes('Forever')) {
+            throw new Error(`unexpected default retention label: ${retentionText}`);
+        }
+
         await browser.closeWindow();
         await browser.switchToWindow(mainWindowHandle);
     });
