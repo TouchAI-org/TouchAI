@@ -118,15 +118,20 @@ function setupLinkInterceptor(): void {
 }
 
 function scheduleAppUpdateChecks(): void {
-    const runAndScheduleNextCheck = () => {
+    const runAndScheduleNextCheck = async () => {
         const now = Date.now();
         if (isWithinAppUpdateHours(now)) {
-            void appUpdateService.checkNow('automatic').catch((error) => {
+            await appUpdateService.checkNow('automatic').catch((error) => {
                 console.warn('[AppUpdateService] Automatic update check failed:', error);
             });
         }
 
-        window.setTimeout(runAndScheduleNextCheck, getNextAppUpdateCheckAt(now) - now);
+        // The interval gate records completion time, so schedule from completion as well.
+        const completedAt = Date.now();
+        window.setTimeout(
+            runAndScheduleNextCheck,
+            getNextAppUpdateCheckAt(completedAt) - completedAt
+        );
     };
 
     void initializeAppUpdateNotifications()

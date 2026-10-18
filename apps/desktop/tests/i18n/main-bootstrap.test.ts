@@ -191,7 +191,7 @@ describe('app bootstrap i18n', () => {
             expect(timer).toBeTypeOf('function');
             nowSpy.mockReturnValue(new Date(2026, 9, 18, 8).getTime());
             timeoutSpy.mockClear();
-            (timer as () => void)();
+            await (timer as () => Promise<void>)();
 
             expect(appUpdateCheckNowMock).toHaveBeenCalledWith('automatic');
             expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000);
@@ -199,11 +199,46 @@ describe('app bootstrap i18n', () => {
             appUpdateCheckNowMock.mockClear();
             timeoutSpy.mockClear();
             nowSpy.mockReturnValue(new Date(2026, 9, 19, 0).getTime());
-            (timer as () => void)();
+            await (timer as () => Promise<void>)();
 
             expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
             expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 8 * 60 * 60 * 1000);
         } finally {
+            nowSpy.mockRestore();
+            timeoutSpy.mockRestore();
+        }
+    });
+
+    it('schedules the next hourly check from completion so network time cannot skip a check', async () => {
+        const startedAt = new Date(2026, 9, 18, 10).getTime();
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn());
+        let finishCheck!: (checked: boolean) => void;
+        appUpdateCheckNowMock.mockReturnValueOnce(
+            new Promise<boolean>((resolve) => {
+                finishCheck = resolve;
+            })
+        );
+
+        try {
+            const { initializeApp } = await import('@/bootstrap');
+            await initializeApp();
+            for (let index = 0; index < 12; index += 1) await Promise.resolve();
+
+            expect(appUpdateCheckNowMock).toHaveBeenCalledOnce();
+            expect(timeoutSpy).not.toHaveBeenCalled();
+
+            nowSpy.mockReturnValue(startedAt + 2 * 60 * 1000);
+            finishCheck(true);
+            for (let index = 0; index < 12; index += 1) await Promise.resolve();
+
+            expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000);
+            const nextCheck = timeoutSpy.mock.calls[0]![0] as () => Promise<void>;
+            nowSpy.mockReturnValue(startedAt + 62 * 60 * 1000);
+            await nextCheck();
+            expect(appUpdateCheckNowMock).toHaveBeenCalledTimes(2);
+        } finally {
+            finishCheck(false);
             nowSpy.mockRestore();
             timeoutSpy.mockRestore();
         }
