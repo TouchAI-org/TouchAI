@@ -32,11 +32,7 @@ interface SampleInput {
 
 /** 按 `loadSamples` 的 SELECT 顺序返回一行 */
 function sampleRow(input: SampleInput) {
-    const {
-        builtinToolDefinitions = 0,
-        mcpToolDefinitions = 0,
-        attachments = 0,
-    } = input;
+    const { builtinToolDefinitions = 0, mcpToolDefinitions = 0, attachments = 0 } = input;
 
     return {
         turnId: input.turnId,

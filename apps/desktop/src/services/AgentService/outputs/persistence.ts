@@ -619,12 +619,12 @@ export class PersistenceProjector {
         const unpriced = countUnpriced(resolved);
         const toolCallCount = (calls ?? []).reduce((sum, call) => sum + call.toolCallsInStep, 0);
 
+        const turnId = this.turn?.id ?? 0;
+
         // 1. 明细片段
         if (messageId !== null && resolved.length > 0) {
-            await insertLlmCallParts(messageId, resolved, database);
+            await insertLlmCallParts(messageId, resolved, database, turnId === 0 ? null : turnId);
         }
-
-        const turnId = this.turn?.id ?? 0;
 
         // 2. attempt 级聚合
         if (this.attemptState) {

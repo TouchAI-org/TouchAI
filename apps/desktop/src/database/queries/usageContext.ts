@@ -115,7 +115,7 @@ function percentile(sorted: readonly number[], ratio: number): number {
     return sorted[index] ?? 0;
 }
 
-function median(sorted: readonly number[], raw: readonly number[]): number {
+function median(sorted: readonly number[]): number {
     if (sorted.length === 0) {
         return 0;
     }
@@ -123,7 +123,7 @@ function median(sorted: readonly number[], raw: readonly number[]): number {
     if (sorted.length % 2 === 1) {
         return sorted[middle] ?? 0;
     }
-    return ((sorted[middle - 1] ?? 0) + (raw[middle] ?? 0)) / 2;
+    return ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
 }
 
 /**
@@ -312,10 +312,7 @@ function profileFromSamples(
     }
 
     const prompts = samples.map((sample) => sample.promptTokens).sort((a, b) => a - b);
-    const promptMedian = median(
-        prompts,
-        samples.map((s) => s.promptTokens)
-    );
+    const promptMedian = median(prompts);
     const promptP90 = percentile(prompts, 0.9);
     const peak = prompts[prompts.length - 1] ?? 0;
 

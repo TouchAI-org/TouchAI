@@ -87,6 +87,8 @@ export function countUnpriced(calls: ReadonlyArray<PersistedCall>): number {
 
 /** 一次调用的 `llm_call` 片段载荷 */
 export interface LlmCallPartData {
+    /** 所属回合；用于把调用账本按回合状态/模型筛选 */
+    turnId: number | null;
     iteration: number;
     modelId: number;
     modelName: string;
@@ -121,9 +123,13 @@ export interface LlmCallPartData {
  *
  * 单独抽出是为了可单测，且让 JSON 结构只有一处定义。
  */
-export function buildLlmCallPartData(item: PersistedCall): LlmCallPartData {
+export function buildLlmCallPartData(
+    item: PersistedCall,
+    turnId: number | null = null
+): LlmCallPartData {
     const { record, cost } = item;
     return {
+        turnId,
         iteration: record.iteration,
         modelId: record.modelId,
         modelName: record.modelName,

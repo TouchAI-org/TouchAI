@@ -405,15 +405,77 @@ function callJson(field: string) {
     return sql<string | null>`json_extract(${messageParts.data}, '${sql.raw(field)}')`;
 }
 
+/**
+ * 调用账本的 WHERE。
+ *
+ * 模型/供应商/搜索走片段载荷里的字段；状态与重试要走回合，
+ * 所以载荷里记了 `turnId`。
+ */
+function buildCallWhere(filter: UsageFilter): SQL {
+    const clauses: Array<SQL | undefined> = [
+        eq(messageParts.type, 'llm_call'),
+        between(messageParts.created_at, filter.from, filter.to),
+    ];
+
+    if (filter.modelIds?.length) {
+        const ids = filter.modelIds;
+        clauses.push(
+            sql`json_extract(${messageParts.data}, '$.modelId') IN (${sql.join(
+                ids.map((id) => sql`${id}`),
+                sql`, `
+            )})`
+        );
+    }
+
+    if (filter.providerIds?.length) {
+        const ids = filter.providerIds;
+        clauses.push(
+            sql`json_extract(${messageParts.data}, '$.providerId') IN (${sql.join(
+                ids.map((id) => sql`${id}`),
+                sql`, `
+            )})`
+        );
+    }
+
+    if (filter.statuses?.length) {
+        const statuses = filter.statuses;
+        clauses.push(
+            sql`json_extract(${messageParts.data}, '$.turnId') IN (
+                SELECT ${sessionTurns.id} FROM ${sessionTurns}
+                WHERE ${sessionTurns.status} IN (${sql.join(
+                    statuses.map((status) => sql`${status}`),
+                    sql`, `
+                )})
+            )`
+        );
+    }
+
+    if (filter.onlyRetried) {
+        clauses.push(
+            sql`json_extract(${messageParts.data}, '$.turnId') IN (
+                SELECT ${sessionTurns.id} FROM ${sessionTurns}
+                WHERE (SELECT count(*) FROM session_turn_attempts WHERE turn_id = ${sessionTurns.id}) > 1
+            )`
+        );
+    }
+
+    if (filter.search?.trim()) {
+        const pattern = `%${filter.search.trim()}%`;
+        clauses.push(
+            sql`(json_extract(${messageParts.data}, '$.modelName') LIKE ${pattern}
+                 OR json_extract(${messageParts.data}, '$.providerName') LIKE ${pattern})`
+        );
+    }
+
+    return and(...clauses)!;
+}
+
 export const getUsageCallPage = async (
     filter: UsageFilter,
     offset: number,
     limit: number
 ): Promise<{ rows: UsageCallRow[]; total: number }> => {
-    const where = and(
-        eq(messageParts.type, 'llm_call'),
-        between(messageParts.created_at, filter.from, filter.to)
-    )!;
+    const where = buildCallWhere(filter);
 
     const totalRow = await db.select({ value: count() }).from(messageParts).where(where).get();
 

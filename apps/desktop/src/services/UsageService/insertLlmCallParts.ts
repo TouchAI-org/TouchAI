@@ -19,7 +19,9 @@ import { buildLlmCallPartData, type PersistedCall } from './index';
 export async function insertLlmCallParts(
     messageId: number,
     calls: ReadonlyArray<PersistedCall>,
-    database: DatabaseExecutor = db
+    database: DatabaseExecutor = db,
+    /** 所属回合 id，写进片段载荷以便调用账本按回合筛选 */
+    turnId: number | null = null
 ): Promise<void> {
     if (calls.length === 0) {
         return;
@@ -46,7 +48,7 @@ export async function insertLlmCallParts(
                 message_id: messageId,
                 type: 'llm_call' as const,
                 content: '',
-                data: JSON.stringify(buildLlmCallPartData(item)),
+                data: JSON.stringify(buildLlmCallPartData(item, turnId)),
                 started_at: startedAt,
                 ended_at: startedAt === null ? null : startedAt + durationMs,
                 sort_order: baseOrder + index,

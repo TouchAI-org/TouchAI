@@ -3,12 +3,9 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
 
-import {
-    getUsageCallPage,
-    getUsageSummary,
-} from '@database/queries/usageStats';
-import { updateSessionTurnUsage } from '@database/queries/sessionTurns';
 import { updateSessionTurnAttemptUsage } from '@database/queries/sessionTurnAttempts';
+import { updateSessionTurnUsage } from '@database/queries/sessionTurns';
+import { getUsageCallPage, getUsageSummary } from '@database/queries/usageStats';
 import type { PersistedCall } from '@services/UsageService';
 import { insertLlmCallParts } from '@services/UsageService/insertLlmCallParts';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
@@ -103,7 +100,6 @@ function call(overrides: Partial<PersistedCall['record']> = {}): PersistedCall {
             modelName: 'group/auto-deepseek-v4-1-flash',
             providerId: 1,
             providerName: 'Magpie',
-            servedModel: undefined,
             usage: {
                 inputTokens: 191,
                 outputTokens: 11,
@@ -113,7 +109,7 @@ function call(overrides: Partial<PersistedCall['record']> = {}): PersistedCall {
             },
             timing: { ttftMs: 1892, firstTextMs: 1900, flowMs: 76, durationMs: 2229 },
             finishReason: 'stop',
-            errorMessage: null,
+            errorMessage: undefined,
             toolCallsInStep: 0,
             toolArgumentErrors: 0,
             ...overrides,
@@ -150,7 +146,9 @@ describe('usage write path against a real database', () => {
         await insertLlmCallParts(1, [call()], (await import('@database')).db);
 
         const rows = database
-            .prepare('SELECT type, sort_order FROM message_parts WHERE message_id = 1 ORDER BY sort_order')
+            .prepare(
+                'SELECT type, sort_order FROM message_parts WHERE message_id = 1 ORDER BY sort_order'
+            )
             .all() as Array<{ type: string; sort_order: number }>;
 
         expect(rows).toEqual([
@@ -176,7 +174,9 @@ describe('usage write path against a real database', () => {
         );
 
         const orders = database
-            .prepare("SELECT sort_order FROM message_parts WHERE type = 'llm_call' ORDER BY sort_order")
+            .prepare(
+                "SELECT sort_order FROM message_parts WHERE type = 'llm_call' ORDER BY sort_order"
+            )
             .all() as Array<{ sort_order: number }>;
 
         expect(orders.map((row) => row.sort_order)).toEqual([1, 2, 3]);
@@ -265,6 +265,42 @@ describe('usage write path against a real database', () => {
         expect(row.finishReason).toBe('stop');
         expect(row.priced).toBe(false);
         expect(row.sessionTitle).toBe('Test Session');
+    });
+
+    it('filters the ledger by the owning turn status', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+
+        const { db } = await import('@database');
+        await insertLlmCallParts(1, [call()], db, 1);
+
+        database.exec(`UPDATE session_turns SET status = 'failed' WHERE id = 1`);
+
+        const failed = await getUsageCallPage({ ...WIDE_RANGE, statuses: ['failed'] }, 0, 20);
+        expect(failed.total).toBe(1);
+
+        const completed = await getUsageCallPage({ ...WIDE_RANGE, statuses: ['completed'] }, 0, 20);
+        expect(completed.total).toBe(0);
+    });
+
+    it('filters the ledger by model and provider from the part payload', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+
+        const { db } = await import('@database');
+        await insertLlmCallParts(1, [call()], db, 1);
+
+        const matching = await getUsageCallPage(
+            { ...WIDE_RANGE, modelIds: [1], providerIds: [1] },
+            0,
+            20
+        );
+        expect(matching.total).toBe(1);
+
+        const wrongModel = await getUsageCallPage({ ...WIDE_RANGE, modelIds: [2] }, 0, 20);
+        expect(wrongModel.total).toBe(0);
     });
 
     it('keeps the cost columns when the call is priced', async () => {
@@ -374,7 +410,7 @@ describe('usage write path against a real database', () => {
         expect(summary.unpricedCount).toBe(2);
 
         const calls = database
-            .prepare('SELECT count(*) AS n FROM message_parts WHERE type = \'llm_call\'')
+            .prepare("SELECT count(*) AS n FROM message_parts WHERE type = 'llm_call'")
             .get() as { n: number };
         expect(calls.n).toBe(2);
     });
