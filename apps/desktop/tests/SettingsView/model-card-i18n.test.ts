@@ -78,8 +78,8 @@ describe('ModelCard i18n', () => {
         setLocale('zh-CN');
     });
 
-    it('formats last-used timestamp with the active English locale', () => {
-        setLocale('en-US');
+    it.each(['zh-CN', 'en-US'] as const)('hides last-used metadata in %s', (locale) => {
+        setLocale(locale);
 
         const wrapper = mount(ModelCard, {
             props: {
@@ -88,9 +88,10 @@ describe('ModelCard i18n', () => {
             },
         });
 
-        expect(wrapper.text()).toContain('Last used:');
-        expect(wrapper.text()).toContain('May');
+        expect(wrapper.get('h4').text()).toBe('Model A');
+        expect(wrapper.text()).not.toContain('Last used:');
         expect(wrapper.text()).not.toContain('最后使用');
+        expect(wrapper.text()).not.toContain('2026');
     });
 
     it('localizes action titles and delete confirmation in English', async () => {
@@ -201,7 +202,7 @@ describe('ModelCard i18n', () => {
         localizer.translateNow();
 
         expect(wrapper.get('h4').text()).toBe('设置');
-        expect(wrapper.text()).toContain('Last used:');
+        expect(wrapper.get('button[title="Set as default model"]').text()).toBe('Set as default');
         expect(wrapper.get('h4').attributes('data-no-i18n')).toBe('true');
 
         wrapper.unmount();
