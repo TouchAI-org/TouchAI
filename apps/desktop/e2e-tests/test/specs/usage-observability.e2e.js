@@ -11,7 +11,6 @@ const MAGPIE_MODEL = 'group/auto-deepseek-v4-1-flash';
 
 /** 在 webview 里执行一条 SQL，直接复用应用自身的数据库通道 */
 async function runSql(sql, params = []) {
-    // eslint-disable-next-line no-undef
     return browser.executeAsync(
         (statement, values, done) => {
             window.__TAURI_INTERNALS__
@@ -27,7 +26,6 @@ async function runSql(sql, params = []) {
 }
 
 async function queryRows(sql, params = []) {
-    // eslint-disable-next-line no-undef
     return browser.executeAsync(
         (statement, values, done) => {
             window.__TAURI_INTERNALS__
@@ -43,12 +41,16 @@ async function queryRows(sql, params = []) {
 }
 
 async function seedMagpieProvider() {
-    await runSql(`INSERT OR IGNORE INTO providers (id, name, driver, api_endpoint, logo, enabled)
-                  VALUES (900, 'Magpie E2E', 'openai-compatible', ?, 'openai', 1)`, [
-        MAGPIE_ENDPOINT,
-    ]);
-    await runSql(`INSERT OR IGNORE INTO models (id, provider_id, name, model_id, is_default, context_limit)
-                  VALUES (900, 900, 'Auto Flash E2E', ?, 1, 1000000)`, [MAGPIE_MODEL]);
+    await runSql(
+        `INSERT OR IGNORE INTO providers (id, name, driver, api_endpoint, logo, enabled)
+                  VALUES (900, 'Magpie E2E', 'openai-compatible', ?, 'openai', 1)`,
+        [MAGPIE_ENDPOINT]
+    );
+    await runSql(
+        `INSERT OR IGNORE INTO models (id, provider_id, name, model_id, is_default, context_limit)
+                  VALUES (900, 900, 'Auto Flash E2E', ?, 1, 1000000)`,
+        [MAGPIE_MODEL]
+    );
     // 只保留一个默认模型，避免别的默认模型抢走请求
     await runSql('UPDATE models SET is_default = 0 WHERE id != 900');
 }
@@ -62,7 +64,8 @@ describe('TouchAI usage observability', () => {
         await seedMagpieProvider();
 
         const sent = await browser.executeAsync((done) => {
-            window.__TOUCHAI_E2E__.sendPrompt('Reply with exactly: pong')
+            window.__TOUCHAI_E2E__
+                .sendPrompt('Reply with exactly: pong')
                 .then(() => done({ ok: true }))
                 .catch((error) => done({ ok: false, error: String(error) }));
         });
@@ -74,7 +77,7 @@ describe('TouchAI usage observability', () => {
         await browser.waitUntil(
             async () => {
                 const result = await queryRows(
-                    "SELECT status FROM session_turns ORDER BY id DESC LIMIT 1"
+                    'SELECT status FROM session_turns ORDER BY id DESC LIMIT 1'
                 );
                 const status = result.rows?.[0]?.status;
                 return status === 'completed' || status === 'failed';
@@ -86,20 +89,42 @@ describe('TouchAI usage observability', () => {
                                               cache_read_tokens, llm_call_count, ttft_ms, duration_ms
                                        FROM session_turns ORDER BY id DESC LIMIT 1`);
         const turn = turns.rows?.[0];
-        expect(turn.status).toBe('completed');
+        if (!turn || Number(turn.input_tokens) <= 0) {
+            const stats = await queryRows(
+                "SELECT count(*) AS n FROM message_parts WHERE type = 'llm_call'"
+            );
+            // 区分两种情况：网关本身失败，还是用量没被采到
+            throw new Error(
+                `usage not recorded (status=${turn?.status}): turn=${JSON.stringify(
+                    turn
+                )} llmCallParts=${JSON.stringify(stats.rows)}`
+            );
+        }
+        if (turn.status !== 'completed') {
+            throw new Error(`turn finished as ${turn.status}, not completed`);
+        }
 
         // 供应商确实返回了用量，并且被采到、落了库
-        expect(Number(turn.input_tokens)).toBeGreaterThan(0);
-        expect(Number(turn.output_tokens)).toBeGreaterThan(0);
-        expect(Number(turn.llm_call_count)).toBeGreaterThan(0);
-        expect(turn.ttft_ms).not.toBeNull();
-        expect(turn.duration_ms).not.toBeNull();
+        for (const field of ['input_tokens', 'output_tokens', 'llm_call_count']) {
+            if (!(Number(turn[field]) > 0)) {
+                throw new Error(`expected ${field} > 0, got ${turn[field]}`);
+            }
+        }
+        for (const field of ['ttft_ms', 'duration_ms']) {
+            if (turn[field] === null || turn[field] === undefined) {
+                throw new Error(`expected ${field} to be recorded, got ${turn[field]}`);
+            }
+        }
 
         // 明细片段必须存在，且与回合计数一致
         const parts = await queryRows(
             "SELECT count(*) AS n FROM message_parts WHERE type = 'llm_call'"
         );
-        expect(Number(parts.rows?.[0]?.n)).toBe(Number(turn.llm_call_count));
+        if (Number(parts.rows?.[0]?.n) !== Number(turn.llm_call_count)) {
+            throw new Error(
+                `call parts (${parts.rows?.[0]?.n}) do not match llm_call_count (${turn.llm_call_count})`
+            );
+        }
 
         // 三层聚合一致性：回合合计 = 各 attempt 之和
         const mismatch = await queryRows(
@@ -109,27 +134,36 @@ describe('TouchAI usage observability', () => {
              HAVING t.input_tokens != sum(a.input_tokens)
                 OR t.output_tokens != sum(a.output_tokens)`
         );
-        expect(mismatch.rows).toEqual([]);
+        if ((mismatch.rows ?? []).length > 0) {
+            throw new Error(
+                `turn totals drifted from attempt sums: ${JSON.stringify(mismatch.rows)}`
+            );
+        }
 
         // 上下文分片统计落库
         const breakdown = await queryRows(
             'SELECT prompt_breakdown_json FROM session_turns ORDER BY id DESC LIMIT 1'
         );
         const parsed = JSON.parse(String(breakdown.rows?.[0]?.prompt_breakdown_json));
-        expect(parsed.fragments.platform).toBeGreaterThan(0);
+        if (!(Number(parsed.fragments?.platform) > 0)) {
+            throw new Error(`prompt breakdown was not recorded: ${JSON.stringify(parsed)}`);
+        }
 
         // 定价链路：模型目录必须带价，否则用量页只会显示「未定价」
         const priced = await queryRows(
             'SELECT count(*) AS n FROM llm_metadata WHERE input_cost_per_million IS NOT NULL'
         );
-        expect(Number(priced.rows?.[0]?.n)).toBeGreaterThan(0);
+        if (!(Number(priced.rows?.[0]?.n) > 0)) {
+            throw new Error('llm_metadata has no priced models');
+        }
     });
 
     it('shows the recorded usage on the settings page', async () => {
         const mainWindowHandle = await browser.getWindowHandle();
 
         await browser.executeAsync((done) => {
-            window.__TOUCHAI_E2E__.openSettingsWindow()
+            window.__TOUCHAI_E2E__
+                .openSettingsWindow()
                 .then(() => done({ ok: true }))
                 .catch((error) => done({ ok: false, error: String(error) }));
         });
@@ -163,7 +197,9 @@ describe('TouchAI usage observability', () => {
 
         const callRows = await $$("[data-testid='settings-usage-call-row']");
         if (callRows.length === 0) {
-            throw new Error('Usage page did not render any call row for the recorded conversation.');
+            throw new Error(
+                'Usage page did not render any call row for the recorded conversation.'
+            );
         }
 
         // 必须显示真实数字，而不是空状态或全 0
