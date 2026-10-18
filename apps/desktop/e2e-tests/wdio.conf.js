@@ -201,6 +201,12 @@ export const config = {
         fs.rmSync(runtimeRoot, { recursive: true, force: true });
         fs.mkdirSync(runtimeRoot, { recursive: true });
 
+        // 只看用量用例时跳过重新构建，直接复用已有二进制（见 README 的 E2E 说明）
+        if (process.env.TOUCHAI_E2E_SKIP_BUILD === '1') {
+            assertBuiltAppExists();
+            return;
+        }
+
         const buildResult = spawnSync('pnpm', resolveTauriBuildArgs(), {
             cwd: repoRoot,
             stdio: 'inherit',

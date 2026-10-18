@@ -135,6 +135,8 @@
             openSettingsWindow: () => Promise<void>;
             setSearchQuery: (text: string) => void;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
+            /** 直接发生一轮对话，用于验证用量采集链路 */
+            sendPrompt: (text: string) => Promise<void>;
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
@@ -1105,6 +1107,15 @@
             },
             setSearchQuery(text: string) {
                 applyE2eSearchQuery(text);
+            },
+            async sendPrompt(text: string) {
+                const snapshot = createInputHistorySnapshot({
+                    text,
+                    attachments: [],
+                    excludeFromHistory: true,
+                });
+                applyE2eSearchQuery(text);
+                await handleSubmit(text, snapshot);
             },
             getQuickSearchFallbackResults(query: string) {
                 return getE2eQuickSearchFallbackResults(query);
