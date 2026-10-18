@@ -48,8 +48,12 @@ function createController(
         lastCheckedAt?: string | null;
         checkResult?: AppUpdateCheckResult;
         checkError?: Error;
+        checkEvents?: ConstructorParameters<typeof AppUpdateController>[0]['checkEvents'];
     } = {}
 ) {
+    let channel = options.channel ?? 'stable';
+    let autoCheckEnabled = options.autoCheckEnabled ?? true;
+    let lastCheckedAt = options.lastCheckedAt ?? null;
     const checkForUpdates = options.checkError
         ? vi.fn().mockRejectedValue(options.checkError)
         : vi.fn().mockImplementation((channel: AppUpdateChannel) =>
@@ -66,9 +70,15 @@ function createController(
           );
     const downloadUpdate = vi.fn().mockResolvedValue(availableUpdate);
     const installUpdate = vi.fn().mockResolvedValue(true);
-    const updateAppUpdateChannel = vi.fn().mockResolvedValue(undefined);
-    const updateAppUpdateAutoCheck = vi.fn().mockResolvedValue(undefined);
-    const updateAppUpdateLastCheckedAt = vi.fn().mockResolvedValue(undefined);
+    const updateAppUpdateChannel = vi.fn(async (value: AppUpdateChannel) => {
+        channel = value;
+    });
+    const updateAppUpdateAutoCheck = vi.fn(async (value: boolean) => {
+        autoCheckEnabled = value;
+    });
+    const updateAppUpdateLastCheckedAt = vi.fn(async (value: string | null) => {
+        lastCheckedAt = value;
+    });
 
     const controller = new AppUpdateController({
         native: {
@@ -78,14 +88,15 @@ function createController(
         },
         settings: {
             initialize: vi.fn().mockResolvedValue(undefined),
-            getChannel: () => options.channel ?? 'stable',
-            getAutoCheckEnabled: () => options.autoCheckEnabled ?? true,
-            getLastCheckedAt: () => options.lastCheckedAt ?? null,
+            getChannel: () => channel,
+            getAutoCheckEnabled: () => autoCheckEnabled,
+            getLastCheckedAt: () => lastCheckedAt,
             updateAppUpdateChannel,
             updateAppUpdateAutoCheck,
             updateAppUpdateLastCheckedAt,
         },
         now: () => options.now ?? '2026-05-22T10:00:00.000Z',
+        checkEvents: options.checkEvents,
     });
 
     return {
@@ -129,10 +140,10 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('skips automatic checks when the last check is less than 24 hours old', async () => {
+    it('skips automatic checks when the last check is less than an hour old', async () => {
         const { controller, checkForUpdates } = createController({
             now: '2026-05-22T10:00:00.000Z',
-            lastCheckedAt: '2026-05-21T12:00:00.000Z',
+            lastCheckedAt: '2026-05-22T09:00:01.000Z',
         });
 
         await controller.initialize();
@@ -142,10 +153,10 @@ describe('AppUpdateController', () => {
         expect(checkForUpdates).not.toHaveBeenCalled();
     });
 
-    it('runs automatic checks when the last check is at least 24 hours old', async () => {
+    it('runs automatic checks when the last check is at least an hour old', async () => {
         const { controller, checkForUpdates } = createController({
             now: '2026-05-22T10:00:00.000Z',
-            lastCheckedAt: '2026-05-21T09:59:59.000Z',
+            lastCheckedAt: '2026-05-22T09:00:00.000Z',
         });
 
         await controller.initialize();
@@ -153,6 +164,133 @@ describe('AppUpdateController', () => {
 
         expect(checked).toBe(true);
         expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([0, 7])('skips automatic checks at %s:00 local time', async (hour) => {
+        const { controller, checkForUpdates } = createController({
+            now: new Date(2026, 9, 18, hour).toISOString(),
+        });
+
+        await expect(controller.checkNow('automatic')).resolves.toBe(false);
+        expect(checkForUpdates).not.toHaveBeenCalled();
+    });
+
+    it('starts automatic checks at 08:00 even after a recent quiet-hours settings check', async () => {
+        const { controller, checkForUpdates } = createController({
+            now: new Date(2026, 9, 18, 8).toISOString(),
+            lastCheckedAt: new Date(2026, 9, 18, 7, 30).toISOString(),
+        });
+
+        await expect(controller.checkNow('automatic')).resolves.toBe(true);
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it('still checks immediately when settings open during quiet hours', async () => {
+        const { controller, checkForUpdates } = createController({
+            now: new Date(2026, 9, 18, 2).toISOString(),
+        });
+
+        await expect(controller.checkNow('settings-open')).resolves.toBe(true);
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks on settings open even when automatic checks are disabled and a check is recent', async () => {
+        const { controller, checkForUpdates } = createController({
+            autoCheckEnabled: false,
+            lastCheckedAt: '2026-05-22T09:59:00.000Z',
+        });
+
+        await expect(controller.checkNow('settings-open')).resolves.toBe(true);
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it('coalesces startup and settings-open checks during initialization', async () => {
+        const deferredCheck = createDeferred<AppUpdateCheckResult>();
+        const { controller, checkForUpdates } = createController();
+        checkForUpdates.mockReturnValueOnce(deferredCheck.promise);
+
+        const startupCheck = controller.checkNow('automatic');
+        const settingsCheck = controller.checkNow('settings-open');
+
+        await vi.waitFor(() => expect(checkForUpdates).toHaveBeenCalledTimes(1));
+        deferredCheck.resolve({
+            status: 'available',
+            channel: 'stable',
+            currentVersion: '0.1.0',
+            latest: latestUpdate,
+            update: availableUpdate,
+            requirement: neutralRequirement,
+        });
+
+        await expect(Promise.all([startupCheck, settingsCheck])).resolves.toEqual([true, true]);
+        expect(controller.getState().status).toBe('available');
+    });
+
+    it('keeps settings-open failures quiet while retaining a known update', async () => {
+        const { controller, checkForUpdates } = createController();
+        await controller.checkNow('manual');
+        checkForUpdates.mockRejectedValueOnce(new Error('network unavailable'));
+
+        await expect(controller.checkNow('settings-open')).resolves.toBe(false);
+
+        expect(controller.getState()).toMatchObject({
+            status: 'available',
+            availableUpdate,
+            error: null,
+        });
+    });
+
+    it('shares completed checks with other windows and accepts their results without another request', async () => {
+        let receiveCheck!: (result: AppUpdateCheckResult, checkedAt: string) => void;
+        const checkEvents = {
+            listen: vi.fn(async (listener: typeof receiveCheck) => {
+                receiveCheck = listener;
+                return () => undefined;
+            }),
+            publish: vi.fn().mockResolvedValue(undefined),
+        };
+        const { controller, checkForUpdates } = createController({ checkEvents });
+        await controller.checkNow('manual');
+
+        expect(checkEvents.publish).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'available' }),
+            '2026-05-22T10:00:00.000Z'
+        );
+
+        receiveCheck(
+            {
+                status: 'not_available',
+                channel: 'stable',
+                currentVersion: '0.2.0',
+                latest: latestUpdate,
+                requirement: neutralRequirement,
+            },
+            '2026-05-22T13:00:00.000Z'
+        );
+
+        expect(controller.getState()).toMatchObject({
+            status: 'not_available',
+            availableUpdate: null,
+            lastCheckedAt: '2026-05-22T13:00:00.000Z',
+        });
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves a downloaded update when opening settings or checking automatically', async () => {
+        const { controller, checkForUpdates } = createController();
+        await controller.checkNow('manual');
+        await controller.download();
+        checkForUpdates.mockClear();
+
+        await controller.checkNow('settings-open');
+        await controller.checkNow('automatic');
+
+        expect(checkForUpdates).not.toHaveBeenCalled();
+        expect(controller.getState()).toMatchObject({
+            status: 'downloaded',
+            downloadedUpdate: availableUpdate,
+        });
     });
 
     it('keeps automatic check failures low-noise', async () => {
@@ -168,6 +306,17 @@ describe('AppUpdateController', () => {
             status: 'idle',
             error: null,
         });
+    });
+
+    it('waits an hour before retrying a failed automatic check', async () => {
+        const { controller, checkForUpdates } = createController({
+            checkError: new Error('network unavailable'),
+        });
+
+        await controller.checkNow('automatic');
+        await controller.checkNow('automatic');
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
     it('surfaces manual check failures', async () => {
@@ -193,9 +342,38 @@ describe('AppUpdateController', () => {
         await controller.download();
         await controller.install();
 
-        expect(downloadUpdate).toHaveBeenCalledTimes(1);
-        expect(installUpdate).toHaveBeenCalledTimes(1);
+        expect(downloadUpdate).toHaveBeenCalledWith('stable', '0.2.0', availableUpdate.fileName);
+        expect(installUpdate).toHaveBeenCalledWith('stable', '0.2.0', availableUpdate.fileName);
         expect(controller.getState().status).toBe('installing');
+    });
+
+    it('does not ask native to download or install without the selected update', async () => {
+        const { controller, downloadUpdate, installUpdate } = createController();
+
+        await expect(controller.download()).resolves.toBe(false);
+        await expect(controller.install()).resolves.toBe(false);
+        expect(downloadUpdate).not.toHaveBeenCalled();
+        expect(installUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a download result that differs from the requested update', async () => {
+        const { controller, downloadUpdate, installUpdate } = createController();
+        await controller.checkNow('manual');
+        downloadUpdate.mockResolvedValueOnce({ ...availableUpdate, version: '0.3.0' });
+
+        await expect(controller.download()).resolves.toBe(false);
+        expect(controller.getState().status).not.toBe('downloaded');
+        await expect(controller.install()).resolves.toBe(false);
+        expect(installUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a download result for a different package of the same version', async () => {
+        const { controller, downloadUpdate } = createController();
+        await controller.checkNow('manual');
+        downloadUpdate.mockResolvedValueOnce({ ...availableUpdate, fileName: 'other.nupkg' });
+
+        await expect(controller.download()).resolves.toBe(false);
+        expect(controller.getState().status).not.toBe('downloaded');
     });
 
     it('does not let stale download completion overwrite a changed channel', async () => {

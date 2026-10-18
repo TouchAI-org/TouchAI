@@ -151,9 +151,11 @@ describe('MCP settings i18n and long text layout', () => {
 
         await flushMountedPromises();
 
-        expect(wrapper.text()).toContain('+ Add MCP server');
-        expect(wrapper.text()).toContain('No servers yet');
-        expect(wrapper.text()).toContain('Click the button below to add a server');
+        const emptyState = wrapper.get('[data-testid="empty-state"]');
+        expect(wrapper.get('[data-testid="settings-mcp-tools-panel"]').isVisible()).toBe(false);
+        expect(emptyState.text()).toContain('No servers yet');
+        expect(emptyState.text()).toContain('Click the button below to add a server');
+        expect(emptyState.get('button').text()).toBe('Add server');
         expect(wrapper.text()).not.toContain('暂无服务器');
     });
 
@@ -267,7 +269,7 @@ describe('MCP settings i18n and long text layout', () => {
         wrapper.unmount();
     });
 
-    it('renders log filters, dates, iteration labels, and load-more states in English', async () => {
+    it('renders log filters and header dates in English without iteration labels', async () => {
         findMcpToolLogsByServerIdMock.mockResolvedValue([
             {
                 created_at: '2026-05-20T08:30:00.000Z',
@@ -308,25 +310,26 @@ describe('MCP settings i18n and long text layout', () => {
             'flex-wrap'
         );
         expect(wrapper.get('[data-testid="mcp-tool-log-search"]').classes()).toEqual(
-            expect.arrayContaining(['w-full', 'max-w-xs', 'md:w-64'])
+            expect.arrayContaining(['min-w-[16rem]', 'flex-1'])
         );
-        expect(wrapper.get('[data-testid="mcp-tool-log-header"]').classes()).toContain('flex-wrap');
-        expect(wrapper.get('[data-testid="mcp-tool-log-name"]').text()).toBe('工具');
-        expect(wrapper.get('[data-testid="mcp-tool-log-name"]').attributes('data-no-i18n')).toBe(
+        expect(wrapper.get('[data-testid="tool-log-header"]').classes()).toContain('flex-wrap');
+        expect(wrapper.get('[data-testid="tool-log-name"]').text()).toBe('工具');
+        expect(wrapper.get('[data-testid="tool-log-name"]').attributes('data-no-i18n')).toBe(
             'true'
         );
-        expect(wrapper.text()).toContain('Iteration 3');
-        expect(wrapper.text()).toMatch(/5\/20\/2026|May 20, 2026/);
+        const timestamp = wrapper.get('[data-testid="tool-log-header"] time');
+        expect(timestamp.text()).toMatch(/5\/20\/2026|May 20, 2026/);
+        expect(timestamp.attributes('datetime')).toBe('2026-05-20T08:30:00.000Z');
+        expect(wrapper.text()).not.toContain('Iteration');
         expect(wrapper.text()).not.toContain('迭代');
 
         await wrapper.get('button.w-full').trigger('click');
 
-        const metadata = wrapper.get('[data-testid="mcp-tool-log-detail-metadata"]');
-        expect(metadata.classes()).toContain('flex-wrap');
-        expect(metadata.classes()).toContain('break-words');
-        expect(metadata.text()).toContain('Call ID: tool-call-with-long-id');
-        expect(metadata.text()).toContain('Session: session-with-long-id');
-        expect(metadata.text()).toContain('Message: message-with-long-id');
+        expect(wrapper.get('[data-testid="tool-log-content"]').text()).toContain('{"ok":true}');
+        expect(wrapper.find('[data-testid="mcp-tool-log-detail-metadata"]').exists()).toBe(false);
+        expect(wrapper.text()).not.toContain('tool-call-with-long-id');
+        expect(wrapper.text()).not.toContain('session-with-long-id');
+        expect(wrapper.text()).not.toContain('message-with-long-id');
 
         wrapper.unmount();
     });

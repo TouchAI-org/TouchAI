@@ -12,11 +12,16 @@
     import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES, t } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
 
+    import UpdateAvailableBadge from './UpdateAvailableBadge.vue';
     import UpdateSettingsSection from './UpdateSettingsSection.vue';
 
     defineOptions({
         name: 'SettingsGeneralSection',
     });
+
+    const emit = defineEmits<{
+        (event: 'show-update-settings'): void;
+    }>();
 
     const settingsStore = useSettingsStore();
     const { settings } = storeToRefs(settingsStore);
@@ -164,8 +169,9 @@
 
     <div class="settings-page" data-testid="settings-general-section">
         <div data-testid="settings-general-layout" class="settings-section-stack">
-            <header class="settings-page-header">
+            <header class="settings-page-header flex flex-wrap items-center justify-between gap-3">
                 <h1 class="settings-page-title">{{ t('settings.nav.general.label') }}</h1>
+                <UpdateAvailableBadge @click="emit('show-update-settings')" />
             </header>
 
             <section class="space-y-4">
@@ -183,6 +189,7 @@
                     class="settings-row-group divide-y divide-neutral-200/70"
                 >
                     <div
+                        data-settings-search-target="start-on-boot"
                         class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                     >
                         <div
@@ -211,6 +218,7 @@
                     </div>
 
                     <div
+                        data-settings-search-target="start-minimized"
                         class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                     >
                         <div
@@ -245,6 +253,7 @@
                     </div>
 
                     <div
+                        data-settings-search-target="window-size"
                         class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
                     >
                         <label
@@ -276,6 +285,7 @@
 
                 <div data-testid="settings-general-card-conversation" class="settings-row-group">
                     <div
+                        data-settings-search-target="output-scroll"
                         class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
                     >
                         <label
@@ -305,6 +315,7 @@
 
                 <div data-testid="settings-language-section" class="settings-row-group">
                     <div
+                        data-settings-search-target="language"
                         class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
                     >
                         <label

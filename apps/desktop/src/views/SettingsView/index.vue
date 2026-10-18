@@ -1,9 +1,12 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import AppIcon from '@components/AppIcon.vue';
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
+    import { useScrollFade } from '@composables/useScrollFade';
+    import { appUpdateService } from '@services/AppUpdateService';
+    import { AppEvent, eventService } from '@services/EventService';
+    import type { UnlistenFn } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import {
         type Component,
@@ -17,29 +20,34 @@
         watch,
     } from 'vue';
 
-    import { locale, type MessageKey, t } from '@/i18n';
+    import { locale, t } from '@/i18n';
 
+    import GeneralView from './components/General/index.vue';
     import NavigationSidebar, { type NavigationSection } from './components/NavigationSidebar.vue';
+    import SettingsWindowTitleBar from './components/SettingsWindowTitleBar.vue';
+    import type { SettingsSearchResult } from './settingsSearch';
 
     defineOptions({
         name: 'SettingsWindowView',
     });
 
-    const GeneralView = defineAsyncComponent(() => import('./components/General/index.vue'));
-    const ShortcutsView = defineAsyncComponent(() => import('./components/Shortcuts/index.vue'));
-    const AiServicesView = defineAsyncComponent(() => import('./components/AiServices/index.vue'));
-    const BuiltInToolsView = defineAsyncComponent(
-        () => import('./components/BuiltInTools/index.vue')
-    );
-    const SearchView = defineAsyncComponent(() => import('./components/Search/index.vue'));
-    const BrowserView = defineAsyncComponent(() => import('./components/Browser/index.vue'));
-    const McpToolsView = defineAsyncComponent(() => import('./components/McpTools/index.vue'));
-    const DataManagementView = defineAsyncComponent(
+    const sectionLoaders: Array<() => Promise<{ default: Component }>> = [];
+    function defineSectionView(loader: () => Promise<{ default: Component }>) {
+        sectionLoaders.push(loader);
+        return defineAsyncComponent(loader);
+    }
+
+    const ShortcutsView = defineSectionView(() => import('./components/Shortcuts/index.vue'));
+    const AiServicesView = defineSectionView(() => import('./components/AiServices/index.vue'));
+    const BuiltInToolsView = defineSectionView(() => import('./components/BuiltInTools/index.vue'));
+    const SearchView = defineSectionView(() => import('./components/Search/index.vue'));
+    const BrowserView = defineSectionView(() => import('./components/Browser/index.vue'));
+    const McpToolsView = defineSectionView(() => import('./components/McpTools/index.vue'));
+    const DataManagementView = defineSectionView(
         () => import('./components/DataManagement/index.vue')
     );
     interface SettingsContentSection {
         component: Component;
-        loadingKey: MessageKey;
         scrollable?: boolean;
     }
 
@@ -52,80 +60,57 @@
     const settingsContentSections = defineSettingsContentSections({
         general: {
             component: GeneralView,
-            loadingKey: 'settings.loading.general',
             scrollable: true,
         },
         shortcuts: {
             component: ShortcutsView,
-            loadingKey: 'settings.loading.shortcuts',
             scrollable: true,
         },
         'ai-services': {
             component: AiServicesView,
-            loadingKey: 'settings.loading.aiServices',
         },
         'built-in-tools': {
             component: BuiltInToolsView,
-            loadingKey: 'settings.loading.builtInTools',
         },
         search: {
             component: SearchView,
-            loadingKey: 'settings.loading.search',
             scrollable: true,
         },
         browser: {
             component: BrowserView,
-            loadingKey: 'settings.loading.browser',
             scrollable: true,
         },
         'mcp-tools': {
             component: McpToolsView,
-            loadingKey: 'settings.loading.mcpTools',
         },
         'data-management': {
             component: DataManagementView,
-            loadingKey: 'settings.loading.dataManagement',
             scrollable: true,
         },
     });
 
     const activeSection = ref<NavigationSection>('general');
-    const sidebarReady = ref(false);
-    const contentReady = ref(false);
-    const minimumLoadingElapsed = ref(false);
-    const initialLoadingVisible = ref(true);
-    const SETTINGS_ENTRY_LOADING_DELAY_MS = 180;
-    let loadingDelayTimer: ReturnType<typeof setTimeout> | null = null;
+    const uncachedSections = [
+        'SettingsGeneralSection',
+        'SettingsShortcutsSection',
+        'SettingsSearchSection',
+        'SettingsBrowserSection',
+        'SettingsMcpToolsSection',
+        'SettingsDataManagementSection',
+    ];
+    let preloadFrame: number | null = null;
+    let unlistenSettingsOpened: UnlistenFn | null = null;
+    let unlistenShowUpdates: UnlistenFn | null = null;
+    let unmounted = false;
     const contentScrollRef = ref<HTMLElement | null>(null);
-    const contentDragRegionRef = ref<HTMLElement | null>(null);
-    const dragExcludeSelector = [
-        'button',
-        'a',
-        'input',
-        'textarea',
-        'select',
-        'label',
-        'summary',
-        '[role="button"]',
-        '[role="tab"]',
-        '[role="link"]',
-        '[role="checkbox"]',
-        '[role="switch"]',
-        '[role="radio"]',
-        '[role="slider"]',
-        '[role="separator"]',
-        '[role="dialog"]',
-        '[tabindex]',
-        '[contenteditable]:not([contenteditable="false"])',
-        '[data-tauri-drag-region="false"]',
-        '[data-drag-exclude="true"]',
-        '.cursor-pointer',
-    ].join(',');
-    const isWindowMaximized = ref(false);
+    const contentElementRef = ref<HTMLElement | null>(null);
+    const resolvedSection = ref<NavigationSection | null>(null);
+    let pendingSearchResult: SettingsSearchResult | null = null;
+    let searchTargetObserver: MutationObserver | null = null;
+    let searchTargetTimeout: ReturnType<typeof setTimeout> | null = null;
+    const SEARCH_TARGET_TIMEOUT_MS = 5000;
     useScrollbarStabilizer(contentScrollRef);
-    const shellVisibilityClass = computed(() =>
-        initialLoadingVisible.value ? 'opacity-0' : 'opacity-100'
-    );
+    const { scrollFadeStyle } = useScrollFade(contentScrollRef);
     const activeContentSection = computed(() => settingsContentSections[activeSection.value]);
 
     const currentWindow = (() => {
@@ -136,41 +121,91 @@
         }
     })();
 
-    async function handleContentDragMouseDown(event: MouseEvent) {
-        if (event.button !== 0 || event.defaultPrevented || !currentWindow) {
-            return;
-        }
-
-        const target = event.target;
-        if (!(target instanceof Element) || target.closest(dragExcludeSelector)) {
-            return;
-        }
-
-        // 内容层保留点击命中；仅把顶部拖拽带内的非交互区域交给原生窗口。
-        const bounds = contentDragRegionRef.value?.getBoundingClientRect();
-        if (
-            !bounds ||
-            event.clientX < bounds.left ||
-            event.clientX >= bounds.right ||
-            event.clientY < bounds.top ||
-            event.clientY >= bounds.bottom
-        ) {
-            return;
-        }
-
-        event.preventDefault();
-        try {
-            await currentWindow.startDragging();
-        } catch (error) {
-            console.error('[SettingsView] Failed to start window dragging:', error);
-        }
-    }
+    const cancelPendingSearch = () => {
+        pendingSearchResult = null;
+        searchTargetObserver?.disconnect();
+        searchTargetObserver = null;
+        if (searchTargetTimeout !== null) clearTimeout(searchTargetTimeout);
+        searchTargetTimeout = null;
+    };
 
     const handleNavigate = (section: NavigationSection) => {
+        cancelPendingSearch();
+        if (activeSection.value !== section) resolvedSection.value = null;
         activeSection.value = section;
     };
 
+    const findSearchTarget = (result: SettingsSearchResult) =>
+        result.targetId
+            ? contentElementRef.value?.querySelector(
+                  `[data-settings-search-target="${result.targetId}"]`
+              )
+            : null;
+
+    const scrollToSearchResult = (result: SettingsSearchResult, target: Element | null) => {
+        if (pendingSearchResult !== result || activeSection.value !== result.section) return;
+        (target ?? contentScrollRef.value ?? contentElementRef.value)?.scrollIntoView({
+            block: target ? 'center' : 'start',
+            behavior: 'smooth',
+        });
+        cancelPendingSearch();
+    };
+
+    const locateSearchResult = (result: SettingsSearchResult) => {
+        if (pendingSearchResult !== result || activeSection.value !== result.section) return;
+        const target = findSearchTarget(result);
+        if (target || !result.targetId) {
+            scrollToSearchResult(result, target ?? null);
+            return;
+        }
+
+        const content = contentElementRef.value;
+        if (!content) return;
+        searchTargetObserver?.disconnect();
+        if (searchTargetTimeout !== null) clearTimeout(searchTargetTimeout);
+        searchTargetObserver = new MutationObserver(() => {
+            const appearedTarget = findSearchTarget(result);
+            if (appearedTarget) scrollToSearchResult(result, appearedTarget);
+        });
+        searchTargetObserver.observe(content, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['data-settings-search-target'],
+        });
+        searchTargetTimeout = setTimeout(() => {
+            scrollToSearchResult(result, null);
+        }, SEARCH_TARGET_TIMEOUT_MS);
+
+        const appearedTarget = findSearchTarget(result);
+        if (appearedTarget) scrollToSearchResult(result, appearedTarget);
+    };
+
+    const handleSearchSelect = async (result: SettingsSearchResult) => {
+        cancelPendingSearch();
+        if (activeSection.value !== result.section) resolvedSection.value = null;
+        pendingSearchResult = result;
+        activeSection.value = result.section;
+        await nextTick();
+
+        if (pendingSearchResult === result && resolvedSection.value === result.section) {
+            locateSearchResult(result);
+        }
+    };
+
+    const handleContentResolved = async () => {
+        const section = activeSection.value;
+        await nextTick();
+        if (section !== activeSection.value) return;
+
+        resolvedSection.value = section;
+        if (pendingSearchResult?.section === section) {
+            locateSearchResult(pendingSearchResult);
+        }
+    };
+
     const scrollGeneralUpdateSectionIntoView = async () => {
+        cancelPendingSearch();
         activeSection.value = 'general';
         await nextTick();
         window.setTimeout(() => {
@@ -181,59 +216,12 @@
         }, 0);
     };
 
-    const completeInitialLoadingWhenReady = async () => {
-        if (
-            !initialLoadingVisible.value ||
-            !sidebarReady.value ||
-            !contentReady.value ||
-            !minimumLoadingElapsed.value
-        ) {
-            return;
-        }
-
-        await nextTick();
-        initialLoadingVisible.value = false;
-    };
-
-    const handleSidebarReady = () => {
-        sidebarReady.value = true;
-        void completeInitialLoadingWhenReady();
-    };
-
-    const handleContentResolved = () => {
-        contentReady.value = true;
-        void completeInitialLoadingWhenReady();
-    };
-
     const setContentScrollElement = (element: Element | ComponentPublicInstance | null) => {
+        contentElementRef.value = element instanceof HTMLElement ? element : null;
         contentScrollRef.value =
             activeContentSection.value.scrollable && element instanceof HTMLElement
                 ? element
                 : null;
-    };
-
-    const handleMinimize = async () => {
-        await currentWindow?.minimize();
-    };
-
-    const handleToggleMaximize = async () => {
-        if (!currentWindow) {
-            return;
-        }
-
-        const maximized = await currentWindow.isMaximized();
-        if (maximized) {
-            await currentWindow.unmaximize();
-            isWindowMaximized.value = false;
-            return;
-        }
-
-        await currentWindow.maximize();
-        isWindowMaximized.value = true;
-    };
-
-    const handleClose = async () => {
-        await currentWindow?.close();
     };
 
     function syncNativeWindowTitle() {
@@ -246,33 +234,58 @@
         });
     }
 
-    /**
-     * 设置窗口在页面内部准备数据库，入口脚本只负责窗口装载。
-     */
-    async function initialize() {
-        try {
-            await new Promise<void>((resolve) => {
-                loadingDelayTimer = setTimeout(resolve, SETTINGS_ENTRY_LOADING_DELAY_MS);
-            });
-            minimumLoadingElapsed.value = true;
-            await completeInitialLoadingWhenReady();
-        } catch (error) {
-            console.error('[SettingsView] Failed to initialize dependencies:', error);
-            minimumLoadingElapsed.value = true;
-        }
+    function checkForUpdatesOnOpen() {
+        void appUpdateService.checkNow('settings-open').catch((error) => {
+            console.warn('[SettingsView] Failed to check for updates:', error);
+        });
     }
 
     onMounted(() => {
         syncNativeWindowTitle();
-        void initialize();
+        checkForUpdatesOnOpen();
+        if (new URLSearchParams(window.location.hash.split('?')[1]).get('section') === 'updates') {
+            void scrollGeneralUpdateSectionIntoView();
+        }
+        void eventService
+            .on(AppEvent.SETTINGS_SHOW_UPDATES, () => {
+                void scrollGeneralUpdateSectionIntoView();
+            })
+            .then((unlisten) => {
+                if (unmounted) unlisten();
+                else unlistenShowUpdates = unlisten;
+            })
+            .catch((error) => {
+                console.warn('[SettingsView] Failed to listen for update navigation:', error);
+            });
+        void eventService
+            .on(AppEvent.SETTINGS_WINDOW_OPENED, checkForUpdatesOnOpen)
+            .then((unlisten) => {
+                if (unmounted) {
+                    unlisten();
+                } else {
+                    unlistenSettingsOpened = unlisten;
+                }
+            })
+            .catch((error) => {
+                console.warn('[SettingsView] Failed to listen for settings opens:', error);
+            });
+        // Warm code after the shell renders, without mounting inactive settings sections.
+        preloadFrame = requestAnimationFrame(() => {
+            preloadFrame = null;
+            void Promise.allSettled(sectionLoaders.map((load) => load()));
+        });
     });
 
     watch(locale, syncNativeWindowTitle);
 
     onBeforeUnmount(() => {
-        if (loadingDelayTimer) {
-            clearTimeout(loadingDelayTimer);
-            loadingDelayTimer = null;
+        unmounted = true;
+        cancelPendingSearch();
+        unlistenSettingsOpened?.();
+        unlistenShowUpdates?.();
+        if (preloadFrame !== null) {
+            cancelAnimationFrame(preloadFrame);
+            preloadFrame = null;
         }
     });
 </script>
@@ -282,113 +295,53 @@
         class="relative h-screen w-screen overflow-hidden bg-[#f4f4f2] font-serif text-[13px]"
         data-testid="settings-view"
     >
-        <div
-            :class="['flex h-full w-full overflow-hidden', shellVisibilityClass]"
-            data-testid="settings-shell-frame"
-        >
-            <NavigationSidebar
-                :active-section="activeSection"
-                @navigate="handleNavigate"
-                @ready="handleSidebarReady"
-                @show-update-settings="scrollGeneralUpdateSectionIntoView"
-            />
+        <div class="flex h-full w-full flex-col overflow-hidden" data-testid="settings-shell-frame">
+            <SettingsWindowTitleBar />
 
-            <div
-                class="relative my-2 mr-2 min-w-0 flex-1 overflow-hidden rounded-[12px] border border-neutral-200/70 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.03)]"
-                data-testid="settings-shell-card"
-            >
-                <div class="flex h-full min-h-0 flex-col">
+            <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                <NavigationSidebar
+                    :active-section="activeSection"
+                    @navigate="handleNavigate"
+                    @search-select="handleSearchSelect"
+                    @show-update-settings="scrollGeneralUpdateSectionIntoView"
+                />
+
+                <main
+                    class="relative my-2 mr-2 min-h-0 min-w-0 flex-1 overflow-hidden rounded-[12px] border border-neutral-200/70 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.03)]"
+                    data-testid="settings-content-shell"
+                >
                     <div
-                        ref="contentDragRegionRef"
-                        class="absolute inset-x-0 top-0 z-10 h-9 shrink-0"
-                        data-testid="settings-content-drag-region"
-                        data-tauri-drag-region
-                    />
-
-                    <div
-                        class="absolute top-2.5 right-3 z-30 flex items-center gap-1"
-                        data-testid="settings-window-controls"
+                        :ref="setContentScrollElement"
+                        :class="[
+                            't-page h-full w-full',
+                            activeContentSection.scrollable
+                                ? 'settings-scrollbar settings-scroll-fade overflow-y-auto'
+                                : '',
+                        ]"
+                        :style="scrollFadeStyle"
                     >
-                        <button
-                            type="button"
-                            data-testid="settings-window-minimize"
-                            data-tauri-drag-region="false"
-                            class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
-                            :title="t('window.minimize')"
-                            :aria-label="t('window.minimize')"
-                            @click="handleMinimize"
-                        >
-                            <AppIcon name="minimize" class="h-3.5 w-3.5" />
-                        </button>
-
-                        <button
-                            type="button"
-                            data-testid="settings-window-maximize"
-                            data-tauri-drag-region="false"
-                            class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
-                            :title="isWindowMaximized ? t('window.restore') : t('window.maximize')"
-                            :aria-label="
-                                isWindowMaximized ? t('window.restore') : t('window.maximize')
-                            "
-                            @click="handleToggleMaximize"
-                        >
-                            <AppIcon
-                                :name="isWindowMaximized ? 'restore-square' : 'maximize-square'"
-                                class="h-3.5 w-3.5"
-                                :class="isWindowMaximized ? '-scale-x-100' : ''"
-                            />
-                        </button>
-
-                        <button
-                            type="button"
-                            data-testid="settings-window-close"
-                            data-tauri-drag-region="false"
-                            class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                            :title="t('window.close')"
-                            :aria-label="t('window.close')"
-                            @click="handleClose"
-                        >
-                            <AppIcon name="close" class="h-3.5 w-3.5" />
-                        </button>
-                    </div>
-
-                    <main
-                        class="relative z-20 min-w-0 flex-1 overflow-hidden"
-                        data-testid="settings-content-shell"
-                        @mousedown="handleContentDragMouseDown"
-                    >
-                        <div
-                            :key="activeSection"
-                            :ref="setContentScrollElement"
-                            :class="[
-                                't-page h-full w-full',
-                                activeContentSection.scrollable
-                                    ? 'settings-scrollbar overflow-y-auto'
-                                    : '',
-                            ]"
-                        >
-                            <Suspense @resolve="handleContentResolved">
-                                <component :is="activeContentSection.component" />
+                        <KeepAlive :exclude="uncachedSections">
+                            <Suspense :timeout="0" @resolve="handleContentResolved">
+                                <component
+                                    :is="activeContentSection.component"
+                                    :key="activeSection"
+                                    v-on="
+                                        activeSection === 'general'
+                                            ? {
+                                                  'show-update-settings':
+                                                      scrollGeneralUpdateSectionIntoView,
+                                              }
+                                            : {}
+                                    "
+                                />
                                 <template #fallback>
-                                    <LoadingState
-                                        :message="t(activeContentSection.loadingKey)"
-                                        variant="brand"
-                                        fill="min"
-                                    />
+                                    <LoadingState variant="brand" fill="min" />
                                 </template>
                             </Suspense>
-                        </div>
-                    </main>
-                </div>
+                        </KeepAlive>
+                    </div>
+                </main>
             </div>
         </div>
-
-        <LoadingState
-            v-if="initialLoadingVisible"
-            class="absolute inset-0 z-50"
-            variant="brand"
-            fill="screen"
-            data-testid="settings-loading-screen"
-        />
     </div>
 </template>

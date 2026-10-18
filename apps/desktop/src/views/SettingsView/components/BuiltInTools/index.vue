@@ -2,9 +2,10 @@
 
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
-    import AppIcon from '@components/AppIcon.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
+    import { useScrollFade } from '@composables/useScrollFade';
     import { computed, onMounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -56,6 +57,7 @@
     });
     const tabContentRef = ref<HTMLElement | null>(null);
     useScrollbarStabilizer(tabContentRef);
+    const { scrollFadeStyle } = useScrollFade(tabContentRef);
 
     /**
      * 空配置工具会隐藏“配置”标签，切换时需要把当前标签同步到仍然可见的项。
@@ -258,19 +260,13 @@
         <div class="flex min-w-0 flex-1 flex-col">
             <LoadingState v-if="loading" variant="brand" fill="min" />
 
-            <div
-                v-else-if="!selectedTool"
-                class="flex flex-1 items-center justify-center px-6 text-center"
-            >
-                <div class="max-w-md">
-                    <AppIcon name="tool" class="mx-auto h-12 w-12 text-neutral-300" />
-                    <h3 class="mt-4 text-[15px] font-medium text-neutral-950">
-                        {{ t('settings.builtInTools.emptyConfigurable') }}
-                    </h3>
-                    <p class="mt-2 text-sm leading-6 text-neutral-500">
-                        {{ t('settings.builtInTools.emptyConfigurableDescription') }}
-                    </p>
-                </div>
+            <div v-else-if="!selectedTool" class="flex flex-1 items-center justify-center px-6">
+                <EmptyState
+                    :title="t('settings.builtInTools.emptyConfigurable')"
+                    :description="t('settings.builtInTools.emptyConfigurableDescription')"
+                    icon="tool"
+                    class="max-w-md"
+                />
             </div>
 
             <template v-else>
@@ -278,7 +274,8 @@
 
                 <div
                     ref="tabContentRef"
-                    class="settings-scrollbar min-h-0 flex-1 overflow-y-auto bg-white"
+                    class="settings-scrollbar settings-scroll-fade min-h-0 flex-1 overflow-y-auto bg-white"
+                    :style="scrollFadeStyle"
                 >
                     <BuiltInToolConfig
                         v-if="activeTab === 'config'"

@@ -2,6 +2,7 @@
 
 //! 应用更新命令。
 
+use crate::core::updater::notification::AppUpdateNotificationPayload;
 use crate::core::updater::{
     self, AppUpdateChannel, AppUpdateCheckResult, AppUpdateInfo, AppUpdaterState,
 };
@@ -21,18 +22,40 @@ pub async fn updater_check_for_updates(
 }
 
 #[tauri::command]
+pub async fn updater_show_update_notification<R: Runtime>(
+    app: AppHandle<R>,
+    payload: AppUpdateNotificationPayload,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || updater::notification::show(&app, &payload))
+        .await
+        .map_err(|error| format!("Update notification task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn updater_open_update_settings<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::core::window::settings::build_update_settings_window(&app).await
+}
+
+#[tauri::command]
 pub async fn updater_download_update<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppUpdaterState>,
+    channel: AppUpdateChannel,
+    version: String,
+    file_name: String,
 ) -> Result<AppUpdateInfo, String> {
-    updater::download_update(app, state.inner()).await
+    updater::download_update(app, state.inner(), channel, &version, &file_name).await
 }
 
 #[tauri::command]
 pub async fn updater_install_update<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppUpdaterState>,
+    channel: AppUpdateChannel,
+    version: String,
+    file_name: String,
 ) -> Result<bool, String> {
+    state.validate_install(channel, &version, &file_name)?;
     if let Some(client_manager) = app.try_state::<McpClientManager>() {
         client_manager.disconnect_all().await?;
     }
@@ -44,5 +67,5 @@ pub async fn updater_install_update<R: Runtime>(
         }
     }
 
-    updater::install_update(app, state.inner()).await
+    updater::install_update(app, state.inner(), channel, &version, &file_name).await
 }

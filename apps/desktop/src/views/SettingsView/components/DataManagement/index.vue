@@ -334,7 +334,7 @@
             <section class="space-y-4">
                 <h2 class="settings-section-title">{{ t('settings.dataManagement.stats') }}</h2>
 
-                <div class="settings-row-group p-4">
+                <div class="settings-row-group p-4" data-settings-search-target="data-stats">
                     <div class="grid grid-cols-3 gap-3">
                         <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
@@ -372,6 +372,7 @@
                 >
                     <div
                         data-testid="settings-data-history-item"
+                        data-settings-search-target="data-clear-sessions"
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
@@ -393,6 +394,7 @@
 
                     <div
                         data-testid="settings-data-history-item"
+                        data-settings-search-target="data-clear-messages"
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
@@ -414,6 +416,7 @@
 
                     <div
                         data-testid="settings-data-history-item"
+                        data-settings-search-target="data-clear-turns"
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
@@ -442,6 +445,7 @@
                 <div class="settings-row-group">
                     <div
                         data-testid="settings-data-plain-row"
+                        data-settings-search-target="model-database"
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
@@ -473,6 +477,7 @@
                 <div class="settings-row-group divide-y divide-neutral-200/70">
                     <div
                         data-testid="settings-data-plain-row"
+                        data-settings-search-target="export-settings"
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>
@@ -494,6 +499,7 @@
 
                     <div
                         data-testid="settings-data-plain-row"
+                        data-settings-search-target="import-settings"
                         class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
                     >
                         <div>

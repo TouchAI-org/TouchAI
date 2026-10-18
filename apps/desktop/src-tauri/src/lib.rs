@@ -95,6 +95,7 @@ pub fn run() {
         .manage(core::browser::BrowserRuntime::new())
         .manage(McpClientManager::new())
         .manage(core::updater::AppUpdaterState::default())
+        .manage(core::updater::notification::AppUpdateNotificationRuntime::default())
         .on_window_event(|window, event| {
             if matches!(window.label(), "main" | "settings")
                 && matches!(

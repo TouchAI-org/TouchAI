@@ -1,6 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import EmptyState from '@components/EmptyState.vue';
     import { onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -116,20 +117,12 @@
             v-else-if="tool.tool_id === 'upgrade_model'"
             v-model="upgradeModelConfig"
         />
-        <div
+        <EmptyState
             v-else-if="usesBuiltInToolEmptyConfig(tool.tool_id)"
-            class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-5 py-12 text-center"
-        >
-            <p class="text-sm text-neutral-500">{{ t('settings.builtInTools.noConfig') }}</p>
-        </div>
+            :title="t('settings.builtInTools.noConfig')"
+            icon="tool"
+        />
 
-        <div
-            v-else
-            class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-5 py-10 text-center"
-        >
-            <p class="text-sm text-neutral-500">
-                {{ t('settings.builtInTools.configComingSoon') }}
-            </p>
-        </div>
+        <EmptyState v-else :title="t('settings.builtInTools.configComingSoon')" icon="tool" />
     </div>
 </template>

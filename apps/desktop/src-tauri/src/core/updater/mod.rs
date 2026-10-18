@@ -2,6 +2,8 @@
 
 //! Velopack-backed application update support.
 
+pub mod notification;
+
 use semver::{Prerelease, Version};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -29,7 +31,21 @@ const UPDATE_FEED_TIMEOUT_SECONDS: u64 = 5;
 
 #[derive(Clone, Default)]
 pub struct AppUpdaterState {
-    pending_update: Arc<Mutex<Option<PendingUpdate>>>,
+    updates: Arc<Mutex<UpdateCandidates>>,
+    check_locks: Arc<ChannelCheckLocks>,
+}
+
+#[derive(Default)]
+struct ChannelCheckLocks {
+    stable: Mutex<()>,
+    beta: Mutex<()>,
+    nightly: Mutex<()>,
+}
+
+#[derive(Default)]
+struct UpdateCandidates {
+    checked: BTreeMap<AppUpdateChannel, PendingUpdate>,
+    downloaded: Option<PendingUpdate>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,7 +54,7 @@ struct PendingUpdate {
     update: UpdateInfo,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum AppUpdateChannel {
     Stable,
@@ -73,6 +89,107 @@ impl Default for AppUpdateChannel {
     fn default() -> Self {
         Self::Stable
     }
+}
+
+impl AppUpdaterState {
+    fn with_channel_check<T>(
+        &self,
+        channel: AppUpdateChannel,
+        check: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let lock = match channel {
+            AppUpdateChannel::Stable => &self.check_locks.stable,
+            AppUpdateChannel::Beta => &self.check_locks.beta,
+            AppUpdateChannel::Nightly => &self.check_locks.nightly,
+        };
+        let _guard = lock.lock().map_err(|_| "更新检查锁已损坏".to_string())?;
+        check()
+    }
+
+    fn remember_checked_update(&self, update: PendingUpdate) -> Result<(), String> {
+        self.updates
+            .lock()
+            .map_err(|_| "更新状态锁已损坏".to_string())?
+            .checked
+            .insert(update.channel, update);
+        Ok(())
+    }
+
+    fn clear_checked_update(&self, channel: AppUpdateChannel) -> Result<(), String> {
+        self.updates
+            .lock()
+            .map_err(|_| "更新状态锁已损坏".to_string())?
+            .checked
+            .remove(&channel);
+        Ok(())
+    }
+
+    fn candidate_for_download(
+        &self,
+        channel: AppUpdateChannel,
+        version: &str,
+        file_name: &str,
+    ) -> Result<PendingUpdate, String> {
+        let updates = self
+            .updates
+            .lock()
+            .map_err(|_| "更新状态锁已损坏".to_string())?;
+        let update = updates
+            .checked
+            .get(&channel)
+            .ok_or_else(|| "没有可下载的更新，请先检查更新".to_string())?;
+        ensure_update_identity(update, channel, version, file_name)?;
+        Ok(update.clone())
+    }
+
+    fn remember_downloaded_update(&self, update: PendingUpdate) -> Result<(), String> {
+        self.updates
+            .lock()
+            .map_err(|_| "更新状态锁已损坏".to_string())?
+            .downloaded = Some(update);
+        Ok(())
+    }
+
+    fn downloaded_for_install(
+        &self,
+        channel: AppUpdateChannel,
+        version: &str,
+        file_name: &str,
+    ) -> Result<PendingUpdate, String> {
+        let updates = self
+            .updates
+            .lock()
+            .map_err(|_| "更新状态锁已损坏".to_string())?;
+        let update = updates
+            .downloaded
+            .as_ref()
+            .ok_or_else(|| "没有已下载的更新，请先下载更新".to_string())?;
+        ensure_update_identity(update, channel, version, file_name)?;
+        Ok(update.clone())
+    }
+
+    pub fn validate_install(
+        &self,
+        channel: AppUpdateChannel,
+        version: &str,
+        file_name: &str,
+    ) -> Result<(), String> {
+        self.downloaded_for_install(channel, version, file_name)
+            .map(|_| ())
+    }
+}
+
+fn ensure_update_identity(
+    update: &PendingUpdate,
+    channel: AppUpdateChannel,
+    version: &str,
+    file_name: &str,
+) -> Result<(), String> {
+    let target = &update.update.TargetFullRelease;
+    if update.channel != channel || target.Version != version || target.FileName != file_name {
+        return Err("所选更新已变化，请重新检查更新".to_string());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -694,6 +811,13 @@ pub fn check_for_updates(
     state: &AppUpdaterState,
     channel: AppUpdateChannel,
 ) -> Result<AppUpdateCheckResult, String> {
+    state.with_channel_check(channel, || check_for_updates_locked(state, channel))
+}
+
+fn check_for_updates_locked(
+    state: &AppUpdaterState,
+    channel: AppUpdateChannel,
+) -> Result<AppUpdateCheckResult, String> {
     let update_manager = match manager(channel) {
         Ok(update_manager) => update_manager,
         Err(error) => {
@@ -728,23 +852,15 @@ pub fn check_for_updates(
                 update: update_info_from_target(&update),
                 requirement,
             };
-            let mut pending_update = state
-                .pending_update
-                .lock()
-                .map_err(|_| "更新状态锁已损坏".to_string())?;
-            *pending_update = Some(PendingUpdate {
+            state.remember_checked_update(PendingUpdate {
                 channel,
                 update: *update,
-            });
+            })?;
             Ok(response)
         }
         Ok(UpdateCheck::NoUpdateAvailable | UpdateCheck::RemoteIsEmpty) => {
             let requirement = update_requirement_from_policy(&policy, Some(&current_version), None);
-            let mut pending_update = state
-                .pending_update
-                .lock()
-                .map_err(|_| "更新状态锁已损坏".to_string())?;
-            *pending_update = None;
+            state.clear_checked_update(channel)?;
             Ok(AppUpdateCheckResult::NotAvailable {
                 channel,
                 current_version,
@@ -759,16 +875,15 @@ pub fn check_for_updates(
 pub async fn download_update<R: Runtime>(
     app: AppHandle<R>,
     state: &AppUpdaterState,
+    channel: AppUpdateChannel,
+    version: &str,
+    file_name: &str,
 ) -> Result<AppUpdateInfo, String> {
-    let pending_update = state
-        .pending_update
-        .lock()
-        .map_err(|_| "更新状态锁已损坏".to_string())?
-        .clone()
-        .ok_or_else(|| "没有可下载的更新，请先检查更新".to_string())?;
+    let pending_update = state.candidate_for_download(channel, version, file_name)?;
 
     let update_info = update_info_from_target(&pending_update.update);
-    download_updates_on_velopack_worker(app.clone(), pending_update).await?;
+    download_updates_on_velopack_worker(app.clone(), pending_update.clone()).await?;
+    state.remember_downloaded_update(pending_update)?;
     let _ = app.emit(DOWNLOAD_PROGRESS_EVENT, 100_i16);
 
     Ok(update_info)
@@ -847,13 +962,11 @@ fn forward_download_progress(progress_rx: mpsc::Receiver<i16>, mut emit_progress
 pub async fn install_update<R: Runtime>(
     app: AppHandle<R>,
     state: &AppUpdaterState,
+    channel: AppUpdateChannel,
+    version: &str,
+    file_name: &str,
 ) -> Result<bool, String> {
-    let pending_update = state
-        .pending_update
-        .lock()
-        .map_err(|_| "更新状态锁已损坏".to_string())?
-        .clone()
-        .ok_or_else(|| "没有已下载的更新，请先下载更新".to_string())?;
+    let pending_update = state.downloaded_for_install(channel, version, file_name)?;
 
     run_on_velopack_worker_async(move || {
         let manager = match manager(pending_update.channel) {
@@ -878,6 +991,120 @@ pub async fn install_update<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn candidate(channel: AppUpdateChannel, version: &str) -> PendingUpdate {
+        let mut update = UpdateInfo::default();
+        update.TargetFullRelease.Version = version.to_string();
+        update.TargetFullRelease.FileName = format!("TouchAI-{version}.nupkg");
+        PendingUpdate { channel, update }
+    }
+
+    #[test]
+    fn checked_candidates_are_isolated_by_channel_and_download_requires_identity() {
+        let state = AppUpdaterState::default();
+        state
+            .remember_checked_update(candidate(AppUpdateChannel::Stable, "1.2.3"))
+            .unwrap();
+        state
+            .remember_checked_update(candidate(AppUpdateChannel::Beta, "1.2.3"))
+            .unwrap();
+        state.clear_checked_update(AppUpdateChannel::Beta).unwrap();
+
+        assert!(state
+            .candidate_for_download(AppUpdateChannel::Stable, "1.2.3", "TouchAI-1.2.3.nupkg")
+            .is_ok());
+        assert!(state
+            .candidate_for_download(AppUpdateChannel::Beta, "1.2.3", "TouchAI-1.2.3.nupkg")
+            .is_err());
+        assert!(state
+            .candidate_for_download(AppUpdateChannel::Stable, "1.2.4", "TouchAI-1.2.3.nupkg")
+            .is_err());
+        assert!(state
+            .candidate_for_download(AppUpdateChannel::Stable, "1.2.3", "other.nupkg")
+            .is_err());
+    }
+
+    #[test]
+    fn install_requires_the_version_and_channel_that_finished_downloading() {
+        let state = AppUpdaterState::default();
+        let stable = candidate(AppUpdateChannel::Stable, "1.2.3");
+        state.remember_checked_update(stable.clone()).unwrap();
+        assert!(state
+            .downloaded_for_install(AppUpdateChannel::Stable, "1.2.3", "TouchAI-1.2.3.nupkg")
+            .is_err());
+        state.remember_downloaded_update(stable).unwrap();
+        state
+            .remember_checked_update(candidate(AppUpdateChannel::Beta, "1.2.3"))
+            .unwrap();
+
+        assert!(state
+            .downloaded_for_install(AppUpdateChannel::Stable, "1.2.3", "TouchAI-1.2.3.nupkg")
+            .is_ok());
+        assert!(state
+            .downloaded_for_install(AppUpdateChannel::Beta, "1.2.3", "TouchAI-1.2.3.nupkg")
+            .is_err());
+        assert!(state
+            .downloaded_for_install(AppUpdateChannel::Stable, "1.2.4", "TouchAI-1.2.3.nupkg")
+            .is_err());
+        assert!(state
+            .downloaded_for_install(AppUpdateChannel::Stable, "1.2.3", "other.nupkg")
+            .is_err());
+    }
+
+    #[test]
+    fn same_channel_checks_commit_in_request_order_without_blocking_other_channels() {
+        let state = AppUpdaterState::default();
+        let (first_entered_tx, first_entered_rx) = mpsc::channel();
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+        let (second_started_tx, second_started_rx) = mpsc::channel();
+        let (second_entered_tx, second_entered_rx) = mpsc::channel();
+
+        let first_state = state.clone();
+        let first = std::thread::spawn(move || {
+            first_state.with_channel_check(AppUpdateChannel::Stable, || {
+                first_entered_tx.send(()).unwrap();
+                release_first_rx.recv().unwrap();
+                first_state.remember_checked_update(candidate(AppUpdateChannel::Stable, "1.2.3"))
+            })
+        });
+        first_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+
+        let second_state = state.clone();
+        let second = std::thread::spawn(move || {
+            second_started_tx.send(()).unwrap();
+            second_state.with_channel_check(AppUpdateChannel::Stable, || {
+                second_entered_tx.send(()).unwrap();
+                second_state.remember_checked_update(candidate(AppUpdateChannel::Stable, "1.2.4"))
+            })
+        });
+        second_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+
+        state
+            .with_channel_check(AppUpdateChannel::Beta, || {
+                state.remember_checked_update(candidate(AppUpdateChannel::Beta, "1.2.3"))
+            })
+            .unwrap();
+        assert!(second_entered_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err());
+        release_first_tx.send(()).unwrap();
+        first.join().unwrap().unwrap();
+        second.join().unwrap().unwrap();
+
+        assert!(state
+            .candidate_for_download(AppUpdateChannel::Stable, "1.2.4", "TouchAI-1.2.4.nupkg")
+            .is_ok());
+        assert!(state
+            .candidate_for_download(AppUpdateChannel::Stable, "1.2.3", "TouchAI-1.2.3.nupkg")
+            .is_err());
+        assert!(state
+            .candidate_for_download(AppUpdateChannel::Beta, "1.2.3", "TouchAI-1.2.3.nupkg")
+            .is_ok());
+    }
 
     #[test]
     fn reads_update_source_override_from_env() {

@@ -446,6 +446,7 @@
             <div
                 v-for="row in group.rows"
                 :key="row.id"
+                :data-settings-search-target="row.id"
                 class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
             >
                 <div

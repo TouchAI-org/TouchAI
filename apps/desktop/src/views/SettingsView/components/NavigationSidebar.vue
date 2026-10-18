@@ -1,5 +1,4 @@
 ﻿<script setup lang="ts">
-    import settingsLogo from '@assets/logo.svg';
     import AppIcon from '@components/AppIcon.vue';
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -8,6 +7,7 @@
     import { t } from '@/i18n';
 
     import { flattenSettingsNavigation, type NavigationSection } from '../settingsNavigation';
+    import type { SettingsSearchResult } from '../settingsSearch';
     import {
         calculateSettingsSidebarWidth,
         clampSettingsSidebarWidth,
@@ -20,6 +20,7 @@
         SETTINGS_SIDEBAR_DEFAULT_WIDTH,
         SETTINGS_SIDEBAR_MIN_WIDTH,
     } from '../settingsSidebarLayout';
+    import SettingsSearch from './SettingsSearch.vue';
 
     export type { NavigationSection } from '../settingsNavigation';
 
@@ -31,11 +32,13 @@
         (e: 'navigate', section: NavigationSection): void;
         (e: 'ready'): void;
         (e: 'show-update-settings'): void;
+        (e: 'search-select', result: SettingsSearchResult): void;
     }
 
     const props = defineProps<Props>();
     const emit = defineEmits<Emits>();
 
+    const searchQuery = ref('');
     const expandedSidebarWidth = ref(SETTINGS_SIDEBAR_DEFAULT_WIDTH);
     const windowWidth = ref(window.innerWidth);
     const layoutRevision = ref(0);
@@ -374,7 +377,7 @@
         :data-labels-visible="isLabelVisible"
         :data-resizing="isResizing"
         :class="[
-            'settings-navigation-sidebar t-sidebar relative flex h-full shrink-0 flex-col bg-[#f4f4f2] pt-6 pb-3.5',
+            'settings-navigation-sidebar t-sidebar relative flex h-full shrink-0 flex-col bg-[#f4f4f2] pt-2 pb-3.5',
             isCollapsed ? 'px-2' : 'px-3',
         ]"
         :style="sidebarStyle"
@@ -382,21 +385,14 @@
         <div
             data-testid="settings-sidebar-brand"
             :class="[
-                't-sidebar-brand mb-7 flex h-10 shrink-0 items-center',
-                isCollapsed ? 'justify-center gap-0 px-0' : 'justify-start gap-3 px-3',
+                't-sidebar-brand mb-2 flex h-10 shrink-0 items-center',
+                isCollapsed ? 'justify-center px-0' : 'justify-start px-3',
             ]"
             data-tauri-drag-region
         >
-            <img
-                :src="settingsLogo"
-                alt="TouchAI"
-                data-testid="settings-sidebar-logo"
-                class="h-[21px] w-[21px] shrink-0 object-contain"
-                data-tauri-drag-region
-            />
             <span
                 :class="[
-                    'settings-sidebar-label settings-sidebar-brand-label text-[14px] font-medium tracking-normal text-neutral-900',
+                    'settings-sidebar-label settings-sidebar-brand-label text-[18px] font-medium tracking-normal text-neutral-950',
                     isLabelVisible
                         ? 'settings-sidebar-label--visible'
                         : 'settings-sidebar-label--hidden',
@@ -405,9 +401,33 @@
             >
                 {{ t('common.settings') }}
             </span>
+            <button
+                v-show="!isCollapsed"
+                type="button"
+                data-testid="settings-sidebar-version"
+                :class="[
+                    't-press ml-auto inline-flex shrink-0 cursor-pointer items-center rounded-[6px] bg-[#e9e9e7] px-2 py-0.5 text-[11px] leading-4 text-neutral-500 transition-colors hover:bg-[#e2e2df] hover:text-neutral-700',
+                    isLabelVisible ? 'opacity-100' : 'pointer-events-none opacity-0',
+                ]"
+                :tabindex="isLabelVisible ? undefined : -1"
+                :aria-hidden="!isLabelVisible"
+                @click="showUpdateSettings"
+            >
+                {{ APP_VERSION }}
+            </button>
         </div>
 
-        <nav class="settings-scrollbar flex-1 space-y-1.5 overflow-y-auto pr-1">
+        <SettingsSearch
+            v-model="searchQuery"
+            :collapsed="isCollapsed"
+            @expand="expandSidebar"
+            @select="emit('search-select', $event)"
+        />
+
+        <nav
+            v-show="!searchQuery.trim()"
+            class="settings-scrollbar flex-1 space-y-1.5 overflow-y-auto pr-1"
+        >
             <button
                 v-for="item in flattenSettingsNavigation()"
                 :key="item.id"
@@ -451,18 +471,7 @@
             data-testid="settings-sidebar-footer"
             :class="['t-sidebar-footer mt-3 pt-3 text-center', isCollapsed ? 'px-0' : 'px-2']"
         >
-            <button
-                type="button"
-                :class="[
-                    't-press max-w-full cursor-pointer overflow-hidden text-xs leading-5 text-neutral-400 hover:text-neutral-700',
-                    isLabelVisible ? 'max-h-5 opacity-100' : 'max-h-0 opacity-0',
-                ]"
-                data-testid="settings-sidebar-version"
-                @click="showUpdateSettings"
-            >
-                TouchAI v{{ APP_VERSION }}
-            </button>
-            <div class="mt-1.5 flex items-center justify-center gap-1">
+            <div class="flex items-center justify-center gap-1">
                 <button
                     type="button"
                     data-testid="settings-sidebar-github"

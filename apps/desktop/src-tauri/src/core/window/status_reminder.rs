@@ -746,6 +746,14 @@ fn extract_reply_text(
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "macos")]
+pub(crate) fn show_app_update_notification<R: Runtime>(
+    app: &AppHandle<R>,
+    payload: &crate::core::updater::notification::AppUpdateNotificationPayload,
+) -> Result<(), String> {
+    macos_notifications::show_update(app, payload)
+}
+
+#[cfg(target_os = "macos")]
 mod macos_notifications {
     use std::sync::{Mutex, OnceLock};
 
@@ -770,6 +778,8 @@ mod macos_notifications {
     type ActionCallback = Box<dyn Fn(&str) + Send>;
 
     static ACTION_CALLBACK: OnceLock<Mutex<Option<ActionCallback>>> = OnceLock::new();
+    static UPDATE_ACTION_CALLBACK: OnceLock<Mutex<Option<ActionCallback>>> = OnceLock::new();
+    static UPDATE_ACTION_LABELS: OnceLock<Mutex<Option<(String, String)>>> = OnceLock::new();
     static DELEGATE_INSTANCE: OnceLock<MainThreadBound<Retained<TouchAINotificationDelegate>>> =
         OnceLock::new();
 
@@ -823,6 +833,31 @@ mod macos_notifications {
                     .objectForKey(&payload_key)
                     .map(|obj| obj.to_string());
 
+                let update_payload = unsafe { user_info.cast_unchecked::<NSString, NSString>() }
+                    .objectForKey(&NSString::from_str("touchai_update_payload"))
+                    .map(|obj| obj.to_string());
+                if let Some(payload) = update_payload {
+                    if action_id != "com.apple.UNNotificationDismissActionIdentifier" {
+                        if let Some(guard) = UPDATE_ACTION_CALLBACK
+                            .get()
+                            .and_then(|lock| lock.lock().ok())
+                        {
+                            if let Some(callback) = guard.as_ref() {
+                                let action = match action_id.as_str() {
+                                    "update" => "update",
+                                    "ignore" => "ignore",
+                                    _ => "open",
+                                };
+                                if let Some(json) = enrich_stored_payload(&payload, action, None) {
+                                    callback(&json);
+                                }
+                            }
+                        }
+                    }
+                    completion_handler.call(());
+                    return;
+                }
+
                 let reply_text = if let Some(text_response) =
                     response.downcast_ref::<UNTextInputNotificationResponse>()
                 {
@@ -850,6 +885,31 @@ mod macos_notifications {
                 }
 
                 completion_handler.call(());
+            }
+
+            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+            fn will_present_notification(
+                &self,
+                _center: &UNUserNotificationCenter,
+                notification: &objc2_user_notifications::UNNotification,
+                completion_handler: &block2::DynBlock<
+                    dyn Fn(objc2_user_notifications::UNNotificationPresentationOptions),
+                >,
+            ) {
+                use objc2_user_notifications::UNNotificationPresentationOptions;
+                let options = if notification
+                    .request()
+                    .content()
+                    .categoryIdentifier()
+                    .to_string()
+                    == "touchai-app-update"
+                {
+                    UNNotificationPresentationOptions::Banner
+                        | UNNotificationPresentationOptions::List
+                } else {
+                    UNNotificationPresentationOptions::empty()
+                };
+                completion_handler.call((options,));
             }
         }
     );
@@ -964,9 +1024,136 @@ mod macos_notifications {
                 objc2_user_notifications::UNNotificationCategoryOptions::empty(),
             );
 
-        let categories =
-            NSSet::from_retained_slice(&[waiting_category, open_category, reply_category]);
+        let mut categories = vec![waiting_category, open_category, reply_category];
+        if let Some((update, ignore)) = UPDATE_ACTION_LABELS
+            .get()
+            .and_then(|lock| lock.lock().ok())
+            .and_then(|labels| labels.clone())
+        {
+            categories.push(update_category(&update, &ignore));
+        }
+        let categories = NSSet::from_retained_slice(&categories);
         center.setNotificationCategories(&categories);
+    }
+
+    fn update_category(update_label: &str, ignore_label: &str) -> Retained<UNNotificationCategory> {
+        let update = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("update"),
+            &NSString::from_str(update_label),
+            objc2_user_notifications::UNNotificationActionOptions::Foreground,
+        );
+        let ignore = UNNotificationAction::actionWithIdentifier_title_options(
+            &NSString::from_str("ignore"),
+            &NSString::from_str(ignore_label),
+            objc2_user_notifications::UNNotificationActionOptions::empty(),
+        );
+        UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+            &NSString::from_str("touchai-app-update"),
+            &NSArray::from_retained_slice(&[update, ignore]),
+            &NSArray::from_slice(&[]),
+            objc2_user_notifications::UNNotificationCategoryOptions::empty(),
+        )
+    }
+
+    pub fn show_update<R: Runtime>(
+        app: &AppHandle<R>,
+        payload: &crate::core::updater::notification::AppUpdateNotificationPayload,
+    ) -> Result<(), String> {
+        use crate::core::updater::notification::{
+            dispatch_action, AppUpdateNotificationAction, AppUpdateNotificationActionPayload,
+        };
+        use std::{ptr::NonNull, sync::mpsc, time::Duration};
+
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        let (authorization_tx, authorization_rx) = mpsc::channel();
+        center.requestAuthorizationWithOptions_completionHandler(
+            objc2_user_notifications::UNAuthorizationOptions::Alert,
+            &RcBlock::new(move |granted: objc2::runtime::Bool, _error| {
+                let _ = authorization_tx.send(granted.as_bool());
+            }),
+        );
+        if !authorization_rx
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|error| error.to_string())?
+        {
+            return Err("macOS update notification permission was denied".to_string());
+        }
+
+        let action_app = app.clone();
+        *UPDATE_ACTION_CALLBACK
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .map_err(|_| "Update callback lock poisoned")? = Some(Box::new(move |json| {
+            match serde_json::from_str::<AppUpdateNotificationActionPayload>(json) {
+                Ok(payload) => dispatch_action(&action_app, &payload),
+                Err(error) => warn!("Invalid macOS update action: {error}"),
+            }
+        }));
+        ensure_delegate_registered();
+
+        let category = update_category(&payload.update_label, &payload.ignore_label);
+        *UPDATE_ACTION_LABELS
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .map_err(|_| "Update category lock poisoned")? =
+            Some((payload.update_label.clone(), payload.ignore_label.clone()));
+        let (categories_tx, categories_rx) = mpsc::channel();
+        center.getNotificationCategoriesWithCompletionHandler(&RcBlock::new(
+            move |categories: NonNull<NSSet<UNNotificationCategory>>| {
+                let mut merged: Vec<Retained<UNNotificationCategory>> =
+                    unsafe { categories.as_ref() }
+                        .iter()
+                        .filter(|existing| {
+                            existing.identifier().to_string() != "touchai-app-update"
+                        })
+                        .collect();
+                merged.push(category.clone());
+                UNUserNotificationCenter::currentNotificationCenter()
+                    .setNotificationCategories(&NSSet::from_retained_slice(&merged));
+                let _ = categories_tx.send(());
+            },
+        ));
+        categories_rx
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|error| error.to_string())?;
+
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(&payload.title));
+        content.setBody(&NSString::from_str(&payload.body));
+        content.setCategoryIdentifier(&NSString::from_str("touchai-app-update"));
+        let base = serde_json::to_string(&AppUpdateNotificationActionPayload {
+            action: AppUpdateNotificationAction::Open,
+            channel: payload.channel,
+            version: payload.version.clone(),
+        })
+        .map_err(|error| error.to_string())?;
+        let key = NSString::from_str("touchai_update_payload");
+        let value = NSString::from_str(&base);
+        let user_info = NSDictionary::from_slices(&[&*key], &[&*value]);
+        unsafe {
+            content.setUserInfo(
+                user_info.cast_unchecked::<objc2::runtime::AnyObject, objc2::runtime::AnyObject>(),
+            );
+        }
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+            &NSString::from_str("touchai-app-update"),
+            &content,
+            None,
+        );
+        let (delivery_tx, delivery_rx) = mpsc::channel();
+        center.addNotificationRequest_withCompletionHandler(
+            &request,
+            Some(&RcBlock::new(
+                move |error: *mut objc2_foundation::NSError| {
+                    let result =
+                        unsafe { error.as_ref() }.map_or(Ok(()), |error| Err(error.to_string()));
+                    let _ = delivery_tx.send(result);
+                },
+            )),
+        );
+        delivery_rx
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|error| error.to_string())?
     }
 
     /// Show a session status reminder notification through the macOS

@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, vi } from 'vitest';
 
+import { setLocale } from '@/i18n';
+import type { AiModelsUpdatedEvent } from '@/services/EventService/types';
 import AiServicesSection from '@/views/SettingsView/components/AiServices/index.vue';
 
 const queries = vi.hoisted(() => ({
@@ -26,10 +28,25 @@ const alertMock = vi.hoisted(() => ({
     warning: vi.fn(),
 }));
 
-const eventServiceMock = vi.hoisted(() => ({
-    emit: vi.fn().mockResolvedValue(undefined),
-    on: vi.fn(async () => vi.fn()),
-}));
+const scrollToDefaultModelMock = vi.hoisted(() => vi.fn());
+
+const { eventServiceMock, modelUpdateListeners } = vi.hoisted(() => {
+    const modelUpdateListeners = new Set<(payload: AiModelsUpdatedEvent) => void>();
+    return {
+        modelUpdateListeners,
+        eventServiceMock: {
+            emit: vi.fn(async (_event: string, payload: AiModelsUpdatedEvent) => {
+                for (const listener of modelUpdateListeners) {
+                    listener(payload);
+                }
+            }),
+            on: vi.fn(async (_event: string, listener: (payload: AiModelsUpdatedEvent) => void) => {
+                modelUpdateListeners.add(listener);
+                return () => modelUpdateListeners.delete(listener);
+            }),
+        },
+    };
+});
 
 const llmMetadataMock = vi.hoisted(() => ({
     isLlmMetadataAliasEmpty: vi.fn().mockResolvedValue(false),
@@ -37,7 +54,7 @@ const llmMetadataMock = vi.hoisted(() => ({
 }));
 
 const modelMetadataMock = vi.hoisted(() => ({
-    updateModelMetadata: vi.fn().mockResolvedValue(undefined),
+    refreshModelMetadataIfStale: vi.fn().mockResolvedValue({ status: 'skipped' }),
 }));
 
 const agentServiceMock = vi.hoisted(() => ({
@@ -98,16 +115,95 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => ({
     })),
 }));
 
+async function mountDefaultModelSelection(providerEnabled: number) {
+    const provider = {
+        id: 2,
+        name: 'Custom Gateway',
+        driver: 'openai',
+        api_endpoint: 'https://custom.example.com',
+        api_key: 'sk-demo',
+        config_json: null,
+        logo: 'openai.png',
+        enabled: providerEnabled,
+        is_builtin: 0,
+        created_at: '',
+        updated_at: '',
+    };
+    const currentDefaultModel = {
+        id: 10,
+        provider_id: 2,
+        name: 'GPT 5 Mini',
+        model_id: 'gpt-5-mini',
+        is_default: 1,
+        provider_enabled: providerEnabled,
+    };
+    const nextDefaultModel = {
+        ...currentDefaultModel,
+        id: 20,
+        name: 'GPT 5',
+        model_id: 'gpt-5',
+        is_default: 0,
+    };
+    queries.findAllProvidersSorted.mockResolvedValue([provider]);
+    queries.findDefaultModel.mockResolvedValue(currentDefaultModel);
+    queries.findModelsWithProvider.mockResolvedValue([currentDefaultModel, nextDefaultModel]);
+
+    const wrapper = mount(AiServicesSection, {
+        global: {
+            stubs: {
+                ProviderList: {
+                    props: ['providers', 'defaultModelProviderIds'],
+                    template: `
+                        <div data-testid="provider-state">
+                            enabled: {{ providers[0]?.enabled }};
+                            default: {{ defaultModelProviderIds.has(2) }}
+                        </div>
+                    `,
+                },
+                ProviderConfig: true,
+                ModelList: {
+                    props: ['defaultModelId', 'models'],
+                    emits: ['set-default'],
+                    methods: { scrollToDefaultModel: scrollToDefaultModelMock },
+                    data: () => ({ searchQuery: '' }),
+                    template: `
+                        <div>
+                            <input v-model="searchQuery" data-testid="model-filter" />
+                            <button data-testid="set-default-model" @click="$emit('set-default', 20)">
+                                default: {{ defaultModelId }}
+                            </button>
+                            <span v-for="model in models" :key="model.id" :data-testid="'model-' + model.id">
+                                default: {{ model.is_default }}; enabled: {{ model.provider_enabled }}
+                            </span>
+                        </div>
+                    `,
+                },
+                AddProviderDialog: true,
+                EditProviderDialog: true,
+                BadgedLogo: true,
+            },
+        },
+    });
+    await flushPromises();
+    return wrapper;
+}
+
 describe('SettingsAiServicesSection', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        modelUpdateListeners.clear();
+        setLocale('zh-CN');
         agentServiceMock.createProviderInstance.mockReturnValue({
             listModels: vi.fn().mockResolvedValue([]),
             getApiTargets: () => ({ generationTarget: '' }),
         });
         queries.findDefaultModel.mockResolvedValue(null);
         queries.findModelsWithProvider.mockResolvedValue([]);
-        modelMetadataMock.updateModelMetadata.mockResolvedValue(undefined);
+        queries.updateProvider.mockReset().mockResolvedValue(undefined);
+        queries.setDefaultModel.mockReset().mockResolvedValue(undefined);
+        llmMetadataMock.isLlmMetadataAliasEmpty.mockResolvedValue(false);
+        llmMetadataMock.isLlmMetadataEmpty.mockResolvedValue(false);
+        modelMetadataMock.refreshModelMetadataIfStale.mockResolvedValue({ status: 'skipped' });
     });
 
     it('omits custom-only controls for builtin providers', async () => {
@@ -435,5 +531,132 @@ describe('SettingsAiServicesSection', () => {
         expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
         expect(alertMock.success).toHaveBeenCalledWith('设置成功');
         expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
+    });
+
+    it('enables a disabled provider before setting its model as default and updates cached models', async () => {
+        const wrapper = await mountDefaultModelSelection(0);
+
+        await wrapper.get('[data-testid="set-default-model"]').trigger('click');
+        await flushPromises();
+
+        expect(queries.updateProvider).toHaveBeenCalledWith({
+            id: 2,
+            providerPatch: { enabled: 1 },
+        });
+        expect(queries.setDefaultModel).toHaveBeenCalledWith({ modelId: 20 });
+        expect(queries.updateProvider.mock.invocationCallOrder[0]).toBeLessThan(
+            queries.setDefaultModel.mock.invocationCallOrder[0]!
+        );
+        expect(wrapper.get('[data-testid="provider-state"]').text()).toContain('enabled: 1');
+        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
+        expect(wrapper.get('[data-testid="model-10"]').text()).toContain('default: 0; enabled: 1');
+        expect(wrapper.get('[data-testid="model-20"]').text()).toContain('default: 1; enabled: 1');
+        expect(eventServiceMock.emit).toHaveBeenCalledTimes(1);
+        expect(scrollToDefaultModelMock).toHaveBeenCalledWith(20);
+        expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves the model list and filter when its own update notification returns', async () => {
+        const wrapper = await mountDefaultModelSelection(1);
+        const filter = wrapper.get<HTMLInputElement>('[data-testid="model-filter"]');
+        const scrollContainer = wrapper.get<HTMLElement>('.settings-scrollbar');
+        await filter.setValue('gpt');
+        scrollContainer.element.scrollTop = 320;
+
+        await wrapper.get('[data-testid="set-default-model"]').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.get('[data-testid="model-filter"]').element).toBe(filter.element);
+        expect(filter.element.value).toBe('gpt');
+        expect(scrollContainer.element.scrollTop).toBe(320);
+        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
+        expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
+        expect(queries.findDefaultModel).toHaveBeenCalledTimes(1);
+        expect(queries.findModelsWithProvider).toHaveBeenCalledTimes(1);
+        expect(eventServiceMock.emit).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders local models while a remote metadata refresh is pending', async () => {
+        let resolveRefresh!: (result: { status: string }) => void;
+        modelMetadataMock.refreshModelMetadataIfStale.mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveRefresh = resolve;
+            })
+        );
+        const wrapper = await mountDefaultModelSelection(1);
+
+        try {
+            expect(wrapper.find('[data-testid="set-default-model"]').exists()).toBe(true);
+            expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
+            expect(queries.findModelsWithProvider).toHaveBeenCalledTimes(1);
+        } finally {
+            resolveRefresh({ status: 'skipped' });
+            await flushPromises();
+            wrapper.unmount();
+        }
+    });
+
+    it('still synchronizes model changes published by another instance', async () => {
+        const wrapper = await mountDefaultModelSelection(1);
+        queries.findDefaultModel.mockResolvedValue({ id: 20, provider_id: 2 });
+
+        await eventServiceMock.emit('AI_MODELS_UPDATED', {
+            sourceId: 'another-settings-instance',
+            updatedAt: Date.now(),
+        });
+        await flushPromises();
+
+        expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(2);
+        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
+    });
+
+    it('keeps the previous default and disabled state when enabling fails', async () => {
+        const wrapper = await mountDefaultModelSelection(0);
+        queries.updateProvider.mockRejectedValueOnce(new Error('Enable failed'));
+
+        await wrapper.get('[data-testid="set-default-model"]').trigger('click');
+        await flushPromises();
+
+        expect(queries.setDefaultModel).not.toHaveBeenCalled();
+        expect(wrapper.get('[data-testid="provider-state"]').text()).toContain('enabled: 0');
+        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 10');
+        expect(eventServiceMock.emit).not.toHaveBeenCalled();
+        expect(scrollToDefaultModelMock).not.toHaveBeenCalled();
+        expect(alertMock.error).toHaveBeenCalledWith('Enable failed');
+    });
+
+    it('keeps the previous default when saving a new default fails', async () => {
+        const wrapper = await mountDefaultModelSelection(1);
+        queries.setDefaultModel.mockRejectedValueOnce(new Error('Save failed'));
+
+        await wrapper.get('[data-testid="set-default-model"]').trigger('click');
+        await flushPromises();
+
+        expect(queries.updateProvider).not.toHaveBeenCalled();
+        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 10');
+        expect(wrapper.get('[data-testid="model-10"]').text()).toContain('default: 1');
+        expect(wrapper.get('[data-testid="model-20"]').text()).toContain('default: 0');
+        expect(eventServiceMock.emit).not.toHaveBeenCalled();
+        expect(scrollToDefaultModelMock).not.toHaveBeenCalled();
+        expect(alertMock.error).toHaveBeenCalledWith('Save failed');
+    });
+
+    it('publishes the enabled provider state even when saving its default model fails', async () => {
+        const wrapper = await mountDefaultModelSelection(0);
+        queries.setDefaultModel.mockRejectedValueOnce(new Error('Save failed'));
+
+        await wrapper.get('[data-testid="set-default-model"]').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.get('[data-testid="provider-state"]').text()).toContain('enabled: 1');
+        expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 10');
+        expect(wrapper.get('[data-testid="model-10"]').text()).toContain('default: 1; enabled: 1');
+        expect(wrapper.get('[data-testid="model-20"]').text()).toContain('default: 0; enabled: 1');
+        expect(eventServiceMock.emit).toHaveBeenCalledWith('AI_MODELS_UPDATED', {
+            sourceId: expect.any(String),
+            updatedAt: expect.any(Number),
+        });
+        expect(alertMock.error).toHaveBeenCalledWith('Save failed');
+        expect(alertMock.success).not.toHaveBeenCalled();
     });
 });

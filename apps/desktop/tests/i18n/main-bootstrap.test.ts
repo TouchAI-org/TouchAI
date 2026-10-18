@@ -7,7 +7,9 @@ const {
     getCurrentWindowMock,
     settingsInitializeMock,
     appUpdateCheckNowMock,
+    initializeAppUpdateNotificationsMock,
     builtInToolSyncMock,
+    prewarmBashMock,
     isLlmMetadataAliasEmptyMock,
     isLlmMetadataEmptyMock,
     initializeFontLoaderMock,
@@ -25,7 +27,9 @@ const {
     getCurrentWindowMock: vi.fn(),
     settingsInitializeMock: vi.fn(),
     appUpdateCheckNowMock: vi.fn(),
+    initializeAppUpdateNotificationsMock: vi.fn(),
     builtInToolSyncMock: vi.fn(),
+    prewarmBashMock: vi.fn(),
     isLlmMetadataAliasEmptyMock: vi.fn(),
     isLlmMetadataEmptyMock: vi.fn(),
     initializeFontLoaderMock: vi.fn(),
@@ -58,6 +62,10 @@ vi.mock('@services/AppUpdateService', () => ({
     },
 }));
 
+vi.mock('@services/AppUpdateService/notifications', () => ({
+    initializeAppUpdateNotifications: initializeAppUpdateNotificationsMock,
+}));
+
 vi.mock('@database/queries', () => ({
     isLlmMetadataAliasEmpty: isLlmMetadataAliasEmptyMock,
     isLlmMetadataEmpty: isLlmMetadataEmptyMock,
@@ -73,6 +81,10 @@ vi.mock('@/services/BuiltInToolService/service', () => ({
     builtInToolService: {
         syncRegisteredTools: builtInToolSyncMock,
     },
+}));
+
+vi.mock('@/services/BuiltInToolService/tools/bash/helper', () => ({
+    prewarmBashToolRuntime: prewarmBashMock,
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -129,7 +141,9 @@ describe('app bootstrap i18n', () => {
         openUrlMock.mockResolvedValue(undefined);
         settingsInitializeMock.mockResolvedValue(undefined);
         appUpdateCheckNowMock.mockResolvedValue(false);
+        initializeAppUpdateNotificationsMock.mockResolvedValue(undefined);
         builtInToolSyncMock.mockResolvedValue(undefined);
+        prewarmBashMock.mockResolvedValue(undefined);
         isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
         isLlmMetadataEmptyMock.mockResolvedValue(false);
         syncAllModelsMetadataMock.mockResolvedValue(undefined);
@@ -157,8 +171,42 @@ describe('app bootstrap i18n', () => {
         });
         expect(settingsInitializeMock).toHaveBeenCalledTimes(1);
         expect(appMountMock).toHaveBeenCalledWith('#app');
+        expect(initializeAppUpdateNotificationsMock).toHaveBeenCalledTimes(1);
         const settingsInitializeOrder = settingsInitializeMock.mock.invocationCallOrder[0]!;
         expect(settingsInitializeOrder).toBeLessThan(appMountMock.mock.invocationCallOrder[0]!);
+    });
+
+    it('sleeps until 08:00 before starting hourly automatic checks', async () => {
+        const nowSpy = vi
+            .spyOn(Date, 'now')
+            .mockReturnValue(new Date(2026, 9, 18, 7, 30).getTime());
+        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn());
+        try {
+            const { initializeApp } = await import('@/bootstrap');
+            await initializeApp();
+            for (let index = 0; index < 12; index += 1) await Promise.resolve();
+
+            expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
+            const timer = timeoutSpy.mock.calls.find(([, delay]) => delay === 30 * 60 * 1000)?.[0];
+            expect(timer).toBeTypeOf('function');
+            nowSpy.mockReturnValue(new Date(2026, 9, 18, 8).getTime());
+            timeoutSpy.mockClear();
+            (timer as () => void)();
+
+            expect(appUpdateCheckNowMock).toHaveBeenCalledWith('automatic');
+            expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000);
+
+            appUpdateCheckNowMock.mockClear();
+            timeoutSpy.mockClear();
+            nowSpy.mockReturnValue(new Date(2026, 9, 19, 0).getTime());
+            (timer as () => void)();
+
+            expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
+            expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 8 * 60 * 60 * 1000);
+        } finally {
+            nowSpy.mockRestore();
+            timeoutSpy.mockRestore();
+        }
     });
 
     it('seeds bundled metadata during bootstrap when local metadata is empty', async () => {
@@ -179,7 +227,9 @@ describe('app bootstrap i18n', () => {
         await initializeApp();
 
         expect(appMountMock).toHaveBeenCalledWith('#app');
-        expect(refreshModelMetadataIfStaleMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => {
+            expect(refreshModelMetadataIfStaleMock).toHaveBeenCalledTimes(1);
+        });
 
         const refreshOrder = refreshModelMetadataIfStaleMock.mock.invocationCallOrder[0]!;
         expect(refreshOrder).toBeGreaterThan(appMountMock.mock.invocationCallOrder[0]!);
@@ -272,6 +322,7 @@ describe('app bootstrap i18n', () => {
         expect(refreshModelMetadataIfStaleMock).not.toHaveBeenCalled();
         expect(settingsInitializeMock).not.toHaveBeenCalled();
         expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
+        expect(initializeAppUpdateNotificationsMock).not.toHaveBeenCalled();
     });
 
     it('uses lightweight bootstrap for the tray menu window', async () => {
@@ -289,7 +340,47 @@ describe('app bootstrap i18n', () => {
         expect(refreshModelMetadataIfStaleMock).not.toHaveBeenCalled();
         expect(settingsInitializeMock).not.toHaveBeenCalled();
         expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
+        expect(initializeAppUpdateNotificationsMock).not.toHaveBeenCalled();
     });
+
+    it.each(['window-label', 'route'])(
+        'opens settings via %s without waiting for primary-window runtime initialization',
+        async (entry) => {
+            if (entry === 'window-label') {
+                getCurrentWindowMock.mockReturnValue({ label: 'settings' });
+            } else {
+                window.history.replaceState(null, '', '/#/settings');
+            }
+            let resolveRuntime!: () => void;
+            const runtimeReady = new Promise<void>((resolve) => {
+                resolveRuntime = resolve;
+            });
+            builtInToolSyncMock.mockReturnValue(runtimeReady);
+            prewarmBashMock.mockReturnValue(runtimeReady);
+            const { initializeApp } = await import('@/bootstrap');
+            const startup = initializeApp();
+            for (let index = 0; index < 12; index += 1) await Promise.resolve();
+
+            try {
+                expect(appMountMock).toHaveBeenCalledWith('#app');
+                expect(settingsInitializeMock).toHaveBeenCalledTimes(1);
+                expect(initializeFontLoaderMock).toHaveBeenCalledTimes(1);
+                expect(builtInToolSyncMock).not.toHaveBeenCalled();
+                expect(prewarmBashMock).not.toHaveBeenCalled();
+                expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
+                expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
+                expect(refreshModelMetadataIfStaleMock).not.toHaveBeenCalled();
+                expect(initializeAppUpdateNotificationsMock).not.toHaveBeenCalled();
+                expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
+                expect(settingsInitializeMock.mock.invocationCallOrder[0]).toBeLessThan(
+                    appMountMock.mock.invocationCallOrder[0]!
+                );
+            } finally {
+                resolveRuntime();
+                await startup;
+            }
+        }
+    );
 
     it('routes app-relative anchor clicks through the Vue router', async () => {
         const { initializeApp } = await import('@/bootstrap');

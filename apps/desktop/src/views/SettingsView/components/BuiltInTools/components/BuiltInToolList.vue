@@ -1,6 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import EmptyState from '@components/EmptyState.vue';
     import { computed } from 'vue';
 
     import { t } from '@/i18n';
@@ -27,12 +28,12 @@
 
 <template>
     <div class="settings-scrollbar flex-1 space-y-1 overflow-y-auto p-4 pt-5">
-        <div v-if="sortedTools.length === 0" class="px-4 py-10 text-center">
-            <p class="mt-3 text-sm text-neutral-500">{{ t('settings.builtInTools.list.empty') }}</p>
-            <p class="mt-1 text-xs text-neutral-400">
-                {{ t('settings.builtInTools.list.emptyDescription') }}
-            </p>
-        </div>
+        <EmptyState
+            v-if="sortedTools.length === 0"
+            :title="t('settings.builtInTools.list.empty')"
+            :description="t('settings.builtInTools.list.emptyDescription')"
+            icon="tool"
+        />
 
         <div
             v-for="tool in sortedTools"

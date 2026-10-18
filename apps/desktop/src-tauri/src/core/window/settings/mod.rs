@@ -2,7 +2,7 @@
 
 //! 设置窗口管理逻辑。
 
-use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
 pub const SETTINGS_WINDOW_WIDTH: f64 = 1120.0;
 pub const SETTINGS_WINDOW_HEIGHT: f64 = 700.0;
@@ -11,19 +11,46 @@ pub const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 560.0;
 const SETTINGS_WINDOW_ROUTE: &str = "#/settings";
 
 pub async fn build_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    build_settings_window_at(app, false).await
+}
+
+pub async fn build_update_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    build_settings_window_at(app, true).await
+}
+
+async fn build_settings_window_at<R: Runtime>(
+    app: &AppHandle<R>,
+    updates: bool,
+) -> Result<(), String> {
     if let Some(settings_window) = app.get_webview_window("settings") {
         settings_window.unminimize().map_err(|e| e.to_string())?;
         crate::core::window::rounded_corners::sync_window_corner_style(&settings_window)?;
         settings_window.show().map_err(|e| e.to_string())?;
         crate::core::window::rounded_corners::sync_window_corner_style(&settings_window)?;
         settings_window.set_focus().map_err(|e| e.to_string())?;
+        settings_window
+            .emit("settings-window-opened", ())
+            .map_err(|e| e.to_string())?;
+        if updates {
+            settings_window
+                .emit("settings-show-updates", ())
+                .map_err(|e| e.to_string())?;
+        }
         return Ok(());
     }
 
     let mut builder = WebviewWindowBuilder::new(
         app,
         "settings",
-        WebviewUrl::App(SETTINGS_WINDOW_ROUTE.parse().unwrap()),
+        WebviewUrl::App(
+            if updates {
+                "#/settings?section=updates"
+            } else {
+                SETTINGS_WINDOW_ROUTE
+            }
+            .parse()
+            .unwrap(),
+        ),
     )
     .title("TouchAI - 设置")
     .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)

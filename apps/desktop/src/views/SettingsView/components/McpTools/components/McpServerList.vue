@@ -14,7 +14,7 @@
     }
 
     interface Emits {
-        (e: 'select', server: McpServerEntity): void;
+        (e: 'select', server: McpServerEntity | null): void;
         (e: 'toggle-enabled', serverId: number): void;
         (e: 'delete', serverId: number): void;
         (e: 'context-menu', serverId: number, event: MouseEvent): void;
@@ -100,6 +100,8 @@
         // 如果有其他服务器，选中第一个
         if (servers.value.length > 0) {
             emit('select', servers.value[0]!);
+        } else {
+            emit('select', null);
         }
     };
 
@@ -119,11 +121,6 @@
     <div class="settings-scrollbar flex-1 space-y-2 overflow-y-auto p-4">
         <div v-if="loading" class="space-y-2">
             <div v-for="i in 3" :key="i" class="h-20 animate-pulse rounded-lg bg-neutral-100" />
-        </div>
-
-        <div v-else-if="servers.length === 0 && !newServer" class="py-8 text-center">
-            <p class="text-sm text-neutral-500">{{ t('settings.mcp.servers.empty') }}</p>
-            <p class="mt-1 text-xs text-neutral-400">{{ t('settings.mcp.servers.addHint') }}</p>
         </div>
 
         <div v-else class="space-y-2">

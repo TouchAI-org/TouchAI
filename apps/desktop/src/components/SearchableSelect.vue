@@ -13,6 +13,7 @@
     "
 >
     import AppIcon from '@components/AppIcon.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
     import { type MessageKey, t, tt } from '@/i18n';
@@ -416,11 +417,8 @@
                         </slot>
                     </button>
 
-                    <div
-                        v-if="filteredOptions.length === 0"
-                        class="px-3 py-6 text-center font-serif text-sm text-gray-500"
-                    >
-                        {{ resolvedEmptyText }}
+                    <div v-if="filteredOptions.length === 0" class="px-3">
+                        <EmptyState :title="resolvedEmptyText" size="compact" />
                     </div>
                 </div>
             </div>

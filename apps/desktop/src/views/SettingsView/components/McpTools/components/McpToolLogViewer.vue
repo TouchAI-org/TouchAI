@@ -2,18 +2,16 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import MotionCollapse from '@components/MotionCollapse.vue';
-    import ToolLogContent from '@components/ToolLogContent.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import { useListFilter } from '@composables/useListFilter';
     import { findMcpToolLogsByServerId } from '@database/queries';
     import type { McpServerEntity, McpToolLogEntity } from '@database/types';
     import { onMounted, ref } from 'vue';
 
     import { t } from '@/i18n';
-    import { formatDateTime } from '@/i18n/format';
 
+    import ToolLogEntry from '../../common/ToolLogEntry.vue';
     import { getToolLogStatusText } from '../../common/toolLogStatus';
-    import ToolLogStatusBadge from '../../common/ToolLogStatusBadge.vue';
 
     interface Props {
         server: McpServerEntity;
@@ -31,6 +29,8 @@
     const {
         filterStatus,
         searchQuery,
+        hasActiveFilters,
+        resetFilters,
         filteredItems: filteredLogs,
     } = useListFilter({
         items: logs,
@@ -74,10 +74,6 @@
         }
     };
 
-    const formatDate = (dateStr: string) => {
-        return formatDateTime(dateStr);
-    };
-
     onMounted(() => {
         loadLogs();
     });
@@ -109,7 +105,7 @@
                 </div>
 
                 <!-- 搜索框 -->
-                <div class="relative w-full max-w-xs md:w-64" data-testid="mcp-tool-log-search">
+                <div class="relative min-w-[16rem] flex-1" data-testid="mcp-tool-log-search">
                     <input
                         v-model="searchQuery"
                         type="text"
@@ -127,93 +123,42 @@
                 <div v-for="i in 5" :key="i" class="h-16 animate-pulse rounded-lg bg-neutral-100" />
             </div>
 
-            <div v-else-if="filteredLogs.length === 0" class="py-12 text-center">
-                <AppIcon name="document-text" class="mx-auto h-16 w-16 text-neutral-300" />
-                <p class="mt-4 text-sm text-neutral-500">
-                    {{ searchQuery ? t('toolLog.noMatches') : t('toolLog.empty') }}
-                </p>
-                <p v-if="searchQuery" class="mt-1 text-xs text-neutral-400">
-                    {{ t('toolLog.tryAnotherKeyword') }}
-                </p>
+            <div v-else-if="filteredLogs.length === 0">
+                <EmptyState
+                    :title="hasActiveFilters ? t('toolLog.noMatches') : t('toolLog.empty')"
+                    :description="
+                        hasActiveFilters
+                            ? t('common.noResultsDescription')
+                            : t('toolLog.emptyDescription')
+                    "
+                    icon="document-text"
+                >
+                    <template v-if="hasActiveFilters" #actions>
+                        <button
+                            type="button"
+                            class="settings-button-secondary"
+                            @click="resetFilters"
+                        >
+                            {{ t('common.clearFilters') }}
+                        </button>
+                    </template>
+                </EmptyState>
             </div>
 
             <div v-else class="space-y-2">
-                <div
+                <ToolLogEntry
                     v-for="log in filteredLogs"
                     :key="log.id"
-                    class="overflow-hidden rounded-[13px] border border-neutral-200/70 bg-white"
-                >
-                    <button
-                        class="w-full p-4 text-left transition-colors hover:bg-neutral-50/70"
-                        :aria-expanded="expandedLogs.has(log.id)"
-                        @click="toggleExpand(log.id)"
-                    >
-                        <div class="flex items-start justify-between">
-                            <div class="min-w-0 flex-1">
-                                <div
-                                    class="flex flex-wrap items-center gap-2"
-                                    data-testid="mcp-tool-log-header"
-                                >
-                                    <span
-                                        class="text-[15px] font-normal break-words text-neutral-950"
-                                        data-no-i18n="true"
-                                        data-testid="mcp-tool-log-name"
-                                        translate="no"
-                                    >
-                                        {{ log.tool_name }}
-                                    </span>
-                                    <ToolLogStatusBadge :status="log.status" />
-                                    <span class="text-xs text-neutral-500">
-                                        {{ t('toolLog.iteration') }} {{ log.iteration }}
-                                    </span>
-                                </div>
-                                <div class="mt-1 flex items-center gap-4 text-xs text-neutral-500">
-                                    <span data-no-i18n="true" translate="no">
-                                        {{ formatDate(log.created_at) }}
-                                    </span>
-                                    <span v-if="log.duration_ms" data-no-i18n="true" translate="no">
-                                        {{ log.duration_ms }}ms
-                                    </span>
-                                </div>
-                            </div>
-
-                            <AppIcon
-                                name="chevron-right"
-                                :class="
-                                    expandedLogs.has(log.id)
-                                        ? 'ml-4 h-5 w-5 flex-shrink-0 rotate-90 text-neutral-400 transition-transform'
-                                        : 'ml-4 h-5 w-5 flex-shrink-0 text-neutral-400 transition-transform'
-                                "
-                            />
-                        </div>
-                    </button>
-
-                    <MotionCollapse :open="expandedLogs.has(log.id)" lazy>
-                        <div class="border-t border-neutral-200/70 bg-neutral-50/70 p-4">
-                            <ToolLogContent
-                                :input="log.input"
-                                :output="log.output"
-                                :error="log.error_message"
-                                :is-error="log.status === 'error' && !!log.output"
-                            />
-
-                            <div
-                                class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-200 pt-3 font-mono text-xs break-words text-neutral-500"
-                                data-testid="mcp-tool-log-detail-metadata"
-                            >
-                                <span data-no-i18n="true" translate="no">
-                                    {{ t('toolLog.callIdLabel') }} {{ log.tool_call_id }}
-                                </span>
-                                <span v-if="log.session_id" data-no-i18n="true" translate="no">
-                                    {{ t('toolLog.sessionLabel') }} {{ log.session_id }}
-                                </span>
-                                <span v-if="log.message_id" data-no-i18n="true" translate="no">
-                                    {{ t('toolLog.messageLabel') }} {{ log.message_id }}
-                                </span>
-                            </div>
-                        </div>
-                    </MotionCollapse>
-                </div>
+                    :name="log.tool_name"
+                    :status="log.status"
+                    :created-at="log.created_at"
+                    :duration-ms="log.duration_ms"
+                    :input="log.input"
+                    :output="log.output"
+                    :error="log.error_message"
+                    :expanded="expandedLogs.has(log.id)"
+                    @toggle="toggleExpand(log.id)"
+                />
 
                 <!-- 加载更多 -->
                 <div v-if="hasMore" class="pt-2 text-center">

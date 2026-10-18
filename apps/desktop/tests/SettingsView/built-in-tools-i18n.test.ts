@@ -372,7 +372,7 @@ describe('built-in tools settings i18n', () => {
         expect(folderButtons[0]?.attributes('title')).toBe('Choose folder');
     });
 
-    it('renders tool log filters, empty states, localized dates, and breakable detail metadata in English', async () => {
+    it('renders log dates and content without internal metadata or tool descriptions', async () => {
         setLocale('en-US');
         findBuiltInToolLogsByToolIdMock.mockResolvedValue([
             createLog({
@@ -382,7 +382,7 @@ describe('built-in tools settings i18n', () => {
 
         const wrapper = mount(BuiltInToolLogViewer, {
             props: {
-                tool: createTool(),
+                tool: createTool({ description: 'Detailed tool description' }),
             },
         });
         await flushMountedPromises();
@@ -390,21 +390,28 @@ describe('built-in tools settings i18n', () => {
         expect(wrapper.text()).toContain('All');
         expect(wrapper.text()).toContain('Pending');
         expect(wrapper.get('input').attributes('placeholder')).toBe('Search logs...');
-        expect(wrapper.text()).toMatch(/May|5\/22\/2026/);
-        expect(wrapper.text()).toContain('Iteration 2');
+        const timestamp = wrapper.get('[data-testid="tool-log-header"] time');
+        expect(timestamp.text()).toMatch(/May|5\/22\/2026/);
+        expect(timestamp.attributes('datetime')).toBe('2026-05-22T06:30:00.000Z');
+        expect(wrapper.get('[data-testid="tool-log-header"]').text()).toContain('1.2s');
+        expect(wrapper.text()).not.toContain('Iteration');
         expect(wrapper.text()).not.toContain('迭代');
 
         await wrapper.get('button.w-full').trigger('click');
 
-        const detail = wrapper.get('[data-testid="built-in-tool-log-detail-metadata"]');
-        expect(detail.classes()).toContain('break-words');
-        expect(detail.text()).toContain('Call ID:');
-        expect(detail.text()).toContain('Session:');
-        expect(detail.text()).toContain('Approval: Approved');
-        expect(detail.text()).not.toContain('approved');
+        expect(wrapper.get('[data-testid="tool-log-content"]').text()).toContain('done');
+        expect(wrapper.find('[data-testid="built-in-tool-log-detail-metadata"]').exists()).toBe(
+            false
+        );
+        expect(wrapper.text()).not.toContain('Call ID:');
+        expect(wrapper.text()).not.toContain('Session:');
+        expect(wrapper.text()).not.toContain('Message:');
+        expect(wrapper.text()).not.toContain('Approval:');
+        expect(wrapper.text()).not.toContain('call_very_long_identifier');
+        expect(wrapper.text()).not.toContain('Detailed tool description');
     });
 
-    it('does not let the global DOM localizer rewrite dynamic built-in log metadata', async () => {
+    it('keeps dynamic tool names unchanged after expanding a log', async () => {
         setLocale('en-US');
         findBuiltInToolLogsByToolIdMock.mockResolvedValue([
             createLog({
@@ -433,10 +440,10 @@ describe('built-in tools settings i18n', () => {
         await nextTick();
         localizer.translateNow();
 
-        const detail = wrapper.get('[data-testid="built-in-tool-log-detail-metadata"]');
-        expect(detail.text()).toContain('Call ID: 设置');
-        expect(detail.text()).toContain('Approval: Approved');
-        expect(detail.text()).not.toContain('Settings');
+        expect(toolTitle.text()).toBe('工具');
+        expect(wrapper.get('[data-testid="tool-log-content"]').text()).toContain('done');
+        expect(wrapper.text()).not.toContain('Call ID:');
+        expect(wrapper.text()).not.toContain('Approval:');
 
         localizer.stop();
         wrapper.unmount();
@@ -456,7 +463,8 @@ describe('built-in tools settings i18n', () => {
         await wrapper.get('input').setValue('missing');
 
         expect(wrapper.text()).toContain('No matching logs');
-        expect(wrapper.text()).toContain('Try another search keyword');
+        expect(wrapper.text()).toContain('Try another keyword, or clear the filters.');
+        expect(wrapper.text()).toContain('Clear filters');
         expect(wrapper.text()).not.toContain('未找到匹配的日志');
     });
 
@@ -477,9 +485,11 @@ describe('built-in tools settings i18n', () => {
 
         await wrapper.get('button.w-full').trigger('click');
 
-        const detail = wrapper.get('[data-testid="built-in-tool-log-detail-metadata"]');
-        expect(detail.text()).not.toContain('Approval:');
-        expect(detail.text()).not.toContain('none');
+        expect(wrapper.find('[data-testid="built-in-tool-log-detail-metadata"]').exists()).toBe(
+            false
+        );
+        expect(wrapper.text()).not.toContain('Approval:');
+        expect(wrapper.text()).not.toContain('none');
     });
 
     it('renders upgrade model configuration text in English and allows long model names to shrink', async () => {

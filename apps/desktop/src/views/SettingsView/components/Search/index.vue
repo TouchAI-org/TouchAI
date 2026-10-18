@@ -450,6 +450,7 @@
                     <h2 class="settings-section-title">{{ t('settings.search.section.basic') }}</h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
+                            data-settings-search-target="search-default-provider"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -468,6 +469,7 @@
                         </div>
 
                         <div
+                            data-settings-search-target="search-max-results"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -490,6 +492,7 @@
                         </div>
 
                         <div
+                            data-settings-search-target="search-timeout"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -513,7 +516,7 @@
                     </div>
                 </section>
 
-                <section class="mt-10 space-y-4">
+                <section class="mt-10 space-y-4" data-settings-search-target="search-providers">
                     <h2 class="settings-section-title">
                         {{ t('settings.search.section.provider') }}
                     </h2>
@@ -618,7 +621,7 @@
                     </div>
                 </section>
 
-                <section class="mt-10 space-y-4">
+                <section class="mt-10 space-y-4" data-settings-search-target="search-routing">
                     <h2 class="settings-section-title">
                         {{ t('settings.search.section.routing') }}
                     </h2>
@@ -656,6 +659,7 @@
                         <div
                             v-for="row in advancedRows"
                             :key="row.key"
+                            :data-settings-search-target="`search-${row.key}`"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>

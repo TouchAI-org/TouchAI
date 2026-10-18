@@ -218,7 +218,6 @@ describe('AiServices i18n and layout', () => {
                 models: [createModel()],
                 defaultModelId: null,
                 provider: createProvider(),
-                providerEnabled: true,
                 refreshing: false,
             },
         });
@@ -243,7 +242,6 @@ describe('AiServices i18n and layout', () => {
                 models: [],
                 defaultModelId: null,
                 provider: createProvider({ api_endpoint: '' }),
-                providerEnabled: true,
                 refreshing: false,
             },
         });
@@ -251,6 +249,72 @@ describe('AiServices i18n and layout', () => {
         wrapper.get('button').trigger('click');
 
         expect(alertWarningMock).toHaveBeenCalledWith('Configure the API URL first');
+    });
+
+    it('pins the default group and model without remounting collapsed groups', async () => {
+        const models = [
+            createModel({ id: 1, model_id: 'gpt-5-mini', name: 'GPT 5 Mini', is_default: 1 }),
+            createModel({ id: 2, model_id: 'gpt-5', name: 'GPT 5' }),
+            createModel({ id: 3, model_id: 'claude-sonnet-4', name: 'Claude Sonnet 4' }),
+            createModel({ id: 4, model_id: 'claude-opus-4', name: 'Claude Opus 4' }),
+            createModel({ id: 5, model_id: 'llama-4', name: 'Llama 4' }),
+        ];
+        const wrapper = mount(ModelList, {
+            props: {
+                providerId: 1,
+                models,
+                defaultModelId: 1,
+                provider: createProvider(),
+            },
+        });
+        const groups = wrapper.findAll('.model-group');
+        const scrollIntoView = vi.fn();
+        wrapper.element.scrollIntoView = scrollIntoView;
+        const collapsedGroup = groups.find((group) => group.text().includes('GPT 5 Mini'))!;
+        const nextDefaultGroup = groups.find((group) => group.text().includes('Claude Sonnet 4'))!;
+        expect(groups[0]?.element).toBe(collapsedGroup.element);
+        expect(groups[0]?.get('h4').text()).toBe('GPT 5 Mini');
+        await collapsedGroup.get('button[aria-expanded]').trigger('click');
+
+        const newDefaultCard = nextDefaultGroup
+            .findAll('.settings-card')
+            .find((card) => card.text().includes('Claude Sonnet 4'))!;
+        await newDefaultCard.get('button[title="设为默认模型"]').trigger('click');
+        expect(wrapper.emitted('set-default')).toEqual([[3]]);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+
+        await wrapper.setProps({
+            defaultModelId: 3,
+            models: models.map((model) => ({ ...model, is_default: model.id === 3 ? 1 : 0 })),
+        });
+
+        const updatedGroups = wrapper.findAll('.model-group');
+        expect(updatedGroups.map((group) => group.element)).toEqual(
+            [nextDefaultGroup, collapsedGroup, groups[2]!].map((group) => group.element)
+        );
+        expect(updatedGroups[0]?.get('h4').text()).toBe('Claude Sonnet 4');
+        expect(collapsedGroup.get('button[aria-expanded]').attributes('aria-expanded')).toBe(
+            'false'
+        );
+        expect(newDefaultCard.find('[data-testid="default-model-badge"]').exists()).toBe(true);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+
+        wrapper.vm.scrollToDefaultModel(3);
+        expect(scrollIntoView).toHaveBeenCalledWith({
+            behavior: 'smooth',
+            block: 'start',
+            inline: 'nearest',
+        });
+
+        await wrapper.setProps({ defaultModelId: 4 });
+        expect(wrapper.findAll('.model-group')[0]?.element).toBe(nextDefaultGroup.element);
+        expect(nextDefaultGroup.get('h4').text()).toBe('Claude Opus 4');
+
+        scrollIntoView.mockClear();
+        await wrapper.get('input[type="text"]').setValue('llama');
+        wrapper.vm.scrollToDefaultModel(4);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+        wrapper.unmount();
     });
 
     it('renders add-provider dialog labels, validation, and preview in English', async () => {

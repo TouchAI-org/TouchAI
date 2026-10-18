@@ -822,11 +822,27 @@ describe('NativeService supporting boundaries', () => {
         ).resolves.toEqual(response);
 
         await expect(
-            callAndExpectInvoke(() => updater.downloadUpdate(), 'updater_download_update')
+            callAndExpectInvoke(
+                () => updater.downloadUpdate('beta', update.version, update.fileName),
+                'updater_download_update',
+                {
+                    channel: 'beta',
+                    version: update.version,
+                    fileName: update.fileName,
+                }
+            )
         ).resolves.toEqual(update);
 
         await expect(
-            callAndExpectInvoke(() => updater.installUpdate(), 'updater_install_update')
+            callAndExpectInvoke(
+                () => updater.installUpdate('beta', update.version, update.fileName),
+                'updater_install_update',
+                {
+                    channel: 'beta',
+                    version: update.version,
+                    fileName: update.fileName,
+                }
+            )
         ).resolves.toBe(true);
     });
 

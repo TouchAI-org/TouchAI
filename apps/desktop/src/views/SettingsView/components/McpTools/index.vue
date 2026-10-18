@@ -2,9 +2,10 @@
 
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
-    import AppIcon from '@components/AppIcon.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import { useContextMenu } from '@composables/useContextMenu.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
+    import { useScrollFade } from '@composables/useScrollFade';
     import { deleteMcpServer, updateMcpServer } from '@database/queries';
     import type { McpServerEntity } from '@database/types';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -38,6 +39,7 @@
     const serverListRef = ref<InstanceType<typeof McpServerList> | null>(null);
     const tabContentRef = ref<HTMLElement | null>(null);
     useScrollbarStabilizer(tabContentRef);
+    const { scrollFadeStyle } = useScrollFade(tabContentRef);
     const togglingServers = ref<Set<number>>(new Set());
     const activeCleanups = new Set<() => void>();
     const tabs = computed<SectionTabItem<'config' | 'tools' | 'logs'>[]>(() => [
@@ -56,6 +58,9 @@
 
     const mcpStore = useMcpStore();
     const { getServerStatus } = mcpStore;
+    const showServerPanel = computed(
+        () => mcpStore.servers.length > 0 || selectedServer.value?.id === -1
+    );
 
     const getErrorMessage = (
         error: unknown,
@@ -159,7 +164,7 @@
         }
     );
 
-    const handleServerSelect = (server: McpServerEntity) => {
+    const handleServerSelect = (server: McpServerEntity | null) => {
         selectedServer.value = server;
         activeTab.value = 'config';
     };
@@ -369,7 +374,9 @@
 
     <div class="flex h-full bg-white">
         <!-- 左侧面板：服务器列表 -->
+        <!-- 保留列表实例，让空状态按钮复用现有的新建流程。 -->
         <div
+            v-show="showServerPanel"
             class="settings-side-panel"
             :style="panelStyle"
             data-settings-secondary-panel="true"
@@ -409,19 +416,41 @@
         <!-- 右侧面板：服务器详情 -->
         <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div v-if="!selectedServer" class="flex h-full items-center justify-center">
-                <div class="text-center">
-                    <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
-                    <p class="mt-4 text-sm text-neutral-500">
-                        {{ t('settings.mcp.servers.selectPrompt') }}
-                    </p>
-                </div>
+                <EmptyState
+                    :title="
+                        mcpStore.servers.length === 0
+                            ? t('settings.mcp.servers.empty')
+                            : t('settings.mcp.servers.selectPrompt')
+                    "
+                    :description="
+                        mcpStore.servers.length === 0
+                            ? t('settings.mcp.servers.addHint')
+                            : undefined
+                    "
+                    icon="mcp"
+                    class="max-w-md"
+                >
+                    <template v-if="mcpStore.servers.length === 0" #actions>
+                        <button
+                            type="button"
+                            class="settings-button-primary"
+                            @click="handleAddServer"
+                        >
+                            {{ t('settings.mcp.servers.addButton') }}
+                        </button>
+                    </template>
+                </EmptyState>
             </div>
 
             <template v-else>
                 <SectionTabs v-model="activeTab" :tabs="tabs" />
 
                 <!-- 标签页内容 -->
-                <div ref="tabContentRef" class="settings-scrollbar flex-1 overflow-y-auto">
+                <div
+                    ref="tabContentRef"
+                    class="settings-scrollbar settings-scroll-fade flex-1 overflow-y-auto"
+                    :style="scrollFadeStyle"
+                >
                     <McpServerConfig
                         v-if="activeTab === 'config'"
                         :server="selectedServer"

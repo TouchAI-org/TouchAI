@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts" generic="T extends string | number">
+    import EmptyState from '@components/EmptyState.vue';
     import {
         Select,
         SelectContent,
@@ -159,6 +160,11 @@
             :disable-portal="disablePortal"
             class="w-[var(--reka-select-trigger-width)] rounded-[10px] border border-gray-200 bg-white py-1 shadow-lg"
         >
+            <EmptyState
+                v-if="options.length === 0"
+                :title="t('common.emptyOptions')"
+                size="compact"
+            />
             <SelectItem
                 v-for="option in options"
                 :key="option.value"

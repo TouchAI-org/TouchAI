@@ -1,3 +1,4 @@
+import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
@@ -5,14 +6,23 @@ import type { AppUpdateChannel } from '@/config/appUpdate';
 import { useSettingsStore } from '@/stores/settings';
 
 import { createInitialAppUpdateState, reduceAppUpdateState } from './state';
+import { AUTO_CHECK_INTERVAL_MS, isWithinAppUpdateHours } from './timing';
 import type { AppUpdateCheckResult, AppUpdateInfo, AppUpdateState } from './types';
 
-export type AppUpdateCheckSource = 'manual' | 'automatic';
+export type AppUpdateCheckSource = 'manual' | 'automatic' | 'settings-open';
 
 interface AppUpdateNativeAdapter {
     checkForUpdates: (channel: AppUpdateChannel) => Promise<AppUpdateCheckResult>;
-    downloadUpdate: () => Promise<AppUpdateInfo>;
-    installUpdate: () => Promise<boolean>;
+    downloadUpdate: (
+        channel: AppUpdateChannel,
+        version: string,
+        fileName: string
+    ) => Promise<AppUpdateInfo>;
+    installUpdate: (
+        channel: AppUpdateChannel,
+        version: string,
+        fileName: string
+    ) => Promise<boolean>;
 }
 
 interface AppUpdateSettingsAdapter {
@@ -28,12 +38,16 @@ interface AppUpdateSettingsAdapter {
 interface AppUpdateControllerDeps {
     native: AppUpdateNativeAdapter;
     settings: AppUpdateSettingsAdapter;
+    checkEvents?: {
+        listen: (
+            listener: (result: AppUpdateCheckResult, checkedAt: string) => void
+        ) => Promise<UnlistenFn>;
+        publish: (result: AppUpdateCheckResult, checkedAt: string) => Promise<void>;
+    };
     now?: () => string;
 }
 
 type StateListener = (state: AppUpdateState) => void;
-
-const AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function toErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -54,12 +68,19 @@ export class AppUpdateController {
     private readonly native: AppUpdateNativeAdapter;
     private readonly settings: AppUpdateSettingsAdapter;
     private readonly now: () => string;
+    private readonly checkEvents: AppUpdateControllerDeps['checkEvents'];
     private initialized = false;
+    private initializePromise: Promise<void> | null = null;
+    private checkPromise: Promise<boolean> | null = null;
+    private lastCheckAttemptAt: string | null = null;
+    private reportCheckErrors = false;
     private unlistenProgress: UnlistenFn | null = null;
+    private unlistenCheckEvents: UnlistenFn | null = null;
 
     constructor(deps: AppUpdateControllerDeps) {
         this.native = deps.native;
         this.settings = deps.settings;
+        this.checkEvents = deps.checkEvents;
         this.now = deps.now ?? (() => new Date().toISOString());
     }
 
@@ -80,14 +101,22 @@ export class AppUpdateController {
             return;
         }
 
+        if (this.initializePromise) {
+            return this.initializePromise;
+        }
+
+        this.initializePromise = this.initializeController();
+        try {
+            await this.initializePromise;
+        } finally {
+            this.initializePromise = null;
+        }
+    }
+
+    private async initializeController(): Promise<void> {
         await this.settings.initialize();
-        this.commit({
-            type: 'settings-loaded',
-            channel: this.settings.getChannel(),
-            autoCheckEnabled: this.settings.getAutoCheckEnabled(),
-            lastCheckedAt: this.settings.getLastCheckedAt(),
-        });
-        await this.listenForProgress();
+        this.syncSettings();
+        await Promise.all([this.listenForProgress(), this.listenForCheckResults()]);
         this.initialized = true;
     }
 
@@ -96,6 +125,8 @@ export class AppUpdateController {
             this.unlistenProgress();
             this.unlistenProgress = null;
         }
+        this.unlistenCheckEvents?.();
+        this.unlistenCheckEvents = null;
         this.initialized = false;
     }
 
@@ -113,28 +144,63 @@ export class AppUpdateController {
         await this.initialize();
         await this.settings.updateAppUpdateChannel(channel);
         await this.settings.updateAppUpdateLastCheckedAt(null);
+        this.lastCheckAttemptAt = null;
         this.commit({ type: 'channel-updated', channel });
     }
 
     async checkNow(source: AppUpdateCheckSource = 'manual'): Promise<boolean> {
         await this.initialize();
+        this.syncSettings();
+
+        if (this.checkPromise) {
+            this.reportCheckErrors ||= source === 'manual';
+            return this.checkPromise;
+        }
+
+        if (['downloading', 'downloaded', 'installing'].includes(this.state.status)) {
+            return false;
+        }
 
         if (source === 'automatic' && !this.shouldRunAutomaticCheck()) {
             return false;
         }
 
+        this.reportCheckErrors = source === 'manual';
+        this.lastCheckAttemptAt = this.now();
+        this.checkPromise = this.performCheck();
+        try {
+            return await this.checkPromise;
+        } finally {
+            this.checkPromise = null;
+        }
+    }
+
+    private async performCheck(): Promise<boolean> {
         const previousState = this.state;
         const channel = this.state.channel;
         this.commit({ type: 'check-started', channel });
 
         try {
             const result = await this.native.checkForUpdates(channel);
+            if (this.state.channel !== channel || this.settings.getChannel() !== channel) {
+                this.syncSettings();
+                return false;
+            }
+
             const checkedAt = this.now();
             this.commit({ type: 'check-completed', channel, result, checkedAt });
             await this.settings.updateAppUpdateLastCheckedAt(checkedAt);
+            void this.checkEvents?.publish(result, checkedAt).catch((error) => {
+                console.warn('[AppUpdateService] Failed to share update check:', error);
+            });
             return true;
         } catch (error) {
-            if (source === 'automatic') {
+            if (this.state.channel !== channel || this.settings.getChannel() !== channel) {
+                this.syncSettings();
+                return false;
+            }
+
+            if (!this.reportCheckErrors) {
                 this.replaceState(previousState);
                 return false;
             }
@@ -146,11 +212,23 @@ export class AppUpdateController {
 
     async download(): Promise<boolean> {
         await this.initialize();
+        this.syncSettings();
+        const update = this.state.status === 'available' ? this.state.availableUpdate : null;
+        if (!update) return false;
+
+        const channel = this.state.channel;
         this.commit({ type: 'download-started' });
 
         try {
-            const update = await this.native.downloadUpdate();
-            this.commit({ type: 'download-completed', update });
+            const downloaded = await this.native.downloadUpdate(
+                channel,
+                update.version,
+                update.fileName
+            );
+            if (downloaded.version !== update.version || downloaded.fileName !== update.fileName) {
+                throw new Error('Downloaded update does not match the selected update');
+            }
+            this.commit({ type: 'download-completed', update: downloaded });
             return true;
         } catch (error) {
             this.commit({ type: 'failed', error: toErrorMessage(error) });
@@ -160,10 +238,15 @@ export class AppUpdateController {
 
     async install(): Promise<boolean> {
         await this.initialize();
+        this.syncSettings();
+        const update = this.state.status === 'downloaded' ? this.state.downloadedUpdate : null;
+        if (!update) return false;
+
+        const channel = this.state.channel;
         this.commit({ type: 'install-started' });
 
         try {
-            await this.native.installUpdate();
+            await this.native.installUpdate(channel, update.version, update.fileName);
             return true;
         } catch (error) {
             this.commit({ type: 'failed', error: toErrorMessage(error) });
@@ -176,17 +259,42 @@ export class AppUpdateController {
             return false;
         }
 
-        const lastCheckedAt = parseTime(this.state.lastCheckedAt);
-        if (lastCheckedAt === null) {
+        const now = parseTime(this.now());
+        if (now !== null && !isWithinAppUpdateHours(now)) {
+            return false;
+        }
+
+        const lastCheckedAt = Math.max(
+            parseTime(this.state.lastCheckedAt) ?? 0,
+            parseTime(this.lastCheckAttemptAt) ?? 0
+        );
+        if (!lastCheckedAt || !isWithinAppUpdateHours(lastCheckedAt)) {
             return true;
         }
 
-        const now = parseTime(this.now());
         if (now === null) {
             return true;
         }
 
         return now - lastCheckedAt >= AUTO_CHECK_INTERVAL_MS;
+    }
+
+    private syncSettings(): void {
+        const channel = this.settings.getChannel();
+        const autoCheckEnabled = this.settings.getAutoCheckEnabled();
+        const lastCheckedAt = this.settings.getLastCheckedAt();
+
+        if (channel !== this.state.channel) {
+            this.lastCheckAttemptAt = null;
+            this.commit({ type: 'channel-updated', channel });
+        }
+
+        if (
+            autoCheckEnabled !== this.state.autoCheckEnabled ||
+            lastCheckedAt !== this.state.lastCheckedAt
+        ) {
+            this.commit({ type: 'settings-loaded', channel, autoCheckEnabled, lastCheckedAt });
+        }
     }
 
     private async listenForProgress(): Promise<void> {
@@ -200,6 +308,34 @@ export class AppUpdateController {
             });
         } catch (error) {
             console.warn('[AppUpdateService] Failed to listen for update progress:', error);
+        }
+    }
+
+    private async listenForCheckResults(): Promise<void> {
+        if (!this.checkEvents || this.unlistenCheckEvents) {
+            return;
+        }
+
+        try {
+            this.unlistenCheckEvents = await this.checkEvents.listen((result, checkedAt) => {
+                if (
+                    result.channel !== this.settings.getChannel() ||
+                    this.checkPromise ||
+                    (parseTime(checkedAt) ?? 0) < (parseTime(this.state.lastCheckedAt) ?? 0) ||
+                    ['downloading', 'downloaded', 'installing'].includes(this.state.status)
+                ) {
+                    return;
+                }
+
+                this.commit({
+                    type: 'check-completed',
+                    channel: result.channel,
+                    result,
+                    checkedAt,
+                });
+            });
+        } catch (error) {
+            console.warn('[AppUpdateService] Failed to listen for update checks:', error);
         }
     }
 
@@ -228,7 +364,23 @@ function createSettingsAdapter(): AppUpdateSettingsAdapter {
     };
 }
 
+const updateSourceId = crypto.randomUUID();
+
 export const appUpdateService = new AppUpdateController({
     native: native.updater,
     settings: createSettingsAdapter(),
+    checkEvents: {
+        listen: (listener) =>
+            eventService.on(AppEvent.APP_UPDATE_CHECKED, (event) => {
+                if (event.sourceId !== updateSourceId) {
+                    listener(event.result, event.checkedAt);
+                }
+            }),
+        publish: (result, checkedAt) =>
+            eventService.emit(AppEvent.APP_UPDATE_CHECKED, {
+                sourceId: updateSourceId,
+                result,
+                checkedAt,
+            }),
+    },
 });

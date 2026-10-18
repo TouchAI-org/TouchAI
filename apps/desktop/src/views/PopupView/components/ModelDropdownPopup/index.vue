@@ -94,30 +94,25 @@
                 </div>
             </div>
 
-            <div
-                v-if="models.length === 0"
-                class="flex min-h-24 flex-col items-center justify-center gap-2 px-6 text-center"
-            >
-                <AppIcon :name="emptyStateIcon" class="h-7 w-7 text-stone-300" />
-                <p class="font-serif text-xs text-stone-700">
-                    {{ emptyStateMessage }}
-                </p>
-                <p class="text-[11px] leading-4 text-stone-500">
-                    <span v-if="effectiveSearchQuery">
-                        {{ t('popup.modelDropdown.empty.tryShorter') }}
-                    </span>
-                    <span v-else class="inline-flex items-baseline">
-                        <span>{{ emptySettingsPrompt.prefix }}</span>
-                        <button
-                            type="button"
-                            class="text-primary-600 hover:text-primary-700 decoration-primary-300 cursor-pointer font-medium underline underline-offset-2 transition-colors"
-                            @click="openSettingsFromEmptyState"
-                        >
-                            {{ t('popup.modelDropdown.settingsCenter') }}
-                        </button>
-                        <span>{{ emptySettingsPrompt.suffix }}</span>
-                    </span>
-                </p>
+            <div v-if="models.length === 0" class="px-2">
+                <EmptyState :title="emptyStateMessage" :icon="emptyStateIcon" size="compact">
+                    <template #description>
+                        <span v-if="effectiveSearchQuery">
+                            {{ t('popup.modelDropdown.empty.tryShorter') }}
+                        </span>
+                        <span v-else class="inline-flex items-baseline">
+                            <span>{{ emptySettingsPrompt.prefix }}</span>
+                            <button
+                                type="button"
+                                class="text-primary-600 hover:text-primary-700 decoration-primary-300 cursor-pointer font-medium underline underline-offset-2 transition-colors"
+                                @click="openSettingsFromEmptyState"
+                            >
+                                {{ t('popup.modelDropdown.settingsCenter') }}
+                            </button>
+                            <span>{{ emptySettingsPrompt.suffix }}</span>
+                        </span>
+                    </template>
+                </EmptyState>
             </div>
         </div>
     </div>
@@ -126,6 +121,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import type { AppIconName } from '@components/appIconMap';
+    import EmptyState from '@components/EmptyState.vue';
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import { AppEvent, eventService } from '@services/EventService';

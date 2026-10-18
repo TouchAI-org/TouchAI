@@ -1,6 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type {
+    AppUpdateCheckResult,
+    AppUpdateNotificationAction,
+} from '@services/NativeService/types';
+import type {
     PopupClosedPayload,
     PopupDataPayload,
     PopupKeydownPayload,
@@ -37,10 +41,14 @@ export enum AppEvent {
     // 设置事件
     SETTINGS_GENERAL_UPDATED = 'settings:general-updated',
     AI_MODELS_UPDATED = 'ai-models:updated',
+    APP_UPDATE_CHECKED = 'app-update:checked',
+    APP_UPDATE_NOTIFICATION_ACTION = 'app-update:notification-action',
 
     // 窗口事件
     WINDOW_FOCUS = 'window:focus',
     WINDOW_RESIZE = 'window:resize',
+    SETTINGS_WINDOW_OPENED = 'settings-window-opened',
+    SETTINGS_SHOW_UPDATES = 'settings-show-updates',
 
     // 资源事件
     FONT_READY = 'font:ready',
@@ -84,7 +92,14 @@ export interface SettingsGeneralUpdatedEvent {
 }
 
 export interface AiModelsUpdatedEvent {
+    sourceId?: string;
     updatedAt: number;
+}
+
+export interface AppUpdateCheckedEvent {
+    sourceId: string;
+    result: AppUpdateCheckResult;
+    checkedAt: string;
 }
 
 // ==================== 窗口事件 ====================
@@ -179,10 +194,14 @@ export interface AppEventMap {
     // 设置事件
     [AppEvent.SETTINGS_GENERAL_UPDATED]: SettingsGeneralUpdatedEvent;
     [AppEvent.AI_MODELS_UPDATED]: AiModelsUpdatedEvent;
+    [AppEvent.APP_UPDATE_CHECKED]: AppUpdateCheckedEvent;
+    [AppEvent.APP_UPDATE_NOTIFICATION_ACTION]: AppUpdateNotificationAction;
 
     // 窗口事件
     [AppEvent.WINDOW_FOCUS]: WindowFocusEvent;
     [AppEvent.WINDOW_RESIZE]: WindowResizeEvent;
+    [AppEvent.SETTINGS_WINDOW_OPENED]: null;
+    [AppEvent.SETTINGS_SHOW_UPDATES]: null;
 
     // 资源事件
     [AppEvent.FONT_READY]: FontReadyEvent;

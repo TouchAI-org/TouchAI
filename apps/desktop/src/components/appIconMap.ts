@@ -24,6 +24,7 @@ import IconGithub from '~icons/lucide/github';
 import IconGlobe from '~icons/lucide/globe';
 import IconGridAlt from '~icons/lucide/grid-2x2';
 import IconHistory from '~icons/lucide/history';
+import IconInbox from '~icons/lucide/inbox';
 import IconInfoCircle from '~icons/lucide/info';
 import IconKeyboard from '~icons/lucide/keyboard';
 import IconLeaf from '~icons/lucide/leaf';
@@ -40,6 +41,7 @@ import IconRefresh from '~icons/lucide/refresh-cw';
 import IconSearch from '~icons/lucide/search';
 import IconCog from '~icons/lucide/settings';
 import IconStop from '~icons/lucide/square';
+import IconTerminal from '~icons/lucide/terminal';
 import IconTrash from '~icons/lucide/trash-2';
 import IconError from '~icons/lucide/triangle-alert';
 import IconUndo from '~icons/lucide/undo';
@@ -71,6 +73,7 @@ export const appIconMap = {
     'grid-alt': IconGridAlt,
     globe: IconGlobe,
     history: IconHistory,
+    inbox: IconInbox,
     'list-ul': IconMenu,
     'chat-history': IconChatHistory,
     maximize: IconMaximize,
@@ -89,6 +92,7 @@ export const appIconMap = {
     search: IconSearch,
     settings: IconCog,
     stop: IconStop,
+    terminal: IconTerminal,
     tool: IconBriefcase,
     trash: IconTrash,
     undo: IconUndo,

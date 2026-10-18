@@ -230,7 +230,7 @@
 
 @layer components {
     .settings-page {
-        @apply min-w-0 pt-[112px] pb-12;
+        @apply min-w-0 pt-[83px] pb-12;
         width: min(1000px, calc(100% - 136px));
         margin-inline: auto;
     }
@@ -356,6 +356,23 @@
         height: 0 !important;
         background: transparent !important;
         border: 0 !important;
+    }
+
+    .settings-scroll-fade {
+        -webkit-mask-image: linear-gradient(
+            to bottom,
+            transparent,
+            #000 var(--scroll-fade-top, 0px),
+            #000 calc(100% - var(--scroll-fade-bottom, 0px)),
+            transparent
+        );
+        mask-image: linear-gradient(
+            to bottom,
+            transparent,
+            #000 var(--scroll-fade-top, 0px),
+            #000 calc(100% - var(--scroll-fade-bottom, 0px)),
+            transparent
+        );
     }
 
     .settings-scrollbar {

@@ -89,7 +89,7 @@
         </h2>
 
         <div class="settings-row-group divide-y divide-neutral-200/70">
-            <div class="px-5 py-4">
+            <div class="px-5 py-4" data-settings-search-target="provider-endpoint">
                 <label class="block text-sm font-normal text-neutral-700">
                     {{ t('settings.ai.apiEndpointRequired') }}
                 </label>
@@ -111,7 +111,7 @@
                 </p>
             </div>
 
-            <div class="px-5 py-4">
+            <div class="px-5 py-4" data-settings-search-target="provider-api-key">
                 <label class="block text-sm font-normal text-neutral-700">API Key</label>
                 <PasswordInput v-model="form.api_key" placeholder="sk-..." @input="handleInput" />
             </div>

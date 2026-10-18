@@ -84,7 +84,6 @@ describe('ModelCard i18n', () => {
             props: {
                 model: createModel(),
                 isDefault: false,
-                providerEnabled: true,
             },
         });
 
@@ -100,18 +99,15 @@ describe('ModelCard i18n', () => {
             props: {
                 model: createModel(),
                 isDefault: false,
-                providerEnabled: false,
             },
         });
 
-        const defaultRadio = wrapper.get('input[type="radio"]');
-        const buttons = wrapper.findAll('button');
+        expect(wrapper.find('input[type="radio"]').exists()).toBe(false);
+        expect(wrapper.get('button[title="Set as default model"]').text()).toBe('Set as default');
+        expect(wrapper.get('button[title="Edit"]').attributes('aria-label')).toBe('Edit');
+        expect(wrapper.get('button[title="Delete"]').attributes('aria-label')).toBe('Delete');
 
-        expect(defaultRadio.attributes('title')).toBe('Enable this provider first');
-        expect(buttons[0]?.attributes('title')).toBe('Edit');
-        expect(buttons[1]?.attributes('title')).toBe('Delete');
-
-        await buttons[1]?.trigger('click');
+        await wrapper.get('button[title="Delete"]').trigger('click');
 
         expect(confirmMock).toHaveBeenCalledWith({
             title: 'Confirm deletion',
@@ -122,6 +118,56 @@ describe('ModelCard i18n', () => {
         });
     });
 
+    it('emits the default selection from the model action', async () => {
+        const wrapper = mount(ModelCard, {
+            props: {
+                model: createModel(),
+                isDefault: false,
+            },
+        });
+
+        await wrapper.get('button[title="设为默认模型"]').trigger('click');
+
+        expect(wrapper.emitted('set-default')).toEqual([[]]);
+    });
+
+    it('shows the default badge on the model logo without a default action button', async () => {
+        const wrapper = mount(ModelCard, {
+            props: {
+                model: createModel(),
+                isDefault: true,
+            },
+        });
+
+        const badge = wrapper.get('[data-testid="default-model-badge"]');
+
+        expect(badge.element.tagName).toBe('SPAN');
+        expect(badge.text()).toBe('默认');
+        expect(badge.classes()).toContain('absolute');
+        expect(badge.classes()).toContain('top-0');
+        expect(badge.classes()).toContain('right-0');
+        expect(wrapper.find('button[title="设为默认模型"]').exists()).toBe(false);
+        expect(wrapper.emitted('set-default')).toBeUndefined();
+
+        setLocale('en-US');
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.get('[data-testid="default-model-badge"]').text()).toBe('Default');
+
+        await wrapper.setProps({ isDefault: false });
+
+        expect(wrapper.find('[data-testid="default-model-badge"]').exists()).toBe(false);
+
+        const setDefaultButton = wrapper.get('button[title="Set as default model"]');
+
+        expect(setDefaultButton.text()).toBe('Set as default');
+        expect(setDefaultButton.attributes('disabled')).toBeUndefined();
+
+        await setDefaultButton.trigger('click');
+
+        expect(wrapper.emitted('set-default')).toEqual([[]]);
+    });
+
     it('localizes default-model delete validation in English', async () => {
         setLocale('en-US');
 
@@ -129,11 +175,10 @@ describe('ModelCard i18n', () => {
             props: {
                 model: createModel(),
                 isDefault: true,
-                providerEnabled: true,
             },
         });
 
-        await wrapper.findAll('button')[1]?.trigger('click');
+        await wrapper.get('button[title="Delete"]').trigger('click');
 
         expect(alertErrorMock).toHaveBeenCalledWith(
             'Cannot delete the default model. Set another model as default first.'
@@ -147,7 +192,6 @@ describe('ModelCard i18n', () => {
             props: {
                 model: createModel({ name: '设置' }),
                 isDefault: false,
-                providerEnabled: true,
             },
             attachTo: document.body,
         });

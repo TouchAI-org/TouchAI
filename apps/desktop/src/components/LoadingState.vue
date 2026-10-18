@@ -1,7 +1,9 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import settingsLogo from '@assets/logo.svg';
+    import { t } from '@/i18n';
+
+    import CursorLoadingIndicator from './CursorLoadingIndicator.vue';
 
     interface Props {
         message?: string;
@@ -18,6 +20,8 @@
 
 <template>
     <div
+        role="status"
+        :aria-label="props.message || t('common.loading')"
         :class="[
             'flex items-center justify-center p-6',
             props.fill === 'screen'
@@ -27,46 +31,11 @@
                   : 'h-full w-full bg-white',
         ]"
     >
-        <div class="text-center">
-            <img
-                v-if="props.variant === 'brand'"
-                :src="settingsLogo"
-                alt="TouchAI"
-                class="loading-state-logo mx-auto h-16 w-16 object-contain"
-            />
-            <div
-                v-else
-                class="border-primary-100 border-t-primary-500 mx-auto h-10 w-10 animate-spin rounded-full border-3"
-            ></div>
-            <p v-if="props.message" class="mt-4 font-serif text-sm text-gray-500">
-                {{ props.message }}
-            </p>
-        </div>
+        <CursorLoadingIndicator v-if="props.variant === 'brand'" />
+        <div
+            v-else
+            aria-hidden="true"
+            class="border-primary-100 border-t-primary-500 h-10 w-10 animate-spin rounded-full border-3"
+        ></div>
     </div>
 </template>
-
-<style scoped>
-    @keyframes loading-state-logo-breathe {
-        0%,
-        100% {
-            opacity: 0.76;
-            transform: scale(0.96);
-        }
-
-        50% {
-            opacity: 1;
-            transform: scale(1.03);
-        }
-    }
-
-    .loading-state-logo {
-        animation: loading-state-logo-breathe var(--motion-loading-cycle) var(--ease-in-out)
-            infinite;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        .loading-state-logo {
-            animation: none;
-        }
-    }
-</style>

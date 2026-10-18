@@ -30,11 +30,19 @@ vi.mock('@tauri-apps/api/window', () => ({
         minimize: vi.fn(),
         close: vi.fn(),
         setTitle: setTitleMock,
+        isMaximized: vi.fn().mockResolvedValue(false),
+        onResized: vi.fn().mockResolvedValue(() => undefined),
     }),
 }));
 
 vi.mock('@composables/useScrollbarStabilizer', () => ({
     useScrollbarStabilizer: vi.fn(),
+}));
+
+vi.mock('@services/AppUpdateService', () => ({
+    appUpdateService: {
+        checkNow: vi.fn().mockResolvedValue(true),
+    },
 }));
 
 vi.mock('@components/AppIcon.vue', () => ({
@@ -143,7 +151,7 @@ describe('SettingsView lazy loading i18n', () => {
         asyncViewControls.resolveAll();
     });
 
-    it('renders lazy-loading placeholders in English when the active locale is English', async () => {
+    it('keeps lazy-loading indicators silent while localizing window chrome', async () => {
         setLocale('en-US');
 
         const wrapper = mount(SettingsView, {
@@ -155,33 +163,34 @@ describe('SettingsView lazy loading i18n', () => {
         });
 
         await flushMountedPromises();
-        expect(wrapper.text()).toContain('Loading general settings...');
-        expect(wrapper.text()).not.toContain('Loading shortcut settings...');
+        expect(wrapper.text()).not.toContain('Loading');
+        expect(wrapper.get('[role="status"]').attributes('aria-label')).toBe('Loading...');
         expect(setTitleMock).toHaveBeenCalledWith('TouchAI - Settings');
 
         await wrapper.get('[data-testid="settings-nav-shortcuts"]').trigger('click');
-        expect(wrapper.text()).toContain('Loading shortcut settings...');
+        expect(wrapper.text()).not.toContain('Loading');
 
         await wrapper.get('[data-testid="settings-nav-ai-services"]').trigger('click');
-        expect(wrapper.text()).toContain('Loading model service settings...');
+        expect(wrapper.text()).not.toContain('Loading');
 
         await wrapper.get('[data-testid="settings-nav-built-in-tools"]').trigger('click');
-        expect(wrapper.text()).toContain('Loading built-in tools...');
+        expect(wrapper.text()).not.toContain('Loading');
 
         await wrapper.get('[data-testid="settings-nav-search"]').trigger('click');
-        expect(wrapper.text()).toContain('Loading search settings...');
+        expect(wrapper.text()).not.toContain('Loading');
 
         await wrapper.get('[data-testid="settings-nav-browser"]').trigger('click');
-        expect(wrapper.text()).toContain('Loading browser settings...');
+        expect(wrapper.text()).not.toContain('Loading');
 
         await wrapper.get('[data-testid="settings-nav-mcp-tools"]').trigger('click');
-        expect(wrapper.text()).toContain('Loading MCP tools...');
+        expect(wrapper.text()).not.toContain('Loading');
 
         await wrapper.get('[data-testid="settings-nav-data-management"]').trigger('click');
-        expect(wrapper.text()).toContain('Loading data management...');
+        expect(wrapper.text()).not.toContain('Loading');
 
         expect(wrapper.find('[data-testid="settings-nav-about"]').exists()).toBe(false);
 
         expect(wrapper.text()).not.toContain('正在加载');
+        wrapper.unmount();
     });
 });

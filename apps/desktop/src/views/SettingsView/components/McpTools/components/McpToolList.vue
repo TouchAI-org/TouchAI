@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
     import { useListFilter } from '@composables/useListFilter';
     import { updateMcpTool } from '@database/queries';
@@ -30,6 +31,8 @@
     const {
         filterStatus,
         searchQuery,
+        hasActiveFilters,
+        resetFilters,
         filteredItems: filteredTools,
     } = useListFilter({
         items: tools,
@@ -168,22 +171,30 @@
                 <div v-for="i in 3" :key="i" class="h-24 animate-pulse rounded-lg bg-neutral-100" />
             </div>
 
-            <div v-else-if="filteredTools.length === 0" class="py-12 text-center">
-                <AppIcon name="mcp" class="mx-auto h-16 w-16 text-neutral-300" />
-                <p class="mt-4 text-sm text-neutral-500">
-                    {{
-                        searchQuery
+            <div v-else-if="filteredTools.length === 0">
+                <EmptyState
+                    :title="
+                        hasActiveFilters
                             ? t('settings.mcp.tools.noMatches')
                             : t('settings.mcp.tools.empty')
-                    }}
-                </p>
-                <p class="mt-1 text-xs text-neutral-400">
-                    {{
-                        searchQuery
-                            ? t('toolLog.tryAnotherKeyword')
+                    "
+                    :description="
+                        hasActiveFilters
+                            ? t('common.noResultsDescription')
                             : t('settings.mcp.tools.discoverAfterConnect')
-                    }}
-                </p>
+                    "
+                    icon="mcp"
+                >
+                    <template v-if="hasActiveFilters" #actions>
+                        <button
+                            type="button"
+                            class="settings-button-secondary"
+                            @click="resetFilters"
+                        >
+                            {{ t('common.clearFilters') }}
+                        </button>
+                    </template>
+                </EmptyState>
             </div>
 
             <div v-else class="space-y-3">
@@ -254,16 +265,14 @@
 
                             <template v-if="getToolSchema(tool.id)">
                                 <template v-if="getSchemaProperties(getToolSchema(tool.id))">
-                                    <div
+                                    <EmptyState
                                         v-if="
                                             Object.keys(
                                                 getSchemaProperties(getToolSchema(tool.id))!
                                             ).length === 0
                                         "
-                                        class="rounded-lg bg-white p-3 text-center text-xs text-neutral-500"
-                                    >
-                                        {{ t('settings.mcp.tools.noParameters') }}
-                                    </div>
+                                        :title="t('settings.mcp.tools.noParameters')"
+                                    />
                                     <div
                                         v-else
                                         class="overflow-x-auto rounded-lg border border-neutral-200 bg-white"

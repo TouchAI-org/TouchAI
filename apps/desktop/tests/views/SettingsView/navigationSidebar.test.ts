@@ -68,18 +68,28 @@ describe('NavigationSidebar', () => {
         expect(wrapper.text()).toContain('通用');
         expect(wrapper.text()).toContain('快捷键');
         expect(wrapper.text()).toContain('服务商与模型');
+        expect(wrapper.find('[data-testid="settings-sidebar-logo"]').exists()).toBe(false);
+        expect(wrapper.get('[data-testid="settings-sidebar-brand"]').text()).toContain('设置');
         expect(wrapper.text()).not.toContain('关于');
         expect(wrapper.text()).not.toContain('Provider、模型、默认模型和密钥');
     });
 
-    it('keeps version and external links at the sidebar bottom', async () => {
+    it('shows a version badge beside the settings title and keeps external links at the bottom', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
             },
         });
 
-        expect(wrapper.text()).toContain(`TouchAI v${desktopPackageJson.version}`);
+        const brand = wrapper.get('[data-testid="settings-sidebar-brand"]');
+        const footer = wrapper.get('[data-testid="settings-sidebar-footer"]');
+        const versionBadge = brand.get('[data-testid="settings-sidebar-version"]');
+        expect(versionBadge.text()).toBe(desktopPackageJson.version);
+        expect(versionBadge.classes()).toEqual(
+            expect.arrayContaining(['ml-auto', 'rounded-[6px]', 'bg-[#e9e9e7]'])
+        );
+        expect(footer.find('[data-testid="settings-sidebar-version"]').exists()).toBe(false);
+        expect(wrapper.text()).not.toContain(`TouchAI v${desktopPackageJson.version}`);
         expect(wrapper.find('[data-testid="settings-sidebar-github"]').exists()).toBe(true);
         expect(wrapper.find('[data-testid="settings-sidebar-issues"]').exists()).toBe(true);
 

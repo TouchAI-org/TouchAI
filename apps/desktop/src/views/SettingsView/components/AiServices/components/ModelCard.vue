@@ -1,7 +1,6 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import AppIcon from '@components/AppIcon.vue';
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import { useAlert } from '@composables/useAlert';
@@ -10,10 +9,11 @@
 
     import { t } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
+
+    import ModelCardActions from './ModelCardActions.vue';
     interface Props {
         model: Model;
         isDefault: boolean;
-        providerEnabled: boolean;
     }
 
     interface Emits {
@@ -50,35 +50,23 @@
 </script>
 
 <template>
-    <div class="rounded-lg border border-neutral-200 bg-white p-4">
+    <div class="settings-card group/model">
         <div class="flex items-center gap-3">
-            <div class="relative">
-                <input
-                    type="radio"
-                    name="default-model"
-                    :checked="isDefault"
-                    :disabled="!providerEnabled"
-                    :class="[
-                        'mt-1 h-4 w-4 text-neutral-950',
-                        !providerEnabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-                    ]"
-                    :title="
-                        !providerEnabled
-                            ? t('settings.ai.enableProviderFirst')
-                            : t('settings.ai.setDefaultModel')
-                    "
-                    @change="emit('set-default')"
-                />
-            </div>
-
-            <div :class="['relative', isDefault ? 'rounded-full border-2 border-neutral-950' : '']">
+            <div class="relative shrink-0">
                 <ModelLogo :model-id="model.model_id" :name="model.name" />
+                <span
+                    v-if="isDefault"
+                    data-testid="default-model-badge"
+                    class="absolute top-0 right-0 min-w-max translate-x-1/2 -translate-y-1/2 rounded border border-neutral-300 bg-white px-1 py-0.5 text-[9px] leading-none whitespace-nowrap text-neutral-600 shadow-sm"
+                >
+                    {{ t('common.default') }}
+                </span>
             </div>
 
             <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-2">
                     <h4
-                        class="text-sm font-medium text-neutral-950"
+                        class="min-w-0 text-sm font-medium wrap-anywhere text-neutral-950"
                         data-no-i18n="true"
                         translate="no"
                     >
@@ -94,22 +82,12 @@
                 </p>
             </div>
 
-            <div class="flex gap-1">
-                <button
-                    class="settings-icon-button h-7 w-7 rounded-md"
-                    :title="t('common.edit')"
-                    @click="emit('edit')"
-                >
-                    <AppIcon name="edit" class="h-4 w-4" />
-                </button>
-                <button
-                    class="settings-icon-button h-7 w-7 rounded-md"
-                    :title="t('common.delete')"
-                    @click="handleDelete"
-                >
-                    <AppIcon name="delete" class="h-4 w-4" />
-                </button>
-            </div>
+            <ModelCardActions
+                :is-default="isDefault"
+                @set-default="emit('set-default')"
+                @edit="emit('edit')"
+                @delete="handleDelete"
+            />
         </div>
     </div>
 </template>

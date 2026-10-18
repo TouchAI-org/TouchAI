@@ -1,6 +1,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import { open } from '@tauri-apps/plugin-dialog';
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -21,6 +22,7 @@
     } from '@/stores/setting/sections/browser';
     import { useSettingsStore } from '@/stores/settings';
 
+    import DomainRuleInput from './components/DomainRuleInput.vue';
     import { loadCachedDefaultBrowserDataPath, loadCachedInstalledBrowsers } from './runtimeCache';
 
     defineOptions({ name: 'SettingsBrowserSection' });
@@ -344,10 +346,15 @@
         if (!draft.value[key].some((rule) => rule.domain === domain)) {
             draft.value[key] = [...draft.value[key], { domain }];
         }
-        source.value = '';
+        cancelAddingDomain(kind);
+    }
+
+    function cancelAddingDomain(kind: 'allowed' | 'blocked') {
         if (kind === 'allowed') {
+            allowedDomainDraft.value = '';
             addingAllowedDomain.value = false;
         } else {
+            blockedDomainDraft.value = '';
             addingBlockedDomain.value = false;
         }
     }
@@ -470,6 +477,7 @@
                     <h2 class="settings-section-title">{{ t('settings.browser.section.data') }}</h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
+                            data-settings-search-target="browser-data-path"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -501,6 +509,7 @@
                         </div>
 
                         <div
+                            data-settings-search-target="browser-executable"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -558,6 +567,7 @@
                         </div>
 
                         <div
+                            data-settings-search-target="browser-homepage"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -587,6 +597,7 @@
                         </div>
 
                         <div
+                            data-settings-search-target="browser-mode"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -606,6 +617,7 @@
                         </div>
 
                         <div
+                            data-settings-search-target="browser-screenshot"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -631,7 +643,8 @@
                     </h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            data-settings-search-target="browser-permission-mode"
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
                         >
                             <div>
                                 <div class="text-[13px] leading-6 font-normal text-neutral-900">
@@ -649,7 +662,8 @@
                             />
                         </div>
                         <div
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            data-settings-search-target="browser-existing-session"
+                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
                         >
                             <div>
                                 <div class="text-[13px] leading-6 font-normal text-neutral-900">
@@ -670,6 +684,7 @@
                             <div
                                 v-for="row in permissionRows"
                                 :key="row.key"
+                                :data-settings-search-target="`browser-permission-${row.key}`"
                                 class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
                             >
                                 <div>
@@ -691,7 +706,7 @@
                 </section>
 
                 <section class="mt-10 space-y-10">
-                    <div>
+                    <div data-settings-search-target="browser-blocked-domains">
                         <div class="mb-2 flex items-center justify-between">
                             <h2 class="settings-section-title">
                                 {{ t('settings.browser.blockedDomains') }}
@@ -705,24 +720,16 @@
                                 <AppIcon name="plus" class="h-5 w-5" />
                             </button>
                         </div>
-                        <div v-if="addingBlockedDomain" class="mb-2 flex gap-2">
-                            <input
-                                v-model="blockedDomainDraft"
-                                :disabled="!draft.enabled"
-                                class="settings-input flex-1 disabled:bg-neutral-50"
-                                placeholder="example.com"
-                                spellcheck="false"
-                                @keydown.enter.prevent="addDomain('blocked')"
-                            />
-                            <button
-                                type="button"
-                                class="settings-button-secondary shrink-0"
-                                :disabled="!draft.enabled"
-                                @click="addDomain('blocked')"
-                            >
-                                {{ t('settings.browser.addDomain') }}
-                            </button>
-                        </div>
+                        <DomainRuleInput
+                            v-if="addingBlockedDomain"
+                            v-model="blockedDomainDraft"
+                            class="mb-2"
+                            :disabled="!draft.enabled"
+                            :label="t('settings.browser.blockedDomains')"
+                            placeholder="example.com"
+                            @submit="addDomain('blocked')"
+                            @cancel="cancelAddingDomain('blocked')"
+                        />
                         <div v-if="draft.blockedDomains.length > 0" class="space-y-2">
                             <div
                                 v-for="rule in draft.blockedDomains"
@@ -747,15 +754,24 @@
                                 </button>
                             </div>
                         </div>
-                        <div
-                            v-else
-                            class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-500"
+                        <EmptyState
+                            v-else-if="!addingBlockedDomain"
+                            :title="t('settings.browser.blockedDomains.emptyTitle')"
+                            :description="t('settings.browser.blockedDomains.empty')"
                         >
-                            {{ t('settings.browser.blockedDomains.empty') }}
-                        </div>
+                            <template v-if="draft.enabled" #actions>
+                                <button
+                                    type="button"
+                                    class="settings-button-secondary"
+                                    @click="addingBlockedDomain = true"
+                                >
+                                    {{ t('settings.browser.addDomainButton') }}
+                                </button>
+                            </template>
+                        </EmptyState>
                     </div>
 
-                    <div>
+                    <div data-settings-search-target="browser-allowed-domains">
                         <div class="mb-2 flex items-center justify-between">
                             <h2 class="settings-section-title">
                                 {{ t('settings.browser.allowedDomains') }}
@@ -769,24 +785,16 @@
                                 <AppIcon name="plus" class="h-5 w-5" />
                             </button>
                         </div>
-                        <div v-if="addingAllowedDomain" class="mb-2 flex gap-2">
-                            <input
-                                v-model="allowedDomainDraft"
-                                :disabled="!draft.enabled"
-                                class="settings-input flex-1 disabled:bg-neutral-50"
-                                placeholder="github.com"
-                                spellcheck="false"
-                                @keydown.enter.prevent="addDomain('allowed')"
-                            />
-                            <button
-                                type="button"
-                                class="settings-button-secondary shrink-0"
-                                :disabled="!draft.enabled"
-                                @click="addDomain('allowed')"
-                            >
-                                {{ t('settings.browser.addDomain') }}
-                            </button>
-                        </div>
+                        <DomainRuleInput
+                            v-if="addingAllowedDomain"
+                            v-model="allowedDomainDraft"
+                            class="mb-2"
+                            :disabled="!draft.enabled"
+                            :label="t('settings.browser.allowedDomains')"
+                            placeholder="github.com"
+                            @submit="addDomain('allowed')"
+                            @cancel="cancelAddingDomain('allowed')"
+                        />
                         <div v-if="draft.allowedDomains.length > 0" class="space-y-2">
                             <div
                                 v-for="rule in draft.allowedDomains"
@@ -811,12 +819,21 @@
                                 </button>
                             </div>
                         </div>
-                        <div
-                            v-else
-                            class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3 text-sm text-neutral-500"
+                        <EmptyState
+                            v-else-if="!addingAllowedDomain"
+                            :title="t('settings.browser.allowedDomains.emptyTitle')"
+                            :description="t('settings.browser.allowedDomains.empty')"
                         >
-                            {{ t('settings.browser.allowedDomains.empty') }}
-                        </div>
+                            <template v-if="draft.enabled" #actions>
+                                <button
+                                    type="button"
+                                    class="settings-button-secondary"
+                                    @click="addingAllowedDomain = true"
+                                >
+                                    {{ t('settings.browser.addDomainButton') }}
+                                </button>
+                            </template>
+                        </EmptyState>
                     </div>
                 </section>
 
@@ -827,6 +844,7 @@
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <div
                             data-testid="browser-fingerprint-profile-row"
+                            data-settings-search-target="browser-fingerprint"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -844,6 +862,7 @@
                             />
                         </div>
                         <div
+                            data-settings-search-target="browser-locale-timezone"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
@@ -870,6 +889,7 @@
                             </div>
                         </div>
                         <div
+                            data-settings-search-target="browser-window-size"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>

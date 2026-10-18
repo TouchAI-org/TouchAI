@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import SearchableSelect from '@components/SearchableSelect.vue';
@@ -429,6 +430,7 @@
                     type="button"
                     class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
                     :disabled="loading || !nextAppendEntry"
+                    :aria-label="t('settings.builtInTools.upgradeModel.addModel')"
                     @click="addModel"
                 >
                     <AppIcon name="plus" class="h-5 w-5" />
@@ -436,15 +438,25 @@
             </div>
 
             <div v-if="chainRows.length === 0" class="mt-4">
-                <div
-                    class="rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-10 text-center text-sm text-neutral-500"
+                <p v-if="loading" class="py-4 text-center text-sm text-neutral-500">
+                    {{ t('settings.builtInTools.upgradeModel.loadingModels') }}
+                </p>
+                <EmptyState
+                    v-else
+                    :title="t('settings.builtInTools.upgradeModel.emptyChain')"
+                    :description="
+                        nextAppendEntry
+                            ? t('settings.builtInTools.upgradeModel.emptyChainDescription')
+                            : t('settings.builtInTools.upgradeModel.configureModelsFirst')
+                    "
+                    icon="mcp"
                 >
-                    {{
-                        loading
-                            ? t('settings.builtInTools.upgradeModel.loadingModels')
-                            : t('settings.builtInTools.upgradeModel.emptyChain')
-                    }}
-                </div>
+                    <template v-if="nextAppendEntry" #actions>
+                        <button type="button" class="settings-button-primary" @click="addModel">
+                            {{ t('settings.builtInTools.upgradeModel.addModel') }}
+                        </button>
+                    </template>
+                </EmptyState>
             </div>
 
             <VueDraggable

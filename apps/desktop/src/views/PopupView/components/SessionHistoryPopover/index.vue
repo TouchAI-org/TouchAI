@@ -41,29 +41,28 @@
                     )
                 }}
             </div>
-            <div
-                v-else-if="groupedSessions.length === 0"
-                class="flex min-h-24 flex-col items-center justify-center gap-2 px-6 text-center"
-            >
-                <AppIcon name="history" class="h-7 w-7 text-stone-300" />
-                <p class="font-serif text-xs text-stone-700">
-                    {{
+            <div v-else-if="groupedSessions.length === 0" class="px-2">
+                <EmptyState
+                    :title="
                         t(
                             searchQuery.trim()
                                 ? 'popup.sessionHistory.empty.noMatches'
                                 : 'popup.sessionHistory.empty.noSessions'
                         )
-                    }}
-                </p>
-                <p class="text-[11px] leading-4 text-stone-500">
-                    {{
-                        t(
-                            searchQuery.trim()
-                                ? 'popup.sessionHistory.empty.tryShorter'
-                                : 'popup.sessionHistory.empty.afterMessage'
-                        )
-                    }}
-                </p>
+                    "
+                    icon="history"
+                    size="compact"
+                >
+                    <template #description>
+                        {{
+                            t(
+                                searchQuery.trim()
+                                    ? 'popup.sessionHistory.empty.tryShorter'
+                                    : 'popup.sessionHistory.empty.afterMessage'
+                            )
+                        }}
+                    </template>
+                </EmptyState>
             </div>
 
             <template v-else>
@@ -177,6 +176,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import { AppEvent, eventService } from '@services/EventService';
     import type {
         PopupSessionIdentity,

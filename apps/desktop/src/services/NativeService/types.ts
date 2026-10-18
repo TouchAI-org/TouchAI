@@ -146,6 +146,21 @@ export interface AppUpdateInfo {
     sizeBytes: number | null;
 }
 
+export interface AppUpdateNotificationAction {
+    action: 'open' | 'update' | 'ignore';
+    channel: AppUpdateChannel;
+    version: string;
+}
+
+export interface AppUpdateNotificationPayload {
+    channel: AppUpdateChannel;
+    version: string;
+    title: string;
+    body: string;
+    updateLabel: string;
+    ignoreLabel: string;
+}
+
 export interface AppUpdateRequirement {
     required: boolean;
     minimumSupportedVersion: string | null;

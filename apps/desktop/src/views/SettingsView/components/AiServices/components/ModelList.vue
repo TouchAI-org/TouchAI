@@ -2,7 +2,9 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import EmptyState from '@components/EmptyState.vue';
     import { useAlert } from '@composables/useAlert';
+    import { useMotion } from '@composables/useMotion';
     import type { Model, NewModel, Provider } from '@database/schema';
     import { computed, ref } from 'vue';
 
@@ -16,7 +18,6 @@
         models: Model[];
         defaultModelId: number | null;
         provider: Provider | undefined;
-        providerEnabled: boolean;
         refreshing?: boolean;
     }
 
@@ -30,6 +31,7 @@
     }
 
     interface ModelGroupData {
+        renderKey: string;
         groupKey: string;
         groupName: string;
         models: Model[];
@@ -57,9 +59,11 @@
         return groupKey;
     }
 
-    function groupModels(models: Model[], defaultModelId?: number | null): ModelGroupData[] {
+    function groupModels(models: Model[], defaultModelId: number | null): ModelGroupData[] {
         const groupMap = new Map<string, Model[]>();
-        let defaultModelGroupKey: string | null = null;
+        const compareModels = (a: Model, b: Model) =>
+            Number(b.id === defaultModelId) - Number(a.id === defaultModelId) ||
+            a.model_id.localeCompare(b.model_id);
 
         for (const model of models) {
             const groupKey = extractGroupKey(model.model_id);
@@ -69,22 +73,15 @@
             }
 
             groupMap.get(groupKey)!.push(model);
-
-            if (defaultModelId && model.id === defaultModelId) {
-                defaultModelGroupKey = groupKey;
-            }
         }
 
         const groups: ModelGroupData[] = [];
 
         for (const [groupKey, groupModels] of groupMap.entries()) {
-            const sortedModels = [...groupModels].sort((a, b) => {
-                if (defaultModelId && a.id === defaultModelId) return -1;
-                if (defaultModelId && b.id === defaultModelId) return 1;
-                return a.model_id.localeCompare(b.model_id);
-            });
+            const sortedModels = [...groupModels].sort(compareModels);
 
             groups.push({
+                renderKey: `group:${groupKey}`,
                 groupKey,
                 groupName: groupKey,
                 models: sortedModels,
@@ -108,21 +105,14 @@
             if (groupsWithSameBase.length > 1) {
                 const allModels = groupsWithSameBase.flatMap((g) => g.models);
 
-                const sortedModels = allModels.sort((a, b) => {
-                    if (defaultModelId && a.id === defaultModelId) return -1;
-                    if (defaultModelId && b.id === defaultModelId) return 1;
-                    return a.model_id.localeCompare(b.model_id);
-                });
+                const sortedModels = allModels.sort(compareModels);
 
                 mergedGroups.push({
+                    renderKey: `family:${baseKey}`,
                     groupKey: baseKey,
                     groupName: baseKey,
                     models: sortedModels,
                 });
-
-                if (allModels.some((m) => m.id === defaultModelId)) {
-                    defaultModelGroupKey = baseKey;
-                }
             } else {
                 const singleGroup = groupsWithSameBase[0];
                 if (singleGroup) {
@@ -132,12 +122,15 @@
         }
 
         const finalGroups = [...multiModelGroups, ...mergedGroups];
+        const defaultGroup = finalGroups.find((group) =>
+            group.models.some((model) => model.id === defaultModelId)
+        );
 
-        finalGroups.sort((a, b) => {
-            if (a.groupKey === defaultModelGroupKey) return -1;
-            if (b.groupKey === defaultModelGroupKey) return 1;
-            return a.groupName.localeCompare(b.groupName);
-        });
+        finalGroups.sort(
+            (a, b) =>
+                Number(b === defaultGroup) - Number(a === defaultGroup) ||
+                a.groupName.localeCompare(b.groupName)
+        );
 
         return finalGroups;
     }
@@ -146,6 +139,8 @@
     const emit = defineEmits<Emits>();
 
     const alert = useAlert();
+    const { reducedMotion } = useMotion();
+    const listRootRef = ref<HTMLElement | null>(null);
 
     const showAddDialog = ref(false);
     const isAddDialogMounted = ref(false);
@@ -177,6 +172,23 @@
 
         return groupModels(filteredModels, props.defaultModelId);
     });
+
+    function scrollToDefaultModel(modelId: number) {
+        if (
+            props.defaultModelId !== modelId ||
+            !modelGroups.value.some((group) => group.models.some((model) => model.id === modelId))
+        ) {
+            return;
+        }
+
+        listRootRef.value?.scrollIntoView({
+            behavior: reducedMotion.value ? 'instant' : 'smooth',
+            block: 'start',
+            inline: 'nearest',
+        });
+    }
+
+    defineExpose({ scrollToDefaultModel });
 
     const startCreate = () => {
         isAddDialogMounted.value = true;
@@ -244,7 +256,7 @@
 </script>
 
 <template>
-    <div class="space-y-4">
+    <div ref="listRootRef" class="scroll-mt-8 space-y-4 [overflow-anchor:none]">
         <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-5">
                 <h2 class="flex-shrink-0 text-[15px] font-medium text-neutral-950">
@@ -293,41 +305,62 @@
             </div>
         </div>
 
-        <div
-            v-if="models.length > 0 && modelGroups.length === 0"
-            class="settings-card p-8 text-center"
-        >
-            <div class="mx-auto max-w-sm">
-                <AppIcon name="search" class="mx-auto h-10 w-10 text-neutral-300" />
-                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">
-                    {{ t('settings.ai.noMatchingModels') }}
-                </h3>
-                <p class="mt-1 text-xs text-neutral-500">
+        <div v-if="models.length > 0 && modelGroups.length === 0">
+            <EmptyState :title="t('settings.ai.noMatchingModels')" icon="search">
+                <template #description>
                     {{ t('settings.ai.noMatchingModelsDescription', { query: searchQuery }) }}
-                </p>
-            </div>
+                </template>
+                <template #actions>
+                    <button
+                        type="button"
+                        class="settings-button-secondary"
+                        @click="searchQuery = ''"
+                    >
+                        {{ t('common.clearSearch') }}
+                    </button>
+                </template>
+            </EmptyState>
         </div>
 
-        <div
-            v-if="models.length === 0"
-            class="settings-card p-8 text-center"
+        <EmptyState
+            v-else-if="models.length === 0"
             data-testid="settings-model-empty-state"
+            :title="t('settings.ai.noModels')"
+            :description="
+                provider?.api_endpoint
+                    ? t('settings.ai.emptyModelsFetchOrAdd')
+                    : t('settings.ai.emptyModelsConfigureApi')
+            "
+            icon="llm"
         >
-            <div class="mx-auto max-w-sm">
-                <AppIcon name="llm" class="mx-auto h-10 w-10 text-neutral-300" />
-                <h3 class="mt-3 text-[15px] font-normal text-neutral-950">
-                    {{ t('settings.ai.noModels') }}
-                </h3>
-            </div>
-        </div>
+            <template #actions>
+                <button
+                    type="button"
+                    class="settings-button-primary inline-flex items-center gap-1.5"
+                    :disabled="refreshing || !provider?.api_endpoint"
+                    @click="handleRefresh"
+                >
+                    <AppIcon
+                        name="refresh"
+                        class="h-4 w-4"
+                        :class="{ 'animate-spin': refreshing }"
+                    />
+                    {{
+                        refreshing ? t('settings.ai.fetchingModels') : t('settings.ai.fetchModels')
+                    }}
+                </button>
+                <button type="button" class="settings-button-secondary" @click="startCreate">
+                    {{ t('settings.ai.addManually') }}
+                </button>
+            </template>
+        </EmptyState>
 
         <div v-else class="space-y-3">
             <ModelGroup
-                v-for="(group, index) in modelGroups"
-                :key="provider?.id + group.groupKey + index"
+                v-for="group in modelGroups"
+                :key="`${providerId}:${group.renderKey}`"
                 :group="group"
                 :default-model-id="defaultModelId"
-                :provider-enabled="providerEnabled"
                 @update="(id, data) => emit('update', id, data)"
                 @delete="(id) => emit('delete', id)"
                 @delete-group="handleDeleteGroup"

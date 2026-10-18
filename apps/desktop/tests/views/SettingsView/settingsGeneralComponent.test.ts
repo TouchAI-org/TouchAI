@@ -115,6 +115,13 @@ vi.mock('@components/MarkdownContent.vue', () => ({
     },
 }));
 
+vi.mock('@components/ui/dialog', () => ({
+    Dialog: { template: '<div><slot /></div>' },
+    DialogContent: { template: '<section><slot /></section>' },
+    DialogDescription: { template: '<p><slot /></p>' },
+    DialogTitle: { template: '<h2><slot /></h2>' },
+}));
+
 vi.mock('@tauri-apps/api/app', () => ({
     getVersion: vi.fn().mockResolvedValue('0.1.0'),
 }));
@@ -242,6 +249,9 @@ describe('SettingsGeneralSection', () => {
         expect(wrapper.text()).toContain('当前已是最新版（V0.1.1-beta.19）');
         expect(wrapper.text()).toContain('当前版本 V0.1.1-beta.19，目标版本 V0.1.1-beta.19');
         expect(wrapper.text()).not.toContain('已有新版本');
+        expect(wrapper.find('[data-testid="settings-update-available-badge"]').exists()).toBe(
+            false
+        );
     });
 
     it('delegates auto-check toggle changes', async () => {
@@ -286,8 +296,17 @@ describe('SettingsGeneralSection', () => {
         await flushPromises();
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
 
-        expect(wrapper.text()).toContain('已有新版本：V0.2.0（Stable）');
+        expect(wrapper.text()).toContain('有新版本可用');
+        expect(wrapper.get('[data-testid="settings-update-available-badge"]').text()).toBe(
+            '有新版本 V0.2.0'
+        );
+        expect(wrapper.get('[data-testid="settings-update-dialog-version"]').text()).toContain(
+            'V0.2.0'
+        );
         expect(wrapper.text()).toContain('当前版本 V0.1.0，目标版本 V0.2.0');
+
+        await wrapper.get('[data-testid="settings-update-available-badge"]').trigger('click');
+        expect(wrapper.emitted('show-update-settings')).toHaveLength(1);
 
         await wrapper.get('[data-testid="settings-update-dialog-primary"]').trigger('click');
         expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
@@ -371,7 +390,10 @@ describe('SettingsGeneralSection', () => {
         await flushPromises();
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
 
-        expect(wrapper.text()).toContain('已有新版本：V0.2.1（Stable）');
+        expect(wrapper.text()).toContain('有新版本可用');
+        expect(wrapper.get('[data-testid="settings-update-dialog-version"]').text()).toContain(
+            'V0.2.1'
+        );
         expect(wrapper.text()).toContain('当前版本 V0.1.0，目标版本 V0.2.1');
 
         await wrapper.get('[data-testid="settings-update-dialog-primary"]').trigger('click');

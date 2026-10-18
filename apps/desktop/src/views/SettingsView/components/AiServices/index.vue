@@ -8,6 +8,7 @@
     import { useAlert } from '@composables/useAlert.ts';
     import { useContextMenu } from '@composables/useContextMenu.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
+    import { useScrollFade } from '@composables/useScrollFade';
     import { db } from '@database';
     import {
         createModel,
@@ -28,7 +29,7 @@
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
     import { AppEvent, eventService } from '@services/EventService';
-    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
@@ -49,7 +50,9 @@
     const alert = useAlert();
 
     const contentScrollRef = ref<HTMLElement | null>(null);
+    const modelListRef = ref<InstanceType<typeof ModelList> | null>(null);
     useScrollbarStabilizer(contentScrollRef);
+    const { scrollFadeStyle } = useScrollFade(contentScrollRef);
 
     const providerMenuItems = [
         { key: 'edit', label: t('common.edit'), icon: 'edit' as const },
@@ -89,6 +92,7 @@
     const editingProvider = ref<Provider | null>(null);
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
+    const instanceId = crypto.randomUUID();
     let unlistenAiModelsUpdated: (() => void) | null = null;
 
     interface RefreshModelsNotificationOptions {
@@ -110,6 +114,7 @@
 
     async function broadcastModelsUpdated() {
         await eventService.emit(AppEvent.AI_MODELS_UPDATED, {
+            sourceId: instanceId,
             updatedAt: Date.now(),
         });
     }
@@ -235,9 +240,11 @@
             loading.value = true;
             error.value = null;
 
-            providers.value = await findAllProvidersSorted();
-
-            const defaultModel = await findDefaultModel();
+            const [nextProviders, defaultModel] = await Promise.all([
+                findAllProvidersSorted(),
+                findDefaultModel(),
+            ]);
+            providers.value = nextProviders;
             defaultModelId.value = defaultModel?.id || null;
             defaultModelProviderId.value = defaultModel?.provider_id || null;
 
@@ -512,10 +519,37 @@
     const handleSetDefaultModel = async (id: number) => {
         try {
             const nextDefaultModel = findCachedModel(id);
-            await setDefaultModel({ modelId: id });
+            const providerId = nextDefaultModel?.provider_id ?? selectedProviderId.value;
+            const provider = providers.value.find((item) => item.id === providerId);
+            if (!provider) {
+                throw new Error(t('settings.ai.providerNotFound'));
+            }
+
+            let didEnableProvider = false;
+            if (provider.enabled === 0) {
+                await updateProvider({ id: provider.id, providerPatch: { enabled: 1 } });
+                patchProvider(provider.id, { enabled: 1 });
+                setCachedModels(
+                    provider.id,
+                    (modelsCache.value.get(provider.id) ?? []).map((model) => ({
+                        ...model,
+                        provider_enabled: 1,
+                    }))
+                );
+                didEnableProvider = true;
+            }
+
+            try {
+                await setDefaultModel({ modelId: id });
+            } catch (err) {
+                // Provider activation is already persisted even if the default write fails.
+                if (didEnableProvider) {
+                    await broadcastModelsUpdated();
+                }
+                throw err;
+            }
             defaultModelId.value = id;
-            defaultModelProviderId.value =
-                nextDefaultModel?.provider_id ?? selectedProviderId.value ?? null;
+            defaultModelProviderId.value = provider.id;
 
             const nextCache = new Map(modelsCache.value);
             for (const [providerId, providerModels] of nextCache.entries()) {
@@ -528,6 +562,11 @@
                 );
             }
             modelsCache.value = nextCache;
+
+            await nextTick();
+            if (selectedProviderId.value === provider.id && defaultModelId.value === id) {
+                modelListRef.value?.scrollToDefaultModel?.(id);
+            }
 
             await broadcastModelsUpdated();
             alert.success(t('settings.ai.setSucceeded'));
@@ -664,24 +703,43 @@
         }
     };
 
-    onMounted(async () => {
-        // 启动流程已经落过本地元数据，这里只做兜底检查与按需刷新。
+    async function refreshMetadataInBackground() {
         try {
-            const isEmpty = (await isLlmMetadataEmpty()) || (await isLlmMetadataAliasEmpty());
+            const [metadataEmpty, aliasesEmpty] = await Promise.all([
+                isLlmMetadataEmpty(),
+                isLlmMetadataAliasEmpty(),
+            ]);
             const result = await refreshModelMetadataIfStale();
 
             if (result.status === 'updated') {
-                console.log('[AiServicesView] llm-metadata updated from remote');
-            } else if (isEmpty) {
+                const providerIds = [...modelsCache.value.keys()];
+                const refreshedModels = await Promise.all(
+                    providerIds.map(async (providerId) => ({
+                        providerId,
+                        models: await findModelsWithProvider({ providerId }),
+                    }))
+                );
+                for (const { providerId, models } of refreshedModels) {
+                    if (modelsCache.value.has(providerId)) setCachedModels(providerId, models);
+                }
+            } else if (metadataEmpty || aliasesEmpty) {
                 console.warn('[AiServicesView] llm-metadata is still empty');
             }
         } catch (error) {
             console.error('[AiServicesView] Failed to check or update llm-metadata:', error);
         }
+    }
 
-        unlistenAiModelsUpdated = await eventService.on(AppEvent.AI_MODELS_UPDATED, async () => {
-            await loadProviders();
-        });
+    onMounted(async () => {
+        void refreshMetadataInBackground();
+        unlistenAiModelsUpdated = await eventService.on(
+            AppEvent.AI_MODELS_UPDATED,
+            async (payload) => {
+                // Local actions already patch state; reloading would reset the list and scroll.
+                if (payload.sourceId === instanceId) return;
+                await loadProviders();
+            }
+        );
 
         await loadProviders();
     });
@@ -705,7 +763,11 @@
             @context-menu="handleProviderContextMenu"
         />
 
-        <div ref="contentScrollRef" class="settings-scrollbar min-w-0 flex-1 overflow-y-auto">
+        <div
+            ref="contentScrollRef"
+            class="settings-scrollbar settings-scroll-fade min-w-0 flex-1 overflow-y-auto"
+            :style="scrollFadeStyle"
+        >
             <LoadingState v-if="loading" variant="brand" fill="min" />
 
             <div v-else-if="error" class="flex h-full items-center justify-center">
@@ -771,16 +833,18 @@
                     <ProviderConfig
                         v-if="selectedProvider"
                         :provider="selectedProvider"
+                        data-settings-search-target="provider-config"
                         @update="handleUpdateProvider"
                     />
 
                     <ModelList
                         v-if="selectedProvider"
+                        ref="modelListRef"
                         :provider-id="selectedProvider.id"
                         :models="selectedProviderModels"
                         :default-model-id="defaultModelId"
                         :provider="selectedProvider"
-                        :provider-enabled="selectedProvider.enabled === 1"
+                        data-settings-search-target="models"
                         :refreshing="refreshing"
                         @create="handleCreateModel"
                         @update="handleUpdateModel"

@@ -336,6 +336,7 @@
             class="settings-row-group divide-y divide-neutral-200/70 overflow-visible"
         >
             <div
+                data-settings-search-target="activation-shortcut"
                 class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_360px] sm:items-center"
             >
                 <label

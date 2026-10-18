@@ -19,6 +19,14 @@ interface UseListFilterOptions<T> {
 export function useListFilter<T>(options: UseListFilterOptions<T>) {
     const filterStatus = ref<string>('all');
     const searchQuery = ref('');
+    const hasActiveFilters = computed(
+        () => filterStatus.value !== 'all' || searchQuery.value.trim().length > 0
+    );
+
+    function resetFilters() {
+        filterStatus.value = 'all';
+        searchQuery.value = '';
+    }
 
     const sourceItems = computed(() => {
         const src = options.items;
@@ -53,6 +61,8 @@ export function useListFilter<T>(options: UseListFilterOptions<T>) {
     return {
         filterStatus,
         searchQuery,
+        hasActiveFilters,
+        resetFilters,
         filteredItems,
     };
 }
