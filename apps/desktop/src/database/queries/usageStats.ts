@@ -3,7 +3,7 @@
 import { and, between, count, desc, eq, gte, inArray, like, or, type SQL, sql } from 'drizzle-orm';
 
 import { db } from '../index';
-import { messageParts, models, providers, sessionTurns } from '../schema';
+import { messageParts, models, providers, sessionTurns, usageDailyRollups } from '../schema';
 
 // ============================================================================
 // 类型
@@ -254,6 +254,49 @@ export const getUsageTrend = async (
 
     return { bucket, points: rows };
 };
+
+/**
+ * 「全部时间」趋势：走日汇总表。
+ *
+ * 日汇总永久保留且只有几十行，而 `session_turns` 会被「清理会话轮次」
+ * 或后续的保留策略清空。用归档表回答「历史上总共花了多少」才不会随清理归零。
+ *
+ * 只适用于没有模型/供应商筛选的场景：汇总表按名字而非 id 存储，
+ * 无法参与基于 id 的筛选。
+ */
+export const getUsageTrendFromArchive = async (): Promise<{
+    bucket: 'day';
+    points: UsageTrendPoint[];
+}> => {
+    const rows = await db
+        .select({
+            key: usageDailyRollups.day,
+            requests: sql<number>`coalesce(sum(${usageDailyRollups.request_count}), 0)`,
+            tokens: sql<number>`coalesce(sum(
+                ${usageDailyRollups.input_tokens} + ${usageDailyRollups.output_tokens}
+                + ${usageDailyRollups.cache_read_tokens} + ${usageDailyRollups.cache_write_tokens}
+            ), 0)`,
+            costMicros: sql<number>`coalesce(sum(${usageDailyRollups.total_cost_micros}), 0)`,
+        })
+        .from(usageDailyRollups)
+        .groupBy(usageDailyRollups.day)
+        .orderBy(usageDailyRollups.day)
+        .all();
+
+    return { bucket: 'day', points: rows };
+};
+
+/** 筛选会影响趋势时不能使用归档表（归档表不含 id 维度） */
+export function canUseUsageArchive(filter: UsageFilter): boolean {
+    return (
+        !filter.modelIds?.length &&
+        !filter.providerIds?.length &&
+        !filter.statuses?.length &&
+        !filter.onlyFailed &&
+        !filter.onlyRetried &&
+        !filter.search?.trim()
+    );
+}
 
 // ============================================================================
 // 排行

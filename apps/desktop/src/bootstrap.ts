@@ -16,6 +16,10 @@ import router from './router';
 import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
 
+const runUsageMaintenance = async (retentionDays = 0): Promise<void> => {
+    const { runUsageMaintenance: run } = await import('./services/UsageService/maintenance');
+    await run(retentionDays);
+};
 const AUXILIARY_WINDOW_LABELS = new Set(['tray-menu']);
 const AUXILIARY_ROUTE_PREFIXES = ['#/popup', '#/tray-menu'];
 
@@ -211,6 +215,20 @@ async function prewarmBuiltInBash(): Promise<void> {
     }
 }
 
+/**
+ * 启动时跑一次用量维护（日汇总 + 按保留策略清理明细）。
+ *
+ * 读取用户的保留天数设置：0（默认）表示永不删。
+ * 模块本身按需加载，不进入首屏启动路径。
+ */
+function scheduleUsageMaintenance(): void {
+    try {
+        void runUsageMaintenance();
+    } catch (error) {
+        console.warn('[Bootstrap] Failed to schedule usage maintenance:', error);
+    }
+}
+
 export async function initializeApp() {
     initializeLogger();
     setupLinkInterceptor();
@@ -256,4 +274,8 @@ export async function initializeApp() {
         }
         scheduleModelMetadataRefresh();
     }
+
+    // 用量维护只读写数据库，与哪个窗口无关，但只需跑一次：
+    // 内部已有节流，重开窗口不会重复汇总。
+    scheduleUsageMaintenance();
 }

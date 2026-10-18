@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import LoadingState from '@components/LoadingState.vue';
     import {
+        canUseUsageArchive,
         type ContextProfile,
         getContextProfiles,
         getUsageByModel,
@@ -11,6 +12,7 @@
         getUsageFilterOptions,
         getUsageSummary,
         getUsageTrend,
+        getUsageTrendFromArchive,
         type UsageCallRow,
         type UsageFilter,
         type UsageFilterOptions,
@@ -89,6 +91,12 @@
         loadError.value = false;
         try {
             const current = filter.value;
+            // 「全部时间」且无筛选时优先用永久保留的日汇总表：
+            // 清理过会话轮次后，历史曲线仍然完整。
+            // 汇总表为空（例如首次启动还没跑维护）时回退到实时查询，
+            // 避免出现「指标有数、趋势空白」的矛盾。
+            const useArchive = preset.value === 'all' && canUseUsageArchive(current);
+            const archiveTrend = useArchive ? await getUsageTrendFromArchive() : null;
             const [
                 nextSummary,
                 nextTrend,
@@ -99,7 +107,9 @@
                 nextContext,
             ] = await Promise.all([
                 getUsageSummary(current),
-                getUsageTrend(current),
+                archiveTrend && archiveTrend.points.length > 0
+                    ? archiveTrend
+                    : getUsageTrend(current),
                 getUsageByModel(current),
                 getUsageByProvider(current),
                 getUsageFilterOptions(current),
