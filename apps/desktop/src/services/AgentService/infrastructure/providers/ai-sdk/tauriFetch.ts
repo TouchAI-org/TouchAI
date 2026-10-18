@@ -3,53 +3,63 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
 /**
- * 包装 ReadableStream，使 cancel 操作幂等
- * Tauri HTTP 插件的 fetch_cancel_body 在资源已释放后再次调用会抛出
- * "The resource id xxx is invalid" 错误，这里吞掉重复 cancel 的异常
+ * 把 Tauri HTTP 响应体包装成按需拉取的流。
+ *
+ * 两个必须保持的契约：
+ * 1. 只有下游 `pull()` 时才读取上游，避免快网络把未消费的 chunk 全部堆进队列；
+ * 2. 取消作用于持有锁的 reader 本身，而不是再次 `body.cancel()`。
+ *    Tauri 的 `fetch_cancel_body` 在资源已释放后重复调用会抛
+ *    "The resource id xxx is invalid"，所以取消需要幂等。
  */
 function wrapBodyStream(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-    let cancelled = false;
-    let closed = false;
+    const reader = body.getReader();
+    let settled = false;
+
+    const releaseReader = () => {
+        try {
+            reader.releaseLock();
+        } catch {
+            // reader 可能尚未释放完读取；释放失败不应影响已确定的终态。
+        }
+    };
+
     return new ReadableStream<Uint8Array>({
-        start(controller) {
-            const reader = body.getReader();
-            function pump(): void {
-                reader.read().then(
-                    ({ done, value }) => {
-                        if (cancelled || closed) {
-                            return;
-                        }
-                        if (done) {
-                            closed = true;
-                            controller.close();
-                            return;
-                        }
-                        try {
-                            controller.enqueue(value);
-                            pump();
-                        } catch (err) {
-                            // 流已关闭，忽略 enqueue 错误
-                            if (!closed) {
-                                controller.error(err);
-                            }
-                        }
-                    },
-                    (err) => {
-                        if (!closed) {
-                            controller.error(err);
-                        }
-                    }
-                );
+        async pull(controller) {
+            if (settled) {
+                return;
             }
-            pump();
+
+            try {
+                const { done, value } = await reader.read();
+                if (settled) {
+                    return;
+                }
+
+                if (done) {
+                    settled = true;
+                    controller.close();
+                    releaseReader();
+                    return;
+                }
+
+                controller.enqueue(value);
+            } catch (error) {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                controller.error(error);
+                releaseReader();
+            }
         },
         cancel(reason) {
-            if (cancelled) return;
-            cancelled = true;
-            closed = true;
-            return body.cancel(reason).catch(() => {
-                // 忽略重复 cancel 导致的 resource id invalid 错误
-            });
+            if (settled) {
+                return undefined;
+            }
+            settled = true;
+
+            // 上游可能已经释放；重复取消只会得到 resource id invalid，可安全忽略。
+            return reader.cancel(reason).catch(() => undefined);
         },
     });
 }
