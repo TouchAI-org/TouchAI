@@ -71,6 +71,13 @@
 
     const pendingLanguage = ref<AppLocale>(settings.value.language);
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
+    const updateSettingsSection = ref<InstanceType<typeof UpdateSettingsSection> | null>(null);
+
+    async function checkAndOpenUpdates() {
+        await updateSettingsSection.value?.checkAndOpenUpdates('settings-open');
+    }
+
+    defineExpose({ checkAndOpenUpdates });
 
     watch(
         () => settings.value.language,
@@ -336,7 +343,7 @@
                 </div>
             </section>
 
-            <UpdateSettingsSection />
+            <UpdateSettingsSection ref="updateSettingsSection" />
         </div>
     </div>
 </template>

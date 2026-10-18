@@ -84,7 +84,7 @@ describe('NavigationSidebar', () => {
         const brand = wrapper.get('[data-testid="settings-sidebar-brand"]');
         const footer = wrapper.get('[data-testid="settings-sidebar-footer"]');
         const versionBadge = brand.get('[data-testid="settings-sidebar-version"]');
-        expect(versionBadge.text()).toBe(desktopPackageJson.version);
+        expect(versionBadge.text()).toBe(`V${desktopPackageJson.version}`);
         expect(versionBadge.classes()).toEqual(
             expect.arrayContaining(['ml-auto', 'rounded-[6px]', 'bg-[#e9e9e7]'])
         );
@@ -143,7 +143,7 @@ describe('NavigationSidebar', () => {
 
         await wrapper.get('[data-testid="settings-sidebar-version"]').trigger('click');
 
-        expect(wrapper.emitted('show-update-settings')).toHaveLength(1);
+        expect(wrapper.emitted('show-update-settings')).toEqual([[{ checkAndOpen: true }]]);
     });
 
     it('lets users drag the sidebar width while respecting minimum and maximum bounds', async () => {

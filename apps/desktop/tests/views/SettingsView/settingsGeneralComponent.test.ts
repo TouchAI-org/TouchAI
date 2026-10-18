@@ -1,11 +1,12 @@
 import type { AppUpdateState } from '@services/AppUpdateService/types';
-import { flushPromises, mount } from '@vue/test-utils';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import GeneralSection from '@/views/SettingsView/components/General/index.vue';
 
 const originalPlatform = navigator.platform;
+enableAutoUnmount(afterEach);
 
 function setPlatform(platform: string) {
     Object.defineProperty(window.navigator, 'platform', {
@@ -131,6 +132,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 }));
 
 const appUpdateServiceMock = vi.hoisted(() => {
+    const listeners = new Set<(state: AppUpdateState) => void>();
     const createState = (): AppUpdateState => ({
         status: 'not_available',
         channel: 'stable',
@@ -148,11 +150,17 @@ const appUpdateServiceMock = vi.hoisted(() => {
 
     return {
         createState,
+        listeners,
         state: createState(),
+        publishState: (patch: Partial<AppUpdateState>) => {
+            appUpdateServiceMock.state = { ...appUpdateServiceMock.state, ...patch };
+            listeners.forEach((listener) => listener(appUpdateServiceMock.state));
+        },
         getState: vi.fn(() => appUpdateServiceMock.state),
         subscribe: vi.fn((listener) => {
+            listeners.add(listener);
             listener(appUpdateServiceMock.state);
-            return () => undefined;
+            return () => listeners.delete(listener);
         }),
         initialize: vi.fn().mockResolvedValue(undefined),
         checkNow: vi.fn().mockResolvedValue(true),
@@ -172,7 +180,9 @@ describe('SettingsGeneralSection', () => {
         vi.clearAllMocks();
         setPlatform('Win32');
         setLocale('zh-CN');
+        appUpdateServiceMock.listeners.clear();
         appUpdateServiceMock.state = appUpdateServiceMock.createState();
+        appUpdateServiceMock.checkNow.mockReset().mockResolvedValue(true);
         nativeMock.autostart.isAutostartEnabled.mockResolvedValue(false);
         settingsStoreMock.settings.value = settingsStoreMock.createGeneralSettingsMock();
     });
@@ -221,7 +231,7 @@ describe('SettingsGeneralSection', () => {
         expect(rowLabels.length).toBeGreaterThanOrEqual(5);
     });
 
-    it('shows the current version in the latest update details', async () => {
+    it('keeps the latest-version state compact after a manual check', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
             status: 'not_available',
@@ -245,10 +255,10 @@ describe('SettingsGeneralSection', () => {
         );
 
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+        await flushPromises();
 
-        expect(wrapper.text()).toContain('当前已是最新版（V0.1.1-beta.19）');
-        expect(wrapper.text()).toContain('当前版本 V0.1.1-beta.19，目标版本 V0.1.1-beta.19');
-        expect(wrapper.text()).not.toContain('已有新版本');
+        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
+        expect(wrapper.find('[data-testid="settings-update-details-dialog"]').exists()).toBe(false);
         expect(wrapper.find('[data-testid="settings-update-available-badge"]').exists()).toBe(
             false
         );
@@ -261,6 +271,20 @@ describe('SettingsGeneralSection', () => {
         await wrapper.get('[data-testid="settings-update-auto-check-toggle"]').trigger('click');
 
         expect(appUpdateServiceMock.setAutoCheckEnabled).toHaveBeenCalledWith(false);
+    });
+
+    it('checks for updates after changing the update channel', async () => {
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+        const channelSelect = wrapper
+            .get('[data-settings-search-target="update-channel"]')
+            .findComponent({ name: 'CustomSelectStub' });
+        channelSelect.vm.$emit('update:modelValue', 'beta');
+        await flushPromises();
+
+        expect(appUpdateServiceMock.setChannel).toHaveBeenCalledWith('beta');
+        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('settings-open');
     });
 
     it('shows update details and delegates update actions', async () => {
@@ -295,15 +319,16 @@ describe('SettingsGeneralSection', () => {
 
         await flushPromises();
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+        await flushPromises();
 
         expect(wrapper.text()).toContain('有新版本可用');
         expect(wrapper.get('[data-testid="settings-update-available-badge"]').text()).toBe(
             '有新版本 V0.2.0'
         );
-        expect(wrapper.get('[data-testid="settings-update-dialog-version"]').text()).toContain(
-            'V0.2.0'
+        expect(wrapper.get('[data-testid="settings-update-dialog-version"]').text()).toBe(
+            '稳定版 V0.2.0（2026年5月22日）'
         );
-        expect(wrapper.text()).toContain('当前版本 V0.1.0，目标版本 V0.2.0');
+        expect(wrapper.text()).not.toContain('当前版本 V0.1.0，目标版本 V0.2.0');
 
         await wrapper.get('[data-testid="settings-update-available-badge"]').trigger('click');
         expect(wrapper.emitted('show-update-settings')).toHaveLength(1);
@@ -329,6 +354,7 @@ describe('SettingsGeneralSection', () => {
         );
 
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+        await flushPromises();
 
         expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
         expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
@@ -351,6 +377,7 @@ describe('SettingsGeneralSection', () => {
         );
 
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+        await flushPromises();
 
         expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
         expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
@@ -389,12 +416,13 @@ describe('SettingsGeneralSection', () => {
 
         await flushPromises();
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+        await flushPromises();
 
         expect(wrapper.text()).toContain('有新版本可用');
         expect(wrapper.get('[data-testid="settings-update-dialog-version"]').text()).toContain(
             'V0.2.1'
         );
-        expect(wrapper.text()).toContain('当前版本 V0.1.0，目标版本 V0.2.1');
+        expect(wrapper.text()).not.toContain('当前版本 V0.1.0，目标版本 V0.2.1');
 
         await wrapper.get('[data-testid="settings-update-dialog-primary"]').trigger('click');
 
@@ -405,8 +433,7 @@ describe('SettingsGeneralSection', () => {
     it('shows downloading progress in the details dialog and disables the action', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
-            status: 'downloading',
-            downloadProgress: 42,
+            status: 'available',
             availableUpdate: {
                 version: '0.2.0',
                 fileName: 'TouchAI-0.2.0-windows-full.nupkg',
@@ -427,9 +454,12 @@ describe('SettingsGeneralSection', () => {
 
         await flushPromises();
 
-        expect(wrapper.text()).toContain('正在下载更新 42%');
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+        await flushPromises();
+        appUpdateServiceMock.publishState({ status: 'downloading', downloadProgress: 42 });
+        await wrapper.vm.$nextTick();
 
+        expect(wrapper.text()).toContain('正在下载更新 42%');
         const dialogPrimary = wrapper.get('[data-testid="settings-update-dialog-primary"]');
         expect(dialogPrimary.text()).toContain('正在下载 42%');
         expect(dialogPrimary.attributes('disabled')).toBeDefined();
@@ -438,7 +468,7 @@ describe('SettingsGeneralSection', () => {
     it('shows installing state in the details dialog and disables the action', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
-            status: 'installing',
+            status: 'downloaded',
             downloadedUpdate: {
                 version: '0.2.0',
                 fileName: 'TouchAI-0.2.0-windows-full.nupkg',
@@ -459,9 +489,12 @@ describe('SettingsGeneralSection', () => {
 
         await flushPromises();
 
-        expect(wrapper.text()).toContain('正在安装并重启...');
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+        await flushPromises();
+        appUpdateServiceMock.publishState({ status: 'installing' });
+        await wrapper.vm.$nextTick();
 
+        expect(wrapper.text()).toContain('正在安装并重启...');
         const dialogPrimary = wrapper.get('[data-testid="settings-update-dialog-primary"]');
         expect(dialogPrimary.text()).toContain('正在安装');
         expect(dialogPrimary.attributes('disabled')).toBeDefined();
@@ -493,6 +526,7 @@ describe('SettingsGeneralSection', () => {
 
         await flushPromises();
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
+        await flushPromises();
 
         expect(wrapper.text()).toContain('暂无更新日志');
     });

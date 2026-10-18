@@ -151,9 +151,12 @@ export class AppUpdateController {
     async checkNow(source: AppUpdateCheckSource = 'manual'): Promise<boolean> {
         await this.initialize();
         this.syncSettings();
+        const reportErrors =
+            source === 'manual' ||
+            (source === 'settings-open' && this.state.currentVersion === null);
 
         if (this.checkPromise) {
-            this.reportCheckErrors ||= source === 'manual';
+            this.reportCheckErrors ||= reportErrors;
             return this.checkPromise;
         }
 
@@ -165,7 +168,7 @@ export class AppUpdateController {
             return false;
         }
 
-        this.reportCheckErrors = source === 'manual';
+        this.reportCheckErrors = reportErrors;
         this.lastCheckAttemptAt = this.now();
         this.checkPromise = this.performCheck();
         try {

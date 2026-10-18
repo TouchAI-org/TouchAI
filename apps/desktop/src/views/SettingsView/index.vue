@@ -23,7 +23,10 @@
     import { locale, t } from '@/i18n';
 
     import GeneralView from './components/General/index.vue';
-    import NavigationSidebar, { type NavigationSection } from './components/NavigationSidebar.vue';
+    import NavigationSidebar, {
+        type NavigationSection,
+        type ShowUpdateSettingsOptions,
+    } from './components/NavigationSidebar.vue';
     import SettingsWindowTitleBar from './components/SettingsWindowTitleBar.vue';
     import type { SettingsSearchResult } from './settingsSearch';
 
@@ -104,7 +107,9 @@
     let unmounted = false;
     const contentScrollRef = ref<HTMLElement | null>(null);
     const contentElementRef = ref<HTMLElement | null>(null);
+    const activeViewRef = ref<ComponentPublicInstance | null>(null);
     const resolvedSection = ref<NavigationSection | null>(null);
+    const pendingUpdateRequest = ref<ShowUpdateSettingsOptions | null>(null);
     let pendingSearchResult: SettingsSearchResult | null = null;
     let searchTargetObserver: MutationObserver | null = null;
     let searchTargetTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -131,6 +136,7 @@
 
     const handleNavigate = (section: NavigationSection) => {
         cancelPendingSearch();
+        pendingUpdateRequest.value = null;
         if (activeSection.value !== section) resolvedSection.value = null;
         activeSection.value = section;
     };
@@ -193,27 +199,57 @@
         }
     };
 
+    type UpdateSettingsView = ComponentPublicInstance & {
+        checkAndOpenUpdates?: () => Promise<void> | void;
+    };
+
+    const invokePendingUpdateRequest = async () => {
+        if (!pendingUpdateRequest.value || activeSection.value !== 'general') {
+            return false;
+        }
+
+        const generalView = activeViewRef.value as UpdateSettingsView | null;
+        const openUpdates = generalView?.checkAndOpenUpdates;
+        if (!openUpdates) {
+            return false;
+        }
+
+        pendingUpdateRequest.value = null;
+        try {
+            await openUpdates();
+        } catch (error) {
+            console.warn('[SettingsView] Failed to open update details:', error);
+        }
+        return true;
+    };
+
     const handleContentResolved = async () => {
         const section = activeSection.value;
         await nextTick();
         if (section !== activeSection.value) return;
 
         resolvedSection.value = section;
+        if (section === 'general') {
+            void invokePendingUpdateRequest();
+        }
         if (pendingSearchResult?.section === section) {
             locateSearchResult(pendingSearchResult);
         }
     };
 
-    const scrollGeneralUpdateSectionIntoView = async () => {
+    const scrollGeneralUpdateSectionIntoView = async (options?: ShowUpdateSettingsOptions) => {
         cancelPendingSearch();
+        pendingUpdateRequest.value = options?.checkAndOpen ? options : null;
         activeSection.value = 'general';
         await nextTick();
         window.setTimeout(() => {
+            if (unmounted || activeSection.value !== 'general') return;
             document.querySelector('[data-settings-update-section="true"]')?.scrollIntoView({
                 block: 'start',
                 behavior: 'smooth',
             });
         }, 0);
+        void invokePendingUpdateRequest();
     };
 
     const setContentScrollElement = (element: Element | ComponentPublicInstance | null) => {
@@ -325,6 +361,7 @@
                                 <component
                                     :is="activeContentSection.component"
                                     :key="activeSection"
+                                    ref="activeViewRef"
                                     v-on="
                                         activeSection === 'general'
                                             ? {

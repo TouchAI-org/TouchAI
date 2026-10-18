@@ -9,7 +9,7 @@
 
     import { useAppUpdateState } from '@/composables/useAppUpdateState';
     import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
-    import { APP_PRODUCT_CONFIG } from '@/config/product';
+    import { APP_PRODUCT_CONFIG, APP_VERSION } from '@/config/product';
     import { t } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
     import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
@@ -27,11 +27,15 @@
     };
 
     const updateState = useAppUpdateState();
-    const appVersion = ref('0.1.0');
+    const appVersion = ref(APP_VERSION);
     const detailsOpen = ref(false);
 
     function channelDescriptionKey(channel: AppUpdateChannel) {
         return `settings.general.update.channel.${channel}.description` as const;
+    }
+
+    function channelLabelKey(channel: AppUpdateChannel) {
+        return `settings.general.update.channel.${channel}.label` as const;
     }
 
     const channelOptions = computed<ChannelOption[]>(() =>
@@ -53,15 +57,12 @@
             updateState.value.updateRequirement?.minimumSupportedVersion ??
             ''
     );
-    const channelLabel = computed(() => appUpdateChannelLabel(updateState.value.channel));
+    const channelLabel = computed(() => t(channelLabelKey(updateState.value.channel)));
     const releaseNotes = computed(
         () => visibleUpdate.value?.notes?.trim() || latestUpdate.value?.releaseNotes?.trim() || ''
     );
     const currentDisplayVersion = computed(
         () => updateState.value.currentVersion ?? appVersion.value
-    );
-    const latestDisplayVersion = computed(
-        () => latestUpdate.value?.version ?? currentDisplayVersion.value
     );
     const directDownload = computed(() =>
         preferredAppUpdateDownload(latestUpdate.value?.downloads ?? [])
@@ -83,8 +84,6 @@
             updateState.value.status === 'available' &&
             (updateState.value.updateRequirement?.targetSatisfiesRequirement ?? true)
     );
-    const canShowDetails = computed(() => Boolean(latestUpdate.value || visibleUpdate.value));
-
     const statusTitle = computed(() => {
         if (isChecking.value) {
             return t('settings.general.update.status.checking');
@@ -108,7 +107,7 @@
 
         if (updateState.value.status === 'not_available') {
             return t('settings.general.update.status.latestVersion', {
-                version: latestDisplayVersion.value,
+                version: currentDisplayVersion.value,
             });
         }
 
@@ -120,7 +119,9 @@
             return t('settings.general.update.status.unsupported');
         }
 
-        return t('settings.general.update.status.unchecked');
+        return t('settings.general.update.status.currentVersion', {
+            version: currentDisplayVersion.value,
+        });
     });
 
     const statusDescription = computed(() => {
@@ -130,7 +131,7 @@
             });
         }
 
-        return t('settings.general.update.notChecked');
+        return '';
     });
 
     const primaryDetailsActionText = computed(() => {
@@ -160,19 +161,25 @@
     );
 
     const detailsTitle = computed(() =>
-        hasUpdateDetails.value && (latestUpdate.value?.version || visibleUpdate.value?.version)
+        hasUpdateDetails.value
             ? t('settings.general.update.dialog.newVersionTitle')
-            : t('settings.general.update.status.latestVersion', {
-                  version: latestDisplayVersion.value,
-              })
+            : t('settings.general.update.dialog.noVersion')
     );
 
-    const versionLine = computed(() =>
-        t('settings.general.update.dialog.versionLine', {
-            current: currentDisplayVersion.value,
-            target: targetVersion.value || appVersion.value,
-        })
+    const dialogVersion = computed(() =>
+        hasUpdateDetails.value
+            ? targetVersion.value || currentDisplayVersion.value
+            : currentDisplayVersion.value
     );
+    const dialogPublishedAt = computed(() => {
+        if (hasUpdateDetails.value) {
+            return latestUpdate.value?.publishedAt ?? null;
+        }
+
+        return latestUpdate.value?.version === currentDisplayVersion.value
+            ? latestUpdate.value.publishedAt
+            : updateState.value.lastCheckedAt;
+    });
 
     async function initializeUpdates() {
         try {
@@ -182,8 +189,18 @@
         }
     }
 
-    async function checkForUpdates() {
-        await appUpdateService.checkNow('manual');
+    async function checkForUpdates(source: 'manual' | 'settings-open' = 'manual') {
+        return appUpdateService.checkNow(source);
+    }
+
+    async function checkAndOpenUpdates(source: 'manual' | 'settings-open' = 'manual') {
+        const completed = await checkForUpdates(source);
+        const updateCanBeShown =
+            completed ||
+            ['available', 'downloaded', 'unsupported'].includes(updateState.value.status);
+        if (updateCanBeShown && hasUpdateDetails.value) {
+            detailsOpen.value = true;
+        }
     }
 
     async function selectUpdateChannel(channel: AppUpdateChannel) {
@@ -192,6 +209,7 @@
         }
 
         await appUpdateService.setChannel(channel);
+        await checkForUpdates('settings-open');
     }
 
     async function toggleAutoCheck() {
@@ -221,13 +239,10 @@
     }
 
     async function handlePrimaryAction() {
-        if (canShowDetails.value) {
-            detailsOpen.value = true;
-            return;
-        }
-
-        await checkForUpdates();
+        await checkAndOpenUpdates();
     }
+
+    defineExpose({ checkAndOpenUpdates });
 
     onMounted(() => {
         void initializeUpdates();
@@ -309,7 +324,10 @@
                     >
                         {{ statusTitle }}
                     </div>
-                    <div class="mt-0.5 text-[12px] leading-5 text-neutral-500">
+                    <div
+                        v-if="statusDescription"
+                        class="mt-0.5 text-[12px] leading-5 text-neutral-500"
+                    >
                         {{ statusDescription }}
                     </div>
                     <div
@@ -324,14 +342,10 @@
                     type="button"
                     class="ml-auto inline-flex h-9 min-w-[88px] items-center justify-center rounded-[10px] border border-transparent bg-[#f0f0ef] px-3 text-[12px] font-normal text-neutral-800 transition-colors hover:bg-[#ececea] disabled:cursor-not-allowed disabled:opacity-50"
                     data-testid="settings-update-primary-action"
-                    :disabled="isBusy && !isDownloading && !isInstalling"
+                    :disabled="isBusy"
                     @click="handlePrimaryAction"
                 >
-                    {{
-                        canShowDetails
-                            ? t('settings.general.update.action.details')
-                            : t('settings.general.update.action.check')
-                    }}
+                    {{ t('settings.general.update.action.check') }}
                 </button>
             </div>
         </div>
@@ -339,11 +353,11 @@
         <UpdateDetailsDialog
             v-if="detailsOpen"
             :title="detailsTitle"
-            :version="targetVersion || currentDisplayVersion"
+            :version="dialogVersion"
             :channel="channelLabel"
-            :published-at="latestUpdate?.publishedAt"
-            :version-line="versionLine"
-            :release-notes="releaseNotes"
+            :published-at="dialogPublishedAt"
+            :has-update="hasUpdateDetails"
+            :release-notes="hasUpdateDetails ? releaseNotes : ''"
             :action-text="primaryDetailsActionText"
             :busy="isBusy"
             :download-progress="isDownloading ? (updateState.downloadProgress ?? 0) : null"

@@ -10,6 +10,7 @@ import { t } from '@/i18n';
 import { getAvailableAppUpdateVersion } from './availability';
 import { preferredAppUpdateDownload } from './downloads';
 import { appUpdateService } from './index';
+import { createUpdateNotificationBody } from './notificationText';
 import { AppUpdateReminderController } from './reminders';
 
 const REMINDER_HISTORY_KEY = 'app_update_reminder_history';
@@ -71,7 +72,7 @@ const updateReminders = new AppUpdateReminderController({
         channel: state.channel,
         version,
         title: t('notification.update.title'),
-        body: t('notification.update.body', { version }),
+        body: createUpdateNotificationBody(state, version),
         updateLabel: t('notification.update.updateNow'),
         ignoreLabel: t('notification.update.ignoreVersion'),
     }),

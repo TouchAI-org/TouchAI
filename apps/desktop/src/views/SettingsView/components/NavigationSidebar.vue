@@ -28,10 +28,14 @@
         activeSection: NavigationSection;
     }
 
+    export type ShowUpdateSettingsOptions = {
+        checkAndOpen?: boolean;
+    };
+
     interface Emits {
         (e: 'navigate', section: NavigationSection): void;
         (e: 'ready'): void;
-        (e: 'show-update-settings'): void;
+        (e: 'show-update-settings', options?: ShowUpdateSettingsOptions): void;
         (e: 'search-select', result: SettingsSearchResult): void;
     }
 
@@ -191,7 +195,7 @@
     };
 
     const showUpdateSettings = () => {
-        emit('show-update-settings');
+        emit('show-update-settings', { checkAndOpen: true });
     };
 
     const openExternalLink = async (url: string) => {
@@ -413,7 +417,7 @@
                 :aria-hidden="!isLabelVisible"
                 @click="showUpdateSettings"
             >
-                {{ APP_VERSION }}
+                V{{ APP_VERSION }}
             </button>
         </div>
 

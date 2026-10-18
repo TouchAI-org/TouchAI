@@ -25,6 +25,7 @@ const sectionMountMocks = vi.hoisted(() => ({
 
 const updateServiceMock = vi.hoisted(() => ({
     checkNow: vi.fn().mockResolvedValue(true),
+    checkAndOpenUpdates: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@services/AppUpdateService', () => ({
@@ -61,6 +62,10 @@ vi.mock('@/views/SettingsView/components/General/index.vue', () => ({
     default: {
         name: 'GeneralView',
         emits: ['show-update-settings'],
+        setup(_: unknown, { expose }: { expose: (exposed: object) => void }) {
+            expose({ checkAndOpenUpdates: updateServiceMock.checkAndOpenUpdates });
+            return {};
+        },
         template: '<section data-testid="general-view-stub" />',
     },
 }));
@@ -173,6 +178,7 @@ describe('SettingsWindowView', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         updateServiceMock.checkNow.mockClear();
+        updateServiceMock.checkAndOpenUpdates.mockReset().mockResolvedValue(undefined);
         sectionMountMocks.aiServices.mockClear();
         sectionMountMocks.builtInTools.mockClear();
         sectionMountMocks.revealAiServicesTarget = undefined;
@@ -397,7 +403,9 @@ describe('SettingsWindowView', () => {
             await vi.runAllTimersAsync();
             await flushPromises();
 
-            wrapper.findComponent({ name: 'NavigationSidebar' }).vm.$emit('show-update-settings');
+            wrapper
+                .findComponent({ name: 'NavigationSidebar' })
+                .vm.$emit('show-update-settings', { checkAndOpen: true });
             await flushPromises();
             await vi.runOnlyPendingTimersAsync();
 
@@ -407,6 +415,45 @@ describe('SettingsWindowView', () => {
                 behavior: 'smooth',
             });
         } finally {
+            querySelectorSpy.mockRestore();
+        }
+    });
+
+    it('navigates and scrolls immediately while the version-badge check is pending', async () => {
+        let finishCheck!: () => void;
+        updateServiceMock.checkAndOpenUpdates.mockReturnValueOnce(
+            new Promise<void>((resolve) => {
+                finishCheck = resolve;
+            })
+        );
+        const scrollIntoView = vi.fn();
+        const querySelectorSpy = vi.spyOn(document, 'querySelector').mockReturnValue({
+            scrollIntoView,
+        } as unknown as Element);
+        const wrapper = mount(SettingsWindowView, {
+            global: { stubs: { NavigationSidebar: navigationSidebarStub } },
+        });
+
+        try {
+            await flushPromises();
+            const sidebar = wrapper.findComponent({ name: 'NavigationSidebar' });
+            sidebar.vm.$emit('navigate', 'shortcuts');
+            await flushPromises();
+
+            sidebar.vm.$emit('show-update-settings', { checkAndOpen: true });
+            await flushPromises();
+            await vi.runOnlyPendingTimersAsync();
+
+            expect(wrapper.findComponent({ name: 'GeneralView' }).exists()).toBe(true);
+            expect(updateServiceMock.checkAndOpenUpdates).toHaveBeenCalledTimes(1);
+            expect(scrollIntoView).toHaveBeenCalledWith({
+                block: 'start',
+                behavior: 'smooth',
+            });
+        } finally {
+            finishCheck();
+            await flushPromises();
+            wrapper.unmount();
             querySelectorSpy.mockRestore();
         }
     });

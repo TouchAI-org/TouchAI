@@ -241,6 +241,40 @@ describe('AppUpdateController', () => {
         });
     });
 
+    it('surfaces a failed first settings-open check instead of restoring idle', async () => {
+        const { controller } = createController({
+            checkError: new Error('network unavailable'),
+            lastCheckedAt: '2026-05-22T09:59:00.000Z',
+        });
+
+        await expect(controller.checkNow('settings-open')).resolves.toBe(false);
+
+        expect(controller.getState()).toMatchObject({
+            status: 'failed',
+            error: 'network unavailable',
+        });
+    });
+
+    it('surfaces initial settings-open errors when joining a background check', async () => {
+        const deferredCheck = createDeferred<AppUpdateCheckResult>();
+        const { controller, checkForUpdates } = createController();
+        checkForUpdates.mockReturnValueOnce(deferredCheck.promise);
+        const backgroundCheck = controller.checkNow('automatic');
+        await vi.waitFor(() => expect(checkForUpdates).toHaveBeenCalledTimes(1));
+        const settingsCheck = controller.checkNow('settings-open');
+        await Promise.resolve();
+        deferredCheck.reject(new Error('network unavailable'));
+
+        await expect(Promise.all([backgroundCheck, settingsCheck])).resolves.toEqual([
+            false,
+            false,
+        ]);
+        expect(controller.getState()).toMatchObject({
+            status: 'failed',
+            error: 'network unavailable',
+        });
+    });
+
     it('shares completed checks with other windows and accepts their results without another request', async () => {
         let receiveCheck!: (result: AppUpdateCheckResult, checkedAt: string) => void;
         const checkEvents = {
