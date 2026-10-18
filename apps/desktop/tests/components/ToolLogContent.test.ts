@@ -44,6 +44,7 @@ describe('tool log content', () => {
         );
         expect(inputSection.get('pre').text()).toBe('Get-ChildItem -Force');
         expect(outputSection.text()).toContain('退出码 0');
+        expect(inputSection.text()).toContain('powershell');
         expect(outputSection.get('pre').text()).toBe('file content');
         expect(outputSection.text()).not.toContain('Working directory:');
 
@@ -73,6 +74,9 @@ describe('tool log content', () => {
             'C:/requested'
         );
         expect(parseBashLogOutput(legacyOutput)).toBeNull();
+        expect(legacy.get('[data-testid="tool-log-input-section"]').text()).not.toContain(
+            'PowerShell'
+        );
     });
 
     it('keeps errors visible in a separate section when execution fails before output', () => {
@@ -83,6 +87,24 @@ describe('tool log content', () => {
         expect(wrapper.find('[data-testid="tool-log-output-section"]').exists()).toBe(false);
         expect(wrapper.get('[data-testid="tool-log-error-label"]').text()).toBe('错误');
         expect(wrapper.text()).toContain('Permission denied');
+        expect(wrapper.text()).not.toContain('PowerShell');
+    });
+
+    it('keeps the recorded shell and hides an unavailable exit code after a timeout', () => {
+        const wrapper = mount(ToolLogContent, {
+            props: {
+                input: bashInput,
+                output: bashOutput
+                    .replace('powershell', 'bash')
+                    .replace('Exit code: 0', 'Exit code: none'),
+                isBash: true,
+            },
+        });
+
+        expect(wrapper.get('[data-testid="tool-log-input-section"]').text()).toContain('bash');
+        expect(wrapper.get('[data-testid="tool-log-output-section"]').text()).not.toContain(
+            '退出码'
+        );
     });
 
     it('does not repeat the same error when the output already includes it', () => {

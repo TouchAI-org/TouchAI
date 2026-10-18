@@ -28,8 +28,11 @@
     const workingDirectory = computed(
         () => bashOutput.value?.workingDirectory || bashInput.value?.workingDirectory || null
     );
-    const shell = computed(() => bashOutput.value?.shell || (props.isBash ? 'PowerShell' : null));
-    const exitCode = computed(() => bashOutput.value?.exitCode || null);
+    const shell = computed(() => bashOutput.value?.shell || null);
+    const exitCode = computed(() => {
+        const value = bashOutput.value?.exitCode;
+        return value && value !== 'none' ? value : null;
+    });
 
     function formatJson(value: string): string {
         try {
