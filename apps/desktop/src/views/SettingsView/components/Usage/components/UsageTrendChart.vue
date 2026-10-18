@@ -130,21 +130,21 @@
 </script>
 
 <template>
-    <section class="flex flex-col gap-2 rounded-[13px] border border-neutral-200/70 bg-white p-3">
+    <section class="settings-row-group flex flex-col gap-2 p-4">
         <div class="flex items-center justify-between gap-3">
-            <span class="text-xs font-medium tracking-wide text-neutral-500">
+            <span class="text-[13px] text-neutral-950">
                 {{ t('settings.usage.trend.title') }}
             </span>
-            <div class="flex items-center gap-0.5 rounded-[8px] bg-neutral-100 p-[3px]">
+            <div class="flex items-center gap-1">
                 <button
                     v-for="option in METRIC_OPTIONS"
                     :key="option.value"
                     type="button"
                     :class="[
-                        'rounded-[6px] px-2.5 py-1 text-[11px] transition-colors',
+                        'rounded-[10px] px-3 py-1.5 text-xs transition-colors',
                         metric === option.value
-                            ? 'bg-white font-semibold text-neutral-900 shadow-sm'
-                            : 'text-neutral-500 hover:text-neutral-800',
+                            ? 'bg-[#e9e9e7] text-neutral-950'
+                            : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
                     ]"
                     :aria-pressed="metric === option.value"
                     @click="metric = option.value"

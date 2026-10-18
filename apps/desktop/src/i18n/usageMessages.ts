@@ -12,8 +12,15 @@ export const usageMessagesZhCN = {
 
     'settings.usage.title': '用量统计',
     'settings.usage.subtitle': 'Token、成本与调用审计',
-    'settings.usage.refresh': '刷新',
     'settings.usage.loadFailed': '用量数据加载失败，请稍后重试',
+    'settings.usage.realtime': '数据随对话自动更新',
+
+    // 分组统计表头
+    'settings.usage.table.calls': '次数',
+    'settings.usage.table.tokens': 'Tokens',
+    'settings.usage.table.cacheRate': '缓存',
+    'settings.usage.table.ttft': '首字',
+    'settings.usage.table.cost': '成本',
 
     // 时间范围
     'settings.usage.range.today': '今天',
@@ -83,6 +90,11 @@ export const usageMessagesZhCN = {
     'settings.usage.tab.providers': '供应商',
 
     // 调用明细
+    'settings.usage.call.title': '调用明细',
+    'settings.usage.call.tokens': '{value} tokens',
+    'settings.usage.call.outcome.completed': '完成',
+    'settings.usage.call.outcome.failed': '失败',
+    'settings.usage.call.outcome.truncated': '被截断',
     'settings.usage.calls.empty': '这段时间没有调用记录',
     'settings.usage.calls.unpriced': '未定价',
     'settings.usage.calls.cacheRate': '缓存',
@@ -104,10 +116,53 @@ export const usageMessagesZhCN = {
     'settings.usage.empty.title': '还没有用量数据',
     'settings.usage.empty.body': '开始一次对话后，这里会显示 Token 与成本统计',
 
-    // 打码
-    'settings.usage.mask.label': '打码',
-    'settings.usage.mask.tip': '隐藏供应商与模型名，便于截图分享',
-    'settings.usage.mask.placeholder': '模型 {index}',
+    // 上下文
+    'settings.usage.context.title': '上下文健康度',
+    'settings.usage.context.description':
+        '按模型看窗口占用、固定开销与缓存复用。总量取自供应商返回的真实用量，分段为估算。',
+    'settings.usage.context.empty': '还没有可统计的上下文数据',
+    'settings.usage.context.overallScore': '综合评分',
+    'settings.usage.context.breakdown': '评分构成',
+    'settings.usage.context.composition': '本轮上下文构成',
+    'settings.usage.context.estimateNote': '堆叠总高度取自真实用量，各分段按字符估算（≈）',
+    'settings.usage.context.turns': '{count} 轮采样',
+    'settings.usage.context.all': '全部模型',
+
+    'settings.usage.context.score.cache': '缓存复用',
+    'settings.usage.context.score.lean': '起步精简',
+    'settings.usage.context.score.pace': '增长节奏',
+    'settings.usage.context.score.reliable': '调用可靠',
+
+    'settings.usage.context.segment.systemPrompt': '系统提示',
+    'settings.usage.context.segment.builtinToolDefinitions': '内置工具',
+    'settings.usage.context.segment.mcpToolDefinitions': 'MCP 工具',
+    'settings.usage.context.segment.conversation': '对话历史',
+    'settings.usage.context.segment.userPrompt': '用户输入',
+    'settings.usage.context.segment.attachments': '附件',
+
+    'settings.usage.context.column.model': '模型',
+    'settings.usage.context.column.turns': '轮次',
+    'settings.usage.context.column.median': '中位',
+    'settings.usage.context.column.p90': 'P90',
+    'settings.usage.context.column.baseline': '基线',
+    'settings.usage.context.column.window': '窗口',
+    'settings.usage.context.column.peak': '峰值',
+    'settings.usage.context.column.cache': '缓存',
+    'settings.usage.context.column.compacts': '压缩',
+    'settings.usage.context.column.score': '评分',
+
+    'settings.usage.context.tag.cacheFriendly': '缓存友好',
+    'settings.usage.context.tag.cacheMisses': '缓存未命中多',
+    'settings.usage.context.tag.lean': '起步精简',
+    'settings.usage.context.tag.heavyStart': '起步太重',
+    'settings.usage.context.tag.mcpHeavy': 'MCP 占窗口多',
+    'settings.usage.context.tag.fillsFast': '上下文涨得快',
+    'settings.usage.context.tag.nearFull': '接近满窗',
+    'settings.usage.context.tag.compacts': '发生过压缩',
+    'settings.usage.context.tag.attachmentHeavy': '附件占用多',
+    'settings.usage.context.tag.promptBloat': '输入过长',
+    'settings.usage.context.tag.steady': '稳定',
+    'settings.usage.context.tag.flaky': '不稳定',
 } as const;
 
 /** 用量统计页的文案（en-US） */
@@ -118,8 +173,14 @@ export const usageMessagesEnUS = {
 
     'settings.usage.title': 'Usage',
     'settings.usage.subtitle': 'Tokens, cost, and call audit',
-    'settings.usage.refresh': 'Refresh',
     'settings.usage.loadFailed': 'Failed to load usage data. Try again later.',
+    'settings.usage.realtime': 'Updates automatically as you chat',
+
+    'settings.usage.table.calls': 'Calls',
+    'settings.usage.table.tokens': 'Tokens',
+    'settings.usage.table.cacheRate': 'Cache',
+    'settings.usage.table.ttft': 'TTFT',
+    'settings.usage.table.cost': 'Cost',
 
     'settings.usage.range.today': 'Today',
     'settings.usage.range.24h': '24 hours',
@@ -181,6 +242,11 @@ export const usageMessagesEnUS = {
     'settings.usage.tab.models': 'Models',
     'settings.usage.tab.providers': 'Providers',
 
+    'settings.usage.call.title': 'Call audit',
+    'settings.usage.call.tokens': '{value} tokens',
+    'settings.usage.call.outcome.completed': 'Completed',
+    'settings.usage.call.outcome.failed': 'Failed',
+    'settings.usage.call.outcome.truncated': 'Truncated',
     'settings.usage.calls.empty': 'No calls in this range',
     'settings.usage.calls.unpriced': 'Unpriced',
     'settings.usage.calls.cacheRate': 'Cache',
@@ -200,7 +266,51 @@ export const usageMessagesEnUS = {
     'settings.usage.empty.title': 'No usage data yet',
     'settings.usage.empty.body': 'Start a conversation and token and cost stats will appear here',
 
-    'settings.usage.mask.label': 'Mask',
-    'settings.usage.mask.tip': 'Hide provider and model names for screenshots',
-    'settings.usage.mask.placeholder': 'Model {index}',
+    'settings.usage.context.title': 'Context health',
+    'settings.usage.context.description':
+        'Per-model window usage, fixed overhead, and cache reuse. Totals come from the provider; segments are estimates.',
+    'settings.usage.context.empty': 'No context data to summarise yet',
+    'settings.usage.context.overallScore': 'Overall score',
+    'settings.usage.context.breakdown': 'Score breakdown',
+    'settings.usage.context.composition': 'Current context composition',
+    'settings.usage.context.estimateNote':
+        'Total height uses real usage; each segment is estimated from characters (≈)',
+    'settings.usage.context.turns': '{count} turns sampled',
+    'settings.usage.context.all': 'All models',
+
+    'settings.usage.context.score.cache': 'Cache reuse',
+    'settings.usage.context.score.lean': 'Lean start',
+    'settings.usage.context.score.pace': 'Growth pace',
+    'settings.usage.context.score.reliable': 'Reliability',
+
+    'settings.usage.context.segment.systemPrompt': 'System prompt',
+    'settings.usage.context.segment.builtinToolDefinitions': 'Built-in tools',
+    'settings.usage.context.segment.mcpToolDefinitions': 'MCP tools',
+    'settings.usage.context.segment.conversation': 'Conversation',
+    'settings.usage.context.segment.userPrompt': 'User input',
+    'settings.usage.context.segment.attachments': 'Attachments',
+
+    'settings.usage.context.column.model': 'Model',
+    'settings.usage.context.column.turns': 'Turns',
+    'settings.usage.context.column.median': 'Median',
+    'settings.usage.context.column.p90': 'P90',
+    'settings.usage.context.column.baseline': 'Baseline',
+    'settings.usage.context.column.window': 'Window',
+    'settings.usage.context.column.peak': 'Peak',
+    'settings.usage.context.column.cache': 'Cache',
+    'settings.usage.context.column.compacts': 'Compacts',
+    'settings.usage.context.column.score': 'Score',
+
+    'settings.usage.context.tag.cacheFriendly': 'Cache friendly',
+    'settings.usage.context.tag.cacheMisses': 'Frequent cache misses',
+    'settings.usage.context.tag.lean': 'Lean start',
+    'settings.usage.context.tag.heavyStart': 'Heavy start',
+    'settings.usage.context.tag.mcpHeavy': 'MCP heavy',
+    'settings.usage.context.tag.fillsFast': 'Fills fast',
+    'settings.usage.context.tag.nearFull': 'Near full',
+    'settings.usage.context.tag.compacts': 'Compacts',
+    'settings.usage.context.tag.attachmentHeavy': 'Attachment heavy',
+    'settings.usage.context.tag.promptBloat': 'Long input',
+    'settings.usage.context.tag.steady': 'Steady',
+    'settings.usage.context.tag.flaky': 'Flaky',
 } as const;

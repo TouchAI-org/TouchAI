@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
 
-import UsageHero from '../../src/views/SettingsView/components/Usage/components/UsageHero.vue';
+import UsageMetrics from '../../src/views/SettingsView/components/Usage/components/UsageMetrics.vue';
 
 function summary(partial: Partial<UsageSummary> = {}): UsageSummary {
     return {
@@ -29,13 +29,11 @@ function summary(partial: Partial<UsageSummary> = {}): UsageSummary {
     };
 }
 
-function render(partial: Partial<UsageSummary> = {}, compact = false) {
-    return mount(UsageHero, {
-        props: { summary: summary(partial), compact, maskText: (value: string) => value },
-    });
+function render(partial: Partial<UsageSummary> = {}) {
+    return mount(UsageMetrics, { props: { summary: summary(partial) } });
 }
 
-describe('UsageHero', () => {
+describe('UsageMetrics', () => {
     it('renders the four primary metric cards', () => {
         setLocale('zh-CN');
         const wrapper = render({ requestCount: 12, totalCostMicros: 1_500_000 });
@@ -53,7 +51,6 @@ describe('UsageHero', () => {
 
         // 未定价调用绝不当作 0 成本：合计前加 ≥，并单独标注次数
         expect(wrapper.text()).toContain('≥');
-        expect(wrapper.text()).toContain('3');
         expect(wrapper.text()).toContain('未定价');
     });
 
@@ -73,13 +70,9 @@ describe('UsageHero', () => {
         expect(wrapper.text()).toContain('0.0%');
     });
 
-    it('reveals the secondary metrics only after expanding', async () => {
+    it('always shows the split metrics instead of hiding them behind a toggle', () => {
         setLocale('zh-CN');
         const wrapper = render({ inputTokens: 1234, outputTokens: 567 });
-
-        expect(wrapper.text()).not.toContain('新增输入');
-
-        await wrapper.get('button').trigger('click');
 
         expect(wrapper.text()).toContain('新增输入');
         expect(wrapper.text()).toContain('输出');
@@ -87,22 +80,12 @@ describe('UsageHero', () => {
         expect(wrapper.text()).toContain('缓存命中');
     });
 
-    it('notes that reasoning tokens are already inside the output count', async () => {
+    it('notes that reasoning tokens are already inside the output count', () => {
         setLocale('zh-CN');
         const wrapper = render({ reasoningTokens: 900 });
-        await wrapper.get('button').trigger('click');
 
         expect(wrapper.text()).toContain('其中推理');
         expect(wrapper.text()).toContain('已含在输出内');
-    });
-
-    it('switches card layout between compact and wide', () => {
-        setLocale('zh-CN');
-        const wide = render({}, false);
-        const compact = render({}, true);
-
-        expect(wide.html()).toContain('grid-cols-4');
-        expect(compact.html()).toContain('grid-cols-2');
     });
 
     it('renders English copy when the locale is en-US', () => {

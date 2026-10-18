@@ -2,15 +2,13 @@
 
 import type { UsageFilter, UsageRangePreset } from '@database/queries/usageStats';
 
-/** 时间范围选项在界面上出现的顺序 */
-export const USAGE_RANGE_PRESETS: UsageRangePreset[] = [
-    'today',
-    '24h',
-    '7d',
-    '30d',
-    'all',
-    'custom',
-];
+/**
+ * 时间范围选项在界面上出现的顺序。
+ *
+ * 不含 `custom`：自定义区间需要日期选择器，当前没有该交互，
+ * 保留 `resolveUsageRange('custom')` 的能力供后续接入。
+ */
+export const USAGE_RANGE_PRESETS: UsageRangePreset[] = ['today', '24h', '7d', '30d', 'all'];
 
 /**
  * 转成数据库时间戳格式（`YYYY-MM-DD HH:MM:SS`，UTC）。

@@ -20,3 +20,4 @@ export * from './settings';
 export * from './statistics';
 export * from './touchaiMeta';
 export * from './usageStats';
+export * from './usageContext';

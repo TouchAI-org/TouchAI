@@ -1,150 +1,137 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import AppIcon from '@components/AppIcon.vue';
+    import LoadingState from '@components/LoadingState.vue';
     import {
+        type ContextProfile,
+        getContextProfiles,
         getUsageByModel,
         getUsageByProvider,
         getUsageCallPage,
         getUsageFilterOptions,
-        getUsageHeatmap,
         getUsageSummary,
         getUsageTrend,
         type UsageCallRow,
         type UsageFilter,
         type UsageFilterOptions,
         type UsageGroup,
-        type UsageHeatmapDay,
         type UsageRangePreset,
         type UsageSummary,
         type UsageTrendPoint,
     } from '@database/queries';
-    import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+    import { AppEvent, eventService } from '@services/EventService';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
-    import { type MessageKey, t } from '@/i18n';
+    import { t } from '@/i18n';
 
-    import UsageCallTable from './components/UsageCallTable.vue';
-    import UsageFilters from './components/UsageFilters.vue';
-    import UsageGroupList from './components/UsageGroupList.vue';
-    import UsageHeatmap from './components/UsageHeatmap.vue';
-    import UsageHero from './components/UsageHero.vue';
+    import UsageBreakdown from './components/UsageBreakdown.vue';
+    import UsageCallList from './components/UsageCallList.vue';
+    import UsageContext from './components/UsageContext.vue';
+    import UsageMetrics from './components/UsageMetrics.vue';
+    import UsageToolbar from './components/UsageToolbar.vue';
     import UsageTrendChart from './components/UsageTrendChart.vue';
     import { resolveUsageRange } from './utils/usageRange';
 
     defineOptions({ name: 'SettingsUsageSection' });
 
-    type UsageTab = 'overview' | 'calls' | 'models' | 'providers';
+    type StatusValue = 'all' | 'completed' | 'failed' | 'cancelled' | 'retried';
 
-    const TABS: Array<{ value: UsageTab; labelKey: MessageKey }> = [
-        { value: 'overview', labelKey: 'settings.usage.tab.overview' },
-        { value: 'calls', labelKey: 'settings.usage.tab.calls' },
-        { value: 'models', labelKey: 'settings.usage.tab.models' },
-        { value: 'providers', labelKey: 'settings.usage.tab.providers' },
-    ];
+    const PAGE_SIZE = 20;
 
-    const PAGE_SIZE = 50;
-
-    const preset = ref<UsageRangePreset>('7d');
-    const modelIds = ref<number[]>([]);
-    const providerIds = ref<number[]>([]);
-    const statuses = ref<UsageFilter['statuses']>(undefined);
+    const preset = ref<UsageRangePreset>('30d');
+    const status = ref<StatusValue>('all');
+    const modelId = ref<number | null>(null);
+    const providerId = ref<number | null>(null);
     const search = ref('');
-    const activeTab = ref<UsageTab>('overview');
     const callOffset = ref(0);
 
     const loading = ref(true);
-    const loadError = ref<string | null>(null);
+    const loadError = ref(false);
 
     const summary = ref<UsageSummary | null>(null);
     const trend = ref<{ bucket: 'hour' | 'day'; points: UsageTrendPoint[] }>({
         bucket: 'day',
         points: [],
     });
-    const heatmap = ref<UsageHeatmapDay[]>([]);
     const byModel = ref<UsageGroup[]>([]);
     const byProvider = ref<UsageGroup[]>([]);
     const options = ref<UsageFilterOptions>({ models: [], providers: [] });
-    const calls = ref<UsageCallRow[]>([]);
-    const callTotal = ref(0);
+    const calls = ref<{ rows: UsageCallRow[]; total: number }>({ rows: [], total: 0 });
+    const contextProfiles = ref<{ overall: ContextProfile | null; models: ContextProfile[] }>({
+        overall: null,
+        models: [],
+    });
 
     const containerRef = ref<HTMLElement | null>(null);
     const containerWidth = ref(0);
-    let observer: ResizeObserver | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let unlistenTaskStatus: (() => void) | null = null;
 
     const compact = computed(() => containerWidth.value > 0 && containerWidth.value < 720);
 
-    /** 打码状态：供应商名与模型名替换成占位符，供截图分享 */
-    const maskEnabled = ref(false);
-    const maskMap = ref(new Map<string, string>());
-
-    function maskText(value: string): string {
-        if (!maskEnabled.value || !value) return value;
-        const existing = maskMap.value.get(value);
-        if (existing) return existing;
-        const placeholder = t('settings.usage.mask.placeholder', {
-            index: maskMap.value.size + 1,
-        });
-        maskMap.value.set(value, placeholder);
-        return placeholder;
-    }
-
-    function toggleMask() {
-        maskEnabled.value = !maskEnabled.value;
-        if (!maskEnabled.value) {
-            maskMap.value = new Map();
-        }
-    }
-
-    /** 当前筛选条件；所有查询共用，保证口径一致 */
-    const filter = computed<UsageFilter>(() => ({
-        ...resolveUsageRange(preset.value),
-        modelIds: modelIds.value.length ? modelIds.value : undefined,
-        providerIds: providerIds.value.length ? providerIds.value : undefined,
-        statuses: statuses.value?.length ? statuses.value : undefined,
-        onlyFailed: statuses.value?.length === 1 && statuses.value[0] === 'failed',
-        search: search.value.trim() || undefined,
-    }));
+    const filter = computed<UsageFilter>(() => {
+        const base = resolveUsageRange(preset.value);
+        return {
+            ...base,
+            modelIds: modelId.value === null ? undefined : [modelId.value],
+            providerIds: providerId.value === null ? undefined : [providerId.value],
+            statuses:
+                status.value === 'all' || status.value === 'retried' ? undefined : [status.value],
+            onlyFailed: status.value === 'failed',
+            onlyRetried: status.value === 'retried',
+            search: search.value.trim() || undefined,
+        };
+    });
 
     async function load() {
         loading.value = true;
-        loadError.value = null;
+        loadError.value = false;
         try {
             const current = filter.value;
-            const [nextSummary, nextTrend, nextModels, nextProviders, nextOptions, nextCalls] =
-                await Promise.all([
-                    getUsageSummary(current),
-                    getUsageTrend(current),
-                    getUsageByModel(current),
-                    getUsageByProvider(current),
-                    getUsageFilterOptions(current),
-                    getUsageCallPage(current, callOffset.value, PAGE_SIZE),
-                ]);
+            const [
+                nextSummary,
+                nextTrend,
+                nextModels,
+                nextProviders,
+                nextOptions,
+                nextCalls,
+                nextContext,
+            ] = await Promise.all([
+                getUsageSummary(current),
+                getUsageTrend(current),
+                getUsageByModel(current),
+                getUsageByProvider(current),
+                getUsageFilterOptions(current),
+                getUsageCallPage(current, callOffset.value, PAGE_SIZE),
+                getContextProfiles(current),
+            ]);
 
             summary.value = nextSummary;
             trend.value = nextTrend;
             byModel.value = nextModels;
             byProvider.value = nextProviders;
             options.value = nextOptions;
-            calls.value = nextCalls.rows;
-            callTotal.value = nextCalls.total;
+            calls.value = { rows: nextCalls.rows, total: nextCalls.total };
+            contextProfiles.value = nextContext;
         } catch (error) {
             console.error('[SettingsUsageSection] Failed to load usage stats:', error);
-            loadError.value = error instanceof Error ? error.message : String(error);
+            loadError.value = true;
         } finally {
             loading.value = false;
         }
     }
 
-    /** 热力图固定 53 周，只在首次加载与手动刷新时更新 */
-    async function loadHeatmap() {
-        try {
-            heatmap.value = await getUsageHeatmap();
-        } catch (error) {
-            console.error('[SettingsUsageSection] Failed to load heatmap:', error);
+    /** 事件驱动的实时刷新：任务结束后延迟合并，避免短暂加载态 */
+    function scheduleRefresh() {
+        if (refreshTimer) {
+            clearTimeout(refreshTimer);
         }
+        refreshTimer = setTimeout(() => {
+            void load();
+        }, 350);
     }
 
-    // 筛选变化重新查询（分页回到第一页）
     watch(
         filter,
         () => {
@@ -158,172 +145,136 @@
 
     onMounted(() => {
         if (containerRef.value) {
-            observer = new ResizeObserver((entries) => {
+            resizeObserver = new ResizeObserver((entries) => {
                 containerWidth.value = entries[0]?.contentRect.width ?? 0;
             });
-            observer.observe(containerRef.value);
+            resizeObserver.observe(containerRef.value);
         }
         void load();
-        void loadHeatmap();
+
+        // 对话完成/失败/取消后自动刷新，用量页不提供手动刷新按钮
+        void eventService
+            .on(AppEvent.SESSION_TASK_STATUS_CHANGED, (payload) => {
+                if (
+                    payload.status === 'completed' ||
+                    payload.status === 'failed' ||
+                    payload.status === 'cancelled'
+                ) {
+                    scheduleRefresh();
+                }
+            })
+            .then((unlisten) => {
+                unlistenTaskStatus = unlisten;
+            });
     });
 
-    onBeforeUnmount(() => observer?.disconnect());
-
-    const showHeatmap = computed(() => preset.value === 'all');
+    onUnmounted(() => {
+        resizeObserver?.disconnect();
+        if (refreshTimer) {
+            clearTimeout(refreshTimer);
+        }
+        unlistenTaskStatus?.();
+        unlistenTaskStatus = null;
+    });
 </script>
 
 <template>
-    <div ref="containerRef" class="settings-page-wide flex flex-col gap-4">
-        <!-- 标题行 -->
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex flex-col">
-                <h2 class="font-serif text-lg text-neutral-900">{{ t('settings.usage.title') }}</h2>
-                <span class="text-xs text-neutral-500">{{ t('settings.usage.subtitle') }}</span>
+    <div ref="containerRef" class="settings-page" data-testid="settings-usage-section">
+        <div class="settings-section-stack">
+            <header class="settings-page-header">
+                <h1 class="settings-page-title">{{ t('settings.nav.usage.label') }}</h1>
+                <p class="settings-section-description">
+                    {{ t('settings.nav.usage.description') }}
+                </p>
+            </header>
+
+            <div class="settings-row-group space-y-3 p-4" data-testid="settings-usage-toolbar">
+                <UsageToolbar
+                    :preset="preset"
+                    :status="status"
+                    :provider-id="providerId"
+                    :model-id="modelId"
+                    :search="search"
+                    :options="options"
+                    :loading="loading"
+                    @update:preset="preset = $event"
+                    @update:status="status = $event"
+                    @update:provider-id="providerId = $event"
+                    @update:model-id="modelId = $event"
+                    @update:search="search = $event"
+                />
+
+                <p class="text-[11px] text-neutral-400">
+                    {{ t('settings.usage.realtime') }}
+                </p>
             </div>
-            <div class="flex items-center gap-1.5">
-                <button
-                    type="button"
-                    :class="[
-                        'flex h-8 items-center gap-1.5 rounded-[8px] border px-2.5 text-[11px] transition-colors',
-                        maskEnabled
-                            ? 'border-neutral-800 bg-neutral-800 text-white'
-                            : 'border-neutral-200/70 bg-white text-neutral-700 hover:border-neutral-300',
-                    ]"
-                    :aria-pressed="maskEnabled"
-                    :title="t('settings.usage.mask.tip')"
-                    @click="toggleMask"
+
+            <div v-if="loadError" class="settings-card text-red-700">
+                {{ t('settings.usage.loadFailed') }}
+            </div>
+
+            <LoadingState v-else-if="loading && !summary" variant="brand" fill="min" />
+
+            <template v-else-if="summary">
+                <div
+                    v-if="summary.requestCount === 0"
+                    class="settings-row-group px-5 py-16 text-center"
+                    data-testid="settings-usage-empty"
                 >
-                    <AppIcon name="eye-off" class="h-3.5 w-3.5" />
-                    {{ t('settings.usage.mask.label') }}
-                </button>
-                <button
-                    type="button"
-                    class="flex h-8 items-center gap-1.5 rounded-[8px] border border-neutral-200/70 bg-white px-2.5 text-[11px] text-neutral-700 transition-colors hover:border-neutral-300 disabled:opacity-50"
-                    :disabled="loading"
-                    @click="
-                        () => {
-                            void load();
-                            void loadHeatmap();
-                        }
-                    "
-                >
-                    <AppIcon
-                        name="refresh"
-                        class="h-3.5 w-3.5"
-                        :class="loading ? 'animate-spin' : ''"
+                    <p class="text-sm text-neutral-500">{{ t('settings.usage.empty.title') }}</p>
+                    <p class="mt-1 text-xs text-neutral-400">
+                        {{ t('settings.usage.empty.body') }}
+                    </p>
+                </div>
+
+                <template v-else>
+                    <UsageMetrics :summary="summary" />
+
+                    <section class="space-y-4">
+                        <h2 class="settings-section-title">
+                            {{ t('settings.usage.trend.title') }}
+                        </h2>
+                        <UsageTrendChart
+                            :points="trend.points"
+                            :bucket="trend.bucket"
+                            :compact="compact"
+                        />
+                    </section>
+
+                    <UsageBreakdown
+                        :title="t('settings.usage.group.byModel')"
+                        :groups="byModel"
+                        :selected-id="modelId"
+                        :name-label="t('settings.usage.filter.model.all')"
+                        @select="modelId = $event"
                     />
-                    {{ t('settings.usage.refresh') }}
-                </button>
-            </div>
+
+                    <UsageBreakdown
+                        :title="t('settings.usage.group.byProvider')"
+                        :groups="byProvider"
+                        :selected-id="providerId"
+                        :name-label="t('settings.usage.filter.provider.all')"
+                        @select="providerId = $event"
+                    />
+
+                    <UsageContext
+                        :overall="contextProfiles.overall"
+                        :models="contextProfiles.models"
+                    />
+
+                    <section class="space-y-4">
+                        <h2 class="settings-section-title">{{ t('settings.usage.call.title') }}</h2>
+                        <UsageCallList
+                            :rows="calls.rows"
+                            :total="calls.total"
+                            :offset="callOffset"
+                            :limit="PAGE_SIZE"
+                            :loading="loading"
+                            @change-page="callOffset = $event"
+                        />
+                    </section>
+                </template>
+            </template>
         </div>
-
-        <UsageFilters
-            :filter="filter"
-            :preset="preset"
-            :options="options"
-            :search="search"
-            :compact="compact"
-            :mask-text="maskText"
-            @update:preset="preset = $event"
-            @update:model-ids="modelIds = $event"
-            @update:provider-ids="providerIds = $event"
-            @update:statuses="statuses = $event"
-            @update:search="search = $event"
-        />
-
-        <!-- 错误 -->
-        <div
-            v-if="loadError"
-            class="rounded-[13px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
-        >
-            {{ t('settings.usage.loadFailed') }}
-        </div>
-
-        <!-- 空状态 -->
-        <div
-            v-else-if="!loading && summary && summary.requestCount === 0"
-            class="flex flex-col items-center gap-2 rounded-[13px] border border-neutral-200/70 bg-white py-16"
-        >
-            <AppIcon name="chart" class="h-12 w-12 text-neutral-300" />
-            <p class="font-serif text-sm text-neutral-700">{{ t('settings.usage.empty.title') }}</p>
-            <p class="text-xs text-neutral-500">{{ t('settings.usage.empty.body') }}</p>
-        </div>
-
-        <template v-else>
-            <UsageHero v-if="summary" :summary="summary" :compact="compact" :mask-text="maskText" />
-
-            <UsageHeatmap v-if="showHeatmap" :days="heatmap" :compact="compact" />
-            <UsageTrendChart
-                v-else
-                :points="trend.points"
-                :bucket="trend.bucket"
-                :compact="compact"
-            />
-
-            <!-- Tab -->
-            <div class="flex items-center gap-1 border-b border-neutral-200/70">
-                <button
-                    v-for="tab in TABS"
-                    :key="tab.value"
-                    type="button"
-                    :class="[
-                        '-mb-px border-b-2 px-3 py-1.5 text-xs transition-colors',
-                        activeTab === tab.value
-                            ? 'border-neutral-800 font-semibold text-neutral-900'
-                            : 'border-transparent text-neutral-500 hover:text-neutral-800',
-                    ]"
-                    :aria-selected="activeTab === tab.value"
-                    @click="activeTab = tab.value"
-                >
-                    {{ t(tab.labelKey) }}
-                </button>
-            </div>
-
-            <div v-show="activeTab === 'overview'" class="flex flex-col gap-4">
-                <UsageGroupList
-                    :title="t('settings.usage.group.byModel')"
-                    :groups="byModel"
-                    :selected-id="modelIds[0] ?? null"
-                    :mask-text="maskText"
-                    @select="modelIds = $event === null ? [] : [$event]"
-                />
-                <UsageGroupList
-                    :title="t('settings.usage.group.byProvider')"
-                    :groups="byProvider"
-                    :selected-id="providerIds[0] ?? null"
-                    :mask-text="maskText"
-                    @select="providerIds = $event === null ? [] : [$event]"
-                />
-            </div>
-
-            <UsageCallTable
-                v-show="activeTab === 'calls'"
-                :rows="calls"
-                :total="callTotal"
-                :offset="callOffset"
-                :limit="PAGE_SIZE"
-                :compact="compact"
-                :mask-text="maskText"
-                @change-page="callOffset = $event"
-            />
-
-            <UsageGroupList
-                v-show="activeTab === 'models'"
-                :title="t('settings.usage.group.byModel')"
-                :groups="byModel"
-                :selected-id="modelIds[0] ?? null"
-                :mask-text="maskText"
-                @select="modelIds = $event === null ? [] : [$event]"
-            />
-
-            <UsageGroupList
-                v-show="activeTab === 'providers'"
-                :title="t('settings.usage.group.byProvider')"
-                :groups="byProvider"
-                :selected-id="providerIds[0] ?? null"
-                :mask-text="maskText"
-                @select="providerIds = $event === null ? [] : [$event]"
-            />
-        </template>
     </div>
 </template>
