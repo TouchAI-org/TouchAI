@@ -222,7 +222,15 @@ function extractProjectionKey(expression: string): string | null {
 }
 
 /**
- * 解析并缓存列顺序；解析失败时退回到返回对象的键顺序。
+ * 解析并缓存列顺序。
+ *
+ * 优先信任数据库返回行的键顺序：Rust 侧按 `row.columns()` 顺序插入键，
+ * 且 `serde_json` 开了 `preserve_order`，所以 `Object.keys(row)` 就是
+ * SELECT 的列顺序。这覆盖表达式列、`coalesce(...)`、聚合函数等所有写法，
+ * 而 SQL 文本解析只能猜到最后一段带引号的标识符。
+ *
+ * 仅当行键个数与投影表达式个数不一致时（重复列名在 JSON 对象里会被合并）
+ * 才退回 SQL 解析结果，并保留原有的“缺列补 null”行为。
  */
 function resolveProjectionKeys(sql: string, fallbackRow: Record<string, unknown>): string[] {
     const cached = projectionKeyCache.get(sql);
@@ -230,25 +238,26 @@ function resolveProjectionKeys(sql: string, fallbackRow: Record<string, unknown>
         return cached;
     }
 
+    const rowKeys = Object.keys(fallbackRow);
     const projectionSegment = extractProjectionSegment(sql);
     if (!projectionSegment) {
-        const fallback = Object.keys(fallbackRow);
-        projectionKeyCache.set(sql, fallback);
-        return fallback;
+        projectionKeyCache.set(sql, rowKeys);
+        return rowKeys;
     }
 
-    const parsedKeys = splitTopLevelSqlExpressions(projectionSegment)
-        .map(extractProjectionKey)
-        .filter((key): key is string => Boolean(key));
+    const expressions = splitTopLevelSqlExpressions(projectionSegment);
+    const parsedKeys = expressions.map(extractProjectionKey).filter((key): key is string => !!key);
 
-    if (parsedKeys.length === 0) {
-        const fallback = Object.keys(fallbackRow);
-        projectionKeyCache.set(sql, fallback);
-        return fallback;
+    const resolvedKeys =
+        expressions.length === rowKeys.length && rowKeys.length > 0 ? rowKeys : parsedKeys;
+
+    if (resolvedKeys.length === 0) {
+        projectionKeyCache.set(sql, rowKeys);
+        return rowKeys;
     }
 
-    projectionKeyCache.set(sql, parsedKeys);
-    return parsedKeys;
+    projectionKeyCache.set(sql, resolvedKeys);
+    return resolvedKeys;
 }
 
 /**
