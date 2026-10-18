@@ -26,7 +26,7 @@ export const MODEL_METADATA_SNAPSHOT_PATH =
 const MINIMUM_MODELS = 1200;
 const MINIMUM_ALIASES = 2500;
 
-/** 只保留运行时真正读取的字段，其余上游字段（cost、description 等）一律丢弃。 */
+/** 只保留运行时真正读取的字段。 */
 const RETAINED_MODEL_FIELDS = [
     'id',
     'name',
@@ -41,6 +41,8 @@ const RETAINED_MODEL_FIELDS = [
     'knowledge',
     'limit',
     'reasoning_options',
+    // 定价：漏掉它会让整条成本链路归零（用量页只显示未定价）。
+    'cost',
 ];
 
 /** 从模型名推导出来的别名优先级最低，避免盖掉真实收录方的写法。 */

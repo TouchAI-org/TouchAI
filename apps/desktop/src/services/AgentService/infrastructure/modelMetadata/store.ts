@@ -19,6 +19,18 @@ export interface ModelMetadataContents {
     aliasList: NewLlmMetadataAlias[];
 }
 
+/** 把数组切成固定大小的批次 */
+function chunked<T>(items: readonly T[], size: number): T[][] {
+    if (items.length === 0) {
+        return [];
+    }
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+}
+
 /**
  * 读取上次成功检查远端目录的时间。
  */
@@ -52,16 +64,20 @@ export async function replaceModelMetadata(
         await tx.delete(llmMetadataAliases).run();
         await tx.delete(llmMetadata).run();
 
-        await tx
-            .insert(llmMetadata)
-            .values(metadataList)
-            .onConflictDoNothing({ target: llmMetadata.model_id })
-            .run();
+        // 分批写入：SQLite 对单条语句的参数个数有上限（默认 32766），
+        // 目录有 2000+ 行 × 十几列，一次性写入会直接超限。
+        for (const chunk of chunked(metadataList, 200)) {
+            await tx
+                .insert(llmMetadata)
+                .values(chunk)
+                .onConflictDoNothing({ target: llmMetadata.model_id })
+                .run();
+        }
 
-        if (aliasList.length > 0) {
+        for (const chunk of chunked(aliasList, 500)) {
             await tx
                 .insert(llmMetadataAliases)
-                .values(aliasList)
+                .values(chunk)
                 .onConflictDoNothing({ target: llmMetadataAliases.alias })
                 .run();
         }

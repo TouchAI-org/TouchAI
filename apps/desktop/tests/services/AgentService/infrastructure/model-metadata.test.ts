@@ -123,6 +123,19 @@ function findInsertRequest(table: string) {
         .find((request) => request?.sql.includes(`insert into "${table}"`));
 }
 
+/**
+ * 收集某张表所有 insert 语句的参数。
+ *
+ * 批量写入会按参数个数上限分批（见 `replaceModelMetadata`），
+ * 所以断言“某个值被写入”时必须跨批次收集，而不是只看第一条。
+ */
+function collectInsertParams(table: string): unknown[] {
+    return getTauriInvokeCalls('database_tx_query')
+        .map((call) => getRequest(call.payload))
+        .filter((request) => request?.sql.includes(`insert into "${table}"`))
+        .flatMap((request) => request?.params ?? []);
+}
+
 function catalog(
     models: Record<string, Record<string, unknown>>,
     alias: Record<string, string> = {}
@@ -370,10 +383,10 @@ describe('model metadata refresh', () => {
 
         await expect(seedModelMetadataFromSnapshot()).resolves.toBeUndefined();
 
-        expect(findInsertRequest('llm_metadata')?.params).toEqual(
+        expect(collectInsertParams('llm_metadata')).toEqual(
             expect.arrayContaining(['deepseek/deepseek-v4.1-flash'])
         );
-        expect(findInsertRequest('llm_metadata_aliases')?.params).toEqual(
+        expect(collectInsertParams('llm_metadata_aliases')).toEqual(
             expect.arrayContaining(['deepseek-v4.1-flash'])
         );
 

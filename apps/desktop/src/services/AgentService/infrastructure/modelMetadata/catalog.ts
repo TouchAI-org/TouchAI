@@ -145,6 +145,8 @@ const RETAINED_MODEL_FIELDS = [
     'knowledge',
     'limit',
     'reasoning_options',
+    // 定价：漏掉它会让整条成本链路归零（用量页只显示未定价）。
+    'cost',
 ] as const;
 
 function retainedFieldCount(model: RawModel): number {

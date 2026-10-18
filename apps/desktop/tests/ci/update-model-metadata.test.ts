@@ -45,7 +45,7 @@ async function withTempProjectRoot(run: (projectRoot: string) => Promise<void>):
 }
 
 describe('update model metadata snapshot', () => {
-    it('retains only the fields the runtime reads', () => {
+    it('retains the fields the runtime reads', () => {
         const catalog = buildCatalog({
             openai: {
                 models: {
@@ -66,6 +66,9 @@ describe('update model metadata snapshot', () => {
             name: 'GPT-5.2',
             reasoning: true,
             reasoning_options: [{ type: 'effort', values: ['low', 'high'] }],
+            // 定价是成本统计的唯一来源，必须一起带进快照，
+            // 否则离线兜底数据算不出任何金额。
+            cost: { input: 1 },
         });
     });
 
