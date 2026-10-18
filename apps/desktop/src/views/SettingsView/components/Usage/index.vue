@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import LoadingState from '@components/LoadingState.vue';
+    import { useAlert } from '@composables/useAlert';
     import {
         canUseUsageArchive,
         type ContextProfile,
@@ -22,6 +23,10 @@
         type UsageTrendPoint,
     } from '@database/queries';
     import { AppEvent, eventService } from '@services/EventService';
+    import {
+        exportUsageCallsCsv,
+        isUsageExportCancelledError,
+    } from '@services/UsageService/exportCsv';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -49,6 +54,8 @@
 
     const loading = ref(true);
     const loadError = ref(false);
+    const exporting = ref(false);
+    const alert = useAlert();
 
     const summary = ref<UsageSummary | null>(null);
     const trend = ref<{ bucket: 'hour' | 'day'; points: UsageTrendPoint[] }>({
@@ -186,6 +193,28 @@
         unlistenTaskStatus?.();
         unlistenTaskStatus = null;
     });
+
+    /** 导出当前筛选下的调用账本；聚合结果可以在表格软件里自行汇总，反之不行 */
+    async function handleExport() {
+        if (exporting.value) {
+            return;
+        }
+
+        exporting.value = true;
+        try {
+            const path = await exportUsageCallsCsv(filter.value);
+            alert.success(t('settings.usage.export.succeeded', { path }));
+        } catch (error) {
+            if (isUsageExportCancelledError(error)) {
+                return;
+            }
+
+            console.error('[SettingsUsageSection] Failed to export usage:', error);
+            alert.error(t('settings.usage.export.failed'));
+        } finally {
+            exporting.value = false;
+        }
+    }
 </script>
 
 <template>
@@ -214,9 +243,20 @@
                     @update:search="search = $event"
                 />
 
-                <p class="text-[11px] text-neutral-400">
-                    {{ t('settings.usage.realtime') }}
-                </p>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <p class="text-[11px] text-neutral-400">
+                        {{ t('settings.usage.realtime') }}
+                    </p>
+                    <button
+                        type="button"
+                        data-testid="settings-usage-export"
+                        class="settings-button-secondary"
+                        :disabled="exporting"
+                        @click="handleExport"
+                    >
+                        {{ exporting ? t('common.loading') : t('settings.usage.export.action') }}
+                    </button>
+                </div>
             </div>
 
             <div v-if="loadError" class="settings-card text-red-700">

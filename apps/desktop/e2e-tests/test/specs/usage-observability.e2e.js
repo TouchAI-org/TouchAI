@@ -211,6 +211,13 @@ describe('TouchAI usage observability', () => {
             throw new Error('Usage page rendered without any numeric metric.');
         }
 
+        // 导出入口必须可用（实际写盘由用户选路径，E2E 不弹系统对话框）
+        const exportButton = await $("[data-testid='settings-usage-export']");
+        await exportButton.waitForDisplayed();
+        if (!(await exportButton.isEnabled())) {
+            throw new Error('Usage export button is disabled.');
+        }
+
         await browser.closeWindow();
         await browser.switchToWindow(mainWindowHandle);
     });

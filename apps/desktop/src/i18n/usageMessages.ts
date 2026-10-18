@@ -12,6 +12,11 @@ export const usageMessagesZhCN = {
 
     'settings.usage.loadFailed': '用量数据加载失败，请稍后重试',
     'settings.usage.realtime': '数据随对话自动更新',
+    'settings.usage.export.action': '导出 CSV',
+    'settings.usage.export.dialogTitle': '导出调用明细',
+    'settings.usage.export.cancelled': '已取消导出',
+    'settings.usage.export.failed': '导出失败，请稍后重试',
+    'settings.usage.export.succeeded': '已导出到 {path}',
 
     // 分组统计表头
     'settings.usage.table.calls': '次数',
@@ -152,6 +157,11 @@ export const usageMessagesEnUS = {
 
     'settings.usage.loadFailed': 'Failed to load usage data. Try again later.',
     'settings.usage.realtime': 'Updates automatically as you chat',
+    'settings.usage.export.action': 'Export CSV',
+    'settings.usage.export.dialogTitle': 'Export call detail',
+    'settings.usage.export.cancelled': 'Export cancelled',
+    'settings.usage.export.failed': 'Export failed. Try again later.',
+    'settings.usage.export.succeeded': 'Exported to {path}',
 
     'settings.usage.table.calls': 'Calls',
     'settings.usage.table.tokens': 'Tokens',
