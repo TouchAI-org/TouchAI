@@ -34,22 +34,23 @@ export async function insertLlmCallParts(
     const baseOrder = (maxRow?.value ?? -1) + 1;
     const now = Date.now();
 
-    await database
-        .insert(messageParts)
-        .values(
-            calls.map((item, index) => {
-                const { durationMs, ttftMs } = item.record.timing;
-                const startedAt = ttftMs === undefined ? null : now - durationMs;
-                return {
-                    message_id: messageId,
-                    type: 'llm_call' as const,
-                    content: '',
-                    data: JSON.stringify(buildLlmCallPartData(item)),
-                    started_at: startedAt,
-                    ended_at: startedAt === null ? null : startedAt + durationMs,
-                    sort_order: baseOrder + index,
-                };
+    // 逐行插入。一个回合通常只有 1–3 次调用，逐行写成本可忽略；
+    // 且单行语句能直观看懂冲突是哪一条（多行 `values([...])` 的报错看不出行号）。
+    for (const [index, item] of calls.entries()) {
+        const { durationMs, ttftMs } = item.record.timing;
+        const startedAt = ttftMs === undefined ? null : now - durationMs;
+
+        await database
+            .insert(messageParts)
+            .values({
+                message_id: messageId,
+                type: 'llm_call' as const,
+                content: '',
+                data: JSON.stringify(buildLlmCallPartData(item)),
+                started_at: startedAt,
+                ended_at: startedAt === null ? null : startedAt + durationMs,
+                sort_order: baseOrder + index,
             })
-        )
-        .run();
+            .run();
+    }
 }
