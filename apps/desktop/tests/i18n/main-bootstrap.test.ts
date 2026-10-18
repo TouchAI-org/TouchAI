@@ -124,6 +124,9 @@ describe('app bootstrap i18n', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.resetModules();
+        // bootstrap 会注册 6 小时一次的刷新定时器。每个用例都会重新导入模块，
+        // 真实定时器累积下来会在慢机器上真的触发，把「只调一次」的断言打破。
+        vi.useFakeTimers();
         document.body.innerHTML = '<div id="app"></div>';
         window.history.replaceState(null, '', '/');
         Object.defineProperty(window, 'open', {
@@ -153,6 +156,10 @@ describe('app bootstrap i18n', () => {
         getCurrentWindowMock.mockReturnValue({
             label: 'main',
         });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('initializes persisted settings before mounting without starting the legacy DOM localizer', async () => {
