@@ -280,11 +280,11 @@
         syncNativeWindowTitle();
         checkForUpdatesOnOpen();
         if (new URLSearchParams(window.location.hash.split('?')[1]).get('section') === 'updates') {
-            void scrollGeneralUpdateSectionIntoView();
+            void scrollGeneralUpdateSectionIntoView({ checkAndOpen: true });
         }
         void eventService
             .on(AppEvent.SETTINGS_SHOW_UPDATES, () => {
-                void scrollGeneralUpdateSectionIntoView();
+                void scrollGeneralUpdateSectionIntoView({ checkAndOpen: true });
             })
             .then((unlisten) => {
                 if (unmounted) unlisten();

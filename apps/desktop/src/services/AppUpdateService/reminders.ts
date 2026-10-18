@@ -49,7 +49,6 @@ interface AppUpdateReminderDeps {
         show(payload: AppUpdateNotificationPayload): Promise<void>;
     };
     createPayload(state: AppUpdateState, version: string): AppUpdateNotificationPayload;
-    update(action: AppUpdateNotificationAction): Promise<void>;
     openSettings(): Promise<void>;
     now?: () => number;
 }
@@ -93,7 +92,7 @@ export class AppUpdateReminderController {
     private unsubscribe: (() => void) | null = null;
     private unlisten: (() => void) | null = null;
     private initialized = false;
-    private updating = false;
+    private openingSettings = false;
     private disposed = false;
 
     constructor(private readonly deps: AppUpdateReminderDeps) {}
@@ -103,6 +102,24 @@ export class AppUpdateReminderController {
 
         this.history = parseHistory(await this.deps.storage.load());
         const unlisten = await this.deps.notifications.listen((action) => {
+            // Both native open/update actions now lead to user-confirmed update details.
+            if (action.action !== 'ignore') {
+                if (this.openingSettings) return;
+                this.openingSettings = true;
+                void this.deps
+                    .openSettings()
+                    .catch((error) => {
+                        console.warn(
+                            '[AppUpdateService] Update notification action failed:',
+                            error
+                        );
+                    })
+                    .finally(() => {
+                        this.openingSettings = false;
+                    });
+                return;
+            }
+
             const state = this.deps.updates.getState();
             if (
                 !['available', 'unsupported', 'downloaded'].includes(state.status) ||
@@ -113,32 +130,14 @@ export class AppUpdateReminderController {
                 return;
             }
 
-            if (action.action === 'ignore') {
-                this.enqueue(async () => {
-                    const key = reminderKey(action.channel, action.version);
-                    this.history[key] = {
-                        lastNotifiedAt: this.history[key]?.lastNotifiedAt ?? null,
-                        ignored: true,
-                    };
-                    await this.persistHistory();
-                });
-            } else if (!this.updating) {
-                this.updating = true;
-                const operation =
-                    action.action === 'update'
-                        ? this.deps.update(action)
-                        : this.deps.openSettings();
-                void operation
-                    .catch((error) => {
-                        console.warn(
-                            '[AppUpdateService] Update notification action failed:',
-                            error
-                        );
-                    })
-                    .finally(() => {
-                        this.updating = false;
-                    });
-            }
+            this.enqueue(async () => {
+                const key = reminderKey(action.channel, action.version);
+                this.history[key] = {
+                    lastNotifiedAt: this.history[key]?.lastNotifiedAt ?? null,
+                    ignored: true,
+                };
+                await this.persistHistory();
+            });
         });
         if (this.disposed) {
             unlisten();
@@ -172,7 +171,7 @@ export class AppUpdateReminderController {
     private async remindIfDue(): Promise<void> {
         const state = this.deps.updates.getState();
         if (
-            this.updating ||
+            this.openingSettings ||
             !state.autoCheckEnabled ||
             !['available', 'unsupported'].includes(state.status)
         )

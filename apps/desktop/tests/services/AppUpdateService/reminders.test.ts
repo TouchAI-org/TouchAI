@@ -35,7 +35,6 @@ function createReminder(options: { raw?: string | null; now?: number } = {}) {
     const save = vi.fn(async (value: string) => {
         raw = value;
     });
-    const update = vi.fn().mockResolvedValue(undefined);
     const openSettings = vi.fn().mockResolvedValue(undefined);
     const controller = new AppUpdateReminderController({
         updates: {
@@ -59,10 +58,9 @@ function createReminder(options: { raw?: string | null; now?: number } = {}) {
             version,
             title: 'Update',
             body: version,
-            updateLabel: 'Update now',
+            updateLabel: 'View details',
             ignoreLabel: 'Ignore this version',
         }),
-        update,
         openSettings,
         now: () => now,
     });
@@ -70,7 +68,6 @@ function createReminder(options: { raw?: string | null; now?: number } = {}) {
         controller,
         show,
         save,
-        update,
         openSettings,
         unsubscribe,
         unlisten,
@@ -126,7 +123,7 @@ describe('AppUpdateReminderController', () => {
         expect(reminder.show).toHaveBeenCalledWith(
             expect.objectContaining({
                 version: '1.2.3',
-                updateLabel: 'Update now',
+                updateLabel: 'View details',
                 ignoreLabel: 'Ignore this version',
             })
         );
@@ -220,7 +217,7 @@ describe('AppUpdateReminderController', () => {
         expect(reminder.show).toHaveBeenCalledTimes(3);
     });
 
-    it('ignores stale notification buttons after the channel or available version changes', async () => {
+    it('opens current update details from stale notifications without ignoring another update', async () => {
         const reminder = createReminder();
         await reminder.controller.initialize();
         await flushReminder();
@@ -243,9 +240,20 @@ describe('AppUpdateReminderController', () => {
         reminder.action('update', 'stable', '1.2.3');
         reminder.action('ignore', 'stable', '1.2.3');
         await flushReminder();
-        expect(reminder.update).not.toHaveBeenCalled();
-        expect(reminder.openSettings).not.toHaveBeenCalled();
+        expect(reminder.openSettings).toHaveBeenCalledTimes(2);
         expect(JSON.parse(reminder.getRaw()!)['stable:1.2.3']?.ignored).not.toBe(true);
+    });
+
+    it('opens update settings even while a fresh update check is running', async () => {
+        const reminder = createReminder();
+        await reminder.controller.initialize();
+        await flushReminder();
+        reminder.change({ status: 'checking' });
+
+        reminder.action('update');
+        await flushReminder();
+
+        expect(reminder.openSettings).toHaveBeenCalledTimes(1);
     });
 
     it('accepts a matching notification after the update has already downloaded', async () => {
@@ -267,15 +275,11 @@ describe('AppUpdateReminderController', () => {
 
         reminder.action('update');
         await flushReminder();
-        expect(reminder.update).toHaveBeenCalledWith({
-            action: 'update',
-            channel: 'stable',
-            version: '1.2.3',
-        });
+        expect(reminder.openSettings).toHaveBeenCalledTimes(1);
 
         reminder.action('open');
         await flushReminder();
-        expect(reminder.openSettings).toHaveBeenCalledTimes(1);
+        expect(reminder.openSettings).toHaveBeenCalledTimes(2);
 
         reminder.action('ignore');
         await flushReminder();
@@ -336,10 +340,10 @@ describe('AppUpdateReminderController', () => {
         reminder.action('update');
         reminder.action('update');
         await flushReminder();
-        expect(reminder.update).toHaveBeenCalledTimes(1);
+        expect(reminder.openSettings).toHaveBeenCalledTimes(1);
         reminder.action('open');
         await flushReminder();
-        expect(reminder.openSettings).toHaveBeenCalledTimes(1);
+        expect(reminder.openSettings).toHaveBeenCalledTimes(2);
         reminder.controller.dispose();
         expect(reminder.unsubscribe).toHaveBeenCalledTimes(1);
         expect(reminder.unlisten).toHaveBeenCalledTimes(1);

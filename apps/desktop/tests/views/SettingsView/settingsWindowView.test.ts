@@ -458,6 +458,63 @@ describe('SettingsWindowView', () => {
         }
     });
 
+    it('opens update details when a system notification targets an existing settings window', async () => {
+        const scrollIntoView = vi.fn();
+        const querySelectorSpy = vi.spyOn(document, 'querySelector').mockReturnValue({
+            scrollIntoView,
+        } as unknown as Element);
+        const wrapper = mount(SettingsWindowView, {
+            global: { stubs: { NavigationSidebar: navigationSidebarStub } },
+        });
+
+        try {
+            await flushPromises();
+            wrapper.findComponent({ name: 'NavigationSidebar' }).vm.$emit('navigate', 'shortcuts');
+            await flushPromises();
+
+            await eventService.emit(AppEvent.SETTINGS_SHOW_UPDATES, null);
+            await flushPromises();
+            await vi.runOnlyPendingTimersAsync();
+
+            expect(wrapper.findComponent({ name: 'GeneralView' }).exists()).toBe(true);
+            expect(updateServiceMock.checkAndOpenUpdates).toHaveBeenCalledTimes(1);
+            expect(scrollIntoView).toHaveBeenCalledWith({
+                block: 'start',
+                behavior: 'smooth',
+            });
+        } finally {
+            wrapper.unmount();
+            querySelectorSpy.mockRestore();
+        }
+    });
+
+    it('opens update details when a system notification creates the settings window', async () => {
+        const originalUrl = window.location.href;
+        window.history.replaceState(null, '', '#/settings?section=updates');
+        const scrollIntoView = vi.fn();
+        const querySelectorSpy = vi.spyOn(document, 'querySelector').mockReturnValue({
+            scrollIntoView,
+        } as unknown as Element);
+        const wrapper = mount(SettingsWindowView, {
+            global: { stubs: { NavigationSidebar: navigationSidebarStub } },
+        });
+
+        try {
+            await flushPromises();
+            await vi.runOnlyPendingTimersAsync();
+
+            expect(updateServiceMock.checkAndOpenUpdates).toHaveBeenCalledTimes(1);
+            expect(scrollIntoView).toHaveBeenCalledWith({
+                block: 'start',
+                behavior: 'smooth',
+            });
+        } finally {
+            wrapper.unmount();
+            querySelectorSpy.mockRestore();
+            window.history.replaceState(null, '', originalUrl);
+        }
+    });
+
     it('waits for a first-load lazy section before scrolling to its search result', async () => {
         const scrollIntoView = vi.fn();
         const originalScrollIntoView = Element.prototype.scrollIntoView;
