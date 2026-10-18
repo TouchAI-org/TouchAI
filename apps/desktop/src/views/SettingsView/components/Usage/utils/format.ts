@@ -2,8 +2,14 @@
 
 import { getLocale } from '@/i18n';
 
-/** 金额：微元 → 本地化货币字符串 */
-export function formatCost(micros: number, currency = 'CNY'): string {
+/**
+ * 金额：微元 → 本地化货币字符串。
+ *
+ * 默认 USD 是因为唯一的定价源（models.dev）以美元报价，
+ * `computeCost` 也就把 `USD` 写进了每条调用记录。
+ * 这里若默认 CNY，等于把 $3 的调用显示成 ¥3。
+ */
+export function formatCost(micros: number, currency = 'USD'): string {
     const amount = micros / 1_000_000;
     return new Intl.NumberFormat(getLocale(), {
         style: 'currency',
