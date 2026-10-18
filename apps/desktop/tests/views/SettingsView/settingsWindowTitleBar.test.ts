@@ -24,6 +24,7 @@ vi.mock('@components/AppIcon.vue', () => ({
 
 describe('SettingsWindowTitleBar', () => {
     beforeEach(() => {
+        vi.clearAllMocks();
         windowApiMock.currentWindow.isMaximized.mockReset().mockResolvedValue(false);
         windowApiMock.currentWindow.onResized.mockReset().mockResolvedValue(() => undefined);
     });
@@ -66,16 +67,33 @@ describe('SettingsWindowTitleBar', () => {
         expect(unlisten).toHaveBeenCalledOnce();
     });
 
-    it('toggles maximization on a titlebar double-click', async () => {
+    it('leaves titlebar double-click maximization to the native drag region', async () => {
         const wrapper = mount(SettingsWindowTitleBar);
         try {
             await flushPromises();
-            await wrapper.get('[data-testid="settings-window-titlebar"]').trigger('dblclick');
+            const titlebar = wrapper.get('[data-testid="settings-window-titlebar"]');
+            expect(titlebar.attributes('data-tauri-drag-region')).toBe('');
+
+            await titlebar.trigger('dblclick');
+            await flushPromises();
+
+            expect(windowApiMock.currentWindow.maximize).not.toHaveBeenCalled();
+            expect(windowApiMock.currentWindow.unmaximize).not.toHaveBeenCalled();
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it('toggles maximization from the explicit window control', async () => {
+        const wrapper = mount(SettingsWindowTitleBar);
+        try {
+            await flushPromises();
+            await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
             await flushPromises();
             expect(windowApiMock.currentWindow.maximize).toHaveBeenCalledOnce();
 
             windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
-            await wrapper.get('[data-testid="settings-window-titlebar"]').trigger('dblclick');
+            await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
             await flushPromises();
             expect(windowApiMock.currentWindow.unmaximize).toHaveBeenCalledOnce();
         } finally {
