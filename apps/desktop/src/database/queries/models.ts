@@ -13,6 +13,7 @@ import type {
     ModelUpdateData,
     ModelWithProvider,
     ProviderModelLookupPayload,
+    RecordUpstreamModelMetadataPayload,
 } from '../types';
 
 export type { ModelWithProvider } from '../types';
@@ -38,6 +39,7 @@ export const modelWithProviderSelection = {
     context_limit: models.context_limit,
     output_limit: models.output_limit,
     is_custom_metadata: models.is_custom_metadata,
+    upstream_metadata: models.upstream_metadata,
     provider_name: sql<string>`${providers.name}`.as('provider_name'),
     provider_driver: sql<ModelWithProvider['provider_driver']>`${providers.driver}`.as(
         'provider_driver'
@@ -203,177 +205,46 @@ export const findModelByProviderAndModelId = async ({
         .get()) as ModelWithProvider | undefined;
 
 /**
- * 中转站等上游会改写模型 id：加日期、加 `-latest` 等。这里把运行时 id
- * 逐层裁掉可识别的版本/发布后缀，再与别名表做精确匹配；裁剪越少越可信。
+ * 记下上游 `/v1/models` 声明的能力，交给 `syncAllModelsMetadata` 按
+ * 「上游 > models.dev > 已有值」统一重建模型列。
+ *
+ * 只写 `is_custom_metadata = 0` 且属于该 provider 的行；重复刷新按字段合并，
+ * 同名字段以最后一次声明为准。
  */
-const candidateModelIds = `
-            candidate_model_ids(model_row_id, candidate, depth) AS (
-                SELECT
-                    source_models.id,
-                    lower(source_models.model_id),
-                    0
-                FROM models AS source_models
-                WHERE source_models.is_custom_metadata = 0
+export const recordUpstreamModelMetadata = async (
+    { providerId, entries }: RecordUpstreamModelMetadataPayload,
+    database: DatabaseExecutor = db
+): Promise<void> => {
+    if (entries.length === 0) {
+        return;
+    }
 
-                UNION ALL
+    const payload = JSON.stringify(entries);
 
-                SELECT
-                    candidate_model_ids.model_row_id,
-                    CASE
-                        WHEN candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-                            THEN substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate) - 11)
-                        WHEN candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
-                            THEN substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate) - 9)
-                        WHEN candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9][0-9][0-9]'
-                            THEN substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate) - 7)
-                        WHEN candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9]'
-                            THEN substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate) - 5)
-                        WHEN candidate_model_ids.candidate GLOB '*-latest'
-                            THEN substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate) - 7)
-                        WHEN candidate_model_ids.candidate GLOB '*-preview'
-                            THEN substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate) - 8)
-                        WHEN candidate_model_ids.candidate GLOB '*-exp'
-                            THEN substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate) - 4)
-                    END,
-                    candidate_model_ids.depth + 1
-                FROM candidate_model_ids
-                WHERE candidate_model_ids.depth < 4
-                  AND (
-                      candidate_model_ids.candidate GLOB '*-[0-9][0-9][0-9][0-9]'
-                      OR candidate_model_ids.candidate GLOB '*-latest'
-                      OR candidate_model_ids.candidate GLOB '*-preview'
-                      OR candidate_model_ids.candidate GLOB '*-exp'
-                  )
-            )
-`;
-
-const metadataMatchSources = `
-            SELECT DISTINCT
-                candidate_model_ids.model_row_id,
-                alias_map.model_id AS metadata_model_id,
-                candidate_model_ids.depth AS match_depth
-            FROM candidate_model_ids
-            JOIN llm_metadata_aliases AS alias_map
-              ON alias_map.alias = candidate_model_ids.candidate
-`;
-
-const metadataMatchOrder = `
-                    match_depth ASC,
-                    (m2.attachment + m2.open_weights + m2.reasoning + m2.temperature + m2.tool_call +
-                        CASE WHEN m2.modalities IS NOT NULL AND m2.modalities <> '' THEN 1 ELSE 0 END
-                    ) DESC,
-                    length(m2.model_id) DESC
-`;
-
-/**
- * 批量同步所有模型的元数据。
- */
-export const syncAllModelsMetadata = async (database: DatabaseExecutor = db): Promise<void> => {
-    const updateSql = sql.raw(`
-        WITH RECURSIVE ${candidateModelIds},
-        matched_metadata AS (
-${metadataMatchSources}
-        ),
-        ranked_metadata AS (
+    await database.run(sql`
+        WITH upstream_model_metadata AS (
             SELECT
-                matched_metadata.model_row_id,
-                m2.attachment,
-                m2.modalities,
-                m2.open_weights,
-                m2.reasoning,
-                m2.reasoning_options,
-                m2.release_date,
-                m2.temperature,
-                m2.tool_call,
-                m2.knowledge,
-                json_extract(m2."limit", '$.context') AS context_limit,
-                json_extract(m2."limit", '$.output') AS output_limit,
-                ROW_NUMBER() OVER (
-                    PARTITION BY matched_metadata.model_row_id
-                    ORDER BY
-                        ${metadataMatchOrder}
-                ) AS rn
-            FROM matched_metadata
-            JOIN llm_metadata AS m2
-              ON m2.model_id = matched_metadata.metadata_model_id
+                json_extract(entry.value, '$.model_id') AS model_id,
+                json_extract(entry.value, '$.metadata') AS metadata
+            FROM json_each(${payload}) AS entry
         )
         UPDATE models
         SET
-            attachment = COALESCE((
-                SELECT ranked_metadata.attachment
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), attachment),
-            modalities = COALESCE((
-                SELECT ranked_metadata.modalities
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), modalities),
-            open_weights = COALESCE((
-                SELECT ranked_metadata.open_weights
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), open_weights),
-            reasoning = COALESCE((
-                SELECT ranked_metadata.reasoning
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), reasoning),
-            reasoning_options = COALESCE((
-                SELECT ranked_metadata.reasoning_options
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), reasoning_options),
-            release_date = COALESCE((
-                SELECT ranked_metadata.release_date
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), release_date),
-            temperature = COALESCE((
-                SELECT ranked_metadata.temperature
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), temperature),
-            tool_call = COALESCE((
-                SELECT ranked_metadata.tool_call
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), tool_call),
-            knowledge = COALESCE((
-                SELECT ranked_metadata.knowledge
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), knowledge),
-            context_limit = COALESCE((
-                SELECT ranked_metadata.context_limit
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), context_limit),
-            output_limit = COALESCE((
-                SELECT ranked_metadata.output_limit
-                FROM ranked_metadata
-                WHERE ranked_metadata.model_row_id = models.id
-                  AND ranked_metadata.rn = 1
-            ), output_limit),
+            upstream_metadata = json_patch(
+                COALESCE(upstream_metadata, '{}'),
+                COALESCE((
+                    SELECT upstream_model_metadata.metadata
+                    FROM upstream_model_metadata
+                    WHERE upstream_model_metadata.model_id = models.model_id
+                ), '{}')
+            ),
             updated_at = datetime('now')
-        WHERE is_custom_metadata = 0
+        WHERE provider_id = ${providerId}
+          AND is_custom_metadata = 0
           AND EXISTS (
             SELECT 1
-            FROM ranked_metadata
-            WHERE ranked_metadata.model_row_id = models.id
-              AND ranked_metadata.rn = 1
-        )
+            FROM upstream_model_metadata
+            WHERE upstream_model_metadata.model_id = models.model_id
+          )
     `);
-
-    await database.run(updateSql);
 };

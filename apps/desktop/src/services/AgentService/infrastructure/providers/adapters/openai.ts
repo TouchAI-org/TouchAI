@@ -9,18 +9,19 @@ import type {
     ReasoningProtocol,
     SelectableReasoningLevel,
 } from '../../../contracts/reasoning';
-import { normalizeReasoningOptions } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { toModelInfo } from '../modelList';
 import { getOpenAiReasoningLevelMap, isOpenAiGpt6SolOrLuna } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
 const openAiStyleModelsSchema = z.object({
     data: z.array(
-        z.object({
-            id: z.string(),
-            reasoning_options: z.unknown().optional(),
-        })
+        z
+            .object({
+                id: z.string(),
+            })
+            .loose()
     ),
 });
 
@@ -61,14 +62,7 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = openAiStyleModelsSchema.parse(payload);
-        return parsed.data.map((model) => {
-            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
-            return {
-                id: model.id,
-                name: model.id,
-                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
-            };
-        });
+        return parsed.data.map((model) => toModelInfo(model, { id: model.id }));
     }
 
     protected override getReasoningProtocol(): ReasoningProtocol {

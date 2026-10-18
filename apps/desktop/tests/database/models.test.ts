@@ -1,4 +1,4 @@
-import { setDefaultModel, syncAllModelsMetadata } from '@database/queries/models';
+import { recordUpstreamModelMetadata, setDefaultModel } from '@database/queries/models';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it } from 'vitest';
@@ -60,7 +60,7 @@ describe('model database queries', () => {
         ]);
     });
 
-    it('matches runtime model ids through the alias table instead of prefix LIKE scans', async () => {
+    it('records upstream declarations only onto non-custom rows of the refreshed provider', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {
                 return { rows: [], rowsAffected: 1, lastInsertId: null };
@@ -69,22 +69,42 @@ describe('model database queries', () => {
             return undefined;
         });
 
-        await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
+        await expect(
+            recordUpstreamModelMetadata({
+                providerId: 7,
+                entries: [
+                    {
+                        model_id: 'group/auto-gpt-5-6-sol',
+                        metadata: { context_limit: 400_000, reasoning: 1 },
+                    },
+                ],
+            })
+        ).resolves.toBeUndefined();
 
         const request = getTauriInvokeCalls('database_query')
             .map((call) => getRequest(call.payload))
             .find((candidate) => candidate?.method === 'run');
         const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
 
-        expect(normalizedSql).toContain('WITH RECURSIVE candidate_model_ids');
+        expect(normalizedSql).toContain('FROM json_each(?) AS entry');
         expect(normalizedSql).toContain(
-            'JOIN llm_metadata_aliases AS alias_map ON alias_map.alias = candidate_model_ids.candidate'
+            "upstream_metadata = json_patch( COALESCE(upstream_metadata, '{}'), COALESCE(("
         );
-        expect(normalizedSql).toContain('match_depth ASC');
-        expect(normalizedSql).not.toContain('LIKE');
+        // 元数据列只由 syncAllModelsMetadata 重建，这里不重复写列。
+        expect(normalizedSql).not.toContain('context_limit =');
+        expect(normalizedSql).toContain('AND is_custom_metadata = 0');
+        expect(request?.params).toEqual([
+            JSON.stringify([
+                {
+                    model_id: 'group/auto-gpt-5-6-sol',
+                    metadata: { context_limit: 400_000, reasoning: 1 },
+                },
+            ]),
+            7,
+        ]);
     });
 
-    it('uses only sqlite-safe model metadata matching SQL', async () => {
+    it('skips the upstream declaration when there is nothing to record', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {
                 return { rows: [], rowsAffected: 1, lastInsertId: null };
@@ -93,17 +113,10 @@ describe('model database queries', () => {
             return undefined;
         });
 
-        await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
+        await expect(
+            recordUpstreamModelMetadata({ providerId: 7, entries: [] })
+        ).resolves.toBeUndefined();
 
-        const request = getTauriInvokeCalls('database_query')
-            .map((call) => getRequest(call.payload))
-            .find((candidate) => candidate?.method === 'run');
-        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
-
-        expect(normalizedSql).not.toContain('lower(models.model_id)');
-        expect(normalizedSql).not.toContain('length(models.model_id)');
-        expect(normalizedSql).toContain(
-            'substr(candidate_model_ids.candidate, 1, length(candidate_model_ids.candidate)'
-        );
+        expect(getTauriInvokeCalls('database_query')).toHaveLength(0);
     });
 });

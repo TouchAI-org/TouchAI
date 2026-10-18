@@ -24,7 +24,30 @@ function getRequest(payload: InvokeArgs | undefined) {
 /** 记录 statistics 表里写入的值，供断言 ETag 与检查时间。 */
 const statistics = new Map<string, string>();
 
-function mockMetadataTransaction() {
+interface MockSyncRows {
+    models?: unknown[];
+    aliases?: unknown[];
+    metadata?: unknown[];
+}
+
+/** 按表返回 sync 读取的行；未声明的表返回空集。 */
+function resolveSyncRows(sql: string, syncRows: MockSyncRows) {
+    if (sql.includes('"llm_metadata_aliases"')) {
+        return syncRows.aliases ?? [];
+    }
+
+    if (sql.includes('"llm_metadata"')) {
+        return syncRows.metadata ?? [];
+    }
+
+    if (sql.includes('from "models"')) {
+        return syncRows.models ?? [];
+    }
+
+    return [];
+}
+
+function mockMetadataTransaction(syncRows: MockSyncRows = {}) {
     interceptTauriInvoke((call) => {
         if (call.cmd === 'database_tx_begin') {
             return 'tx_model_metadata';
@@ -45,6 +68,14 @@ function mockMetadataTransaction() {
                     rows: [{ key }],
                     rowsAffected: 1,
                     lastInsertId: 1,
+                };
+            }
+
+            if (request?.method === 'all') {
+                return {
+                    rows: resolveSyncRows(request.sql, syncRows),
+                    rowsAffected: 0,
+                    lastInsertId: null,
                 };
             }
 
@@ -218,16 +249,52 @@ describe('model metadata refresh', () => {
             )
         );
 
-        mockMetadataTransaction();
+        mockMetadataTransaction({
+            models: [{ id: 7, model_id: 'mimo-v2.5-pro' }],
+            aliases: [{ alias: 'mimo-v2.5-pro', model_id: 'xiaomi/mimo-v2.5-pro' }],
+            metadata: [
+                {
+                    model_id: 'xiaomi/mimo-v2.5-pro',
+                    attachment: 1,
+                    modalities: '{"input":["text","image"],"output":["text"]}',
+                    open_weights: 0,
+                    reasoning: 1,
+                    reasoning_options: null,
+                    release_date: null,
+                    temperature: 1,
+                    tool_call: 1,
+                    knowledge: null,
+                    limit: '{"context":1000000,"output":65536}',
+                },
+            ],
+        });
 
         await expect(updateModelMetadata()).resolves.toEqual({ status: 'updated' });
 
-        const updateRequest = getTauriInvokeCalls('database_tx_query')
-            .map((call) => getRequest(call.payload))
-            .find((request) => request?.sql.includes('UPDATE models'));
+        const requests = getTauriInvokeCalls('database_tx_query').map((call) =>
+            getRequest(call.payload)
+        );
 
-        expect(updateRequest?.sql).toContain('ranked_metadata');
-        expect(updateRequest?.sql).toContain('llm_metadata_aliases');
+        // 候选只用于批量读取；匹配在应用层完成后只剩一条 UPDATE。
+        expect(
+            requests.some(
+                (request) => request?.method === 'all' && request.sql.includes('json_each(')
+            )
+        ).toBe(true);
+
+        const updateRequest = requests.find((request) => request?.sql.includes('UPDATE models'));
+        expect(updateRequest?.sql).toContain('selected_model_metadata');
+        expect(updateRequest?.sql).not.toContain('llm_metadata_aliases');
+
+        const payload = JSON.parse(String(updateRequest?.params?.[0]));
+        expect(payload).toHaveLength(1);
+        expect(payload[0]).toMatchObject({
+            id: 7,
+            attachment: 1,
+            reasoning: 1,
+            context_limit: 1000000,
+            output_limit: 65536,
+        });
     });
 
     it('sends the stored ETag and skips rewriting when the source is unchanged', async () => {

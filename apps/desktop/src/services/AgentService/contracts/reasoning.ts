@@ -3,14 +3,22 @@
 /**
  * TouchAI 统一思考档位。
  *
- * - `ReasoningLevel`：模型可选的思考深度（minimal → max）。
+ * - `ReasoningLevel`：模型可选的思考深度（minimal → ultra）。
  * - `SelectableReasoningLevel`：在档位之外额外包含 `off`（关闭思考）。
  *
  * 请求层只传递统一档位；provider driver 通过 `reasoningLevelMap` 把档位翻译成
  * 厂商原生参数（reasoning_effort / thinking / reasoning.effort 等）。
  */
 
-export const REASONING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const REASONING_LEVELS = [
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+    'ultra',
+] as const;
 
 export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
@@ -25,7 +33,7 @@ export const DEFAULT_REASONING_LEVEL: SelectableReasoningLevel = 'max';
  * 模型级档位映射。
  *
  * 三态：
- * - 省略：`high` 及以下使用厂商默认映射；`xhigh` / `max` 视为不支持。
+ * - 省略：`high` 及以下使用厂商默认映射；`xhigh` / `max` / `ultra` 视为不支持。
  * - string：支持该档位，并把该字符串发给厂商。
  * - null：不支持该档位，UI 隐藏 / clamp 时跳过。
  */
@@ -241,7 +249,7 @@ export function deriveReasoningLevelMap(
  *
  * - 不支持 reasoning：只有 `off`。
  * - 映射为 null：不支持，跳过。
- * - `xhigh` / `max` 必须显式映射，否则视为不支持。
+ * - `xhigh` / `max` / `ultra` 必须显式映射，否则视为不支持。
  */
 export function getSupportedReasoningLevels(
     map: ReasoningLevelMap | null | undefined,
@@ -256,7 +264,7 @@ export function getSupportedReasoningLevels(
         if (mapped === null) {
             return false;
         }
-        if (level === 'xhigh' || level === 'max') {
+        if (level === 'xhigh' || level === 'max' || level === 'ultra') {
             return mapped !== undefined;
         }
         return true;
@@ -309,7 +317,7 @@ export function budgetForReasoningLevel(
     }
 
     const merged = { ...DEFAULT_REASONING_TOKEN_BUDGETS, ...budgets };
-    if (level === 'xhigh' || level === 'max') {
+    if (level === 'xhigh' || level === 'max' || level === 'ultra') {
         return merged.high;
     }
     return merged[level];

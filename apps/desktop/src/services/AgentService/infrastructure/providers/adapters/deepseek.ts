@@ -4,21 +4,19 @@ import { createDeepSeek } from '@ai-sdk/deepseek';
 
 import { z } from '@/utils/zod';
 
-import {
-    normalizeReasoningOptions,
-    type ReasoningLevelMap,
-    type ReasoningProtocol,
-} from '../../../contracts/reasoning';
+import type { ReasoningLevelMap, ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
+import { toModelInfo } from '../modelList';
 import { DEEPSEEK_REASONING_LEVEL_MAP } from '../reasoning';
 import type { ProviderApiTargets } from '../types';
 
 const deepseekModelsSchema = z.object({
     data: z.array(
-        z.object({
-            id: z.string(),
-            reasoning_options: z.unknown().optional(),
-        })
+        z
+            .object({
+                id: z.string(),
+            })
+            .loose()
     ),
 });
 
@@ -53,14 +51,7 @@ export class DeepSeekProviderAdapter extends AiSdkProviderBase {
 
     protected parseModelList(payload: unknown) {
         const parsed = deepseekModelsSchema.parse(payload);
-        return parsed.data.map((model) => {
-            const reasoningOptions = normalizeReasoningOptions(model.reasoning_options);
-            return {
-                id: model.id,
-                name: model.id,
-                ...(reasoningOptions.length > 0 ? { reasoningOptions } : {}),
-            };
-        });
+        return parsed.data.map((model) => toModelInfo(model, { id: model.id }));
     }
 
     protected override getReasoningProtocol(): ReasoningProtocol {

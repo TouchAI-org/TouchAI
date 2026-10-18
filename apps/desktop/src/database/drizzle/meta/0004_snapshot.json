@@ -1041,6 +1041,13 @@
           "autoincrement": false,
           "default": 0
         },
+        "upstream_metadata": {
+          "name": "upstream_metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",

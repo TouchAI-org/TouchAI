@@ -400,6 +400,13 @@ export abstract class AiSdkProviderBase implements AiProvider {
         }
 
         const mode = this.config.reasoning?.mode ?? 'auto';
+        // 元数据声明不支持思考时，auto 模式不发任何 reasoning 参数（passthrough 除外）。
+        if (options.supportsReasoning === false && mode !== 'passthrough') {
+            console.debug(
+                `[reasoning] skipped outbound model=${options.model} reason=metadata-declared-unsupported`
+            );
+            return undefined;
+        }
         const hasTools = (options.tools?.length ?? 0) > 0;
         const map =
             options.reasoningOptions && options.reasoningOptions.length > 0

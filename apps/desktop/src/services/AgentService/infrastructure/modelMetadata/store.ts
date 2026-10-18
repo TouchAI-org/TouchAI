@@ -3,7 +3,6 @@
  */
 
 import { db } from '@database';
-import { syncAllModelsMetadata } from '@database/queries/models.ts';
 import { getStatistic, setStatistic } from '@database/queries/statistics.ts';
 import {
     llmMetadata,
@@ -12,6 +11,8 @@ import {
     type NewLlmMetadataAlias,
     StatisticKey,
 } from '@database/schema.ts';
+
+import { syncAllModelsMetadata } from './sync';
 
 export interface ModelMetadataContents {
     metadataList: NewLlmMetadata[];

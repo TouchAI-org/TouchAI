@@ -7,7 +7,6 @@ import AiServicesSection from '@/views/SettingsView/components/AiServices/index.
 
 const queries = vi.hoisted(() => ({
     createModel: vi.fn(),
-    createModels: vi.fn(),
     createProvider: vi.fn(),
     deleteModel: vi.fn(),
     deleteProvider: vi.fn(),
@@ -16,7 +15,6 @@ const queries = vi.hoisted(() => ({
     findModelsWithProvider: vi.fn(),
     findProviderById: vi.fn(),
     setDefaultModel: vi.fn(),
-    syncAllModelsMetadata: vi.fn(),
     updateModel: vi.fn(),
     updateProvider: vi.fn(),
 }));
@@ -54,7 +52,10 @@ const llmMetadataMock = vi.hoisted(() => ({
 }));
 
 const modelMetadataMock = vi.hoisted(() => ({
+    persistRefreshedModels: vi.fn().mockResolvedValue({ addedCount: 1 }),
     refreshModelMetadataIfStale: vi.fn().mockResolvedValue({ status: 'skipped' }),
+    syncAllModelsMetadata: vi.fn().mockResolvedValue(undefined),
+    updateModelMetadata: vi.fn().mockResolvedValue(undefined),
 }));
 
 const agentServiceMock = vi.hoisted(() => ({
@@ -444,6 +445,105 @@ describe('SettingsAiServicesSection', () => {
 
         expect(queries.createProvider).toHaveBeenCalled();
         expect(listModels).toHaveBeenCalled();
+        expect(alertMock.success).not.toHaveBeenCalled();
+    });
+
+    it('hands the refreshed model list to the persistence use case', async () => {
+        const upstreamCapabilities = {
+            contextLimit: 400_000,
+            outputLimit: 128_000,
+            reasoning: true,
+            reasoningOptions: [{ type: 'effort', values: ['low', 'max'] }],
+        };
+        const createdProvider = {
+            id: 9,
+            name: 'New Gateway',
+            driver: 'openai',
+            api_endpoint: 'https://new.example.com',
+            api_key: 'sk-new',
+            config_json: null,
+            logo: 'openai.png',
+            enabled: 1,
+            is_builtin: 0,
+            created_at: '',
+            updated_at: '',
+        };
+        const listModels = vi.fn().mockResolvedValue([
+            {
+                id: 'group/auto-gpt-5-6-sol',
+                name: 'group/auto-gpt-5-6-sol',
+                capabilities: upstreamCapabilities,
+            },
+            { id: 'qianai/plain-model', name: 'qianai/plain-model' },
+        ]);
+        queries.findAllProvidersSorted.mockResolvedValue([]);
+        queries.createProvider.mockResolvedValue(createdProvider);
+        queries.findProviderById.mockResolvedValue(createdProvider);
+        queries.findModelsWithProvider.mockResolvedValue([]);
+        agentServiceMock.createProviderInstance.mockReturnValue({
+            listModels,
+            getApiTargets: () => ({ generationTarget: '' }),
+        });
+
+        const wrapper = mount(AiServicesSection, {
+            global: {
+                stubs: {
+                    ProviderList: {
+                        emits: ['add-custom'],
+                        template:
+                            '<button data-testid="settings-add-custom-provider-button" @click="$emit(\'add-custom\')">add</button>',
+                    },
+                    ProviderConfig: true,
+                    ModelList: true,
+                    AddProviderDialog: {
+                        emits: ['create', 'cancel'],
+                        template: `
+                            <button
+                                data-testid="create-provider"
+                                @click="$emit('create', {
+                                    name: 'New Gateway',
+                                    driver: 'openai',
+                                    api_endpoint: 'https://new.example.com',
+                                    api_key: 'sk-new',
+                                    config_json: null,
+                                    logo: 'openai.png',
+                                    enabled: 1,
+                                    is_builtin: 0
+                                })"
+                            >
+                                create
+                            </button>
+                        `,
+                    },
+                    EditProviderDialog: true,
+                    BadgedLogo: {
+                        props: ['logo', 'name'],
+                        template: '<div data-testid="badged-logo-stub" />',
+                    },
+                },
+            },
+        });
+
+        await flushPromises();
+
+        await wrapper.get('[data-testid="settings-add-custom-provider-button"]').trigger('click');
+        await flushPromises();
+        await wrapper.get('[data-testid="create-provider"]').trigger('click');
+        await flushPromises();
+
+        // 视图只把抓到的模型（领域形状）交给用例，落库顺序与列形状都在服务层。
+        expect(modelMetadataMock.persistRefreshedModels).toHaveBeenCalledWith({
+            providerId: 9,
+            models: [
+                {
+                    id: 'group/auto-gpt-5-6-sol',
+                    name: 'group/auto-gpt-5-6-sol',
+                    capabilities: upstreamCapabilities,
+                },
+                { id: 'qianai/plain-model', name: 'qianai/plain-model' },
+            ],
+        });
+        // 创建服务商后的自动刷新保持静默，成功提示留给手动刷新。
         expect(alertMock.success).not.toHaveBeenCalled();
     });
 

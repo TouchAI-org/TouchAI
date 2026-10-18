@@ -309,6 +309,9 @@ export const models = sqliteTable('models', {
     context_limit: integer('context_limit'),
     output_limit: integer('output_limit'),
     is_custom_metadata: integer('is_custom_metadata').notNull().default(0), // 用户是否自定义了元数据
+    // JSON string: UpstreamModelMetadataPatch；上游 /v1/models 声明过的能力，
+    // models.dev 同步时用它保持「上游 > 兜底」的优先级。
+    upstream_metadata: text('upstream_metadata'),
     created_at: text('created_at')
         .notNull()
         .default(sql`(datetime('now'))`),

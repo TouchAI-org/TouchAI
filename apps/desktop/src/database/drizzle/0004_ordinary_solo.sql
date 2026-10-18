@@ -544,7 +544,9 @@ SET checkpoint_json = CASE WHEN json_valid(checkpoint_json) AND (
 ) ELSE checkpoint_json END;
 --> statement-breakpoint
 ALTER TABLE `llm_metadata` ADD `reasoning_options` text;--> statement-breakpoint
-ALTER TABLE `models` ADD `reasoning_options` text;
+ALTER TABLE `models` ADD `reasoning_options` text;--> statement-breakpoint
+-- Upstream `/v1/models` 声明过的能力，models.dev 同步时用它保持「上游 > 兜底」的优先级。
+ALTER TABLE `models` ADD `upstream_metadata` text;
 --> statement-breakpoint
 CREATE TABLE `llm_metadata_aliases` (
 	`alias` text PRIMARY KEY NOT NULL,

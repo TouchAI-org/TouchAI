@@ -88,6 +88,8 @@ function createCheckpoint(): AttemptCheckpoint {
 
             is_custom_metadata: 0,
 
+            upstream_metadata: null,
+
             provider_name: 'Xiaomi MiMo',
 
             provider_driver: 'mimo',

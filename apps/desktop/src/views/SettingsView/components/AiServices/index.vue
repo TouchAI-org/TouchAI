@@ -9,10 +9,8 @@
     import { useContextMenu } from '@composables/useContextMenu.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { useScrollFade } from '@composables/useScrollFade';
-    import { db } from '@database';
     import {
         createModel,
-        createModels,
         createProvider,
         deleteModel,
         deleteProvider,
@@ -21,7 +19,6 @@
         findModelsWithProvider,
         findProviderById,
         setDefaultModel,
-        syncAllModelsMetadata,
         updateModel,
         updateProvider,
     } from '@database/queries';
@@ -33,7 +30,10 @@
 
     import { locale, t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
-    import { refreshModelMetadataIfStale } from '@/services/AgentService/infrastructure/modelMetadata';
+    import {
+        persistRefreshedModels,
+        refreshModelMetadataIfStale,
+    } from '@/services/AgentService/infrastructure/modelMetadata';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
 
     defineOptions({
@@ -646,34 +646,14 @@
                 return;
             }
 
-            const existingModels = await findModelsWithProvider({
-                providerId: provider.id,
-            });
-            const existingModelIds = new Set(existingModels.map((m) => m.model_id));
-
-            const newModels = fetchedModels
-                .filter((fetchedModel) => !existingModelIds.has(fetchedModel.id))
-                .map((fetchedModel) => ({
-                    provider_id: provider.id,
-                    name: fetchedModel.name,
-                    model_id: fetchedModel.id,
-                    is_default: 0,
-                    reasoning_options: fetchedModel.reasoningOptions?.length
-                        ? JSON.stringify(fetchedModel.reasoningOptions)
-                        : null,
-                }));
-
             // 避免展示错误
             if (refreshingProviderId.value !== currentProviderId) {
                 return;
             }
 
-            await db.transaction(async (tx) => {
-                if (newModels.length > 0) {
-                    await createModels(newModels, tx);
-                }
-
-                await syncAllModelsMetadata(tx);
+            const { addedCount } = await persistRefreshedModels({
+                providerId: provider.id,
+                models: fetchedModels,
             });
 
             // 避免展示错误
@@ -684,7 +664,7 @@
             await loadModelsForProvider(currentProviderId, true); // 强制刷新缓存
             await broadcastModelsUpdated();
             if (notifications.success) {
-                alert.success(t('settings.ai.refreshModelsSucceeded', { count: newModels.length }));
+                alert.success(t('settings.ai.refreshModelsSucceeded', { count: addedCount }));
             }
         } catch (err) {
             if (refreshingProviderId.value !== currentProviderId) {
