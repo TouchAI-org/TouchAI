@@ -8,7 +8,6 @@
     import type { Model } from '@database/schema';
 
     import { t } from '@/i18n';
-    import { formatDateTime } from '@/i18n/format';
 
     import ModelCardActions from './ModelCardActions.vue';
     interface Props {
@@ -51,7 +50,7 @@
 
 <template>
     <div class="settings-card group/model">
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-5">
             <div class="relative shrink-0">
                 <ModelLogo :model-id="model.model_id" :name="model.name" />
                 <span
@@ -75,11 +74,6 @@
 
                     <ModelCapabilityTags :model="model" />
                 </div>
-
-                <p v-if="model.last_used_at" class="mt-1 text-xs text-neutral-400">
-                    {{ t('settings.ai.lastUsed') }}
-                    {{ formatDateTime(model.last_used_at as string) }}
-                </p>
             </div>
 
             <ModelCardActions
