@@ -29,12 +29,10 @@ export function summarizeUpdateReleaseNotes(notes: string | null | undefined): s
     return summary ? truncateText(summary, MAX_NOTIFICATION_NOTES_LENGTH) : null;
 }
 
-export function createUpdateNotificationBody(state: AppUpdateState, version: string): string {
+export function createUpdateNotificationBody(state: AppUpdateState): string {
     const packageNotes =
         state.downloadedUpdate?.notes?.trim() || state.availableUpdate?.notes?.trim();
     const notes = summarizeUpdateReleaseNotes(packageNotes || state.latestUpdate?.releaseNotes);
 
-    return notes
-        ? t('notification.update.body', { version, notes })
-        : t('notification.update.bodyWithoutNotes', { version });
+    return notes || t('notification.update.bodyWithoutNotes');
 }

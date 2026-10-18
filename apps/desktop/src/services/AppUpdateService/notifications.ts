@@ -71,8 +71,8 @@ const updateReminders = new AppUpdateReminderController({
     createPayload: (state, version) => ({
         channel: state.channel,
         version,
-        title: t('notification.update.title'),
-        body: createUpdateNotificationBody(state, version),
+        title: t('notification.update.title', { version }),
+        body: createUpdateNotificationBody(state),
         updateLabel: t('notification.update.updateNow'),
         ignoreLabel: t('notification.update.ignoreVersion'),
     }),

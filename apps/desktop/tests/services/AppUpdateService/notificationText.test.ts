@@ -51,9 +51,7 @@ describe('update notification text', () => {
             },
         });
 
-        expect(createUpdateNotificationBody(state, '1.2.3')).toBe(
-            '发现新版本 V1.2.3，更新内容：修复安装问题'
-        );
+        expect(createUpdateNotificationBody(state)).toBe('修复安装问题');
     });
 
     it('falls back to release notes and keeps the no-notes message useful', () => {
@@ -71,14 +69,9 @@ describe('update notification text', () => {
             },
         });
 
-        expect(createUpdateNotificationBody(state, '1.2.3')).toBe(
-            'Version 1.2.3 is available. Changes: Improves startup speed'
-        );
+        expect(createUpdateNotificationBody(state)).toBe('Improves startup speed');
         expect(
-            createUpdateNotificationBody(
-                createState({ availableUpdate: null, latestUpdate: null }),
-                '1.2.3'
-            )
-        ).toBe('Version 1.2.3 is available. Update now or ignore this version.');
+            createUpdateNotificationBody(createState({ availableUpdate: null, latestUpdate: null }))
+        ).toBe('Release notes are not available.');
     });
 });
