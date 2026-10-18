@@ -84,6 +84,11 @@ export interface ModelPricing {
  * 复用现有的 `expandModelIdCandidates()`（6 层裁剪，覆盖日期后缀、
  * `-latest`/`-preview`/`-exp`、`auto-`/`any-` 路由前缀），不重复实现归一化。
  *
+ * 分两步查：先按 `llm_metadata.model_id` 直接匹配，再通过
+ * `llm_metadata_aliases` 把中转写法映射到上游记录。
+ * 只查第一张表会漏掉所有只在别名表里存在的写法
+ * （例如 `deepseek-v4-1-flash` → `deepseek/deepseek-v4.1-flash`）。
+ *
  * 候选按可信度排序（越靠前越可信），取第一个有完整定价的。
  * 必须有 input 与 output 才算有定价——四价齐全原则：缺一项会低估其余调用。
  */
@@ -92,6 +97,17 @@ export async function findModelPricing(rawModelId: string): Promise<ModelPricing
     if (candidates.length === 0) {
         return null;
     }
+
+    const aliasRows = await db
+        .select({ alias: llmMetadataAliases.alias, modelId: llmMetadataAliases.model_id })
+        .from(llmMetadataAliases)
+        .where(inArray(llmMetadataAliases.alias, candidates))
+        .all();
+
+    // 直接命中的优先级高于别名命中：模型 id 本身就在目录里时不需要绕路
+    const lookupOrder = [...candidates, ...aliasRows.map((row) => row.modelId)].filter(
+        (value, index, list) => list.indexOf(value) === index
+    );
 
     const rows = await db
         .select({
@@ -103,7 +119,7 @@ export async function findModelPricing(rawModelId: string): Promise<ModelPricing
             currency: llmMetadata.cost_currency,
         })
         .from(llmMetadata)
-        .where(inArray(llmMetadata.model_id, candidates))
+        .where(inArray(llmMetadata.model_id, lookupOrder))
         .all();
 
     const priced = rows.filter((row) => row.input !== null && row.output !== null);
@@ -111,7 +127,7 @@ export async function findModelPricing(rawModelId: string): Promise<ModelPricing
         return null;
     }
 
-    const rank = new Map(candidates.map((id, index) => [id, index]));
+    const rank = new Map(lookupOrder.map((id, index) => [id, index]));
     priced.sort(
         (left, right) =>
             (rank.get(left.modelId) ?? Number.MAX_SAFE_INTEGER) -
