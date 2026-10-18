@@ -10,8 +10,6 @@ export const usageMessagesZhCN = {
     'settings.nav.usage.description': 'Token、成本与调用审计',
     'settings.loading.usage': '正在加载用量统计...',
 
-    'settings.usage.title': '用量统计',
-    'settings.usage.subtitle': 'Token、成本与调用审计',
     'settings.usage.loadFailed': '用量数据加载失败，请稍后重试',
     'settings.usage.realtime': '数据随对话自动更新',
 
@@ -58,8 +56,6 @@ export const usageMessagesZhCN = {
     'settings.usage.metric.reasoningNote': '已含在输出内',
     'settings.usage.metric.ttft': '平均首字',
     'settings.usage.metric.unpriced': '{count} 次调用未定价',
-    'settings.usage.metric.more': '更多指标',
-    'settings.usage.metric.less': '收起',
 
     // 趋势
     'settings.usage.trend.title': '使用趋势',
@@ -68,26 +64,10 @@ export const usageMessagesZhCN = {
     'settings.usage.trend.metric.requests': '请求',
     'settings.usage.trend.metric.cost': '成本',
 
-    // 热力图
-    'settings.usage.heatmap.title': '用量热力图',
-    'settings.usage.heatmap.summary': '近一年活跃 {days} 天 · 共 {tokens} tokens',
-    'settings.usage.heatmap.tooltip': '{day} · {requests} 次 · {tokens} tokens · {cost}',
-    'settings.usage.heatmap.less': '少',
-    'settings.usage.heatmap.more': '多',
-
     // 分组/排行
     'settings.usage.group.byModel': '按模型',
     'settings.usage.group.byProvider': '按供应商',
     'settings.usage.group.empty': '暂无数据',
-    'settings.usage.group.requests': '{count} 次',
-    'settings.usage.group.tokens': 'tokens',
-    'settings.usage.group.ttft': '首字',
-
-    // Tab
-    'settings.usage.tab.overview': '概览',
-    'settings.usage.tab.calls': '调用',
-    'settings.usage.tab.models': '模型',
-    'settings.usage.tab.providers': '供应商',
 
     // 调用明细
     'settings.usage.call.title': '调用明细',
@@ -97,7 +77,6 @@ export const usageMessagesZhCN = {
     'settings.usage.call.outcome.truncated': '被截断',
     'settings.usage.calls.empty': '这段时间没有调用记录',
     'settings.usage.calls.unpriced': '未定价',
-    'settings.usage.calls.cacheRate': '缓存',
     'settings.usage.calls.page': '第 {from}–{to} 条，共 {total} 条',
     'settings.usage.calls.prev': '上一页',
     'settings.usage.calls.next': '下一页',
@@ -171,8 +150,6 @@ export const usageMessagesEnUS = {
     'settings.nav.usage.description': 'Tokens, cost, and call audit',
     'settings.loading.usage': 'Loading usage statistics...',
 
-    'settings.usage.title': 'Usage',
-    'settings.usage.subtitle': 'Tokens, cost, and call audit',
     'settings.usage.loadFailed': 'Failed to load usage data. Try again later.',
     'settings.usage.realtime': 'Updates automatically as you chat',
 
@@ -215,8 +192,6 @@ export const usageMessagesEnUS = {
     'settings.usage.metric.reasoningNote': 'Included in output',
     'settings.usage.metric.ttft': 'Mean first token',
     'settings.usage.metric.unpriced': '{count} calls unpriced',
-    'settings.usage.metric.more': 'More metrics',
-    'settings.usage.metric.less': 'Collapse',
 
     'settings.usage.trend.title': 'Usage trend',
     'settings.usage.trend.empty': 'No usage in this range',
@@ -224,23 +199,9 @@ export const usageMessagesEnUS = {
     'settings.usage.trend.metric.requests': 'Requests',
     'settings.usage.trend.metric.cost': 'Cost',
 
-    'settings.usage.heatmap.title': 'Usage heatmap',
-    'settings.usage.heatmap.summary': '{days} active days · {tokens} tokens in the past year',
-    'settings.usage.heatmap.tooltip': '{day} · {requests} calls · {tokens} tokens · {cost}',
-    'settings.usage.heatmap.less': 'Less',
-    'settings.usage.heatmap.more': 'More',
-
     'settings.usage.group.byModel': 'By model',
     'settings.usage.group.byProvider': 'By provider',
     'settings.usage.group.empty': 'No data',
-    'settings.usage.group.requests': '{count} calls',
-    'settings.usage.group.tokens': 'tokens',
-    'settings.usage.group.ttft': 'TTFT',
-
-    'settings.usage.tab.overview': 'Overview',
-    'settings.usage.tab.calls': 'Calls',
-    'settings.usage.tab.models': 'Models',
-    'settings.usage.tab.providers': 'Providers',
 
     'settings.usage.call.title': 'Call audit',
     'settings.usage.call.tokens': '{value} tokens',
@@ -249,7 +210,6 @@ export const usageMessagesEnUS = {
     'settings.usage.call.outcome.truncated': 'Truncated',
     'settings.usage.calls.empty': 'No calls in this range',
     'settings.usage.calls.unpriced': 'Unpriced',
-    'settings.usage.calls.cacheRate': 'Cache',
     'settings.usage.calls.page': '{from}–{to} of {total}',
     'settings.usage.calls.prev': 'Previous',
     'settings.usage.calls.next': 'Next',
