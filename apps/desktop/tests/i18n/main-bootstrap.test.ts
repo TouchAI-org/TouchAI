@@ -106,6 +106,7 @@ vi.mock('@/i18n', () => ({
 vi.mock('@/stores/settings', () => ({
     useSettingsStore: () => ({
         initialize: settingsInitializeMock,
+        usageDetailRetentionDays: 0,
     }),
 }));
 

@@ -43,6 +43,8 @@ export interface GeneralSettingsData {
     appUpdateChannel: AppUpdateChannel;
     appUpdateAutoCheck: boolean;
     appUpdateLastCheckedAt: string | null;
+    /** 调用明细保留天数；0 表示永久保留 */
+    usageDetailRetentionDays: number;
     browserSettings: BrowserSettingsConfig;
     searchSettings: SearchSettingsConfig;
 }
@@ -54,6 +56,7 @@ type GeneralSettingUpdateRunner = (
 
 type GeneralSettingFieldValue =
     | string
+    | number
     | boolean
     | null
     | SearchKeybindings
@@ -100,6 +103,7 @@ export interface GeneralSettingsComputedRefs {
     appUpdateChannel: ComputedRef<AppUpdateChannel>;
     appUpdateAutoCheck: ComputedRef<boolean>;
     appUpdateLastCheckedAt: ComputedRef<string | null>;
+    usageDetailRetentionDays: ComputedRef<number>;
     browserSettings: ComputedRef<BrowserSettingsConfig>;
     searchSettings: ComputedRef<SearchSettingsConfig>;
 }
@@ -115,6 +119,7 @@ export interface GeneralSettingUpdaters {
     updateAppUpdateChannel(channel: AppUpdateChannel): Promise<void>;
     updateAppUpdateAutoCheck(enabled: boolean): Promise<void>;
     updateAppUpdateLastCheckedAt(checkedAt: string | null): Promise<void>;
+    updateUsageDetailRetentionDays(days: number): Promise<void>;
     updateBrowserSettings(config: BrowserSettingsConfig): Promise<void>;
     updateSearchSettings(config: SearchSettingsConfig): Promise<void>;
 }

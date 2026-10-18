@@ -65,6 +65,17 @@ function nullableString(value: unknown): string | null {
     return value === null ? null : String(value);
 }
 
+/** 允许的明细保留天数；0 表示永久保留 */
+export const USAGE_DETAIL_RETENTION_OPTIONS = [0, 30, 90, 365] as const;
+
+/** 把持久化值归一成合法档位，未知值回退到「永久保留」 */
+function retentionDaysFromString(value: unknown, fallback: number): number {
+    const parsed = Number(value);
+    return (USAGE_DETAIL_RETENTION_OPTIONS as readonly number[]).includes(parsed)
+        ? parsed
+        : fallback;
+}
+
 export const GENERAL_SCALAR_SETTING_SPECS = [
     {
         key: 'global_shortcut',
@@ -182,6 +193,19 @@ export const GENERAL_SCALAR_SETTING_SPECS = [
             computedName: 'appUpdateLastCheckedAt',
             updaterName: 'updateAppUpdateLastCheckedAt',
             normalizeUpdate: (value) => (value === null ? null : String(value)),
+        },
+    },
+    {
+        key: 'usage_detail_retention_days',
+        stateKey: 'usageDetailRetentionDays',
+        // 0 = 永久保留。默认不删用户数据，清理必须由用户显式开启。
+        defaultValue: 0,
+        parsePersisted: (raw) => retentionDaysFromString(raw, 0),
+        parseUpdate: (value) => retentionDaysFromString(value, 0),
+        store: {
+            computedName: 'usageDetailRetentionDays',
+            updaterName: 'updateUsageDetailRetentionDays',
+            normalizeUpdate: Number,
         },
     },
 ] as const satisfies readonly ScalarSettingDefinitionOptions[];

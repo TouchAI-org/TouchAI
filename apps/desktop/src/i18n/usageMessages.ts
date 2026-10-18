@@ -18,6 +18,16 @@ export const usageMessagesZhCN = {
     'settings.usage.export.failed': '导出失败，请稍后重试',
     'settings.usage.export.succeeded': '已导出到 {path}',
 
+    // 明细保留
+    'settings.usage.retention.title': '明细保留',
+    'settings.usage.retention.description':
+        '调用明细会在每次启动时按此策略清理；日汇总永久保留，「全部时间」趋势不受影响。',
+    'settings.usage.retention.label': '保留调用明细',
+    'settings.usage.retention.hint': '默认不删除任何数据；清理在下次启动时生效',
+    'settings.usage.retention.forever': '永久保留',
+    'settings.usage.retention.days': '{days} 天',
+    'settings.usage.retention.saved': '已保存，下次启动时生效',
+
     // 分组统计表头
     'settings.usage.table.calls': '次数',
     'settings.usage.table.tokens': 'Tokens',
@@ -162,6 +172,16 @@ export const usageMessagesEnUS = {
     'settings.usage.export.cancelled': 'Export cancelled',
     'settings.usage.export.failed': 'Export failed. Try again later.',
     'settings.usage.export.succeeded': 'Exported to {path}',
+
+    'settings.usage.retention.title': 'Detail retention',
+    'settings.usage.retention.description':
+        'Call detail is pruned on startup according to this policy. Daily rollups are kept forever, so the All time trend is unaffected.',
+    'settings.usage.retention.label': 'Keep call detail for',
+    'settings.usage.retention.hint':
+        'Nothing is deleted by default; pruning takes effect on the next start',
+    'settings.usage.retention.forever': 'Forever',
+    'settings.usage.retention.days': '{days} days',
+    'settings.usage.retention.saved': 'Saved — takes effect on the next start',
 
     'settings.usage.table.calls': 'Calls',
     'settings.usage.table.tokens': 'Tokens',

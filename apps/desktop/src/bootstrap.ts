@@ -221,9 +221,10 @@ async function prewarmBuiltInBash(): Promise<void> {
  * 读取用户的保留天数设置：0（默认）表示永不删。
  * 模块本身按需加载，不进入首屏启动路径。
  */
-function scheduleUsageMaintenance(): void {
+function scheduleUsageMaintenance(pinia: ReturnType<typeof createPinia>): void {
     try {
-        void runUsageMaintenance();
+        const retentionDays = useSettingsStore(pinia).usageDetailRetentionDays;
+        void runUsageMaintenance(retentionDays);
     } catch (error) {
         console.warn('[Bootstrap] Failed to schedule usage maintenance:', error);
     }
@@ -277,5 +278,5 @@ export async function initializeApp() {
 
     // 用量维护只读写数据库，与哪个窗口无关，但只需跑一次：
     // 内部已有节流，重开窗口不会重复汇总。
-    scheduleUsageMaintenance();
+    scheduleUsageMaintenance(pinia);
 }

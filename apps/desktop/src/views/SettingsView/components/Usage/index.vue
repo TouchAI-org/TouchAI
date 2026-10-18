@@ -35,6 +35,7 @@
     import UsageCallList from './components/UsageCallList.vue';
     import UsageContext from './components/UsageContext.vue';
     import UsageMetrics from './components/UsageMetrics.vue';
+    import UsageRetention from './components/UsageRetention.vue';
     import UsageToolbar from './components/UsageToolbar.vue';
     import UsageTrendChart from './components/UsageTrendChart.vue';
     import { resolveUsageRange } from './utils/usageRange';
@@ -323,6 +324,8 @@
                             @change-page="callOffset = $event"
                         />
                     </section>
+
+                    <UsageRetention />
                 </template>
             </template>
         </div>
