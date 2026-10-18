@@ -83,6 +83,11 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.browser.allowedDomains', targetId: 'browser-allowed-domains' },
         { labelKey: 'settings.browser.fingerprintProfile', targetId: 'browser-fingerprint' },
         { labelKey: 'settings.browser.localeTimezone', targetId: 'browser-locale-timezone' },
+        {
+            labelKey: 'settings.browser.userAgent',
+            descriptionKey: 'settings.browser.userAgent.description',
+            targetId: 'browser-user-agent',
+        },
         { labelKey: 'settings.browser.windowSize', targetId: 'browser-window-size' },
     ],
     'data-management': [

@@ -889,12 +889,12 @@
                             </div>
                         </div>
                         <div
-                            data-settings-search-target="browser-window-size"
+                            data-settings-search-target="browser-user-agent"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>
                                 <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    User-Agent
+                                    {{ t('settings.browser.userAgent') }}
                                 </div>
                                 <div class="mt-1 text-xs text-neutral-500">
                                     {{ t('settings.browser.userAgent.description') }}
@@ -908,6 +908,7 @@
                             />
                         </div>
                         <div
+                            data-settings-search-target="browser-window-size"
                             class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
                         >
                             <div>

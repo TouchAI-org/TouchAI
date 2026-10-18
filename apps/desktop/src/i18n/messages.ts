@@ -427,6 +427,7 @@ const zhCNMessages = {
     'settings.browser.fingerprint.enhanced': '增强',
     'settings.browser.localeTimezone': '语言与时区',
     'settings.browser.localeTimezone.description': '设置网页看到的语言和时区',
+    'settings.browser.userAgent': 'User-Agent',
     'settings.browser.userAgent.description':
         'User-Agent 是浏览器告诉网站的身份信息，留空时使用浏览器默认值',
     'settings.browser.windowSize': '窗口尺寸',
@@ -650,7 +651,7 @@ const zhCNMessages = {
     'settings.builtInTools.upgradeModel.emptyChainDescription':
         '添加模型并调整顺序，配置请求需要时可升级使用的模型。',
     'settings.builtInTools.upgradeModel.configureModelsFirst':
-        '先在「大模型服务」中启用服务商并获取模型，再配置升级链。',
+        '先在「服务商与模型」中启用服务商并获取模型，再配置升级链。',
     'settings.builtInTools.upgradeModel.dragToSort': '拖动排序',
     'settings.builtInTools.upgradeModel.provider': '服务商',
     'settings.builtInTools.upgradeModel.searchProvider': '搜索服务商',
@@ -1469,6 +1470,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.browser.localeTimezone': 'Language and timezone',
     'settings.browser.localeTimezone.description':
         'Set the language and timezone visible to webpages',
+    'settings.browser.userAgent': 'User-Agent',
     'settings.browser.userAgent.description':
         'User-Agent is the identity information the browser sends to websites; leave blank to use the browser default',
     'settings.browser.windowSize': 'Window size',
@@ -1705,7 +1707,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.builtInTools.upgradeModel.emptyChainDescription':
         'Add models and arrange the order in which requests can upgrade to them.',
     'settings.builtInTools.upgradeModel.configureModelsFirst':
-        'Enable a provider and fetch its models in AI Services before configuring an upgrade chain.',
+        'Enable a provider and fetch its models in Providers and models before configuring an upgrade chain.',
     'settings.builtInTools.upgradeModel.dragToSort': 'Drag to sort',
     'settings.builtInTools.upgradeModel.provider': 'Provider',
     'settings.builtInTools.upgradeModel.searchProvider': 'Search providers',

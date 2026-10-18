@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '@/i18n';
 import BrowserSettingsView from '@/views/SettingsView/components/Browser/index.vue';
 import { resetBrowserRuntimeCacheForTests } from '@/views/SettingsView/components/Browser/runtimeCache';
+import { searchSettings } from '@/views/SettingsView/settingsSearch';
 
 const updateBrowserSettingsMock = vi.hoisted(() => vi.fn(async () => undefined));
 const browserSettingsPatch = vi.hoisted(() => ({
@@ -171,6 +172,33 @@ describe('Browser settings section', () => {
         expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
             expect.objectContaining({ fingerprintWindowSize: '1440,900' })
         );
+    });
+
+    it('navigates browser search results to their matching controls', () => {
+        const wrapper = mount(BrowserSettingsView);
+        const windowSizeResult = searchSettings('窗口尺寸').find(
+            (result) => result.section === 'browser'
+        );
+        expect(windowSizeResult?.targetId).toBe('browser-window-size');
+        const windowSizeRow = wrapper.get(
+            `[data-settings-search-target="${windowSizeResult!.targetId}"]`
+        );
+        expect(windowSizeRow.find('[data-testid="browser-window-width-input"]').exists()).toBe(
+            true
+        );
+        expect(windowSizeRow.find('[data-testid="browser-window-height-input"]').exists()).toBe(
+            true
+        );
+
+        const userAgentResult = searchSettings('User-Agent').find(
+            (result) => result.section === 'browser'
+        );
+        expect(userAgentResult?.targetId).toBe('browser-user-agent');
+        expect(
+            wrapper
+                .get(`[data-settings-search-target="${userAgentResult!.targetId}"] input`)
+                .attributes('placeholder')
+        ).toBe('Mozilla/5.0 ...');
     });
 
     it('renders localized homepage validation text', async () => {
