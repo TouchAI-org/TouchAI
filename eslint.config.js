@@ -107,7 +107,6 @@ export default defineConfig([
         '**/*d.ts',
         '.worktrees',
         '.tmp',
-        '**/.tmp/**',
         '.codex',
     ]),
     // 推荐配置
