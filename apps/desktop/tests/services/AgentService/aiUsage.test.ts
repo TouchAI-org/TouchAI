@@ -9,9 +9,9 @@ import { describe, expect, it } from 'vitest';
 function usage(partial: Partial<LanguageModelUsage>): LanguageModelUsage {
     return {
         inputTokens: undefined,
-        inputTokenDetails: {},
+        inputTokenDetails: { noCacheTokens: undefined, cacheReadTokens: undefined, cacheWriteTokens: undefined },
         outputTokens: undefined,
-        outputTokenDetails: {},
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
         totalTokens: undefined,
         ...partial,
     } as LanguageModelUsage;
@@ -46,7 +46,11 @@ describe('normalizeAiUsage', () => {
         const result = normalizeAiUsage(
             usage({
                 inputTokens: 2000,
-                inputTokenDetails: { cacheReadTokens: 800, cacheWriteTokens: 200 },
+                inputTokenDetails: {
+                    noCacheTokens: undefined,
+                    cacheReadTokens: 800,
+                    cacheWriteTokens: 200,
+                },
                 outputTokens: 100,
                 totalTokens: 2100,
             })
@@ -59,7 +63,11 @@ describe('normalizeAiUsage', () => {
         const result = normalizeAiUsage(
             usage({
                 inputTokens: 500,
-                inputTokenDetails: { cacheReadTokens: 800, cacheWriteTokens: 0 },
+                inputTokenDetails: {
+                    noCacheTokens: undefined,
+                    cacheReadTokens: 800,
+                    cacheWriteTokens: 0,
+                },
                 outputTokens: 100,
                 totalTokens: 600,
             })

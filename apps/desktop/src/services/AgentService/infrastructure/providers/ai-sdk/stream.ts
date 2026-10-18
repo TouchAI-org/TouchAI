@@ -379,7 +379,7 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
 
     function buildFinishChunk(
         reason: FinishReason | undefined,
-        usage: LanguageModelUsage | undefined
+        usage?: LanguageModelUsage
     ): AiStreamChunk {
         const toolCalls = buildToolCallsForFinish(state, reason);
 
@@ -428,12 +428,13 @@ export function normalizeAiUsage(usage: LanguageModelUsage | undefined): AiUsage
         cacheWriteTokens,
         reasoningTokens: usage.outputTokenDetails?.reasoningTokens ?? 0,
         servedModel: extractServedModel(usage.raw),
-        raw: usage.raw as JsonObject | undefined,
+        // 部分供应商（例如中转聚合）不返回 raw，这里统一成 undefined，避免 null 穿过类型
+        raw: (usage.raw ?? undefined) as JsonObject | undefined,
     };
 }
 
 /** 从供应商原始 usage 里尝试取「实际服务的模型名」。 */
-function extractServedModel(raw: JsonObject | undefined): string | undefined {
+function extractServedModel(raw: JsonObject | null | undefined): string | undefined {
     if (!raw) {
         return undefined;
     }
