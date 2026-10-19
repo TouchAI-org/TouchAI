@@ -35,13 +35,26 @@
             <!-- 消息列表 -->
             <div ref="messageListRef" class="mt-4">
                 <div
-                    v-for="message in messages"
+                    v-if="windowingEnabled && windowRange.topSpacer > 0"
+                    class="w-full"
+                    :style="{ height: `${windowRange.topSpacer}px` }"
+                    aria-hidden="true"
+                />
+                <div
+                    v-for="message in renderedMessages"
                     :key="message.id"
+                    :ref="(el) => setMessageElement(message, el)"
                     :data-message-id="message.id"
                     :data-message-role="message.role"
                 >
                     <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
                 </div>
+                <div
+                    v-if="windowingEnabled && windowRange.bottomSpacer > 0"
+                    class="w-full"
+                    :style="{ height: `${windowRange.bottomSpacer}px` }"
+                    aria-hidden="true"
+                />
             </div>
 
             <!-- 对话时间轴 -->
@@ -84,6 +97,7 @@
     import ConversationTimeline from './components/ConversationTimeline.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
+    import { useMessageWindowing } from './composables/useMessageWindowing';
     import { buildMessageListRevision } from './messageListRevision';
 
     defineOptions({
@@ -142,6 +156,25 @@
     const scrollTop = ref(0);
     const scrollHeight = ref(0);
     const clientHeight = ref(0);
+
+    // 长会话只挂载视口附近的消息，避免 DOM 数量随会话总长增长。
+    const WINDOWING_MIN_MESSAGES = 40;
+    const windowingEnabled = computed(() => props.messages.length > WINDOWING_MIN_MESSAGES);
+    const { windowRange, renderedMessages, registerMessageElement, messageOffsetTop } =
+        useMessageWindowing({
+            container: conversationContainer,
+            messages: computed(() => props.messages),
+            enabled: windowingEnabled,
+            scrollTop,
+            clientHeight,
+        });
+
+    function setMessageElement(
+        message: SessionMessage,
+        target: Element | { $el?: Element } | null
+    ) {
+        registerMessageElement(message, target);
+    }
     const conversationContainerStyle = computed(() =>
         props.fillAvailableHeight
             ? {
@@ -326,7 +359,23 @@
         const selector = `[data-message-id="${escapedMessageId}"]`;
         const target = messageListRef.value.querySelector<HTMLElement>(selector);
         if (!target) {
-            return false;
+            // 消息未挂载（有界挂载窗口外）时按累计高度直接定位，滚动后窗口会自然带出目标。
+            const offset = messageOffsetTop(messageId);
+            if (offset === null) {
+                return false;
+            }
+
+            const container = conversationContainer.value;
+            const listTop =
+                messageListRef.value.getBoundingClientRect().top -
+                container.getBoundingClientRect().top +
+                container.scrollTop;
+
+            lastAutoScrollAt.value = Date.now();
+            container.scrollTop = Math.max(0, listTop + offset - gap);
+            lastScrollTop.value = container.scrollTop;
+            handleScroll();
+            return true;
         }
 
         const container = conversationContainer.value;
