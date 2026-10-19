@@ -6,7 +6,6 @@ import { log } from '@services/ObservabilityService';
 
 import { createTauriFetch } from '../providers/ai-sdk/tauriFetch';
 import { buildMetadataList } from './catalog';
-import snapshotData from './snapshot.json';
 import {
     markModelMetadataChecked,
     readModelMetadataLastCheckedAt,
@@ -31,21 +30,19 @@ export interface ModelMetadataRefreshResult {
     reason?: string;
 }
 
-/**
- * 鍖呰鏉′欢璇锋眰鎵€闇€鐨勮姹傚ご銆? *
- * 璧?Tauri 鍘熺敓 HTTP锛氭祻瑙堝櫒 fetch 鍔?`If-None-Match` 浼氳Е鍙?CORS 棰勬锛? * 鑰屼笂娓镐笉鎺ュ彈 OPTIONS锛堣繑鍥?405锛夛紝鏉′欢璇锋眰鍦?WebView 閲屾棤娉曞畬鎴愩€? */
+/*
+ * 条件请求所需的请求头。
+ *
+ * 走 Tauri 原生 HTTP：浏览器 fetch 加 `If-None-Match` 会触发 CORS 预检，
+ * 而上游不接受 OPTIONS（返回 405），条件请求在 WebView 里无法完成。
+ */
 const metadataFetch = createTauriFetch();
 
 /**
- * 鐢ㄥ唴缃揩鐓у～鍏呮湰鍦板厓鏁版嵁銆? *
- * 蹇収闅忓簲鐢ㄥ彂甯冿紝鏈湴缂撳瓨涓虹┖鏃跺厛钀戒竴浠藉厹搴曟暟鎹紝杩滅涓嶅彲鐢ㄤ篃鑳芥甯稿睍绀烘ā鍨嬭兘鍔涖€? */
-export async function seedModelMetadataFromSnapshot(): Promise<void> {
-    await replaceModelMetadata(buildMetadataList(snapshotData), { markUpdatedAt: false });
-}
-
-/**
- * 浠庤繙绔媺鍙栧苟鍒锋柊鏈湴妯″瀷鍏冩暟鎹€? *
- * 閫氳繃鏉′欢璇锋眰鍒ゆ柇涓婃父鏄惁鍙樺寲锛氬懡涓?304 鏃跺彧鎺ㄨ繘妫€鏌ユ椂闂达紝涓嶉噸鍐欐湰鍦版暟鎹€? */
+ * 从远端拉取并刷新本地模型元数据。
+ *
+ * 通过条件请求判断上游是否变化：命中 304 时只推进检查时间，不重写本地数据。
+ */
 export async function updateModelMetadata(): Promise<ModelMetadataRefreshResult> {
     try {
         const previousEtag = await readModelMetadataSourceEtag();
@@ -112,8 +109,9 @@ async function performStaleRefresh(intervalMs: number): Promise<ModelMetadataRef
 }
 
 /**
- * 鎸夐渶妫€鏌ヨ繙绔洰褰曪細璺濅笂娆℃鏌ヤ笉瓒抽棿闅旀椂涓嶅彂璧疯姹傘€? *
- * 骞跺彂璋冪敤鍏变韩鍚屼竴娆¤姹傦紝閬垮厤鍚姩娴佺▼涓庤缃〉鍚勬媺涓€閬嶃€? */
+ * 按需检查远端目录：距上次检查不足间隔时不发起请求。
+ * 并发调用共享同一次请求，避免启动流程与设置页各拉一遍。
+ */
 export async function refreshModelMetadataIfStale(
     intervalMs: number = MODEL_METADATA_CHECK_INTERVAL_MS
 ): Promise<ModelMetadataRefreshResult> {
