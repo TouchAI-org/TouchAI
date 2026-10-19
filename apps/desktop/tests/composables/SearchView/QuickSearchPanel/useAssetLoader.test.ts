@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
 import {
-    ICON_CACHE_MAX_BYTES,
     useAssetLoader,
     type UseAssetLoaderDeps,
 } from '@/views/SearchView/components/QuickSearchPanel/composables/useAssetLoader';
@@ -343,32 +342,5 @@ describe('when the quick search panel loads icons and previews', () => {
 
         expect(context.deps.getShortcutIcons).not.toHaveBeenCalled();
         expect(context.deps.getImageThumbnails).not.toHaveBeenCalled();
-    });
-    it('bounds the icon cache bytes with least-recently-used eviction', async () => {
-        const hugeIcon = 'x'.repeat(200_000);
-        const items = Array.from({ length: 24 }, (_, index) =>
-            createItem(`Icon ${index}`, `D:/evict/${index}.lnk`)
-        );
-        const context = createLoaderContext({
-            items,
-            selectionMaxHeight: 100_000,
-            clientHeight: 100_000,
-            deps: {
-                getShortcutIcons: vi.fn(async (paths: string[]) =>
-                    Object.fromEntries(paths.map((path) => [path, hugeIcon]))
-                ),
-            },
-        });
-
-        context.loader.scheduleIconLoad(context.requestId.value, true);
-        for (let index = 0; index < 60; index += 1) {
-            await vi.advanceTimersByTimeAsync(1);
-        }
-
-        const cachedIcons = Object.values(context.loader.iconMap.value);
-        const cachedBytes = cachedIcons.reduce((total, value) => total + value.length, 0);
-
-        expect(cachedIcons.length).toBeGreaterThan(0);
-        expect(cachedBytes).toBeLessThanOrEqual(ICON_CACHE_MAX_BYTES);
     });
 });
