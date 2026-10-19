@@ -5,6 +5,7 @@ import { log } from '@services/ObservabilityService';
 import { tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
+import { waitForAgentStartupCapabilities } from '@/services/StartupService/capabilities';
 import { createPerfTrace } from '@/utils/perfTrace';
 import {
     buildWaitingApprovalBody,
@@ -238,6 +239,10 @@ export class SessionTaskCenter {
      */
     async startTask(options: StartSessionTaskOptions): Promise<StartedSessionTask> {
         this.ensureSessionSlotAvailable(options.sessionId ?? null);
+
+        // 只等待请求实际依赖的后台能力（工具、Bash、元数据）；
+        // 启动阶段不 await 这些任务，用户提前发请求也不会等整个启动流程。
+        await waitForAgentStartupCapabilities();
 
         const taskId = crypto.randomUUID();
         const abortController = new AbortController();
