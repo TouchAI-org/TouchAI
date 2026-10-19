@@ -48,3 +48,10 @@ rust-target/
 rust-temp/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+
+# E2E screenshots and temporary WebDriver downloads
+.screenshots/
+.drivers/
+
+# Scratch app root used by the concurrent-write repro script
+apps/desktop/.tmp-app-root

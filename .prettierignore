@@ -58,6 +58,9 @@ temp/
 .cargo-temp/
 rust-target/
 rust-temp/
+.screenshots/
+.drivers/
+apps/desktop/.tmp-app-root/
 
 apps/desktop/src-tauri/target/**/*
 apps/desktop/src-tauri/gen/**/*
