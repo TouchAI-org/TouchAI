@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildMessageListRevision } from '@/views/SearchView/components/ConversationPanel/messageListRevision';
 import type { SessionMessage } from '@/types/session';
+import { buildMessageListRevision } from '@/views/SearchView/components/ConversationPanel/messageListRevision';
 
 function message(overrides: Partial<SessionMessage> = {}): SessionMessage {
     return {
@@ -42,7 +42,10 @@ describe('buildMessageListRevision', () => {
     it('ignores nested changes in earlier messages so auto-scroll does not rescan history', () => {
         const history = [message({ content: 'first' }), message({ id: 'm2', content: 'tail' })];
         const before = buildMessageListRevision(history);
-        const mutated = [message({ content: 'first changed deeply' }), message({ id: 'm2', content: 'tail' })];
+        const mutated = [
+            message({ content: 'first changed deeply' }),
+            message({ id: 'm2', content: 'tail' }),
+        ];
 
         expect(buildMessageListRevision(mutated)).toBe(before);
     });

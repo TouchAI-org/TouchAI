@@ -31,12 +31,11 @@
     import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { locale, t } from '@/i18n';
-    import { aiService } from '@/services/AgentService';
     import {
         persistRefreshedModels,
         refreshModelMetadataIfStale,
     } from '@/services/AgentService/infrastructure/modelMetadata';
-    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
+    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers/driverCatalog';
 
     defineOptions({
         name: 'SettingsAiServicesSection',
@@ -619,6 +618,7 @@
                 return;
             }
 
+            const { aiService } = await import('@/services/AgentService');
             const providerInstance = aiService.createProviderInstance(
                 provider.driver,
                 provider.api_endpoint,

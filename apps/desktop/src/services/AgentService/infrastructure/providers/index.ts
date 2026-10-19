@@ -4,15 +4,15 @@ export { normalizeProviderBaseUrl } from './ai-sdk/base';
 export { createTauriFetch } from './ai-sdk/tauriFetch';
 export { getProviderAttachmentCapabilities } from './capabilities';
 export { MIMO_API_BASE_URL, parseProviderConfigJson } from './config';
+export { createProviderFromRegistry } from './drivers';
 export {
-    createProviderFromRegistry,
     getProviderDriverDefinition,
     getProviderDriverDefinitions,
     isProviderDriver,
     parseProviderDriver,
     type ProviderDriverDefinition,
     providerDriverDefinitions,
-} from './drivers';
+} from './driverCatalog';
 export type {
     AiProvider,
     AiProviderConfig,

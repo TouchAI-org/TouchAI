@@ -15,7 +15,7 @@ const { metadataFetchMock } = vi.hoisted(() => ({
     metadataFetchMock: vi.fn(),
 }));
 
-vi.mock('@services/AgentService/infrastructure/providers', () => ({
+vi.mock('@services/AgentService/infrastructure/providers/ai-sdk/tauriFetch', () => ({
     createTauriFetch: () => metadataFetchMock,
 }));
 

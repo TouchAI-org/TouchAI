@@ -5,25 +5,31 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 
-const { eventHandlers, eventServiceMock, getSettingValueMock, getSettingValuesMock, setSettingMock, windowMock } =
-    vi.hoisted(() => ({
-        eventHandlers: new Map<string, (payload: unknown) => void>(),
-        eventServiceMock: {
-            emit: vi.fn(),
-            on: vi.fn(async (event: string, handler: (payload: unknown) => void) => {
-                eventHandlers.set(event, handler);
-                return () => {
-                    eventHandlers.delete(event);
-                };
-            }),
-        },
-        getSettingValueMock: vi.fn(),
-        getSettingValuesMock: vi.fn(),
-        setSettingMock: vi.fn(),
-        windowMock: {
-            label: 'settings',
-        },
-    }));
+const {
+    eventHandlers,
+    eventServiceMock,
+    getSettingValueMock,
+    getSettingValuesMock,
+    setSettingMock,
+    windowMock,
+} = vi.hoisted(() => ({
+    eventHandlers: new Map<string, (payload: unknown) => void>(),
+    eventServiceMock: {
+        emit: vi.fn(),
+        on: vi.fn(async (event: string, handler: (payload: unknown) => void) => {
+            eventHandlers.set(event, handler);
+            return () => {
+                eventHandlers.delete(event);
+            };
+        }),
+    },
+    getSettingValueMock: vi.fn(),
+    getSettingValuesMock: vi.fn(),
+    setSettingMock: vi.fn(),
+    windowMock: {
+        label: 'settings',
+    },
+}));
 
 vi.mock('@database/queries', () => ({
     getSettingValue: getSettingValueMock,
