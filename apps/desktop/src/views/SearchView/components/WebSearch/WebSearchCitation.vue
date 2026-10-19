@@ -20,38 +20,40 @@
             <span class="web-search-citation__label">{{ citationLabel }}</span>
         </a>
 
-        <Transition name="web-search-citation-pop">
-            <span
-                v-if="previewOpen"
-                ref="previewRef"
-                role="tooltip"
-                :class="
-                    previewAbove
-                        ? 'web-search-citation__preview web-search-citation__preview--above'
-                        : 'web-search-citation__preview'
-                "
-                :style="previewStyle"
-                @pointerenter="cancelLeaving"
-                @pointerleave="scheduleClose"
-            >
-                <a
-                    :href="source.url"
-                    target="_blank"
-                    rel="noreferrer"
-                    tabindex="-1"
-                    class="web-search-citation__card"
+        <Teleport to="body">
+            <Transition name="web-search-citation-pop">
+                <span
+                    v-if="previewOpen"
+                    ref="previewRef"
+                    role="tooltip"
+                    :class="
+                        previewAbove
+                            ? 'web-search-citation__preview web-search-citation__preview--above'
+                            : 'web-search-citation__preview'
+                    "
+                    :style="previewStyle"
+                    @pointerenter="cancelLeaving"
+                    @pointerleave="scheduleClose"
                 >
-                    <span class="web-search-citation__card-head">
-                        <SourceFavicon :source="source" :size="18" />
-                        <span class="web-search-citation__card-host">{{ hostname }}</span>
-                    </span>
-                    <span class="web-search-citation__card-title">{{ source.title }}</span>
-                    <span v-if="source.snippet" class="web-search-citation__card-snippet">
-                        {{ source.snippet }}
-                    </span>
-                </a>
-            </span>
-        </Transition>
+                    <a
+                        :href="source.url"
+                        target="_blank"
+                        rel="noreferrer"
+                        tabindex="-1"
+                        class="web-search-citation__card"
+                    >
+                        <span class="web-search-citation__card-head">
+                            <SourceFavicon :source="source" :size="18" />
+                            <span class="web-search-citation__card-host">{{ hostname }}</span>
+                        </span>
+                        <span class="web-search-citation__card-title">{{ source.title }}</span>
+                        <span v-if="source.snippet" class="web-search-citation__card-snippet">
+                            {{ source.snippet }}
+                        </span>
+                    </a>
+                </span>
+            </Transition>
+        </Teleport>
     </span>
 </template>
 
@@ -73,6 +75,8 @@
     const CITATION_LABEL_MAX_CHARS = 8;
     const VIEWPORT_MARGIN = 12;
     const MIN_PREVIEW_WIDTH = 120;
+    /** 预览与 chip 之间的垂直间距（对应 CSS 的 padding）。 */
+    const PREVIEW_GAP = 8;
 
     interface Props {
         source: WebSearchSource;
@@ -86,8 +90,13 @@
     const previewOpen = ref(false);
     /** 下方放不下时翻到 chip 上方。 */
     const previewAbove = ref(false);
-    const previewShift = ref(0);
+    /** 预览的视口坐标（`position: fixed`，已 Teleport 到 body）。 */
+    const previewLeft = ref(0);
+    const previewTop = ref(0);
     const previewMaxWidth = ref<number | null>(null);
+    const previewMaxHeight = ref<number | null>(null);
+    /** 水平偏移：未夹取时对齐 chip 左边缘，否则向左推。 */
+    const previewShift = ref(0);
     /**
      * 预览的实测自然尺寸。
      *
@@ -108,52 +117,24 @@
     });
 
     const previewStyle = computed(() => ({
-        marginLeft: `${previewShift.value}px`,
+        left: `${previewLeft.value}px`,
+        top: `${previewTop.value}px`,
         maxWidth: previewMaxWidth.value ? `${previewMaxWidth.value}px` : undefined,
+        maxHeight: previewMaxHeight.value ? `${previewMaxHeight.value}px` : undefined,
     }));
-
-    /**
-     * 取所有裁剪祖先与视口的交集，而不是最近的那一个：
-     * 内层滚动容器往往比外层宽，只看内层会把预览放到外层被裁掉的区域里。
-     */
-    function resolveClipRect(element: HTMLElement): DOMRect {
-        let left = 0;
-        let top = 0;
-        let right = window.innerWidth;
-        let bottom = window.innerHeight;
-
-        let node = element.parentElement;
-        while (node) {
-            const style = getComputedStyle(node);
-            // 部分环境不会把 `overflow` 展开成 `overflowX/Y`，两者都看。
-            const clips = [style.overflow, style.overflowX, style.overflowY].some((value) =>
-                /(auto|scroll|hidden)/.test(value ?? '')
-            );
-            if (clips) {
-                const rect = node.getBoundingClientRect();
-                left = Math.max(left, rect.left);
-                top = Math.max(top, rect.top);
-                right = Math.min(right, rect.right);
-                bottom = Math.min(bottom, rect.bottom);
-            }
-            node = node.parentElement;
-        }
-
-        return new DOMRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
-    }
 
     /**
      * 找「正文列」的横向边界。
      *
-     * 裁剪区只能算到全宽的会话容器，而视觉边界是正文列：
-     * 面板左右各留 40px 内边距，只按裁剪区夹取，预览会落进正文右侧的留白里。
+     * 只按视口夹取的话，卡片会伸进正文右侧的留白里 ——
      * 卡片与页面都是近白色，用户看不到卡片边界，只会看到字跑到正文外侧。
      *
-     * 零宽祖先（未完成布局、包装元素）不构成列，继续往上找。
+     * 零宽祖先（未完成布局、包装元素）不构成列，继续往上找；
+     * `body` 不算列 —— 它是全宽的，拿它当边界等于不夹。
      */
     function resolveContentColumn(element: HTMLElement): { left: number; right: number } | null {
         let node = element.parentElement;
-        while (node) {
+        while (node && node !== document.body) {
             const display = getComputedStyle(node).display ?? '';
             const isBlockLike =
                 !display.startsWith('inline') && display !== 'contents' && display !== 'none';
@@ -182,7 +163,11 @@
     }
 
     /**
-     * 把预览放到可见区域内的可读位置。
+     * 把预览放到视口内的可读位置。
+     *
+     * 预览已 Teleport 到 body 并使用 `position: fixed`，所以不再受任何祖先的
+     * `overflow: hidden` 裁剪 —— 之前无论怎么算夹取，被裁剪祖先切掉是结构性问里，
+     * 算得再准也没用。现在只跟视口（和正文列）对齐。
      *
      * 尺寸用实测值：写死常量会和 CSS 脱钩，改样式后夹取会静默失效。
      */
@@ -200,25 +185,35 @@
         previewNaturalSize = size;
 
         const chipRect = root.getBoundingClientRect();
-        const clip = resolveClipRect(root);
         const column = resolveContentColumn(root);
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
 
-        const spaceBelow = clip.bottom - chipRect.bottom - VIEWPORT_MARGIN;
-        const spaceAbove = chipRect.top - clip.top - VIEWPORT_MARGIN;
+        // 垂直：优先放下方，放不下翻上方，两边都紧张时选空间大的一侧。
+        const spaceBelow = viewportHeight - chipRect.bottom - VIEWPORT_MARGIN;
+        const spaceAbove = chipRect.top - VIEWPORT_MARGIN;
         previewAbove.value = spaceBelow < size.height && spaceAbove > spaceBelow;
 
-        // 先夹左边缘再定宽度：反过来会让宽度占满整个区，左边无处可收。
-        // 边界取裁剪区与正文列的交集，并统一留白 —— 贴着边界放看着像被切了。
-        const limitLeft =
-            Math.max(clip.left, column?.left ?? Number.NEGATIVE_INFINITY) + VIEWPORT_MARGIN;
-        const limitRight =
-            Math.min(clip.right, column?.right ?? Number.POSITIVE_INFINITY) - VIEWPORT_MARGIN;
-        const maxLeft = Math.max(limitLeft, limitRight - size.width);
-        const left = Math.min(Math.max(chipRect.left, limitLeft), maxLeft);
-        const availableWidth = Math.max(MIN_PREVIEW_WIDTH, limitRight - left);
+        const availableHeight = Math.max(0, previewAbove.value ? spaceAbove : spaceBelow);
+        const height = Math.min(size.height, availableHeight);
+        previewMaxHeight.value = height;
+        previewTop.value = previewAbove.value
+            ? Math.max(VIEWPORT_MARGIN, chipRect.top - height - PREVIEW_GAP)
+            : chipRect.bottom + PREVIEW_GAP;
 
+        // 水平：先夹左边缘再定宽度，反过来会让宽度占满可用区、左边无处可收。
+        // 右边界取「视口」与「正文列」的较窄者，避免卡片伸进正文右侧留白。
+        const limitLeft = Math.max(VIEWPORT_MARGIN, column?.left ?? 0);
+        const limitRight =
+            Math.min(viewportWidth - VIEWPORT_MARGIN, column?.right ?? viewportWidth) -
+            VIEWPORT_MARGIN;
+        const width = Math.min(size.width, Math.max(MIN_PREVIEW_WIDTH, limitRight - limitLeft));
+        const maxLeft = Math.max(limitLeft, limitRight - width);
+        const left = Math.min(Math.max(chipRect.left, limitLeft), maxLeft);
+
+        previewLeft.value = left;
         previewShift.value = left - chipRect.left;
-        previewMaxWidth.value = availableWidth;
+        previewMaxWidth.value = width;
     }
 
     /** 尺寸变化（首帧布局、可用宽度收窄、内容回流）后重算位置。 */
@@ -246,6 +241,7 @@
     function releasePreview(): void {
         previewShift.value = 0;
         previewMaxWidth.value = null;
+        previewMaxHeight.value = null;
         previewAbove.value = false;
         previewNaturalSize = null;
         previewResizeObserver?.disconnect();
@@ -390,34 +386,35 @@
         outline-offset: 1px;
     }
 
-    .web-search-citation__preview {
-        position: absolute;
+    /*
+     * 预览通过 Teleport 挂在 body 下，拿不到组件的 scoped 属性，
+     * 也继承不到 .web-search-citation 上的 CSS 变量，所以这一段必须是 :global
+     * 并自己声明变量。
+     */
+    :global(.web-search-citation__preview) {
+        --ws-muted: var(--color-primary-400, #968b7d);
+        --ws-ring: rgba(150, 139, 125, 0.22);
         /*
-         * 铺认铺在 chip 下方，并锚定到 chip 左边缘而不是居中：
-         * 行内引用落在窄正文列里，居中的 288px 预览会直接溢出容器左侧。
+         * Teleport 到 body + fixed：完全脱离会话面板的 overflow 裁剪。
+         * 之前用 absolute 定位在 chip 内部，面板的 overflow 会直接把卡片切掉，
+         * 这种情况下无论怎么算夹取都没用。坐标由 placePreview() 写入。
          */
-        top: 100%;
-        left: 0;
+        position: fixed;
         z-index: 50;
         display: block;
         width: 288px;
         max-width: calc(100vw - 24px);
-        padding-top: 8px;
         /* chip 在 nowrap 行内，预览需要自己恢复换行。 */
         white-space: normal;
         transform-origin: top left;
     }
 
-    /* 下方空间不够时翻到上方；会话面板会裁掉溢出内容。 */
-    .web-search-citation__preview--above {
-        top: auto;
-        bottom: 100%;
-        padding-top: 0;
-        padding-bottom: 8px;
+    /* 翻到上方时动画方向相反。 */
+    :global(.web-search-citation__preview--above) {
         transform-origin: bottom left;
     }
 
-    .web-search-citation__card {
+    :global(.web-search-citation__card) {
         display: block;
         padding: 12px;
         border-radius: 16px;
@@ -427,22 +424,25 @@
         text-decoration: none;
         /*
          * 两层阴影，缺一不可：
-         * - 亮一层只带 12px 下偏移，左右两侧几乎看不到收边，卡片边缘会显得是“被切掉”的；
+         * - 亮一层只带 12px 下偏移，左右两侧几乎看不到收边，卡片边缘会显得是"被切掉"的；
          * - 补一层小范围、小偏移的环境阴影，让四条边都浮起来。
          */
         box-shadow:
             0 12px 28px -10px rgba(74, 64, 57, 0.26),
             0 2px 8px -2px rgba(74, 64, 57, 0.16),
             0 0 0 1px var(--ws-ring);
+        /* 窗口很矮时由 max-height 收窄，内容可滚动而不是被切掉。 */
+        max-height: inherit;
+        overflow-y: auto;
     }
 
-    .web-search-citation__card-head {
+    :global(.web-search-citation__card-head) {
         display: flex;
         align-items: center;
         gap: 6px;
     }
 
-    .web-search-citation__card-host {
+    :global(.web-search-citation__card-host) {
         overflow: hidden;
         color: var(--ws-muted);
         font-size: 12px;
@@ -451,7 +451,7 @@
         white-space: nowrap;
     }
 
-    .web-search-citation__card-title {
+    :global(.web-search-citation__card-title) {
         display: -webkit-box;
         overflow: hidden;
         margin-top: 6px;
@@ -463,7 +463,7 @@
         -webkit-line-clamp: 2;
     }
 
-    .web-search-citation__card-snippet {
+    :global(.web-search-citation__card-snippet) {
         display: -webkit-box;
         overflow: hidden;
         margin-top: 4px;
@@ -475,19 +475,19 @@
         -webkit-line-clamp: 3;
     }
 
-    .web-search-citation-pop-enter-active,
-    .web-search-citation-pop-leave-active {
+    :global(.web-search-citation-pop-enter-active),
+    :global(.web-search-citation-pop-leave-active) {
         transition: opacity 180ms ease;
     }
 
-    .web-search-citation-pop-enter-from,
-    .web-search-citation-pop-leave-to {
+    :global(.web-search-citation-pop-enter-from),
+    :global(.web-search-citation-pop-leave-to) {
         opacity: 0;
     }
 
     @media (prefers-reduced-motion: reduce) {
-        .web-search-citation-pop-enter-active,
-        .web-search-citation-pop-leave-active,
+        :global(.web-search-citation-pop-enter-active),
+        :global(.web-search-citation-pop-leave-active),
         .web-search-citation__chip {
             transition: none;
         }

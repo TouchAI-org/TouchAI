@@ -103,7 +103,7 @@ describe('WebSearchSourcesCard', () => {
 
         expect(wrapper.findAll('[data-slot="web-search-skeleton"]')).toHaveLength(4);
         expect(wrapper.findAll('[data-slot="web-search-source"]')).toHaveLength(0);
-        expect(wrapper.get('.web-search-sources__skeleton-shine').exists()).toBe(true);
+        expect(wrapper.find('.web-search-sources__skeleton-shine').exists()).toBe(true);
     });
 
     it('drops the skeletons once the results arrive', async () => {
