@@ -178,10 +178,12 @@
 <template>
     <div class="settings-page" data-testid="settings-usage-section">
         <div class="settings-section-stack">
-            <!-- 标题与筛选同排，筛选靠右 -->
-            <header class="settings-page-header">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <h1 class="settings-page-title">{{ t('settings.nav.usage.label') }}</h1>
+            <!-- 标题与筛选同排，筛选靠右；不换行，避免筛选一变布局就跳 -->
+            <header class="settings-page-header !mb-6">
+                <div class="flex items-center justify-between gap-3">
+                    <h1 class="settings-page-title shrink-0">
+                        {{ t('settings.nav.usage.label') }}
+                    </h1>
                     <UsageToolbar
                         :preset="preset"
                         :status="status"

@@ -79,27 +79,11 @@
             emit('update:providerId', null);
         }
     }
-
-    /** 「全部」时按钮回到未选中态，避免看起来像一直在筛选 */
-    const hasActiveFilter = computed(
-        () =>
-            props.status !== 'all' ||
-            props.providerId !== null ||
-            props.modelId !== null ||
-            props.search.trim().length > 0
-    );
-
-    function resetFilters() {
-        emit('update:status', 'all');
-        emit('update:providerId', null);
-        emit('update:modelId', null);
-        emit('update:search', '');
-    }
 </script>
 
 <template>
-    <div class="flex flex-wrap items-center justify-end gap-1.5">
-        <div class="w-[92px]">
+    <div class="usage-filters flex shrink-0 items-center gap-1.5">
+        <div class="w-[86px]">
             <CustomSelect
                 :model-value="preset"
                 :options="rangeOptions"
@@ -109,7 +93,7 @@
             />
         </div>
 
-        <div class="w-[92px]">
+        <div class="w-[86px]">
             <CustomSelect
                 :model-value="status"
                 :options="statusOptions"
@@ -119,7 +103,7 @@
             />
         </div>
 
-        <div class="w-[110px]">
+        <div class="w-[96px]">
             <CustomSelect
                 :model-value="providerId ?? 0"
                 :options="providerOptions"
@@ -130,7 +114,7 @@
             />
         </div>
 
-        <div class="w-[120px]">
+        <div class="w-[100px]">
             <CustomSelect
                 :model-value="modelId ?? 0"
                 :options="modelOptions"
@@ -141,29 +125,36 @@
             />
         </div>
 
-        <div class="relative w-[140px]">
+        <div class="relative w-[150px]">
             <input
                 :value="search"
                 type="text"
                 :placeholder="t('settings.usage.filter.search')"
-                class="settings-input w-full py-1.5 pr-2 pl-7 text-xs"
+                class="settings-input w-full py-1 pr-2 pl-6 text-xs"
                 @input="emit('update:search', ($event.target as HTMLInputElement).value)"
             />
             <AppIcon
                 name="search"
-                class="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400"
+                class="pointer-events-none absolute top-1/2 left-2 h-3 w-3 -translate-y-1/2 text-neutral-400"
             />
         </div>
-
-        <button
-            v-if="hasActiveFilter"
-            type="button"
-            class="flex h-7 items-center gap-1 rounded-[9px] px-2 text-[11px] text-neutral-500 transition-colors hover:bg-[#f1f1ef] hover:text-neutral-800"
-            data-testid="settings-usage-reset-filters"
-            @click="resetFilters"
-        >
-            <AppIcon name="close" class="h-3 w-3" />
-            {{ t('settings.usage.filter.reset') }}
-        </button>
     </div>
 </template>
+
+<style scoped>
+    /*
+     * CustomSelect 的尺寸写死在组件内部的静态类（h-9 px-3 py-2 text-sm），
+     * 从调用方传 utility 类只是同级并列，谁生效取决于 Tailwind 的输出顺序，
+     * 并不可靠。用「父类 + 元素」选择器提高特异性，覆盖才确定。
+     *
+     * h-9 是固定高度，不改的话 padding 再小也压不下来。
+     * 下拉面板默认被 portal 到 body，不在这个选择器范围内，
+     * 所以选项文字仍保持正常字号。
+     */
+    .usage-filters :deep(button) {
+        height: auto;
+        padding: 4px 8px;
+        font-size: 12px;
+        line-height: 1rem;
+    }
+</style>
