@@ -537,6 +537,30 @@ export function isPlainText(editor: Editor): boolean {
     return plain;
 }
 
+export interface SearchEditorCursorFlags {
+    cursorAtStart: boolean;
+    cursorAtTextStart: boolean;
+    cursorAtEnd: boolean;
+}
+
+/**
+ * 一次计算全部光标位置派生状态。
+ *
+ * 三个标记共享同一次文档信息（前导模型标签位置 + 文档末尾），
+ * 避免输入/选区变化时分别遍历文档多次。
+ */
+export function resolveEditorCursorFlags(editor: Editor): SearchEditorCursorFlags {
+    const { from, to } = editor.state.selection;
+    const textStart = getLeadingModelTagTextStart(editor.state.doc) ?? 1;
+    const end = Selection.atEnd(editor.state.doc).to;
+
+    return {
+        cursorAtStart: from <= 1 && to <= 1,
+        cursorAtTextStart: from <= textStart && to <= textStart,
+        cursorAtEnd: from >= end && to >= end,
+    };
+}
+
 /** 判断光标是否在文档起始位置。 */
 export function isCursorAtDocStart(editor: Editor): boolean {
     const { from, to } = editor.state.selection;
