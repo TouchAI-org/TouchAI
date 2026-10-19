@@ -133,6 +133,15 @@ export const messageParts = sqliteTable(
             sql`CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$.toolKind') END`,
             { mode: 'virtual' }
         ),
+        // 工具日志列表按工具/server 过滤；生成列让过滤与排序都能命中索引。
+        tool_id: text('tool_id').generatedAlwaysAs(
+            sql`CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$."tool_id"') END`,
+            { mode: 'virtual' }
+        ),
+        server_id: integer('server_id').generatedAlwaysAs(
+            sql`CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$."server_id"') END`,
+            { mode: 'virtual' }
+        ),
         attachment_id: integer('attachment_id')
             .references(() => attachments.id, { onDelete: 'cascade' })
             .generatedAlwaysAs(
@@ -151,6 +160,18 @@ export const messageParts = sqliteTable(
     },
     (table) => [
         index('message_parts_tool_call_idx').on(table.tool_kind, table.tool_call_id),
+        index('message_parts_tool_id_idx').on(
+            table.tool_kind,
+            table.tool_id,
+            table.created_at,
+            table.id
+        ),
+        index('message_parts_server_id_idx').on(
+            table.tool_kind,
+            table.server_id,
+            table.created_at,
+            table.id
+        ),
         index('message_parts_attachment_idx').on(table.attachment_id),
         index('message_parts_llm_call_idx').on(table.type, table.started_at),
         check(
