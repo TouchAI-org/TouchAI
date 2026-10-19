@@ -84,6 +84,7 @@
     import ConversationTimeline from './components/ConversationTimeline.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
+    import { buildMessageListRevision } from './messageListRevision';
 
     defineOptions({
         name: 'SearchConversationPanel',
@@ -365,15 +366,15 @@
     }
 
     // 当消息变化时自动滚动到底部（仅在启用自动滚动时）
+    // 只跟随列表尾部 revision，避免每个流式快照都对全历史做深度遍历。
     watch(
-        () => props.messages,
+        () => buildMessageListRevision(props.messages),
         async () => {
             if (!shouldAutoScrollOnOutput()) return;
 
             await nextTick();
             syncToBottom();
-        },
-        { deep: true }
+        }
     );
 
     // 重置自动滚动状态
