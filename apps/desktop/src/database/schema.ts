@@ -82,21 +82,25 @@ export const sessions = sqliteTable(
 /**
  * 消息表
  */
-export const messages = sqliteTable('messages', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    session_id: integer('session_id')
-        .notNull()
-        .references(() => sessions.id, { onDelete: 'cascade' }),
-    role: text('role', {
-        enum: ['user', 'assistant', 'system', 'tool_call'],
-    }).notNull(),
-    created_at: text('created_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-    updated_at: text('updated_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-});
+export const messages = sqliteTable(
+    'messages',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        session_id: integer('session_id')
+            .notNull()
+            .references(() => sessions.id, { onDelete: 'cascade' }),
+        role: text('role', {
+            enum: ['user', 'assistant', 'system', 'tool_call'],
+        }).notNull(),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [index('messages_session_id_id_idx').on(table.session_id, table.id)]
+);
 
 /**
  * 消息输出片段表。
