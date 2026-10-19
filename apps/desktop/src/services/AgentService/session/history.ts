@@ -40,7 +40,7 @@ import { normalizeString } from '@/utils/text';
 import { AiError } from '../contracts/errors';
 import { getRetryStatusMessage } from '../execution/retry';
 import type { PromptSnapshot } from '../prompt/types';
-import { getSessionData, type SessionData } from './manager';
+import { getSessionData, getSessionDataPage, type SessionData } from './manager';
 import {
     ensureAssistantWidgets,
     ensureWidgetPart,
@@ -991,4 +991,40 @@ export async function loadSessionHistory(sessionId: number): Promise<SessionMess
         turns,
         attempts,
     });
+}
+
+/** 分页加载的首项结果。 */
+export interface SessionHistoryPage {
+    history: SessionMessage[];
+    /** 是否还有更早的消息可继续向前取。 */
+    hasMore: boolean;
+    /** 本页最早的消息 id，作为下一页的 `beforeMessageId`。 */
+    oldestMessageId: number | null;
+}
+
+/**
+ * 向前分页加载会话展示历史。
+ *
+ * 首屏只读取最新一页（建议 40–80 条），滚动到顶部时用 `oldestMessageId`
+ * 继续向前取；返回的消息保持 id 升序，可直接拼接到现有列表前面。
+ */
+export async function loadSessionHistoryPage(
+    sessionId: number,
+    options: { limit: number; beforeMessageId?: number | null }
+): Promise<SessionHistoryPage> {
+    const { messages, turns, attempts, hasMoreMessages } = await getSessionDataPage(
+        sessionId,
+        options
+    );
+    const history = await buildSessionHistoryFromData({
+        messages,
+        turns,
+        attempts,
+    });
+
+    return {
+        history,
+        hasMore: hasMoreMessages,
+        oldestMessageId: messages[0]?.id ?? null,
+    };
 }
