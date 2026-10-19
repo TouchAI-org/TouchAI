@@ -8,6 +8,7 @@ import {
 
 import type { AiContentPart, AiMessage } from '../contracts/protocol';
 import { buildAttachmentParts } from '../infrastructure/attachments';
+import type { SessionReadModel } from '../session/readModel';
 import { loadSessionTransportMessages } from '../session/transport';
 import type { PromptSnapshot } from './types';
 
@@ -17,6 +18,7 @@ interface BuildPromptTransportMessagesOptions {
     attachments?: AttachmentIndex[];
     supportsAttachments?: boolean;
     attachmentCapabilities?: AttachmentCapabilities;
+    readModel?: SessionReadModel;
 }
 
 export type PromptAttachmentSlot =
@@ -170,6 +172,7 @@ export async function buildPromptTransportMessages(
         sessionId: options.sessionId,
         supportsAttachments: options.supportsAttachments,
         attachmentCapabilities: options.attachmentCapabilities,
+        readModel: options.readModel,
     });
     const messages: AiMessage[] = [];
 

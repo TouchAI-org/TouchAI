@@ -14,6 +14,7 @@ import {
     getUnsupportedAttachmentTypes,
     hydratePersistedAttachments,
 } from '../infrastructure/attachments';
+import type { SessionReadModel } from './readModel';
 
 /** 读取 reasoning 片段持久化的 providerOptions；无有效内容时返回 undefined。 */
 function readReasoningProviderOptions(data: string): Record<string, JsonObject> | undefined {
@@ -53,12 +54,15 @@ const MISSING_TOOL_RESULT_PLACEHOLDER = 'Missing historical tool result.';
 export async function findUnsupportedSessionAttachmentTypes(options: {
     sessionId?: number;
     capabilities: AttachmentCapabilities;
+    readModel?: SessionReadModel;
 }): Promise<AttachmentType[]> {
     if (!options.sessionId) {
         return [];
     }
 
-    const rows = await findMessagesBySessionId(options.sessionId);
+    const rows = options.readModel
+        ? await options.readModel.getMessages(options.sessionId)
+        : await findMessagesBySessionId(options.sessionId);
     const transportAttachmentRows = rows
         .filter((row) => row.role === 'user' || row.role === 'tool_call')
         .flatMap((row) => row.attachments);
@@ -97,8 +101,13 @@ export async function loadSessionTransportMessages(options: {
     sessionId?: number;
     supportsAttachments?: boolean;
     attachmentCapabilities?: AttachmentCapabilities;
+    readModel?: SessionReadModel;
 }): Promise<AiMessage[]> {
-    const rows = options.sessionId ? await findMessagesBySessionId(options.sessionId) : [];
+    const rows = options.sessionId
+        ? options.readModel
+            ? await options.readModel.getMessages(options.sessionId)
+            : await findMessagesBySessionId(options.sessionId)
+        : [];
     const attachmentCapabilities = resolveTransportAttachmentCapabilities(options);
     const messages: AiMessage[] = [];
 

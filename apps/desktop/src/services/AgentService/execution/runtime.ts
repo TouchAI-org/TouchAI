@@ -25,6 +25,7 @@ import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
 import { buildPromptTransportMessages } from '../prompt/transport';
 import type { PromptSnapshot } from '../prompt/types';
+import { createSessionReadModel } from '../session/readModel';
 import { buildSessionTitle } from '../session/title';
 import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
 import type { TaskExecutionMode } from '../task/types';
@@ -251,11 +252,14 @@ export class AiConversationRuntime {
         });
         const attachments = this.options.attachments ?? [];
         const attachmentCapabilities = getModelAttachmentCapabilities(initialModel);
+        // 本次 turn 的读模型：附件预检与 transport 重建共享同一次消息行查询。
+        const sessionReadModel = createSessionReadModel();
         const unsupportedAttachmentTypes = new Set([
             ...getUnsupportedAttachmentTypes(attachments, attachmentCapabilities),
             ...(await findUnsupportedSessionAttachmentTypes({
                 sessionId: this.options.sessionId,
                 capabilities: attachmentCapabilities,
+                readModel: sessionReadModel,
             })),
         ]);
         if (unsupportedAttachmentTypes.size > 0) {
@@ -286,6 +290,7 @@ export class AiConversationRuntime {
             snapshot: promptSnapshot,
             attachments,
             attachmentCapabilities,
+            readModel: sessionReadModel,
         });
         const initialCheckpoint = this.executor.createInitialCheckpoint({
             initialModel,
