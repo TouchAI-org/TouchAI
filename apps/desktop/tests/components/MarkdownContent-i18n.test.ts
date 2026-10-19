@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+﻿import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
@@ -43,6 +43,7 @@ vi.mock('markstream-vue', () => ({
             'viewportPriority',
             'batchRendering',
             'maxLiveNodes',
+            'virtualScroll',
         ],
         unmounted() {
             markdownRenderUnmountedMock();
@@ -177,6 +178,48 @@ describe('user reads a markdown answer', () => {
         expect(renderer.props('maxLiveNodes')).toBe(0);
         await wrapper.setProps({ variant: 'reasoning' });
         expect(wrapper.findComponent({ name: 'MarkdownRender' }).props('maxLiveNodes')).toBe(320);
+    });
+    it('binds the markstream virtual adapter to the outer scroll owner when provided', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const { MARKDOWN_SCROLL_ROOT_KEY } = await import('@components/markdownScrollRoot');
+        const scrollRoot = document.createElement('div');
+
+        const wrapper = mount(MarkdownContent, {
+            props: { content: 'streaming body', final: false },
+            global: {
+                provide: {
+                    [MARKDOWN_SCROLL_ROOT_KEY as symbol]: () => scrollRoot,
+                },
+            },
+        });
+        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+        const options = renderer.props('virtualScroll') as {
+            enabled: boolean;
+            scrollRoot: () => HTMLElement | null;
+        };
+
+        expect(options.enabled).toBe(true);
+        expect(options.scrollRoot()).toBe(scrollRoot);
+
+        await wrapper.setProps({ final: true });
+        expect(
+            (
+                wrapper
+                    .findComponent({ name: 'MarkdownRender' })
+                    .props('virtualScroll') as typeof options
+            ).scrollRoot()
+        ).toBe(scrollRoot);
+    });
+
+    it('keeps the standalone renderer on the viewport bypass without an outer scroll owner', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: { content: 'standalone body', final: false },
+        });
+        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+
+        expect(renderer.props('virtualScroll')).toBeUndefined();
+        expect(renderer.props('viewportPriority')).toBe(false);
     });
 
     it('user configures markstream labels for English locale', async () => {
