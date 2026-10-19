@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 
-const { eventHandlers, eventServiceMock, getSettingValueMock, setSettingMock, windowMock } =
+const { eventHandlers, eventServiceMock, getSettingValueMock, getSettingValuesMock, setSettingMock, windowMock } =
     vi.hoisted(() => ({
         eventHandlers: new Map<string, (payload: unknown) => void>(),
         eventServiceMock: {
@@ -18,6 +18,7 @@ const { eventHandlers, eventServiceMock, getSettingValueMock, setSettingMock, wi
             }),
         },
         getSettingValueMock: vi.fn(),
+        getSettingValuesMock: vi.fn(),
         setSettingMock: vi.fn(),
         windowMock: {
             label: 'settings',
@@ -26,6 +27,7 @@ const { eventHandlers, eventServiceMock, getSettingValueMock, setSettingMock, wi
 
 vi.mock('@database/queries', () => ({
     getSettingValue: getSettingValueMock,
+    getSettingValues: getSettingValuesMock,
     setSetting: setSettingMock,
 }));
 
@@ -44,6 +46,9 @@ vi.mock('@tauri-apps/api/window', () => ({
 
 function mockSettings(values: Record<string, string | null>) {
     getSettingValueMock.mockImplementation(async ({ key }: { key: string }) => values[key] ?? null);
+    getSettingValuesMock.mockImplementation(async ({ keys }: { keys: string[] }) =>
+        Object.fromEntries(keys.map((key) => [key, values[key] ?? null]))
+    );
     setSettingMock.mockImplementation(async ({ key, value }: { key: string; value: string }) => ({
         id: 1,
         key,
