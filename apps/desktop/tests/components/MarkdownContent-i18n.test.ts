@@ -55,6 +55,7 @@ vi.mock('markstream-vue', () => ({
     getMarkdown: getMarkdownMock,
     languageMap: languageMapMock,
     parseMarkdownToStructure: parseMarkdownToStructureMock,
+    setCustomComponents: vi.fn(),
     setDefaultI18nMap: setDefaultI18nMapMock,
 }));
 

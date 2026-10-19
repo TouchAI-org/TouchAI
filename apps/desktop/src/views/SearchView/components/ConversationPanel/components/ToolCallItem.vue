@@ -8,6 +8,17 @@
         :summary-text="builtinSummaryText"
         :duration-text="builtinDurationText"
     />
+    <div v-else-if="webSearchState" :class="rootClass" @mousedown="handleMouseDown">
+        <WebSearchSourcesCard
+            :sources="webSearchState.sources"
+            :searching="webSearchState.searching"
+            :verb-text="builtinVerbText"
+            :summary-text="builtinSummaryText"
+            :duration-text="builtinDurationText"
+            :provider-name="webSearchProviderName"
+            :is-summary-payload="isBuiltinSummaryPayload"
+        />
+    </div>
     <div v-else :class="rootClass" @mousedown="handleMouseDown">
         <template v-if="isBuiltinTool">
             <div class="tool-call-log-line">
@@ -124,15 +135,21 @@
     import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
+    import {
+        SEARCH_PROVIDER_METADATA,
+        type SearchProviderId,
+    } from '@/stores/setting/sections/search';
     import type { ToolCallInfo } from '@/types/session';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
+    import WebSearchSourcesCard from './WebSearchSourcesCard.vue';
 
     const BUILTIN_ROOT_CLASS =
         'tool-call-log-wrapper paragraph-node touchai-markdown touchai-markdown--default';
     const BUILTIN_CARD_COMPONENTS: Record<string, Component> = {
         bash: BuiltInBashToolCallItem,
     };
+    const WEB_SEARCH_TOOL_TOKEN = 'websearch';
 
     interface Props {
         toolCall: ToolCallInfo;
@@ -158,6 +175,47 @@
         }
 
         return BUILTIN_CARD_COMPONENTS[builtinToolToken.value] ?? null;
+    });
+    /**
+     * WebSearch 的渲染状态。
+     *
+     * 搜索进行中（还没有结构化载荷）也要渲染，否则内容到位前轨道是空的；
+     * 旧会话既没有载荷也不在运行，就退回通用日志行。
+     */
+    const webSearchPayload = computed(() => {
+        if (!isBuiltinTool.value || builtinToolToken.value !== WEB_SEARCH_TOOL_TOKEN) {
+            return null;
+        }
+
+        const payload = props.toolCall.structuredPayload;
+        return payload && payload.kind === 'web_search_sources' ? payload : null;
+    });
+    const webSearchState = computed(() => {
+        // 先确认是 web_search 本身：否则任何内置工具在 executing 状态
+        // 都会命中下面的 searching 分支，被误渲染成搜索骨架卡。
+        if (!isBuiltinTool.value || builtinToolToken.value !== WEB_SEARCH_TOOL_TOKEN) {
+            return null;
+        }
+
+        const payload = webSearchPayload.value;
+        const sources = payload?.sources ?? [];
+        const searching =
+            props.toolCall.status === 'executing' || props.toolCall.status === 'awaiting_approval';
+
+        if (sources.length === 0 && !searching) {
+            return null;
+        }
+
+        return { sources, searching };
+    });
+    /** 搜索引擎展示名；单独渲染成标签，不再拼在语义文本里。 */
+    const webSearchProviderName = computed(() => {
+        const provider = webSearchPayload.value?.provider;
+        if (!provider) {
+            return null;
+        }
+
+        return SEARCH_PROVIDER_METADATA[provider as SearchProviderId]?.sourceName ?? provider;
     });
     const isBrowserBuiltinTool = computed(() => builtinToolToken.value.startsWith('browser'));
     const rootClass = computed(() => {

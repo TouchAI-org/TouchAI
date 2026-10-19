@@ -90,9 +90,10 @@
     import ActionButton from '@components/ActionButton.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { notify } from '@services/NotificationService';
-    import { computed, onUnmounted, ref, watch } from 'vue';
+    import { computed, onUnmounted, provide, ref, watch } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
+    import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
     import { useAskUserStore } from '@/stores/askUser';
@@ -102,6 +103,12 @@
         ToolCallInfo,
         WidgetInfo,
     } from '@/types/session';
+    import {
+        normalizeCitationUrl,
+        normalizeWrappedCitations,
+        WEB_SEARCH_CITATIONS_KEY,
+        type WebSearchCitationRegistry,
+    } from '@/views/SearchView/components/WebSearch/citations';
 
     import ReasoningBlock from './ReasoningBlock.vue';
     import ToolApprovalHistoryCard from './ToolApprovalHistoryCard.vue';
@@ -220,6 +227,46 @@
     const isRequestStateMessage = computed(() => {
         return !!(props.message.isCancelled || props.message.isRetrying || props.message.isError);
     });
+
+    /**
+     * 把本消息里所有 WebSearch 来源汇总成一张查找表。
+     *
+     * 一条 assistant 消息可能包含多轮搜索，按 URL 去重后统一编序号，
+     * 这样行内引用 `[n]` 与来源卡片的序号能对齐。
+     */
+    const citationIndex = computed(() => {
+        const byUrl = new Map<string, { source: WebSearchSource; index: number }>();
+
+        for (const part of props.message.parts) {
+            if (part.type !== 'tool_call') continue;
+            const payload = part.toolCall.structuredPayload;
+            if (!payload || payload.kind !== 'web_search_sources') continue;
+
+            for (const source of payload.sources) {
+                const key = normalizeCitationUrl(source.url);
+                if (!key || byUrl.has(key)) continue;
+                byUrl.set(key, { source, index: byUrl.size + 1 });
+            }
+        }
+
+        return byUrl;
+    });
+
+    // provide 要在 setup 期间调用，但查找必须实时读 computed，
+    // 否则流式新增的搜索结果会被锁死在初始快照里。
+    provide<WebSearchCitationRegistry>(WEB_SEARCH_CITATIONS_KEY, {
+        findByUrl: (url) => citationIndex.value.get(normalizeCitationUrl(url))?.source,
+        indexOf: (source) => citationIndex.value.get(normalizeCitationUrl(source.url))?.index,
+    });
+
+    /**
+     * 模型常常把来源写成「（[标题](url)）。」或「。([标题](url))」。
+     * 只改命中本次搜索来源的链接，不碰普通括号引用。
+     */
+    function normalizeContent(content: string): string {
+        const index = citationIndex.value;
+        return normalizeWrappedCitations(content, (url) => index.has(url));
+    }
     const renderedParts = computed<RenderedPart[]>(() => {
         const approvalMap = new Map(
             (props.message.approvals ?? []).map((approval) => [approval.callId, approval])
@@ -245,7 +292,7 @@
                     parts.push({
                         id: part.id,
                         type: 'text',
-                        content: part.content,
+                        content: normalizeContent(part.content),
                     });
                 }
                 continue;

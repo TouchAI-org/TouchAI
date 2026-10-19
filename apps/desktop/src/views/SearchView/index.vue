@@ -135,6 +135,8 @@
             openSettingsWindow: () => Promise<void>;
             setSearchQuery: (text: string) => void;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
+            /** 加载一条已持久化的会话（供端到端截图使用）。 */
+            openSession?: (sessionId: number) => Promise<void>;
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
@@ -1108,6 +1110,15 @@
             },
             getQuickSearchFallbackResults(query: string) {
                 return getE2eQuickSearchFallbackResults(query);
+            },
+            /**
+             * 把一条已持久化的会话加载进主视图。
+             *
+             * 供端到端截图使用：搜索结果卡片只能靠真实会话渲染出来，
+             * 而正常路径需要一次真实的 AI 请求才能产生会话。
+             */
+            async openSession(sessionId: number) {
+                await handleOpenSession(sessionId);
             },
         };
     }

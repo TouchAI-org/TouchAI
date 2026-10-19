@@ -15,6 +15,7 @@
              leaving visible long code blocks stuck in the loading fallback. -->
         <MarkdownRender
             :key="markdownRenderKey"
+            custom-id="touchai"
             :nodes="nodes"
             :final="props.final"
             :is-dark="false"
@@ -43,8 +44,11 @@
         getMarkdown,
         languageMap,
         type MarkdownIt,
+        setCustomComponents,
         setDefaultI18nMap,
     } from 'markstream-vue';
+
+    import WebSearchCitationLink from '@/views/SearchView/components/WebSearch/WebSearchCitationLink.vue';
 
     const markdownParser = getMarkdown('touchai-markdown', {
         enableContainers: false,
@@ -118,6 +122,10 @@
 
             enableKatex(() => import('katex'));
             enableMermaid(() => import('mermaid'));
+            // 只接管外部链接节点：命中搜索来源的会渲染成行内引用 chip，
+            // 其余链接由 WebSearchCitationLink 自己透传成普通 <a>。
+            // 测试环境会把 markstream-vue 整体 mock 掉，所以要容忍缺失。
+            setCustomComponents?.('touchai', { link: WebSearchCitationLink });
             isConfigured = true;
         }
 
