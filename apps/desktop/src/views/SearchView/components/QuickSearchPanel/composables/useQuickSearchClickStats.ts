@@ -5,18 +5,12 @@ import {
 import type { QuickShortcutItem } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
 
-const MAX_CLICK_COUNT = 1_000_000; // 单条路径点击上限，防止计数无限增长
-const MAX_CLICK_PATH_ENTRIES = 200; // 单个 query 最多加载的路径统计条目数
-
+const MAX_CLICK_COUNT = 1_000_000; // 鍗曟潯璺緞鐐瑰嚮涓婇檺锛岄槻姝㈣鏁版棤闄愬闀?const MAX_CLICK_PATH_ENTRIES = 200; // 鍗曚釜 query 鏈€澶氬姞杞界殑璺緞缁熻鏉＄洰鏁?
 type ClickStatsMap = Record<string, Record<string, number>>;
 
 /**
- * 规范化点击统计 query。
- * 统一大小写与空白，保证同义输入命中同一统计键。
- *
- * @param query 原始查询文本。
- * @returns 规范化后的 query；无有效 token 时返回 null。
- */
+ * 瑙勮寖鍖栫偣鍑荤粺璁?query銆? * 缁熶竴澶у皬鍐欎笌绌虹櫧锛屼繚璇佸悓涔夎緭鍏ュ懡涓悓涓€缁熻閿€? *
+ * @param query 鍘熷鏌ヨ鏂囨湰銆? * @returns 瑙勮寖鍖栧悗鐨?query锛涙棤鏈夋晥 token 鏃惰繑鍥?null銆? */
 function normalizeClickQuery(query: string): string | null {
     const tokens = query
         .toLowerCase()
@@ -27,23 +21,15 @@ function normalizeClickQuery(query: string): string | null {
 }
 
 /**
- * 规范化路径键。
- * 统一分隔符与大小写，降低同一路径不同写法造成的统计分裂。
- *
- * @param path 原始路径。
- * @returns 规范化路径。
- */
+ * 瑙勮寖鍖栬矾寰勯敭銆? * 缁熶竴鍒嗛殧绗︿笌澶у皬鍐欙紝闄嶄綆鍚屼竴璺緞涓嶅悓鍐欐硶閫犳垚鐨勭粺璁″垎瑁傘€? *
+ * @param path 鍘熷璺緞銆? * @returns 瑙勮寖鍖栬矾寰勩€? */
 function normalizeClickPath(path: string): string {
     return path.trim().replace(/\//g, '\\').toLowerCase();
 }
 
 /**
- * 更新内存缓存中的点击计数。
- *
- * @param clickStats 按 query/path 组织的点击缓存。
- * @param query 原始查询文本。
- * @param path 原始路径。
- * @returns void
+ * 鏇存柊鍐呭瓨缂撳瓨涓殑鐐瑰嚮璁℃暟銆? *
+ * @param clickStats 鎸?query/path 缁勭粐鐨勭偣鍑荤紦瀛樸€? * @param query 鍘熷鏌ヨ鏂囨湰銆? * @param path 鍘熷璺緞銆? * @returns void
  */
 function updateClickStatsCache(clickStats: ClickStatsMap, query: string, path: string) {
     const queryNorm = normalizeClickQuery(query);
@@ -58,33 +44,24 @@ function updateClickStatsCache(clickStats: ClickStatsMap, query: string, path: s
 }
 
 /**
- * 快速搜索点击统计能力。
- * 负责按点击次数重排结果，并在点击后写入 SQLite（通过 query 封装层）。
- *
- * @returns 点击统计相关方法集合。
- */
+ * 蹇€熸悳绱㈢偣鍑荤粺璁¤兘鍔涖€? * 璐熻矗鎸夌偣鍑绘鏁伴噸鎺掔粨鏋滐紝骞跺湪鐐瑰嚮鍚庡啓鍏?SQLite锛堥€氳繃 query 灏佽灞傦級銆? *
+ * @returns 鐐瑰嚮缁熻鐩稿叧鏂规硶闆嗗悎銆? */
 export function useQuickSearchClickStats() {
-    // 本地缓存：按规范化 query 缓存 path->count，避免每次搜索都读库。
-    const clickStats: ClickStatsMap = {};
+    // 鏈湴缂撳瓨锛氭寜瑙勮寖鍖?query 缂撳瓨 path->count锛岄伩鍏嶆瘡娆℃悳绱㈤兘璇诲簱銆?    const clickStats: ClickStatsMap = {};
+    // 鍚屼竴 query 鐨勫苟鍙戦鍙?鎺掑簭鍏变韩涓€娆¤鍙栥€?    const pendingLoads = new Map<string, Promise<Record<string, number>>>();
 
-    /**
-     * 按点击统计对搜索结果做稳定重排。
-     *
-     * @param query 当前查询文本。
-     * @param items 原始搜索结果。
-     * @returns 重排后的搜索结果。
-     */
-    async function rankResults(
-        query: string,
-        items: QuickShortcutItem[]
-    ): Promise<QuickShortcutItem[]> {
-        const queryNorm = normalizeClickQuery(query);
-        if (!queryNorm) {
-            return items;
+    async function ensureClickStats(queryNorm: string): Promise<Record<string, number>> {
+        const cached = clickStats[queryNorm];
+        if (cached) {
+            return cached;
         }
 
-        // 懒加载：首次命中某 query 时再读取 SQLite，并回填到内存缓存。
-        if (!clickStats[queryNorm]) {
+        const pending = pendingLoads.get(queryNorm);
+        if (pending) {
+            return await pending;
+        }
+
+        const load = (async (): Promise<Record<string, number>> => {
             try {
                 const rows = await findQuickSearchClicksByQuery({
                     queryNorm,
@@ -101,16 +78,46 @@ export function useQuickSearchClickStats() {
                     pathStats[pathNorm] = Math.min(MAX_CLICK_COUNT, Math.floor(count));
                 }
                 clickStats[queryNorm] = pathStats;
+                return pathStats;
             } catch (error) {
                 log.warn('[QuickSearchPanel] Failed to load click stats from sqlite:', error);
                 clickStats[queryNorm] = {};
+                return clickStats[queryNorm]!;
+            } finally {
+                pendingLoads.delete(queryNorm);
             }
+        })();
+
+        pendingLoads.set(queryNorm, load);
+        return await load;
+    }
+
+    /**
+     * 鎻愬墠鍔犺浇鐐瑰嚮缁熻锛屼娇 native 鎼滅储涓庤交閲忛噸鎺掑彲浠ュ苟琛屻€?     * 璇诲彇澶辫触涓嶆姏鍑猴細鎺掑簭浠嶅洖閫€鍒板師濮嬬粨鏋溿€?     */
+    async function prefetch(query: string): Promise<void> {
+        const queryNorm = normalizeClickQuery(query);
+        if (!queryNorm) {
+            return;
         }
 
-        const pathStats = clickStats[queryNorm];
+        await ensureClickStats(queryNorm);
+    }
+
+    /**
+     * 鎸夌偣鍑荤粺璁″鎼滅储缁撴灉鍋氱ǔ瀹氶噸鎺掋€?     *
+     * @param query 褰撳墠鏌ヨ鏂囨湰銆?     * @param items 鍘熷鎼滅储缁撴灉銆?     * @returns 閲嶆帓鍚庣殑鎼滅储缁撴灉銆?     */
+    async function rankResults(
+        query: string,
+        items: QuickShortcutItem[]
+    ): Promise<QuickShortcutItem[]> {
+        const queryNorm = normalizeClickQuery(query);
+        if (!queryNorm) {
+            return items;
+        }
+
+        // 鎳掑姞杞斤細棣栨鍛戒腑鏌?query 鏃跺啀璇诲彇 SQLite锛屽苟鍥炲～鍒板唴瀛樼紦瀛樸€?        const pathStats = await ensureClickStats(queryNorm);
         let hasClickBoost = false;
-        // 记录原始索引，后续同分时按原顺序回退，保持稳定排序。
-        const ranked = items.map((item, index) => {
+        // 璁板綍鍘熷绱㈠紩锛屽悗缁悓鍒嗘椂鎸夊師椤哄簭鍥為€€锛屼繚鎸佺ǔ瀹氭帓搴忋€?        const ranked = items.map((item, index) => {
             const clickCount = pathStats[normalizeClickPath(item.path)] ?? 0;
             if (clickCount > 0) {
                 hasClickBoost = true;
@@ -133,12 +140,8 @@ export function useQuickSearchClickStats() {
     }
 
     /**
-     * 记录一次点击行为。
-     * 先更新内存缓存，再异步持久化到 SQLite。
-     *
-     * @param query 当前查询文本。
-     * @param path 被点击项路径。
-     * @returns void
+     * 璁板綍涓€娆＄偣鍑昏涓恒€?     * 鍏堟洿鏂板唴瀛樼紦瀛橈紝鍐嶅紓姝ユ寔涔呭寲鍒?SQLite銆?     *
+     * @param query 褰撳墠鏌ヨ鏂囨湰銆?     * @param path 琚偣鍑婚」璺緞銆?     * @returns void
      */
     function recordClick(query: string, path: string) {
         updateClickStatsCache(clickStats, query, path);
@@ -149,8 +152,7 @@ export function useQuickSearchClickStats() {
             return;
         }
 
-        // 写库走查询层封装；失败仅记录日志，不阻塞主流程。
-        void upsertQuickSearchClick({
+        // 鍐欏簱璧版煡璇㈠眰灏佽锛涘け璐ヤ粎璁板綍鏃ュ織锛屼笉闃诲涓绘祦绋嬨€?        void upsertQuickSearchClick({
             queryNorm,
             pathNorm,
             maxClickCount: MAX_CLICK_COUNT,
@@ -160,6 +162,7 @@ export function useQuickSearchClickStats() {
     }
 
     return {
+        prefetch,
         rankResults,
         recordClick,
     };
