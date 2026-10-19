@@ -1,4 +1,8 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use futures::future::join_all;
+use tokio::time::{timeout_at, Instant};
 
 use super::{
     actions, cdp,
@@ -21,6 +25,13 @@ use super::{
 const EXISTING_BROWSER_DISCOVERY_PORTS: &[u16] = &[
     9222, 9223, 9224, 9225, 9226, 9227, 9228, 9229, 9230, 9231, 9232, 9333,
 ];
+
+/// 端口发现的总期限与单批并发。
+///
+/// 顺序探测 12 个端口时，每个不可达端口都要等连接失败；
+/// 有界并发 + 总期限把最坏耗时限制在常数级，且不会同时打满文件描述符。
+const EXISTING_BROWSER_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(6);
+const EXISTING_BROWSER_DISCOVERY_CONCURRENCY: usize = 4;
 
 #[derive(Clone, Default)]
 pub struct BrowserRuntime {
@@ -153,16 +164,30 @@ impl BrowserRuntime {
     }
 
     pub async fn discover_existing_sessions(&self) -> Result<Vec<BrowserExistingSession>, String> {
+        let deadline = Instant::now() + EXISTING_BROWSER_DISCOVERY_TIMEOUT;
         let mut sessions = Vec::new();
-        for port in EXISTING_BROWSER_DISCOVERY_PORTS {
-            let endpoint = BrowserEndpoint {
-                host: "127.0.0.1".to_string(),
-                port: *port,
-            };
-            if let Ok(session) = existing_session_from_endpoint(endpoint).await {
-                sessions.push(session);
+
+        for ports in EXISTING_BROWSER_DISCOVERY_PORTS.chunks(EXISTING_BROWSER_DISCOVERY_CONCURRENCY) {
+            let probes = ports.iter().copied().map(|port| {
+                let endpoint = BrowserEndpoint {
+                    host: "127.0.0.1".to_string(),
+                    port,
+                };
+                async move {
+                    match timeout_at(deadline, existing_session_from_endpoint(endpoint)).await {
+                        Ok(Ok(session)) => Some(session),
+                        _ => None,
+                    }
+                }
+            });
+
+            sessions.extend(join_all(probes).await.into_iter().flatten());
+
+            if Instant::now() >= deadline {
+                break;
             }
         }
+
         Ok(sessions)
     }
 

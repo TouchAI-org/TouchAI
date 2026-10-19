@@ -19,7 +19,7 @@ use tokio_tungstenite::{
 
 use super::{
     actions::BrowserResolvedAction,
-    endpoint::{validate_loopback_websocket, validate_stale_navigation_token, BrowserEndpoint},
+    endpoint::{shared_http_client, validate_loopback_websocket, validate_stale_navigation_token, BrowserEndpoint},
     types::{BrowserActOperation, BrowserActResult, BrowserDomRef, BrowserTab},
 };
 
@@ -76,12 +76,8 @@ struct FocusedEditableElement {
     content_editable: bool,
 }
 
-fn http_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(4))
-        .build()
-        .map_err(|error| format!("Failed to build browser endpoint client: {error}"))
+fn http_client() -> Result<&'static reqwest::Client, String> {
+    shared_http_client()
 }
 
 fn navigation_token(tab: &CdpTarget) -> String {
@@ -105,11 +101,7 @@ impl CdpTarget {
 }
 
 pub async fn list_targets(endpoint: &BrowserEndpoint) -> Result<Vec<CdpTarget>, String> {
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(std::time::Duration::from_secs(4))
-        .build()
-        .map_err(|error| format!("Failed to build browser endpoint client: {error}"))?;
+    let client = http_client()?;
 
     client
         .get(endpoint.list_url())
