@@ -145,17 +145,26 @@ export function mayContainMathDelimiter(markdown: string): boolean {
     return markdown.includes('$$') || markdown.includes(String.raw`\[`);
 }
 
-/** Returns whether math delimiters occur outside Markdown code spans and fences. */
-export function hasMathDelimiterOutsideCode(markdown: string): boolean {
-    // 没有候选时无需构造代码范围与反引号映射，长文流的常见路径由此变成一次扫描。
-    if (!mayContainMathDelimiter(markdown)) {
-        return false;
-    }
+interface MathScanResult {
+    hasMath: boolean;
+    hasUnclosed: boolean;
+}
 
+/**
+ * 在代码跨度/围栏之外扫描数学边界。
+ *
+ * `$$` 以成对出现切换块级公式；`\[` 由 `\]` 关闭。
+ * `hasUnclosed` 用于判断流式 buffer 是否正处于未完成公式中——
+ * 这种情况下增量解析可能吞掉后续标题，需要回退到全量安全解析。
+ */
+function scanMathOutsideCode(markdown: string): MathScanResult {
     const fences = getFencedCodeRanges(markdown);
     const nextRunByStart = getNextBacktickRuns(markdown, fences);
     let fenceIndex = 0;
     let index = 0;
+    let blockMathOpen = false;
+    let bracketOpen = false;
+    let hasMath = false;
 
     while (index < markdown.length) {
         const fence = fences[fenceIndex];
@@ -178,11 +187,51 @@ export function hasMathDelimiterOutsideCode(markdown: string): boolean {
             }
             continue;
         }
-        if (markdown.startsWith('$$', index) || markdown.startsWith(String.raw`\[`, index)) {
-            return true;
+
+        if (markdown.startsWith('$$', index)) {
+            hasMath = true;
+            blockMathOpen = !blockMathOpen;
+            index += 2;
+            continue;
         }
+
+        if (markdown.startsWith(String.raw`\[`, index)) {
+            hasMath = true;
+            bracketOpen = true;
+            index += 2;
+            continue;
+        }
+
+        if (markdown.startsWith(String.raw`\]`, index)) {
+            bracketOpen = false;
+            index += 2;
+            continue;
+        }
+
         index += 1;
     }
 
-    return false;
+    return {
+        hasMath,
+        hasUnclosed: blockMathOpen || bracketOpen,
+    };
+}
+
+/** Returns whether math delimiters occur outside Markdown code spans and fences. */
+export function hasMathDelimiterOutsideCode(markdown: string): boolean {
+    // 没有候选时无需构造代码范围与反引号映射，长文流的常见路径由此变成一次扫描。
+    if (!mayContainMathDelimiter(markdown)) {
+        return false;
+    }
+
+    return scanMathOutsideCode(markdown).hasMath;
+}
+
+/** 是否仍有未闭合的数学边界（此时增量解析不安全）。 */
+export function hasUnclosedMathDelimiterOutsideCode(markdown: string): boolean {
+    if (!mayContainMathDelimiter(markdown)) {
+        return false;
+    }
+
+    return scanMathOutsideCode(markdown).hasUnclosed;
 }
