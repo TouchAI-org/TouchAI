@@ -76,6 +76,9 @@ export const sessions = sqliteTable(
         index('sessions_archived_at_idx').on(table.archived_at),
         index('sessions_pinned_at_idx').on(table.pinned_at),
         index('sessions_last_message_at_idx').on(table.last_message_at),
+        index('sessions_activity_idx').on(
+            sql`coalesce(${table.last_message_at}, ${table.updated_at}) DESC, ${table.id} DESC`
+        ),
     ]
 );
 
@@ -420,6 +423,11 @@ export const sessionTurns = sqliteTable(
         index('session_turns_created_at_idx').on(table.created_at),
         index('session_turns_model_created_idx').on(table.model_id, table.created_at),
         index('session_turns_status_created_idx').on(table.status, table.created_at),
+        index('session_turns_session_created_idx').on(
+            table.session_id,
+            table.created_at,
+            table.id
+        ),
     ]
 );
 
