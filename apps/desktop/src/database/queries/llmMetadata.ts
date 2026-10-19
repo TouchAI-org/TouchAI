@@ -68,6 +68,16 @@ export async function isLlmMetadataAliasEmpty(): Promise<boolean> {
 
 // ==================== 定价 ====================
 
+/** 分级价格：请求总输入超过 `above` 后，整个请求按这组价算 */
+export interface ModelPricingTier {
+    above: number;
+    inputPerMillion: string;
+    outputPerMillion: string;
+    cacheReadPerMillion: string;
+    cacheWritePerMillion: string;
+    reasoningPerMillion: string;
+}
+
 /** 模型的定价（每百万 token），来自 models.dev */
 export interface ModelPricing {
     modelId: string;
@@ -75,7 +85,47 @@ export interface ModelPricing {
     outputPerMillion: string;
     cacheReadPerMillion: string;
     cacheWritePerMillion: string;
+    /** 推理 token 单价；等于 output 价时供应商通常不单独给 */
+    reasoningPerMillion: string;
     currency: string;
+    /** 按上下文长度分级的价格，升序；空数组表示不分级 */
+    tiers: ModelPricingTier[];
+}
+
+/** 解析入库的分级 JSON，容错返回空数组 */
+function parseCostTiers(raw: string | null): ModelPricingTier[] {
+    if (!raw) {
+        return [];
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as Array<{
+            above: number;
+            input: number | null;
+            output: number | null;
+            cacheRead: number | null;
+            cacheWrite: number | null;
+            reasoning: number | null;
+        }>;
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+
+        return parsed
+            .filter((tier) => typeof tier.above === 'number' && tier.above > 0)
+            .sort((left, right) => left.above - right.above)
+            .map((tier) => ({
+                above: tier.above,
+                // 档位未给价时沿用基础价，传空串让调用方回退
+                inputPerMillion: tier.input?.toString() ?? '',
+                outputPerMillion: tier.output?.toString() ?? '',
+                cacheReadPerMillion: tier.cacheRead?.toString() ?? '',
+                cacheWritePerMillion: tier.cacheWrite?.toString() ?? '',
+                reasoningPerMillion: tier.reasoning?.toString() ?? '',
+            }));
+    } catch {
+        return [];
+    }
 }
 
 /**
@@ -116,7 +166,9 @@ export async function findModelPricing(rawModelId: string): Promise<ModelPricing
             output: llmMetadata.output_cost_per_million,
             cacheRead: llmMetadata.cache_read_cost_per_million,
             cacheWrite: llmMetadata.cache_write_cost_per_million,
+            reasoning: llmMetadata.reasoning_cost_per_million,
             currency: llmMetadata.cost_currency,
+            tiers: llmMetadata.cost_tiers,
         })
         .from(llmMetadata)
         .where(inArray(llmMetadata.model_id, lookupOrder))
@@ -141,7 +193,10 @@ export async function findModelPricing(rawModelId: string): Promise<ModelPricing
         outputPerMillion: best.output!,
         cacheReadPerMillion: best.cacheRead ?? '0',
         cacheWritePerMillion: best.cacheWrite ?? '0',
+        // 供应商不单独报推理价时，推理 token 按 output 价计
+        reasoningPerMillion: best.reasoning ?? best.output!,
         currency: best.currency ?? 'USD',
+        tiers: parseCostTiers(best.tiers),
     };
 }
 

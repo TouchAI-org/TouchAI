@@ -119,9 +119,11 @@ function call(overrides: Partial<PersistedCall['record']> = {}): PersistedCall {
             outputCostMicros: 0,
             cacheReadCostMicros: 0,
             cacheWriteCostMicros: 0,
+            reasoningCostMicros: 0,
             totalCostMicros: 0,
             currency: 'USD',
             pricingModel: null,
+            appliedTierAbove: null,
             priced: false,
         },
     };
@@ -314,9 +316,11 @@ describe('usage write path against a real database', () => {
             outputCostMicros: 7,
             cacheReadCostMicros: 14,
             cacheWriteCostMicros: 0,
+            reasoningCostMicros: 0,
             totalCostMicros: 50,
             currency: 'USD',
             pricingModel: 'deepseek-v4-flash',
+            appliedTierAbove: null,
             priced: true,
         };
 

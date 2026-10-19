@@ -11,7 +11,9 @@ const claudePricing: ModelPricing = {
     outputPerMillion: '15',
     cacheReadPerMillion: '0.3',
     cacheWritePerMillion: '3.75',
+    reasoningPerMillion: '15',
     currency: 'USD',
+    tiers: [],
 };
 
 function usage(partial: Partial<AiUsage>): AiUsage {

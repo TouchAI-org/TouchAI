@@ -43,6 +43,13 @@
       "when": 1792267644978,
       "tag": "0005_striped_echo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792353606575,
+      "tag": "0006_usage_tiered_pricing",
+      "breakpoints": true
     }
   ]
 }

@@ -527,7 +527,16 @@ export const llmMetadata = sqliteTable('llm_metadata', {
     output_cost_per_million: text('output_cost_per_million'),
     cache_read_cost_per_million: text('cache_read_cost_per_million'),
     cache_write_cost_per_million: text('cache_write_cost_per_million'),
+    /** 推理 token 单价；为空表示与 output 同价 */
+    reasoning_cost_per_million: text('reasoning_cost_per_million'),
     cost_currency: text('cost_currency'),
+    /**
+     * 按上下文长度分级的价格，JSON：`[{ above, input, output, cacheRead, cacheWrite }]`
+     *
+     * 未分级的模型为 null。分级是「整个请求按请求总输入切档」，
+     * 不是对超出部分单独计价。
+     */
+    cost_tiers: text('cost_tiers'),
 
     created_at: text('created_at')
         .notNull()

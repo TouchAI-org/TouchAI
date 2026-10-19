@@ -19,9 +19,11 @@ const EMPTY_COST: CostBreakdown = {
     outputCostMicros: 0,
     cacheReadCostMicros: 0,
     cacheWriteCostMicros: 0,
+    reasoningCostMicros: 0,
     totalCostMicros: 0,
     currency: 'USD',
     pricingModel: null,
+    appliedTierAbove: null,
     priced: false,
 };
 
