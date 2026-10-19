@@ -54,17 +54,105 @@ export async function findToolParts(
               .offset(options.offset ?? 0)
               .all()
         : await query.all();
-    return rows.map(
-        ({ part, session_id }) =>
-            ({
-                ...JSON.parse(part.data),
-                id: part.id,
-                tool_call_id: part.tool_call_id!,
-                session_id,
-                message_id: part.message_id,
-                created_at: part.created_at,
-            }) as ToolPartEntity
-    );
+    return rows.map(({ part, session_id }) => toToolPartEntity(part, session_id));
+}
+
+function toToolPartEntity(part: MessagePartEntity, sessionId: number | null): ToolPartEntity {
+    return {
+        ...JSON.parse(part.data),
+        id: part.id,
+        tool_call_id: part.tool_call_id!,
+        session_id: sessionId,
+        message_id: part.message_id,
+        created_at: part.created_at,
+    } as ToolPartEntity;
+}
+
+/**
+ * 日志列表的轻量投影。
+ *
+ * 列表只需要展示字段与输入摘要，不再把完整 input/output JSON 拉进内存；
+ * 完整正文由 `findToolPartById` 在用户展开时按需读取。
+ */
+export interface ToolPartSummaryRow {
+    id: number;
+    tool_call_id: string | null;
+    tool_name: string;
+    session_id: number | null;
+    message_id: number;
+    created_at: string;
+    status: string;
+    duration_ms: number | null;
+    server_id: number | null;
+    input_preview: string | null;
+    output_length: number;
+}
+
+/** 按日志主键读取完整工具调用记录。 */
+export async function findToolPartById(
+    kind: ToolLogKind,
+    id: number
+): Promise<ToolPartEntity | undefined> {
+    const row = await db
+        .select({ part: messageParts, session_id: messages.session_id })
+        .from(messageParts)
+        .innerJoin(messages, eq(messages.id, messageParts.message_id))
+        .where(
+            and(eq(messageParts.id, id), eq(messageParts.type, 'tool_call'), eq(messageParts.tool_kind, kind))
+        )
+        .get();
+
+    return row ? toToolPartEntity(row.part, row.session_id) : undefined;
+}
+
+/** 按工具类型收集列表摘要，避免读取完整 input/output。 */
+export async function findToolPartSummaries(
+    kind: ToolLogKind,
+    condition?: SQL,
+    options?: { limit?: number; offset?: number }
+): Promise<ToolPartSummaryRow[]> {
+    const toolNameExpression =
+        kind === 'builtin'
+            ? sql<string | null>`json_extract(${messageParts.data}, '$."tool_id"')`
+            : sql<string | null>`json_extract(${messageParts.data}, '$."tool_name"')`;
+    const serverIdExpression =
+        kind === 'builtin'
+            ? sql<number | null>`null`
+            : sql<number | null>`json_extract(${messageParts.data}, '$."server_id"')`;
+
+    const query = db
+        .select({
+            id: messageParts.id,
+            message_id: messageParts.message_id,
+            session_id: messages.session_id,
+            tool_call_id: messageParts.tool_call_id,
+            created_at: messageParts.created_at,
+            status: sql<string | null>`json_extract(${messageParts.data}, '$."status"')`,
+            duration_ms: sql<number | null>`json_extract(${messageParts.data}, '$."duration_ms"')`,
+            tool_name: toolNameExpression,
+            server_id: serverIdExpression,
+            input_preview: sql<
+                string | null
+            >`substr(coalesce(json_extract(${messageParts.data}, '$."input"'), ''), 1, 200)`,
+            output_length: sql<number>`length(coalesce(json_extract(${messageParts.data}, '$."output"'), ''))`,
+        })
+        .from(messageParts)
+        .innerJoin(messages, eq(messages.id, messageParts.message_id))
+        .where(and(eq(messageParts.type, 'tool_call'), eq(messageParts.tool_kind, kind), condition))
+        .orderBy(desc(messageParts.created_at), desc(messageParts.id));
+
+    const rows = options
+        ? await query
+              .limit(options.limit ?? 100)
+              .offset(options.offset ?? 0)
+              .all()
+        : await query.all();
+
+    return rows.map((row) => ({
+        ...row,
+        tool_name: row.tool_name ?? '',
+        status: row.status ?? 'pending',
+    }));
 }
 export async function createToolPart(
     kind: ToolLogKind,

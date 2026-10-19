@@ -5,6 +5,7 @@ import { log } from '@services/ObservabilityService';
 import { tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
+import { createPerfTrace } from '@/utils/perfTrace';
 import {
     buildWaitingApprovalBody,
     buildWaitingUserQuestionBody,
@@ -12,7 +13,6 @@ import {
     summarizeLatestAssistantResponse,
 } from '@/utils/reminderText';
 import { getSessionStatusReminderContent } from '@/utils/session';
-import { createPerfTrace } from '@/utils/perfTrace';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import type { ConversationRuntimeEnvironment, TurnEvent } from '../execution';
