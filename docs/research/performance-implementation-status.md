@@ -7,7 +7,7 @@
 - **Rust 侧验证限制**：`cargo check --all-targets` 通过（`node scripts/run-rust-command.mjs check`）；`cargo test` 因磁盘空间不足（D: 剩余 1.8GB）无法链接测试二进制，Rust 单测代码已通过类型检查但未在本机执行
 - 未做性能基线/前后对比（按约定，待全部完成后另行补基线）
 
-## 已完成（33 项）
+## 已完成（34 项）
 
 | 编号 | 内容 | 关键提交 |
 | --- | --- | --- |
@@ -15,6 +15,7 @@
 | 02 | provider driverCatalog 拆分，设置页不再拉全部 adapter | `6b191bd0` |
 | 03 | 设置批量读取（`getSettingValues`） | `4ab7ddbb` |
 | 06 | 字体成功路径不重复 fetch | `d90cf0ac` |
+| 07 | 发布合并（微任务）+ 未变消息跨发布复用对象身份，一次发布只构建一份快照 | `bd1260ac` |
 | 08 | 发布给 UI 的展示快照剔除 runtime checkpoint / prompt 快照 | `3a500549` |
 | 09 | Markdown 流式解析合并窗口 + 静态/流式 parser 分离 | `e9c8afc9` |
 | 11 | 收起 reasoning 卸载 Markdown + bounded preview | `bb9659d6` |
@@ -45,11 +46,10 @@
 | N11 | 0004 全库迁移夹具（1 万消息 + 旧工具日志/附件/孤儿）+ 耗时记录 | `a4783843` |
 | N12 | SSE 行预筛 | `e4dc4c99` |
 
-## 部分完成（7 项）
+## 部分完成（5 项）
 
 | 编号 | 已完成 | 未完成 |
 | --- | --- | --- |
-| 07 | 普通流式快照按微任务合并发布；审批/完成同步 flush（`12dbec66`） | 差量协议：`taskId/epoch/seq + 变更消息 ID + patch`，历史未变消息保持对象身份 |
 | 14 | 会话图片 `decoding="async"` + `loading="lazy"`（`3a36b2f4`） | 真实缩略图生成（Rust）、按内容 hash/尺寸缓存、增大原图缓存隔离 |
 | 18 | 光标三个标记共享一次文档查询；自动换行布局测量按帧合并（`bdfe3a2b`） | docChanged/selectionChanged 分类更新；宽度变化触发重算 |
 | 22 | 分页查询（`findMessagesPageBySessionId`）+ 分页 loader（`loadSessionHistoryPage`）与游标（`c9f9b977`） | UI 首屏/滚动加载接线需与 `10`/`07` 同批（计划表亦标注“先07/13；结合22、N03”） |
@@ -62,7 +62,6 @@
 
 | 编号 | 摘要 | 备注 |
 | --- | --- | --- |
-| 07 | 差量快照协议（P0，最大剩余项） | 依赖消息 identity/revision 协议 |
 | 12 | 代码块增强按需初始化 | 需按 markstream 1.0.6 实测；长代码纯文本入口 |
 | 29 | 快捷项 top-K + 列表/网格虚拟化 | 已有 60 条/页分页（`PAGE_SIZE = 60`）与 generation 校验；单页固定行高虚拟化收益需实测后再决定 |
 | 35 | 附件 metadata-only 规划与流式物化 | 依赖 Rust |
@@ -80,7 +79,6 @@
 
 ### 需大改造（Windows + macOS 一致）
 
-- `07`（P0）：订阅协议改为「首帧全量 + `taskId/epoch/seq + 变更/移除消息`」；历史未变消息保持对象身份，控制事件仍同步 flush。
 - `10`（P0/L）：消息/part 级有界挂载、单一滚动容器、高度缓存（key 含宽度/字体/内容 revision）、跨虚拟项选区策略。
 - `34`（P0/M）：快捷键 auto-paste 先原子预留授权 seq/snapshotId 并校验新鲜度，再做重任务；系统读取/图像 hash 入有界 blocking 队列，外链异步 HTTP + 总预算；文本先回、附件按有序 placeholder 补齐；结果按 snapshotId/草稿 generation 缓存。
 
@@ -99,6 +97,7 @@ node scripts/run-rust-command.mjs check   # 需要 cargo 在 PATH，且先把 rt
 
 ## 事故与约束记录
 
+- 07 未做线级 delta 协议：`SessionTaskCenter` 与订阅者同处一个 JS 上下文，真正成本是深拷贝与重渲染；已改为「一次发布一份只读快照 + 未变消息对象身份复用」，语义上等价且无 stale 风险。
 - 迁移 `0008` 使用 SQLite `ALTER TABLE ADD COLUMN ... GENERATED ... VIRTUAL`，`meta/0008_snapshot.json` 与 journal 已同步。
 - `message_parts` 新增 `tool_id` / `server_id` 生成列，`data` 仍是唯一写入源。
 - 旧库升级路径有 1 万消息级回归夹具（`tests/database/legacy-0004-migration.test.ts`），记录迁移耗时。
