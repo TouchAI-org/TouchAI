@@ -70,6 +70,40 @@ export async function createToolPart(
     kind: ToolLogKind,
     data: Record<string, unknown>
 ): Promise<ToolPartEntity> {
+    /**
+     * 串行化写入。
+     *
+     * 一轮里模型可能并行发出多个工具调用，而 `runToolRound` 用 `Promise.all`
+     * 并发执行它们 —— 每个都会走到这里。`message_parts` 上有唯一索引
+     * `(message_id, sort_order)`，两个并发事务各自读到同一个 `max(sort_order)`
+     * 就会算出同一个序号，后写的那条撞唯一索引、整个事务回滚，
+     * 表现就是「工具执行了、UI 也显示了，但重载后这个调用整条不见了」。
+     *
+     * 序号分配已经在事务内用 `INSERT ... SELECT MAX()` 做原子化；但 WAL + `BEGIN DEFERRED`
+     * 下事务内「先读后写」本身还会因读快照升级失败抛 SQLITE_BUSY
+     * （已在 `database/driver.ts` 把写事务默认改成 `BEGIN IMMEDIATE` 解决）。
+     * 这里保留队列：把同一个进程里的分配串起来，减少写锁争用，也让落库顺序可预期。
+     */
+    return enqueueToolPartWrite(() => createToolPartInner(kind, data));
+}
+
+/** 全局写入队列：保证 `sort_order` 分配不会并发。 */
+let toolPartWriteChain: Promise<unknown> = Promise.resolve();
+
+function enqueueToolPartWrite<T>(operation: () => Promise<T>): Promise<T> {
+    const scheduled = toolPartWriteChain.then(operation, operation);
+    // 单次失败不能阻断后续写入。
+    toolPartWriteChain = scheduled.then(
+        () => undefined,
+        () => undefined
+    );
+    return scheduled;
+}
+
+async function createToolPartInner(
+    kind: ToolLogKind,
+    data: Record<string, unknown>
+): Promise<ToolPartEntity> {
     return db.transaction(async (tx) => {
         let messageId = data.message_id as number | undefined;
         if (!messageId) {
@@ -83,22 +117,30 @@ export async function createToolPart(
             if (!row) throw new Error('Failed to create tool message');
             messageId = row.id;
         }
-        const maximum = await tx
-            .select({
-                value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value'),
-            })
-            .from(messageParts)
-            .where(eq(messageParts.message_id, messageId))
-            .get();
         const { tool_call_id: callId, created_at: createdAt } = data;
         const payload = toolPayload(data);
-        const part = await tx
+
+        /**
+         * `sort_order` 必须原子分配。
+         *
+         * 一轮里的并行工具调用会并发走到这里。先 `select max()` 再 `insert`
+         * 会让两个并发事务读到同一个最大值，算出一模一样的 `sort_order`，
+         * 后写的那条撞上 `(message_id, sort_order)` 唯一索引并回滚整个事务，
+         * 结果就是「执行了但没入库」。
+         *
+         * 所以改成在一条 INSERT 里用子查询取 max，由 SQLite 在写锁内完成分配。
+         */
+        const inserted = await tx
             .insert(messageParts)
             .values({
                 message_id: messageId,
                 type: 'tool_call',
                 content: '',
-                sort_order: (maximum?.value ?? -1) + 1,
+                sort_order: sql<number>`(
+                    SELECT COALESCE(MAX(${messageParts.sort_order}), -1) + 1
+                    FROM ${messageParts}
+                    WHERE ${messageParts.message_id} = ${messageId}
+                )`,
                 data: JSON.stringify({
                     iteration: 1,
                     output: null,
@@ -110,6 +152,7 @@ export async function createToolPart(
                               approval_state: 'none',
                               approval_summary: null,
                               conversation_semantic_json: null,
+                              structured_payload_json: null,
                           }
                         : {}),
                     ...payload,
@@ -120,6 +163,7 @@ export async function createToolPart(
             })
             .returning()
             .get();
+        const part = inserted;
         if (!part) throw new Error('Failed to persist tool part');
         const parent = await tx.select().from(messages).where(eq(messages.id, messageId)).get();
         return {

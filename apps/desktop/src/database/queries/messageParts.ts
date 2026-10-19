@@ -43,6 +43,25 @@ export const findMessagePartById = async (
 };
 
 /**
+ * 按工具调用 id 反查 tool_call 片段。
+ *
+ * 工具结果只能回写到 `tool_call` 片段上；当写入方弄丢了片段主键时，
+ * 靠这个查询把它找回来，而不是退化成追加一条助手文本。
+ */
+export const findToolCallPartByCallId = async (
+    toolCallId: string,
+    database: DatabaseExecutor = db
+): Promise<MessagePartEntity | undefined> => {
+    const part = await database
+        .select()
+        .from(messageParts)
+        .where(and(eq(messageParts.type, 'tool_call'), eq(messageParts.tool_call_id, toolCallId)))
+        .orderBy(asc(messageParts.id))
+        .get();
+    return part;
+};
+
+/**
  * 创建一条消息的有序片段。
  */
 export const createMessageParts = async (

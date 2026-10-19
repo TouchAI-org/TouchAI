@@ -10,6 +10,7 @@ import type { PersistedToolLogStatus } from '@database/schema';
 import type { MessagePartEntity } from '@database/types';
 
 import { tt } from '@/i18n';
+import type { ToolEventStructuredPayload } from '@/services/AgentService/contracts/tooling';
 import { hydratePersistedAttachments } from '@/services/AgentService/infrastructure/attachments';
 import {
     buildBuiltInToolConversationPresentation,
@@ -103,6 +104,21 @@ function parseBuiltInConversationSemantic(
                   action: parsed.action as BuiltInToolConversationSemantic['action'],
                   ...(typeof parsed.target === 'string' ? { target: parsed.target } : {}),
               }
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function parseStructuredPayload(raw: string | null): ToolEventStructuredPayload | undefined {
+    if (!raw) {
+        return undefined;
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as ToolEventStructuredPayload;
+        return parsed && parsed.kind === 'web_search_sources' && Array.isArray(parsed.sources)
+            ? parsed
             : undefined;
     } catch {
         return undefined;
@@ -273,6 +289,10 @@ async function buildPersistedEntries(
                             ),
                             durationMs: data.duration_ms ?? undefined,
                             startedAt: parseDbDateTimestamp(part.created_at ?? row.created_at),
+                            structuredPayload:
+                                data.toolKind === 'builtin'
+                                    ? parseStructuredPayload(data.structured_payload_json)
+                                    : undefined,
                         };
                         syncBuiltInToolCallPresentation(call);
                         return call;
@@ -306,6 +326,36 @@ function appendAssistantOutput(message: SessionMessage, parts: MessagePartEntity
             message.reasoning = `${message.reasoning ?? ''}${part.content}`;
         }
     }
+}
+
+/**
+ * 按位置把 `tool_call` 行的片段分成「正文」与「工具结果」。
+ *
+ * 同一行里 text 片段有两种来源：
+ * - 排在工具调用**之前**的，是模型调用工具前输出的正文；
+ * - 排在工具调用**之后**的，是工具结果的回退存储
+ *   （`persistToolResult` 找不到 tool_call 片段时会追加一条 text）。
+ *
+ * 后者已经由工具卡片自己展示，当成正文渲染会在对话里留下大段原始输出。
+ * 模型侧的行为是「先输出文本、再发起工具调用」，因此按位置切分是可靠的。
+ */
+function splitToolCallRowParts(parts: MessagePartEntity[]): {
+    prose: MessagePartEntity[];
+    trailingResults: MessagePartEntity[];
+} {
+    // 调用方已按 sort_order 排序；这里再排一次，让函数自包含、不依赖外部约定。
+    const ordered = [...parts].sort(
+        (left, right) => left.sort_order - right.sort_order || left.id - right.id
+    );
+    const firstToolIndex = ordered.findIndex((part) => part.type === 'tool_call');
+    if (firstToolIndex === -1) {
+        return { prose: ordered, trailingResults: [] };
+    }
+
+    return {
+        prose: ordered.slice(0, firstToolIndex),
+        trailingResults: ordered.slice(firstToolIndex),
+    };
 }
 function appendReasoningPart(message: SessionMessage, segment: MessagePartEntity): void {
     const part = createReasoningPart(segment.content);
@@ -499,12 +549,26 @@ function convertEntriesToSessionHistory(
 
         const assistantMessage = ensureAssistantMessage(entry);
 
-        if (entry.role === 'assistant' || entry.role === 'tool_call') {
+        if (entry.role === 'assistant') {
             appendAssistantOutput(assistantMessage, entry.parts);
+        } else if (entry.role === 'tool_call') {
+            // 只渲染工具调用之前的正文；尾部的 text 是工具结果，不应当成正文。
+            appendAssistantOutput(assistantMessage, splitToolCallRowParts(entry.parts).prose);
         }
 
         if (entry.role === 'tool_call' && entry.toolCalls?.length) {
+            // 把回退存的工具结果归位到对应调用上，避免数据丢失。
+            const fallbackResult = splitToolCallRowParts(entry.parts)
+                .trailingResults.filter((part) => part.type === 'text')
+                .map((part) => part.content.trim())
+                .filter(Boolean)
+                .join('\n\n');
+
             for (const toolCall of entry.toolCalls) {
+                if (!toolCall.result?.trim() && fallbackResult) {
+                    toolCall.result = fallbackResult;
+                }
+
                 if (toolCall.namespacedName !== SHOW_WIDGET_TOOL_NAME) {
                     assistantMessage.parts.push(createToolCallPart(toolCall));
                 }

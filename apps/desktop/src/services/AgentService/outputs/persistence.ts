@@ -2,13 +2,13 @@
 
 import { type DatabaseExecutor, db } from '@database';
 import {
-    appendMessagePart,
     createMessage,
     createMessageAttachment,
     createMessageParts,
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
+    findToolCallPartByCallId,
     mergeMessagePartData,
     refreshSessionMetadata,
     syncOutputParts,
@@ -426,31 +426,36 @@ export class PersistenceProjector {
      *
      * 工具执行服务已写入 output/status/duration；这里负责兜底补齐结果文本，
      * 并把结果附件挂到工具调用所在消息上（附件 data 记录 toolCallId 归属）。
-     * 找不到工具片段时（参数协议错误等）退化为在工具步骤消息末尾追加文本。
+     *
+     * 结果**只能**落在 `tool_call` 片段上。片段主键丢了就按 `tool_call_id` 反查，
+     * 实在找不到宁愿丢掉并报错，也绝不把结果写成一条助手文本——
+     * 那会让工具输出混进模型正文，在对话里渲染成大段原始内容。
      */
     async persistToolResult(options: {
         result: string;
+        toolCallId?: string | null;
         toolCallPartId: number | null;
         toolCallMessageId: number | null;
         attachments?: AttachmentIndex[];
     }): Promise<void> {
-        const { result, toolCallPartId, toolCallMessageId, attachments = [] } = options;
-        if (toolCallPartId === null) {
-            if (toolCallMessageId !== null && result) {
-                await db.transaction(async (tx) => {
-                    await appendMessagePart(
-                        toolCallMessageId,
-                        { type: 'text', content: result, data: '{}' },
-                        tx
-                    );
-                    await refreshSessionMetadata(await this.ensureSessionId(tx), tx);
-                });
-            }
+        const { result, toolCallId, attachments = [] } = options;
+        let partId = options.toolCallPartId;
+
+        if (partId === null && toolCallId) {
+            const found = await findToolCallPartByCallId(toolCallId);
+            partId = found?.id ?? null;
+        }
+
+        if (partId === null) {
+            console.error(
+                '[persistence] Tool result has no tool_call part to attach to; dropping it.',
+                { toolCallId, toolCallMessageId: options.toolCallMessageId }
+            );
             return;
         }
 
         await db.transaction(async (tx) => {
-            const part = await mergeMessagePartData(toolCallPartId, { output: result }, tx);
+            const part = await mergeMessagePartData(partId, { output: result }, tx);
             if (!part) {
                 return;
             }

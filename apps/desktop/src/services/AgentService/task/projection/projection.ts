@@ -827,6 +827,9 @@ export class SessionTaskProjection {
                 (toolCall) => {
                     toolCall.result = toolEvent.result;
                     toolCall.isError = toolEvent.isError;
+                    if (toolEvent.structuredPayload) {
+                        toolCall.structuredPayload = toolEvent.structuredPayload;
+                    }
                     if (toolEvent.builtinConversationSemantic) {
                         toolCall.builtinConversationSemantic =
                             toolEvent.builtinConversationSemantic;

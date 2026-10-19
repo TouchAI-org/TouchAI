@@ -381,7 +381,15 @@ class BuiltInToolService {
                 throw aiError;
             }
 
-            console.error('[BuiltInToolService] Failed to create built-in tool log:', error);
+            // 建日志失败会导致工具结果没有落点：结果仍会喂给模型、UI 也能显示，
+            // 但重载后这个工具调用就消失了。这里把上下文一并打出来便于定位。
+            console.error('[BuiltInToolService] Failed to create built-in tool log:', error, {
+                toolId: resolved.entity.tool_id,
+                toolCallId: options.toolCall.id,
+                messageId: options.toolCallMessageId,
+                sessionId: options.sessionId,
+                iteration: options.iteration,
+            });
         }
 
         let toolResult: BuiltInToolExecutionResult;
@@ -531,12 +539,17 @@ class BuiltInToolService {
             durationMs,
             finalStatus: toolResult.status === 'success' ? 'completed' : 'error',
             builtinConversationSemantic: toolResult.conversationSemantic,
+            structuredPayload: toolResult.structuredPayload,
         });
 
         await updateBuiltInToolLogByCallId(options.toolCall.id, {
             output: toolResult.result,
             conversation_semantic_json: toolResult.conversationSemantic
                 ? JSON.stringify(toolResult.conversationSemantic)
+                : null,
+            // 结构化载荷单独存一列，避免往模型可见的 output 里塞 JSON。
+            structured_payload_json: toolResult.structuredPayload
+                ? JSON.stringify(toolResult.structuredPayload)
                 : null,
             status:
                 toolResult.status === 'success'

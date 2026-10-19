@@ -563,6 +563,8 @@ export interface BuiltInToolLogEntity {
     approval_state: BuiltInToolApprovalState;
     approval_summary: string | null;
     conversation_semantic_json: string | null;
+    /** 工具产出的结构化载荷 JSON（如 WebSearch 来源列表），不参与模型上下文。 */
+    structured_payload_json: string | null;
     duration_ms: number | null;
     error_message: string | null;
     created_at: string;
@@ -580,6 +582,7 @@ export interface BuiltInToolLogCreateData {
     approval_state?: BuiltInToolApprovalState;
     approval_summary?: string | null;
     conversation_semantic_json?: string | null;
+    structured_payload_json?: string | null;
     duration_ms?: number | null;
     error_message?: string | null;
     created_at?: string;

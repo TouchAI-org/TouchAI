@@ -11,6 +11,7 @@ import type {
     ToolEvent,
     ToolEventBuiltInConversationSemantic,
     ToolEventBuiltInConversationSemanticAction,
+    ToolEventStructuredPayload,
 } from '@/services/AgentService/contracts/tooling';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 
@@ -76,6 +77,12 @@ export interface BuiltInToolExecutionResult {
     conversationSemantic?: BuiltInToolConversationSemantic;
     attachments?: AttachmentIndex[];
     controlSignal?: BuiltInToolControlSignal;
+    /**
+     * 给 UI 渲染用的结构化载荷（如 WebSearch 的来源列表）。
+     *
+     * 不参与模型上下文，也不会持久化进工具日志的 `output`。
+     */
+    structuredPayload?: ToolEventStructuredPayload;
 }
 
 export type BuiltInToolConversationStatus =

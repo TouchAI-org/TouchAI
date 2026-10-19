@@ -982,6 +982,7 @@ export class AiRequestExecutor {
 
             await options.persister.persistToolResult({
                 result,
+                toolCallId: toolCall.id,
                 toolCallPartId: toolLogId,
                 toolCallMessageId,
                 attachments,

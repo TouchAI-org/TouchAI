@@ -150,6 +150,32 @@ export interface ShowWidgetEventPayload {
 }
 
 /**
+ * 工具产出的结构化载荷。
+ *
+ * 用于把“给模型看的文本”和“给 UI 渲染的结构化数据”分开：
+ * 工具结果文本保持向后兼容，结构化部分走单独通道。
+ */
+export interface ToolEventStructuredPayload {
+    kind: 'web_search_sources';
+    /** 搜索使用的引擎标识（`deepseek` / `brave` 等）。 */
+    provider: string;
+    query: string;
+    status: 'searching' | 'done';
+    sources: Array<{
+        id: string;
+        index: number;
+        title: string;
+        url: string;
+        snippet?: string;
+        siteName?: string;
+        favicon?: string;
+        publishedAt?: string;
+        score?: number;
+        authority?: number;
+    }>;
+}
+
+/**
  * Agent 循环过程中发给 UI 的统一事件。
  */
 export type ToolEvent =
@@ -173,6 +199,12 @@ export type ToolEvent =
           durationMs: number;
           finalStatus?: 'completed' | 'error' | 'rejected';
           builtinConversationSemantic?: ToolEventBuiltInConversationSemantic;
+          /**
+           * 工具产出的结构化载荷（如 WebSearch 的来源列表）。
+           *
+           * 与 `result` 并行：`result` 是给模型读的文本，这里给 UI 渲染卡片与引用。
+           */
+          structuredPayload?: ToolEventStructuredPayload;
       }
     | {
           type: 'result_delta';

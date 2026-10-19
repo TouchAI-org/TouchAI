@@ -2,7 +2,10 @@
 
 import type { JSONContent } from '@tiptap/core';
 
-import type { ToolExecutionSource as AiToolExecutionSource } from '@/services/AgentService/contracts/tooling';
+import type {
+    ToolEventStructuredPayload,
+    ToolExecutionSource as AiToolExecutionSource,
+} from '@/services/AgentService/contracts/tooling';
 import type { Index } from '@/services/AgentService/infrastructure/attachments';
 import type {
     BuiltInToolConversationPresentation,
@@ -50,6 +53,8 @@ export interface ToolCallInfo {
     status: ToolCallStatus;
     startedAt?: number;
     durationMs?: number;
+    /** 工具产出的结构化载荷，用于渲染来源卡片与行内引用。 */
+    structuredPayload?: ToolEventStructuredPayload;
 }
 
 export interface TextMessagePart {

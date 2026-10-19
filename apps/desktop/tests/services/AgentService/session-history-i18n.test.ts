@@ -323,6 +323,67 @@ describe('AgentService interleaved reasoning history', () => {
         ]);
         expect(assistant.reasoning).toBe('PlanReview');
     });
+
+    it('does not render a trailing tool result as assistant prose', async () => {
+        // `tool_call` 行尾部的 text 是工具结果的旧存储形式，
+        // 它必须回到工具调用上，而不是混进助手正文。
+        const history = await buildSessionHistory({
+            messages: [
+                createMessageRow({ id: 1, role: 'user', content: 'Question' }),
+                createMessageRow({
+                    id: 2,
+                    role: 'tool_call',
+                    parts: [
+                        {
+                            ...createMessagePart({
+                                id: 1,
+                                message_id: 2,
+                                type: 'text',
+                                sort_order: 0,
+                            }),
+                            content: '先说一句。',
+                        },
+                        createMessagePart({
+                            id: 2,
+                            message_id: 2,
+                            type: 'tool_call',
+                            sort_order: 1,
+                            data: JSON.stringify({
+                                toolCallId: 'call-1',
+                                toolKind: 'builtin',
+                                tool_id: 'bash',
+                                input: '{}',
+                                status: 'success',
+                            }),
+                        }),
+                        {
+                            ...createMessagePart({
+                                id: 3,
+                                message_id: 2,
+                                type: 'text',
+                                sort_order: 2,
+                            }),
+                            content: 'Web search\nQuery: 今日新闻',
+                        },
+                    ],
+                }),
+            ],
+            turns: [],
+            attempts: [],
+            resolveServerName: () => '',
+        });
+
+        const assistant = history.find((message) => message.role === 'assistant')!;
+        // 工具调用之前的文本仍然是正文
+        expect(assistant.content).toBe('先说一句。');
+        expect(assistant.parts).toMatchObject([
+            { type: 'text', content: '先说一句。' },
+            { type: 'tool_call' },
+        ]);
+        // 既没有把工具结果渲染成正文，也没有把整行文本丢掉
+        expect(assistant.content).not.toContain('Web search');
+        expect(selectToolCalls(assistant)[0]?.result).toBe('Web search\nQuery: 今日新闻');
+    });
 });
 
 describe('uncommitted output history', () => {
