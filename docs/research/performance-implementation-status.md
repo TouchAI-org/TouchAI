@@ -64,7 +64,7 @@
 | 07 | 差量快照协议（P0，最大剩余项） | 依赖消息 identity/revision 协议 |
 | 12 | 代码块增强按需初始化 | 需按 markstream 1.0.6 实测；长代码纯文本入口 |
 | 22 | 历史首屏分页（40–80 条/页 + 游标 + scroll anchor） | UI 改动大 |
-| 29 | 快捷项 top-K + 列表/网格虚拟化 | 需与 Rust 搜索端配合 |
+| 29 | 快捷项 top-K + 列表/网格虚拟化 | 已有 60 条/页分页（`PAGE_SIZE = 60`）与 generation 校验；单页固定行高虚拟化收益需实测后再决定 |
 | 35 | 附件 metadata-only 规划与流式物化 | 依赖 Rust |
 | 36 | web_fetch 解析拆分/Worker | 需先埋点实测 |
 | N03 | 恢复 viewport 能力 | 已验证 markstream 1.0.6 提供 `virtualScroll.scrollRoot`（可绑定外层滚动 owner）；需真实渲染环境验证后从 bypass 切换 |
