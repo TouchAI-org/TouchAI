@@ -24,6 +24,7 @@
             :code-block-dark-theme="codeBlockDarkTheme"
             :code-block-monaco-options="codeBlockMonacoOptions"
             :viewport-priority="false"
+            :render-code-blocks-as-pre="renderCodeBlocksAsPre"
             :max-live-nodes="maxLiveNodes"
             :batch-rendering="true"
             :initial-render-batch-size="24"
@@ -154,7 +155,11 @@
     import { getLocale, locale, t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
     import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
+    import { containsLongCodeBlock } from '@/utils/markdownCodeBlock';
     import { hasUnclosedMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
+
+    /** 流式阶段代码块超过该长度时先用纯文本 pre 渲染。 */
+    const LONG_CODE_BLOCK_STREAMING_THRESHOLD = 6000;
 
     interface Props {
         content: string;
@@ -328,6 +333,14 @@
         }
         return 0;
     });
+
+    // 流式阶段对超长代码块使用纯文本 pre：避免为仍在增长的代码块
+    // 初始化高亮/编辑器 renderer；消息结束后恢复正常渲染。
+    const renderCodeBlocksAsPre = computed(
+        () =>
+            !props.final &&
+            containsLongCodeBlock(props.content, LONG_CODE_BLOCK_STREAMING_THRESHOLD)
+    );
 
     const isTypewriterEnabled = computed(() => props.variant !== 'reasoning');
 
