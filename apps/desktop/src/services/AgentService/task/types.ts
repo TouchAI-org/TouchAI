@@ -86,4 +86,15 @@ export interface StartedSessionTask {
     completion: Promise<ExecuteRequestResult>;
 }
 
-export type TaskSnapshotListener = (snapshot: SessionTaskSnapshot) => void;
+/**
+ * 发布给 UI 的展示快照。
+ *
+ * 与内部快照相比剔除了 runtime checkpoint 与 prompt 快照：
+ * 恢复状态只服务于执行层，UI 不需要，也不应在每帧流式发布时深拷备。
+ */
+export type SessionTaskViewSnapshot = Omit<
+    SessionTaskSnapshot,
+    'promptSnapshot' | 'lastCheckpoint'
+>;
+
+export type TaskSnapshotListener = (snapshot: SessionTaskViewSnapshot) => void;

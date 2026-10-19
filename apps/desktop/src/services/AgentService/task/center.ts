@@ -25,6 +25,7 @@ import { SessionTaskProjection } from './projection';
 import type {
     SessionTaskSnapshot,
     SessionTaskStatus,
+    SessionTaskViewSnapshot,
     StartedSessionTask,
     StartSessionTaskOptions,
     TaskSnapshotListener,
@@ -47,8 +48,18 @@ interface MutableSessionTask {
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
-function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
-    return cloneTaskValue(snapshot);
+
+/**
+ * 构建发布给 UI 的展示快照。
+ *
+ * runtime checkpoint 与 prompt 快照不参与展示，也不应在每次流式发布时深拷备；
+ * 其余展示字段仍然深拷备，保证订阅者与投影的后续就地变更相互隔离。
+ */
+export function cloneTaskViewSnapshot(snapshot: SessionTaskSnapshot): SessionTaskViewSnapshot {
+    const view = { ...snapshot } as Partial<SessionTaskSnapshot>;
+    delete view.promptSnapshot;
+    delete view.lastCheckpoint;
+    return cloneTaskValue(view) as SessionTaskViewSnapshot;
 }
 
 /**
@@ -426,7 +437,9 @@ export class SessionTaskCenter {
      * 将页面层绑定到指定会话的活跃任务，返回任务 ID 和当前快照的只读副本。
      * 若该会话没有活跃任务则返回 null。
      */
-    attachSessionView(sessionId: number): { taskId: string; snapshot: SessionTaskSnapshot } | null {
+    attachSessionView(
+        sessionId: number
+    ): { taskId: string; snapshot: SessionTaskViewSnapshot } | null {
         const taskId = this.sessionActiveTaskIndex.get(sessionId);
         if (!taskId) {
             return null;
@@ -440,7 +453,7 @@ export class SessionTaskCenter {
 
         return {
             taskId,
-            snapshot: cloneTaskSnapshot(task.snapshot),
+            snapshot: cloneTaskViewSnapshot(task.snapshot),
         };
     }
 
@@ -452,7 +465,7 @@ export class SessionTaskCenter {
         }
 
         task.subscribers.add(listener);
-        listener(cloneTaskSnapshot(task.snapshot));
+        listener(cloneTaskViewSnapshot(task.snapshot));
 
         return () => {
             task.subscribers.delete(listener);
@@ -470,9 +483,9 @@ export class SessionTaskCenter {
     }
 
     /** 获取指定任务当前快照的只读副本，任务不存在则返回 null。 */
-    getTaskSnapshot(taskId: string): SessionTaskSnapshot | null {
+    getTaskSnapshot(taskId: string): SessionTaskViewSnapshot | null {
         const task = this.tasks.get(taskId);
-        return task ? cloneTaskSnapshot(task.snapshot) : null;
+        return task ? cloneTaskViewSnapshot(task.snapshot) : null;
     }
 
     /** 查询指定会话当前绑定的任务状态，无活跃任务则返回 null。 */
@@ -498,10 +511,10 @@ export class SessionTaskCenter {
     }
 
     /** 列出所有非终态的活跃任务快照。 */
-    listActiveTasks(): SessionTaskSnapshot[] {
+    listActiveTasks(): SessionTaskViewSnapshot[] {
         return Array.from(this.tasks.values())
             .filter((task) => !isTerminalStatus(task.snapshot.status))
-            .map((task) => cloneTaskSnapshot(task.snapshot));
+            .map((task) => cloneTaskViewSnapshot(task.snapshot));
     }
 
     /** 执行任务运行时，处理完成/取消/失败的终态转换。 */
@@ -664,7 +677,7 @@ export class SessionTaskCenter {
 
         for (const listener of task.subscribers) {
             try {
-                listener(cloneTaskSnapshot(task.snapshot));
+                listener(cloneTaskViewSnapshot(task.snapshot));
             } catch (error) {
                 log.error('[SessionTaskCenter] Subscriber error:', error);
             }

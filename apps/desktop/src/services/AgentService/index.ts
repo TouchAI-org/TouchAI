@@ -54,6 +54,7 @@ export type { ModelWithProvider };
 export type {
     SessionTaskSnapshot,
     SessionTaskStatus,
+    SessionTaskViewSnapshot,
     StartedSessionTask,
     StartSessionTaskOptions,
     TaskExecutionMode,
