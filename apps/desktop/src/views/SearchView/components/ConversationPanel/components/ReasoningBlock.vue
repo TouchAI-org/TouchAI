@@ -6,6 +6,8 @@
 
     import { t } from '@/i18n';
 
+    import { buildReasoningPreview } from './reasoningPreview';
+
     const props = defineProps<{
         content: string;
         isStreaming: boolean;
@@ -14,7 +16,7 @@
     }>();
 
     const contentId = useId();
-    const preview = computed(() => props.content.replace(/\s+/g, ' ').trim());
+    const preview = computed(() => buildReasoningPreview(props.content));
     const reasoningContentRef = ref<HTMLElement | null>(null);
     const isExpanded = ref(props.isStreaming);
     const now = ref(Date.now());
@@ -198,6 +200,7 @@
                         @scroll="handleContentScroll"
                     >
                         <MarkdownContent
+                            v-if="isExpanded"
                             :content="content"
                             :final="!isStreaming"
                             variant="reasoning"
