@@ -1,4 +1,4 @@
-import { mountComposable } from '@tests/utils/composables';
+﻿import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
@@ -131,6 +131,44 @@ describe('when the search window has no conversation on screen', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
         document.body.innerHTML = '';
+    });
+
+    it('probes maximized and height-mode state in parallel', async () => {
+        let resolveMaximized!: (value: boolean) => void;
+        let resolveWindowState!: (value: ReturnType<typeof createWindowState>) => void;
+        currentWindowMock.isMaximized.mockReturnValue(
+            new Promise<boolean>((resolve) => {
+                resolveMaximized = resolve;
+            })
+        );
+        nativeMock.window.getSearchWindowState.mockReturnValue(
+            new Promise<ReturnType<typeof createWindowState>>((resolve) => {
+                resolveWindowState = resolve;
+            })
+        );
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref<HTMLElement | null>(null),
+                sessionCount: ref(1),
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready: ref(true),
+            })
+        );
+        await Promise.resolve();
+        await nextTick();
+
+        try {
+            // 两个探测互相独立：后一个不应等前一个解析后才发出。
+            expect(currentWindowMock.isMaximized).toHaveBeenCalledTimes(1);
+            expect(nativeMock.window.getSearchWindowState).toHaveBeenCalledTimes(1);
+        } finally {
+            resolveMaximized(false);
+            resolveWindowState(createWindowState());
+            await flushResizeLifecycle();
+            mounted.unmount();
+        }
     });
 
     it('user gets the configured default size applied once the window is ready', async () => {
