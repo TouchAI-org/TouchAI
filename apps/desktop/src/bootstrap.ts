@@ -189,7 +189,7 @@ function scheduleModelMetadataRefresh(): void {
 async function seedBundledModelMetadata(): Promise<void> {
     try {
         const { seedModelMetadataFromSnapshot } =
-            await import('./services/AgentService/infrastructure/modelMetadata');
+            await import('./services/AgentService/infrastructure/modelMetadata/seed');
         await seedModelMetadataFromSnapshot();
     } catch (error) {
         log.warn('[Bootstrap] Failed to seed bundled model metadata:', error);
