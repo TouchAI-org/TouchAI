@@ -30,7 +30,7 @@ import type {
     StartSessionTaskOptions,
     TaskSnapshotListener,
 } from './types';
-import { cloneTaskValue } from './types';
+import { cloneTaskViewSnapshot } from './viewSnapshot';
 
 interface MutableSessionTask {
     taskId: string;
@@ -45,22 +45,13 @@ interface MutableSessionTask {
     lastPublishedStatus: SessionTaskStatus | null;
     lastPublishedSessionId: number | null;
     lastPublishedReminderKey: string | null;
+    /** 上次发布给订阅者的展示快照，用于复用未变消息的对象引用。 */
+    publishedView: SessionTaskViewSnapshot | null;
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
 
-/**
- * 构建发布给 UI 的展示快照。
- *
- * runtime checkpoint 与 prompt 快照不参与展示，也不应在每次流式发布时深拷备；
- * 其余展示字段仍然深拷备，保证订阅者与投影的后续就地变更相互隔离。
- */
-export function cloneTaskViewSnapshot(snapshot: SessionTaskSnapshot): SessionTaskViewSnapshot {
-    const view = { ...snapshot } as Partial<SessionTaskSnapshot>;
-    delete view.promptSnapshot;
-    delete view.lastCheckpoint;
-    return cloneTaskValue(view) as SessionTaskViewSnapshot;
-}
+export { cloneTaskViewSnapshot } from './viewSnapshot';
 
 /**
  * 控制类状态（完成、失败、等待审批/用户输入）必须即时发布；
@@ -293,6 +284,7 @@ export class SessionTaskCenter {
             lastPublishedStatus: null,
             lastPublishedSessionId: null,
             lastPublishedReminderKey: null,
+            publishedView: null,
         };
 
         this.tasks.set(taskId, task);
@@ -451,9 +443,11 @@ export class SessionTaskCenter {
             return null;
         }
 
+        const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+        task.publishedView = view;
         return {
             taskId,
-            snapshot: cloneTaskViewSnapshot(task.snapshot),
+            snapshot: view,
         };
     }
 
@@ -465,7 +459,9 @@ export class SessionTaskCenter {
         }
 
         task.subscribers.add(listener);
-        listener(cloneTaskViewSnapshot(task.snapshot));
+        const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+        task.publishedView = view;
+        listener(view);
 
         return () => {
             task.subscribers.delete(listener);
@@ -485,7 +481,13 @@ export class SessionTaskCenter {
     /** 获取指定任务当前快照的只读副本，任务不存在则返回 null。 */
     getTaskSnapshot(taskId: string): SessionTaskViewSnapshot | null {
         const task = this.tasks.get(taskId);
-        return task ? cloneTaskViewSnapshot(task.snapshot) : null;
+        if (!task) {
+            return null;
+        }
+
+        const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+        task.publishedView = view;
+        return view;
     }
 
     /** 查询指定会话当前绑定的任务状态，无活跃任务则返回 null。 */
@@ -514,7 +516,11 @@ export class SessionTaskCenter {
     listActiveTasks(): SessionTaskViewSnapshot[] {
         return Array.from(this.tasks.values())
             .filter((task) => !isTerminalStatus(task.snapshot.status))
-            .map((task) => cloneTaskViewSnapshot(task.snapshot));
+            .map((task) => {
+                const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+                task.publishedView = view;
+                return view;
+            });
     }
 
     /** 执行任务运行时，处理完成/取消/失败的终态转换。 */
@@ -675,9 +681,14 @@ export class SessionTaskCenter {
 
         this.publishTaskStatusIfNeeded(task);
 
+        // 一次发布只构建一份只读快照，所有订阅者共享；
+        // 未变化的消息沿用上次发布的对象引用，Vue 不会重渲染它们。
+        const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+        task.publishedView = view;
+
         for (const listener of task.subscribers) {
             try {
-                listener(cloneTaskViewSnapshot(task.snapshot));
+                listener(view);
             } catch (error) {
                 log.error('[SessionTaskCenter] Subscriber error:', error);
             }
