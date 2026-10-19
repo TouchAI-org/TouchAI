@@ -214,6 +214,8 @@ function useQuickSearchFlow(
         }
 
         const reqId = ++requestId.value;
+        // 点击统计与 native 查询并行加载：搜索通常更慢，等结果回来时统计多半已命中缓存。
+        const clickStatsReady = clickStats.prefetch(trimmedQuery);
 
         try {
             const searchResult = await deps.quickSearch.searchShortcuts(trimmedQuery, PAGE_SIZE, 0);
@@ -223,6 +225,7 @@ function useQuickSearchFlow(
 
             let rankedShortcuts = searchResult.shortcuts;
             if (searchResult.shortcuts.length > 0) {
+                await clickStatsReady;
                 rankedShortcuts = await clickStats.rankResults(trimmedQuery, rankedShortcuts);
                 if (reqId !== requestId.value) return;
             }
