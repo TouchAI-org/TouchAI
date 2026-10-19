@@ -7,7 +7,7 @@
 - **Rust 侧验证限制**：`cargo check --all-targets` 通过（`node scripts/run-rust-command.mjs check`）；`cargo test` 因磁盘空间不足（D: 剩余 1.8GB）无法链接测试二进制，Rust 单测代码已通过类型检查但未在本机执行
 - 未做性能基线/前后对比（按约定，待全部完成后另行补基线）
 
-## 已完成（32 项）
+## 已完成（33 项）
 
 | 编号 | 内容 | 关键提交 |
 | --- | --- | --- |
@@ -42,6 +42,7 @@
 | N07 | 输出片段用 revision 判定变化，不再逐边界 stringify 全量 | `c3002e38` |
 | N08 | 内置快照 seed 独立入口，轻入口不再解析 1.6MB 快照 | `61677b6e` |
 | N09 | Settings 串行 idle 预热 + hover 优先 | `52014a40` |
+| N11 | 0004 全库迁移夹具（1 万消息 + 旧工具日志/附件/孤儿）+ 耗时记录 | `a4783843` |
 | N12 | SSE 行预筛 | `e4dc4c99` |
 
 ## 部分完成（4 项）
@@ -53,7 +54,7 @@
 | 23 | turn 内 `SessionReadModel`：附件预检与 transport 重建共享一次查询（`815071ab`） | 展示 bootstrap/分页与 transport 跨阶段复用 |
 | 27 | 点击统计并行预取（`567f3d4c`） | 后续排序/写回合并 |
 
-## 待实施（16 项）
+## 待实施（15 项）
 
 ### 前端
 
@@ -77,7 +78,6 @@
 | 32 | 窗口几何/resize IPC 合并 |
 | 34 | 剪贴板图文顺序（含产品决策） |
 | N10 | Bash 输出有界缓冲与流式落盘 |
-| N11 | 0004 全库迁移夹具与耗时测量 |
 
 ### 需产品决策
 
@@ -98,6 +98,7 @@ node scripts/run-rust-command.mjs check   # 需要 cargo 在 PATH，且先把 rt
 
 - 迁移 `0008` 使用 SQLite `ALTER TABLE ADD COLUMN ... GENERATED ... VIRTUAL`，`meta/0008_snapshot.json` 与 journal 已同步。
 - `message_parts` 新增 `tool_id` / `server_id` 生成列，`data` 仍是唯一写入源。
+- 旧库升级路径有 1 万消息级回归夹具（`tests/database/legacy-0004-migration.test.ts`），记录迁移耗时。
 - 未改变 `message_parts` 为正文唯一真相源的契约；FTS 子串语义、审批/取消即时有序均保留。
 - Rust 编译缓存（`apps/desktop/rust-target/`，约 4.3GB）在磁盘紧张时可直接删除，重新编译即可恢复。
 - 主编排目录 `D:\Project\TouchAI` 的脏工作区未被改动。
