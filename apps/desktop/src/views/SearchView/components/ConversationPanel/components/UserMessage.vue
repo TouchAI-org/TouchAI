@@ -26,6 +26,8 @@
                                 :src="attachment.preview"
                                 :alt="attachment.name || t('conversation.attachment.unnamedImage')"
                                 class="block max-h-[200px] max-w-xs rounded-lg border border-gray-200 object-contain"
+                                decoding="async"
+                                loading="lazy"
                                 data-no-i18n="true"
                                 translate="no"
                             />
