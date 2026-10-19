@@ -6,39 +6,77 @@
         AppEvent,
         eventService,
         type SessionTaskUsageProgressEvent,
+        type UsageThroughputSample,
     } from '@services/EventService';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
     import { t } from '@/i18n';
 
     import { formatCost, formatDuration, formatTokensCompact } from '../utils/format';
+    import { aggregateStreams, isStale, shouldDropFinishedStreams } from '../utils/liveAggregate';
 
     defineOptions({ name: 'UsageLive' });
 
-    /** 面板只关心最近一次任务，切换任务即重置曲线 */
-    const progress = ref<SessionTaskUsageProgressEvent | null>(null);
-    let unlisten: (() => void) | null = null;
+    /** 曲线采样节拍；比事件推送慢，避免高频重绘 */
+    const SAMPLE_INTERVAL_MS = 500;
+    /** 曲线容量 */
+    const MAX_SAMPLES = 60;
+    /** 全部结束后保留最终快照的时长，超过就清空等下一轮 */
+    const LINGER_MS = 60_000;
 
-    const live = computed(() => {
-        const current = progress.value;
-        return current !== null && !current.finished && current.activeStreams > 0;
-    });
+    /**
+     * 每路流的最新状态，按 taskId 索引。
+     *
+     * 一个会话同时只有一个任务，但不同会话可以并行，所以这里必须用 Map
+     * 而不是单个对象——否则两路流会互相覆盖，面板在两份数字之间跳。
+     */
+    const streams = ref(new Map<string, SessionTaskUsageProgressEvent>());
+    /** 各流最近一次更新的时间，用于清理陈旧条目 */
+    const lastSeenAt = new Map<string, number>();
+    /** 聚合吞吐曲线 */
+    const samples = ref<UsageThroughputSample[]>([]);
+
+    let unlisten: (() => void) | null = null;
+    let sampleTimer: ReturnType<typeof setInterval> | null = null;
+    let curveStartedAt = 0;
+
+    const activeList = computed(() => [...streams.value.values()]);
+
+    const aggregate = computed(() => aggregateStreams(activeList.value));
+
+    const activeCount = computed(() => aggregate.value.activeCount);
+
+    const anyStreaming = computed(() => aggregate.value.anyStreaming);
+
+    /** 停止后保留最后一次聚合速度，避免数字瞬间变回 '—' */
+    const lastAggregateSpeed = ref<number | null>(null);
 
     const speedText = computed(() => {
-        const speed = progress.value?.tokensPerSecond;
-        if (speed === null || speed === undefined || !Number.isFinite(speed)) {
+        // 结束后没有活跃流，退回最后一次算出的速度，便于回头看结果
+        const speed = aggregate.value.speed ?? lastAggregateSpeed.value;
+        if (speed === null || !Number.isFinite(speed)) {
             return '—';
         }
         return speed.toFixed(1);
     });
 
+    const totalTokens = computed(() => aggregate.value.totalTokens);
+
+    const totalCostMicros = computed(() => aggregate.value.totalCostMicros);
+
     const elapsedText = computed(() => {
-        const ms = progress.value?.elapsedMs ?? 0;
-        const totalSeconds = Math.floor(ms / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        return `${minutes}:${String(seconds).padStart(2, '0')}`;
+        const totalSeconds = Math.floor(aggregate.value.elapsedMs / 1000);
+        return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
     });
+
+    const firstTtftMs = computed(() => aggregate.value.ttftMs);
+
+    /** 多路并行时列出模型名，超出部分折成 +N */
+    const modelLabels = computed(() => aggregate.value.modelNames.slice(0, 3));
+
+    const hiddenModelCount = computed(() =>
+        Math.max(0, aggregate.value.modelNames.length - modelLabels.value.length)
+    );
 
     // ===== 曲线几何 =====
 
@@ -48,16 +86,12 @@
     const innerWidth = VIEW_WIDTH - PADDING.left - PADDING.right;
     const innerHeight = VIEW_HEIGHT - PADDING.top - PADDING.bottom;
 
-    const samples = computed(() => progress.value?.samples ?? []);
-
     const geometry = computed(() => {
         const items = samples.value;
         if (items.length === 0) return [];
 
         const peak = Math.max(1, ...items.map((item) => item.tokensPerSecond));
         const spanMs = Math.max(1, (items[items.length - 1]?.atMs ?? 0) - (items[0]?.atMs ?? 0));
-
-        // 采样点少时均匀铺开，避免全部挤在左端
         const step = items.length > 1 ? innerWidth / (items.length - 1) : 0;
 
         return items.map((item, index) => ({
@@ -85,16 +119,76 @@
         return `${linePath.value} L${last.x.toFixed(1)},${baseline} L${first.x.toFixed(1)},${baseline} Z`;
     });
 
+    // ===== 采样与清理 =====
+
+    function pushAggregateSample() {
+        const speed = aggregate.value.speed;
+        if (speed === null || !Number.isFinite(speed) || speed <= 0) {
+            return;
+        }
+
+        if (curveStartedAt === 0) {
+            curveStartedAt = Date.now();
+        }
+
+        lastAggregateSpeed.value = speed;
+        samples.value = [
+            ...samples.value,
+            { atMs: Date.now() - curveStartedAt, tokensPerSecond: speed },
+        ].slice(-MAX_SAMPLES);
+    }
+
+    function resetCurve() {
+        samples.value = [];
+        curveStartedAt = 0;
+        lastAggregateSpeed.value = null;
+    }
+
+    /** 丢掉已结束且久未更新的流，避免陈旧数字一直计入合计 */
+    function prune() {
+        const now = Date.now();
+        let changed = false;
+
+        for (const [taskId, stream] of streams.value) {
+            const seenAt = lastSeenAt.get(taskId) ?? 0;
+            if (!isStale(stream, seenAt, now, LINGER_MS)) continue;
+
+            streams.value.delete(taskId);
+            lastSeenAt.delete(taskId);
+            changed = true;
+        }
+
+        if (changed) {
+            streams.value = new Map(streams.value);
+        }
+
+        // 全部结束并清理干净后，曲线也一并归零
+        if (streams.value.size === 0 && samples.value.length > 0) {
+            resetCurve();
+        }
+    }
+
     onMounted(() => {
+        sampleTimer = setInterval(() => {
+            pushAggregateSample();
+            prune();
+        }, SAMPLE_INTERVAL_MS);
+
         void eventService
             .on(AppEvent.SESSION_TASK_USAGE_PROGRESS, (payload) => {
-                // 换任务就换曲线；同一任务的后续推送只在结束时收敛数值
-                if (progress.value?.taskId !== payload.taskId) {
-                    progress.value = payload;
-                    return;
+                const isNewStream = !streams.value.has(payload.taskId);
+
+                // 新一轮开始时先清掉已结束的旧流，免得上一轮的 token 累加到这一轮
+                if (shouldDropFinishedStreams([...streams.value.values()], isNewStream)) {
+                    streams.value.clear();
+                    lastSeenAt.clear();
+                    resetCurve();
                 }
 
-                progress.value = payload;
+                streams.value.set(payload.taskId, payload);
+                lastSeenAt.set(payload.taskId, Date.now());
+                // Map 本身不是响应式的，换引用触发更新
+                streams.value = new Map(streams.value);
             })
             .then((stop) => {
                 unlisten = stop;
@@ -102,6 +196,10 @@
     });
 
     onUnmounted(() => {
+        if (sampleTimer) {
+            clearInterval(sampleTimer);
+            sampleTimer = null;
+        }
         unlisten?.();
         unlisten = null;
     });
@@ -110,24 +208,28 @@
 <template>
     <section class="settings-row-group p-4" data-testid="settings-usage-live">
         <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-                <span class="text-[13px] text-neutral-950">
+            <div class="flex min-w-0 items-center gap-2">
+                <span class="shrink-0 text-[13px] text-neutral-950">
                     {{ t('settings.usage.live.title') }}
                 </span>
                 <span
-                    v-if="progress"
-                    class="max-w-56 truncate rounded-full bg-neutral-100 px-2.5 py-0.5 text-[11px] text-neutral-600"
+                    v-for="label in modelLabels"
+                    :key="label"
+                    class="max-w-44 truncate rounded-full bg-neutral-100 px-2.5 py-0.5 text-[11px] text-neutral-600"
                     data-no-i18n="true"
                     translate="no"
                 >
-                    {{ progress.modelName }}
+                    {{ label }}
+                </span>
+                <span v-if="hiddenModelCount > 0" class="shrink-0 text-[11px] text-neutral-400">
+                    +{{ hiddenModelCount }}
                 </span>
             </div>
 
             <div class="flex items-baseline gap-1.5">
                 <span
                     class="font-serif text-[26px] leading-none font-semibold tabular-nums"
-                    :class="live ? 'text-neutral-950' : 'text-neutral-300'"
+                    :class="anyStreaming ? 'text-neutral-950' : 'text-neutral-300'"
                 >
                     {{ speedText }}
                 </span>
@@ -142,14 +244,18 @@
                 </span>
                 <span
                     class="flex items-center gap-1.5 text-[11px]"
-                    :class="live ? 'text-neutral-700' : 'text-neutral-400'"
+                    :class="anyStreaming ? 'text-neutral-700' : 'text-neutral-400'"
                 >
                     <span
                         class="h-1.5 w-1.5 rounded-full"
-                        :class="live ? 'animate-pulse bg-sky-500' : 'bg-neutral-300'"
+                        :class="anyStreaming ? 'animate-pulse bg-sky-500' : 'bg-neutral-300'"
                         aria-hidden="true"
                     />
-                    {{ live ? t('settings.usage.live.online') : t('settings.usage.live.idle') }}
+                    {{
+                        anyStreaming
+                            ? t('settings.usage.live.online')
+                            : t('settings.usage.live.idle')
+                    }}
                 </span>
             </div>
 
@@ -178,7 +284,6 @@
                     stroke-linecap="round"
                 />
                 <circle
-                    v-if="geometry.length > 0"
                     :cx="geometry[geometry.length - 1]!.x"
                     :cy="geometry[geometry.length - 1]!.y"
                     r="2.5"
@@ -194,11 +299,7 @@
                     {{ t('settings.usage.live.stream') }}
                 </span>
                 <span class="text-[11px] text-neutral-500 tabular-nums">
-                    {{
-                        t('settings.usage.live.activeStreams', {
-                            count: progress?.activeStreams ?? 0,
-                        })
-                    }}
+                    {{ t('settings.usage.live.activeStreams', { count: activeCount }) }}
                 </span>
             </div>
         </div>
@@ -210,9 +311,9 @@
                 </span>
                 <span
                     class="text-[13px] text-neutral-900 tabular-nums"
-                    :title="String(progress?.outputTokens ?? 0)"
+                    :title="String(totalTokens)"
                 >
-                    {{ formatTokensCompact(progress?.outputTokens ?? 0) }}
+                    {{ formatTokensCompact(totalTokens) }}
                 </span>
             </div>
             <div class="flex items-baseline justify-between gap-2">
@@ -226,22 +327,20 @@
                     {{ t('settings.usage.live.cost') }}
                 </span>
                 <span class="text-[13px] text-neutral-900 tabular-nums">
-                    {{
-                        progress?.estimatedCostMicros === null || progress === null
-                            ? '—'
-                            : `≈ ${formatCost(progress.estimatedCostMicros)}`
-                    }}
+                    {{ totalCostMicros === null ? '—' : `≈ ${formatCost(totalCostMicros)}` }}
                 </span>
             </div>
         </div>
 
-        <p class="mt-2 flex items-start gap-1.5 text-[11px] text-neutral-400">
-            <AppIcon name="information-circle" class="mt-px h-3 w-3 shrink-0" />
+        <p class="mt-2 flex flex-wrap items-center gap-x-1.5 text-[11px] text-neutral-400">
+            <AppIcon name="information-circle" class="h-3 w-3 shrink-0" />
             {{ t('settings.usage.live.estimateNote') }}
-            <template v-if="progress?.ttftMs !== null && progress">
-                · {{ t('settings.usage.live.ttft', { value: formatDuration(progress.ttftMs) }) }}
+            <template v-if="firstTtftMs !== null">
+                · {{ t('settings.usage.live.ttft', { value: formatDuration(firstTtftMs) }) }}
             </template>
-            <template v-if="!live && progress">· {{ t('settings.usage.live.stopped') }}</template>
+            <template v-if="!anyStreaming && activeList.length > 0">
+                · {{ t('settings.usage.live.stopped') }}
+            </template>
         </p>
     </section>
 </template>

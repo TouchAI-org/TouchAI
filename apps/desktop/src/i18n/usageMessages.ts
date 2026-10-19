@@ -94,7 +94,7 @@ export const usageMessagesZhCN = {
     'settings.usage.live.online': 'live',
     'settings.usage.live.idle': 'idle',
     'settings.usage.live.waiting': '等待下一次对话',
-    'settings.usage.live.activeStreams': '{count} active',
+    'settings.usage.live.activeStreams': '{count} 路响应中',
     'settings.usage.live.total': 'total',
     'settings.usage.live.elapsed': 'elapsed',
     'settings.usage.live.cost': 'cost',

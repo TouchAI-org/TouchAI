@@ -116,7 +116,12 @@ export class LiveUsageTracker {
         return sum;
     }
 
-    /** 每个片段调用一次；内部按字符增量累计，不做整段重算 */
+    /**
+     * 每个片段调用一次；内部按字符增量累计，不做整段重算。
+     *
+     * 曲线由消费方按固定节拍对「聚合速度」采样，这里只推当前瞬时值，
+     * 避免每个任务各自维护一份采样序列再在 UI 里对齐。
+     */
     consume(chunk: AiStreamChunk): void {
         if (this.finished) {
             return;
@@ -157,7 +162,7 @@ export class LiveUsageTracker {
 
         this.hasEmitted = true;
         this.pushSample(nowMs);
-        void eventService.emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, this.snapshot(false));
+        void eventService.emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, this.snapshot());
     }
 
     /**
@@ -168,12 +173,17 @@ export class LiveUsageTracker {
      * 而不是把这一格清空。
      */
     finish(actual: { outputTokens: number; costMicros: number | null }): void {
+        if (this.finished) {
+            return;
+        }
+
         this.finished = true;
-        const snapshot = this.snapshot(true);
+        const snapshot = this.snapshot();
         void eventService.emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, {
             ...snapshot,
             outputTokens: actual.outputTokens,
             estimatedCostMicros: actual.costMicros ?? snapshot.estimatedCostMicros,
+            streaming: false,
         });
     }
 
@@ -188,7 +198,10 @@ export class LiveUsageTracker {
         }
 
         this.finished = true;
-        void eventService.emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, this.snapshot(true));
+        void eventService.emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, {
+            ...this.snapshot(),
+            streaming: false,
+        });
     }
 
     private pushSample(nowMs: number): void {
@@ -206,7 +219,7 @@ export class LiveUsageTracker {
         }
     }
 
-    private snapshot(finished: boolean): SessionTaskUsageProgressEvent {
+    private snapshot(): SessionTaskUsageProgressEvent {
         const outputTokens = this.estimatedTokens;
 
         return {
@@ -217,10 +230,9 @@ export class LiveUsageTracker {
             tokensPerSecond: this.samples[this.samples.length - 1]?.tokensPerSecond ?? null,
             elapsedMs: Date.now() - this.startedAt,
             ttftMs: this.firstContentAtMs,
-            activeStreams: finished ? 0 : 1,
             estimatedCostMicros: this.estimateCost(outputTokens),
-            samples: [...this.samples],
-            finished,
+            // 调用方会在收尾时改成 false
+            streaming: !this.finished,
         };
     }
 

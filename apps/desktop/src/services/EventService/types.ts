@@ -186,17 +186,16 @@ export interface SessionTaskStatusChangedEvent {
 
 /** 吞吐采样点，供实时曲线使用 */
 export interface UsageThroughputSample {
-    /** 相对流开始的时间偏移 */
+    /** 相对曲线开始的时间偏移 */
     atMs: number;
     tokensPerSecond: number;
 }
 
 /**
- * 流式响应过程中的用量进度。
+ * 一个正在响应（或刚刚结束）的任务。
  *
- * 供应商只在调用结束时才返回真实 token 数，因此流式期间 token 与成本
- * 都是按已流入字符估算的；`finished` 为 true 时 token 已换成实测值。
- *
+ * 供应商只在调用结束时才返回真实 token 数，所以流式期间 token 与成本
+ * 是按已流入字符估算的；`streaming` 为 false 时 token 已换成实测值。
  * 成本始终是估算：真实成本要等落库时按当时定价算完才知道。
  */
 export interface SessionTaskUsageProgressEvent {
@@ -211,14 +210,10 @@ export interface SessionTaskUsageProgressEvent {
     elapsedMs: number;
     /** 首个内容片段的延迟；未到达时为 null */
     ttftMs: number | null;
-    /** 同时进行的响应数：工具循环里始终是 0 或 1 */
-    activeStreams: number;
     /** 估算成本（微元）；无定价时为 null */
     estimatedCostMicros: number | null;
-    /** 滚动吞吐采样，最多 60 个 */
-    samples: UsageThroughputSample[];
-    /** 本轮是否已结束 */
-    finished: boolean;
+    /** 该任务当前是否仍在流式；聚合计数由消费方汇总 */
+    streaming: boolean;
 }
 
 // ==================== 事件映射 ====================

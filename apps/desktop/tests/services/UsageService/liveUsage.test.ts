@@ -14,14 +14,14 @@ vi.mock('@services/EventService', async (importOriginal) => {
 });
 
 interface EmittedPayload {
+    taskId: string;
+    modelName: string;
     outputTokens: number;
     tokensPerSecond: number | null;
     elapsedMs: number;
     ttftMs: number | null;
-    activeStreams: number;
     estimatedCostMicros: number | null;
-    samples: Array<{ atMs: number; tokensPerSecond: number }>;
-    finished: boolean;
+    streaming: boolean;
 }
 
 function lastPayload(): EmittedPayload {
@@ -121,8 +121,7 @@ describe('LiveUsageTracker', () => {
         const instance = tracker();
         feed(instance, 'x'.repeat(60), 400);
 
-        expect(lastPayload().activeStreams).toBe(1);
-        expect(lastPayload().finished).toBe(false);
+        expect(lastPayload().streaming).toBe(true);
     });
 
     it('estimates cost from the output price', () => {
@@ -141,20 +140,16 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().estimatedCostMicros).toBeNull();
     });
 
-    it('accumulates a rolling sample window', () => {
+    it('accumulates speed samples internally across pushes', () => {
         const instance = tracker();
 
         for (let index = 0; index < 5; index += 1) {
             feed(instance, 'a'.repeat(100), 400);
         }
 
-        const samples = lastPayload().samples;
-        // 首个片段时窗口长度为零、算不出速度，所以是 4 个样本而不是 5 个
-        expect(samples.length).toBe(4);
-        // 采样点按时间递增，供曲线使用
-        for (let index = 1; index < samples.length; index += 1) {
-            expect(samples[index]!.atMs).toBeGreaterThan(samples[index - 1]!.atMs);
-        }
+        // 速度由内部采样窗口算出；对外只推当前值，曲线由消费方按节拍聚合
+        expect(emitMock.mock.calls.length).toBe(5);
+        expect(lastPayload().tokensPerSecond).toBeGreaterThan(0);
     });
 
     it('reports no speed until the first measurable window', () => {
@@ -164,7 +159,6 @@ describe('LiveUsageTracker', () => {
 
         // 宁可不给数字，也不报一个凭空的 0
         expect(lastPayload().tokensPerSecond).toBeNull();
-        expect(lastPayload().samples).toHaveLength(0);
     });
 
     it('replaces the estimate with the measured token count on finish', () => {
@@ -177,8 +171,7 @@ describe('LiveUsageTracker', () => {
         const final = lastPayload();
         expect(final.outputTokens).toBe(999);
         expect(final.outputTokens).not.toBe(estimated);
-        expect(final.finished).toBe(true);
-        expect(final.activeStreams).toBe(0);
+        expect(final.streaming).toBe(false);
     });
 
     it('keeps the last cost estimate when finishing without a measured cost', () => {
@@ -223,8 +216,7 @@ describe('LiveUsageTracker', () => {
         const final = lastPayload();
         // 失败时拿不到供应商的实测值，保留估算比报 0 诚实
         expect(final.outputTokens).toBe(estimated);
-        expect(final.finished).toBe(true);
-        expect(final.activeStreams).toBe(0);
+        expect(final.streaming).toBe(false);
     });
 
     it('does not stop twice', () => {
