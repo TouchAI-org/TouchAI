@@ -8,14 +8,40 @@ import { getLocale } from '@/i18n';
  * 默认 USD 是因为唯一的定价源（models.dev）以美元报价，
  * `computeCost` 也就把 `USD` 写进了每条调用记录。
  * 这里若默认 CNY，等于把 $3 的调用显示成 ¥3。
+ *
+ * `narrowSymbol` 让中文界面显示 `$1.70` 而不是 `US$1.70`：
+ * 币种已在标题里说明，再带国家前缀属于冗余。
  */
 export function formatCost(micros: number, currency = 'USD'): string {
     const amount = micros / 1_000_000;
     return new Intl.NumberFormat(getLocale(), {
         style: 'currency',
         currency,
+        currencyDisplay: 'narrowSymbol',
         minimumFractionDigits: 2,
         maximumFractionDigits: 4,
+    }).format(amount);
+}
+
+/** 金额（紧凑形式，用于图表轴与卡片） */
+export function formatCostCompact(micros: number, currency = 'USD'): string {
+    const amount = micros / 1_000_000;
+    if (amount >= 1000) {
+        return new Intl.NumberFormat(getLocale(), {
+            style: 'currency',
+            currency,
+            currencyDisplay: 'narrowSymbol',
+            notation: 'compact',
+            maximumFractionDigits: 1,
+        }).format(amount);
+    }
+
+    return new Intl.NumberFormat(getLocale(), {
+        style: 'currency',
+        currency,
+        currencyDisplay: 'narrowSymbol',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
     }).format(amount);
 }
 

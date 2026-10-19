@@ -5,7 +5,7 @@ import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite'
 
 import { updateSessionTurnAttemptUsage } from '@database/queries/sessionTurnAttempts';
 import { updateSessionTurnUsage } from '@database/queries/sessionTurns';
-import { getUsageCallPage, getUsageSummary } from '@database/queries/usageStats';
+import { getUsageSummary } from '@database/queries/usageStats';
 import type { PersistedCall } from '@services/UsageService';
 import { insertLlmCallParts } from '@services/UsageService/insertLlmCallParts';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
@@ -246,7 +246,7 @@ describe('usage write path against a real database', () => {
         expect(summary.unpricedCount).toBe(1);
     });
 
-    it('reads the call ledger back with its usage and timing', async () => {
+    it('writes the call payload with usage and timing', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -254,55 +254,46 @@ describe('usage write path against a real database', () => {
         const { db } = await import('@database');
         await insertLlmCallParts(1, [call()], db);
 
-        const page = await getUsageCallPage(WIDE_RANGE, 0, 20);
+        // 列表 UI 已移除，这里直接断言落库载荷：它是 ledger 的唯一真相源
+        const row = JSON.parse(
+            (
+                database
+                    .prepare("SELECT data FROM message_parts WHERE type = 'llm_call'")
+                    .get() as { data: string }
+            ).data
+        ) as Record<string, unknown>;
 
-        expect(page.total).toBe(1);
-        const row = page.rows[0]!;
         expect(row.modelName).toBe('group/auto-deepseek-v4-1-flash');
         expect(row.providerName).toBe('Magpie');
-        expect(row.inputTokens).toBe(191);
-        expect(row.cacheReadTokens).toBe(9216);
-        expect(row.ttftMs).toBe(1892);
-        expect(row.durationMs).toBe(2229);
+        expect(row.usage).toMatchObject({ inputTokens: 191, cacheReadTokens: 9216 });
+        expect(row.timing).toMatchObject({ ttftMs: 1892, durationMs: 2229 });
         expect(row.finishReason).toBe('stop');
         expect(row.priced).toBe(false);
-        expect(row.sessionTitle).toBe('Test Session');
     });
 
-    it('filters the ledger by the owning turn status', async () => {
+    it('records the owning turn so a call can be traced back to its turn', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
 
         const { db } = await import('@database');
         await insertLlmCallParts(1, [call()], db, 1);
+
+        const row = JSON.parse(
+            (
+                database
+                    .prepare("SELECT data FROM message_parts WHERE type = 'llm_call'")
+                    .get() as { data: string }
+            ).data
+        ) as Record<string, unknown>;
+
+        expect(row.turnId).toBe(1);
 
         database.exec(`UPDATE session_turns SET status = 'failed' WHERE id = 1`);
-
-        const failed = await getUsageCallPage({ ...WIDE_RANGE, statuses: ['failed'] }, 0, 20);
-        expect(failed.total).toBe(1);
-
-        const completed = await getUsageCallPage({ ...WIDE_RANGE, statuses: ['completed'] }, 0, 20);
-        expect(completed.total).toBe(0);
-    });
-
-    it('filters the ledger by model and provider from the part payload', async () => {
-        const database = openDatabase();
-        routeQueriesTo(database);
-        seed(database);
-
-        const { db } = await import('@database');
-        await insertLlmCallParts(1, [call()], db, 1);
-
-        const matching = await getUsageCallPage(
-            { ...WIDE_RANGE, modelIds: [1], providerIds: [1] },
-            0,
-            20
-        );
-        expect(matching.total).toBe(1);
-
-        const wrongModel = await getUsageCallPage({ ...WIDE_RANGE, modelIds: [2] }, 0, 20);
-        expect(wrongModel.total).toBe(0);
+        const status = database
+            .prepare('SELECT status FROM session_turns WHERE id = ?')
+            .get(Number(row.turnId)) as { status: string };
+        expect(status.status).toBe('failed');
     });
 
     it('keeps the cost columns when the call is priced', async () => {
@@ -327,10 +318,6 @@ describe('usage write path against a real database', () => {
         const { db } = await import('@database');
         await insertLlmCallParts(1, [priced], db);
 
-        const page = await getUsageCallPage(WIDE_RANGE, 0, 20);
-        expect(page.rows[0]?.priced).toBe(true);
-        expect(page.rows[0]?.costMicros).toBe(50);
-
         const persisted = JSON.parse(
             (
                 database
@@ -338,6 +325,9 @@ describe('usage write path against a real database', () => {
                     .get() as { data: string }
             ).data
         ) as Record<string, unknown>;
+
+        expect(persisted.priced).toBe(true);
+        expect(persisted.costMicros).toBe(50);
         expect(persisted.pricingModel).toBe('deepseek-v4-flash');
         expect(persisted.currency).toBe('USD');
     });

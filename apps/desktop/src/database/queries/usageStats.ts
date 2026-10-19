@@ -27,6 +27,8 @@ export interface UsageFilter {
 export interface UsageSummary {
     /** 回合数 */
     requestCount: number;
+    /** 产生过用量的会话数 */
+    sessionCount: number;
     successCount: number;
     totalCostMicros: number;
     unpricedCount: number;
@@ -46,11 +48,43 @@ export interface UsageSummary {
     decodeSpeed: number | null;
 }
 
+/** 一个时间桶里按模型（或供应商）拆开的一段 */
+export interface UsageTrendSegment {
+    /** 分组 id；分组已不存在时为 null */
+    groupId: number | null;
+    name: string;
+    requests: number;
+    tokens: number;
+    costMicros: number;
+}
+
 export interface UsageTrendPoint {
     key: string;
     requests: number;
     tokens: number;
     costMicros: number;
+    /** 堆叠柱的拆分；按总量降序，UI 取前 N 段并合并其余 */
+    segments: UsageTrendSegment[];
+}
+
+/** 工具调用统计（来自 `tool_call` 片段） */
+export interface ToolUsageStat {
+    /** 工具调用名，如 `builtin__read` / `mcp__server__tool` */
+    name: string;
+    kind: 'builtin' | 'mcp';
+    count: number;
+    errorCount: number;
+    /** 平均耗时；无样本时为 null */
+    meanDurationMs: number | null;
+}
+
+export interface ToolUsageSummary {
+    totalCount: number;
+    errorCount: number;
+    /** 用过多少种工具 */
+    distinctTools: number;
+    meanDurationMs: number | null;
+    byTool: ToolUsageStat[];
 }
 
 export interface UsageGroup {
@@ -73,27 +107,6 @@ export interface UsageHeatmapDay {
     requests: number;
     tokens: number;
     costMicros: number;
-}
-
-export interface UsageCallRow {
-    partId: number;
-    messageId: number;
-    sessionId: number | null;
-    sessionTitle: string | null;
-    createdAt: string;
-    modelName: string;
-    providerName: string;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
-    reasoningTokens: number;
-    costMicros: number;
-    priced: boolean;
-    ttftMs: number | null;
-    durationMs: number | null;
-    finishReason: string | null;
-    errorMessage: string | null;
 }
 
 export interface UsageFilterOptions {
@@ -180,6 +193,7 @@ export const getUsageSummary = async (filter: UsageFilter): Promise<UsageSummary
             ttftCount: sql<number>`count(${sessionTurns.ttft_ms})`,
             sumDuration: sql<number>`coalesce(sum(${sessionTurns.duration_ms}), 0)`,
             durationCount: sql<number>`count(${sessionTurns.duration_ms})`,
+            sessionCount: sql<number>`count(distinct ${sessionTurns.session_id})`,
         })
         .from(sessionTurns)
         .where(buildTurnWhere(filter))
@@ -199,6 +213,7 @@ export const getUsageSummary = async (filter: UsageFilter): Promise<UsageSummary
 
     return {
         requestCount,
+        sessionCount: row?.sessionCount ?? 0,
         successCount,
         totalCostMicros: row?.totalCostMicros ?? 0,
         unpricedCount: row?.unpricedCount ?? 0,
@@ -225,8 +240,15 @@ export const getUsageSummary = async (filter: UsageFilter): Promise<UsageSummary
 // 趋势
 // ============================================================================
 
+/**
+ * 趋势：按时间桶汇总，并在桶内按模型（或供应商）拆成堆叠段。
+ *
+ * 一次查询拿到「桶 × 分组」的组合，再在内存里折叠成桶。
+ * 分组维度由 `dimension` 决定，与图表上的切换按钮一致。
+ */
 export const getUsageTrend = async (
-    filter: UsageFilter
+    filter: UsageFilter,
+    dimension: 'model' | 'provider' = 'model'
 ): Promise<{ bucket: 'hour' | 'day'; points: UsageTrendPoint[] }> => {
     const spanMs = new Date(filter.to).getTime() - new Date(filter.from).getTime();
     const bucket: 'hour' | 'day' = spanMs <= 48 * 60 * 60 * 1000 ? 'hour' : 'day';
@@ -236,9 +258,20 @@ export const getUsageTrend = async (
             ? sql<string>`strftime('%Y-%m-%d %H:00', ${sessionTurns.created_at}, 'localtime')`
             : sql<string>`date(${sessionTurns.created_at}, 'localtime')`;
 
+    const groupIdExpr =
+        dimension === 'model'
+            ? sql<number>`${models.id}`
+            : sql<number>`coalesce(${providers.id}, 0)`;
+    const groupNameExpr =
+        dimension === 'model'
+            ? sql<string>`${models.name}`
+            : sql<string>`coalesce(${providers.name}, '—')`;
+
     const rows = await db
         .select({
             key: keyExpr.as('key'),
+            groupId: groupIdExpr.as('groupId'),
+            groupName: groupNameExpr.as('groupName'),
             requests: count(),
             tokens: sql<number>`coalesce(sum(
                 ${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}
@@ -247,12 +280,40 @@ export const getUsageTrend = async (
             costMicros: sql<number>`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`,
         })
         .from(sessionTurns)
+        .innerJoin(models, eq(models.id, sessionTurns.model_id))
+        .leftJoin(providers, eq(providers.id, models.provider_id))
         .where(buildTurnWhere(filter))
-        .groupBy(keyExpr)
+        .groupBy(keyExpr, groupIdExpr, groupNameExpr)
         .orderBy(keyExpr)
         .all();
 
-    return { bucket, points: rows };
+    // 按桶折叠；每桶内的分组按 token 量降序，方便图表取前 N 段
+    const byBucket = new Map<string, UsageTrendPoint>();
+    for (const row of rows) {
+        let point = byBucket.get(row.key);
+        if (!point) {
+            point = { key: row.key, requests: 0, tokens: 0, costMicros: 0, segments: [] };
+            byBucket.set(row.key, point);
+        }
+
+        point.requests += row.requests;
+        point.tokens += row.tokens;
+        point.costMicros += row.costMicros;
+        point.segments.push({
+            // 供应商维度用 0 代表「无」；模型维度保留真实 id
+            groupId: row.groupId === 0 && dimension === 'provider' ? null : row.groupId,
+            name: row.groupName || '—',
+            requests: row.requests,
+            tokens: row.tokens,
+            costMicros: row.costMicros,
+        });
+    }
+
+    for (const point of byBucket.values()) {
+        point.segments.sort((left, right) => right.tokens - left.tokens);
+    }
+
+    return { bucket, points: [...byBucket.values()] };
 };
 
 /**
@@ -271,6 +332,7 @@ export const getUsageTrendFromArchive = async (): Promise<{
     const rows = await db
         .select({
             key: usageDailyRollups.day,
+            groupName: usageDailyRollups.model_name,
             requests: sql<number>`coalesce(sum(${usageDailyRollups.request_count}), 0)`,
             tokens: sql<number>`coalesce(sum(
                 ${usageDailyRollups.input_tokens} + ${usageDailyRollups.output_tokens}
@@ -279,11 +341,36 @@ export const getUsageTrendFromArchive = async (): Promise<{
             costMicros: sql<number>`coalesce(sum(${usageDailyRollups.total_cost_micros}), 0)`,
         })
         .from(usageDailyRollups)
-        .groupBy(usageDailyRollups.day)
+        .groupBy(usageDailyRollups.day, usageDailyRollups.model_name)
         .orderBy(usageDailyRollups.day)
         .all();
 
-    return { bucket: 'day', points: rows };
+    const byBucket = new Map<string, UsageTrendPoint>();
+    for (const row of rows) {
+        let point = byBucket.get(row.key);
+        if (!point) {
+            point = { key: row.key, requests: 0, tokens: 0, costMicros: 0, segments: [] };
+            byBucket.set(row.key, point);
+        }
+
+        point.requests += row.requests;
+        point.tokens += row.tokens;
+        point.costMicros += row.costMicros;
+        point.segments.push({
+            // 归档表按名字存储，没有 id
+            groupId: null,
+            name: row.groupName || '—',
+            requests: row.requests,
+            tokens: row.tokens,
+            costMicros: row.costMicros,
+        });
+    }
+
+    for (const point of byBucket.values()) {
+        point.segments.sort((left, right) => right.tokens - left.tokens);
+    }
+
+    return { bucket: 'day', points: [...byBucket.values()] };
 };
 
 /** 筛选会影响趋势时不能使用归档表（归档表不含 id 维度） */
@@ -414,6 +501,111 @@ export const getUsageFilterOptions = async (filter: UsageFilter): Promise<UsageF
 };
 
 // ============================================================================
+// 工具调用统计
+// ============================================================================
+
+/**
+ * 工具调用统计。
+ *
+ * 数据源是 `tool_call` 片段——工具执行的唯一真相源。
+ * 工具名从 `data` 里的原始字段拼出，而不是复用渲染层的展示格式。
+ */
+export const getToolUsageStats = async (filter: UsageFilter): Promise<ToolUsageSummary> => {
+    const nameExpr = sql<string | null>`case json_extract(${messageParts.data}, '$.toolKind')
+        when 'builtin' then 'builtin__' || json_extract(${messageParts.data}, '$.tool_id')
+        when 'mcp' then 'mcp__' || coalesce(json_extract(${messageParts.data}, '$.server_id'), '')
+            || '__' || coalesce(json_extract(${messageParts.data}, '$.tool_name'), '')
+        else null end`;
+    const kindExpr = sql<string>`json_extract(${messageParts.data}, '$.toolKind')`;
+    const statusExpr = sql<string>`json_extract(${messageParts.data}, '$.status')`;
+    const durationExpr = sql<number | null>`json_extract(${messageParts.data}, '$.duration_ms')`;
+
+    const rows = await db
+        .select({
+            name: nameExpr.as('name'),
+            kind: kindExpr.as('kind'),
+            status: statusExpr.as('status'),
+            count: count(),
+            sumDuration: sql<number>`coalesce(sum(${durationExpr}), 0)`,
+            durationCount: sql<number>`count(${durationExpr})`,
+        })
+        .from(messageParts)
+        .where(
+            and(
+                eq(messageParts.type, 'tool_call'),
+                between(messageParts.created_at, filter.from, filter.to)
+            )
+        )
+        .groupBy(nameExpr, kindExpr, statusExpr)
+        .all();
+
+    // 同一工具的不同状态要合并成一行
+    const byTool = new Map<
+        string,
+        ToolUsageStat & { sumDuration: number; durationCount: number }
+    >();
+    let totalCount = 0;
+    let errorCount = 0;
+    let sumDuration = 0;
+    let durationCount = 0;
+
+    for (const row of rows) {
+        const name = row.name ?? '—';
+        const isError =
+            row.status === 'error' || row.status === 'timeout' || row.status === 'rejected';
+
+        totalCount += row.count;
+        if (isError) {
+            errorCount += row.count;
+        }
+        sumDuration += row.sumDuration;
+        durationCount += row.durationCount;
+
+        let entry = byTool.get(name);
+        if (!entry) {
+            entry = {
+                name,
+                kind: row.kind === 'mcp' ? 'mcp' : 'builtin',
+                count: 0,
+                errorCount: 0,
+                meanDurationMs: null,
+                sumDuration: 0,
+                durationCount: 0,
+            };
+            byTool.set(name, entry);
+        }
+
+        entry.count += row.count;
+        if (isError) {
+            entry.errorCount += row.count;
+        }
+        entry.sumDuration += row.sumDuration;
+        entry.durationCount += row.durationCount;
+    }
+
+    const byToolList = [...byTool.values()]
+        .map((entry) => ({
+            name: entry.name,
+            kind: entry.kind,
+            count: entry.count,
+            errorCount: entry.errorCount,
+            meanDurationMs:
+                entry.durationCount > 0
+                    ? Math.round(entry.sumDuration / entry.durationCount)
+                    : null,
+        }))
+        .sort((left, right) => right.count - left.count);
+
+    return {
+        totalCount,
+        errorCount,
+        distinctTools: byToolList.length,
+        meanDurationMs: durationCount > 0 ? Math.round(sumDuration / durationCount) : null,
+        byTool: byToolList,
+    };
+};
+
+// ============================================================================
 // 热力图（固定窗口，不受 filter 的 from/to 影响）
 // ============================================================================
 
@@ -438,133 +630,4 @@ export const getUsageHeatmap = async (weeks = 53): Promise<UsageHeatmapDay[]> =>
         .all();
 
     return rows;
-};
-
-// ============================================================================
-// 调用账本（走 llm_call 片段的表达式索引）
-// ============================================================================
-
-function callJson(field: string) {
-    return sql<string | null>`json_extract(${messageParts.data}, '${sql.raw(field)}')`;
-}
-
-/**
- * 调用账本的 WHERE。
- *
- * 模型/供应商/搜索走片段载荷里的字段；状态与重试要走回合，
- * 所以载荷里记了 `turnId`。
- */
-function buildCallWhere(filter: UsageFilter): SQL {
-    const clauses: Array<SQL | undefined> = [
-        eq(messageParts.type, 'llm_call'),
-        between(messageParts.created_at, filter.from, filter.to),
-    ];
-
-    if (filter.modelIds?.length) {
-        const ids = filter.modelIds;
-        clauses.push(
-            sql`json_extract(${messageParts.data}, '$.modelId') IN (${sql.join(
-                ids.map((id) => sql`${id}`),
-                sql`, `
-            )})`
-        );
-    }
-
-    if (filter.providerIds?.length) {
-        const ids = filter.providerIds;
-        clauses.push(
-            sql`json_extract(${messageParts.data}, '$.providerId') IN (${sql.join(
-                ids.map((id) => sql`${id}`),
-                sql`, `
-            )})`
-        );
-    }
-
-    if (filter.statuses?.length) {
-        const statuses = filter.statuses;
-        clauses.push(
-            sql`json_extract(${messageParts.data}, '$.turnId') IN (
-                SELECT ${sessionTurns.id} FROM ${sessionTurns}
-                WHERE ${sessionTurns.status} IN (${sql.join(
-                    statuses.map((status) => sql`${status}`),
-                    sql`, `
-                )})
-            )`
-        );
-    }
-
-    if (filter.onlyRetried) {
-        clauses.push(
-            sql`json_extract(${messageParts.data}, '$.turnId') IN (
-                SELECT ${sessionTurns.id} FROM ${sessionTurns}
-                WHERE (SELECT count(*) FROM session_turn_attempts WHERE turn_id = ${sessionTurns.id}) > 1
-            )`
-        );
-    }
-
-    if (filter.search?.trim()) {
-        const pattern = `%${filter.search.trim()}%`;
-        clauses.push(
-            sql`(json_extract(${messageParts.data}, '$.modelName') LIKE ${pattern}
-                 OR json_extract(${messageParts.data}, '$.providerName') LIKE ${pattern})`
-        );
-    }
-
-    return and(...clauses)!;
-}
-
-export const getUsageCallPage = async (
-    filter: UsageFilter,
-    offset: number,
-    limit: number
-): Promise<{ rows: UsageCallRow[]; total: number }> => {
-    const where = buildCallWhere(filter);
-
-    const totalRow = await db.select({ value: count() }).from(messageParts).where(where).get();
-
-    const rows = await db
-        .select({
-            partId: messageParts.id,
-            messageId: messageParts.message_id,
-            sessionId: sql<
-                number | null
-            >`(SELECT session_id FROM messages WHERE id = ${messageParts.message_id})`,
-            sessionTitle: sql<string | null>`(
-                SELECT sessions.title FROM sessions
-                INNER JOIN messages ON messages.session_id = sessions.id
-                WHERE messages.id = ${messageParts.message_id}
-            )`,
-            createdAt: messageParts.created_at,
-            modelName: sql<string>`coalesce(json_extract(${messageParts.data}, '$.modelName'), '')`,
-            providerName: sql<string>`coalesce(json_extract(${messageParts.data}, '$.providerName'), '')`,
-            inputTokens: sql<number>`coalesce(json_extract(${messageParts.data}, '$.usage.inputTokens'), 0)`,
-            outputTokens: sql<number>`coalesce(json_extract(${messageParts.data}, '$.usage.outputTokens'), 0)`,
-            cacheReadTokens: sql<number>`coalesce(json_extract(${messageParts.data}, '$.usage.cacheReadTokens'), 0)`,
-            cacheWriteTokens: sql<number>`coalesce(json_extract(${messageParts.data}, '$.usage.cacheWriteTokens'), 0)`,
-            reasoningTokens: sql<number>`coalesce(json_extract(${messageParts.data}, '$.usage.reasoningTokens'), 0)`,
-            costMicros: sql<number>`coalesce(json_extract(${messageParts.data}, '$.costMicros'), 0)`,
-            priced: sql<number>`coalesce(json_extract(${messageParts.data}, '$.priced'), 0)`,
-            ttftMs: sql<number | null>`json_extract(${messageParts.data}, '$.timing.ttftMs')`,
-            durationMs: sql<
-                number | null
-            >`json_extract(${messageParts.data}, '$.timing.durationMs')`,
-            finishReason: callJson('$.finishReason'),
-            errorMessage: callJson('$.errorMessage'),
-        })
-        .from(messageParts)
-        .where(where)
-        .orderBy(desc(messageParts.created_at), desc(messageParts.id))
-        .limit(limit)
-        .offset(offset)
-        .all();
-
-    return {
-        rows: rows.map((row) => ({
-            ...row,
-            priced: row.priced === 1,
-            modelName: row.modelName || '—',
-            providerName: row.providerName || '—',
-        })),
-        total: totalRow?.value ?? 0,
-    };
 };

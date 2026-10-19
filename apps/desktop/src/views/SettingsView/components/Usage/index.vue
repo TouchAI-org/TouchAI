@@ -6,17 +6,16 @@
         canUseUsageArchive,
         type ContextProfile,
         getContextProfiles,
-        getUsageByModel,
-        getUsageByProvider,
-        getUsageCallPage,
+        getToolUsageStats,
         getUsageFilterOptions,
+        getUsageHeatmap,
         getUsageSummary,
         getUsageTrend,
         getUsageTrendFromArchive,
-        type UsageCallRow,
+        type ToolUsageSummary,
         type UsageFilter,
         type UsageFilterOptions,
-        type UsageGroup,
+        type UsageHeatmapDay,
         type UsageRangePreset,
         type UsageSummary,
         type UsageTrendPoint,
@@ -26,25 +25,25 @@
 
     import { t } from '@/i18n';
 
-    import UsageBreakdown from './components/UsageBreakdown.vue';
-    import UsageCallList from './components/UsageCallList.vue';
+    import UsageChart from './components/UsageChart.vue';
     import UsageContext from './components/UsageContext.vue';
+    import UsageHeatmap from './components/UsageHeatmap.vue';
     import UsageOverview from './components/UsageOverview.vue';
     import UsageToolbar from './components/UsageToolbar.vue';
+    import UsageToolStats from './components/UsageToolStats.vue';
     import { resolveUsageRange } from './utils/usageRange';
 
     defineOptions({ name: 'SettingsUsageSection' });
 
     type StatusValue = 'all' | 'completed' | 'failed' | 'cancelled' | 'retried';
-
-    const PAGE_SIZE = 20;
+    type Dimension = 'model' | 'provider';
 
     const preset = ref<UsageRangePreset>('30d');
     const status = ref<StatusValue>('all');
     const modelId = ref<number | null>(null);
     const providerId = ref<number | null>(null);
     const search = ref('');
-    const callOffset = ref(0);
+    const dimension = ref<Dimension>('model');
 
     const loading = ref(true);
     const loadError = ref(false);
@@ -54,13 +53,18 @@
         bucket: 'day',
         points: [],
     });
-    const byModel = ref<UsageGroup[]>([]);
-    const byProvider = ref<UsageGroup[]>([]);
+    const heatmap = ref<UsageHeatmapDay[]>([]);
     const options = ref<UsageFilterOptions>({ models: [], providers: [] });
-    const calls = ref<{ rows: UsageCallRow[]; total: number }>({ rows: [], total: 0 });
     const contextProfiles = ref<{ overall: ContextProfile | null; models: ContextProfile[] }>({
         overall: null,
         models: [],
+    });
+    const toolStats = ref<ToolUsageSummary>({
+        totalCount: 0,
+        errorCount: 0,
+        distinctTools: 0,
+        meanDurationMs: null,
+        byTool: [],
     });
 
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -88,36 +92,28 @@
             // 「全部时间」且无筛选时优先用永久保留的日汇总表：
             // 清理过会话轮次后，历史曲线仍然完整。
             // 汇总表为空（例如首次启动还没跑维护）时回退到实时查询，
-            // 避免出现「指标有数、趋势空白」的矛盾。
+            // 避免出现「指标有数、图表空白」的矛盾。
             const useArchive = preset.value === 'all' && canUseUsageArchive(current);
             const archiveTrend = useArchive ? await getUsageTrendFromArchive() : null;
-            const [
-                nextSummary,
-                nextTrend,
-                nextModels,
-                nextProviders,
-                nextOptions,
-                nextCalls,
-                nextContext,
-            ] = await Promise.all([
-                getUsageSummary(current),
-                archiveTrend && archiveTrend.points.length > 0
-                    ? archiveTrend
-                    : getUsageTrend(current),
-                getUsageByModel(current),
-                getUsageByProvider(current),
-                getUsageFilterOptions(current),
-                getUsageCallPage(current, callOffset.value, PAGE_SIZE),
-                getContextProfiles(current),
-            ]);
+
+            const [nextSummary, nextTrend, nextOptions, nextContext, nextTools, nextHeatmap] =
+                await Promise.all([
+                    getUsageSummary(current),
+                    archiveTrend && archiveTrend.points.length > 0
+                        ? archiveTrend
+                        : getUsageTrend(current, dimension.value),
+                    getUsageFilterOptions(current),
+                    getContextProfiles(current),
+                    getToolUsageStats(current),
+                    getUsageHeatmap(),
+                ]);
 
             summary.value = nextSummary;
             trend.value = nextTrend;
-            byModel.value = nextModels;
-            byProvider.value = nextProviders;
             options.value = nextOptions;
-            calls.value = { rows: nextCalls.rows, total: nextCalls.total };
             contextProfiles.value = nextContext;
+            toolStats.value = nextTools;
+            heatmap.value = nextHeatmap;
         } catch (error) {
             console.error('[SettingsUsageSection] Failed to load usage stats:', error);
             loadError.value = true;
@@ -136,16 +132,9 @@
         }, 350);
     }
 
-    watch(
-        filter,
-        () => {
-            callOffset.value = 0;
-            void load();
-        },
-        { deep: true }
-    );
-
-    watch(callOffset, () => void load());
+    watch(filter, () => void load(), { deep: true });
+    // 维度切换只影响图表分组，不必重算其它查询
+    watch(dimension, () => void load());
 
     onMounted(() => {
         void load();
@@ -220,33 +209,23 @@
                 </div>
 
                 <template v-else>
-                    <UsageOverview :summary="summary" :trend="trend" />
+                    <UsageOverview :summary="summary" />
 
-                    <UsageBreakdown
-                        :by-model="byModel"
-                        :by-provider="byProvider"
-                        :selected-model-id="modelId"
-                        :selected-provider-id="providerId"
-                        @select-model="modelId = $event"
-                        @select-provider="providerId = $event"
+                    <UsageChart
+                        :points="trend.points"
+                        :bucket="trend.bucket"
+                        :dimension="dimension"
+                        @update:dimension="dimension = $event"
                     />
+
+                    <UsageToolStats :stats="toolStats" />
+
+                    <UsageHeatmap :days="heatmap" />
 
                     <UsageContext
                         :overall="contextProfiles.overall"
                         :models="contextProfiles.models"
                     />
-
-                    <section class="space-y-3" data-testid="settings-usage-calls">
-                        <h2 class="settings-section-title">{{ t('settings.usage.call.title') }}</h2>
-                        <UsageCallList
-                            :rows="calls.rows"
-                            :total="calls.total"
-                            :offset="callOffset"
-                            :limit="PAGE_SIZE"
-                            :loading="loading"
-                            @change-page="callOffset = $event"
-                        />
-                    </section>
                 </template>
             </template>
         </div>

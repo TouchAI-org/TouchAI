@@ -83,7 +83,8 @@
 
 <template>
     <div class="usage-filters flex shrink-0 items-center gap-1.5">
-        <div class="w-[86px]">
+        <!-- 时间范围的选项文字最长（「近 24 小时」），给得宽一点避免截断 -->
+        <div class="w-[98px]">
             <CustomSelect
                 :model-value="preset"
                 :options="rangeOptions"

@@ -158,7 +158,7 @@
         <SelectContent
             :data-testid="contentTestId || undefined"
             :disable-portal="disablePortal"
-            class="w-[var(--reka-select-trigger-width)] rounded-[10px] border border-gray-200 bg-white py-1 shadow-lg"
+            class="w-[var(--reka-select-trigger-width)] min-w-[var(--reka-select-trigger-width)] rounded-[10px] border border-gray-200 bg-white py-1 shadow-lg"
         >
             <EmptyState
                 v-if="options.length === 0"

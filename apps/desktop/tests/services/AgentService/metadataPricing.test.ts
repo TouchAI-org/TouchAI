@@ -1,8 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { describe, expect, it } from 'vitest';
-
 import { buildMetadataList } from '@services/AgentService/infrastructure/modelMetadata/catalog';
+import { describe, expect, it } from 'vitest';
 
 /** models.dev 的真实结构（精简到与定价相关的字段） */
 const catalogFixture = {

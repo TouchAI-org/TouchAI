@@ -304,7 +304,7 @@ describe('pruneUsageDetail', () => {
 });
 
 describe('getUsageTrendFromArchive', () => {
-    it('sums every model and provider of a day into one point', async () => {
+    it('folds a day into one point and keeps its per-model segments', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -327,9 +327,19 @@ describe('getUsageTrendFromArchive', () => {
         const archive = await getUsageTrendFromArchive();
 
         expect(archive.bucket).toBe('day');
-        expect(archive.points).toEqual([
-            { key: '2026-05-01', requests: 2, tokens: 330, costMicros: 12 },
-        ]);
+        expect(archive.points).toHaveLength(1);
+        // 图表需要逐段堆叠，所以一天可能有多个 segment
+        expect(archive.points[0]).toMatchObject({
+            key: '2026-05-01',
+            requests: 2,
+            tokens: 330,
+            costMicros: 12,
+        });
+        const segmentTotal = archive.points[0]!.segments.reduce(
+            (sum, segment) => sum + segment.tokens,
+            0
+        );
+        expect(segmentTotal).toBe(330);
     });
 
     it('agrees with the live trend when nothing has been pruned', async () => {

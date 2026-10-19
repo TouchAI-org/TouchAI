@@ -9,7 +9,11 @@ import { describe, expect, it } from 'vitest';
 function usage(partial: Partial<LanguageModelUsage>): LanguageModelUsage {
     return {
         inputTokens: undefined,
-        inputTokenDetails: { noCacheTokens: undefined, cacheReadTokens: undefined, cacheWriteTokens: undefined },
+        inputTokenDetails: {
+            noCacheTokens: undefined,
+            cacheReadTokens: undefined,
+            cacheWriteTokens: undefined,
+        },
         outputTokens: undefined,
         outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
         totalTokens: undefined,
