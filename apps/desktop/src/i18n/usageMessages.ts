@@ -87,6 +87,22 @@ export const usageMessagesZhCN = {
     'settings.usage.chart.title': '使用趋势与分布',
     'settings.usage.chart.other': '其他',
 
+    // 实时面板
+    'settings.usage.live.title': '实时用量',
+    'settings.usage.live.throughput': 'Throughput',
+    'settings.usage.live.stream': 'Stream',
+    'settings.usage.live.online': 'live',
+    'settings.usage.live.idle': 'idle',
+    'settings.usage.live.waiting': '等待下一次对话',
+    'settings.usage.live.activeStreams': '{count} active',
+    'settings.usage.live.total': 'total',
+    'settings.usage.live.elapsed': 'elapsed',
+    'settings.usage.live.cost': 'cost',
+    'settings.usage.live.ttft': '首字 {value}',
+    'settings.usage.live.stopped': '已结束',
+    'settings.usage.live.estimateNote':
+        '流式期间的 token 与成本按已流入字符估算；结束时 token 换成实测值。',
+
     // 工具调用
     'settings.usage.tools.title': '工具调用',
     'settings.usage.tools.description': '数据来自工具调用片段，含内置工具与 MCP 工具。',
@@ -267,6 +283,21 @@ export const usageMessagesEnUS = {
 
     'settings.usage.chart.title': 'Trend and breakdown',
     'settings.usage.chart.other': 'Other',
+
+    'settings.usage.live.title': 'Live usage',
+    'settings.usage.live.throughput': 'Throughput',
+    'settings.usage.live.stream': 'Stream',
+    'settings.usage.live.online': 'live',
+    'settings.usage.live.idle': 'idle',
+    'settings.usage.live.waiting': 'Waiting for the next conversation',
+    'settings.usage.live.activeStreams': '{count} active',
+    'settings.usage.live.total': 'total',
+    'settings.usage.live.elapsed': 'elapsed',
+    'settings.usage.live.cost': 'cost',
+    'settings.usage.live.ttft': 'first token {value}',
+    'settings.usage.live.stopped': 'finished',
+    'settings.usage.live.estimateNote':
+        'Token and cost are estimated from streamed characters while streaming; tokens switch to the measured value at the end.',
 
     'settings.usage.tools.title': 'Tool calls',
     'settings.usage.tools.description':

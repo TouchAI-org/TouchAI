@@ -66,6 +66,8 @@ export enum AppEvent {
     SEARCH_SURFACE_HIDDEN = 'search-surface-hidden',
     SEARCH_SURFACE_COMMAND = 'search-surface-command',
     SESSION_TASK_STATUS_CHANGED = 'session:task:status-changed',
+    /** 流式响应过程中的用量进度（节流发送，仅供实时面板使用） */
+    SESSION_TASK_USAGE_PROGRESS = 'session:task:usage-progress',
     SESSION_STATUS_REMINDER_ACTION = 'session-status-reminder:action',
 
     // 快捷键捕获事件
@@ -182,6 +184,43 @@ export interface SessionTaskStatusChangedEvent {
     reminder: SessionStatusReminderPayload | null;
 }
 
+/** 吞吐采样点，供实时曲线使用 */
+export interface UsageThroughputSample {
+    /** 相对流开始的时间偏移 */
+    atMs: number;
+    tokensPerSecond: number;
+}
+
+/**
+ * 流式响应过程中的用量进度。
+ *
+ * 供应商只在调用结束时才返回真实 token 数，因此流式期间 token 与成本
+ * 都是按已流入字符估算的；`finished` 为 true 时 token 已换成实测值。
+ *
+ * 成本始终是估算：真实成本要等落库时按当时定价算完才知道。
+ */
+export interface SessionTaskUsageProgressEvent {
+    taskId: string;
+    sessionId: number | null;
+    modelName: string;
+    /** 估算的输出 token 数 */
+    outputTokens: number;
+    /** 当前速度（tok/s），采样不足时为 null */
+    tokensPerSecond: number | null;
+    /** 自本次响应开始的耗时 */
+    elapsedMs: number;
+    /** 首个内容片段的延迟；未到达时为 null */
+    ttftMs: number | null;
+    /** 同时进行的响应数：工具循环里始终是 0 或 1 */
+    activeStreams: number;
+    /** 估算成本（微元）；无定价时为 null */
+    estimatedCostMicros: number | null;
+    /** 滚动吞吐采样，最多 60 个 */
+    samples: UsageThroughputSample[];
+    /** 本轮是否已结束 */
+    finished: boolean;
+}
+
 // ==================== 事件映射 ====================
 
 /**
@@ -219,6 +258,7 @@ export interface AppEventMap {
     [AppEvent.SEARCH_SURFACE_HIDDEN]: SearchSurfaceHiddenEvent;
     [AppEvent.SEARCH_SURFACE_COMMAND]: SearchSurfaceCommandEvent;
     [AppEvent.SESSION_TASK_STATUS_CHANGED]: SessionTaskStatusChangedEvent;
+    [AppEvent.SESSION_TASK_USAGE_PROGRESS]: SessionTaskUsageProgressEvent;
     [AppEvent.SESSION_STATUS_REMINDER_ACTION]: SessionStatusReminderActionEvent;
 
     // 快捷键捕获事件

@@ -28,6 +28,7 @@
     import UsageChart from './components/UsageChart.vue';
     import UsageContext from './components/UsageContext.vue';
     import UsageHeatmap from './components/UsageHeatmap.vue';
+    import UsageLive from './components/UsageLive.vue';
     import UsageOverview from './components/UsageOverview.vue';
     import UsageToolbar from './components/UsageToolbar.vue';
     import UsageToolStats from './components/UsageToolStats.vue';
@@ -197,6 +198,9 @@
             <LoadingState v-else-if="loading && !summary" variant="brand" fill="min" />
 
             <template v-else-if="summary">
+                <!-- 实时面板放在“有无历史数据”之外：首轮对话进行中就该看得到 -->
+                <UsageLive />
+
                 <div
                     v-if="summary.requestCount === 0"
                     class="settings-row-group px-5 py-16 text-center"

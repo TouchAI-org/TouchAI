@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { updateModelLastUsed } from '@database/queries';
+import { findModelPricing } from '@database/queries/llmMetadata';
 import type { SessionTurnEntity } from '@database/types';
 
 import { t } from '@/i18n';
@@ -10,6 +11,7 @@ import {
     getModelAttachmentCapabilities,
     getUnsupportedAttachmentTypes,
 } from '@/services/AgentService/infrastructure/attachments';
+import { LiveUsageTracker } from '@/services/UsageService/liveUsage';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
@@ -180,6 +182,8 @@ function buildPersistenceIssue(
 export class AiConversationRuntime {
     private readonly startedAt = Date.now();
     private requestFinalized = false;
+    /** 流式期间的实时用量采集器；本轮未开始时为 null */
+    private liveTracker: LiveUsageTracker | null = null;
 
     constructor(
         private readonly executor: AiRequestExecutor,
@@ -321,6 +325,34 @@ export class AiConversationRuntime {
         };
     }
 
+    /**
+     * 构造实时用量采集器。
+     *
+     * 定价查不到时不传成本：宁可不显示，也不给一个编造的数字。
+     */
+    private async createLiveUsageTracker(
+        context: RuntimeContext
+    ): Promise<LiveUsageTracker | null> {
+        if (!this.options.taskId) {
+            return null;
+        }
+
+        const model = context.initialCheckpoint.activeModel;
+
+        try {
+            const pricing = await findModelPricing(model.model_id);
+            return new LiveUsageTracker({
+                taskId: this.options.taskId,
+                sessionId: context.persister.getSessionId() ?? this.options.sessionId ?? null,
+                modelName: model.model_id,
+                estimatedOutputCostPerMillion: pricing ? Number(pricing.outputPerMillion) : null,
+            });
+        } catch (error) {
+            console.warn('[AiConversationRuntime] Failed to prepare live usage tracker:', error);
+            return null;
+        }
+    }
+
     private shouldRetryAttempt(result: AttemptFailureResult, retryAttempt: number): boolean {
         // 只要错误类型可重试且重试次数未耗尽，即允许重试。
         // checkpoint 机制已保证从安全状态恢复——自上次 checkpoint 以来的部分流式输出
@@ -385,6 +417,13 @@ export class AiConversationRuntime {
             });
         }
 
+        // 用实测输出 token 收尾，实时面板从估算切到真实数字
+        this.liveTracker?.finish({
+            outputTokens: result.totalUsage.outputTokens,
+            costMicros: null,
+        });
+        this.liveTracker = null;
+
         this.requestFinalized = true;
 
         await updateModelLastUsed({ id: result.model.id }).catch((error) => {
@@ -420,13 +459,20 @@ export class AiConversationRuntime {
         try {
             await context.requestStartRecordPromise;
 
+            // 实时面板需要在流式过程中就拿到用量，而定价是静态信息，
+            // 本轮开始时查一次就够（与完成时写库用的是同一份数据）。
+            this.liveTracker = await this.createLiveUsageTracker(context);
+
             for (let retryAttempt = 0; retryAttempt <= MAX_REQUEST_RETRIES; retryAttempt += 1) {
                 const attemptResult = await this.executor.runAttempt({
                     startCheckpoint: resumeCheckpoint,
                     persister: context.persister,
                     taskId: this.options.taskId,
                     signal: this.options.signal,
-                    onChunk: this.options.onChunk,
+                    onChunk: (chunk) => {
+                        this.liveTracker?.consume(chunk);
+                        this.options.onChunk?.(chunk);
+                    },
                     onTurnEvent: this.options.onTurnEvent,
                     requestToolApproval: this.options.requestToolApproval,
                     requestUserQuestions: this.options.requestUserQuestions,
@@ -460,6 +506,9 @@ export class AiConversationRuntime {
                             error: persistError,
                         });
                     }
+
+                    this.liveTracker?.stop();
+                    this.liveTracker = null;
                     this.requestFinalized = true;
                     if (this.options.taskId) {
                         this.options.onTurnEvent?.({
@@ -545,6 +594,9 @@ export class AiConversationRuntime {
                         error: persistError,
                     });
                 }
+
+                this.liveTracker?.stop();
+                this.liveTracker = null;
                 this.requestFinalized = true;
                 if (this.options.taskId) {
                     this.options.onTurnEvent?.({

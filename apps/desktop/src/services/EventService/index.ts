@@ -78,8 +78,11 @@ export type {
     McpServerStatus,
     McpStatusChangeEvent,
     SearchSurfaceCommandEvent,
+    SessionTaskStatusChangedEvent,
+    SessionTaskUsageProgressEvent,
     SettingsGeneralUpdatedEvent,
     ShortcutCaptureSystemKeyEvent,
+    UsageThroughputSample,
     WindowFocusEvent,
     WindowResizeEvent,
 } from './types';
