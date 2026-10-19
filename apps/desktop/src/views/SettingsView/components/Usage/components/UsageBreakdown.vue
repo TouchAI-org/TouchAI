@@ -2,7 +2,7 @@
 
 <script setup lang="ts">
     import type { UsageGroup } from '@database/queries/usageStats';
-    import { computed } from 'vue';
+    import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
 
@@ -15,22 +15,33 @@
     } from '../utils/format';
 
     interface Props {
-        title: string;
-        groups: UsageGroup[];
-        /** 已选中的分组 id；用于高亮与再次点击取消 */
-        selectedId: number | null;
-        /** 首列标题，例如「模型」「供应商」 */
-        nameLabel: string;
+        byModel: UsageGroup[];
+        byProvider: UsageGroup[];
+        selectedModelId: number | null;
+        selectedProviderId: number | null;
     }
 
     const props = defineProps<Props>();
 
-    const emit = defineEmits<{ (event: 'select', id: number | null): void }>();
+    const emit = defineEmits<{
+        (event: 'select-model', id: number | null): void;
+        (event: 'select-provider', id: number | null): void;
+    }>();
 
     defineOptions({ name: 'UsageBreakdown' });
 
+    type Dimension = 'model' | 'provider';
+
+    const dimension = ref<Dimension>('model');
+
+    const groups = computed(() => (dimension.value === 'model' ? props.byModel : props.byProvider));
+
+    const selectedId = computed(() =>
+        dimension.value === 'model' ? props.selectedModelId : props.selectedProviderId
+    );
+
     const totalTokens = computed(() =>
-        props.groups.reduce(
+        groups.value.reduce(
             (sum, group) =>
                 sum +
                 group.inputTokens +
@@ -41,10 +52,14 @@
         )
     );
 
+    function tokensOf(group: UsageGroup): number {
+        return (
+            group.inputTokens + group.outputTokens + group.cacheReadTokens + group.cacheWriteTokens
+        );
+    }
+
     function share(group: UsageGroup): number {
-        const tokens =
-            group.inputTokens + group.outputTokens + group.cacheReadTokens + group.cacheWriteTokens;
-        return totalTokens.value > 0 ? tokens / totalTokens.value : 0;
+        return totalTokens.value > 0 ? tokensOf(group) / totalTokens.value : 0;
     }
 
     function cacheRate(group: UsageGroup): number {
@@ -52,24 +67,43 @@
         return denominator > 0 ? group.cacheReadTokens / denominator : 0;
     }
 
-    function tokensOf(group: UsageGroup): number {
-        return (
-            group.inputTokens + group.outputTokens + group.cacheReadTokens + group.cacheWriteTokens
-        );
-    }
-
     function handleSelect(group: UsageGroup) {
         if (group.id === null) {
             return;
         }
 
-        emit('select', props.selectedId === group.id ? null : group.id);
+        const next = selectedId.value === group.id ? null : group.id;
+        if (dimension.value === 'model') {
+            emit('select-model', next);
+        } else {
+            emit('select-provider', next);
+        }
     }
 </script>
 
 <template>
-    <section class="space-y-4">
-        <h2 class="settings-section-title">{{ title }}</h2>
+    <section class="space-y-3" data-testid="settings-usage-breakdown">
+        <div class="flex items-center justify-between gap-3">
+            <h2 class="settings-section-title">{{ t('settings.usage.breakdown.title') }}</h2>
+
+            <div class="flex items-center gap-1">
+                <button
+                    v-for="option in ['model', 'provider'] as Dimension[]"
+                    :key="option"
+                    type="button"
+                    :class="[
+                        'rounded-[10px] px-3 py-1.5 text-xs transition-colors',
+                        dimension === option
+                            ? 'bg-[#e9e9e7] text-neutral-950'
+                            : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
+                    ]"
+                    :aria-pressed="dimension === option"
+                    @click="dimension = option"
+                >
+                    {{ t(`settings.usage.breakdown.by.${option}`) }}
+                </button>
+            </div>
+        </div>
 
         <div v-if="groups.length === 0" class="settings-row-group px-5 py-10 text-center">
             <span class="text-xs text-neutral-400">{{ t('settings.usage.group.empty') }}</span>
@@ -80,19 +114,29 @@
                 class="flex items-center gap-4 px-5 py-2 text-[11px] text-neutral-400"
                 aria-hidden="true"
             >
-                <span class="min-w-0 flex-1">{{ nameLabel }}</span>
-                <span class="w-14 shrink-0 text-right">{{ t('settings.usage.table.calls') }}</span>
-                <span class="w-16 shrink-0 text-right">{{ t('settings.usage.table.tokens') }}</span>
+                <span class="min-w-0 flex-1">
+                    {{ t(`settings.usage.breakdown.by.${dimension}`) }}
+                </span>
+                <span class="w-16 shrink-0 text-right">
+                    {{ t('settings.usage.table.calls') }}
+                </span>
+                <span class="w-16 shrink-0 text-right">
+                    {{ t('settings.usage.table.tokens') }}
+                </span>
                 <span class="w-14 shrink-0 text-right">
                     {{ t('settings.usage.table.cacheRate') }}
                 </span>
-                <span class="w-14 shrink-0 text-right">{{ t('settings.usage.table.ttft') }}</span>
-                <span class="w-20 shrink-0 text-right">{{ t('settings.usage.table.cost') }}</span>
+                <span class="w-14 shrink-0 text-right">
+                    {{ t('settings.usage.table.ttft') }}
+                </span>
+                <span class="w-20 shrink-0 text-right">
+                    {{ t('settings.usage.table.cost') }}
+                </span>
             </div>
 
             <button
                 v-for="group in groups"
-                :key="group.id ?? group.name"
+                :key="`${dimension}-${group.id ?? group.name}`"
                 type="button"
                 data-testid="settings-usage-breakdown-row"
                 :class="[
@@ -103,30 +147,30 @@
                 @click="handleSelect(group)"
             >
                 <div class="min-w-0 flex-1">
-                    <div class="truncate text-[13px] text-neutral-950" :title="group.name">
-                        {{ group.name }}
-                    </div>
-                    <div class="mt-1 flex items-center gap-2">
-                        <div
-                            class="h-[3px] w-full max-w-40 overflow-hidden rounded-full bg-neutral-100"
-                        >
-                            <div
-                                class="h-full rounded-full bg-neutral-800/70"
-                                :style="{ width: `${Math.max(2, share(group) * 100)}%` }"
-                            />
-                        </div>
+                    <div class="flex items-center gap-2">
+                        <span class="truncate text-[13px] text-neutral-950" :title="group.name">
+                            {{ group.name }}
+                        </span>
                         <span
                             v-if="group.unpricedCount > 0"
-                            class="shrink-0 text-[11px] text-amber-600"
+                            class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700"
                         >
                             {{
                                 t('settings.usage.metric.unpriced', { count: group.unpricedCount })
                             }}
                         </span>
                     </div>
+                    <div
+                        class="mt-1.5 h-[3px] w-full max-w-56 overflow-hidden rounded-full bg-neutral-100"
+                    >
+                        <div
+                            class="h-full rounded-full bg-neutral-800/60"
+                            :style="{ width: `${Math.max(2, share(group) * 100)}%` }"
+                        />
+                    </div>
                 </div>
 
-                <span class="w-14 shrink-0 text-right text-[13px] text-neutral-600 tabular-nums">
+                <span class="w-16 shrink-0 text-right text-[13px] text-neutral-600 tabular-nums">
                     {{ formatInt(group.requestCount) }}
                 </span>
                 <span class="w-16 shrink-0 text-right text-[13px] text-neutral-600 tabular-nums">

@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-    import { Button } from '@components/ui/button';
+    import CustomSelect from '@components/CustomSelect.vue';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
     import {
@@ -25,6 +25,7 @@
     import { formatDateTime } from '@/i18n/format';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
     import { serializeImportSuccessStartupPayload } from '@/services/StartupService';
+    import { useSettingsStore } from '@/stores/settings';
 
     defineOptions({
         name: 'SettingsDataManagementSection',
@@ -64,6 +65,33 @@
 
     const alert = useAlert();
     const { confirm } = useConfirm();
+    const settingsStore = useSettingsStore();
+
+    /** 调用明细保留策略，默认永久（0） */
+    const retentionOptions = computed(() =>
+        [0, 30, 90, 365].map((days) => ({
+            label:
+                days === 0
+                    ? t('settings.dataManagement.retention.forever')
+                    : t('settings.dataManagement.retention.days', { days }),
+            value: days,
+        }))
+    );
+
+    const savingRetention = ref(false);
+
+    async function saveRetention(days: number) {
+        savingRetention.value = true;
+        try {
+            await settingsStore.updateUsageDetailRetentionDays(days);
+            alert.success(t('settings.dataManagement.retention.saved'));
+        } catch (error) {
+            console.error('[DataManagement] Failed to save retention setting:', error);
+            alert.error(t('settings.general.saveSettingsFailed'));
+        } finally {
+            savingRetention.value = false;
+        }
+    }
 
     const modelMetadataUpdatedText = computed(() => {
         if (!modelMetadataLastUpdatedAt.value) {
@@ -384,13 +412,13 @@
                                 {{ t('settings.dataManagement.clearAllSessionsDescription') }}
                             </div>
                         </div>
-                        <Button
-                            variant="danger"
+                        <button
+                            class="settings-button-danger"
                             :disabled="isLoading || stats.sessions === 0"
                             @click="handleClearSessions"
                         >
                             {{ t('common.clear') }}
-                        </Button>
+                        </button>
                     </div>
 
                     <div
@@ -406,13 +434,13 @@
                                 {{ t('settings.dataManagement.clearAllMessagesDescription') }}
                             </div>
                         </div>
-                        <Button
-                            variant="danger"
+                        <button
+                            class="settings-button-danger"
                             :disabled="isLoading || stats.messages === 0"
                             @click="handleClearMessages"
                         >
                             {{ t('common.clear') }}
-                        </Button>
+                        </button>
                     </div>
 
                     <div
@@ -428,13 +456,49 @@
                                 {{ t('settings.dataManagement.clearSessionTurnsDescription') }}
                             </div>
                         </div>
-                        <Button
-                            variant="danger"
+                        <button
+                            class="settings-button-danger"
                             :disabled="isLoading || stats.sessionTurns === 0"
                             @click="handleClearSessionTurns"
                         >
                             {{ t('common.clear') }}
-                        </Button>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="space-y-4">
+                <div>
+                    <h2 class="settings-section-title">
+                        {{ t('settings.dataManagement.retention.title') }}
+                    </h2>
+                    <p class="settings-section-description">
+                        {{ t('settings.dataManagement.retention.description') }}
+                    </p>
+                </div>
+
+                <div class="settings-row-group">
+                    <div
+                        data-testid="settings-data-retention-row"
+                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
+                    >
+                        <div>
+                            <div class="text-sm font-medium text-neutral-950">
+                                {{ t('settings.dataManagement.retention.label') }}
+                            </div>
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.dataManagement.retention.hint') }}
+                            </div>
+                        </div>
+                        <div class="ml-auto w-[180px]">
+                            <CustomSelect
+                                :model-value="settingsStore.usageDetailRetentionDays"
+                                :options="retentionOptions"
+                                :disabled="savingRetention"
+                                trigger-test-id="settings-data-retention-trigger"
+                                @update:model-value="saveRetention"
+                            />
+                        </div>
                     </div>
                 </div>
             </section>
@@ -460,13 +524,13 @@
                                 {{ modelMetadataUpdatedText }}
                             </div>
                         </div>
-                        <Button
-                            variant="strong"
+                        <button
+                            class="settings-button-primary"
                             :disabled="isLoading"
                             @click="handleUpdateModelMetadata"
                         >
                             {{ t('common.update') }}
-                        </Button>
+                        </button>
                     </div>
                 </div>
             </section>
@@ -489,13 +553,13 @@
                                 {{ t('settings.dataManagement.exportSettingsDescription') }}
                             </div>
                         </div>
-                        <Button
-                            variant="strong"
+                        <button
+                            class="settings-button-primary"
                             :disabled="isLoading"
                             @click="handleExportSettings"
                         >
                             {{ t('common.export') }}
-                        </Button>
+                        </button>
                     </div>
 
                     <div
@@ -511,13 +575,13 @@
                                 {{ t('settings.dataManagement.importSettingsDescription') }}
                             </div>
                         </div>
-                        <Button
-                            variant="strong"
+                        <button
+                            class="settings-button-primary"
                             :disabled="isLoading"
                             @click="openImportModeDialog"
                         >
                             {{ t('common.import') }}
-                        </Button>
+                        </button>
                     </div>
                 </div>
             </section>

@@ -76,58 +76,32 @@
         return 'text-neutral-700';
     }
 
-    function baselineRatio(profile: ContextProfile): number {
-        return profile.window > 0 ? profile.baselineMedian / profile.window : 0;
+    /** 该模型全部标签的一行文本，用于 tooltip */
+    function tagTitle(profile: ContextProfile): string {
+        return profile.tags
+            .map((tag) => t(TAG_LABELS[tag.key] ?? 'settings.usage.context.title'))
+            .join(' · ');
     }
 
-    /** 表头列只声明一次，表头与数据行共用，避免两边列宽漂移 */
-    const COLUMNS = [
-        {
-            key: 'turns',
-            labelKey: 'settings.usage.context.column.turns' as MessageKey,
-            width: 'w-14',
-        },
-        {
-            key: 'median',
-            labelKey: 'settings.usage.context.column.median' as MessageKey,
-            width: 'w-16',
-        },
-        { key: 'p90', labelKey: 'settings.usage.context.column.p90' as MessageKey, width: 'w-16' },
-        {
-            key: 'baseline',
-            labelKey: 'settings.usage.context.column.baseline' as MessageKey,
-            width: 'w-16',
-        },
-        {
-            key: 'window',
-            labelKey: 'settings.usage.context.column.window' as MessageKey,
-            width: 'w-16',
-        },
-        {
-            key: 'peak',
-            labelKey: 'settings.usage.context.column.peak' as MessageKey,
-            width: 'w-16',
-        },
-        {
-            key: 'cache',
-            labelKey: 'settings.usage.context.column.cache' as MessageKey,
-            width: 'w-16',
-        },
-        {
-            key: 'compacts',
-            labelKey: 'settings.usage.context.column.compacts' as MessageKey,
-            width: 'w-14',
-        },
-        {
-            key: 'score',
-            labelKey: 'settings.usage.context.column.score' as MessageKey,
-            width: 'w-16',
-        },
-    ];
+    /**
+     * 行 tooltip：把为了控制表宽而隐藏的量补齐。
+     * 不用自建弹出层：原生 title 不需要处理定位与裁剪，在 WebView 里更稳。
+     */
+    function detailTitle(profile: ContextProfile): string {
+        return [
+            `${t('settings.usage.context.column.baseline')} ${formatPercent(
+                profile.window > 0 ? profile.baselineMedian / profile.window : 0
+            )}`,
+            `${t('settings.usage.context.column.window')} ${
+                profile.window > 0 ? formatTokensCompact(profile.window) : '—'
+            }`,
+            `${t('settings.usage.context.column.compacts')} ${profile.compactCount}`,
+        ].join(' · ');
+    }
 </script>
 
 <template>
-    <section class="space-y-4">
+    <section class="space-y-4" data-testid="settings-usage-context">
         <div>
             <h2 class="settings-section-title">{{ t('settings.usage.context.title') }}</h2>
             <p class="settings-section-description">
@@ -252,21 +226,32 @@
                 </div>
             </div>
 
-            <!-- 模型维度对比 -->
+            <!-- 模型维度对比：列表式，与「用量分布」同一套样式 -->
             <div class="settings-row-group divide-y divide-neutral-200/70">
                 <div
-                    class="flex items-center gap-3 px-5 py-2 text-[11px] text-neutral-400"
+                    class="flex items-center gap-4 px-5 py-2 text-[11px] text-neutral-400"
                     aria-hidden="true"
                 >
                     <span class="min-w-0 flex-1">
                         {{ t('settings.usage.context.column.model') }}
                     </span>
-                    <span
-                        v-for="column in COLUMNS"
-                        :key="column.key"
-                        :class="[column.width, 'shrink-0 text-right']"
-                    >
-                        {{ t(column.labelKey) }}
+                    <span class="w-14 shrink-0 text-right">
+                        {{ t('settings.usage.context.column.turns') }}
+                    </span>
+                    <span class="w-16 shrink-0 text-right">
+                        {{ t('settings.usage.context.column.median') }}
+                    </span>
+                    <span class="w-16 shrink-0 text-right">
+                        {{ t('settings.usage.context.column.p90') }}
+                    </span>
+                    <span class="w-16 shrink-0 text-right">
+                        {{ t('settings.usage.context.column.peak') }}
+                    </span>
+                    <span class="w-16 shrink-0 text-right">
+                        {{ t('settings.usage.context.column.cache') }}
+                    </span>
+                    <span class="w-14 shrink-0 text-right">
+                        {{ t('settings.usage.context.column.score') }}
                     </span>
                 </div>
 
@@ -274,7 +259,7 @@
                     v-for="profile in models"
                     :key="profile.modelId ?? 'overall'"
                     data-testid="settings-usage-context-row"
-                    class="flex items-center gap-3 bg-transparent px-5 py-3 transition-colors hover:bg-[#f1f1ef]"
+                    class="flex items-center gap-4 bg-transparent px-5 py-3 transition-colors hover:bg-[#f1f1ef]"
                 >
                     <div class="min-w-0 flex-1">
                         <div
@@ -284,22 +269,35 @@
                         >
                             {{ profile.modelName || t('settings.usage.context.all') }}
                         </div>
-                        <div class="mt-1 flex flex-wrap gap-1">
+                        <!-- 只展示前两个标签，其余的折成 +N；完整信息在 tooltip 里 -->
+                        <div
+                            v-if="profile.tags.length > 0"
+                            class="mt-1 flex items-center gap-1"
+                            :title="tagTitle(profile)"
+                        >
                             <span
-                                v-for="tag in profile.tags"
+                                v-for="tag in profile.tags.slice(0, 3)"
                                 :key="`${profile.modelId}-${tag.key}`"
                                 :class="[
-                                    'rounded px-1.5 py-0.5 text-[10px] whitespace-nowrap',
+                                    'shrink-0 rounded px-1.5 py-0.5 text-[10px] whitespace-nowrap',
                                     TONE_CLASS[tag.tone] ?? TONE_CLASS.info,
                                 ]"
                             >
                                 {{ t(TAG_LABELS[tag.key] ?? 'settings.usage.context.title') }}
                             </span>
+                            <span
+                                v-if="profile.tags.length > 3"
+                                class="shrink-0 text-[10px] text-neutral-400"
+                            >
+                                +{{ profile.tags.length - 3 }}
+                            </span>
                         </div>
                     </div>
 
+                    <!-- 基础/窗口/压缩等不常用的量放在行 tooltip 里，避免表宽超出容器 -->
                     <span
                         class="w-14 shrink-0 text-right text-[13px] text-neutral-600 tabular-nums"
+                        :title="detailTitle(profile)"
                     >
                         {{ profile.turnCount }}
                     </span>
@@ -312,17 +310,6 @@
                         class="w-16 shrink-0 text-right text-[13px] text-neutral-600 tabular-nums"
                     >
                         {{ formatTokensCompact(profile.promptP90) }}
-                    </span>
-                    <span
-                        class="w-16 shrink-0 text-right text-[13px] text-neutral-600 tabular-nums"
-                        :title="formatPercent(baselineRatio(profile))"
-                    >
-                        {{ formatTokensCompact(profile.baselineMedian) }}
-                    </span>
-                    <span
-                        class="w-16 shrink-0 text-right text-[13px] text-neutral-600 tabular-nums"
-                    >
-                        {{ profile.window > 0 ? formatTokensCompact(profile.window) : '—' }}
                     </span>
                     <span
                         :class="[
@@ -338,13 +325,8 @@
                         {{ formatPercent(profile.cacheReuseRate) }}
                     </span>
                     <span
-                        class="w-14 shrink-0 text-right text-[13px] text-neutral-600 tabular-nums"
-                    >
-                        {{ profile.compactCount }}
-                    </span>
-                    <span
                         :class="[
-                            'w-16 shrink-0 text-right text-[13px] font-medium tabular-nums',
+                            'w-14 shrink-0 text-right text-[13px] font-medium tabular-nums',
                             scoreClass(profile.score),
                         ]"
                     >

@@ -10,13 +10,18 @@ export const usageMessagesZhCN = {
     'settings.nav.usage.description': 'Token、成本与调用审计',
     'settings.loading.usage': '正在加载用量统计...',
 
+    // 明细保留（位于数据管理）
+    'settings.dataManagement.retention.title': '调用明细保留',
+    'settings.dataManagement.retention.description':
+        '按此策略清理历史调用明细；日汇总永久保留，「全部时间」趋势不受影响。',
+    'settings.dataManagement.retention.label': '保留调用明细',
+    'settings.dataManagement.retention.hint': '默认不删除任何数据，清理在下次启动时生效',
+    'settings.dataManagement.retention.forever': '永久保留',
+    'settings.dataManagement.retention.days': '{days} 天',
+    'settings.dataManagement.retention.saved': '已保存，下次启动时生效',
+
     'settings.usage.loadFailed': '用量数据加载失败，请稍后重试',
     'settings.usage.realtime': '数据随对话自动更新',
-    'settings.usage.export.action': '导出 CSV',
-    'settings.usage.export.dialogTitle': '导出调用明细',
-    'settings.usage.export.cancelled': '已取消导出',
-    'settings.usage.export.failed': '导出失败，请稍后重试',
-    'settings.usage.export.succeeded': '已导出到 {path}',
 
     // 明细保留
     'settings.usage.retention.title': '明细保留',
@@ -27,7 +32,6 @@ export const usageMessagesZhCN = {
     'settings.usage.retention.forever': '永久保留',
     'settings.usage.retention.days': '{days} 天',
     'settings.usage.retention.saved': '已保存，下次启动时生效',
-
     // 分组统计表头
     'settings.usage.table.calls': '次数',
     'settings.usage.table.tokens': 'Tokens',
@@ -47,6 +51,7 @@ export const usageMessagesZhCN = {
     'settings.usage.filter.search': '搜索模型或供应商',
     'settings.usage.filter.provider.all': '全部供应商',
     'settings.usage.filter.model.all': '全部模型',
+    'settings.usage.filter.reset': '清除筛选',
     'settings.usage.status.all': '全部状态',
     'settings.usage.status.completed': '仅成功',
     'settings.usage.status.failed': '仅失败',
@@ -56,7 +61,7 @@ export const usageMessagesZhCN = {
     // 指标
     'settings.usage.metric.label': '用量指标',
     'settings.usage.metric.cost': '总成本',
-    'settings.usage.metric.costNote': '按 models.dev 单价估算',
+    'settings.usage.metric.costNote': '基于官方价格估算',
     'settings.usage.metric.requests': '总请求',
     'settings.usage.metric.requestsNote': '成功率 {rate}',
     'settings.usage.metric.realTokens': '真实消耗 Tokens',
@@ -70,6 +75,7 @@ export const usageMessagesZhCN = {
     'settings.usage.metric.reasoning': '其中推理',
     'settings.usage.metric.reasoningNote': '已含在输出内',
     'settings.usage.metric.ttft': '平均首字',
+    'settings.usage.metric.ttftNote': '从发出请求到第一个 token',
     'settings.usage.metric.unpriced': '{count} 次调用未定价',
 
     // 趋势
@@ -83,6 +89,11 @@ export const usageMessagesZhCN = {
     'settings.usage.group.byModel': '按模型',
     'settings.usage.group.byProvider': '按供应商',
     'settings.usage.group.empty': '暂无数据',
+
+    // 分组切换
+    'settings.usage.breakdown.title': '用量分布',
+    'settings.usage.breakdown.by.model': '按模型',
+    'settings.usage.breakdown.by.provider': '按供应商',
 
     // 调用明细
     'settings.usage.call.title': '调用明细',
@@ -165,13 +176,18 @@ export const usageMessagesEnUS = {
     'settings.nav.usage.description': 'Tokens, cost, and call audit',
     'settings.loading.usage': 'Loading usage statistics...',
 
+    'settings.dataManagement.retention.title': 'Call detail retention',
+    'settings.dataManagement.retention.description':
+        'Historical call detail is pruned by this policy. Daily rollups are kept forever, so the All time trend is unaffected.',
+    'settings.dataManagement.retention.label': 'Keep call detail for',
+    'settings.dataManagement.retention.hint':
+        'Nothing is deleted by default; pruning takes effect on the next start',
+    'settings.dataManagement.retention.forever': 'Forever',
+    'settings.dataManagement.retention.days': '{days} days',
+    'settings.dataManagement.retention.saved': 'Saved — takes effect on the next start',
+
     'settings.usage.loadFailed': 'Failed to load usage data. Try again later.',
     'settings.usage.realtime': 'Updates automatically as you chat',
-    'settings.usage.export.action': 'Export CSV',
-    'settings.usage.export.dialogTitle': 'Export call detail',
-    'settings.usage.export.cancelled': 'Export cancelled',
-    'settings.usage.export.failed': 'Export failed. Try again later.',
-    'settings.usage.export.succeeded': 'Exported to {path}',
 
     'settings.usage.retention.title': 'Detail retention',
     'settings.usage.retention.description':
@@ -199,6 +215,7 @@ export const usageMessagesEnUS = {
     'settings.usage.filter.search': 'Search models or providers',
     'settings.usage.filter.provider.all': 'All providers',
     'settings.usage.filter.model.all': 'All models',
+    'settings.usage.filter.reset': 'Clear filters',
     'settings.usage.status.all': 'All statuses',
     'settings.usage.status.completed': 'Succeeded only',
     'settings.usage.status.failed': 'Failed only',
@@ -207,7 +224,7 @@ export const usageMessagesEnUS = {
 
     'settings.usage.metric.label': 'Usage metrics',
     'settings.usage.metric.cost': 'Total cost',
-    'settings.usage.metric.costNote': 'Estimated at models.dev prices',
+    'settings.usage.metric.costNote': 'Estimated from official prices',
     'settings.usage.metric.requests': 'Requests',
     'settings.usage.metric.requestsNote': '{rate} succeeded',
     'settings.usage.metric.realTokens': 'Tokens processed',
@@ -221,6 +238,7 @@ export const usageMessagesEnUS = {
     'settings.usage.metric.reasoning': 'Reasoning',
     'settings.usage.metric.reasoningNote': 'Included in output',
     'settings.usage.metric.ttft': 'Mean first token',
+    'settings.usage.metric.ttftNote': 'From request to first token',
     'settings.usage.metric.unpriced': '{count} calls unpriced',
 
     'settings.usage.trend.title': 'Usage trend',
@@ -232,6 +250,10 @@ export const usageMessagesEnUS = {
     'settings.usage.group.byModel': 'By model',
     'settings.usage.group.byProvider': 'By provider',
     'settings.usage.group.empty': 'No data',
+
+    'settings.usage.breakdown.title': 'Usage breakdown',
+    'settings.usage.breakdown.by.model': 'By model',
+    'settings.usage.breakdown.by.provider': 'By provider',
 
     'settings.usage.call.title': 'Call audit',
     'settings.usage.call.tokens': '{value} tokens',

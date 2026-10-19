@@ -2,7 +2,6 @@
 
 <script setup lang="ts">
     import LoadingState from '@components/LoadingState.vue';
-    import { useAlert } from '@composables/useAlert';
     import {
         canUseUsageArchive,
         type ContextProfile,
@@ -23,10 +22,6 @@
         type UsageTrendPoint,
     } from '@database/queries';
     import { AppEvent, eventService } from '@services/EventService';
-    import {
-        exportUsageCallsCsv,
-        isUsageExportCancelledError,
-    } from '@services/UsageService/exportCsv';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -34,10 +29,8 @@
     import UsageBreakdown from './components/UsageBreakdown.vue';
     import UsageCallList from './components/UsageCallList.vue';
     import UsageContext from './components/UsageContext.vue';
-    import UsageMetrics from './components/UsageMetrics.vue';
-    import UsageRetention from './components/UsageRetention.vue';
+    import UsageOverview from './components/UsageOverview.vue';
     import UsageToolbar from './components/UsageToolbar.vue';
-    import UsageTrendChart from './components/UsageTrendChart.vue';
     import { resolveUsageRange } from './utils/usageRange';
 
     defineOptions({ name: 'SettingsUsageSection' });
@@ -55,8 +48,6 @@
 
     const loading = ref(true);
     const loadError = ref(false);
-    const exporting = ref(false);
-    const alert = useAlert();
 
     const summary = ref<UsageSummary | null>(null);
     const trend = ref<{ bucket: 'hour' | 'day'; points: UsageTrendPoint[] }>({
@@ -72,13 +63,8 @@
         models: [],
     });
 
-    const containerRef = ref<HTMLElement | null>(null);
-    const containerWidth = ref(0);
-    let resizeObserver: ResizeObserver | null = null;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     let unlistenTaskStatus: (() => void) | null = null;
-
-    const compact = computed(() => containerWidth.value > 0 && containerWidth.value < 720);
 
     const filter = computed<UsageFilter>(() => {
         const base = resolveUsageRange(preset.value);
@@ -162,12 +148,6 @@
     watch(callOffset, () => void load());
 
     onMounted(() => {
-        if (containerRef.value) {
-            resizeObserver = new ResizeObserver((entries) => {
-                containerWidth.value = entries[0]?.contentRect.width ?? 0;
-            });
-            resizeObserver.observe(containerRef.value);
-        }
         void load();
 
         // 对话完成/失败/取消后自动刷新，用量页不提供手动刷新按钮
@@ -187,78 +167,37 @@
     });
 
     onUnmounted(() => {
-        resizeObserver?.disconnect();
         if (refreshTimer) {
             clearTimeout(refreshTimer);
         }
         unlistenTaskStatus?.();
         unlistenTaskStatus = null;
     });
-
-    /** 导出当前筛选下的调用账本；聚合结果可以在表格软件里自行汇总，反之不行 */
-    async function handleExport() {
-        if (exporting.value) {
-            return;
-        }
-
-        exporting.value = true;
-        try {
-            const path = await exportUsageCallsCsv(filter.value);
-            alert.success(t('settings.usage.export.succeeded', { path }));
-        } catch (error) {
-            if (isUsageExportCancelledError(error)) {
-                return;
-            }
-
-            console.error('[SettingsUsageSection] Failed to export usage:', error);
-            alert.error(t('settings.usage.export.failed'));
-        } finally {
-            exporting.value = false;
-        }
-    }
 </script>
 
 <template>
-    <div ref="containerRef" class="settings-page" data-testid="settings-usage-section">
+    <div class="settings-page" data-testid="settings-usage-section">
         <div class="settings-section-stack">
+            <!-- 标题与筛选同排，筛选靠右 -->
             <header class="settings-page-header">
-                <h1 class="settings-page-title">{{ t('settings.nav.usage.label') }}</h1>
-                <p class="settings-section-description">
-                    {{ t('settings.nav.usage.description') }}
-                </p>
-            </header>
-
-            <div class="settings-row-group space-y-3 p-4" data-testid="settings-usage-toolbar">
-                <UsageToolbar
-                    :preset="preset"
-                    :status="status"
-                    :provider-id="providerId"
-                    :model-id="modelId"
-                    :search="search"
-                    :options="options"
-                    :loading="loading"
-                    @update:preset="preset = $event"
-                    @update:status="status = $event"
-                    @update:provider-id="providerId = $event"
-                    @update:model-id="modelId = $event"
-                    @update:search="search = $event"
-                />
-
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                    <p class="text-[11px] text-neutral-400">
-                        {{ t('settings.usage.realtime') }}
-                    </p>
-                    <button
-                        type="button"
-                        data-testid="settings-usage-export"
-                        class="settings-button-secondary"
-                        :disabled="exporting"
-                        @click="handleExport"
-                    >
-                        {{ exporting ? t('common.loading') : t('settings.usage.export.action') }}
-                    </button>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <h1 class="settings-page-title">{{ t('settings.nav.usage.label') }}</h1>
+                    <UsageToolbar
+                        :preset="preset"
+                        :status="status"
+                        :provider-id="providerId"
+                        :model-id="modelId"
+                        :search="search"
+                        :options="options"
+                        :loading="loading"
+                        @update:preset="preset = $event"
+                        @update:status="status = $event"
+                        @update:provider-id="providerId = $event"
+                        @update:model-id="modelId = $event"
+                        @update:search="search = $event"
+                    />
                 </div>
-            </div>
+            </header>
 
             <div v-if="loadError" class="settings-card text-red-700">
                 {{ t('settings.usage.loadFailed') }}
@@ -279,33 +218,15 @@
                 </div>
 
                 <template v-else>
-                    <UsageMetrics :summary="summary" />
-
-                    <section class="space-y-4">
-                        <h2 class="settings-section-title">
-                            {{ t('settings.usage.trend.title') }}
-                        </h2>
-                        <UsageTrendChart
-                            :points="trend.points"
-                            :bucket="trend.bucket"
-                            :compact="compact"
-                        />
-                    </section>
+                    <UsageOverview :summary="summary" :trend="trend" />
 
                     <UsageBreakdown
-                        :title="t('settings.usage.group.byModel')"
-                        :groups="byModel"
-                        :selected-id="modelId"
-                        :name-label="t('settings.usage.filter.model.all')"
-                        @select="modelId = $event"
-                    />
-
-                    <UsageBreakdown
-                        :title="t('settings.usage.group.byProvider')"
-                        :groups="byProvider"
-                        :selected-id="providerId"
-                        :name-label="t('settings.usage.filter.provider.all')"
-                        @select="providerId = $event"
+                        :by-model="byModel"
+                        :by-provider="byProvider"
+                        :selected-model-id="modelId"
+                        :selected-provider-id="providerId"
+                        @select-model="modelId = $event"
+                        @select-provider="providerId = $event"
                     />
 
                     <UsageContext
@@ -313,7 +234,7 @@
                         :models="contextProfiles.models"
                     />
 
-                    <section class="space-y-4">
+                    <section class="space-y-3" data-testid="settings-usage-calls">
                         <h2 class="settings-section-title">{{ t('settings.usage.call.title') }}</h2>
                         <UsageCallList
                             :rows="calls.rows"
@@ -324,8 +245,6 @@
                             @change-page="callOffset = $event"
                         />
                     </section>
-
-                    <UsageRetention />
                 </template>
             </template>
         </div>

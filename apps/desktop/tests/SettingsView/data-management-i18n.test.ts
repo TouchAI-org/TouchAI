@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils';
+import { createPinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MetaKey } from '@/database/schema';
@@ -121,6 +122,7 @@ describe('Settings data management i18n and layout', () => {
 
         const wrapper = mount(DataManagement, {
             global: {
+                plugins: [createPinia()],
                 stubs: {
                     ImportModeDialog: true,
                     ProgressDialog: true,

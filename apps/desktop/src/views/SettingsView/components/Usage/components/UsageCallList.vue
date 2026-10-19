@@ -84,16 +84,17 @@
             <p class="mt-3 text-sm text-neutral-500">{{ t('settings.usage.calls.empty') }}</p>
         </div>
 
-        <div v-else :class="['space-y-2 transition-opacity', loading ? 'opacity-60' : '']">
-            <div
-                v-for="row in rows"
-                :key="row.partId"
-                data-testid="settings-usage-call-row"
-                class="overflow-hidden rounded-[11px] border border-neutral-200/80 bg-white"
-            >
+        <div
+            v-else
+            :class="[
+                'divide-y divide-neutral-200/70 overflow-hidden rounded-[13px] border border-neutral-200/70 bg-white transition-opacity',
+                loading ? 'opacity-60' : '',
+            ]"
+        >
+            <div v-for="row in rows" :key="row.partId" data-testid="settings-usage-call-row">
                 <button
                     type="button"
-                    class="w-full px-5 py-3 text-left transition-colors hover:bg-[#f1f1ef]"
+                    class="w-full px-5 py-3.5 text-left transition-colors hover:bg-[#f1f1ef]"
                     :aria-expanded="expandedPartId === row.partId"
                     @click="toggle(row.partId)"
                 >
@@ -101,7 +102,7 @@
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span
-                                    class="truncate text-[13px] text-neutral-950"
+                                    class="truncate text-[15px] font-normal text-neutral-950"
                                     data-no-i18n="true"
                                     translate="no"
                                 >
@@ -115,13 +116,13 @@
                                 >
                                     {{ t(outcome(row).key) }}
                                 </span>
-                                <span class="text-[11px] text-neutral-500" translate="no">
-                                    {{ row.providerName }}
-                                </span>
                             </div>
                             <div
-                                class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-neutral-500"
+                                class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500"
                             >
+                                <span data-no-i18n="true" translate="no">
+                                    {{ row.providerName }}
+                                </span>
                                 <span class="tabular-nums">{{ formatDbTime(row.createdAt) }}</span>
                                 <span class="tabular-nums">
                                     {{
@@ -137,9 +138,6 @@
                                 <span v-if="row.ttftMs !== null" class="tabular-nums">
                                     {{ t('settings.usage.table.ttft') }}
                                     {{ formatDuration(row.ttftMs) }}
-                                </span>
-                                <span v-if="row.durationMs !== null" class="tabular-nums">
-                                    {{ formatDuration(row.durationMs) }}
                                 </span>
                             </div>
                         </div>
@@ -161,8 +159,8 @@
                                 name="chevron-right"
                                 :class="
                                     expandedPartId === row.partId
-                                        ? 'h-4 w-4 rotate-90 text-neutral-400 transition-transform'
-                                        : 'h-4 w-4 text-neutral-400 transition-transform'
+                                        ? 'h-5 w-5 rotate-90 text-neutral-400 transition-transform'
+                                        : 'h-5 w-5 text-neutral-400 transition-transform'
                                 "
                             />
                         </div>
@@ -171,7 +169,7 @@
 
                 <MotionCollapse :open="expandedPartId === row.partId" lazy>
                     <div class="border-t border-neutral-200/70 bg-neutral-50/70 px-5 py-3">
-                        <dl class="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[12px] lg:grid-cols-3">
+                        <dl class="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs lg:grid-cols-3">
                             <div class="flex justify-between gap-2">
                                 <dt class="text-neutral-500">
                                     {{ t('settings.usage.detail.freshInput') }}
@@ -224,7 +222,7 @@
 
                         <div
                             v-if="row.sessionTitle || row.errorMessage"
-                            class="mt-3 space-y-1.5 border-t border-neutral-200 pt-3 text-[12px]"
+                            class="mt-3 space-y-1.5 border-t border-neutral-200 pt-3 text-xs"
                         >
                             <div v-if="row.sessionTitle" class="flex gap-2">
                                 <span class="shrink-0 text-neutral-500">
@@ -246,38 +244,38 @@
                     </div>
                 </MotionCollapse>
             </div>
+        </div>
 
-            <div
-                v-if="total > limit"
-                class="flex items-center justify-between pt-2 text-[12px] text-neutral-500"
-            >
-                <span class="tabular-nums">
-                    {{
-                        t('settings.usage.calls.page', {
-                            from: offset + 1,
-                            to: Math.min(offset + limit, total),
-                            total,
-                        })
-                    }}
-                </span>
-                <div class="flex gap-2">
-                    <button
-                        type="button"
-                        class="settings-button-secondary"
-                        :disabled="!canPrev()"
-                        @click="emit('change-page', Math.max(0, offset - limit))"
-                    >
-                        {{ t('settings.usage.calls.prev') }}
-                    </button>
-                    <button
-                        type="button"
-                        class="settings-button-secondary"
-                        :disabled="!canNext()"
-                        @click="emit('change-page', offset + limit)"
-                    >
-                        {{ t('settings.usage.calls.next') }}
-                    </button>
-                </div>
+        <div
+            v-if="total > limit"
+            class="mt-3 flex items-center justify-between text-xs text-neutral-500"
+        >
+            <span class="tabular-nums">
+                {{
+                    t('settings.usage.calls.page', {
+                        from: offset + 1,
+                        to: Math.min(offset + limit, total),
+                        total,
+                    })
+                }}
+            </span>
+            <div class="flex gap-2">
+                <button
+                    type="button"
+                    class="settings-button-secondary"
+                    :disabled="!canPrev()"
+                    @click="emit('change-page', Math.max(0, offset - limit))"
+                >
+                    {{ t('settings.usage.calls.prev') }}
+                </button>
+                <button
+                    type="button"
+                    class="settings-button-secondary"
+                    :disabled="!canNext()"
+                    @click="emit('change-page', offset + limit)"
+                >
+                    {{ t('settings.usage.calls.next') }}
+                </button>
             </div>
         </div>
     </div>
