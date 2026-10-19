@@ -43,6 +43,13 @@
       "when": 1792380228299,
       "tag": "0005_mighty_zombie",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792380749455,
+      "tag": "0006_narrow_search_update_trigger",
+      "breakpoints": true
     }
   ]
 }
