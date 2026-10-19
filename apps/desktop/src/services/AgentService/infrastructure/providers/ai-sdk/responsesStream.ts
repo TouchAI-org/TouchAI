@@ -55,6 +55,12 @@ function rewriteLine(line: string): string {
         return line;
     }
 
+    // 只有可能被改写的事件才需要 JSON 解析；普通 data 行原样透传，
+    // 避免逐行解析/重编码给流式响应增加无意义开销。
+    if (!payload.includes(REASONING_TEXT_DELTA)) {
+        return line;
+    }
+
     const rewritten = rewritePayload(payload);
     return rewritten === payload ? line : `data: ${rewritten}${lineEnding}`;
 }
