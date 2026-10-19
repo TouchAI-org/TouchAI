@@ -619,6 +619,8 @@ export function useQuickSearchLogic(
     } = useQuickSearchState(options);
 
     const isLoadingMore = ref(false);
+    // 每次 loadMore 递增；只有最后一次请求可以提交结果或清除 loading。
+    let loadMoreGeneration = 0;
 
     const quickSearch = useQuickSearchFlow(
         {
@@ -654,14 +656,26 @@ export function useQuickSearchLogic(
      * 由滚动事件触发，使用 nextOffset 避免前端计算偏移错位。
      */
     async function loadMore() {
-        if (isLoadingMore.value) return;
         if (results.value.length >= totalResults.value) return;
 
+        const generation = ++loadMoreGeneration;
+        const requestAtStart = requestId.value;
         isLoadingMore.value = true;
         const query = searchQuery.value.trim();
         const offset = nextOffset.value;
         try {
             const searchResult = await deps.quickSearch.searchShortcuts(query, PAGE_SIZE, offset);
+
+            // 旧查询、已关闭面板、搜索词变化或已有更新翻页时，迟到结果不得混入当前列表。
+            if (
+                generation !== loadMoreGeneration ||
+                !open.value ||
+                requestId.value !== requestAtStart ||
+                searchQuery.value.trim() !== query
+            ) {
+                return;
+            }
+
             if (searchResult.files.length === 0) return;
             const savedScrollTop = scrollRef.value?.scrollTop ?? 0;
             results.value.push(...searchResult.files);
@@ -680,7 +694,9 @@ export function useQuickSearchLogic(
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to load more:', error);
         } finally {
-            isLoadingMore.value = false;
+            if (generation === loadMoreGeneration) {
+                isLoadingMore.value = false;
+            }
         }
     }
 
