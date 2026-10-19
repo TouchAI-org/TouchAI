@@ -26,6 +26,18 @@ import {
 
 // ────────────────────── ProjectionWidgets ──────────────────────
 
+interface WidgetDraftBuildState {
+    applied: string;
+    pending: string | null;
+    lastBuildAt: number | null;
+    timer: ReturnType<typeof setTimeout> | null;
+    history: SessionMessage[];
+    messageId: string;
+}
+
+// 流式参数 buffer 的草稿重建间隔；窗口内的 delta 只记录最新 buffer。
+const WIDGET_DRAFT_REBUILD_INTERVAL_MS = 80;
+
 /**
  * Widget 投影状态管理器。
  *
@@ -34,12 +46,19 @@ import {
  */
 export class ProjectionWidgets {
     private readonly showWidgetCallIds = new Set<string>();
+    private readonly draftBuildStates = new Map<string, WidgetDraftBuildState>();
     private readonly widgetCodeRegex = /"widget_code"\s*:/;
     private readonly readmeRegex = /"i_have_seen_read_me"\s*:\s*true/;
     private readonly htmlRegex = /"html"\s*:/;
 
     resetTransientState(): void {
         this.showWidgetCallIds.clear();
+        for (const state of this.draftBuildStates.values()) {
+            if (state.timer) {
+                clearTimeout(state.timer);
+            }
+        }
+        this.draftBuildStates.clear();
     }
 
     isHiddenBuiltinToolCall(namespacedName?: string): boolean {
@@ -149,6 +168,7 @@ export class ProjectionWidgets {
         options: { removeDraft?: boolean } = {}
     ): void {
         this.showWidgetCallIds.delete(callId);
+        this.clearDraftBuildState(callId);
 
         if (options.removeDraft) {
             this.removeWidgetByCallId(history, callId, { draftOnly: true });
@@ -186,15 +206,96 @@ export class ProjectionWidgets {
             return;
         }
 
-        const draft = buildShowWidgetDraftFromArgumentsBuffer(
+        this.requestDraftRebuild(
+            history,
+            messageId,
             toolCallDelta.callId,
             toolCallDelta.argumentsBuffer
         );
+    }
+
+    /**
+     * 去重 + 节流重建 widget 草稿。
+     *
+     * 相同的累计参数 buffer 不重复解析整段 JSON；
+     * 窗口内的增量 delta 只记住最新 buffer，到窗口尾部重建一次。
+     */
+    private requestDraftRebuild(
+        history: SessionMessage[],
+        messageId: string,
+        callId: string,
+        buffer: string
+    ): void {
+        const existing = this.draftBuildStates.get(callId);
+        const state: WidgetDraftBuildState = existing ?? {
+            applied: '',
+            pending: null,
+            lastBuildAt: null,
+            timer: null,
+            history,
+            messageId,
+        };
+        state.history = history;
+        state.messageId = messageId;
+
+        if (state.applied === buffer && state.pending === null) {
+            return;
+        }
+
+        const now = Date.now();
+        if (
+            state.lastBuildAt !== null &&
+            now - state.lastBuildAt < WIDGET_DRAFT_REBUILD_INTERVAL_MS
+        ) {
+            state.pending = buffer;
+            this.draftBuildStates.set(callId, state);
+            if (!state.timer) {
+                state.timer = setTimeout(
+                    () => {
+                        state.timer = null;
+                        const next = state.pending;
+                        state.pending = null;
+                        if (next === null || next === state.applied) {
+                            return;
+                        }
+                        this.applyDraftBuild(state.history, state.messageId, callId, next);
+                    },
+                    Math.max(0, WIDGET_DRAFT_REBUILD_INTERVAL_MS - (now - state.lastBuildAt))
+                );
+            }
+            return;
+        }
+
+        this.draftBuildStates.set(callId, state);
+        this.applyDraftBuild(history, messageId, callId, buffer);
+    }
+
+    private applyDraftBuild(
+        history: SessionMessage[],
+        messageId: string,
+        callId: string,
+        buffer: string
+    ): void {
+        const state = this.draftBuildStates.get(callId);
+        if (state) {
+            state.applied = buffer;
+            state.lastBuildAt = Date.now();
+        }
+
+        const draft = buildShowWidgetDraftFromArgumentsBuffer(callId, buffer);
         if (!draft || draft.mode !== 'render') {
             return;
         }
 
         this.upsertWidget(history, messageId, draft);
+    }
+
+    private clearDraftBuildState(callId: string): void {
+        const state = this.draftBuildStates.get(callId);
+        if (state?.timer) {
+            clearTimeout(state.timer);
+        }
+        this.draftBuildStates.delete(callId);
     }
 
     /**
@@ -209,6 +310,8 @@ export class ProjectionWidgets {
             return;
         }
 
+        // 最终态优先：取消可能存在的 trailing 草稿重建，避免用草稿覆盖最终 widget。
+        this.clearDraftBuildState(toolCall.id);
         this.ensureShowWidgetDraftShell(history, messageId, toolCall.id);
 
         let argumentsObject: Record<string, unknown>;
