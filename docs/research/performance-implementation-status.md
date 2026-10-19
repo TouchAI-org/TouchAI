@@ -45,17 +45,18 @@
 | N11 | 0004 全库迁移夹具（1 万消息 + 旧工具日志/附件/孤儿）+ 耗时记录 | `a4783843` |
 | N12 | SSE 行预筛 | `e4dc4c99` |
 
-## 部分完成（5 项）
+## 部分完成（7 项）
 
 | 编号 | 已完成 | 未完成 |
 | --- | --- | --- |
 | 07 | 普通流式快照按微任务合并发布；审批/完成同步 flush（`12dbec66`） | 差量协议：`taskId/epoch/seq + 变更消息 ID + patch`，历史未变消息保持对象身份 |
 | 14 | 会话图片 `decoding="async"` + `loading="lazy"`（`3a36b2f4`） | 真实缩略图生成（Rust）、按内容 hash/尺寸缓存、增大原图缓存隔离 |
 | 18 | 光标三个标记共享一次文档查询；自动换行布局测量按帧合并（`bdfe3a2b`） | docChanged/selectionChanged 分类更新；宽度变化触发重算 |
+| 22 | 分页查询（`findMessagesPageBySessionId`）+ 分页 loader（`loadSessionHistoryPage`）与游标（`c9f9b977`） | UI 首屏/滚动加载接线需与 `10`/`07` 同批（计划表亦标注“先07/13；结合22、N03”） |
 | 23 | turn 内 `SessionReadModel`：附件预检与 transport 重建共享一次查询（`815071ab`） | 展示 bootstrap/分页与 transport 跨阶段复用 |
 | 27 | 点击统计并行预取（`567f3d4c`） | 后续排序/写回合并 |
 
-## 待实施（14 项）
+## 待实施（12 项）
 
 ### 前端
 
@@ -63,27 +64,29 @@
 | --- | --- | --- |
 | 07 | 差量快照协议（P0，最大剩余项） | 依赖消息 identity/revision 协议 |
 | 12 | 代码块增强按需初始化 | 需按 markstream 1.0.6 实测；长代码纯文本入口 |
-| 22 | 历史首屏分页（40–80 条/页 + 游标 + scroll anchor） | UI 改动大 |
 | 29 | 快捷项 top-K + 列表/网格虚拟化 | 已有 60 条/页分页（`PAGE_SIZE = 60`）与 generation 校验；单页固定行高虚拟化收益需实测后再决定 |
 | 35 | 附件 metadata-only 规划与流式物化 | 依赖 Rust |
 | 36 | web_fetch 解析拆分/Worker | 需先埋点实测 |
 | N03 | 恢复 viewport 能力 | 已验证 markstream 1.0.6 提供 `virtualScroll.scrollRoot`（可绑定外层滚动 owner）；需真实渲染环境验证后从 bypass 切换 |
 
-### Rust（`cargo check` 可验证，`cargo test` 受磁盘限制）
+### Rust（`cargo check` 可验证，`cargo test` 交给 CI）
 
 | 编号 | 摘要 |
 | --- | --- |
 | 05 | 多窗口保温内存/延迟预算 |
 | 31 | 快捷方式回写线性 find 与长写锁 |
 | 32 | 窗口几何/resize IPC 合并 |
-| 34 | 剪贴板图文顺序（含产品决策） |
 | N10 | Bash 输出有界缓冲与流式落盘 |
 
-### 需产品决策
+### 需大改造（Windows + macOS 一致）
 
-- `24`：上下文预算与摘要策略
-- `10`：跨虚拟项选区语义
-- `34`：剪贴板图文顺序
+- `07`（P0）：订阅协议改为「首帧全量 + `taskId/epoch/seq + 变更/移除消息`」；历史未变消息保持对象身份，控制事件仍同步 flush。
+- `10`（P0/L）：消息/part 级有界挂载、单一滚动容器、高度缓存（key 含宽度/字体/内容 revision）、跨虚拟项选区策略。
+- `34`（P0/M）：快捷键 auto-paste 先原子预留授权 seq/snapshotId 并校验新鲜度，再做重任务；系统读取/图像 hash 入有界 blocking 队列，外链异步 HTTP + 总预算；文本先回、附件按有序 placeholder 补齐；结果按 snapshotId/草稿 generation 缓存。
+
+### 范围外
+
+- `24`：属于独立的上下文压缩 PR，不在本分支。
 
 ## 验证命令
 
