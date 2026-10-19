@@ -423,11 +423,7 @@ export const sessionTurns = sqliteTable(
         index('session_turns_created_at_idx').on(table.created_at),
         index('session_turns_model_created_idx').on(table.model_id, table.created_at),
         index('session_turns_status_created_idx').on(table.status, table.created_at),
-        index('session_turns_session_created_idx').on(
-            table.session_id,
-            table.created_at,
-            table.id
-        ),
+        index('session_turns_session_created_idx').on(table.session_id, table.created_at, table.id),
     ]
 );
 
