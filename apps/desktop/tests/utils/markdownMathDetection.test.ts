@@ -1,6 +1,39 @@
 import { describe, expect, it } from 'vitest';
 
-import { hasMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
+import {
+    hasMathDelimiterOutsideCode,
+    mayContainMathDelimiter,
+} from '@/utils/markdownMathDetection';
+
+describe('mayContainMathDelimiter', () => {
+    it.each([
+        ['plain prose', 'A long ordinary paragraph without any dollar signs.', false],
+        ['backticks only', 'Inline `code` and ``more`` spans.', false],
+        ['a single dollar', 'Cost is $5 and that is final.', false],
+        ['escaped dollar bracket', String.raw`Escaped \$[not math] here.`, false],
+        ['block math candidate', 'Text $$x$$ text', true],
+        ['bracket candidate', String.raw`Text \[x\] text`, true],
+        ['candidate inside a fence', '```sh\necho $$\n```', true],
+    ])('reports whether %s can contain math delimiters', (_name, markdown, expected) => {
+        expect(mayContainMathDelimiter(markdown)).toBe(expected);
+    });
+
+    it('never rejects input that the full scan would accept', () => {
+        const cases = [
+            'Text $$x$$',
+            String.raw`Text \[x\]`,
+            '```sh\necho $$\n```\n\n$$\nx^2\n$$',
+            'Inline `$$`, followed by \\[\nx^2\n\\]',
+            'Unmatched ` marker, then $$',
+        ];
+
+        for (const markdown of cases) {
+            if (hasMathDelimiterOutsideCode(markdown)) {
+                expect(mayContainMathDelimiter(markdown)).toBe(true);
+            }
+        }
+    });
+});
 
 describe('user writes math next to code', () => {
     it.each([

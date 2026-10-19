@@ -134,8 +134,24 @@ function getNextBacktickRuns(markdown: string, fences: FenceRange[]): Map<number
     return nextRunByStart;
 }
 
+/**
+ * 廉价预筛：判断文本是否可能包含数学定界符。
+ *
+ * 允许把代码跨度或代码围栏里的候选也判为可能（假阳性），
+ * 但绝不能对 `hasMathDelimiterOutsideCode` 会接受的输入返回 false，
+ * 否则会漏掉真正的公式。
+ */
+export function mayContainMathDelimiter(markdown: string): boolean {
+    return markdown.includes('$$') || markdown.includes(String.raw`\[`);
+}
+
 /** Returns whether math delimiters occur outside Markdown code spans and fences. */
 export function hasMathDelimiterOutsideCode(markdown: string): boolean {
+    // 没有候选时无需构造代码范围与反引号映射，长文流的常见路径由此变成一次扫描。
+    if (!mayContainMathDelimiter(markdown)) {
+        return false;
+    }
+
     const fences = getFencedCodeRanges(markdown);
     const nextRunByStart = getNextBacktickRuns(markdown, fences);
     let fenceIndex = 0;
