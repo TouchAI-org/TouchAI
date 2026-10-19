@@ -57,28 +57,37 @@ impl ClipboardRuntimeState {
         self.pending_shortcut_auto_paste_seq = Some(next_shortcut_auto_paste_seq());
     }
 
-    /// 消费符合快捷键授权、新鲜度和去重条件的 auto-paste payload。
-    fn consume_shortcut_auto_paste_payload(
-        &mut self,
-        max_age_ms: u64,
-        now_ms: u64,
-    ) -> Option<ClipboardPayload> {
+    /// 原子预留一次 auto-paste。
+    ///
+    /// 在系统读取、图片解码、外链下载等重任务之前完成授权消费、新鲜度校验与
+    /// snapshotId 去重；失败时调用方无需再做任何重活。
+    fn reserve_shortcut_auto_paste(&mut self, max_age_ms: u64, now_ms: u64) -> Option<String> {
         //1. 先消费一次性快捷键授权：没有授权说明不是本轮全局快捷键唤起，直接拒绝。
         let _shortcut_auto_paste_seq = self.pending_shortcut_auto_paste_seq.take()?;
-        let snapshot = self.latest_snapshot.clone()?;
+        let snapshot = self.latest_snapshot.as_ref()?;
 
         //2. 使用首次观察时间判断新鲜度，避免同内容反复读取时延长 auto-paste 窗口。
         if now_ms.saturating_sub(snapshot.observed_at) > max_age_ms {
             return None;
         }
 
-        //3. Rust 层先记录 snapshotId，防止同一份剪贴板内容被重复 auto-paste。
+        //3. 先记录 snapshotId，防止同一份剪贴板内容被重复 auto-paste。
         if self.last_auto_pasted_snapshot_id.as_deref() == Some(snapshot.snapshot_id.as_str()) {
             return None;
         }
 
         self.last_auto_pasted_snapshot_id = Some(snapshot.snapshot_id.clone());
-        Some(snapshot.into_payload())
+        Some(snapshot.snapshot_id.clone())
+    }
+
+    /// 重任务完成后按预留 id 取回 payload；剪贴板已变化则放弃本次粘贴。
+    fn take_reserved_payload(&self, snapshot_id: &str) -> Option<ClipboardPayload> {
+        let snapshot = self.latest_snapshot.as_ref()?;
+        if snapshot.snapshot_id != snapshot_id {
+            return None;
+        }
+
+        Some(snapshot.clone().into_payload())
     }
 }
 
@@ -152,14 +161,26 @@ impl ClipboardRuntime {
         &self,
         max_age_ms: u64,
     ) -> Result<Option<ClipboardPayload>, String> {
+        // ① 先原子预留授权、新鲜度与去重；失败时完全不触发系统读取与网络。
+        let reserved_snapshot_id = self
+            .inner
+            .state
+            .lock()
+            .map_err(|error| error.to_string())?
+            .reserve_shortcut_auto_paste(max_age_ms, now_millis());
+        let Some(reserved_snapshot_id) = reserved_snapshot_id else {
+            return Ok(None);
+        };
+
         self.refresh_latest_snapshot(ClipboardSnapshotReadMode::ResolveExternalImages)?;
 
+        // ③ 按预留 snapshotId 校验并取回结果；期间剪贴板变化则放弃本次粘贴。
         Ok(self
             .inner
             .state
             .lock()
             .map_err(|error| error.to_string())?
-            .consume_shortcut_auto_paste_payload(max_age_ms, now_millis()))
+            .take_reserved_payload(&reserved_snapshot_id))
     }
 
     /// 将文本写入系统剪贴板并刷新内部快照。
@@ -311,12 +332,23 @@ impl ClipboardRuntime {
 
         //3. watcher 只观察轻量快照；显式粘贴/auto-paste 消费时才解析 HTML 外链图片。
         if mode.should_resolve_external_images() {
-            for image in html_images.iter_mut().take(MAX_HTML_IMAGE_RESOLUTIONS) {
-                match self
-                    .inner
-                    .image_cache
-                    .resolve_html_image_source(&image.source)
-                {
+            // ② 外链下载/图片解码在有限并发与总预算内完成，避免单次消费无限等待。
+            let sources: Vec<String> = html_images
+                .iter()
+                .take(MAX_HTML_IMAGE_RESOLUTIONS)
+                .map(|image| image.source.clone())
+                .collect();
+
+            for (index, resolution) in self
+                .inner
+                .image_cache
+                .resolve_html_images_with_budget(&sources)
+            {
+                let Some(image) = html_images.get_mut(index) else {
+                    continue;
+                };
+
+                match resolution {
                     Ok(Some((path, _hash))) => {
                         html_image_path_by_source.insert(image.source.clone(), path.clone());
                         image.path = Some(path.clone());
