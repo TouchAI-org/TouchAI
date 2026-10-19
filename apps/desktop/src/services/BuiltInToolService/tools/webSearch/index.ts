@@ -110,17 +110,20 @@ function resolveSourceSiteName(result: WebSearchResult, provider: SearchProvider
     return webSearchHostname(result.url) || brand;
 }
 
+/** 卡片与引用会把这个 URL 直接绑到 `<a :href>`，非 http(s) 一律不收。 */
+function isRenderableSourceUrl(url: string): boolean {
+    return /^https?:\/\//i.test(url.trim());
+}
+
 /** 把搜索结果打包成前端可渲染的结构化载荷。 */
 function buildSearchStructuredPayload(
     request: WebSearchRequest,
     results: WebSearchResult[],
     provider: SearchProviderId
 ): WebSearchSourcesPayload {
-    return {
-        query: request.query,
-        provider,
-        status: 'done',
-        sources: results.map((result, index) => ({
+    const sources = results
+        .filter((result) => isRenderableSourceUrl(result.url))
+        .map((result, index) => ({
             id: `${provider}-${index + 1}`,
             index: index + 1,
             title: result.title,
@@ -131,7 +134,13 @@ function buildSearchStructuredPayload(
             publishedAt: result.publishedAt,
             score: result.score,
             authority: result.authority,
-        })),
+        }));
+
+    return {
+        query: request.query,
+        provider,
+        status: 'done',
+        sources,
     };
 }
 

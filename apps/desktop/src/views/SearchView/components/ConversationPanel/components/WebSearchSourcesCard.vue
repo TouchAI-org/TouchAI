@@ -16,7 +16,7 @@
                 <span
                     v-if="displaySummary"
                     class="tool-call-log-content"
-                    data-no-i18n="isSummaryPayload ? 'true' : undefined"
+                    :data-no-i18n="isSummaryPayload ? 'true' : undefined"
                     :translate="isSummaryPayload ? 'no' : undefined"
                 >
                     {{ ` ${displaySummary}` }}
@@ -98,6 +98,7 @@
                             class="web-search-sources__card"
                             data-slot="web-search-source"
                             :href="source.url"
+                            draggable="false"
                             target="_blank"
                             rel="noreferrer"
                             :title="source.title"

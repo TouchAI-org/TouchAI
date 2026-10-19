@@ -356,7 +356,7 @@ describe('DeepSeek search provider', () => {
         });
     });
 
-    it('omits the provider from the semantic target when search fails', async () => {
+    it('keeps the provider in the semantic target when search fails', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );

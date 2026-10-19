@@ -441,8 +441,10 @@ export class PersistenceProjector {
         const { result, toolCallId, attachments = [] } = options;
         let partId = options.toolCallPartId;
 
-        if (partId === null && toolCallId) {
-            const found = await findToolCallPartByCallId(toolCallId);
+        // 只在拿到消息 id 时才反查：`tool_call_id` 只保证在单条消息内唯一，
+        // 不限定的反查可能命中更早消息里的同 id 片段，把结果写错地方。
+        if (partId === null && toolCallId && options.toolCallMessageId !== null) {
+            const found = await findToolCallPartByCallId(toolCallId, options.toolCallMessageId);
             partId = found?.id ?? null;
         }
 

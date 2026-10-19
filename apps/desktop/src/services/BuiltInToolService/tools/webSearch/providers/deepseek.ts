@@ -188,7 +188,9 @@ export function toDeepSeekResult(item: unknown): WebSearchResult | null {
     const record = item as Record<string, unknown>;
     const title = normalizeOptionalString(record.title);
     const url = normalizeOptionalString(record.url);
-    if (!title || !url) {
+    // 只收 http(s)：上层会把它直接绑到 `<a :href>`，
+    // 放行 `javascript:` / `data:` 会把搜索结果变成脚本入口。
+    if (!title || !url || !/^https?:\/\//i.test(url)) {
         return null;
     }
 
@@ -271,9 +273,7 @@ export const deepSeekSearchAdapter = createSearchProviderAdapter({
         const config = settings.providers.deepseek;
         const apiKey = config.apiKey.trim();
         if (!apiKey) {
-            throw new Error(
-                'DeepSeek search needs an API key: fill one in, or configure the DeepSeek service credential.'
-            );
+            throw new Error('DeepSeek search needs an API key. Enter one in Search settings.');
         }
 
         const url = new URL(buildDeepSeekToolsUrl(config.endpoint, 'search'));

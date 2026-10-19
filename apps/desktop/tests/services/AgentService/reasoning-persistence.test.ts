@@ -436,13 +436,33 @@ describe('reasoning persistence', () => {
             toolCallMessageId: 11,
         });
 
-        expect(queries.findToolCallPartByCallId).toHaveBeenCalledWith('call-77');
+        // 只在拿到消息 id 时才反查，避免命中更早消息里的同 id 片段。
+        expect(queries.findToolCallPartByCallId).toHaveBeenCalledWith('call-77', 11);
         expect(queries.mergeMessagePartData).toHaveBeenCalledWith(
             77,
             { output: 'recovered output' },
             expect.anything()
         );
         expect(queries.appendMessagePart).not.toHaveBeenCalled();
+    });
+
+    it('skips the call-id lookup when the tool-call message is unknown', async () => {
+        // 没有消息 id 就不做不限定的反查：`tool_call_id` 只保证在单条消息内唯一，
+        // 命中了更早消息里的同 id 片段会把结果写错地方。
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+
+        await projector.persistToolResult({
+            result: 'no message to attach to',
+            toolCallId: 'call-77',
+            toolCallPartId: null,
+            toolCallMessageId: null,
+        });
+
+        expect(queries.findToolCallPartByCallId).not.toHaveBeenCalled();
+        expect(queries.mergeMessagePartData).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
     });
 
     it('drops an unmatched tool result rather than storing it as assistant text', async () => {

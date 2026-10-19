@@ -54,6 +54,12 @@ vi.mock('markstream-vue', () => ({
     enableMermaid: vi.fn(),
     getMarkdown: getMarkdownMock,
     languageMap: languageMapMock,
+    // WebSearchCitationLink 用 LinkNode 渲染未命中搜索来源的普通链接
+    LinkNode: {
+        name: 'LinkNode',
+        props: ['node', 'indexKey', 'customId'],
+        template: '<a data-testid="markstream-link" v-text="node?.text" />',
+    },
     parseMarkdownToStructure: parseMarkdownToStructureMock,
     setCustomComponents: vi.fn(),
     setDefaultI18nMap: setDefaultI18nMapMock,

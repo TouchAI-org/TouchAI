@@ -47,15 +47,25 @@ export const findMessagePartById = async (
  *
  * 工具结果只能回写到 `tool_call` 片段上；当写入方弄丢了片段主键时，
  * 靠这个查询把它找回来，而不是退化成追加一条助手文本。
+ *
+ * 必须限定在 `messageId` 内：`tool_call_id` 只保证在单条消息内唯一，
+ * 不限定的话，被复用的 call id 会把结果写进更早的消息里。
  */
 export const findToolCallPartByCallId = async (
     toolCallId: string,
+    messageId: number,
     database: DatabaseExecutor = db
 ): Promise<MessagePartEntity | undefined> => {
     const part = await database
         .select()
         .from(messageParts)
-        .where(and(eq(messageParts.type, 'tool_call'), eq(messageParts.tool_call_id, toolCallId)))
+        .where(
+            and(
+                eq(messageParts.type, 'tool_call'),
+                eq(messageParts.tool_call_id, toolCallId),
+                eq(messageParts.message_id, messageId)
+            )
+        )
         .orderBy(asc(messageParts.id))
         .get();
     return part;

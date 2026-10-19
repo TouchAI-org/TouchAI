@@ -90,7 +90,8 @@ export async function createToolPart(
 /** 全局写入队列：保证 `sort_order` 分配不会并发。 */
 let toolPartWriteChain: Promise<unknown> = Promise.resolve();
 
-function enqueueToolPartWrite<T>(operation: () => Promise<T>): Promise<T> {
+/** 仅供测试：把操作排进与 `createToolPart` 同一个队列。 */
+export function enqueueToolPartWrite<T>(operation: () => Promise<T>): Promise<T> {
     const scheduled = toolPartWriteChain.then(operation, operation);
     // 单次失败不能阻断后续写入。
     toolPartWriteChain = scheduled.then(

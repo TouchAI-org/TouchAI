@@ -558,14 +558,22 @@ function convertEntriesToSessionHistory(
 
         if (entry.role === 'tool_call' && entry.toolCalls?.length) {
             // 把回退存的工具结果归位到对应调用上，避免数据丢失。
+            //
+            // 回退 text 片段没有 call id，无法对应到具体调用，
+            // 所以只在恰好一个调用缺结果时回填；并行调用多个空缺时强行回填会张冠李戴。
             const fallbackResult = splitToolCallRowParts(entry.parts)
                 .trailingResults.filter((part) => part.type === 'text')
                 .map((part) => part.content.trim())
                 .filter(Boolean)
                 .join('\n\n');
+            const callsMissingResult = entry.toolCalls.filter(
+                (toolCall) => !toolCall.result?.trim()
+            );
+            const fallbackTarget =
+                fallbackResult && callsMissingResult.length === 1 ? callsMissingResult[0] : null;
 
             for (const toolCall of entry.toolCalls) {
-                if (!toolCall.result?.trim() && fallbackResult) {
+                if (toolCall === fallbackTarget) {
                     toolCall.result = fallbackResult;
                 }
 
