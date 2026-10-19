@@ -267,7 +267,7 @@ const zhCNMessages = {
     'settings.search.provider.anysearch.description':
         '面向 AI Agent 的聚合搜索入口，适合常规资料发现',
     'settings.search.provider.anysearch.keyPlaceholder': '可选 AnySearch API Key',
-    'settings.search.provider.anysearch.quota': '免费1k/天',
+    'settings.search.provider.anysearch.quota': '每日 1000 次',
     'settings.search.provider.wikipedia': 'Wikipedia',
     'settings.search.provider.wikipedia.description': '开放百科知识库，适合快速了解概念和背景',
     'settings.search.provider.wikipedia.keyPlaceholder': '无需密钥',
@@ -1290,7 +1290,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.search.provider.anysearch.description':
         'Aggregated search entry for AI agents and general source discovery',
     'settings.search.provider.anysearch.keyPlaceholder': 'Optional AnySearch API Key',
-    'settings.search.provider.anysearch.quota': 'Free 1k/day',
+    'settings.search.provider.anysearch.quota': '1,000/day',
     'settings.search.provider.wikipedia': 'Wikipedia',
     'settings.search.provider.wikipedia.description':
         'Open encyclopedia knowledge base for concepts and background',

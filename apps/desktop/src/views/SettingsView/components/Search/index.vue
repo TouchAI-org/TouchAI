@@ -550,7 +550,7 @@
                                     {{ provider.description }}
                                 </div>
                             </div>
-                            <div class="min-w-0 space-y-2">
+                            <div class="min-w-0">
                                 <div class="flex min-w-0 items-center gap-2">
                                     <button
                                         type="button"

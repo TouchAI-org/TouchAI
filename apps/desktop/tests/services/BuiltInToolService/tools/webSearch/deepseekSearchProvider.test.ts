@@ -4,21 +4,16 @@ import { executeWebSearchTool } from '@/services/BuiltInToolService/tools/webSea
 import type { WebSearchRequest } from '@/services/BuiltInToolService/tools/webSearch/helper';
 import {
     buildDeepSeekQuery,
+    buildDeepSeekToolsUrl,
+    createRequestScheduler,
     DEEPSEEK_QUERY_MAX_CHARS,
+    deepSeekRetryDelayMs,
     describeDeepSeekFailure,
+    isRetryableDeepSeekError,
     rankDeepSeekResults,
+    runWithDeepSeekRetry,
     toDeepSeekResult,
 } from '@/services/BuiltInToolService/tools/webSearch/providers/deepseek';
-import {
-    buildDeepSeekToolsUrl,
-    toDeepSeekApiRoot,
-} from '@/services/BuiltInToolService/tools/webSearch/providers/deepseekEndpoint';
-import {
-    createRequestScheduler,
-    deepSeekRetryDelayMs,
-    isRetryableDeepSeekError,
-    runWithDeepSeekRetry,
-} from '@/services/BuiltInToolService/tools/webSearch/providers/deepseekThrottle';
 import { WebSearchHttpError } from '@/services/BuiltInToolService/tools/webSearch/providers/types';
 
 const { getSettingValueMock, tauriFetchMock } = vi.hoisted(() => ({
@@ -195,10 +190,14 @@ describe('DeepSeek result ranking', () => {
 
 describe('DeepSeek endpoint normalization', () => {
     it('accepts both documented endpoint forms', () => {
-        expect(toDeepSeekApiRoot('https://api.deepseek.com/v1')).toBe('https://api.deepseek.com');
-        expect(toDeepSeekApiRoot('https://api.deepseek.com/')).toBe('https://api.deepseek.com');
-        expect(toDeepSeekApiRoot('')).toBe('https://api.deepseek.com');
+        // 官方同时接受 `/` 与 `/v1` 结尾，两者都不能拼成 `/v1/v1/...`。
         expect(buildDeepSeekToolsUrl('https://api.deepseek.com/v1', 'search')).toBe(
+            'https://api.deepseek.com/v1/tools/search'
+        );
+        expect(buildDeepSeekToolsUrl('https://api.deepseek.com/', 'search')).toBe(
+            'https://api.deepseek.com/v1/tools/search'
+        );
+        expect(buildDeepSeekToolsUrl('', 'search')).toBe(
             'https://api.deepseek.com/v1/tools/search'
         );
         expect(buildDeepSeekToolsUrl('https://relay.example.com/v1', 'fetch')).toBe(

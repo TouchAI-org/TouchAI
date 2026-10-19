@@ -69,11 +69,9 @@
 
     const PREVIEW_DELAY_MS = 300;
     const LEAVE_DELAY_MS = 150;
-    /** 引用标记上的标题最多显示几个字。 */
+    /** 行内标记上最多显示几个字。 */
     const CITATION_LABEL_MAX_CHARS = 8;
-    /** 预览与视口/面板边缘的最小间距。正文列边界不再叠加它 —— 列自己已有内边距。 */
     const VIEWPORT_MARGIN = 12;
-    /** 预览的宽度下限：可用空间再小也要保持可读。 */
     const MIN_PREVIEW_WIDTH = 120;
 
     interface Props {
@@ -86,18 +84,15 @@
     const rootRef = ref<HTMLElement | null>(null);
     const previewRef = ref<HTMLElement | null>(null);
     const previewOpen = ref(false);
-    /** 下方空间不够时把预览翻到 chip 上方，避免被会话面板裁掉。 */
+    /** 下方放不下时翻到 chip 上方。 */
     const previewAbove = ref(false);
-    /** 预览相对于 chip 左边缘的水平偏移，用于把它夹在视口内。 */
     const previewShift = ref(0);
-    /** 预览允许的最大宽度，按裁剪区实测宽度下发。 */
     const previewMaxWidth = ref<number | null>(null);
     /**
      * 预览的实测自然尺寸。
      *
-     * 夹取必须知道预览有多宽，但写死常量会和 CSS 脱钩：
-     * 改了样式忘了改常量，夹取会静默失效（用户看到的就是“还是超出”）。
-     * 所以打开时先量一次：那一刻 `max-width` 还没下发，量到的就是 CSS 给的自然尺寸。
+     * 打开时量一次：那一刻 `max-width` 还没下发，量到的就是 CSS 给的自然尺寸。
+     * 写死常量会和 CSS 脱钩，改样式后夹取会静默失效。
      */
     let previewNaturalSize: { width: number; height: number } | null = null;
     let previewResizeObserver: ResizeObserver | null = null;
@@ -105,11 +100,7 @@
 
     const hostname = computed(() => webSearchHostname(props.source.url));
 
-    /**
-     * 行内标记上显示的文字：网页标题，最多 {@link CITATION_LABEL_MAX_CHARS} 字。
-     *
-     * 标题为空时退回站点短名，保证标记不会只剩一个图标。
-     */
+    /** 标题为空时退回站点短名，保证标记不会只剩一个图标。 */
     const citationLabel = computed(() => {
         const title = props.source.title?.trim();
         const base = title || webSearchSiteName(props.source.url);
@@ -122,10 +113,8 @@
     }));
 
     /**
-     * 算出预览实际可用的矩形。
-     *
-     * 取**所有**裁剪祖先（以及视口）的交集，而不是最近的那一个：
-     * 内层滚动容器往往比外层容器宽，只看内层会把预览放到外层被裁掉的区域里。
+     * 取所有裁剪祖先与视口的交集，而不是最近的那一个：
+     * 内层滚动容器往往比外层宽，只看内层会把预览放到外层被裁掉的区域里。
      */
     function resolveClipRect(element: HTMLElement): DOMRect {
         let left = 0;
@@ -136,7 +125,7 @@
         let node = element.parentElement;
         while (node) {
             const style = getComputedStyle(node);
-            // 同时看简写与长写：部分环境不会把 `overflow` 展开成 `overflowX/Y`。
+            // 部分环境不会把 `overflow` 展开成 `overflowX/Y`，两者都看。
             const clips = [style.overflow, style.overflowX, style.overflowY].some((value) =>
                 /(auto|scroll|hidden)/.test(value ?? '')
             );
@@ -156,15 +145,11 @@
     /**
      * 找「正文列」的横向边界。
      *
-     * {@link resolveClipRect} 只能算到会话容器，而它是全宽的（750 的窗口就是 0..750）。
-     * 视觉上的边界其实是正文列：会话面板左右各留 40px 内边距，正文列右边缘在 710。
-     * 只按裁剪区夹取，预览右边缘会落在 738 —— 正文右侧的留白里。
-     * 卡片是近白色、页面也是近白色，用户看不到卡片边界，
-     * 只会看到卡片里的字跑到正文右外侧，就是「超出」。
+     * 裁剪区只能算到全宽的会话容器，而视觉边界是正文列：
+     * 面板左右各留 40px 内边距，只按裁剪区夹取，预览会落进正文右侧的留白里。
+     * 卡片与页面都是近白色，用户看不到卡片边界，只会看到字跑到正文外侧。
      *
-     * 行内内容的往外一层块级祖先就是正文列：预览应当留在这个盒子里。
-     * 没有布局宽度的祖先（未完成布局、零宽包装元素）不构成列，继续往上找；
-     * 全链都拿不到就返回 null，退回只用裁剪区。
+     * 零宽祖先（未完成布局、包装元素）不构成列，继续往上找。
      */
     function resolveContentColumn(element: HTMLElement): { left: number; right: number } | null {
         let node = element.parentElement;
@@ -199,11 +184,7 @@
     /**
      * 把预览放到可见区域内的可读位置。
      *
-     * 两件事：
-     * - 垂直：下方放不下就翻到上方；
-     * - 水平：`left: 0` 对齐 chip 左边缘，靠边时向内收。
-     *
-     * 尺寸用**实测值**（见 {@link previewNaturalSize}），不再写死常量。
+     * 尺寸用实测值：写死常量会和 CSS 脱钩，改样式后夹取会静默失效。
      */
     function placePreview(): void {
         const root = rootRef.value;
@@ -226,17 +207,8 @@
         const spaceAbove = chipRect.top - clip.top - VIEWPORT_MARGIN;
         previewAbove.value = spaceBelow < size.height && spaceAbove > spaceBelow;
 
-        /**
-         * 先确定左边缘，再算可用宽度。
-         *
-         * 之前先按「裁剪区全宽」算 maxWidth，再用它算 maxLeft，
-         * 结果是宽度已经占满整个区，左边就无处可收了 —— 预览仍然溢出。
-         * 正确顺序：先夹左边缘，再拿剩下的空间定宽度。
-         *
-         * 横向边界取「裁剪区」与「正文列」的交集，并统一留出 {@link VIEWPORT_MARGIN}：
-         * 裁剪区防止被裁掉，正文列保证不越过用户视觉上的边界；
-         * 贴着边界放（不留间隙）看上去就像卡片被切了，必须留白。
-         */
+        // 先夹左边缘再定宽度：反过来会让宽度占满整个区，左边无处可收。
+        // 边界取裁剪区与正文列的交集，并统一留白 —— 贴着边界放看着像被切了。
         const limitLeft =
             Math.max(clip.left, column?.left ?? Number.NEGATIVE_INFINITY) + VIEWPORT_MARGIN;
         const limitRight =
@@ -249,11 +221,7 @@
         previewMaxWidth.value = availableWidth;
     }
 
-    /**
-     * 预览尺寸变化（首帧完成布局、可用宽度收窄、内容回流）后重算位置。
-     *
-     * 重算用的始终是缓存的自然尺寸，所以同样的输入得到同样的输出，不会自激振荡。
-     */
+    /** 尺寸变化（首帧布局、可用宽度收窄、内容回流）后重算位置。 */
     function observePreviewSize(): void {
         previewResizeObserver?.disconnect();
         previewResizeObserver = null;
@@ -296,12 +264,7 @@
         observePreviewSize();
     });
 
-    /**
-     * 窗口/面板尺寸变化时重新安置。
-     *
-     * 会话窗会按内容自适应高度（会话加载完还会再动一次），
-     * 如果预览在尺寸稳定前就算好了位置，夹取参数就是旧的。
-     */
+    /** 会话窗会按内容自适应高度，尺寸稳定前算出的位置是旧的。 */
     function handleViewportResize(): void {
         if (previewOpen.value) {
             placePreview();
@@ -322,7 +285,7 @@
         }, delay);
     }
 
-    /** 悬停要等一拍，指针路过不该弹出预览。 */
+    /** 指针路过不该弹出预览。 */
     function onPointerEnter(event: PointerEvent): void {
         if (event.pointerType === 'mouse') schedule(true, PREVIEW_DELAY_MS);
     }
@@ -331,7 +294,7 @@
         schedule(false, LEAVE_DELAY_MS);
     }
 
-    /** 预览区自己也是悬停区，从 chip 移过去时不能立刻关闭。 */
+    /** 预览区也是悬停区，从 chip 移过去时不能立刻关闭。 */
     function cancelLeaving(): void {
         clearTimer();
     }

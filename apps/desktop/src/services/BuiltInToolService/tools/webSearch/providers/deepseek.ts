@@ -2,34 +2,150 @@ import { normalizeOptionalString } from '@/utils/text';
 
 import type { WebSearchRequest, WebSearchResult } from '../helper';
 import { recencyStartDate, resultLimit } from './common';
-import { buildDeepSeekToolsUrl } from './deepseekEndpoint';
-import { deepSeekRequestScheduler, runWithDeepSeekRetry } from './deepseekThrottle';
 import { createSearchProviderAdapter } from './define';
 import { WebSearchHttpError } from './types';
 
+/** 官方同时接受 `/` 与 `/v1` 结尾，先剥版本段再统一拼接，避免 `/v1/v1/...`。 */
+const DEEPSEEK_API_ROOT = 'https://api.deepseek.com';
+
+export function buildDeepSeekToolsUrl(
+    endpoint: string | null | undefined,
+    tool: 'search' | 'fetch'
+): string {
+    const trimmed = (endpoint ?? '').trim().replace(/\/+$/, '');
+    const root = trimmed ? trimmed.replace(/\/v1$/i, '') : DEEPSEEK_API_ROOT;
+    return `${root}/v1/tools/${tool}`;
+}
 /**
- * DeepSeek 官方对 `query` 的硬约束：1–128 Unicode 字符。
- * JS 的 `string.length` 按 UTF-16 码元计数，对代理对只会更保守，方向是安全的。
+ * Search / Fetch 是账号级限流，各自 5 QPS。按 4 QPS 排队，
+ * 给同账号的其它客户端留余量，避免并行调用直接撞 429。
  */
+export const DEEPSEEK_MIN_REQUEST_INTERVAL_MS = 250;
+
+/** 官方建议重试：408 请求体超时、429 限流、5xx。其余属确定性失败，重试无意义。 */
+export function isRetryableDeepSeekError(error: unknown): boolean {
+    if (!(error instanceof WebSearchHttpError)) {
+        return false;
+    }
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+}
+
+function defaultSleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+export interface RequestScheduler {
+    run<T>(operation: () => Promise<T>): Promise<T>;
+}
+
+/** 「上一个请求开始后至少间隔 N 毫秒」正好对应官方 QPS 语义，比令牌桶更直接。 */
+export function createRequestScheduler(options: {
+    minIntervalMs: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+}): RequestScheduler {
+    const now = options.now ?? Date.now;
+    const sleep = options.sleep ?? defaultSleep;
+    let tail: Promise<unknown> = Promise.resolve();
+    let nextAvailableAt = 0;
+
+    return {
+        run<T>(operation: () => Promise<T>): Promise<T> {
+            const scheduled = tail.then(async () => {
+                const wait = nextAvailableAt - now();
+                if (wait > 0) {
+                    await sleep(wait);
+                }
+                nextAvailableAt = Math.max(now(), nextAvailableAt) + options.minIntervalMs;
+                return await operation();
+            });
+
+            tail = scheduled.then(
+                () => undefined,
+                () => undefined
+            );
+
+            return scheduled;
+        },
+    };
+}
+
+const DEEPSEEK_RETRY_ATTEMPTS = 3;
+const BASE_BACKOFF_MS = 500;
+const MAX_BACKOFF_MS = 5_000;
+
+/** 优先用服务端 `Retry-After`，否则指数退避加抖动，避免并发调用同时重试。 */
+export function deepSeekRetryDelayMs(
+    attempt: number,
+    error: unknown,
+    random: () => number = Math.random
+): number {
+    const retryAfterMs = error instanceof WebSearchHttpError ? error.retryAfterMs : undefined;
+    if (retryAfterMs !== undefined) {
+        return Math.min(Math.max(retryAfterMs, 0), MAX_BACKOFF_MS);
+    }
+    const backoff = BASE_BACKOFF_MS * 2 ** attempt;
+    return Math.min(backoff + Math.floor(random() * 250), MAX_BACKOFF_MS);
+}
+
+export async function runWithDeepSeekRetry<T>(
+    operation: () => Promise<T>,
+    options: {
+        attempts?: number;
+        signal?: AbortSignal;
+        sleep?: (ms: number) => Promise<void>;
+        random?: () => number;
+    } = {}
+): Promise<T> {
+    const attempts = options.attempts ?? DEEPSEEK_RETRY_ATTEMPTS;
+    const sleep = options.sleep ?? defaultSleep;
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+            return await operation();
+        } catch (error) {
+            lastError = error;
+            const isLastAttempt = attempt === attempts - 1;
+            if (isLastAttempt || !isRetryableDeepSeekError(error) || options.signal?.aborted) {
+                break;
+            }
+            if (!options.signal?.aborted) {
+                await sleep(deepSeekRetryDelayMs(attempt, error, options.random));
+            }
+            if (options.signal?.aborted) {
+                break;
+            }
+        }
+    }
+
+    throw lastError;
+}
+
+const deepSeekRequestScheduler = createRequestScheduler({
+    minIntervalMs: DEEPSEEK_MIN_REQUEST_INTERVAL_MS,
+});
+
+/** 官方对 `query` 的硬约束：1–128 字符。 */
 export const DEEPSEEK_QUERY_MAX_CHARS = 128;
 
-/** `site:` 操作符上限，避免把 query 预算全部吃在站点限定上。 */
-export const DEEPSEEK_MAX_SITE_OPERATORS = 8;
+/** `site:` 操作符上限，避免把 query 预算全吃在站点限定上。 */
+const DEEPSEEK_MAX_SITE_OPERATORS = 8;
 
-/** `rerank_score` 低于该值的结果基本无相关度，直接丢弃。 */
-export const DEEPSEEK_MIN_RESULT_SCORE = 1;
+/** 低于该 `rerank_score` 基本无相关度，直接丢弃。 */
+const DEEPSEEK_MIN_RESULT_SCORE = 1;
 
-/** `authority` 达到该值即为官方文档定义的「高权威来源」。 */
-export const DEEPSEEK_AUTHORITY_THRESHOLD = 3;
+/** 官方定义 `authority >= 3` 为高权威来源。 */
+const DEEPSEEK_AUTHORITY_THRESHOLD = 3;
 
-/** 「优先官方来源」启用时，至少要有这么多高权威结果才值得做收敛。 */
-export const DEEPSEEK_MIN_AUTHORITATIVE_RESULTS = 3;
+/** 高权威结果少于这个数量时不做收敛，否则会丢掉太多有效结果。 */
+const DEEPSEEK_MIN_AUTHORITATIVE_RESULTS = 3;
 
 /**
- * 把统一搜索请求映射为 DeepSeek 支持的搜索引擎语法。
- *
- * `domains` 映射为 `site:`（多站点用 `OR` 连接），`recencyDays` 映射为 `after:`。
- * 官方没有 `domains` 之类的结构化参数，只能走 query 操作符。
+ * 官方没有结构化的 domains / 时间参数，只能映射为 `site:` 与 `after:` 操作符。
+ * 预算不足时丢弃操作符而不是截断 query —— 截断会改变检索语义。
  */
 export function buildDeepSeekQuery(request: WebSearchRequest): string {
     const query = request.query.trim();
@@ -48,7 +164,6 @@ export function buildDeepSeekQuery(request: WebSearchRequest): string {
         operators.push(`after:${after.slice(0, 10)}`);
     }
 
-    // 预算不足时丢弃操作符而不是截断 query：截断会改变检索语义。
     const budget = DEEPSEEK_QUERY_MAX_CHARS - query.length - 1;
     const appended: string[] = [];
     let used = 0;
@@ -64,12 +179,7 @@ export function buildDeepSeekQuery(request: WebSearchRequest): string {
     return appended.length > 0 ? `${query} ${appended.join(' ')}` : query;
 }
 
-/**
- * 把单条 DeepSeek 结果映射为统一结构。
- *
- * 官方定位：`summary`（600–800 字）给模型读，`snippet`（100–200 字）给 UI 展示，
- * 所以这里优先取 `summary` 作为模型可见的摘要。
- */
+/** `summary`（600–800 字）是给模型读的，`snippet`（100–200 字）才适合 UI。 */
 export function toDeepSeekResult(item: unknown): WebSearchResult | null {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
         return null;
@@ -91,7 +201,7 @@ export function toDeepSeekResult(item: unknown): WebSearchResult | null {
         snippet: normalizeOptionalString(record.summary) ?? normalizeOptionalString(record.snippet),
         source: normalizeOptionalString(record.site_name) ?? safeHostname(url),
         score: typeof record.rerank_score === 'number' ? record.rerank_score : undefined,
-        // 官方用 -1 表示未知权威度，统一归一化为 undefined。
+        // 官方用 -1 表示未知权威度。
         authority: authority !== undefined && authority >= 0 ? authority : undefined,
         publishedAt,
         favicon: normalizeOptionalString(record.site_icon) ?? undefined,
@@ -107,12 +217,6 @@ function safeHostname(url: string): string {
     }
 }
 
-/**
- * 应用 DeepSeek 自带的质量信号。
- *
- * - 丢弃 `rerank_score` 明显偏低的结果；
- * - 用户开启「优先官方来源」且高权威结果足够时，收敛到高权威子集。
- */
 export function rankDeepSeekResults(
     results: WebSearchResult[],
     preferOfficialSources: boolean
@@ -139,12 +243,7 @@ function readDeepSeekResultItems(payload: unknown): unknown[] {
     return Array.isArray(results) ? results : [];
 }
 
-/**
- * 按官方错误表把状态码翻译成可操作的提示。
- *
- * 这些状态码都属于「不改请求就不要重试」的确定性失败，
- * 裸的 `HTTP 402` 对用户没有指导意义。
- */
+/** 这些状态码属确定性失败，裸的 `HTTP 402` 对用户没有指导意义。 */
 const DEEPSEEK_FAILURE_HINTS: Record<number, string> = {
     400: 'DeepSeek rejected the search request body.',
     401: 'DeepSeek API key is missing or invalid.',
@@ -184,7 +283,7 @@ export const deepSeekSearchAdapter = createSearchProviderAdapter({
             need_content: request.includeContent === true,
         });
 
-        // 重试放在调度器外层：每次重试都重新排队，避免退避后立刻再撞 429。
+        // 重试放在调度器外层：每次重试重新排队，避免退避后立刻再撞 429。
         const payload = await runWithDeepSeekRetry(
             () =>
                 deepSeekRequestScheduler.run(() =>

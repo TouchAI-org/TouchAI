@@ -142,42 +142,25 @@
     } from '@/services/BuiltInToolService/tools/webSearch/sources';
     import SourceFavicon from '@/views/SearchView/components/WebSearch/SourceFavicon.vue';
 
-    /** 溢出侧遮罩的最大渐隐宽度（px）。 */
     const FADE_WIDTH = 40;
-    /** 搜索中占位骨架的卡片数量。 */
     const SKELETON_COUNT = 4;
-    /**
-     * 滚轮阻尼系数。
-     *
-     * 一格滚轮通常有 100～120px，直接 1:1 映射会“一滑就飞出去”；
-     * 减半后跟一张卡（176px）的步进相当。
-     */
+    /** 一格滚轮通常 100～120px，减半后跟一张卡（176px）的步进相当。 */
     const WHEEL_DAMPING = 0.5;
-    /**
-     * 缓动系数：每帧消掉剩余距离的这个比例。
-     *
-     * 越小越“重”、越跟手，但到位也越慢（0.25 大约 10 帧收尾）。
-     */
+    /** 每帧消掉剩余距离的比例；0.25 大约 10 帧收尾。 */
     const SCROLL_EASING = 0.25;
     /**
-     * 缓动兔底时间。
-     *
      * `requestAnimationFrame` 在窗口被遮挡时会被节流甚至暂停，
-     * 只靠它收尾会把轨道停在离目标一两像素的地方（比如回不到 0），
-     * 所以停手这么久就直接落到目标位置。
+     * 只靠它收尾会把轨道停在离目标一两像素的地方，所以停手这么久就直接落到目标。
      */
     const SCROLL_SETTLE_MS = 400;
     interface Props {
         sources: WebSearchSource[];
-        /** 与内置工具日志行一致：动词、语义内容、耗时。 */
         verbText: string;
         summaryText: string;
         durationText?: string | null;
-        /** 使用的搜索引擎展示名（如 `DeepSeek` / `AnySearch`），单独成标签。 */
         providerName?: string | null;
-        /** summary 来自模型/工具载荷时不应被 i18n 翻译。 */
+        /** summary 来自工具载荷时不应被 i18n 翻译。 */
         isSummaryPayload?: boolean;
-        /** 搜索进行中：以骨架卡片占位。 */
         searching?: boolean;
         defaultOpen?: boolean;
     }
@@ -192,33 +175,27 @@
 
     const isOpen = ref(props.defaultOpen);
     const railRef = ref<HTMLElement | null>(null);
-    /** 左/右端遮罩宽度：0 表示已到边，不需要渐隐。 */
+    /** 0 表示已到边，不需要渐隐。 */
     const fadeStart = ref(0);
     const fadeEnd = ref(0);
-    /** 鼠标拖拽滑动中（用于切换光标并抑制拖完误触发的导航）。 */
     const dragging = ref(false);
     let resizeObserver: ResizeObserver | undefined;
     let dragPointerId: number | null = null;
     let dragStartX = 0;
     let dragStartScroll = 0;
     let dragMoved = false;
-    /** 缓动动画的目标位置；null 表示没有进行中的动画。 */
     let scrollTarget: number | null = null;
     let scrollFrame: number | null = null;
     let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
     const sourceCount = computed(() => props.sources.length);
 
-    /** 搜索中且还没拿到结果时，用骨架卡片占位。 */
     const showSkeletons = computed(() => props.searching && props.sources.length === 0);
-    /** 骨架数量：跟一屏可见卡片数相当，多了会自动被横向裁剪。 */
     const skeletonCount = computed(() => (showSkeletons.value ? SKELETON_COUNT : 0));
 
     /**
-     * 把引擎名从语义内容里拆出来。
-     *
-     * 语义 target 是 `<query> · <engine>`，那个后缀同时在会话预览等处使用，
-     * 所以不改动它本身，只在本卡片里去掉尾部那一截，避免与标签重复。
+     * 语义 target 是 `<query> · <engine>`，那个后缀在会话预览等处也用，
+     * 所以不改它本身，只在本卡片里去掉尾部，避免与标签重复。
      */
     const displaySummary = computed(() => {
         const summary = props.summaryText?.trim() ?? '';
@@ -235,12 +212,9 @@
         '--ws-fade-end': `${fadeEnd.value}px`,
     }));
     /**
-     * 按滚动位置切换两端遮罩。
-     *
      * 渐隐宽度跟「实际被藏住的像素量」走，而不是固定 40px：
-     * 卡片几乎贴着轨道左边缘，只要残留几像素的滚动，固定宽度的渐隐
-     * 就会把整张首卡抹掉（看起来像“滚回去了但第一张还是被挡住”）。
-     * 取 `min(上限, 已滚距离)` 后，滚得少就只渐隐一点点，滚满才到 40px。
+     * 卡片几乎贴着轨道左边缘，只要残留几像素滚动，固定宽度的渐隐
+     * 就会把整张首卡抹掉。
      */
     function syncFade(): void {
         const rail = railRef.value;
@@ -325,9 +299,8 @@
     /**
      * 把竖向滚轮转成横向滚动。
      *
-     * 浏览器不会把 `wheel.deltaY` 当成横向滚动，而轨道没有竖向可滚空间，
-     * 不转化的话滚轮到这里就直接穿透给外层会话——用户会觉得「根本滑不动」。
-     * 触控板/Shift+滚轮产生的 `deltaX` 保持原生行为，且不额外阻尼（已是跟手的连续手势）。
+     * 轨道没有竖向可滚空间，不转化的话滚轮会直接穿透给外层会话。
+     * `deltaX`（触控板/Shift+滚轮）保持原生行为且不额外阻尼。
      */
     function onWheel(event: WheelEvent): void {
         const rail = railRef.value;
@@ -340,13 +313,11 @@
             return;
         }
 
-        // 以未完成动画的目标为基准累加：连续滚动时不会互相打断，也不会“回弹”。
+        // 以未完成动画的目标为基准累加，连续滚动时不会互相打断。
         const base = scrollTarget ?? rail.scrollLeft;
-        // 先夹取再判断：最后一档往往会越过末端，
-        // 直接 return 会把这一步丢掉，导致永远差几十像素滑不到尽头。
+        // 先夹取再判断：最后一档往往越过末端，直接 return 会永远差几十像素到不了尽头。
         const next = Math.min(Math.max(base + event.deltaY * WHEEL_DAMPING, 0), maxScroll);
         if (next === base) {
-            // 真的一动不动了，把事件还给外层会话
             return;
         }
 
@@ -357,12 +328,11 @@
 
     function onPointerDown(event: PointerEvent): void {
         const rail = railRef.value;
-        // 只接管鼠标左键；触屏/触控板交给原生滚动
         if (!rail || event.pointerType !== 'mouse' || event.button !== 0) {
             return;
         }
 
-        // 手动拖拽是直接操纵，优先级高于滚轮缓动
+        // 手动拖拽优先级高于滚轮缓动
         cancelScrollAnimation();
         dragPointerId = event.pointerId;
         dragStartX = event.clientX;
@@ -378,7 +348,7 @@
 
         const delta = event.clientX - dragStartX;
         if (!dragMoved) {
-            // 极小位移属于正常点击，不要进入拖拽态
+            // 极小位移属于正常点击
             if (Math.abs(delta) < 4) {
                 return;
             }
