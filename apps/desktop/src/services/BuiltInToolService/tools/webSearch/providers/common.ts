@@ -54,7 +54,14 @@ export function resultFromGenericItem(item: unknown, source: string): WebSearchR
         normalizeOptionalString(record.content) ??
         normalizeOptionalString(record.text) ??
         normalizeOptionalString(record.abstract);
-    return { title, url, snippet, source };
+    // 部分 provider 会返回真实站点名（如 `site_name` / `hostname`），
+    // 有就优先用它；没有则由上层从 URL 推导。
+    const siteName =
+        normalizeOptionalString(record.site_name) ??
+        normalizeOptionalString(record.siteName) ??
+        normalizeOptionalString(record.hostname) ??
+        normalizeOptionalString(record.domain);
+    return { title, url, snippet, source: siteName ?? source };
 }
 
 export function recencyStartDate(recencyDays: number | undefined): string | undefined {

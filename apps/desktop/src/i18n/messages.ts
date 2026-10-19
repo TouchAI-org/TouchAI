@@ -267,7 +267,7 @@ const zhCNMessages = {
     'settings.search.provider.anysearch.description':
         '面向 AI Agent 的聚合搜索入口，适合常规资料发现',
     'settings.search.provider.anysearch.keyPlaceholder': '可选 AnySearch API Key',
-    'settings.search.provider.anysearch.quota': '每日 1000 次',
+    'settings.search.provider.anysearch.quota': '免费1k/天',
     'settings.search.provider.wikipedia': 'Wikipedia',
     'settings.search.provider.wikipedia.description': '开放百科知识库，适合快速了解概念和背景',
     'settings.search.provider.wikipedia.keyPlaceholder': '无需密钥',
@@ -305,6 +305,11 @@ const zhCNMessages = {
     'settings.search.provider.searxng.description': '开源自托管元搜索，适合接入自己的免费实例',
     'settings.search.provider.searxng.keyPlaceholder': '输入 SearXNG 实例地址',
     'settings.search.provider.searxng.quota': '自托管免费',
+    'settings.search.provider.deepseek': 'DeepSeek',
+    'settings.search.provider.deepseek.description':
+        '自研搜索引擎，中文与长尾站点召回更好，支持站点、语言与时间筛选',
+    'settings.search.provider.deepseek.keyPlaceholder': '输入 DeepSeek API Key',
+    'settings.search.provider.deepseek.quota': '5 元 / 千次',
     'settings.search.provider.apiKeyRequired': '填写 API Key 后才能启用',
     'settings.search.intent.general': '通用',
     'settings.search.intent.general.description': '普通资料搜集、日常查询和泛主题发现',
@@ -1285,7 +1290,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.search.provider.anysearch.description':
         'Aggregated search entry for AI agents and general source discovery',
     'settings.search.provider.anysearch.keyPlaceholder': 'Optional AnySearch API Key',
-    'settings.search.provider.anysearch.quota': '1,000/day',
+    'settings.search.provider.anysearch.quota': 'Free 1k/day',
     'settings.search.provider.wikipedia': 'Wikipedia',
     'settings.search.provider.wikipedia.description':
         'Open encyclopedia knowledge base for concepts and background',
@@ -1331,6 +1336,11 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Open-source self-hosted metasearch for connecting your own free instance',
     'settings.search.provider.searxng.keyPlaceholder': 'Enter SearXNG instance URL',
     'settings.search.provider.searxng.quota': 'Self-hosted free',
+    'settings.search.provider.deepseek': 'DeepSeek',
+    'settings.search.provider.deepseek.description':
+        'In-house search engine with stronger Chinese and long-tail recall; supports site, language, and date filters',
+    'settings.search.provider.deepseek.keyPlaceholder': 'Enter DeepSeek API Key',
+    'settings.search.provider.deepseek.quota': '$0.75 / 1k calls',
     'settings.search.provider.apiKeyRequired': 'Enter an API Key before enabling',
     'settings.search.intent.general': 'General',
     'settings.search.intent.general.description':

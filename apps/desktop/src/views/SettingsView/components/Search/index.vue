@@ -106,6 +106,12 @@
             keyPlaceholder: 'settings.search.provider.searxng.keyPlaceholder',
             quotaLabel: 'settings.search.provider.searxng.quota',
         },
+        deepseek: {
+            label: 'settings.search.provider.deepseek',
+            description: 'settings.search.provider.deepseek.description',
+            keyPlaceholder: 'settings.search.provider.deepseek.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.deepseek.quota',
+        },
     };
 
     const intentMessages: Record<
@@ -544,7 +550,7 @@
                                     {{ provider.description }}
                                 </div>
                             </div>
-                            <div class="min-w-0">
+                            <div class="min-w-0 space-y-2">
                                 <div class="flex min-w-0 items-center gap-2">
                                     <button
                                         type="button"

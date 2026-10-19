@@ -7,6 +7,7 @@ import {
 
 import { anySearchAdapter } from './anysearch';
 import { braveAdapter } from './brave';
+import { deepSeekSearchAdapter } from './deepseek';
 import { exaAdapter } from './exa';
 import { firecrawlAdapter } from './firecrawl';
 import { githubAdapter } from './github';
@@ -62,6 +63,7 @@ export const WEB_SEARCH_PROVIDER_ADAPTERS = [
     exaAdapter,
     firecrawlAdapter,
     searxngAdapter,
+    deepSeekSearchAdapter,
 ] as const satisfies readonly WebSearchProviderAdapter[];
 
 export const WEB_SEARCH_PROVIDER_ADAPTER_BY_ID = Object.fromEntries(

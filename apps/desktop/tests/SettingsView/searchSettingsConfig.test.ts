@@ -135,6 +135,48 @@ describe('search settings config', () => {
         });
     });
 
+    it('trims the DeepSeek key and keeps provider configs minimal', async () => {
+        const { parseSearchSettingsConfig, serializeSearchSettingsConfig } =
+            await import('@/stores/setting/sections/search');
+
+        const parsed = parseSearchSettingsConfig(
+            JSON.stringify({
+                defaultProvider: 'deepseek',
+                providers: {
+                    deepseek: { enabled: true, apiKey: '  deepseek-key  ' },
+                },
+            })
+        );
+
+        expect(parsed.defaultProvider).toBe('deepseek');
+        expect(parsed.providers.deepseek).toEqual({
+            enabled: true,
+            apiKey: 'deepseek-key',
+            endpoint: '',
+        });
+        expect(JSON.parse(serializeSearchSettingsConfig(parsed)).providers.deepseek).toEqual({
+            enabled: true,
+            apiKey: 'deepseek-key',
+            endpoint: '',
+        });
+    });
+
+    it('does not enable the DeepSeek provider without an API key', async () => {
+        const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
+
+        expect(
+            parseSearchSettingsConfig(
+                JSON.stringify({
+                    defaultProvider: 'deepseek',
+                    providers: { deepseek: { enabled: true, apiKey: '   ' } },
+                })
+            )
+        ).toMatchObject({
+            defaultProvider: 'auto',
+            providers: { deepseek: { enabled: false, apiKey: '' } },
+        });
+    });
+
     it('loads and saves search settings through the existing settings store', async () => {
         const { useSettingsStore } = await import('@/stores/settings');
         settingsValues.set(

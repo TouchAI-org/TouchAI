@@ -50,6 +50,7 @@ describe('WebSearch tool', () => {
                 'semantic_scholar',
                 'github',
                 'searxng',
+                'deepseek',
             ],
         });
     });
@@ -592,5 +593,67 @@ describe('WebSearch tool', () => {
         expect(String(tauriFetchMock.mock.calls[0]?.[0])).toContain(
             'https://search.example.com/search?'
         );
+    });
+
+    it('labels source cards with the real site instead of the provider brand', async () => {
+        // anysearch 不返回站点名字段，卡片必须回退到 URL 域名，
+        // 否则每张卡都会写成 「AnySearch」。
+        tauriFetchMock.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    data: {
+                        results: [
+                            { title: 'BBC 中文', url: 'https://www.bbc.com/zhongwen' },
+                            {
+                                title: '央视网新闻',
+                                url: 'https://news.cctv.com/2026/01/01/a.shtml',
+                            },
+                        ],
+                    },
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+            )
+        );
+
+        const result = await executeWebSearchTool(
+            { query: '今日新闻', maxResults: 2 },
+            {},
+            createExecutionContext()
+        );
+
+        const payload = result.structuredPayload;
+        expect(payload?.kind).toBe('web_search_sources');
+        expect(payload?.sources.map((source) => source.siteName)).toEqual([
+            'bbc.com',
+            'news.cctv.com',
+        ]);
+    });
+
+    it('keeps a genuine provider-supplied site name on the card', async () => {
+        // 字段值确实区别于品牌名时应当保留（例如 DeepSeek 的 site_name）。
+        tauriFetchMock.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    data: {
+                        results: [
+                            {
+                                title: 'DeepSeek V4 model released',
+                                url: 'https://example.com/deepseek-v4',
+                                site_name: 'Example News',
+                            },
+                        ],
+                    },
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+            )
+        );
+
+        const result = await executeWebSearchTool(
+            { query: 'DeepSeek V4', maxResults: 1 },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result.structuredPayload?.sources[0]?.siteName).toBe('Example News');
     });
 });

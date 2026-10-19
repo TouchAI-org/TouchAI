@@ -15,6 +15,7 @@ export const SEARCH_PROVIDER_IDS = [
     'exa',
     'firecrawl',
     'searxng',
+    'deepseek',
 ] as const;
 
 export const SEARCH_ROUTE_INTENTS = [
@@ -140,6 +141,16 @@ export const SEARCH_PROVIDER_METADATA: Record<SearchProviderId, SearchProviderMe
         displayName: 'SearXNG',
         sourceName: 'SearXNG',
         recommendation: 'Configured metasearch instance when the user provides one.',
+    },
+    deepseek: {
+        id: 'deepseek',
+        enabledByDefault: false,
+        apiKeyRequirement: 'required',
+        endpointRequirement: 'none',
+        displayName: 'DeepSeek',
+        sourceName: 'DeepSeek',
+        recommendation:
+            'DeepSeek in-house engine with stronger Chinese and long-tail recall; requires a DeepSeek API key.',
     },
 };
 

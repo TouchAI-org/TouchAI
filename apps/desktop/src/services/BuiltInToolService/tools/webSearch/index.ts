@@ -36,7 +36,8 @@ import {
     getSearchProviderAdapter,
     isConfiguredSearchProvider,
 } from './providers/adapters';
-import type { WebSearchFetchJson } from './providers/types';
+import { type WebSearchFetchJson, WebSearchHttpError } from './providers/types';
+import { webSearchHostname, type WebSearchSourcesPayload } from './sources';
 
 const tauriFetch = createTauriFetch();
 
@@ -71,23 +72,6 @@ function buildSearchSemanticTarget(args: Record<string, unknown>): string {
     return truncateText(stripSearchActionPrefix(description ?? query ?? 'web'), 100);
 }
 
-function extractSearchResultSources(results: WebSearchResult[]): string[] {
-    return results
-        .map((result) => result.source.trim())
-        .filter(Boolean)
-        .filter((source, index, sources) => sources.indexOf(source) === index);
-}
-
-function formatSearchSourceSuffix(sources: string[]): string | null {
-    if (sources.length === 0) {
-        return null;
-    }
-    if (sources.length <= 2) {
-        return sources.join('/');
-    }
-    return `${sources.slice(0, 2).join('/')} 等 ${sources.length} 个来源`;
-}
-
 function buildSearchSemantic(args: Record<string, unknown>): BuiltInToolConversationSemantic {
     return {
         action: 'search',
@@ -97,18 +81,76 @@ function buildSearchSemantic(args: Record<string, unknown>): BuiltInToolConversa
 
 function buildSearchSemanticForResults(
     args: Record<string, unknown>,
-    results: WebSearchResult[],
     provider: SearchProviderId
 ): BuiltInToolConversationSemantic {
-    const resultSources = extractSearchResultSources(results);
-    const sourceSuffix = formatSearchSourceSuffix(
-        resultSources.length > 0 ? resultSources : [SEARCH_PROVIDER_METADATA[provider].sourceName]
-    );
+    // 后缀展示的是「用哪个搜索引擎搜的」，而不是命中的站点列表。
     const target = buildSearchSemanticTarget(args);
     return {
         action: 'search',
-        target: sourceSuffix ? truncateText(`${target} · ${sourceSuffix}`, 100) : target,
+        target: truncateText(`${target} · ${SEARCH_PROVIDER_METADATA[provider].sourceName}`, 100),
     };
+}
+
+/**
+ * 解析卡片的站点名。
+ *
+ * `WebSearchResult.source` 在不同 provider 下语义不一致：
+ * DeepSeek 填的是真实 `site_name`（如 `Example News`），
+ * 而 anysearch / brave / tavily 等填的是**自己的品牌名**（`AnySearch`、`Brave`），
+ * 直接展示会让每张卡片都叫同一个名字。
+ * 这里只在它确实区别于 provider 白标时才当作站点名，否则从 URL 取域名。
+ */
+function resolveSourceSiteName(result: WebSearchResult, provider: SearchProviderId): string {
+    const explicit = result.source?.trim();
+    const brand = SEARCH_PROVIDER_METADATA[provider].sourceName.trim();
+    if (explicit && explicit.toLowerCase() !== brand.toLowerCase()) {
+        return explicit;
+    }
+
+    return webSearchHostname(result.url) || brand;
+}
+
+/** 把搜索结果打包成前端可渲染的结构化载荷。 */
+function buildSearchStructuredPayload(
+    request: WebSearchRequest,
+    results: WebSearchResult[],
+    provider: SearchProviderId
+): WebSearchSourcesPayload {
+    return {
+        query: request.query,
+        provider,
+        status: 'done',
+        sources: results.map((result, index) => ({
+            id: `${provider}-${index + 1}`,
+            index: index + 1,
+            title: result.title,
+            url: result.url,
+            snippet: result.snippet,
+            siteName: resolveSourceSiteName(result, provider),
+            favicon: result.favicon,
+            publishedAt: result.publishedAt,
+            score: result.score,
+            authority: result.authority,
+        })),
+    };
+}
+
+/**
+ * 解析服务端 `Retry-After`；支持秒数与 HTTP 日期两种形式。
+ */
+function parseRetryAfterMs(value: string | null): number | undefined {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+
+    const seconds = Number(trimmed);
+    if (Number.isFinite(seconds)) {
+        return Math.max(0, seconds * 1000);
+    }
+
+    const date = Date.parse(trimmed);
+    return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
 const fetchJson: WebSearchFetchJson = async (url, signal, init = {}) => {
@@ -126,7 +168,9 @@ const fetchJson: WebSearchFetchJson = async (url, signal, init = {}) => {
     });
 
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
+        throw new WebSearchHttpError(response.status, response.statusText, {
+            retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
+        });
     }
 
     return await response.json();
@@ -230,7 +274,11 @@ export async function executeWebSearchTool(
             result: formatWebSearchResults(request, limitedResults),
             isError: false,
             status: 'success',
-            conversationSemantic: buildSearchSemanticForResults(args, limitedResults, provider),
+            conversationSemantic: buildSearchSemanticForResults(args, provider),
+            structuredPayload: {
+                kind: 'web_search_sources',
+                ...buildSearchStructuredPayload(request, limitedResults, provider),
+            },
         };
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -242,7 +290,7 @@ export async function executeWebSearchTool(
                     ? 'timeout'
                     : 'error',
             errorMessage,
-            conversationSemantic: buildSearchSemanticForResults(args, [], provider),
+            conversationSemantic: buildSearchSemanticForResults(args, provider),
         };
     } finally {
         cleanup();

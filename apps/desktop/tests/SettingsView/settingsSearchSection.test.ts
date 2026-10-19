@@ -119,6 +119,7 @@ describe('Search settings section', () => {
             expect.stringContaining('Exa'),
             expect.stringContaining('Firecrawl'),
             expect.stringContaining('SearXNG'),
+            expect.stringContaining('DeepSeek'),
         ]);
         expect(wrapper.get('[data-testid="search-provider-quota-brave"]').classes()).toContain(
             'rounded'
@@ -255,6 +256,61 @@ describe('Search settings section', () => {
                 }),
             })
         );
+    });
+
+    it('requires an API key before the DeepSeek provider can be enabled', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await Promise.resolve();
+
+        expect(
+            (
+                wrapper.get('[data-testid="search-deepseek-api-key-input"]')
+                    .element as HTMLInputElement
+            ).disabled
+        ).toBe(true);
+
+        await wrapper.get('[data-testid="search-provider-toggle-deepseek"]').trigger('click');
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(
+            wrapper
+                .get('[data-testid="search-provider-toggle-deepseek"]')
+                .attributes('aria-pressed')
+        ).toBe('false');
+        expect(wrapper.get('[data-testid="search-deepseek-api-key-input"]').classes()).toContain(
+            'border-red-300'
+        );
+        expect(
+            (
+                wrapper.get('[data-testid="search-deepseek-api-key-input"]')
+                    .element as HTMLInputElement
+            ).disabled
+        ).toBe(false);
+        expect(updateSearchSettingsMock).not.toHaveBeenCalledWith(
+            expect.objectContaining({
+                providers: expect.objectContaining({
+                    deepseek: expect.objectContaining({ enabled: true }),
+                }),
+            })
+        );
+
+        await wrapper.get('[data-testid="search-deepseek-api-key-input"]').setValue('ds-key');
+        await vi.advanceTimersByTimeAsync(300);
+        updateSearchSettingsMock.mockClear();
+
+        await wrapper.get('[data-testid="search-provider-toggle-deepseek"]').trigger('click');
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(updateSearchSettingsMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                providers: expect.objectContaining({
+                    deepseek: expect.objectContaining({ enabled: true, apiKey: 'ds-key' }),
+                }),
+            })
+        );
+        expect(
+            wrapper.find('[data-testid="search-deepseek-shared-credential-hint"]').exists()
+        ).toBe(false);
     });
 
     it('keeps no-key provider inputs disabled even when the providers are enabled', async () => {

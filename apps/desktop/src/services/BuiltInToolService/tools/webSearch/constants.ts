@@ -28,6 +28,7 @@ export const WEB_SEARCH_PROVIDERS = [
     'semantic_scholar',
     'github',
     'searxng',
+    'deepseek',
 ] as const satisfies readonly SearchProviderId[];
 
 export type WebSearchIntent = SearchRouteIntent;
@@ -52,12 +53,13 @@ export const webSearchArgsSchema = z.object({
     maxResults: integerInRangeSchema(1, 10).optional(),
     timeoutMs: optionalIntegerInRangeSchema(1_000, 60_000),
     description: optionalTrimmedStringSchema,
+    includeContent: z.boolean().optional(),
 });
 
 export const WEB_SEARCH_TOOL_DESCRIPTION = [
     'Search for candidate web sources through one consolidated research entry point.',
     'Use this for discovery only; use web_fetch to read specific URLs and browser for rendered or interactive pages.',
-    'For general research, use anysearch by default; auto follows user settings and normally resolves to anysearch. Choose a specialized provider only when one source type is clearly best: github for repositories/releases/issues, openalex or semantic_scholar for papers, wikipedia for encyclopedic background, and searxng for a configured metasearch instance.',
+    'For general research, use anysearch by default; auto follows user settings and normally resolves to anysearch. Choose a specialized provider only when one source type is clearly best: github for repositories/releases/issues, openalex or semantic_scholar for papers, wikipedia for encyclopedic background, searxng for a configured metasearch instance, and deepseek for Chinese or long-tail web content.',
 ].join(' ');
 
 function providerRecommendations(providers: readonly WebSearchProvider[]): string {
@@ -121,6 +123,11 @@ export function buildWebSearchToolInputSchema(
                 minimum: 1000,
                 maximum: 60000,
                 description: 'Optional timeout in milliseconds. Defaults to 15000.',
+            },
+            includeContent: {
+                type: 'boolean',
+                description:
+                    'Ask providers that support it (deepseek) to return page content inline. Saves a separate web_fetch round trip but significantly increases context size.',
             },
             description: {
                 type: 'string',
