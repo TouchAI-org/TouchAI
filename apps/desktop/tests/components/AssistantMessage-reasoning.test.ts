@@ -104,6 +104,42 @@ describe('user reads the reasoning behind an answer', () => {
         expect(sections[1]!.find('.markdown').exists()).toBe(false);
     });
 
+    it('pauses the elapsed timer while the document is hidden and resumes when visible', async () => {
+        const intervalSpy = vi.spyOn(window, 'setInterval');
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'hidden',
+        });
+
+        const wrapper = render({
+            isStreaming: true,
+            parts: [
+                {
+                    id: 'r1',
+                    type: 'reasoning',
+                    content: 'thinking',
+                    isStreaming: true,
+                    startedAt: Date.now(),
+                },
+            ],
+        });
+
+        expect(intervalSpy).not.toHaveBeenCalled();
+
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'visible',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+        await nextTick();
+
+        expect(intervalSpy).toHaveBeenCalledTimes(1);
+
+        wrapper.unmount();
+        intervalSpy.mockRestore();
+        delete (document as { visibilityState?: string }).visibilityState;
+    });
+
     it('unmounts collapsed reasoning markdown until it is expanded', async () => {
         const wrapper = render({
             parts: [

@@ -6,6 +6,7 @@ import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import { t } from '@/i18n';
+import { createPerfTrace } from '@/utils/perfTrace';
 
 import {
     buildMatchTokens,
@@ -214,6 +215,7 @@ function useQuickSearchFlow(
         }
 
         const reqId = ++requestId.value;
+        const searchTrace = createPerfTrace('quickSearch.query');
         // 点击统计与 native 查询并行加载：搜索通常更慢，等结果回来时统计多半已命中缓存。
         const clickStatsReady = clickStats.prefetch(trimmedQuery);
 
@@ -263,6 +265,8 @@ function useQuickSearchFlow(
             if (reqId === requestId.value) {
                 close();
             }
+        } finally {
+            searchTrace.end();
         }
     }
 

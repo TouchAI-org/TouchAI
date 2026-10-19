@@ -15,6 +15,7 @@ import {
 import { dismissSessionTerminalStatus, listSessions } from '@/services/AgentService/session';
 import { eventService } from '@/services/EventService';
 import { AppEvent } from '@/services/EventService/types';
+import { createPerfTrace } from '@/utils/perfTrace';
 import {
     createInputHistorySnapshot,
     type InputHistorySnapshot,
@@ -266,6 +267,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         sessionListInFlightKey = requestKey;
 
         sessionListLoadPromise = (async () => {
+            const listTrace = createPerfTrace('history.list');
             try {
                 const sessions = await listSessions({
                     query: sessionListQuery.value,
@@ -285,6 +287,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                     sessionListResolvedKey = null;
                 }
             } finally {
+                listTrace.end({ sessions: sessionList.value.length });
                 if (requestId === sessionListRequestId) {
                     isSessionListLoading.value = false;
                 }
