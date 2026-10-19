@@ -88,6 +88,179 @@ interface ShowWidgetRendererState {
     lastDraftAppliedAt: number;
     hasAppliedMeaningfulDraft: boolean;
     scriptRunToken: number;
+    resourceScope: WidgetResourceScope;
+}
+
+/**
+ * Widget 生成脚本的资源作用域。
+ *
+ * 脚本使用真实 timer / rAF / 事件监听与 observer；宿主 DOM 被移除时它们不会自动停止。
+ * 作用域统一登记这些资源，并在 destroy 时释放，避免已卸载 widget 持续占用主线程。
+ */
+interface WidgetResourceScope {
+    setTimeout: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number;
+    clearTimeout: (handle?: number) => void;
+    setInterval: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number;
+    clearInterval: (handle?: number) => void;
+    requestAnimationFrame: (callback: FrameRequestCallback) => number;
+    cancelAnimationFrame: (handle: number) => void;
+    addEventListener: (
+        target: EventTarget,
+        type: string,
+        handler: EventListenerOrEventListenerObject | null,
+        options?: AddEventListenerOptions | boolean
+    ) => void;
+    removeEventListener: (
+        target: EventTarget,
+        type: string,
+        handler: EventListenerOrEventListenerObject | null,
+        options?: EventListenerOptions | boolean
+    ) => void;
+    ResizeObserver: typeof ResizeObserver;
+    MutationObserver: typeof MutationObserver;
+    dispose: () => void;
+}
+
+function createWidgetResourceScope(): WidgetResourceScope {
+    const timers = new Set<number>();
+    const frames = new Set<number>();
+    const trackedListeners: Array<{
+        target: EventTarget;
+        type: string;
+        handler: EventListenerOrEventListenerObject | null;
+        options?: AddEventListenerOptions | boolean;
+    }> = [];
+    const observers = new Set<{ disconnect: () => void }>();
+    let disposed = false;
+
+    function invokeHandler(handler: TimerHandler, args: unknown[]): void {
+        if (typeof handler === 'function') {
+            handler(...(args as never[]));
+            return;
+        }
+        // 字符串形式的 TimerHandler 极少出现，但 setTimeout 规范允许。
+        window.setTimeout(() => {
+            window.eval(String(handler));
+        }, 0);
+    }
+
+    function trackObserver<T extends { disconnect: () => void }>(instance: T): T {
+        observers.add(instance);
+        return instance;
+    }
+
+    const ScopedResizeObserver = function (
+        this: unknown,
+        callback: ResizeObserverCallback
+    ): ResizeObserver {
+        return trackObserver(new window.ResizeObserver(callback));
+    } as unknown as typeof ResizeObserver;
+
+    const ScopedMutationObserver = function (
+        this: unknown,
+        callback: MutationCallback
+    ): MutationObserver {
+        return trackObserver(new window.MutationObserver(callback));
+    } as unknown as typeof MutationObserver;
+
+    return {
+        setTimeout(handler, timeout, ...args) {
+            if (disposed) {
+                return 0;
+            }
+            const handle = window.setTimeout(() => {
+                timers.delete(handle);
+                invokeHandler(handler, args);
+            }, timeout);
+            timers.add(handle);
+            return handle;
+        },
+        clearTimeout(handle) {
+            if (handle === undefined) {
+                return;
+            }
+            timers.delete(handle);
+            window.clearTimeout(handle);
+        },
+        setInterval(handler, timeout, ...args) {
+            if (disposed) {
+                return 0;
+            }
+            const handle = window.setInterval(() => {
+                invokeHandler(handler, args);
+            }, timeout);
+            timers.add(handle);
+            return handle;
+        },
+        clearInterval(handle) {
+            if (handle === undefined) {
+                return;
+            }
+            timers.delete(handle);
+            window.clearInterval(handle);
+        },
+        requestAnimationFrame(callback) {
+            if (disposed) {
+                return 0;
+            }
+            const handle = window.requestAnimationFrame((time) => {
+                frames.delete(handle);
+                callback(time);
+            });
+            frames.add(handle);
+            return handle;
+        },
+        cancelAnimationFrame(handle) {
+            frames.delete(handle);
+            window.cancelAnimationFrame(handle);
+        },
+        addEventListener(target, type, handler, options) {
+            if (disposed) {
+                return;
+            }
+            trackedListeners.push({ target, type, handler, options });
+            target.addEventListener(type, handler, options);
+        },
+        removeEventListener(target, type, handler, options) {
+            const index = trackedListeners.findIndex(
+                (entry) =>
+                    entry.target === target && entry.type === type && entry.handler === handler
+            );
+            if (index >= 0) {
+                trackedListeners.splice(index, 1);
+            }
+            target.removeEventListener(type, handler, options);
+        },
+        ResizeObserver: ScopedResizeObserver,
+        MutationObserver: ScopedMutationObserver,
+        dispose() {
+            disposed = true;
+
+            for (const handle of timers) {
+                window.clearTimeout(handle);
+                window.clearInterval(handle);
+            }
+            timers.clear();
+
+            for (const handle of frames) {
+                window.cancelAnimationFrame(handle);
+            }
+            frames.clear();
+
+            for (const entry of trackedListeners.splice(0)) {
+                entry.target.removeEventListener(entry.type, entry.handler, entry.options);
+            }
+
+            for (const observer of observers) {
+                try {
+                    observer.disconnect();
+                } catch {
+                    // observer 可能已自行断开。
+                }
+            }
+            observers.clear();
+        },
+    };
 }
 
 interface ShowWidgetTypographySource {
@@ -1061,11 +1234,54 @@ function createWidgetScopedDocument(root: HTMLElement): Document {
     }) as Document;
 }
 
-function createWidgetScopedWindow(scopedDocument: Document): Window & typeof globalThis {
+function createWidgetScopedWindow(
+    scopedDocument: Document,
+    scope: WidgetResourceScope
+): Window & typeof globalThis {
     return new Proxy(window, {
         get(target, property, receiver) {
             if (property === 'document') {
                 return scopedDocument;
+            }
+
+            // Widget 脚本通过 window.xxx 访问的定时器、监听与 observer 也要纳入作用域回收。
+            if (property === 'setTimeout') {
+                return scope.setTimeout;
+            }
+            if (property === 'clearTimeout') {
+                return scope.clearTimeout;
+            }
+            if (property === 'setInterval') {
+                return scope.setInterval;
+            }
+            if (property === 'clearInterval') {
+                return scope.clearInterval;
+            }
+            if (property === 'requestAnimationFrame') {
+                return scope.requestAnimationFrame;
+            }
+            if (property === 'cancelAnimationFrame') {
+                return scope.cancelAnimationFrame;
+            }
+            if (property === 'addEventListener') {
+                return (
+                    type: string,
+                    handler: EventListenerOrEventListenerObject | null,
+                    options?: AddEventListenerOptions | boolean
+                ) => scope.addEventListener(target, type, handler, options);
+            }
+            if (property === 'removeEventListener') {
+                return (
+                    type: string,
+                    handler: EventListenerOrEventListenerObject | null,
+                    options?: EventListenerOptions | boolean
+                ) => scope.removeEventListener(target, type, handler, options);
+            }
+            if (property === 'ResizeObserver') {
+                return scope.ResizeObserver;
+            }
+            if (property === 'MutationObserver') {
+                return scope.MutationObserver;
             }
 
             const value = Reflect.get(target, property, receiver);
@@ -1077,20 +1293,45 @@ function createWidgetScopedWindow(scopedDocument: Document): Window & typeof glo
     });
 }
 
-function executeInlineWidgetScript(source: string, root: HTMLElement): void {
+function executeInlineWidgetScript(
+    source: string,
+    root: HTMLElement,
+    scope: WidgetResourceScope
+): void {
     if (!source.trim()) {
         return;
     }
 
     try {
         const scopedDocument = createWidgetScopedDocument(root);
-        const scopedWindow = createWidgetScopedWindow(scopedDocument);
+        const scopedWindow = createWidgetScopedWindow(scopedDocument, scope);
+        // 裸标识符（setInterval 等）不会经过 window 代理，必须作为函数参数注入。
         const execute = window.Function(
             'window',
             'document',
+            'setTimeout',
+            'clearTimeout',
+            'setInterval',
+            'clearInterval',
+            'requestAnimationFrame',
+            'cancelAnimationFrame',
+            'ResizeObserver',
+            'MutationObserver',
             `${source}\n//# sourceURL=touchai-widget-inline.js`
         );
-        execute.call(scopedWindow, scopedWindow, scopedDocument);
+        execute.call(
+            scopedWindow,
+            scopedWindow,
+            scopedDocument,
+            scope.setTimeout,
+            scope.clearTimeout,
+            scope.setInterval,
+            scope.clearInterval,
+            scope.requestAnimationFrame,
+            scope.cancelAnimationFrame,
+            scope.ResizeObserver,
+            scope.MutationObserver
+        );
     } catch (error) {
         log.error('[ShowWidget] Failed to execute inline script:', error);
     }
@@ -1135,7 +1376,7 @@ async function runInlineScripts(
             continue;
         }
 
-        executeInlineWidgetScript(script.source, root);
+        executeInlineWidgetScript(script.source, root, state.resourceScope);
     }
 }
 
@@ -1286,6 +1527,7 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
         lastDraftAppliedAt: 0,
         hasAppliedMeaningfulDraft: false,
         scriptRunToken: 0,
+        resourceScope: createWidgetResourceScope(),
     };
 
     hostElement.dataset.touchaiWidgetHost = scopeId;
@@ -1441,6 +1683,8 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
             state.destroyed = true;
             state.scriptRunToken += 1;
             clearApplyTimer(state);
+            // 脚本创建的 timer / rAF / 监听 / observer 不会随 DOM 移除而停止。
+            state.resourceScope.dispose();
             hostElement.removeEventListener('click', handleHostClick, true);
             hostElement.replaceChildren();
             delete hostElement.dataset.touchaiWidgetHost;
