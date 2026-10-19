@@ -211,19 +211,26 @@ describe('TouchAI usage observability', () => {
             throw new Error('Usage page rendered without any numeric metric.');
         }
 
-        // 导出入口必须可用（实际写盘由用户选路径，E2E 不弹系统对话框）
-        const exportButton = await $("[data-testid='settings-usage-export']");
-        await exportButton.waitForDisplayed();
-        if (!(await exportButton.isEnabled())) {
-            throw new Error('Usage export button is disabled.');
+        // 筛选与标题同排，不再单独占据一整块带边框的区域
+        const rangeTrigger = await $("[data-testid='settings-usage-range-trigger']");
+        await rangeTrigger.waitForDisplayed();
+
+        // 用量分布可在模型 / 供应商之间切换
+        const breakdownRows = await $$("[data-testid='settings-usage-breakdown-row']");
+        if (breakdownRows.length === 0) {
+            throw new Error('Usage breakdown rendered no rows.');
         }
 
-        // 保留策略选择器必须渲染且默认为「永久保留」
-        const retentionTrigger = await $("[data-testid='settings-usage-retention-trigger']");
-        await retentionTrigger.waitForDisplayed();
-        const retentionText = await retentionTrigger.getText();
-        if (!retentionText.includes('永久保留') && !retentionText.includes('Forever')) {
-            throw new Error(`unexpected default retention label: ${retentionText}`);
+        // 明细保留已移到数据管理，用量页不应再有这个入口
+        const retentionOnUsage = await $("[data-testid='settings-usage-retention-trigger']");
+        if (await retentionOnUsage.isExisting()) {
+            throw new Error('Retention control should live in Data management, not Usage.');
+        }
+
+        // 导出 CSV 已按产品要求移除
+        const exportButton = await $("[data-testid='settings-usage-export']");
+        if (await exportButton.isExisting()) {
+            throw new Error('CSV export should have been removed.');
         }
 
         await browser.closeWindow();

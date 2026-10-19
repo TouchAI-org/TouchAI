@@ -13,6 +13,18 @@ const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '..', '..');
 const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
 
+/**
+ * 指定应用数据目录。
+ *
+ * 默认用一次性的 session 目录（每个 session 都是干净库）。
+ * 需要带着已有数据跑（本地看真实效果、复现线上问题）时，
+ * 把 `TOUCHAI_E2E_APP_ROOT` 指向那个目录即可。
+ */
+function resolveAppRoot(sessionRuntimePath) {
+    const override = process.env.TOUCHAI_E2E_APP_ROOT?.trim();
+    return override ? path.resolve(override) : sessionRuntimePath;
+}
+
 let tauriDriver;
 let exitRequested = false;
 let sessionRuntimePath;
@@ -241,6 +253,9 @@ export const config = {
         const webviewUserDataFolder = path.resolve(sessionRuntimePath, 'webview2-user-data');
         fs.mkdirSync(webviewUserDataFolder, { recursive: true });
 
+        const appRoot = resolveAppRoot(sessionRuntimePath);
+        fs.mkdirSync(path.resolve(appRoot, 'data'), { recursive: true });
+
         // TouchAI.exe must be the application process msedgedriver attaches to.
         // Pass E2E env through tauri-driver so the app inherits TOUCHAI_E2E and
         // applies additionalBrowserArgs in Rust (wry ignores WEBVIEW2_* env alone).
@@ -251,7 +266,7 @@ export const config = {
                     ...process.env,
                     CARGO_TARGET_DIR: resolveCargoTargetDirectory(),
                     TEMP: resolveTempDirectory(),
-                    TOUCHAI_APP_ROOT: sessionRuntimePath,
+                    TOUCHAI_APP_ROOT: appRoot,
                     TOUCHAI_E2E: '1',
                     TMP: resolveTempDirectory(),
                 },
