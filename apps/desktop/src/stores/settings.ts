@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { getSettingValue, setSetting } from '@database/queries';
+import { getSettingValues, setSetting } from '@database/queries';
 import { AppEvent, eventService } from '@services/EventService';
 import { log } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -64,10 +64,11 @@ export const useSettingsStore = defineStore('settings', () => {
     async function loadFromDatabase() {
         loading.value = true;
         try {
-            const settingRows = await Promise.all(
-                GENERAL_SETTING_DEFINITIONS.map((definition) =>
-                    getSettingValue({ key: definition.key })
-                )
+            const settingValues = await getSettingValues({
+                keys: GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key),
+            });
+            const settingRows = GENERAL_SETTING_DEFINITIONS.map(
+                (definition) => settingValues[definition.key] ?? null
             );
 
             GENERAL_SETTING_DEFINITIONS.forEach((definition, index) => {

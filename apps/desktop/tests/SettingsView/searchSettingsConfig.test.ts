@@ -11,9 +11,15 @@ const setSettingMock = vi.hoisted(() =>
 const getSettingValueMock = vi.hoisted(() =>
     vi.fn(async ({ key }: { key: string }) => settingsValues.get(key) ?? null)
 );
+const getSettingValuesMock = vi.hoisted(() =>
+    vi.fn(async ({ keys }: { keys: string[] }) =>
+        Object.fromEntries(keys.map((key) => [key, settingsValues.get(key) ?? null]))
+    )
+);
 
 vi.mock('@database/queries', () => ({
     getSettingValue: getSettingValueMock,
+    getSettingValues: getSettingValuesMock,
     setSetting: setSettingMock,
 }));
 
