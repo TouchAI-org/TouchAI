@@ -357,12 +357,21 @@ export function normalizeStructuredText(rawText: string, contentType: string): s
 }
 
 export function extractHtmlContent(html: string, request: WebFetchRequest): FormattedFetchPayload {
-    const imageCandidates = extractImageMarkdownCandidates(html, request.url.toString());
+    // HTML 只解析一次：图片候选、标题、正文 Markdown/纯文本共用同一份 DOM，
+    // Readability 在克隆副本上运行，避免其就地修改影响后续提取。
+    const document = new DOMParser().parseFromString(html, 'text/html');
+    const imageCandidates = extractImageMarkdownCandidatesFromDocument(
+        document,
+        request.url.toString()
+    );
 
     if (request.mode === 'reader') {
         // reader 模式优先取主内容，但很多站点的文章结构并不稳定；
         // 解析失败时继续回退到整页 Markdown / 纯文本，保证工具尽量给出可读结果。
-        const article = extractReadableArticle(html, request.url.toString());
+        const article = extractReadableArticleFromDocument(
+            document.cloneNode(true) as Document,
+            request.url.toString()
+        );
         if (article) {
             const truncated = truncateContent(article.content, request.maxChars);
             return withImageCandidates(
@@ -377,7 +386,7 @@ export function extractHtmlContent(html: string, request: WebFetchRequest): Form
     }
 
     if (request.mode === 'page_text') {
-        const content = buildPageText(html);
+        const content = buildPageTextFromDocument(document);
         const truncated = truncateContent(content, request.maxChars);
         return withImageCandidates(
             {
@@ -390,11 +399,9 @@ export function extractHtmlContent(html: string, request: WebFetchRequest): Form
         );
     }
 
-    const markdown = buildPageMarkdown(html, request.url.toString());
+    const pageTitle = normalizeOptionalString(document.title || undefined);
+    const markdown = buildPageMarkdownFromDocument(document, request.url.toString());
     if (markdown) {
-        const pageTitle = normalizeOptionalString(
-            new DOMParser().parseFromString(html, 'text/html').title || undefined
-        );
         const truncated = truncateContent(markdown, request.maxChars);
         return withImageCandidates(
             {
@@ -408,7 +415,7 @@ export function extractHtmlContent(html: string, request: WebFetchRequest): Form
         );
     }
 
-    const content = buildPageText(html);
+    const content = buildPageTextFromDocument(document);
     const truncated = truncateContent(content, request.maxChars);
     return withImageCandidates(
         {
@@ -670,11 +677,14 @@ function uniqueImageElements(document: Document): Element[] {
     return images;
 }
 
-function extractImageMarkdownCandidates(html: string, baseUrl: string): string[] {
-    const document = new DOMParser().parseFromString(html, 'text/html');
+function prepareDocumentForContent(document: Document, baseUrl: string): void {
     pruneNonContentNodes(document);
     absolutizeResourceUrls(document, baseUrl);
     absolutizeImageResourceUrls(document, baseUrl);
+}
+
+function extractImageMarkdownCandidatesFromDocument(document: Document, baseUrl: string): string[] {
+    prepareDocumentForContent(document, baseUrl);
 
     const seenSources = new Set<string>();
     const candidates: string[] = [];
@@ -747,17 +757,24 @@ function createTurndownService(): TurndownService {
 }
 
 export function buildPageMarkdown(html: string, baseUrl: string): string {
-    const document = new DOMParser().parseFromString(html, 'text/html');
-    pruneNonContentNodes(document);
-    absolutizeResourceUrls(document, baseUrl);
-    absolutizeImageResourceUrls(document, baseUrl);
+    return buildPageMarkdownFromDocument(
+        new DOMParser().parseFromString(html, 'text/html'),
+        baseUrl
+    );
+}
+
+function buildPageMarkdownFromDocument(document: Document, baseUrl: string): string {
+    prepareDocumentForContent(document, baseUrl);
 
     const markdown = turndownService.turndown(document.body || document.documentElement);
     return normalizeMarkdown(markdown);
 }
 
 export function buildPageText(html: string): string {
-    const document = new DOMParser().parseFromString(html, 'text/html');
+    return buildPageTextFromDocument(new DOMParser().parseFromString(html, 'text/html'));
+}
+
+function buildPageTextFromDocument(document: Document): string {
     pruneNonContentNodes(document);
     return normalizePlainText(
         document.body?.textContent || document.documentElement.textContent || ''
@@ -768,7 +785,16 @@ export function extractReadableArticle(
     html: string,
     baseUrl: string
 ): FormattedFetchPayload | null {
-    const document = new DOMParser().parseFromString(html, 'text/html');
+    return extractReadableArticleFromDocument(
+        new DOMParser().parseFromString(html, 'text/html'),
+        baseUrl
+    );
+}
+
+function extractReadableArticleFromDocument(
+    document: Document,
+    baseUrl: string
+): FormattedFetchPayload | null {
     addBaseUrl(document, baseUrl);
     const readability = new Readability(document, {
         maxElemsToParse: 0,

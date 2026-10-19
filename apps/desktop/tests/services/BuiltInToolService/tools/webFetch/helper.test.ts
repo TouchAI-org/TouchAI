@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import {
@@ -129,5 +129,56 @@ describe('user reads a formatted fetch result', () => {
             '![official-dashboard.png](https://example.com/media/official-dashboard.png)'
         );
         expect(result).toContain('![Revenue chart](https://example.com/chart-large.png)');
+    });
+});
+
+describe('user gets the page parsed once per request', () => {
+    function createRequest(mode: string) {
+        return {
+            url: new URL('https://example.com/article'),
+            mode,
+            maxChars: 4000,
+            timeoutMs: 20000,
+            maxResponseBytes: 1024 * 1024,
+        } as unknown as Parameters<typeof extractHtmlContent>[1];
+    }
+
+    it('parses the HTML document once for page markdown mode', () => {
+        const parseSpy = vi.spyOn(DOMParser.prototype, 'parseFromString');
+        try {
+            extractHtmlContent(
+                [
+                    '<html><head><title>Parsed once</title></head><body>',
+                    '<article><h1>Heading</h1><p>Body text</p>',
+                    '<img src="/media/chart.png" alt="Chart"></article>',
+                    '</body></html>',
+                ].join(''),
+                createRequest('page_markdown')
+            );
+
+            expect(parseSpy.mock.calls).toHaveLength(1);
+        } finally {
+            parseSpy.mockRestore();
+        }
+    });
+
+    it('parses at most twice in reader mode', () => {
+        const parseSpy = vi.spyOn(DOMParser.prototype, 'parseFromString');
+        try {
+            extractHtmlContent(
+                [
+                    '<html><head><title>Reader</title></head><body>',
+                    '<article><h1>Heading</h1>',
+                    '<p>'.concat('Long readable body text. '.repeat(40), '</p>'),
+                    '<p>Second paragraph for readability heuristics.</p>',
+                    '</article></body></html>',
+                ].join(''),
+                createRequest('reader')
+            );
+
+            expect(parseSpy.mock.calls.length).toBeLessThanOrEqual(2);
+        } finally {
+            parseSpy.mockRestore();
+        }
     });
 });
