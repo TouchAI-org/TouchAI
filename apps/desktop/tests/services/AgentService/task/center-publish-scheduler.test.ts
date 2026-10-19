@@ -6,6 +6,7 @@ import {
     shouldPublishTaskSnapshotImmediately,
 } from '@/services/AgentService/task/center';
 import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
+import type { SessionMessage } from '@/types/session';
 
 describe('cloneTaskViewSnapshot', () => {
     it('drops runtime checkpoint and prompt snapshot from the published view', () => {
@@ -163,3 +164,70 @@ describe('createTaskPublishScheduler', () => {
         expect(notify.mock.calls.map(([taskId]) => taskId).sort()).toEqual(['task-1', 'task-2']);
     });
 });
+
+describe('cloneTaskViewSnapshot structural sharing', () => {
+    it('reuses unchanged messages and clones only the changed one', () => {
+        const unchanged = createMessage('m1', 'first');
+        const changed = createMessage('m2', 'before');
+        const snapshot = createSnapshot({ sessionHistory: [unchanged, changed] });
+        const first = cloneTaskViewSnapshot(snapshot);
+
+        // 模拟投影就地追加流式内容。
+        changed.content = 'before and after';
+        const second = cloneTaskViewSnapshot(snapshot, first);
+
+        expect(second.sessionHistory[0]).toBe(first.sessionHistory[0]);
+        expect(second.sessionHistory[1]).not.toBe(first.sessionHistory[1]);
+        expect(second.sessionHistory[1]!.content).toBe('before and after');
+
+        // 发布后的快照与投影后续就地修改隔离。
+        changed.content = 'mutated later';
+        expect(first.sessionHistory[1]!.content).toBe('before');
+        expect(second.sessionHistory[1]!.content).toBe('before and after');
+    });
+
+    it('drops removed messages and clones newly appended ones', () => {
+        const firstMessage = createMessage('m1', 'a');
+        const removed = createMessage('m2', 'b');
+        const first = cloneTaskViewSnapshot(
+            createSnapshot({ sessionHistory: [firstMessage, removed] })
+        );
+
+        const appended = createMessage('m3', 'c');
+        const second = cloneTaskViewSnapshot(
+            createSnapshot({ sessionHistory: [firstMessage, appended] }),
+            first
+        );
+
+        expect(second.sessionHistory.map((message) => message.id)).toEqual(['m1', 'm3']);
+        expect(second.sessionHistory[0]).toBe(first.sessionHistory[0]);
+        expect(second.sessionHistory[1]).not.toBe(first.sessionHistory[1]);
+    });
+
+    it('deep clones small pending fields away from live projection state', () => {
+        const snapshot = createSnapshot({
+            pendingApprovals: [
+                {
+                    callId: 'call-1',
+                    sourceMessageId: 'assistant-1',
+                    toolName: 'builtin__bash',
+                    arguments: '{}',
+                },
+            ],
+        });
+
+        const view = cloneTaskViewSnapshot(snapshot);
+        snapshot.pendingApprovals.push({
+            callId: 'call-2',
+            sourceMessageId: 'assistant-1',
+            toolName: 'builtin__bash',
+            arguments: '{}',
+        });
+
+        expect(view.pendingApprovals).toHaveLength(1);
+    });
+});
+
+function createMessage(id: string, content: string): SessionMessage {
+    return { id, role: 'assistant', content, parts: [], timestamp: 1 };
+}
