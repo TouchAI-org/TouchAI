@@ -35,6 +35,7 @@
 
     interface Emits {
         (e: 'navigate', section: NavigationSection): void;
+        (e: 'prefetch-section', section: NavigationSection): void;
         (e: 'ready'): void;
         (e: 'show-update-settings', options?: ShowUpdateSettingsOptions): void;
         (e: 'search-select', result: SettingsSearchResult): void;
@@ -193,6 +194,11 @@
 
     const handleNavigate = (section: NavigationSection) => {
         emit('navigate', section);
+    };
+
+    // hover/focus 预取让下一步导航的区块提前开始加载，但不触发导航本身。
+    const prefetchSection = (section: NavigationSection) => {
+        emit('prefetch-section', section);
     };
 
     const showUpdateSettings = () => {
@@ -449,6 +455,8 @@
                         : 'text-neutral-700 hover:bg-surface-hover-soft hover:text-neutral-950',
                 ]"
                 @click="handleNavigate(item.id)"
+                @mouseenter="prefetchSection(item.id)"
+                @focus="prefetchSection(item.id)"
             >
                 <AppIcon
                     :name="item.icon"
