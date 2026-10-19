@@ -1,0 +1,1 @@
+CREATE INDEX `messages_session_id_id_idx` ON `messages` (`session_id`,`id`);
