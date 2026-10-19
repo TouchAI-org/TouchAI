@@ -50,6 +50,13 @@
       "when": 1792380749455,
       "tag": "0006_narrow_search_update_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792383884599,
+      "tag": "0007_big_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }
