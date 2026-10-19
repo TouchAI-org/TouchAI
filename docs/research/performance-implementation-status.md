@@ -67,7 +67,7 @@
 | 29 | 快捷项 top-K + 列表/网格虚拟化 | 需与 Rust 搜索端配合 |
 | 35 | 附件 metadata-only 规划与流式物化 | 依赖 Rust |
 | 36 | web_fetch 解析拆分/Worker | 需先埋点实测 |
-| N03 | 恢复 viewport 能力 | 需核实 markstream 1.0.6 API |
+| N03 | 恢复 viewport 能力 | 已验证 markstream 1.0.6 提供 `virtualScroll.scrollRoot`（可绑定外层滚动 owner）；需真实渲染环境验证后从 bypass 切换 |
 
 ### Rust（`cargo check` 可验证，`cargo test` 受磁盘限制）
 
