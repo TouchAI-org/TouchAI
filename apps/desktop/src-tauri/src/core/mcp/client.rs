@@ -540,6 +540,14 @@ impl McpClient {
         status.clone()
     }
 
+    /// 仅测试使用：持有状态锁以模拟在途 RPC。
+    #[cfg(test)]
+    pub(crate) async fn lock_status_for_test(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, ServerStatus> {
+        self.status.lock().await
+    }
+
     /// 获取当前错误信息（如有）。
     pub async fn get_error(&self) -> Option<String> {
         let error = self.error.lock().await;
