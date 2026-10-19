@@ -342,7 +342,24 @@ export function createDrizzleDb(): DrizzleDb {
     const db = new SqliteRemoteDatabase('async', dialect, session, relationalSchema) as DrizzleDb;
 
     db.transaction = (async (transaction, config) => {
-        const txId = await native.database.txBegin(config?.behavior);
+        /**
+         * 写事务默认走 `BEGIN IMMEDIATE`。
+         *
+         * 应用里的事务几乎都是「先读后写」：`createToolPart` 先取 `max(sort_order)` 再插入，
+         * `updateToolPart` / `mergeMessagePartData` / `syncOutputParts` 先 SELECT 再 UPDATE。
+         * WAL 下 `BEGIN DEFERRED` 会让第一条 SELECT 先拿到读快照，写的时候才尝试升级；
+         * 若此时别的连接已经提交过写入，升级立刻失败并返回 SQLITE_BUSY（code 5），
+         * 且 `busy_timeout` 对「读快照升级冲突」无效——不重试，直接报 `database is locked`。
+         * 一轮里模型并行发起多个工具调用时（`Promise.all`）这条路径必然并发，
+         * 于是工具日志随机丢失、状态卡在 pending，严重时冒泡到 PersistenceProjector
+         * 并在界面上弹出「数据库错误」。
+         *
+         * `BEGIN IMMEDIATE` 在事务开始时就直接取得写锁，后到的事务由 `busy_timeout`
+         * 正常排队等待（Rust 侧已设 5s），写入被真正串行化，不再有读快照升级冲突。
+         * 只有确实需要延迟取锁的场景才显式传 `deferred`。
+         */
+        const behavior = config?.behavior ?? 'immediate';
+        const txId = await native.database.txBegin(behavior);
         const txSession = new SQLiteRemoteSession(
             createRuntimeQueryCallback({
                 txId,
