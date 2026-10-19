@@ -1,10 +1,56 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+    cloneTaskViewSnapshot,
     createTaskPublishScheduler,
     shouldPublishTaskSnapshotImmediately,
 } from '@/services/AgentService/task/center';
 import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
+
+describe('cloneTaskViewSnapshot', () => {
+    it('drops runtime checkpoint and prompt snapshot from the published view', () => {
+        const snapshot = createSnapshot({
+            promptSnapshot: {
+                id: 'prompt-1',
+                createdAt: '2026-01-01T00:00:00.000Z',
+                systemPrompt: 'system',
+                executionMode: 'foreground',
+                fragments: [],
+                userPrompt: 'hello',
+                attachments: [],
+            },
+            lastCheckpoint: {
+                messages: [{ role: 'user', content: 'hello' }],
+            } as SessionTaskSnapshot['lastCheckpoint'],
+        });
+
+        const view = cloneTaskViewSnapshot(snapshot);
+
+        expect('promptSnapshot' in view).toBe(false);
+        expect('lastCheckpoint' in view).toBe(false);
+        expect(view.status).toBe('running');
+        expect(view.taskId).toBe(snapshot.taskId);
+    });
+
+    it('deep clones displayed history so later projection mutations stay isolated', () => {
+        const snapshot = createSnapshot({
+            sessionHistory: [
+                {
+                    id: 'assistant-1',
+                    role: 'assistant',
+                    content: 'first',
+                    parts: [],
+                    timestamp: 1,
+                },
+            ],
+        });
+
+        const view = cloneTaskViewSnapshot(snapshot);
+        snapshot.sessionHistory[0]!.content = 'mutated';
+
+        expect(view.sessionHistory[0]!.content).toBe('first');
+    });
+});
 
 function createSnapshot(overrides: Partial<SessionTaskSnapshot> = {}): SessionTaskSnapshot {
     return {
