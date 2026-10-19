@@ -12,6 +12,7 @@ import {
     summarizeLatestAssistantResponse,
 } from '@/utils/reminderText';
 import { getSessionStatusReminderContent } from '@/utils/session';
+import { createPerfTrace } from '@/utils/perfTrace';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import type { ConversationRuntimeEnvironment, TurnEvent } from '../execution';
@@ -596,6 +597,8 @@ export class SessionTaskCenter {
             return;
         }
 
+        const trace = createPerfTrace('task.publish');
+
         this.publishTaskStatusIfNeeded(task);
 
         for (const listener of task.subscribers) {
@@ -605,6 +608,8 @@ export class SessionTaskCenter {
                 log.error('[SessionTaskCenter] Subscriber error:', error);
             }
         }
+
+        trace.end({ messages: task.snapshot.sessionHistory.length });
     }
 
     /**
