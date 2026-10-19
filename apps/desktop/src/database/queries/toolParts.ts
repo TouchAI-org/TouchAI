@@ -98,7 +98,11 @@ export async function findToolPartById(
         .from(messageParts)
         .innerJoin(messages, eq(messages.id, messageParts.message_id))
         .where(
-            and(eq(messageParts.id, id), eq(messageParts.type, 'tool_call'), eq(messageParts.tool_kind, kind))
+            and(
+                eq(messageParts.id, id),
+                eq(messageParts.type, 'tool_call'),
+                eq(messageParts.tool_kind, kind)
+            )
         )
         .get();
 
@@ -113,12 +117,12 @@ export async function findToolPartSummaries(
 ): Promise<ToolPartSummaryRow[]> {
     const toolNameExpression =
         kind === 'builtin'
-            ? sql<string | null>`json_extract(${messageParts.data}, '$."tool_id"')`
+            ? sql<string | null>`${messageParts.tool_id}`
             : sql<string | null>`json_extract(${messageParts.data}, '$."tool_name"')`;
     const serverIdExpression =
         kind === 'builtin'
             ? sql<number | null>`null`
-            : sql<number | null>`json_extract(${messageParts.data}, '$."server_id"')`;
+            : sql<number | null>`${messageParts.server_id}`;
 
     const query = db
         .select({

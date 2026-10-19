@@ -57,6 +57,13 @@
       "when": 1792383884599,
       "tag": "0007_big_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792400000000,
+      "tag": "0008_tool_part_projections",
+      "breakpoints": true
     }
   ]
 }

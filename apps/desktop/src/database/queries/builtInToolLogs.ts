@@ -9,11 +9,10 @@ import type {
 import {
     createToolPart,
     findToolPartById,
-    findToolPartSummaries,
     findToolParts,
-    toolData,
-    updateToolPart,
+    findToolPartSummaries,
     type ToolPartSummaryRow,
+    updateToolPart,
 } from './toolParts';
 
 /** 列表展示用的内置工具日志摘要（不含完整 input/output）。 */
@@ -25,7 +24,7 @@ export const findBuiltInToolLogsByToolId = async (
 ) =>
     (await findToolParts(
         'builtin',
-        eq(toolData('tool_id'), id),
+        eq(messageParts.tool_id, id),
         options
     )) as BuiltInToolLogEntity[];
 
@@ -34,7 +33,7 @@ export const findBuiltInToolLogSummariesByToolId = async (
     id: string,
     options?: { limit?: number; offset?: number }
 ): Promise<BuiltInToolLogSummary[]> =>
-    await findToolPartSummaries('builtin', eq(toolData('tool_id'), id), options);
+    await findToolPartSummaries('builtin', eq(messageParts.tool_id, id), options);
 
 /** 展开时按主键读取完整日志正文。 */
 export const findBuiltInToolLogById = async (id: number) =>
