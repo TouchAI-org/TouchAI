@@ -2,8 +2,6 @@
 
 import type { ProviderDriver } from '@database/schema';
 
-import { tt } from '@/i18n';
-
 import { AlibabaProviderAdapter } from './adapters/alibaba';
 import { AnthropicProviderAdapter } from './adapters/anthropic';
 import { AnthropicCompatibleProviderAdapter } from './adapters/anthropic-compatible';
@@ -16,170 +14,39 @@ import { OpenAIProviderAdapter } from './adapters/openai';
 import { OpenAICompatibleProviderAdapter } from './adapters/openai-compatible';
 import { XaiProviderAdapter } from './adapters/xai';
 import { ZhipuProviderAdapter } from './adapters/zhipu';
-import { MIMO_API_BASE_URL } from './config';
+import { isProviderDriver } from './driverCatalog';
 import type { AiProvider, AiProviderConfig } from './types';
 
-export interface ProviderDriverDefinition {
-    driver: ProviderDriver;
-    label: string;
-    logo: string;
-    placeholder: string;
-}
-
-interface ProviderDriverEntry extends ProviderDriverDefinition {
-    create: (config: AiProviderConfig) => AiProvider;
-}
-
 /**
- * Provider driver 的统一注册表：
- * 同时承载设置页展示元信息与运行时实例化入口。
+ * Provider driver 实例化入口。
+ *
+ * 这里会静态导入全部厂商 adapter：只有真正发起请求的代码才应引用本模块。
+ * 设置页/展示层的元信息请从 `driverCatalog` 读取，避免把 SDK 拉进首屏。
+ * 展示定义与校验函数从 `driverCatalog` 重新导出，保持既有导入路径可用。
  */
-const providerDrivers: ProviderDriverEntry[] = [
-    {
-        driver: 'openai',
-        label: 'OpenAI',
-        logo: 'openai.png',
-        placeholder: 'https://api.openai.com',
-        create: (config) => new OpenAIProviderAdapter(config),
-    },
-    {
-        driver: 'openai-compatible',
-        label: 'OpenAI 兼容',
-        logo: 'openai.png',
-        placeholder: 'https://api.example.com/v1',
-        create: (config) => new OpenAICompatibleProviderAdapter(config),
-    },
-    {
-        driver: 'anthropic',
-        label: 'Anthropic',
-        logo: 'anthropic.png',
-        placeholder: 'https://api.anthropic.com',
-        create: (config) => new AnthropicProviderAdapter(config),
-    },
-    {
-        driver: 'anthropic-compatible',
-        label: 'Anthropic 兼容',
-        logo: 'anthropic.png',
-        placeholder: 'https://api.example.com',
-        create: (config) => new AnthropicCompatibleProviderAdapter(config),
-    },
-    {
-        driver: 'google',
-        label: 'Google',
-        logo: 'gemini.png',
-        placeholder: 'https://generativelanguage.googleapis.com',
-        create: (config) => new GoogleProviderAdapter(config),
-    },
-    {
-        driver: 'deepseek',
-        label: 'DeepSeek',
-        logo: 'deepseek.png',
-        placeholder: 'https://api.deepseek.com',
-        create: (config) => new DeepSeekProviderAdapter(config),
-    },
-    {
-        driver: 'xai',
-        label: 'xAI',
-        logo: 'grok.png',
-        placeholder: 'https://api.x.ai',
-        create: (config) => new XaiProviderAdapter(config),
-    },
-    {
-        driver: 'moonshot',
-        label: 'Moonshot',
-        logo: 'moonshot.png',
-        placeholder: 'https://api.moonshot.ai/v1',
-        create: (config) => new MoonshotProviderAdapter(config),
-    },
-    {
-        driver: 'alibaba',
-        label: '阿里云百炼',
-        logo: 'bailian.png',
-        placeholder: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-        create: (config) => new AlibabaProviderAdapter(config),
-    },
-    {
-        driver: 'minimax',
-        label: 'MiniMax',
-        logo: 'minimax.png',
-        placeholder: 'https://api.minimax.io/anthropic/v1',
-        create: (config) => new MiniMaxProviderAdapter(config),
-    },
-    {
-        driver: 'zhipu',
-        label: '智谱',
-        logo: 'zhipu.png',
-        placeholder: 'https://open.bigmodel.cn/api/paas/v4',
-        create: (config) => new ZhipuProviderAdapter(config),
-    },
-    {
-        driver: 'mimo',
-        label: 'Xiaomi MiMo',
-        logo: 'mimo.png',
-        placeholder: MIMO_API_BASE_URL,
-        create: (config) => new MiMoProviderAdapter(config),
-    },
-];
+export {
+    getProviderDriverDefinition,
+    getProviderDriverDefinitions,
+    isProviderDriver,
+    parseProviderDriver,
+    providerDriverDefinitions,
+    type ProviderDriverDefinition,
+} from './driverCatalog';
 
-const providerDriverSet = new Set<string>(providerDrivers.map((entry) => entry.driver));
-
-/**
- * 所有 driver 的展示定义列表。
- */
-function toProviderDriverDefinition(entry: ProviderDriverEntry): ProviderDriverDefinition {
-    return {
-        driver: entry.driver,
-        label: tt(entry.label),
-        logo: entry.logo,
-        placeholder: entry.placeholder,
-    };
-}
-
-export function getProviderDriverDefinitions(): ProviderDriverDefinition[] {
-    return providerDrivers.map(toProviderDriverDefinition);
-}
-
-export const providerDriverDefinitions: ProviderDriverDefinition[] = new Proxy(
-    [] as ProviderDriverDefinition[],
-    {
-        get(_target, property) {
-            const definitions = getProviderDriverDefinitions();
-            const value = Reflect.get(definitions, property);
-            return typeof value === 'function' ? value.bind(definitions) : value;
-        },
-        has(_target, property) {
-            return property in getProviderDriverDefinitions();
-        },
-    }
-);
-
-export function isProviderDriver(value: unknown): value is ProviderDriver {
-    return typeof value === 'string' && providerDriverSet.has(value);
-}
-
-export function parseProviderDriver(value: unknown): ProviderDriver {
-    if (!isProviderDriver(value)) {
-        throw new Error(`Unknown provider driver: ${String(value)}`);
-    }
-
-    return value;
-}
-
-function getProviderDriverEntry(driver: ProviderDriver): ProviderDriverEntry {
-    const entry = providerDrivers.find((item) => item.driver === driver);
-    if (!entry) {
-        throw new Error(`Unknown provider driver: ${driver}`);
-    }
-    return entry;
-}
-
-/**
- * 按驱动读取对应的展示元信息。
- */
-export function getProviderDriverDefinition(driver: ProviderDriver): ProviderDriverDefinition {
-    const entry = getProviderDriverEntry(driver);
-    return toProviderDriverDefinition(entry);
-}
+const providerFactories: Record<ProviderDriver, (config: AiProviderConfig) => AiProvider> = {
+    openai: (config) => new OpenAIProviderAdapter(config),
+    'openai-compatible': (config) => new OpenAICompatibleProviderAdapter(config),
+    anthropic: (config) => new AnthropicProviderAdapter(config),
+    'anthropic-compatible': (config) => new AnthropicCompatibleProviderAdapter(config),
+    google: (config) => new GoogleProviderAdapter(config),
+    deepseek: (config) => new DeepSeekProviderAdapter(config),
+    xai: (config) => new XaiProviderAdapter(config),
+    moonshot: (config) => new MoonshotProviderAdapter(config),
+    alibaba: (config) => new AlibabaProviderAdapter(config),
+    minimax: (config) => new MiniMaxProviderAdapter(config),
+    zhipu: (config) => new ZhipuProviderAdapter(config),
+    mimo: (config) => new MiMoProviderAdapter(config),
+};
 
 /**
  * 通过 driver 注册表创建对应的 provider 实例。
@@ -188,5 +55,9 @@ export function createProviderFromRegistry(
     driver: ProviderDriver,
     config: AiProviderConfig
 ): AiProvider {
-    return getProviderDriverEntry(driver).create(config);
+    if (!isProviderDriver(driver)) {
+        throw new Error(`Unknown provider driver: ${String(driver)}`);
+    }
+
+    return providerFactories[driver](config);
 }

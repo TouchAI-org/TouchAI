@@ -132,6 +132,23 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => {
     };
 });
 
+vi.mock('@/services/AgentService/infrastructure/providers/driverCatalog', () => {
+    const providerDriverDefinitions = [
+        {
+            driver: 'openai',
+            label: 'OpenAI Compatible',
+            logo: 'openai.svg',
+            placeholder: 'https://api.openai.com/v1',
+        },
+    ];
+
+    return {
+        providerDriverDefinitions,
+        getProviderDriverDefinitions: () => providerDriverDefinitions,
+        getProviderDriverDefinition: () => providerDriverDefinitions[0],
+    };
+});
+
 function createProvider(overrides: Partial<Provider> = {}): Provider {
     return {
         id: 1,
@@ -342,7 +359,7 @@ describe('user reads the provider and model settings', () => {
         expect(wrapper.text()).toContain('Edit provider');
         expect(wrapper.text()).toContain('Provider name *');
         expect(wrapper.text()).toContain('Provider type *');
-        expect(wrapper.text()).toContain('Base URL preview:');
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Base URL preview:'));
         expect(wrapper.get('input').attributes('placeholder')).toBe('My custom provider');
         expect(wrapper.text()).toContain('Save');
         expect(wrapper.text()).toContain('Cancel');
@@ -354,7 +371,7 @@ describe('user reads the provider and model settings', () => {
         expect(wrapper.text()).not.toContain('我的自定义服务商');
     });
 
-    it('user sees provider configuration copy in English and allows long API previews to break', () => {
+    it('user sees provider configuration copy in English and allows long API previews to break', async () => {
         setLocale('en-US');
 
         const wrapper = mount(ProviderConfig, {
@@ -364,7 +381,7 @@ describe('user reads the provider and model settings', () => {
         });
 
         expect(wrapper.text()).toContain('Provider configuration');
-        expect(wrapper.text()).toContain('Base URL preview:');
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Base URL preview:'));
         expect(wrapper.find('p').classes()).toContain('break-all');
         expect(wrapper.text()).not.toContain('服务商配置');
     });
