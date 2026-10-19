@@ -87,9 +87,10 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { MARKDOWN_SCROLL_ROOT_KEY } from '@components/markdownScrollRoot';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { storeToRefs } from 'pinia';
-    import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
     import { useSettingsStore } from '@/stores/settings';
     import type { SessionMessage } from '@/types/session';
@@ -136,6 +137,8 @@
     }>();
 
     const conversationContainer = ref<HTMLElement | null>(null);
+    // 会话内 Markdown 渲染器共享同一个外层滚动 owner，避免各自猜测滚动根。
+    provide(MARKDOWN_SCROLL_ROOT_KEY, () => conversationContainer.value);
     const conversationToolbar = ref<{
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);

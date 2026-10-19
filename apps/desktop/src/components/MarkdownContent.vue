@@ -33,12 +33,17 @@
             :render-batch-budget-ms="6"
             :typewriter="isTypewriterEnabled"
             :code-block-props="codeBlockProps"
+            :virtual-scroll="virtualScrollOptions"
         />
     </div>
 </template>
 
 <script lang="ts">
     import { log } from '@services/ObservabilityService';
+    import {
+        MARKDOWN_SCROLL_ROOT_KEY,
+        type MarkdownScrollRootResolver,
+    } from '@components/markdownScrollRoot';
     import { full as markdownItEmoji } from 'markdown-it-emoji';
     import {
         enableKatex,
@@ -150,7 +155,7 @@
         type ParsedNode,
         parseMarkdownToStructure,
     } from 'markstream-vue';
-    import { computed, onUnmounted, ref, watch } from 'vue';
+    import { computed, inject, onUnmounted, ref, watch } from 'vue';
 
     import { getLocale, locale, t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
@@ -271,6 +276,23 @@
         locale: locale.value,
     }));
     const markdownRenderKey = computed(() => `${markdownParseInput.value.locale}:${props.variant}`);
+
+    // 外层滚动 owner 由会话面板 provide；只有存在时才启用 markstream 的虚拟适配，
+    // 避免渲染器把溢出的 pre 误判为自己的滚动根；独立使用（设置页等）保持原样。
+    const scrollRootResolver = inject<MarkdownScrollRootResolver | null>(
+        MARKDOWN_SCROLL_ROOT_KEY,
+        null
+    );
+    const virtualScrollOptions = computed(() =>
+        scrollRootResolver
+            ? {
+                  enabled: true,
+                  sessionKey: `touchai:${props.variant}:${props.final ? 'final' : 'stream'}`,
+                  scrollRoot: scrollRootResolver,
+                  settleMode: 'auto' as const,
+              }
+            : undefined
+    );
 
     function parseCurrentInput(): ParsedNode[] {
         const input = markdownParseInput.value;
