@@ -228,7 +228,17 @@ describe('user reads a markdown answer', () => {
         });
 
         expect(getMarkdownMock).toHaveBeenCalledWith(
-            'touchai-markdown',
+            'touchai-markdown-stream',
+            expect.objectContaining({
+                enableContainers: false,
+                markdownItOptions: expect.objectContaining({
+                    breaks: true,
+                }),
+            })
+        );
+        // 静态内容使用独立的 parser 实例，避免与流式缓存互相重置。
+        expect(getMarkdownMock).toHaveBeenCalledWith(
+            'touchai-markdown-static',
             expect.objectContaining({
                 enableContainers: false,
                 markdownItOptions: expect.objectContaining({

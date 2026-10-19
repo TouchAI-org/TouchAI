@@ -51,7 +51,14 @@
 
     import WebSearchCitationLink from '@/views/SearchView/components/WebSearch/WebSearchCitationLink.vue';
 
-    const markdownParser = getMarkdown('touchai-markdown', {
+    const markdownParser = getMarkdown('touchai-markdown-stream', {
+        enableContainers: false,
+        markdownItOptions: {
+            breaks: true,
+        },
+    });
+    // 已完成内容与流式内容使用独立的增量缓存，避免相互重置 tokenizer 状态。
+    const staticMarkdownParser = getMarkdown('touchai-markdown-static', {
         enableContainers: false,
         markdownItOptions: {
             breaks: true,
@@ -117,9 +124,10 @@
         languageMap.mermaid = isEnglish ? 'Diagram' : '流程图';
     }
 
-    function getTouchAiMarkdownParser(): MarkdownIt {
+    function getTouchAiMarkdownParser(final = false): MarkdownIt {
         if (!isConfigured) {
             markdownParser.use(markdownItEmojiPlugin);
+            staticMarkdownParser.use(markdownItEmojiPlugin);
 
             enableKatex(() => import('katex'));
             enableMermaid(() => import('mermaid'));
@@ -130,7 +138,7 @@
             isConfigured = true;
         }
 
-        return markdownParser;
+        return final ? staticMarkdownParser : markdownParser;
     }
 </script>
 
@@ -141,22 +149,25 @@
         type ParsedNode,
         parseMarkdownToStructure,
     } from 'markstream-vue';
-    import { computed, ref, watch } from 'vue';
+    import { computed, onUnmounted, ref, watch } from 'vue';
 
     import { getLocale, locale, t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
     import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
-    import { hasMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
+    import { hasUnclosedMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
 
     interface Props {
         content: string;
         variant?: 'default' | 'reasoning';
         final?: boolean;
+        /** 非终态流式更新合并窗口（ms）；0 表示每次内容变化立即重新解析。 */
+        parseCoalesceMs?: number;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         variant: 'default',
         final: true,
+        parseCoalesceMs: 50,
     });
 
     const containerClass = computed(() => {
@@ -166,7 +177,6 @@
         return 'touchai-markdown touchai-markdown--default select-text';
     });
 
-    const parser = getTouchAiMarkdownParser();
     configureMarkstreamLabels(getLocale());
     watch(locale, (nextLocale) => {
         configureMarkstreamLabels(nextLocale);
@@ -257,20 +267,60 @@
     }));
     const markdownRenderKey = computed(() => `${markdownParseInput.value.locale}:${props.variant}`);
 
-    const nodes = computed<ParsedNode[]>(() => {
+    function parseCurrentInput(): ParsedNode[] {
         const input = markdownParseInput.value;
         if (!input.content) {
             return [];
         }
 
-        return parseMarkdownToStructure(input.content, parser, {
+        return parseMarkdownToStructure(input.content, getTouchAiMarkdownParser(input.final), {
             final: input.final,
-            // The incremental parser can reuse an unfinished math boundary and swallow
-            // the next heading. Reparse math-bearing buffers, retaining loading nodes
-            // (final stays false) and the fast path for ordinary prose/code streams.
-            streamParse: hasMathDelimiterOutsideCode(input.content) ? false : 'auto',
+            // 未闭合的数学边界会让增量 parser 吞掉后续标题，只有这种情况回退全量解析；
+            // 公式已闭合时继续使用增量缓存，避免每个 chunk 全量重解析长文。
+            streamParse: hasUnclosedMathDelimiterOutsideCode(input.content) ? false : 'auto',
         });
-    });
+    }
+
+    const nodes = ref<ParsedNode[]>([]);
+    let parseCoalesceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function cancelParseCoalesce() {
+        if (parseCoalesceTimer !== null) {
+            clearTimeout(parseCoalesceTimer);
+            parseCoalesceTimer = null;
+        }
+    }
+
+    function parseImmediately() {
+        cancelParseCoalesce();
+        nodes.value = parseCurrentInput();
+    }
+
+    // 流式追加时合并解析窗口：一个窗口内只重新解析一次，而不是每个 chunk 都全量解析。
+    // 终态、首次渲染、空内容与显式关闭合并时立即解析，保证最终态与测试确定性。
+    watch(
+        markdownParseInput,
+        (input) => {
+            const coalesceMs = props.parseCoalesceMs;
+            if (coalesceMs <= 0 || input.final || nodes.value.length === 0) {
+                parseImmediately();
+                return;
+            }
+
+            // 窗口内已有待执行解析：保留最新输入，等计时器到点一次性解析。
+            if (parseCoalesceTimer !== null) {
+                return;
+            }
+
+            parseCoalesceTimer = setTimeout(() => {
+                parseCoalesceTimer = null;
+                nodes.value = parseCurrentInput();
+            }, coalesceMs);
+        },
+        { immediate: true, flush: 'post' }
+    );
+
+    onUnmounted(cancelParseCoalesce);
 
     const maxLiveNodes = computed(() => {
         if (props.variant === 'reasoning') {
