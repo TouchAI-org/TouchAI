@@ -3,11 +3,11 @@
 - 基线：`origin/main@1b8180052a2bdd57c82a920a4a71725b9dfaf471`（桌面 1.2.2）
 - 分支：`codex/perf-raycast-plan`（worktree：`.worktrees/perf-raycast-plan`）
 - 方案来源：`docs/research/performance-improvement-plan-main.md`（52 项）
-- 最近验证：`vitest` 228 文件 / 1738+ 用例通过，`vue-tsc --noEmit` 通过，改动文件 ESLint 0 error
-- **Rust 侧验证限制**：`cargo check --all-targets` 通过（`node scripts/run-rust-command.mjs check`）；`cargo test` 因磁盘空间不足（D: 剩余 1.8GB）无法链接测试二进制，Rust 单测代码已通过类型检查但未在本机执行
-- 未做性能基线/前后对比（按约定，待全部完成后另行补基线）
+- 最近验证：`vitest` 全部通过（当前 233 文件 / 1750+ 用例）、`vue-tsc --noEmit` 通过、改动文件 ESLint 0 error
+- **Rust 侧验证**：`cargo check --all-targets` 全部通过；按约定 `cargo test` 交由 CI 执行（本地磁盘不足）
+- 未做性能基线/前后对比（按约定，待用户验收后另行补基线）
 
-## 已完成（34 项）
+## 已完成（40 项）
 
 | 编号 | 内容 | 关键提交 |
 | --- | --- | --- |
@@ -17,8 +17,10 @@
 | 06 | 字体成功路径不重复 fetch | `d90cf0ac` |
 | 07 | 发布合并（微任务）+ 未变消息跨发布复用对象身份，一次发布只构建一份快照 | `bd1260ac` |
 | 08 | 发布给 UI 的展示快照剔除 runtime checkpoint / prompt 快照 | `3a500549` |
+| 10 | 消息级有界挂载、高度缓存、spacer 占位、跳转消息按累计高度定位 | `828ae276` |
 | 09 | Markdown 流式解析合并窗口 + 静态/流式 parser 分离 | `e9c8afc9` |
 | 11 | 收起 reasoning 卸载 Markdown + bounded preview | `bb9659d6` |
+| 12 | 长代码块在流式阶段降级为纯文本 pre，终态恢复增强渲染 | `b9a3757e` |
 | 13 | 会话滚动改尾部 revision，移除 deep watch | `295290ed` |
 | 15 | Widget 脚本资源作用域回收 | `b6df37af` |
 | 16 | Widget 参数草稿去重 + 节流 | `ea49a55c` |
@@ -30,7 +32,10 @@
 | 26 | 工具日志轻量投影 + 展开时取详情 | `5f5e6cf0` |
 | 28 | 快搜翻页 generation 校验 | `321e022d` |
 | 30 | 资源缓存按字节 LRU | `531d7a48` |
+| 31 | 快捷方式回写走 `path_norm → 下标` 索引，全局写锁内不再线性扫描 | `72780c93` |
+| 32 | 窗口状态独立探针并行下发（最大化 + 高度模式） | `41a5b0fd` |
 | 33 | tauriFetch 背压/取消 | `88770fa1` |
+| 36 | WebFetch 单次 HTML 解析（图片/标题/正文共用 DOM，Readability 用克隆副本） | `09a75f0d` |
 | 37 | MCP 客户端 map 锁不再跨 RPC 持有（附回归测试） | `306da1ea` |
 | 38 | 复用浏览器端点 HTTP Client + 有界并行端口发现 | `09cbabfb` |
 | 39 | 日志 callsite 过滤 + 有界队列 | `99945d2b` |
@@ -43,44 +48,38 @@
 | N07 | 输出片段用 revision 判定变化，不再逐边界 stringify 全量 | `c3002e38` |
 | N08 | 内置快照 seed 独立入口，轻入口不再解析 1.6MB 快照 | `61677b6e` |
 | N09 | Settings 串行 idle 预热 + hover 优先 | `52014a40` |
+| N10 | Bash 流式输出内存保留有界首尾，超出部分仅流式回调 | `20f699fc` |
 | N11 | 0004 全库迁移夹具（1 万消息 + 旧工具日志/附件/孤儿）+ 耗时记录 | `a4783843` |
 | N12 | SSE 行预筛 | `e4dc4c99` |
+| N03 | Markdown 渲染器绑定外层滚动 owner 的 markstream 虚拟适配（provide/inject） | `749401b1` |
 
-## 部分完成（5 项）
+## 部分完成（7 项）
 
 | 编号 | 已完成 | 未完成 |
 | --- | --- | --- |
 | 14 | 会话图片 `decoding="async"` + `loading="lazy"`（`3a36b2f4`） | 真实缩略图生成（Rust）、按内容 hash/尺寸缓存、增大原图缓存隔离 |
 | 18 | 光标三个标记共享一次文档查询；自动换行布局测量按帧合并（`bdfe3a2b`） | docChanged/selectionChanged 分类更新；宽度变化触发重算 |
-| 22 | 分页查询（`findMessagesPageBySessionId`）+ 分页 loader（`loadSessionHistoryPage`）与游标（`c9f9b977`） | UI 首屏/滚动加载接线需与 `10`/`07` 同批（计划表亦标注“先07/13；结合22、N03”） |
+| 22 | 分页查询（`findMessagesPageBySessionId`）+ 分页 loader（`loadSessionHistoryPage`）与游标（`c9f9b977`） | UI 首屏/滚动加载接线：center 的任务 bootstrap 会全量加载历史并接管 sessionHistory，需先改投影/历史所有权协议（与 `10` 同批） |
 | 23 | turn 内 `SessionReadModel`：附件预检与 transport 重建共享一次查询（`815071ab`） | 展示 bootstrap/分页与 transport 跨阶段复用 |
 | 27 | 点击统计并行预取（`567f3d4c`） | 后续排序/写回合并 |
+| 34 | auto-paste 先原子预留授权/新鲜度/去重，再做重任务；外链图片解析 3 并发 + 10s 总预算；结果按 snapshotId 校验（`3498b760`） | 两阶段 API（文本先回、附件 placeholder 补齐）与草稿 generation 缓存 |
+| 10 | 消息级窗口化（消息 > 40 启用）+ 高度测量/补偿 + 未挂载跳转定位（`828ae276`） | part 级有界挂载、图片后加载/回滚回归、跨虚拟项选区策略需真机验收 |
 
-## 待实施（12 项）
-
-### 前端
+## 待实施（4 项）
 
 | 编号 | 摘要 | 备注 |
 | --- | --- | --- |
-| 12 | 代码块增强按需初始化 | 需按 markstream 1.0.6 实测；长代码纯文本入口 |
-| 29 | 快捷项 top-K + 列表/网格虚拟化 | 已有 60 条/页分页（`PAGE_SIZE = 60`）与 generation 校验；单页固定行高虚拟化收益需实测后再决定 |
-| 35 | 附件 metadata-only 规划与流式物化 | 依赖 Rust |
-| 36 | web_fetch 解析拆分/Worker | 需先埋点实测 |
-| N03 | 恢复 viewport 能力 | 已验证 markstream 1.0.6 提供 `virtualScroll.scrollRoot`（可绑定外层滚动 owner）；需真实渲染环境验证后从 bypass 切换 |
+| 04 | 启动契约维护 | 无新增优化任务；Settings 不重同步已由启动测试覆盖 |
+| 05 | 多窗口保温内存/延迟预算 | 测量优先：需 main/popup/tray 的增量内存与首开延迟数据后才能定 TTL |
+| 29 | 快捷项虚拟化 | 已有 60 条/页分页 + generation 校验；单页固定行高虚拟化收益需实测后再定 |
+| 35 | 附件 metadata-only 规划与流式物化 | Rust 端大改造，需真实附件场景回归 |
 
-### Rust（`cargo check` 可验证，`cargo test` 交给 CI）
+### 需真机/真实数据验收
 
-| 编号 | 摘要 |
-| --- | --- |
-| 05 | 多窗口保温内存/延迟预算 |
-| 31 | 快捷方式回写线性 find 与长写锁 |
-| 32 | 窗口几何/resize IPC 合并 |
-| N10 | Bash 输出有界缓冲与流式落盘 |
-
-### 需大改造（Windows + macOS 一致）
-
-- `10`（P0/L）：消息/part 级有界挂载、单一滚动容器、高度缓存（key 含宽度/字体/内容 revision）、跨虚拟项选区策略。
-- `34`（P0/M）：快捷键 auto-paste 先原子预留授权 seq/snapshotId 并校验新鲜度，再做重任务；系统读取/图像 hash 入有界 blocking 队列，外链异步 HTTP + 总预算；文本先回、附件按有序 placeholder 补齐；结果按 snapshotId/草稿 generation 缓存。
+- `10` 剩余：part 级有界挂载、图片后加载/回滚/时间轴与键盘翻页回归、跨虚拟项选区策略。
+- `22` 剩余：首屏分页 UI 接线（依赖 center 投影/历史所有权协议）。
+- `34` 剩余：两阶段 API（文本先回、附件 placeholder 补齐）与草稿 generation 缓存。
+- `05` / `29` / `35`：需先拿到测量数据或真实附件场景。
 
 ### 范围外
 
@@ -104,3 +103,4 @@ node scripts/run-rust-command.mjs check   # 需要 cargo 在 PATH，且先把 rt
 - 未改变 `message_parts` 为正文唯一真相源的契约；FTS 子串语义、审批/取消即时有序均保留。
 - Rust 编译缓存（`apps/desktop/rust-target/`，约 4.3GB）在磁盘紧张时可直接删除，重新编译即可恢复。
 - 主编排目录 `D:\Project\TouchAI` 的脏工作区未被改动。
+- 剩余 4 项均需真实数据/真机回归（内存预算、附件场景、虚拟化收益），未做任何猜测性实现。
