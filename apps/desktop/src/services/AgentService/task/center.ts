@@ -51,6 +51,59 @@ function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
 }
 
 /**
+ * 控制类状态（完成、失败、等待审批/用户输入）必须即时发布；
+ * 普通流式增量可以合并到一个微任务里发布一次。
+ */
+export function shouldPublishTaskSnapshotImmediately(snapshot: SessionTaskSnapshot): boolean {
+    return (
+        snapshot.status !== 'running' ||
+        snapshot.pendingToolApproval !== null ||
+        snapshot.pendingUserQuestion !== null ||
+        snapshot.pendingApprovals.length > 0
+    );
+}
+
+/**
+ * 任务快照发布调度器。
+ *
+ * 投影在同一个宏任务里可能连续多次变更（文本、reasoning、tool 状态等），
+ * 逐个发布会逐次深拷备整份历史。这里把普通流式发布合并为每个微任务一次，
+ * 控制事件仍同步发布以保证审批/完成的即时性与顺序。
+ */
+export function createTaskPublishScheduler(notify: (taskId: string) => void): {
+    schedule: (taskId: string, snapshot: SessionTaskSnapshot) => void;
+} {
+    const pendingTaskIds = new Set<string>();
+    let flushScheduled = false;
+
+    return {
+        schedule(taskId: string, snapshot: SessionTaskSnapshot): void {
+            if (shouldPublishTaskSnapshotImmediately(snapshot)) {
+                // 控制事件优先：取消挂起的合并发布，避免同一变更被发布两次。
+                pendingTaskIds.delete(taskId);
+                notify(taskId);
+                return;
+            }
+
+            pendingTaskIds.add(taskId);
+            if (flushScheduled) {
+                return;
+            }
+
+            flushScheduled = true;
+            queueMicrotask(() => {
+                flushScheduled = false;
+                const dirtyTaskIds = Array.from(pendingTaskIds);
+                pendingTaskIds.clear();
+                for (const dirtyTaskId of dirtyTaskIds) {
+                    notify(dirtyTaskId);
+                }
+            });
+        },
+    };
+}
+
+/**
  * 将 reminder 质量化为稳定字符串键，用于变更检测。
  * 包含 kind、title、body 和 approvalCallId，确保任何字段变化都能触发重新发布。
  */
@@ -175,6 +228,9 @@ export class SessionTaskCenter {
     private readonly tasks = new Map<string, MutableSessionTask>();
     private readonly sessionActiveTaskIndex = new Map<number, string>();
     private readonly executor = new AiRequestExecutor();
+    private readonly publishScheduler = createTaskPublishScheduler((taskId) =>
+        this.notifySubscribers(taskId)
+    );
 
     /**
      * 注册并启动一个新的会话任务。
@@ -206,7 +262,7 @@ export class SessionTaskCenter {
             modelSwitchCount: 0,
         };
         const projection = new SessionTaskProjection(snapshot, () => {
-            this.notifySubscribers(taskId);
+            this.publishScheduler.schedule(taskId, snapshot);
         });
         const task: MutableSessionTask = {
             taskId,
