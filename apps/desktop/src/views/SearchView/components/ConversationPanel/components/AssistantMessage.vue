@@ -1,10 +1,10 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 鍗冭瘹. Licensed under GPL v3 -->
 
 <template>
     <div class="flex justify-start" :class="message.isStreaming ? 'mb-0' : 'mb-4'">
         <div class="w-full break-words">
             <div class="text-reading leading-[1.8]">
-                <!-- 请求状态消息 -->
+                <!-- 璇锋眰鐘舵€佹秷鎭?-->
                 <div
                     v-if="isRequestStateMessage"
                     class="font-serif text-compact leading-[1.6] text-gray-500"
@@ -12,7 +12,7 @@
                     {{ message.content }}
                 </div>
 
-                <!-- 正常 AI 消息 -->
+                <!-- 姝ｅ父 AI 娑堟伅 -->
                 <template v-else>
                     <div v-if="renderedParts.length > 0" class="assistant-message-parts">
                         <div
@@ -51,7 +51,7 @@
                         {{ message.statusText }}
                     </div>
 
-                    <!-- 流式响应加载指示器 -->
+                    <!-- 娴佸紡鍝嶅簲鍔犺浇鎸囩ず鍣?-->
                     <div
                         v-if="message.isStreaming && !askUserStore.current"
                         :class="streamingIndicatorClass"
@@ -90,8 +90,8 @@
     import ActionButton from '@components/ActionButton.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { notify } from '@services/NotificationService';
-    import { log } from '@services/ObservabilityService';
-    import { computed, onUnmounted, provide, ref, watch } from 'vue';
+import { log } from '@services/ObservabilityService';
+import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
     import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
@@ -170,7 +170,7 @@
     ];
     const DEFAULT_LOADING_TIP_KEY = 'assistant.loadingTip.newLine' satisfies LoadingTipKey;
 
-    // UI 层记忆：跨流式会话保持轮播进度，确保提示均等曝光
+    // UI 灞傝蹇嗭細璺ㄦ祦寮忎細璇濅繚鎸佽疆鎾繘搴︼紝纭繚鎻愮ず鍧囩瓑鏇濆厜
     const lastTipIndex = ref(0);
 
     const currentTipIndex = ref(0);
@@ -182,10 +182,15 @@
     let tipTimer: ReturnType<typeof setInterval> | null = null;
     let tipDelayTimer: ReturnType<typeof setTimeout> | null = null;
 
+    function isDocumentHidden(): boolean {
+        return typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    }
+
     function startTipRotation() {
         const len = TIPS.length;
         if (len <= 1) return;
-        // 20 秒延迟后才显示 tip
+        // 绐楀彛闅愯棌鏃朵笉杞挱锛氱敤鎴风湅涓嶅埌 tip锛屽畾鏃跺櫒鍙細鐧藉崰涓荤嚎绋嬨€?        if (isDocumentHidden()) return;
+        // 20 绉掑欢杩熷悗鎵嶆樉绀?tip
         tipDelayTimer = setTimeout(() => {
             tipVisible.value = true;
             currentTipIndex.value = lastTipIndex.value % len;
@@ -208,7 +213,20 @@
         lastTipIndex.value = currentTipIndex.value;
     }
 
-    // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
+    function handleVisibilityChange() {
+        if (!props.message.isStreaming) {
+            return;
+        }
+
+        if (isDocumentHidden()) {
+            stopTipRotation();
+            return;
+        }
+
+        startTipRotation();
+    }
+
+    // 璺熼殢 streaming 鐘舵€佸惎鍋滆疆鎾紙缁勪欢鐢熷懡鍛ㄦ湡鍙兘璺ㄥ娆¤姹傦級
     watch(
         () => props.message.isStreaming,
         (streaming) => {
@@ -221,7 +239,12 @@
         { immediate: true }
     );
 
+    onMounted(() => {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+    });
+
     onUnmounted(() => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         stopTipRotation();
     });
 
@@ -230,12 +253,9 @@
     });
 
     /**
-     * 把本消息里所有 WebSearch 来源按 URL 汇总成一张查找表。
-     *
-     * 一条 assistant 消息可能包含多轮搜索，按 URL 去重后供行内引用反查。
-     * 这里不分配序号：chip 本身不显示数字（来源卡片的序号是单次搜索内的），
-     * 两套序号容易对不上。
-     */
+     * 鎶婃湰娑堟伅閲屾墍鏈?WebSearch 鏉ユ簮鎸?URL 姹囨€绘垚涓€寮犳煡鎵捐〃銆?     *
+     * 涓€鏉?assistant 娑堟伅鍙兘鍖呭惈澶氳疆鎼滅储锛屾寜 URL 鍘婚噸鍚庝緵琛屽唴寮曠敤鍙嶆煡銆?     * 杩欓噷涓嶅垎閰嶅簭鍙凤細chip 鏈韩涓嶆樉绀烘暟瀛楋紙鏉ユ簮鍗＄墖鐨勫簭鍙锋槸鍗曟鎼滅储鍐呯殑锛夛紝
+     * 涓ゅ搴忓彿瀹规槗瀵逛笉涓娿€?     */
     const citationIndex = computed(() => {
         const byUrl = new Map<string, WebSearchSource>();
 
@@ -254,16 +274,12 @@
         return byUrl;
     });
 
-    // provide 要在 setup 期间调用，但查找必须实时读 computed，
-    // 否则流式新增的搜索结果会被锁死在初始快照里。
-    provide<WebSearchCitationRegistry>(WEB_SEARCH_CITATIONS_KEY, {
+    // provide 瑕佸湪 setup 鏈熼棿璋冪敤锛屼絾鏌ユ壘蹇呴』瀹炴椂璇?computed锛?    // 鍚﹀垯娴佸紡鏂板鐨勬悳绱㈢粨鏋滀細琚攣姝诲湪鍒濆蹇収閲屻€?    provide<WebSearchCitationRegistry>(WEB_SEARCH_CITATIONS_KEY, {
         findByUrl: (url) => citationIndex.value.get(normalizeCitationUrl(url)),
     });
 
     /**
-     * 模型常常把来源写成「（[标题](url)）。」或「。([标题](url))」。
-     * 只改命中本次搜索来源的链接，不碰普通括号引用。
-     */
+     * 妯″瀷甯稿父鎶婃潵婧愬啓鎴愩€岋紙[鏍囬](url)锛夈€傘€嶆垨銆屻€?[鏍囬](url))銆嶃€?     * 鍙敼鍛戒腑鏈鎼滅储鏉ユ簮鐨勯摼鎺ワ紝涓嶇鏅€氭嫭鍙峰紩鐢ㄣ€?     */
     function normalizeContent(content: string): string {
         const index = citationIndex.value;
         return normalizeWrappedCitations(content, (url) => index.has(url));

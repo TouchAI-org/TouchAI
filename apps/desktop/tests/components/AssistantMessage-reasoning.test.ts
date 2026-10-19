@@ -104,6 +104,36 @@ describe('user reads the reasoning behind an answer', () => {
         expect(sections[1]!.find('.markdown').exists()).toBe(false);
     });
 
+    it('does not schedule loading-tip rotation while the document is hidden', async () => {
+        const timeoutSpy = vi.spyOn(window, 'setTimeout');
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'hidden',
+        });
+
+        const wrapper = render({
+            isStreaming: true,
+            parts: [{ id: 't1', type: 'text', content: 'streaming' }],
+        });
+
+        const longDelays = () =>
+            timeoutSpy.mock.calls.filter(([, delay]) => Number(delay ?? 0) >= 20000);
+        expect(longDelays()).toHaveLength(0);
+
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'visible',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+        await nextTick();
+
+        expect(longDelays()).toHaveLength(1);
+
+        wrapper.unmount();
+        timeoutSpy.mockRestore();
+        delete (document as { visibilityState?: string }).visibilityState;
+    });
+
     it('pauses the elapsed timer while the document is hidden and resumes when visible', async () => {
         const intervalSpy = vi.spyOn(window, 'setInterval');
         Object.defineProperty(document, 'visibilityState', {
