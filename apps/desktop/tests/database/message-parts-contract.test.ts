@@ -875,7 +875,7 @@ describe('when conversation text is searched', () => {
         const longSearch = requests().slice(-1)[0]!;
         expect(longSearch.sql).toContain('message_search_fts');
         expect(longSearch.sql).toContain('"sessions"."id" in (select');
-        expect(longSearch.params).toContain('"fir"');
+        expect(longSearch.params).toContain('"fir" AND " mi" AND "ing"');
         const plan = database
             .prepare('EXPLAIN QUERY PLAN ' + longSearch.sql)
             .all(...longSearch.params);
