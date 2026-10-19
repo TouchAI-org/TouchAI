@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, count, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, lt, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { messages } from '../schema';
@@ -14,13 +14,14 @@ export interface MessageRow extends MessageEntity {
     attachments: MessageAttachmentRow[];
 }
 
-export async function findMessagesBySessionId(sessionId: number): Promise<MessageRow[]> {
-    const rows = await db
-        .select()
-        .from(messages)
-        .where(eq(messages.session_id, sessionId))
-        .orderBy(asc(messages.id))
-        .all();
+/** 向前（更早）分页的结果：消息按 id 升序，供直接拼接渲染。 */
+export interface MessagesPage {
+    messages: MessageRow[];
+    hasMore: boolean;
+}
+
+/** 为一批消息补全 parts 与附件，避免逐条查询。 */
+async function hydrateMessageRows(rows: MessageEntity[]): Promise<MessageRow[]> {
     const ids = rows.map((row) => row.id);
     const [parts, attachments] = await Promise.all([
         findMessagePartsByMessageIds(ids),
@@ -43,6 +44,46 @@ export async function findMessagesBySessionId(sessionId: number): Promise<Messag
         parts: partsByMessage.get(row.id) ?? [],
         attachments: attachmentsByMessage.get(row.id) ?? [],
     }));
+}
+
+export async function findMessagesBySessionId(sessionId: number): Promise<MessageRow[]> {
+    const rows = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.session_id, sessionId))
+        .orderBy(asc(messages.id))
+        .all();
+
+    return hydrateMessageRows(rows);
+}
+
+/**
+ * 向前分页读取会话消息（先取最新一页，再按 `beforeMessageId` 向前翻）。
+ *
+ * 先按 id 倒序取 `limit + 1` 条以判断是否还有更早消息，再反转成升序，
+ * 只 hydrate 本页的 parts 与附件，避免长会话首屏全量读取。
+ */
+export async function findMessagesPageBySessionId(
+    sessionId: number,
+    options: { limit: number; beforeMessageId?: number | null }
+): Promise<MessagesPage> {
+    const limit = Math.max(1, Math.floor(options.limit));
+    const conditions = [eq(messages.session_id, sessionId)];
+    if (options.beforeMessageId !== undefined && options.beforeMessageId !== null) {
+        conditions.push(lt(messages.id, options.beforeMessageId));
+    }
+
+    const rows = await db
+        .select()
+        .from(messages)
+        .where(and(...conditions))
+        .orderBy(desc(messages.id))
+        .limit(limit + 1)
+        .all();
+    const hasMore = rows.length > limit;
+    const pageRows = (hasMore ? rows.slice(0, limit) : rows).reverse();
+
+    return { messages: await hydrateMessageRows(pageRows), hasMore };
 }
 /**
  * 创建消息。
