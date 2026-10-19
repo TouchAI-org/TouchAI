@@ -29,8 +29,8 @@ export {
     getProviderDriverDefinitions,
     isProviderDriver,
     parseProviderDriver,
-    providerDriverDefinitions,
     type ProviderDriverDefinition,
+    providerDriverDefinitions,
 } from './driverCatalog';
 
 const providerFactories: Record<ProviderDriver, (config: AiProviderConfig) => AiProvider> = {

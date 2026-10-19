@@ -15,13 +15,13 @@ import {
 import { dismissSessionTerminalStatus, listSessions } from '@/services/AgentService/session';
 import { eventService } from '@/services/EventService';
 import { AppEvent } from '@/services/EventService/types';
-import { createPerfTrace } from '@/utils/perfTrace';
 import {
     createInputHistorySnapshot,
     type InputHistorySnapshot,
     type LoadedSessionInfo,
     type SessionMessage,
 } from '@/types/session';
+import { createPerfTrace } from '@/utils/perfTrace';
 
 import type { PendingRequest, SearchModelOverride } from '../types';
 

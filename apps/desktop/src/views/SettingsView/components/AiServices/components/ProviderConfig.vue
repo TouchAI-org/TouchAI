@@ -35,7 +35,12 @@
     let apiPreviewRequestId = 0;
 
     watch(
-        [() => props.provider.id, () => props.provider.driver, trimmedApiEndpoint, () => form.value.api_key],
+        [
+            () => props.provider.id,
+            () => props.provider.driver,
+            trimmedApiEndpoint,
+            () => form.value.api_key,
+        ],
         async () => {
             const requestId = ++apiPreviewRequestId;
             const endpoint = trimmedApiEndpoint.value;

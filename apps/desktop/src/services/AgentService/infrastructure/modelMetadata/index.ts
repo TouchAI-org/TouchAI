@@ -5,7 +5,6 @@
 import { log } from '@services/ObservabilityService';
 
 import { createTauriFetch } from '../providers/ai-sdk/tauriFetch';
-
 import { buildMetadataList } from './catalog';
 import snapshotData from './snapshot.json';
 import {
