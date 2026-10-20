@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     buildFaviconCandidates,
     faviconHost,
+    isFaviconLoaded,
     rememberFavicon,
+    rememberFaviconFailure,
+    rememberFaviconLoaded,
     setRemoteFaviconServicesEnabled,
 } from '@/views/SearchView/components/WebSearch/favicon';
 
@@ -73,5 +76,51 @@ describe('favicon candidates', () => {
     it('ignores empty resolution and tolerates urls without a host', () => {
         rememberFavicon('', 'https://example.com/icon.png');
         expect(buildFaviconCandidates({ url: 'not a url' })).toEqual([]);
+    });
+
+    it('drops candidates that already failed to load', () => {
+        // 流式渲染时组件会反复重建候选；失败过的图标必须被跳过，
+        // 否则每来一个 chunk 都会重试一次，用户看到图标在闪。
+        const host = uniqueHost();
+        const explicit = `https://cdn.example.com/${host}.png`;
+        rememberFaviconFailure(explicit);
+
+        const candidates = buildFaviconCandidates({
+            url: `https://${host}/post`,
+            favicon: explicit,
+        });
+
+        expect(candidates).toEqual([`https://${host}/favicon.ico`]);
+    });
+
+    it('returns no candidates once every option has failed', () => {
+        const host = uniqueHost();
+        const explicit = `https://cdn.example.com/${host}.png`;
+        const fallback = `https://${host}/favicon.ico`;
+        rememberFaviconFailure(explicit);
+        rememberFaviconFailure(fallback);
+
+        expect(buildFaviconCandidates({ url: `https://${host}/post`, favicon: explicit })).toEqual(
+            []
+        );
+    });
+
+    it('does not reuse a cached icon that later failed', () => {
+        const host = uniqueHost();
+        const resolved = `https://${host}/favicon.ico`;
+        rememberFavicon(host, resolved);
+        rememberFaviconFailure(resolved);
+
+        // 缓存的图也可能失效（站点换图 / 断网），不能把它当唯一候选。
+        expect(buildFaviconCandidates({ url: `https://${host}/other` })).toEqual([]);
+    });
+
+    it('remembers which icons already rendered', () => {
+        const url = 'https://cdn.example.com/loaded.png';
+        expect(isFaviconLoaded(url)).toBe(false);
+
+        rememberFaviconLoaded(url);
+
+        expect(isFaviconLoaded(url)).toBe(true);
     });
 });
