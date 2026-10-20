@@ -58,6 +58,109 @@ describe('ui/Button', () => {
         });
     });
 
+    describe('settings 族 variant（原 .settings-button-* 类）', () => {
+        it('variant=strong 等价于 settings-button-primary', () => {
+            const classes = mountButton({ variant: 'strong' }).classes();
+            expect(classes.sort()).toMatchSnapshot();
+            // 原类：bg-primary-700 hover:bg-primary-600 rounded-[9px] px-3.5 py-1.5
+            // text-[12px] font-medium text-white shadow-none transition-colors
+            // disabled:cursor-not-allowed disabled:opacity-50
+            for (const expected of [
+                'bg-primary-700',
+                'hover:bg-primary-600',
+                'rounded-[9px]',
+                'px-3.5',
+                'py-1.5',
+                'text-[12px]',
+                'font-medium',
+                'text-white',
+                'shadow-none',
+                'transition-colors',
+                'disabled:cursor-not-allowed',
+                'disabled:opacity-50',
+            ]) {
+                expect(classes).toContain(expected);
+            }
+            // settings 族不得携带 default 族的布局类
+            expect(classes).not.toContain('inline-flex');
+            expect(classes).not.toContain('disabled:pointer-events-none');
+            expect(classes).not.toContain('rounded-md');
+            expect(classes).not.toContain('text-sm');
+        });
+
+        it('variant=outline-neutral 等价于 settings-button-secondary', () => {
+            const classes = mountButton({ variant: 'outline-neutral' }).classes();
+            expect(classes.sort()).toMatchSnapshot();
+            expect(classes).toContain('border-neutral-200/80');
+            expect(classes).toContain('text-neutral-700');
+            expect(classes).toContain('hover:bg-neutral-50');
+            expect(classes).not.toContain('inline-flex');
+        });
+
+        it('variant=danger 等价于 settings-button-danger', () => {
+            const classes = mountButton({ variant: 'danger' }).classes();
+            expect(classes.sort()).toMatchSnapshot();
+            expect(classes).toContain('bg-red-600');
+            expect(classes).toContain('hover:bg-red-700');
+            expect(classes).not.toContain('inline-flex');
+        });
+
+        it('variant=ghost-neutral 等价于 settings-icon-button', () => {
+            const classes = mountButton({ variant: 'ghost-neutral' }).classes();
+            expect(classes.sort()).toMatchSnapshot();
+            // 原类：flex h-8 w-8 items-center justify-center rounded-[9px]
+            // text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700
+            for (const expected of [
+                'flex',
+                'h-8',
+                'w-8',
+                'items-center',
+                'justify-center',
+                'rounded-[9px]',
+                'text-neutral-400',
+                'transition-colors',
+                'hover:bg-neutral-100',
+                'hover:text-neutral-700',
+            ]) {
+                expect(classes).toContain(expected);
+            }
+            // icon 族不得携带 settings 族的内边距与字号
+            expect(classes).not.toContain('px-3.5');
+            expect(classes).not.toContain('py-1.5');
+            expect(classes).not.toContain('text-[12px]');
+            expect(classes).not.toContain('font-medium');
+        });
+
+        it('settings / icon 族忽略 size 轴（尺寸已含在 layout 内）', () => {
+            for (const variant of [
+                'strong',
+                'outline-neutral',
+                'danger',
+                'ghost-neutral',
+            ] as const) {
+                const withDefault = mountButton({ variant, size: 'default' }).classes();
+                const withLarge = mountButton({ variant, size: 'lg' }).classes();
+                expect(withDefault.sort()).toEqual(withLarge.sort());
+                expect(withLarge).not.toContain('h-10');
+                expect(withLarge).not.toContain('px-8');
+            }
+        });
+    });
+
+    describe('icon 尺寸变体', () => {
+        it('size=icon-sm 输出 h-7 w-7', () => {
+            const classes = mountButton({ size: 'icon-sm' }).classes();
+            expect(classes).toContain('h-7');
+            expect(classes).toContain('w-7');
+        });
+
+        it('size=icon-md 输出 h-8 w-8', () => {
+            const classes = mountButton({ size: 'icon-md' }).classes();
+            expect(classes).toContain('h-8');
+            expect(classes).toContain('w-8');
+        });
+    });
+
     describe('调用点传入的 class 会被合并而非覆盖', () => {
         it('额外 class 追加在末尾', () => {
             const wrapper = mountButton({ class: 'custom-x' });

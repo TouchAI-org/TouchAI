@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
+    import { Button } from '@components/ui/button';
     import { useAlert } from '@composables/useAlert';
     import { useMotion } from '@composables/useMotion';
     import type { Model, NewModel, Provider } from '@database/schema';
@@ -296,12 +297,9 @@
                     </span>
                     <span v-else>{{ t('settings.ai.refresh') }}</span>
                 </button>
-                <button
-                    class="settings-button-primary flex-shrink-0 px-3 py-1.5"
-                    @click="startCreate"
-                >
+                <Button variant="strong" class="flex-shrink-0 px-3 py-1.5" @click="startCreate">
                     {{ t('settings.ai.addModelTitle') }}
-                </button>
+                </Button>
             </div>
         </div>
 
@@ -311,13 +309,9 @@
                     {{ t('settings.ai.noMatchingModelsDescription', { query: searchQuery }) }}
                 </template>
                 <template #actions>
-                    <button
-                        type="button"
-                        class="settings-button-secondary"
-                        @click="searchQuery = ''"
-                    >
+                    <Button variant="outline-neutral" @click="searchQuery = ''">
                         {{ t('common.clearSearch') }}
-                    </button>
+                    </Button>
                 </template>
             </EmptyState>
         </div>
@@ -334,9 +328,9 @@
             icon="llm"
         >
             <template #actions>
-                <button
-                    type="button"
-                    class="settings-button-primary inline-flex items-center gap-1.5"
+                <Button
+                    variant="strong"
+                    class="inline-flex items-center gap-1.5"
                     :disabled="refreshing || !provider?.api_endpoint"
                     @click="handleRefresh"
                 >
@@ -348,10 +342,10 @@
                     {{
                         refreshing ? t('settings.ai.fetchingModels') : t('settings.ai.fetchModels')
                     }}
-                </button>
-                <button type="button" class="settings-button-secondary" @click="startCreate">
+                </Button>
+                <Button variant="outline-neutral" @click="startCreate">
                     {{ t('settings.ai.addManually') }}
-                </button>
+                </Button>
             </template>
         </EmptyState>
 

@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { Button } from '@components/ui/button';
     import type { Provider } from '@database/schema';
 
     import { t } from '@/i18n';
@@ -58,14 +59,15 @@
         </div>
 
         <div class="settings-side-panel-footer">
-            <button
-                class="settings-button-primary flex w-full items-center justify-center gap-2 break-words whitespace-normal"
+            <Button
+                variant="strong"
+                class="flex w-full items-center justify-center gap-2 break-words whitespace-normal"
                 data-testid="settings-add-custom-provider-button"
                 @click="emit('add-custom')"
             >
                 <AppIcon name="plus" class="h-4 w-4" />
                 {{ t('settings.ai.addProvider.title') }}
-            </button>
+            </Button>
         </div>
 
         <div

@@ -1,5 +1,76 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > variant=danger 等价于 settings-button-danger 1`] = `
+[
+  "bg-red-600",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "font-medium",
+  "hover:bg-red-700",
+  "px-3.5",
+  "py-1.5",
+  "rounded-[9px]",
+  "shadow-none",
+  "text-[12px]",
+  "text-white",
+  "transition-colors",
+]
+`;
+
+exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > variant=ghost-neutral 等价于 settings-icon-button 1`] = `
+[
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "flex",
+  "h-8",
+  "hover:bg-neutral-100",
+  "hover:text-neutral-700",
+  "items-center",
+  "justify-center",
+  "rounded-[9px]",
+  "text-neutral-400",
+  "transition-colors",
+  "w-8",
+]
+`;
+
+exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > variant=outline-neutral 等价于 settings-button-secondary 1`] = `
+[
+  "bg-white",
+  "border",
+  "border-neutral-200/80",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "font-medium",
+  "hover:bg-neutral-50",
+  "hover:border-neutral-300/80",
+  "px-3.5",
+  "py-1.5",
+  "rounded-[9px]",
+  "shadow-none",
+  "text-[12px]",
+  "text-neutral-700",
+  "transition-colors",
+]
+`;
+
+exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > variant=strong 等价于 settings-button-primary 1`] = `
+[
+  "bg-primary-700",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "font-medium",
+  "hover:bg-primary-600",
+  "px-3.5",
+  "py-1.5",
+  "rounded-[9px]",
+  "shadow-none",
+  "text-[12px]",
+  "text-white",
+  "transition-colors",
+]
+`;
+
 exports[`ui/Button > 全部 variant 组合的 class 快照 > size=default 1`] = `
 [
   "bg-primary-500",
