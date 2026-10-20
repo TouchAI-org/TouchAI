@@ -42,12 +42,11 @@ describe('favicon candidates', () => {
         const host = uniqueHost();
         const candidates = buildFaviconCandidates({ url: `https://${host}/post` });
 
-        // 用 hostname 比较而不是子串：`https://${host}/google.com` 也会命中子串。
         expect(candidates).toEqual([`https://${host}/favicon.ico`]);
-        expect(candidates.some((url) => new URL(url).hostname.endsWith('google.com'))).toBe(false);
-        expect(candidates.some((url) => new URL(url).hostname.endsWith('duckduckgo.com'))).toBe(
-            false
-        );
+        // 用精确 hostname 集合比较，不做子串/后缀匹配。
+        const hosts = candidates.map((url) => new URL(url).hostname);
+        expect(hosts).not.toContain('www.google.com');
+        expect(hosts).not.toContain('icons.duckduckgo.com');
     });
 
     it('uses third-party services only when explicitly enabled', () => {
