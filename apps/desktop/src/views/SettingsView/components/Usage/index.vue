@@ -6,12 +6,14 @@
         getModelRanking,
         getSessionRanking,
         getToolUsageStats,
+        getUsageComposition,
         getUsageDashboardSnapshot,
         getUsageFilterOptions,
         getUsageHeatmap,
         getUsageTrendFromArchive,
         type ToolUsageSummary,
         type UsageBucket,
+        type UsageComposition as UsageCompositionData,
         type UsageFilter,
         type UsageFilterOptions,
         type UsageHeatmapDay,
@@ -28,6 +30,7 @@
     import { t } from '@/i18n';
 
     import UsageChart from './components/UsageChart.vue';
+    import UsageComposition from './components/UsageComposition.vue';
     import UsageDashboard from './components/UsageDashboard.vue';
     import UsageHeatmap from './components/UsageHeatmap.vue';
     import UsageRanking from './components/UsageRanking.vue';
@@ -66,6 +69,7 @@
     const sessionRankMetric = ref<UsageRankMetric>('duration');
     const modelRanking = ref<UsageRankItem[]>([]);
     const sessionRanking = ref<UsageRankItem[]>([]);
+    const composition = ref<UsageCompositionData | null>(null);
     const toolStats = ref<ToolUsageSummary>({
         totalCount: 0,
         errorCount: 0,
@@ -109,6 +113,7 @@
             const [
                 dashboard,
                 nextOptions,
+                nextComposition,
                 nextTools,
                 nextHeatmap,
                 nextModelRanking,
@@ -116,6 +121,7 @@
             ] = await Promise.all([
                 getUsageDashboardSnapshot(current, trackedTaskIds.value, dimension.value),
                 getUsageFilterOptions(current),
+                getUsageComposition(current),
                 getToolUsageStats(current),
                 getUsageHeatmap(current),
                 getModelRanking(current, modelRankMetric.value),
@@ -140,6 +146,7 @@
                       }
                     : nextTrend;
             options.value = nextOptions;
+            composition.value = nextComposition;
             toolStats.value = nextTools;
             heatmap.value = nextHeatmap;
             modelRanking.value = nextModelRanking;
@@ -262,6 +269,8 @@
                         :dimension="dimension"
                         @update:dimension="dimension = $event"
                     />
+
+                    <UsageComposition v-if="composition" :composition="composition" />
 
                     <UsageToolStats :stats="toolStats" />
 

@@ -88,9 +88,35 @@ export function formatInt(value: number): string {
     return new Intl.NumberFormat(getLocale()).format(value);
 }
 
-/** 百分比，保留一位小数 */
+/** 百分比，保留一位小数；极小但非零的占比不显示成 0.0% */
 export function formatPercent(ratio: number): string {
+    if (ratio > 0 && ratio < 0.001) {
+        return '<0.1%';
+    }
     return `${(ratio * 100).toFixed(1)}%`;
+}
+
+/**
+ * 较大时长：用于总量与分段展示。
+ *
+ * `formatDuration` 适合毫秒到秒级（首字延迟、单次工具），
+ * 但总量动辄几百秒，写成 `2208.9s` 既难读也看不出量级。
+ */
+export function formatLongDuration(ms: number | null | undefined): string {
+    if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
+    const totalSeconds = Math.round(ms / 1000);
+    if (totalSeconds < 60) return `${totalSeconds}s`;
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const hourUnit = t('settings.usage.duration.hour');
+    const minuteUnit = t('settings.usage.duration.minute');
+    const secondUnit = t('settings.usage.duration.second');
+
+    if (hours > 0) return `${hours}${hourUnit} ${minutes}${minuteUnit}`;
+    if (minutes >= 10) return `${minutes}${minuteUnit}`;
+    return `${minutes}${minuteUnit} ${seconds}${secondUnit}`;
 }
 
 /** 毫秒耗时：850ms / 3.2s */

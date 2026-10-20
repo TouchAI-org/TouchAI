@@ -134,6 +134,28 @@ export const usageMessagesZhCN = {
     'settings.usage.ranking.metric.duration': '活跃',
     'settings.usage.dashboardHistoryNote': '汇总所选区间的用量，对话进行中时持续更新当前时间桶。',
 
+    'settings.usage.composition.tokenTitle': 'Token 构成',
+    'settings.usage.composition.timingTitle': '耗时构成',
+    'settings.usage.composition.totalTokens': '估算总量',
+    'settings.usage.composition.activeTime': '活跃时长',
+    'settings.usage.composition.empty': '这段时间没有可拆分的用量',
+    'settings.usage.composition.cacheNote': '缓存命中占计费输入 {rate}',
+    'settings.usage.composition.timingNote': '按回合耗时拆解',
+
+    'settings.usage.composition.systemPrompt': '系统提示词',
+    'settings.usage.composition.toolDefinitions': '工具定义',
+    'settings.usage.composition.conversation': '对话历史',
+    'settings.usage.composition.toolResults': '工具结果',
+    'settings.usage.composition.userPrompt': '用户消息',
+    'settings.usage.composition.injections': '注入内容',
+    'settings.usage.composition.output': '输出',
+
+    'settings.usage.composition.wait': '模型等待',
+    'settings.usage.composition.think': '模型思考',
+    'settings.usage.composition.reply': '模型回复',
+    'settings.usage.composition.tool': '工具执行',
+    'settings.usage.composition.other': '参数与间隙',
+
     // 工具调用
     'settings.usage.tools.title': '工具调用',
     'settings.usage.tools.description': '数据来自工具调用片段，含内置工具与 MCP 工具。',
@@ -362,6 +384,28 @@ export const usageMessagesEnUS = {
     'settings.usage.ranking.metric.duration': 'Active',
     'settings.usage.dashboardHistoryNote':
         'Usage for the selected range; the current time bucket updates as conversations run.',
+
+    'settings.usage.composition.tokenTitle': 'Token composition',
+    'settings.usage.composition.timingTitle': 'Time composition',
+    'settings.usage.composition.totalTokens': 'estimated total',
+    'settings.usage.composition.activeTime': 'active time',
+    'settings.usage.composition.empty': 'Nothing to break down in this range',
+    'settings.usage.composition.cacheNote': 'Cache hits cover {rate} of billed input',
+    'settings.usage.composition.timingNote': 'Split by turn duration',
+
+    'settings.usage.composition.systemPrompt': 'System prompt',
+    'settings.usage.composition.toolDefinitions': 'Tool definitions',
+    'settings.usage.composition.conversation': 'Conversation',
+    'settings.usage.composition.toolResults': 'Tool results',
+    'settings.usage.composition.userPrompt': 'User messages',
+    'settings.usage.composition.injections': 'Injected content',
+    'settings.usage.composition.output': 'Output',
+
+    'settings.usage.composition.wait': 'Model wait',
+    'settings.usage.composition.think': 'Model thinking',
+    'settings.usage.composition.reply': 'Model reply',
+    'settings.usage.composition.tool': 'Tool run',
+    'settings.usage.composition.other': 'Args and gaps',
 
     'settings.usage.tools.title': 'Tool calls',
     'settings.usage.tools.description':

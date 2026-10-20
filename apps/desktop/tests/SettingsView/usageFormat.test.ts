@@ -10,6 +10,7 @@ import {
     formatDayLabel,
     formatDbTime,
     formatDuration,
+    formatLongDuration,
     formatPercent,
     formatSpeed,
     formatTokensCompact,
@@ -107,6 +108,27 @@ describe('formatActiveDuration', () => {
             { value: '188', unit: 'h' },
             { value: '7', unit: 'm' },
         ]);
+    });
+    it('keeps small non-zero shares readable instead of rounding them to zero', () => {
+        expect(formatPercent(0.0004)).toBe('<0.1%');
+        expect(formatPercent(0.001)).toBe('0.1%');
+        expect(formatPercent(0)).toBe('0.0%');
+    });
+});
+
+describe('formatLongDuration', () => {
+    it('switches to minutes and hours once seconds stop being readable', () => {
+        setLocale('zh-CN');
+        expect(formatLongDuration(3_000)).toBe('3s');
+        expect(formatLongDuration(71_500)).toBe('1分 12秒');
+        expect(formatLongDuration(747_700)).toBe('12分');
+        expect(formatLongDuration(2_208_900)).toBe('36分');
+        expect(formatLongDuration(5_400_000)).toBe('1小时 30分');
+    });
+
+    it('returns a dash for a missing sample', () => {
+        expect(formatLongDuration(null)).toBe('—');
+        expect(formatLongDuration(Number.NaN)).toBe('—');
     });
 });
 

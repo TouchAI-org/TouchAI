@@ -2,6 +2,8 @@
 
 import { and, between, count, desc, eq, inArray, like, or, type SQL, sql } from 'drizzle-orm';
 
+import { estimateTokensFromChars } from '@/utils/promptBreakdown';
+
 import { type DatabaseExecutor, db } from '../index';
 import {
     messageParts,
@@ -125,6 +127,26 @@ export interface UsageRankItem {
 
 /** 排行维度：与界面的三档切换对应 */
 export type UsageRankMetric = 'tokens' | 'cost' | 'duration';
+
+/**
+ * 构成环图的一段。
+ *
+ * `estimated` 为 true 时数值由字符数折算，UI 必须标 `≈`；
+ * 输出 token 与耗时来自供应商或本地计时，是精确值。
+ */
+export interface UsageCompositionSegment {
+    key: string;
+    value: number;
+    estimated: boolean;
+}
+
+/** 用量构成：token 侧看「上下文里有什么」，耗时侧看「时间花在哪」 */
+export interface UsageComposition {
+    tokens: { total: number; segments: UsageCompositionSegment[] };
+    timing: { totalMs: number; segments: UsageCompositionSegment[] };
+    /** 缓存读取占全部计费输入的比例；只作图注，不进入内容构成 */
+    cacheReadShare: number;
+}
 
 /** 工具调用统计（来自 `tool_call` 片段） */
 export interface ToolUsageStat {
@@ -723,6 +745,141 @@ export const getUsageFilterOptions = async (filter: UsageFilter): Promise<UsageF
     return {
         models: modelRows.map((row) => ({ id: row.id, name: row.name, count: row.count })),
         providers: providerRows.map((row) => ({ id: row.id, name: row.name, count: row.count })),
+    };
+};
+
+// ============================================================================
+// 用量构成（token / 耗时）
+// ============================================================================
+
+/**
+ * 内容构成与时间构成。
+ *
+ * 两边的总量口径不同，不能相加：
+ * - token 侧是「上下文里到底装了什么」，按字符估算，总量≈估算值之和；
+ * - 耗时侧是「活跃时长花在哪里」，以回合耗时之和为分母。
+ *
+ * 缓存读取故意**不**作为内容分类：它只是同一批内容被第二次读到，
+ * 属于计费口径。把它当分类会占掉 70%+，把真实构成压成细线。
+ */
+export const getUsageComposition = async (filter: UsageFilter): Promise<UsageComposition> => {
+    const where = buildTurnWhere(filter);
+
+    const turns = await db
+        .select({
+            platform: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.fragments.platform')), 0)`,
+            policy: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.fragments.policy')), 0)`,
+            mode: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.fragments.mode')), 0)`,
+            feature: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.fragments.feature')), 0)`,
+            agentProfile: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.fragments.agent_profile')), 0)`,
+            sessionMemory: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.fragments.session_memory')), 0)`,
+            userAppend: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.fragments.user_append')), 0)`,
+            override: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.fragments.override')), 0)`,
+            builtinTools: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.builtinToolDefinitions')), 0)`,
+            mcpTools: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.mcpToolDefinitions')), 0)`,
+            userPrompt: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.userPrompt')), 0)`,
+            attachments: sql<number>`coalesce(sum(json_extract(${sessionTurns.prompt_breakdown_json}, '$.attachments')), 0)`,
+            outputTokens: sql<number>`coalesce(sum(${sessionTurns.output_tokens}), 0)`,
+            inputTokens: sql<number>`coalesce(sum(${sessionTurns.input_tokens}), 0)`,
+            cacheReadTokens: sql<number>`coalesce(sum(${sessionTurns.cache_read_tokens}), 0)`,
+            totalDurationMs: sql<number>`coalesce(sum(${sessionTurns.duration_ms}), 0)`,
+        })
+        .from(sessionTurns)
+        .where(where)
+        .get();
+
+    // 对话历史与工具结果只能从片段长度估算：供应商不返回 prompt 分片
+    const parts = await db
+        .select({
+            textChars: sql<number>`coalesce(sum(case when ${messageParts.type} = 'text' then length(${messageParts.content}) else 0 end), 0)`,
+            reasoningChars: sql<number>`coalesce(sum(case when ${messageParts.type} = 'reasoning' then length(${messageParts.content}) else 0 end), 0)`,
+            toolOutputChars: sql<number>`coalesce(sum(case when ${messageParts.type} = 'tool_call' then length(json_extract(${messageParts.data}, '$.output')) else 0 end), 0)`,
+        })
+        .from(messageParts)
+        .where(between(messageParts.created_at, filter.from, filter.to))
+        .get();
+
+    // 耗时拆解：都来自调用级与工具级计时
+    const timing = await db
+        .select({
+            wait: sql<number>`coalesce(sum(case when ${messageParts.type} = 'llm_call' then json_extract(${messageParts.data}, '$.timing.ttftMs') else 0 end), 0)`,
+            // 首字之后到首段正文之间是思考阶段（推理模型才有）
+            think: sql<number>`coalesce(sum(case when ${messageParts.type} = 'llm_call'
+                and json_extract(${messageParts.data}, '$.timing.firstTextMs') is not null
+                and json_extract(${messageParts.data}, '$.timing.ttftMs') is not null
+                then max(0, json_extract(${messageParts.data}, '$.timing.firstTextMs')
+                        - json_extract(${messageParts.data}, '$.timing.ttftMs'))
+                else 0 end), 0)`,
+            reply: sql<number>`coalesce(sum(case when ${messageParts.type} = 'llm_call' then json_extract(${messageParts.data}, '$.timing.flowMs') else 0 end), 0)`,
+            tool: sql<number>`coalesce(sum(case when ${messageParts.type} = 'tool_call' then json_extract(${messageParts.data}, '$.duration_ms') else 0 end), 0)`,
+        })
+        .from(messageParts)
+        .where(between(messageParts.created_at, filter.from, filter.to))
+        .get();
+
+    const estimated = (chars: number) => estimateTokensFromChars(chars ?? 0);
+
+    const tokenSegments: UsageCompositionSegment[] = [
+        {
+            key: 'systemPrompt',
+            value: estimated((turns?.platform ?? 0) + (turns?.policy ?? 0)),
+            estimated: true,
+        },
+        {
+            key: 'toolDefinitions',
+            value: estimated((turns?.builtinTools ?? 0) + (turns?.mcpTools ?? 0)),
+            estimated: true,
+        },
+        {
+            key: 'conversation',
+            value: estimated((parts?.textChars ?? 0) + (parts?.reasoningChars ?? 0)),
+            estimated: true,
+        },
+        { key: 'toolResults', value: estimated(parts?.toolOutputChars ?? 0), estimated: true },
+        { key: 'userPrompt', value: estimated(turns?.userPrompt ?? 0), estimated: true },
+        {
+            key: 'injections',
+            value: estimated(
+                (turns?.mode ?? 0) +
+                    (turns?.feature ?? 0) +
+                    (turns?.agentProfile ?? 0) +
+                    (turns?.sessionMemory ?? 0) +
+                    (turns?.userAppend ?? 0) +
+                    (turns?.override ?? 0) +
+                    (turns?.attachments ?? 0)
+            ),
+            estimated: true,
+        },
+        // 输出是供应商返回的实测值，含推理
+        { key: 'output', value: turns?.outputTokens ?? 0, estimated: false },
+    ];
+
+    const totalMs = turns?.totalDurationMs ?? 0;
+    const wait = timing?.wait ?? 0;
+    const think = timing?.think ?? 0;
+    const reply = timing?.reply ?? 0;
+    const tool = timing?.tool ?? 0;
+    // 工具参数构造与调用间隙只能取差额：四项之和常略超过回合耗时
+    const other = Math.max(0, totalMs - wait - think - reply - tool);
+
+    const billingInput = (turns?.inputTokens ?? 0) + (turns?.cacheReadTokens ?? 0);
+
+    return {
+        tokens: {
+            total: tokenSegments.reduce((sum, segment) => sum + segment.value, 0),
+            segments: tokenSegments.filter((segment) => segment.value > 0),
+        },
+        timing: {
+            totalMs,
+            segments: [
+                { key: 'wait', value: wait, estimated: false },
+                { key: 'think', value: think, estimated: false },
+                { key: 'reply', value: reply, estimated: false },
+                { key: 'tool', value: tool, estimated: false },
+                { key: 'other', value: other, estimated: false },
+            ].filter((segment) => segment.value > 0),
+        },
+        cacheReadShare: billingInput > 0 ? (turns?.cacheReadTokens ?? 0) / billingInput : 0,
     };
 };
 
