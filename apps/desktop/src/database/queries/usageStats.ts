@@ -1,9 +1,29 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { and, between, count, desc, eq, gte, inArray, like, or, type SQL, sql } from 'drizzle-orm';
+import {
+    and,
+    between,
+    count,
+    desc,
+    eq,
+    gte,
+    inArray,
+    like,
+    lte,
+    or,
+    type SQL,
+    sql,
+} from 'drizzle-orm';
 
 import { db } from '../index';
-import { messageParts, models, providers, sessionTurns, usageDailyRollups } from '../schema';
+import {
+    messageParts,
+    models,
+    providers,
+    sessions,
+    sessionTurns,
+    usageDailyRollups,
+} from '../schema';
 
 // ============================================================================
 // 类型
@@ -66,6 +86,26 @@ export interface UsageTrendPoint {
     /** 堆叠柱的拆分；按总量降序，UI 取前 N 段并合并其余 */
     segments: UsageTrendSegment[];
 }
+
+/** 排行项：模型或会话 */
+export interface UsageRankItem {
+    id: number;
+    /** 主标题：模型名或会话标题 */
+    name: string;
+    /** 副标题：会话条目用（模型名等）；模型条目为空 */
+    subtitle: string | null;
+    /** 最后活跃时间（会话条目用） */
+    lastAt: string | null;
+    requests: number;
+    tokens: number;
+    costMicros: number;
+    unpricedCount: number;
+    /** 会话时长（毫秒）；模型条目为 null */
+    durationMs: number | null;
+}
+
+/** 排行维度：与界面的三档切换对应 */
+export type UsageRankMetric = 'tokens' | 'cost' | 'duration';
 
 /** 工具调用统计（来自 `tool_call` 片段） */
 export interface ToolUsageStat {
@@ -472,6 +512,116 @@ export const getUsageByProvider = async (filter: UsageFilter): Promise<UsageGrou
     return rows.map(toGroup);
 };
 
+/**
+ * 模型排行：按所选指标排序。
+ *
+ * 与 `getUsageByModel` 的区别：那个返回完整字段供表格展示，
+ * 这里只给排行需要的量，并按 `metric` 排序。
+ */
+export const getModelRanking = async (
+    filter: UsageFilter,
+    metric: UsageRankMetric = 'tokens',
+    limit = 8
+): Promise<UsageRankItem[]> => {
+    const orderExpr =
+        metric === 'cost'
+            ? sql`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`
+            : sql`coalesce(sum(
+                  ${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}
+                  + ${sessionTurns.cache_read_tokens} + ${sessionTurns.cache_write_tokens}
+              ), 0)`;
+
+    const rows = await db
+        .select({
+            id: models.id,
+            name: models.name,
+            requests: count(),
+            tokens: sql<number>`coalesce(sum(
+                ${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}
+                + ${sessionTurns.cache_read_tokens} + ${sessionTurns.cache_write_tokens}
+            ), 0)`,
+            costMicros: sql<number>`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`,
+            unpricedCount: sql<number>`coalesce(sum(${sessionTurns.unpriced_calls}), 0)`,
+        })
+        .from(sessionTurns)
+        .innerJoin(models, eq(models.id, sessionTurns.model_id))
+        .where(buildTurnWhere(filter))
+        .groupBy(models.id, models.name)
+        .orderBy(desc(orderExpr))
+        .limit(limit)
+        .all();
+
+    return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        subtitle: null,
+        lastAt: null,
+        requests: row.requests,
+        tokens: row.tokens,
+        costMicros: row.costMicros,
+        unpricedCount: row.unpricedCount,
+        durationMs: null,
+    }));
+};
+
+/**
+ * 会话排行。
+ *
+ * 时长口径是「该会话里所有回合的耗时之和」，不是首末时间差：
+ * 后者会把中间不用的时间也算进去，无法反映真实对话强度。
+ */
+export const getSessionRanking = async (
+    filter: UsageFilter,
+    metric: UsageRankMetric = 'tokens',
+    limit = 8
+): Promise<UsageRankItem[]> => {
+    const orderExpr =
+        metric === 'cost'
+            ? sql`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`
+            : metric === 'duration'
+              ? sql`coalesce(sum(${sessionTurns.duration_ms}), 0)`
+              : sql`coalesce(sum(
+                    ${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}
+                    + ${sessionTurns.cache_read_tokens} + ${sessionTurns.cache_write_tokens}
+                ), 0)`;
+
+    const rows = await db
+        .select({
+            id: sessions.id,
+            title: sessions.title,
+            modelName: sql<string>`coalesce(max(${models.name}), '')`,
+            lastAt: sql<string>`max(${sessionTurns.created_at})`,
+            requests: count(),
+            tokens: sql<number>`coalesce(sum(
+                ${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}
+                + ${sessionTurns.cache_read_tokens} + ${sessionTurns.cache_write_tokens}
+            ), 0)`,
+            costMicros: sql<number>`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`,
+            unpricedCount: sql<number>`coalesce(sum(${sessionTurns.unpriced_calls}), 0)`,
+            durationMs: sql<number>`coalesce(sum(${sessionTurns.duration_ms}), 0)`,
+        })
+        .from(sessionTurns)
+        .innerJoin(sessions, eq(sessions.id, sessionTurns.session_id))
+        .leftJoin(models, eq(models.id, sessionTurns.model_id))
+        .where(buildTurnWhere(filter))
+        .groupBy(sessions.id, sessions.title)
+        .orderBy(desc(orderExpr))
+        .limit(limit)
+        .all();
+
+    return rows.map((row) => ({
+        id: row.id,
+        name: row.title || '—',
+        subtitle: row.modelName || null,
+        lastAt: row.lastAt ?? null,
+        requests: row.requests,
+        tokens: row.tokens,
+        costMicros: row.costMicros,
+        unpricedCount: row.unpricedCount,
+        durationMs: row.durationMs,
+    }));
+};
+
 /** 筛选下拉的候选列表（按请求数降序） */
 export const getUsageFilterOptions = async (filter: UsageFilter): Promise<UsageFilterOptions> => {
     const [modelRows, providerRows] = await Promise.all([
@@ -606,11 +756,18 @@ export const getToolUsageStats = async (filter: UsageFilter): Promise<ToolUsageS
 };
 
 // ============================================================================
-// 热力图（固定窗口，不受 filter 的 from/to 影响）
+// 热力图（跟随所选区间）
 // ============================================================================
 
-export const getUsageHeatmap = async (weeks = 53): Promise<UsageHeatmapDay[]> => {
-    const since = sql`datetime('now', '-${sql.raw(String(weeks * 7))} days')`;
+/**
+ * 热力图。
+ *
+ * 跟随所选区间，而不是固定一年：选了“近 7 天”却看到一整年的格子
+ * 会让人误以为筛选没生效。
+ */
+export const getUsageHeatmap = async (
+    filter: Pick<UsageFilter, 'from' | 'to'>
+): Promise<UsageHeatmapDay[]> => {
     const dayExpr = sql<string>`date(${sessionTurns.created_at}, 'localtime')`;
 
     const rows = await db
@@ -624,7 +781,9 @@ export const getUsageHeatmap = async (weeks = 53): Promise<UsageHeatmapDay[]> =>
             costMicros: sql<number>`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`,
         })
         .from(sessionTurns)
-        .where(gte(sessionTurns.created_at, since))
+        .where(
+            and(gte(sessionTurns.created_at, filter.from), lte(sessionTurns.created_at, filter.to))
+        )
         .groupBy(dayExpr)
         .orderBy(dayExpr)
         .all();

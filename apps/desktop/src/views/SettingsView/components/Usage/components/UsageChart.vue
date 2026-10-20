@@ -102,7 +102,7 @@
 
     const maxValue = computed(() => Math.max(1, ...bars.value.map((bar) => bar.total)));
 
-    /** 全期各分组合计，供图例展示总量与占比 */
+    /** 全期各分组合计，供图例 tooltip 展示总量 */
     const seriesTotals = computed(() => {
         const totals = new Map<string, number>();
         for (const bar of bars.value) {
@@ -112,12 +112,6 @@
         }
         return totals;
     });
-
-    function formatShare(name: string): string {
-        const total = [...seriesTotals.value.values()].reduce((sum, value) => sum + value, 0);
-        if (total <= 0) return '—';
-        return `${(((seriesTotals.value.get(name) ?? 0) / total) * 100).toFixed(1)}%`;
-    }
 
     const geometry = computed(() => {
         const items = bars.value;
@@ -364,27 +358,24 @@
             </div>
         </div>
 
-        <!-- 图例同时承担「用量分布」：颜色 + 全期总量 + 占比 -->
+        <!-- 图例：居中横排，只承担图例职责（总量与占比看趋势图即可） -->
         <div
             v-if="series.length > 0"
-            class="mt-3 grid gap-x-4 gap-y-1.5 border-t border-neutral-100 pt-3"
+            class="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 border-t border-neutral-100 pt-3"
         >
-            <div v-for="entry in series" :key="entry.name" class="flex items-center gap-2 text-xs">
+            <span
+                v-for="entry in series"
+                :key="entry.name"
+                class="flex items-center gap-1.5 text-[11px] text-neutral-600"
+                :title="`${entry.name} ${formatValue(seriesTotals.get(entry.name) ?? 0)}`"
+            >
                 <span
-                    class="h-2.5 w-2.5 shrink-0 rounded-sm"
+                    class="h-2 w-2 shrink-0 rounded-full"
                     :style="{ backgroundColor: entry.color }"
                     aria-hidden="true"
                 />
-                <span class="min-w-0 flex-1 truncate text-neutral-700" :title="entry.name">
-                    {{ entry.name }}
-                </span>
-                <span class="shrink-0 text-neutral-500 tabular-nums">
-                    {{ formatValue(seriesTotals.get(entry.name) ?? 0) }}
-                </span>
-                <span class="w-12 shrink-0 text-right text-neutral-900 tabular-nums">
-                    {{ formatShare(entry.name) }}
-                </span>
-            </div>
+                <span class="max-w-40 truncate">{{ entry.name }}</span>
+            </span>
         </div>
     </section>
 </template>

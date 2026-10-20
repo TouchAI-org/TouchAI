@@ -2,7 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import type { UsageSummary } from '@database/queries/usageStats';
+    import type { UsageSummary, UsageTrendPoint } from '@database/queries/usageStats';
     import {
         AppEvent,
         eventService,
@@ -25,6 +25,12 @@
     interface Props {
         /** 历史汇总；无数据时为 null */
         summary: UsageSummary | null;
+        /** 所选区间的趋势序列，用于无实时数据时填充图表 */
+        trend: UsageTrendPoint[];
+        /** 当前筛选的区间，用于计算平均 RPM */
+        range: { preset: string; from: string; to: string };
+        /** 区间内真实的首末时间跨度；「全部时间」靠它算 RPM */
+        actualSpanMs: number;
     }
 
     const props = defineProps<Props>();
@@ -55,16 +61,8 @@
     const anyStreaming = computed(() => aggregate.value.anyStreaming);
     const hasLiveStreams = computed(() => streams.value.size > 0);
 
-    /**
-     * 面板有两种语义，但只有一块：
-     *
-     * - 有流（正在对话或刚结束）：显示**这一轮**的实时数字
-     * - 无流（打开页面时）：显示**所选区间**的历史汇总
-     *
-     * 合并而不是并排，是因为两者回答的是同一个问题（「用了多少」），
-     * 并排会让用户同时看到两组互相矛盾的数字。
-     */
-    const mode = computed<'live' | 'history'>(() => (hasLiveStreams.value ? 'live' : 'history'));
+    // 不再有“实时模式 / 历史模式”的切换：历史是基线，实时往上累加，
+    // 面板只有一套语义，数字与曲线都是连续变化的。
 
     // ===== 指标卡 =====
 
@@ -85,79 +83,61 @@
         warn: boolean;
     }
 
-    /** 实时模式：这一轮的成本 / token / 首字 / 耗时 */
-    const liveCards = computed<Card[]>(() => {
-        const cost = aggregate.value.totalCostMicros;
-        return [
-            {
-                key: 'cost',
-                label: t('settings.usage.metric.cost'),
-                value: cost === null ? '—' : formatCost(cost),
-                prefix: cost === null ? '' : '≈ ',
-                note: t('settings.usage.live.estimateNoteShort'),
-                warn: false,
-            },
-            {
-                key: 'tokens',
-                label: t('settings.usage.metric.tokens'),
-                value: formatTokensCompact(aggregate.value.totalTokens),
-                prefix: '',
-                note: t('settings.usage.live.estimatedTokens'),
-                warn: false,
-            },
-            {
-                key: 'ttft',
-                label: t('settings.usage.metric.ttft'),
-                value: formatDuration(aggregate.value.ttftMs),
-                prefix: '',
-                note: t('settings.usage.metric.ttftNote'),
-                warn: false,
-            },
-            {
-                key: 'elapsed',
-                label: t('settings.usage.live.elapsed'),
-                value: elapsedText.value,
-                prefix: '',
-                note: anyStreaming.value
-                    ? t('settings.usage.live.streaming')
-                    : t('settings.usage.live.stopped'),
-                warn: false,
-            },
-        ];
-    });
-
-    /** 历史模式：所选区间的汇总 */
-    const historyCards = computed<Card[]>(() => {
+    /**
+     * 统一指标卡：历史汇总是基线，实时流是叠加量。
+     *
+     * 有流时直接在区间汇总上累加这一轮，而不是切换成另一组数字：
+     * 面板不会因为一次对话就“换一套口径”，数字是连续往上长的。
+     */
+    const cards = computed<Card[]>(() => {
         const summary = props.summary;
-        if (!summary) return [];
+        const live = aggregate.value;
+        const streaming = anyStreaming.value;
 
-        return [
+        // 无历史数据时也给出可读的零值，而不是空白
+        const baseTokens = summary?.realTotalTokens ?? 0;
+        const baseRequests = summary?.requestCount ?? 0;
+        const baseCost = summary?.totalCostMicros ?? 0;
+        const baseSessions = summary?.sessionCount ?? 0;
+
+        const liveTokens = live.totalTokens;
+        const liveRequests = streaming || hasLiveStreams.value ? live.activeCount + 1 : 0;
+        const liveCost = live.totalCostMicros;
+
+        const items: Card[] = [
             {
                 key: 'cost',
                 label: t('settings.usage.metric.cost'),
-                value: formatCost(summary.totalCostMicros),
-                // 有未定价调用时加 ≥ 前缀，绝不把未知当 0
-                prefix: summary.unpricedCount > 0 ? '≥ ' : '',
+                value: formatCost(baseCost + (liveCost ?? 0)),
+                // 只有“确实有未定价调用”时才加 ≥；有流且本轮未定价也算
+                prefix:
+                    (summary?.unpricedCount ?? 0) > 0 || (hasLiveStreams.value && liveCost === null)
+                        ? '≥ '
+                        : '',
                 note:
-                    summary.unpricedCount > 0
-                        ? t('settings.usage.metric.unpriced', { count: summary.unpricedCount })
-                        : t('settings.usage.metric.costNote'),
-                warn: summary.unpricedCount > 0,
+                    liveCost !== null && hasLiveStreams.value
+                        ? t('settings.usage.metric.costNoteWithLive')
+                        : summary && summary.unpricedCount > 0
+                          ? t('settings.usage.metric.unpriced', { count: summary.unpricedCount })
+                          : t('settings.usage.metric.costNote'),
+                warn: (summary?.unpricedCount ?? 0) > 0,
             },
             {
                 key: 'requests',
                 label: t('settings.usage.metric.requests'),
-                value: formatInt(summary.requestCount),
+                value: formatInt(baseRequests + liveRequests),
                 prefix: '',
-                note: t('settings.usage.metric.requestsNote', {
-                    rate: formatPercent(summary.successRate),
-                }),
+                note: summary
+                    ? t('settings.usage.metric.requestsNote', {
+                          rate: formatPercent(summary.successRate),
+                      })
+                    : t('settings.usage.metric.requestsNote', { rate: '—' }),
                 warn: false,
             },
             {
                 key: 'sessions',
                 label: t('settings.usage.metric.sessions'),
-                value: formatInt(summary.sessionCount),
+                value: formatInt(baseSessions + (hasLiveStreams.value ? 1 : 0)),
                 prefix: '',
                 note: t('settings.usage.metric.sessionsNote'),
                 warn: false,
@@ -165,30 +145,53 @@
             {
                 key: 'tokens',
                 label: t('settings.usage.metric.tokens'),
-                value: formatTokensCompact(summary.realTotalTokens),
+                value: formatTokensCompact(baseTokens + liveTokens),
                 prefix: '',
-                note: t('settings.usage.metric.tokensNote'),
-                warn: false,
-            },
-            {
-                key: 'ttft',
-                label: t('settings.usage.metric.ttft'),
-                value: formatDuration(summary.meanTtftMs),
-                prefix: '',
-                note: t('settings.usage.metric.ttftNote'),
+                note: hasLiveStreams.value
+                    ? t('settings.usage.metric.tokensNoteWithLive')
+                    : t('settings.usage.metric.tokensNote'),
                 warn: false,
             },
         ];
+
+        // 有流时第四张换成「已用时」，把握手阶段的实际情况说清楚
+        if (hasLiveStreams.value) {
+            items.push({
+                key: 'elapsed',
+                label: t('settings.usage.live.elapsed'),
+                value: elapsedText.value,
+                prefix: '',
+                note: streaming
+                    ? t('settings.usage.live.streaming')
+                    : t('settings.usage.live.stopped'),
+                warn: false,
+            });
+        } else {
+            items.push({
+                key: 'ttft',
+                label: t('settings.usage.metric.ttft'),
+                value: formatDuration(summary?.meanTtftMs ?? null),
+                prefix: '',
+                note: t('settings.usage.metric.ttftNote'),
+                warn: false,
+            });
+        }
+
+        return items;
     });
 
-    const cards = computed(() => (mode.value === 'live' ? liveCards.value : historyCards.value));
-
-    /** 次级指标：历史模式才展示口径拆分 */
+    /**
+     * 次级指标：做成一排小卡片，而不是一行薄文本。
+     *
+     * 平均 RPM 由所选区间的请求数除以实际跨度算出：
+     * 要求的是“平均每分钟多少请求”，分母应该是区间长度（小时级以下用分钟）
+     * 而不是固定的 30 天——选“今天”时分子小但分母也小，两者才能对齐。
+     */
     const secondaryMetrics = computed(() => {
         const summary = props.summary;
-        if (mode.value === 'live' || !summary) return [];
+        if (!summary) return [];
 
-        const items = [
+        const items: Array<{ key: string; label: string; value: string; note?: string }> = [
             {
                 key: 'input',
                 label: t('settings.usage.metric.freshInput'),
@@ -209,6 +212,12 @@
                 label: t('settings.usage.metric.cacheHitRate'),
                 value: formatPercent(summary.cacheHitRate),
             },
+            {
+                key: 'rpm',
+                label: t('settings.usage.metric.rpm'),
+                value: averageRpm.value === null ? '—' : averageRpm.value.toFixed(2),
+                note: t('settings.usage.metric.rpmNote'),
+            },
         ];
 
         // 推理 token 只在真的有值时出现：恒为 0 是噪音
@@ -223,6 +232,23 @@
         return items;
     });
 
+    /** 平均 RPM：区间内每分钟请求数 */
+    const averageRpm = computed<number | null>(() => {
+        const summary = props.summary;
+        if (!summary || summary.requestCount === 0) return null;
+
+        const from = Date.parse(props.range.from.replace(' ', 'T') + 'Z');
+        const to = Date.parse(props.range.to.replace(' ', 'T') + 'Z');
+        const spanMs = to - from;
+        // 「全部时间」的跨度被钳到 1970-9999，没有意义，改用真实首末时间
+        const effective = props.range.preset === 'all' ? props.actualSpanMs : spanMs;
+        if (!Number.isFinite(effective) || effective <= 0) return null;
+
+        const minutes = effective / 60_000;
+        if (minutes < 1) return null;
+        return summary.requestCount / minutes;
+    });
+
     const elapsedText = computed(() => {
         const ms = aggregate.value.elapsedMs;
         const totalSeconds = Math.floor(ms / 1000);
@@ -234,7 +260,65 @@
         Math.max(0, aggregate.value.modelNames.length - modelLabels.value.length)
     );
 
-    // ===== 曲线几何 =====
+    // ===== 曲线数据：历史与实时接在同一条时间轴上 =====
+    //
+    // 两者单位不同（历史是 token 数，实时是 tok/s），直接混在一起会误导。
+    // 这里统一成「累计 token」：历史用桶内 token，实时用本轮累计 token，
+    // 一条曲线从过去一直画到现在，新对话只是把尾部接上，不换图。
+
+    interface CurvePoint {
+        label: string;
+        value: number;
+        /** true 表示该点来自实时流（用于区分后半段） */
+        live: boolean;
+    }
+
+    /** 历史趋势：按时间桶的 token 总量 */
+    const historyCurve = computed<CurvePoint[]>(() =>
+        props.trend.map((point) => ({ label: point.key, value: point.tokens, live: false }))
+    );
+
+    /**
+     * 实时段：本轮每采样周期的**新增** token。
+     *
+     * 与历史桶同量级才能拼成一条线：并存时直接累加在当前尾部。
+     */
+    const liveCurve = computed<CurvePoint[]>(() => {
+        const points: CurvePoint[] = [];
+        let previous = 0;
+
+        for (const sample of samples.value) {
+            const total = sample.totalTokens;
+            points.push({
+                label: String(Math.round(sample.atMs / 1000)),
+                value: Math.max(0, total - previous),
+                live: true,
+            });
+            previous = total;
+        }
+
+        return points;
+    });
+
+    /** 实时段存在时接在历史后面；两者共享同一套坐标 */
+    const curvePoints = computed<CurvePoint[]>(() => {
+        const history = historyCurve.value;
+        const live = liveCurve.value;
+        if (live.length === 0) return history;
+        if (history.length === 0) return live;
+
+        // 只保留最近一段历史，避免实时尾部被压成一条线
+        const tail = history.slice(-Math.max(6, Math.floor(MAX_SAMPLES * 0.4)));
+        return [...tail, ...live];
+    });
+
+    const curveUnit = computed(() => t('settings.usage.metric.tokens'));
+
+    /** 分界点：历史段结束的位置，用于在图上画一条竖线 */
+    const liveBoundaryIndex = computed(() => {
+        if (liveCurve.value.length === 0) return -1;
+        return curvePoints.value.length - liveCurve.value.length;
+    });
 
     const VIEW_WIDTH = 520;
     const VIEW_HEIGHT = 96;
@@ -243,15 +327,16 @@
     const innerHeight = VIEW_HEIGHT - PADDING.top - PADDING.bottom;
 
     const geometry = computed(() => {
-        const items = samples.value;
+        const items = curvePoints.value;
         if (items.length === 0) return [];
 
-        const peak = Math.max(1, ...items.map((item) => item.tokensPerSecond));
+        const peak = Math.max(1, ...items.map((item) => item.value));
         const step = items.length > 1 ? innerWidth / (items.length - 1) : 0;
 
         return items.map((item, index) => ({
+            ...item,
             x: PADDING.left + (items.length > 1 ? index * step : innerWidth / 2),
-            y: PADDING.top + innerHeight - (item.tokensPerSecond / peak) * innerHeight,
+            y: PADDING.top + innerHeight - (item.value / peak) * innerHeight,
         }));
     });
 
@@ -275,15 +360,29 @@
 
     // ===== 采样与清理 =====
 
+    /**
+     * 追加一个采样点。
+     *
+     * 采样同时记速度与**累计 token**：曲线用累计增量接在历史后面，
+     * 而速度只用于右上角那个大号数字。
+     */
     function pushAggregateSample() {
         const speed = aggregate.value.speed;
-        if (speed === null || !Number.isFinite(speed) || speed <= 0) return;
+        const totalTokens = aggregate.value.totalTokens;
+        if (totalTokens <= 0) return;
 
         if (curveStartedAt === 0) curveStartedAt = Date.now();
-        lastSpeed.value = speed;
+        if (speed !== null && Number.isFinite(speed) && speed > 0) {
+            lastSpeed.value = speed;
+        }
+
         samples.value = [
             ...samples.value,
-            { atMs: Date.now() - curveStartedAt, tokensPerSecond: speed },
+            {
+                atMs: Date.now() - curveStartedAt,
+                tokensPerSecond: speed ?? 0,
+                totalTokens,
+            },
         ].slice(-MAX_SAMPLES);
     }
 
@@ -345,16 +444,12 @@
 </script>
 
 <template>
-    <section class="settings-row-group p-4" data-testid="settings-usage-dashboard">
-        <!-- 头部：标题随语义切换；速度只在实时模式下有意义 -->
+    <section class="pb-1" data-testid="settings-usage-dashboard">
+        <!-- 头部：标题固定，不再因为有无流而换标题 -->
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex min-w-0 items-center gap-2">
                 <span class="shrink-0 text-[13px] text-neutral-950">
-                    {{
-                        mode === 'live'
-                            ? t('settings.usage.live.title')
-                            : t('settings.usage.dashboardHistoryTitle')
-                    }}
+                    {{ t('settings.usage.dashboardHistoryTitle') }}
                 </span>
                 <span
                     v-for="label in modelLabels"
@@ -370,7 +465,7 @@
                 </span>
             </div>
 
-            <div v-if="mode === 'live'" class="flex items-baseline gap-1.5">
+            <div v-if="hasLiveStreams" class="flex items-baseline gap-1.5">
                 <span
                     class="font-serif text-[26px] leading-none font-semibold tabular-nums"
                     :class="anyStreaming ? 'text-neutral-950' : 'text-neutral-300'"
@@ -381,13 +476,8 @@
             </div>
         </div>
 
-        <!-- 指标卡：历史态 5 张，实时态 4 张，分别给列数避免最后一张落单 -->
-        <div
-            :class="[
-                'mt-3 grid grid-cols-2 gap-3',
-                mode === 'history' ? 'sm:grid-cols-3 lg:grid-cols-5' : 'lg:grid-cols-4',
-            ]"
-        >
+        <!-- 主指标卡 -->
+        <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <div
                 v-for="card in cards"
                 :key="card.key"
@@ -409,27 +499,31 @@
             </div>
         </div>
 
+        <!-- 次级指标也做成卡片，与主指标同一套视觉 -->
         <div
             v-if="secondaryMetrics.length > 0"
-            class="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 border-t border-neutral-100 pt-3"
+            class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6"
         >
             <div
                 v-for="item in secondaryMetrics"
                 :key="item.key"
-                class="flex items-baseline gap-2 text-xs"
+                class="flex min-w-0 flex-col gap-0.5 rounded-[9px] bg-neutral-50/60 px-3 py-2"
             >
-                <span class="text-neutral-500">{{ item.label }}</span>
-                <span class="text-neutral-800 tabular-nums" :title="item.value">
+                <span class="truncate text-[11px] text-neutral-500">{{ item.label }}</span>
+                <span
+                    class="truncate text-[13px] text-neutral-900 tabular-nums"
+                    :title="item.value"
+                >
                     {{ item.value }}
                 </span>
             </div>
         </div>
 
-        <!-- 吞吐曲线：只在有流时出现，历史模式不占地方 -->
-        <div v-if="mode === 'live'" class="mt-3 rounded-[11px] bg-neutral-50/80 p-3">
+        <!-- 曲线常驻：历史与实时接在同一条线上，有流时尾部继续往前画 -->
+        <div class="mt-3 rounded-[11px] bg-neutral-50/80 p-3">
             <div class="flex items-center justify-between">
                 <span class="text-[10px] tracking-wide text-neutral-400 uppercase">
-                    {{ t('settings.usage.live.throughput') }}
+                    {{ t('settings.usage.dashboardCurveTitle') }} · {{ curveUnit }}
                 </span>
                 <span
                     class="flex items-center gap-1.5 text-[11px]"
@@ -460,8 +554,21 @@
                 :height="VIEW_HEIGHT"
                 class="mt-1 w-full"
                 role="img"
-                :aria-label="t('settings.usage.live.throughput')"
+                :aria-label="t('settings.usage.dashboardCurveTitle')"
             >
+                <!-- 历史段与实时段的分界；有流才画 -->
+                <line
+                    v-if="liveBoundaryIndex > 0 && geometry[liveBoundaryIndex]"
+                    :x1="geometry[liveBoundaryIndex]!.x"
+                    :x2="geometry[liveBoundaryIndex]!.x"
+                    :y1="PADDING.top"
+                    :y2="PADDING.top + innerHeight"
+                    stroke="currentColor"
+                    class="text-neutral-300"
+                    stroke-width="1"
+                    stroke-dasharray="2 2"
+                />
+
                 <path :d="areaPath" fill="currentColor" class="text-sky-500/10" />
                 <path
                     :d="linePath"
@@ -480,23 +587,12 @@
                     class="text-sky-500"
                 />
             </svg>
-
-            <div
-                class="mt-2 flex items-center justify-between border-t border-dashed border-neutral-200 pt-2"
-            >
-                <span class="text-[10px] tracking-wide text-neutral-400 uppercase">
-                    {{ t('settings.usage.live.stream') }}
-                </span>
-                <span class="text-[11px] text-neutral-500 tabular-nums">
-                    {{ t('settings.usage.live.activeStreams', { count: aggregate.activeCount }) }}
-                </span>
-            </div>
         </div>
 
         <p class="mt-2 flex flex-wrap items-center gap-x-1.5 text-[11px] text-neutral-400">
             <AppIcon name="information-circle" class="h-3 w-3 shrink-0" />
             {{
-                mode === 'live'
+                hasLiveStreams
                     ? t('settings.usage.live.estimateNote')
                     : t('settings.usage.dashboardHistoryNote')
             }}

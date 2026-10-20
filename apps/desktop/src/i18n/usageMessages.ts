@@ -61,12 +61,16 @@ export const usageMessagesZhCN = {
     'settings.usage.metric.label': '用量指标',
     'settings.usage.metric.cost': '总成本',
     'settings.usage.metric.costNote': '基于官方价格估算',
+    'settings.usage.metric.costNoteWithLive': '含本轮估算',
+    'settings.usage.metric.rpm': '平均 RPM',
+    'settings.usage.metric.rpmNote': '每分钟请求数',
     'settings.usage.metric.requests': '总请求',
     'settings.usage.metric.requestsNote': '成功率 {rate}',
     'settings.usage.metric.sessions': '会话数',
     'settings.usage.metric.sessionsNote': '产生过用量的会话',
     'settings.usage.metric.tokens': '消耗 Tokens',
     'settings.usage.metric.tokensNote': '含缓存读写',
+    'settings.usage.metric.tokensNoteWithLive': '含缓存与本轮估算',
     'settings.usage.metric.cacheHitRate': '缓存命中率',
     'settings.usage.metric.freshInput': '新增输入',
     'settings.usage.metric.output': '输出',
@@ -89,15 +93,15 @@ export const usageMessagesZhCN = {
 
     // 实时面板
     'settings.usage.live.title': '实时用量',
-    'settings.usage.live.throughput': 'Throughput',
-    'settings.usage.live.stream': 'Stream',
-    'settings.usage.live.online': 'live',
-    'settings.usage.live.idle': 'idle',
+    'settings.usage.live.throughput': '吞吐',
+    'settings.usage.live.stream': '流',
+    'settings.usage.live.online': '进行中',
+    'settings.usage.live.idle': '空闲',
     'settings.usage.live.waiting': '等待下一次对话',
     'settings.usage.live.activeStreams': '{count} 路响应中',
-    'settings.usage.live.total': 'total',
-    'settings.usage.live.elapsed': 'elapsed',
-    'settings.usage.live.cost': 'cost',
+    'settings.usage.live.total': '合计',
+    'settings.usage.live.elapsed': '已用时',
+    'settings.usage.live.cost': '成本',
     'settings.usage.live.ttft': '首字 {value}',
     'settings.usage.live.stopped': '已结束',
     'settings.usage.live.estimateNote':
@@ -108,6 +112,14 @@ export const usageMessagesZhCN = {
 
     // 统一仪表盘
     'settings.usage.dashboardHistoryTitle': '用量概览',
+    'settings.usage.dashboardCurveTitle': '用量曲线',
+
+    // 排行
+    'settings.usage.ranking.modelTitle': '模型',
+    'settings.usage.ranking.sessionTitle': '最耗会话',
+    'settings.usage.ranking.metric.tokens': 'Tokens',
+    'settings.usage.ranking.metric.cost': '费用',
+    'settings.usage.ranking.metric.duration': '活跃',
     'settings.usage.dashboardHistoryNote': '汇总所选区间的已落库用量；对话进行中时切换为实时数字。',
 
     // 工具调用
@@ -273,12 +285,16 @@ export const usageMessagesEnUS = {
     'settings.usage.metric.label': 'Usage metrics',
     'settings.usage.metric.cost': 'Total cost',
     'settings.usage.metric.costNote': 'Estimated from official prices',
+    'settings.usage.metric.costNoteWithLive': 'Including the live turn',
+    'settings.usage.metric.rpm': 'Mean RPM',
+    'settings.usage.metric.rpmNote': 'Requests per minute',
     'settings.usage.metric.requests': 'Requests',
     'settings.usage.metric.requestsNote': '{rate} succeeded',
     'settings.usage.metric.sessions': 'Sessions',
     'settings.usage.metric.sessionsNote': 'Sessions with recorded usage',
     'settings.usage.metric.tokens': 'Tokens used',
     'settings.usage.metric.tokensNote': 'Including cache',
+    'settings.usage.metric.tokensNoteWithLive': 'Including cache and the live turn',
     'settings.usage.metric.cacheHitRate': 'Cache hit rate',
     'settings.usage.metric.freshInput': 'Fresh input',
     'settings.usage.metric.output': 'Output',
@@ -310,6 +326,13 @@ export const usageMessagesEnUS = {
     'settings.usage.live.streaming': 'streaming',
 
     'settings.usage.dashboardHistoryTitle': 'Usage overview',
+    'settings.usage.dashboardCurveTitle': 'Usage curve',
+
+    'settings.usage.ranking.modelTitle': 'Models',
+    'settings.usage.ranking.sessionTitle': 'Top sessions',
+    'settings.usage.ranking.metric.tokens': 'Tokens',
+    'settings.usage.ranking.metric.cost': 'Cost',
+    'settings.usage.ranking.metric.duration': 'Active',
     'settings.usage.dashboardHistoryNote':
         'Aggregates stored usage for the selected range; switches to live numbers while a conversation is running.',
 

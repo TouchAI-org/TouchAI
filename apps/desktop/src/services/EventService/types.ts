@@ -184,11 +184,13 @@ export interface SessionTaskStatusChangedEvent {
     reminder: SessionStatusReminderPayload | null;
 }
 
-/** 吞吐采样点，供实时曲线使用 */
+/** 吞吐采样点：速度用于大号数字，累计 token 用于拼曲线 */
 export interface UsageThroughputSample {
     /** 相对曲线开始的时间偏移 */
     atMs: number;
     tokensPerSecond: number;
+    /** 至今累计的输出 token；曲线靠它接在历史后面 */
+    totalTokens: number;
 }
 
 /**

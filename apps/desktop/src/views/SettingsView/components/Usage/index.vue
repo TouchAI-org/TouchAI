@@ -1,11 +1,10 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import LoadingState from '@components/LoadingState.vue';
     import {
         canUseUsageArchive,
-        type ContextProfile,
-        getContextProfiles,
+        getModelRanking,
+        getSessionRanking,
         getToolUsageStats,
         getUsageFilterOptions,
         getUsageHeatmap,
@@ -17,6 +16,8 @@
         type UsageFilterOptions,
         type UsageHeatmapDay,
         type UsageRangePreset,
+        type UsageRankItem,
+        type UsageRankMetric,
         type UsageSummary,
         type UsageTrendPoint,
     } from '@database/queries';
@@ -26,9 +27,10 @@
     import { t } from '@/i18n';
 
     import UsageChart from './components/UsageChart.vue';
-    import UsageContext from './components/UsageContext.vue';
     import UsageDashboard from './components/UsageDashboard.vue';
     import UsageHeatmap from './components/UsageHeatmap.vue';
+    import UsageRanking from './components/UsageRanking.vue';
+    import UsageSkeleton from './components/UsageSkeleton.vue';
     import UsageToolbar from './components/UsageToolbar.vue';
     import UsageToolStats from './components/UsageToolStats.vue';
     import { resolveUsageRange } from './utils/usageRange';
@@ -55,10 +57,11 @@
     });
     const heatmap = ref<UsageHeatmapDay[]>([]);
     const options = ref<UsageFilterOptions>({ models: [], providers: [] });
-    const contextProfiles = ref<{ overall: ContextProfile | null; models: ContextProfile[] }>({
-        overall: null,
-        models: [],
-    });
+    /** 两个排行各自的指标维度 */
+    const modelRankMetric = ref<UsageRankMetric>('tokens');
+    const sessionRankMetric = ref<UsageRankMetric>('duration');
+    const modelRanking = ref<UsageRankItem[]>([]);
+    const sessionRanking = ref<UsageRankItem[]>([]);
     const toolStats = ref<ToolUsageSummary>({
         totalCount: 0,
         errorCount: 0,
@@ -84,6 +87,39 @@
         };
     });
 
+    /** 「全部时间」下真实的首末时间跨度，供平均 RPM 使用 */
+    const actualSpanMs = computed(() => {
+        const points = trend.value.points;
+        if (points.length < 2) return 0;
+
+        const first = Date.parse(points[0]!.key.replace(' ', 'T'));
+        const last = Date.parse(points[points.length - 1]!.key.replace(' ', 'T'));
+        if (!Number.isFinite(first) || !Number.isFinite(last)) return 0;
+
+        // 桶键只到天/小时，至少补一个桶宽度，避免除零
+        const bucketMs = trend.value.bucket === 'hour' ? 3_600_000 : 86_400_000;
+        return Math.max(bucketMs, last - first + bucketMs);
+    });
+
+    /**
+     * 热力图周数：跟随所选区间。
+     *
+     * 至少给一周，否则 7 天区间会算成 1 列看不出日历感；
+     * 上限 53 周，与「全部时间」保持一致。
+     */
+    const heatmapWeeks = computed(() => {
+        const from = Date.parse(filter.value.from.replace(' ', 'T') + 'Z');
+        const to = Date.parse(filter.value.to.replace(' ', 'T') + 'Z');
+        const spanMs = Number.isFinite(from) && Number.isFinite(to) ? to - from : 0;
+
+        // 「全部时间」的跨度是 1970-9999，改用真实首末时间
+        const effective = preset.value === 'all' ? actualSpanMs.value : spanMs;
+        if (!Number.isFinite(effective) || effective <= 0) return 4;
+
+        const days = Math.ceil(effective / 86_400_000);
+        return Math.min(53, Math.max(1, Math.ceil(days / 7)));
+    });
+
     async function load() {
         loading.value = true;
         loadError.value = false;
@@ -96,24 +132,33 @@
             const useArchive = preset.value === 'all' && canUseUsageArchive(current);
             const archiveTrend = useArchive ? await getUsageTrendFromArchive() : null;
 
-            const [nextSummary, nextTrend, nextOptions, nextContext, nextTools, nextHeatmap] =
-                await Promise.all([
-                    getUsageSummary(current),
-                    archiveTrend && archiveTrend.points.length > 0
-                        ? archiveTrend
-                        : getUsageTrend(current, dimension.value),
-                    getUsageFilterOptions(current),
-                    getContextProfiles(current),
-                    getToolUsageStats(current),
-                    getUsageHeatmap(),
-                ]);
+            const [
+                nextSummary,
+                nextTrend,
+                nextOptions,
+                nextTools,
+                nextHeatmap,
+                nextModelRanking,
+                nextSessionRanking,
+            ] = await Promise.all([
+                getUsageSummary(current),
+                archiveTrend && archiveTrend.points.length > 0
+                    ? archiveTrend
+                    : getUsageTrend(current, dimension.value),
+                getUsageFilterOptions(current),
+                getToolUsageStats(current),
+                getUsageHeatmap(current),
+                getModelRanking(current, modelRankMetric.value),
+                getSessionRanking(current, sessionRankMetric.value),
+            ]);
 
             summary.value = nextSummary;
             trend.value = nextTrend;
             options.value = nextOptions;
-            contextProfiles.value = nextContext;
             toolStats.value = nextTools;
             heatmap.value = nextHeatmap;
+            modelRanking.value = nextModelRanking;
+            sessionRanking.value = nextSessionRanking;
         } catch (error) {
             console.error('[SettingsUsageSection] Failed to load usage stats:', error);
             loadError.value = true;
@@ -194,12 +239,20 @@
                 {{ t('settings.usage.loadFailed') }}
             </div>
 
-            <LoadingState v-else-if="loading && !summary" variant="brand" fill="min" />
+            <!-- 骨架屏而不是全局跑马灯：保持与真实内容一致的骨架，加载完成不跳位 -->
+            <UsageSkeleton v-else-if="loading && !summary" />
 
             <template v-else-if="summary">
-                <!-- 实时面板放在“有无历史数据”之外：首轮对话进行中就该看得到 -->
-                <!-- 概览与实时合并为一块：有流时显示这一轮，否则显示区间汇总 -->
-                <UsageDashboard :summary="summary" />
+                <UsageDashboard
+                    :summary="summary"
+                    :trend="trend.points"
+                    :range="{
+                        preset,
+                        from: filter.from,
+                        to: filter.to,
+                    }"
+                    :actual-span-ms="actualSpanMs"
+                />
 
                 <div
                     v-if="summary.requestCount === 0"
@@ -222,12 +275,27 @@
 
                     <UsageToolStats :stats="toolStats" />
 
-                    <UsageHeatmap :days="heatmap" />
+                    <!-- 两个排行并排一行；窄屏自动堆叠 -->
+                    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                        <UsageRanking
+                            :title="t('settings.usage.ranking.modelTitle')"
+                            :items="modelRanking"
+                            :metric="modelRankMetric"
+                            :loading="loading"
+                            @update:metric="modelRankMetric = $event"
+                        />
+                        <UsageRanking
+                            :title="t('settings.usage.ranking.sessionTitle')"
+                            :items="sessionRanking"
+                            :metric="sessionRankMetric"
+                            supports-duration
+                            show-icon
+                            :loading="loading"
+                            @update:metric="sessionRankMetric = $event"
+                        />
+                    </div>
 
-                    <UsageContext
-                        :overall="contextProfiles.overall"
-                        :models="contextProfiles.models"
-                    />
+                    <UsageHeatmap :days="heatmap" :weeks="heatmapWeeks" />
                 </template>
             </template>
         </div>

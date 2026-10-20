@@ -213,7 +213,12 @@ export class LiveUsageTracker {
         }
 
         this.lastEmitAtMs = nowMs;
-        this.samples.push({ atMs: nowMs, tokensPerSecond: speed });
+        // 同时记下累计 token：消费方靠它把实时段接在历史曲线后面
+        this.samples.push({
+            atMs: nowMs,
+            tokensPerSecond: speed,
+            totalTokens: this.estimatedTokens,
+        });
         if (this.samples.length > MAX_SAMPLES) {
             this.samples.shift();
         }

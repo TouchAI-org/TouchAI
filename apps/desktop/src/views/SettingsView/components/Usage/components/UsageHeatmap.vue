@@ -10,11 +10,11 @@
 
     interface Props {
         days: UsageHeatmapDay[];
-        /** 固定窗口的周数，与查询保持一致 */
-        weeks?: number;
+        /** 展示的周数，由所选区间跨度算出 */
+        weeks: number;
     }
 
-    const props = withDefaults(defineProps<Props>(), { weeks: 53 });
+    const props = defineProps<Props>();
 
     defineOptions({ name: 'UsageHeatmap' });
 
