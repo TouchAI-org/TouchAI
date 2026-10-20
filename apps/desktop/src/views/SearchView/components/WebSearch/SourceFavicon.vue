@@ -61,13 +61,11 @@
             : `linear-gradient(135deg, oklch(0.72 0.15 ${hue.value}), oklch(0.58 0.17 ${(hue.value + 30) % 360}))`,
     }));
 
-    watch(
-        () => [props.source.url, props.source.favicon],
-        () => {
-            candidates.value = buildFaviconCandidates(props.source);
-            candidateIndex.value = 0;
-        }
-    );
+    /** getter 数组按值比较；写成单个 getter 返回新数组会让流式 chunk 反复触发。 */
+    watch([() => props.source.url, () => props.source.favicon], () => {
+        candidates.value = buildFaviconCandidates(props.source);
+        candidateIndex.value = 0;
+    });
 
     /** 当前候选失败：换下一个；全部失败则回退到字母块。 */
     function advance(): void {
