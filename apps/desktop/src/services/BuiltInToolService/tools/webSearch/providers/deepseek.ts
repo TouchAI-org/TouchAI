@@ -162,6 +162,14 @@ export function buildDeepSeekQuery(request: WebSearchRequest): string {
         operators.push(`after:${after.slice(0, 10)}`);
     }
 
+    /**
+     * 预算不足时按上面的添加顺序丢弃，所以先被丢的是 `after:`。
+     *
+     * 这是有意的：`site:` 丢了会让检索范围完全跑偏（返回大量无关结果），
+     * 而 `after:` 丢了只是结果不够新 —— 用户仍能从发布时间自行判断。
+     * 如果要改成「时间优先」，应该按 `request.intent` 区分，而不是调换这里的顺序：
+     * 新闻类查询才真正需要保住时间约束。
+     */
     const budget = DEEPSEEK_QUERY_MAX_CHARS - query.length - 1;
     const appended: string[] = [];
     let used = 0;
