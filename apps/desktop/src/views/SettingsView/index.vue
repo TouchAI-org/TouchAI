@@ -75,7 +75,6 @@
         },
         usage: {
             component: UsageView,
-            loadingKey: 'settings.loading.usage',
             scrollable: true,
         },
         'built-in-tools': {

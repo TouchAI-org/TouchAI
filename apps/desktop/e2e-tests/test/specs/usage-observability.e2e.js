@@ -195,12 +195,14 @@ describe('TouchAI usage observability', () => {
         const section = await $("[data-testid='settings-usage-section']");
         await section.waitForDisplayed();
 
-        const callRows = await $$("[data-testid='settings-usage-call-row']");
-        if (callRows.length === 0) {
-            throw new Error(
-                'Usage page did not render any call row for the recorded conversation.'
-            );
-        }
+        // 等真正渲染出数据（概览卡 + 图表），而不是停在加载态
+        await browser.waitUntil(
+            async () => (await $$("[data-testid='settings-usage-chart']")).length > 0,
+            { timeout: 60000, timeoutMsg: 'Usage page never rendered the chart' }
+        );
+
+        const overview = await $("[data-testid='settings-usage-overview']");
+        await overview.waitForDisplayed();
 
         // 必须显示真实数字，而不是空状态或全 0
         const body = await section.getText();
@@ -215,11 +217,19 @@ describe('TouchAI usage observability', () => {
         const rangeTrigger = await $("[data-testid='settings-usage-range-trigger']");
         await rangeTrigger.waitForDisplayed();
 
-        // 用量分布可在模型 / 供应商之间切换
-        const breakdownRows = await $$("[data-testid='settings-usage-breakdown-row']");
-        if (breakdownRows.length === 0) {
-            throw new Error('Usage breakdown rendered no rows.');
+        // 图表图例就是「用量分布」，应当列出至少一个模型
+        const legendRows = await $$("[data-testid='settings-usage-chart'] .truncate");
+        if (legendRows.length === 0) {
+            throw new Error('Usage chart rendered no legend rows.');
         }
+
+        // 实时面板常驻（无任务时是等待态）
+        const live = await $("[data-testid='settings-usage-live']");
+        await live.waitForDisplayed();
+
+        // 工具统计与热力图都在页面上
+        await (await $("[data-testid='settings-usage-heatmap']")).waitForDisplayed();
+        await (await $("[data-testid='settings-usage-tools']")).waitForDisplayed();
 
         // 明细保留已移到数据管理，用量页不应再有这个入口
         const retentionOnUsage = await $("[data-testid='settings-usage-retention-trigger']");
