@@ -113,8 +113,7 @@ function parseBuiltInConversationSemantic(
 /**
  * 解析并校验持久化的结构化载荷。
  *
- * 历史导入 / 外部备份里的 `data` 可能是脏数据，`source.url` 非字符串会让下游
- * `new URL()` 走异常分支，所以逐条校验并过滤。
+ * 历史导入 / 外部备份里的 `data` 可能是脏数据，逐条校验并过滤。
  */
 function parseStructuredPayload(raw: string | null): ToolEventStructuredPayload | undefined {
     if (!raw) {
@@ -348,14 +347,8 @@ function appendAssistantOutput(message: SessionMessage, parts: MessagePartEntity
 /**
  * 按位置把 `tool_call` 行的片段分成「正文」与「工具结果」。
  *
- * 同一行里 text 片段有两种来源：
- * - 模型正文（工具调用前后的正文都算）；
- * - 工具结果的回退存储（`persistToolResult` 找不到 tool_call 片段时追加的 text）。
- *
- * 回退结果的特征是「紧跟在工具调用之后的一串 text」。
- * 所以只把**尾部连续的 text** 当回退结果，其余全部保留为正文 ——
- * 不能简单取「第一个 tool_call 之前的片段」，否则工具调用后的 reasoning
- * （交错推理的合法形态）会被静默丢弃。
+ * 工具结果的回退存储是「紧跟在工具调用之后的一串 text」，所以只把尾部连续
+ * text 当结果；直接取「第一个 tool_call 之前」会丢弃工具调用后的 reasoning。
  */
 function splitToolCallRowParts(parts: MessagePartEntity[]): {
     prose: MessagePartEntity[];
@@ -582,10 +575,7 @@ function convertEntriesToSessionHistory(
         }
 
         if (entry.role === 'tool_call' && entry.toolCalls?.length) {
-            // 把回退存的工具结果归位到对应调用上，避免数据丢失。
-            //
-            // 回退 text 片段没有 call id，无法对应到具体调用，
-            // 所以只在恰好一个调用缺结果时回填；并行调用多个空缺时强行回填会张冠李戴。
+            // 回退 text 没有 call id，只在恰好一个调用缺结果时回填，避免张冠李戴。
             const fallbackResult = splitToolCallRowParts(entry.parts)
                 .trailingResults.filter((part) => part.type === 'text')
                 .map((part) => part.content.trim())

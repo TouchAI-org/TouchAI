@@ -7,7 +7,7 @@
  * 这里按优先级给出候选 URL，由 `<img>` 逐个尝试，全部失败才回退到字母块。
  */
 
-/** 解析成功的 hostname 缓存，避免同站点在多张卡片里重复探测。 */
+/** 解析成功的 hostname 缓存，避免同站点在多张卡片里重复探测；失败不缓存。 */
 const resolvedByHost = new Map<string, string>();
 
 /** 保留 `www.`：部分站点只在该域名下提供图标。 */
@@ -27,11 +27,9 @@ export function rememberFavicon(host: string, resolvedUrl: string): void {
 }
 
 /**
- * 第三方 favicon 服务的总开关。
+ * 第三方 favicon 服务的总开关，默认关闭。
  *
- * 默认关闭：启用后会把用户搜到的域名（以及访问时刻）发给 Google / DuckDuckGo，
- * 属于可观察的元数据泄露。需要更好的图标覆盖率时在设置里手动开启。
- * 未来若接入设置项，把这里换成读配置即可。
+ * 启用后会把用户搜到的域名发给 Google / DuckDuckGo，属于元数据泄露。
  */
 let remoteFaviconServicesEnabled = false;
 
@@ -40,12 +38,7 @@ export function setRemoteFaviconServicesEnabled(enabled: boolean): void {
     remoteFaviconServicesEnabled = enabled;
 }
 
-/**
- * 组装图标候选列表。
- *
- * 顺序：provider 给的图标 → 站点自带 /favicon.ico →（可选）第三方服务。
- * 失败结果不缓存：瞬时网络问题不该让该站点本次会话永久没有图标。
- */
+/** 组装图标候选：provider 图标 → 站点 /favicon.ico →（可选）第三方服务。 */
 export function buildFaviconCandidates(source: { url: string; favicon?: string }): string[] {
     const host = faviconHost(source.url);
     const cached = host ? resolvedByHost.get(host) : undefined;

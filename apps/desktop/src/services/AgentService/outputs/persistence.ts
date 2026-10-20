@@ -158,7 +158,7 @@ export class PersistenceProjector {
      * 记录轮次开始阶段：先记录用户消息，再创建流式处理中状态的轮次与首次尝试记录。
      */
     async recordTurnStart(initialCheckpoint: AttemptCheckpoint): Promise<void> {
-        // 同 persistToolResult：附件 hash 与落盘必须在写事务外完成。
+        // 同 persistToolResult：附件 I/O 在写事务外完成。
         if (!this.userMessageId && this.attachments.length > 0) {
             await Promise.all(
                 this.attachments.map((attachment) => prepareAttachmentForPersistence(attachment))
@@ -465,8 +465,7 @@ export class PersistenceProjector {
             return;
         }
 
-        // 附件 hash 与落盘是纯文件 I/O，必须先于写事务完成：
-        // 放进事务会把持写锁时长抬到秒级，并发写库时直接撞满 busy_timeout。
+        // 附件 hash 与落盘是纯文件 I/O，先于写事务完成，避免持写锁做 I/O。
         await Promise.all(
             attachments.map((attachment) => prepareAttachmentForPersistence(attachment))
         );

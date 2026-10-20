@@ -162,14 +162,7 @@ export function buildDeepSeekQuery(request: WebSearchRequest): string {
         operators.push(`after:${after.slice(0, 10)}`);
     }
 
-    /**
-     * 预算不足时按上面的添加顺序丢弃，所以先被丢的是 `after:`。
-     *
-     * 这是有意的：`site:` 丢了会让检索范围完全跑偏（返回大量无关结果），
-     * 而 `after:` 丢了只是结果不够新 —— 用户仍能从发布时间自行判断。
-     * 如果要改成「时间优先」，应该按 `request.intent` 区分，而不是调换这里的顺序：
-     * 新闻类查询才真正需要保住时间约束。
-     */
+    // 超预算时先丢 `after:`（后加的）：站点丢错会让检索跑偏，时间丢仅是结果不够新。
     const budget = DEEPSEEK_QUERY_MAX_CHARS - query.length - 1;
     const appended: string[] = [];
     let used = 0;
@@ -233,12 +226,8 @@ function safeHostname(url: string): string {
 /**
  * 应用 DeepSeek 自带的质量信号。
  *
- * 「优先官方来源」是**排序**语义，不是过滤：直接丢掉低权威结果会静默冲掉
- * 大量有效的中文长尾站点（它们的 authority 普遍 < 3），也与其他 provider 不一致。
- * 这里只把高权威结果稳定地排到前面。
- *
- * 相关性过滤保留兜底：若过滤后为空（如上游改成 0-1 归一化分数），
- * 退回未过滤集合 —— 宁可多给几条，也不静默地变成「0 条结果」。
+ * 「优先官方来源」是排序而非过滤：低权威结果保留在后（中文长尾站点普遍 authority < 3）。
+ * 相关度过滤带兜底：全被滤掉时退回原集合，避免静默变成「0 条结果」。
  */
 export function rankDeepSeekResults(
     results: WebSearchResult[],
@@ -260,7 +249,7 @@ export function rankDeepSeekResults(
         return ranked;
     }
 
-    // 稳定排序：高权威在前，其余保持原有相对顺序。
+    // 稳定排序：高权威在前，其余保持原顺序。
     const isAuthoritative = (result: WebSearchResult) =>
         (result.authority ?? 0) >= DEEPSEEK_AUTHORITY_THRESHOLD;
     return [...ranked].sort(

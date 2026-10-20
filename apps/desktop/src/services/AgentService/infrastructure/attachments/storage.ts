@@ -119,11 +119,10 @@ async function buildAttachmentStoragePath(
 }
 
 /**
- * 附件落盘（hash 计算 + 文件复制）的结果。
+ * 附件落盘（hash + 文件复制）的结果。
  *
- * 这部分是纯文件 I/O，必须先于事务完成：
- * 若放在写事务内，持锁时长会被 WebView 读取 + SHA-256 拖到秒级，
- * 并发写库时直接撞满 5s 的 `busy_timeout`。
+ * 必须先于写事务完成：放在事务内会把持锁时长抬到秒级，
+ * 并发写库时直接撞满 5s 的 busy_timeout。
  */
 type PreparedAttachment = {
     hash: string;
@@ -384,8 +383,7 @@ export async function ensurePersistedAttachmentIndex(
 /**
  * 事务外预计算：只做 hash 与文件复制，不碰数据库。
  *
- * 调用方在开启写事务前先跑这一步，把结果传给 {@link persistPreparedAttachment}，
- * 事务内就只剩几条 SQL —— 避免持写锁做文件 I/O。
+ * 调用方在开启写事务前先跑这一步，事务内就只剩几条 SQL。
  */
 export async function prepareAttachmentForPersistence(attachment: AttachmentIndex): Promise<void> {
     if (attachment.attachmentId && attachment.hash) {
